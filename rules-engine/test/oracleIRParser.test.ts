@@ -2853,8 +2853,11 @@ describe('Oracle IR Parser', () => {
       "• Interrogate Them — Exile the top three cards of target opponent's library. Choose one of them. Until the end of your next turn, you may play that card, and you may spend mana as though it were mana of any color to cast it.";
 
     const ir = parseOracleTextToIR(text);
-    const steps = ir.abilities.flatMap((a) => a.steps);
-    const impulse = steps.find((s) => s.kind === 'impulse_exile_top') as any;
+    const allSteps = ir.abilities.flatMap((a) => a.steps);
+    // impulse_exile_top is nested inside the choose_mode step's modes
+    const chooseModeStep = allSteps.find((s) => s.kind === 'choose_mode') as any;
+    expect(chooseModeStep).toBeTruthy();
+    const impulse = chooseModeStep.modes.flatMap((m: any) => m.steps).find((s: any) => s.kind === 'impulse_exile_top');
 
     expect(impulse).toBeTruthy();
     expect(impulse.who).toEqual({ kind: 'target_opponent' });
@@ -4154,7 +4157,10 @@ describe('Oracle IR Parser', () => {
     const ability = ir.abilities.find(a => a.type === 'activated')!;
     expect(ability).toBeTruthy();
 
-    const impulse = ability.steps.find(s => s.kind === 'impulse_exile_top') as any;
+    // impulse_exile_top is nested inside the choose_mode step's modes
+    const chooseModeStep = ability.steps.find(s => s.kind === 'choose_mode') as any;
+    expect(chooseModeStep).toBeTruthy();
+    const impulse = chooseModeStep.modes.flatMap((m: any) => m.steps).find((s: any) => s.kind === 'impulse_exile_top');
     expect(impulse).toBeTruthy();
     expect(impulse.who).toEqual({ kind: 'you' });
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });

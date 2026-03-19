@@ -635,7 +635,7 @@ export function calculateEffectivePT(
     
     const equipOracle = ((equip.card as any).oracle_text || '').toLowerCase();
     
-    // Parse abilities from "Equipped creature has X and Y" or "Enchanted creature has X"
+    // Parse keyword abilities from "Equipped creature has X and Y" or "Enchanted creature has X and Y"
     const equipAbilityMatch = equipOracle.match(/(?:equipped|enchanted)\s+creature\s+has\s+([^.]+)/i);
     if (equipAbilityMatch) {
       const abilitiesText = equipAbilityMatch[1];
@@ -644,6 +644,46 @@ export function calculateEffectivePT(
       for (const ability of abilitiesList) {
         const trimmed = ability.trim().toLowerCase();
         // Only add recognized keywords
+        if (trimmed && KNOWN_KEYWORDS.includes(trimmed) && !grantedAbilities.includes(trimmed)) {
+          grantedAbilities.push(trimmed);
+        }
+      }
+    }
+
+    // Parse keyword abilities from "Equipped creature gains X" / "Enchanted creature gains X"
+    const equipGainsMatch = equipOracle.match(/(?:equipped|enchanted)\s+creature\s+gains?\s+([^.]+)/i);
+    if (equipGainsMatch) {
+      const gainsText = equipGainsMatch[1];
+      // Stop at "until end of turn" — that's a temporary effect, not static
+      const withoutUntil = gainsText.replace(/\s+until\s+end\s+of\s+turn.*/i, '').trim();
+      const gainsList = withoutUntil.split(/\s+and\s+|\s*,\s*/);
+      for (const ability of gainsList) {
+        const trimmed = ability.trim().toLowerCase();
+        if (trimmed && KNOWN_KEYWORDS.includes(trimmed) && !grantedAbilities.includes(trimmed)) {
+          grantedAbilities.push(trimmed);
+        }
+      }
+    }
+
+    // Parse P/T bonuses: "Equipped/Enchanted creature gets +N/+N" (static, no duration)
+    // Handles: +2/+0, +0/+3, -1/-1, +2/+1, etc.
+    // We intentionally exclude patterns with "until end of turn" (those are handled by the executor).
+    const ptBonusPattern = /(?:equipped|enchanted)\s+creature\s+gets?\s+([+\-]\d+)\/([+\-]\d+)(?!\s+until)/ig;
+    let ptMatch: RegExpExecArray | null;
+    while ((ptMatch = ptBonusPattern.exec(equipOracle)) !== null) {
+      const pBonus = parseInt(ptMatch[1], 10);
+      const tBonus = parseInt(ptMatch[2], 10);
+      if (!isNaN(pBonus)) power += pBonus;
+      if (!isNaN(tBonus)) toughness += tBonus;
+    }
+
+    // Handle compound sentences: "Equipped creature gets +N/+N and has [keyword]"
+    // e.g. "Equipped creature gets +2/+2 and has trample"
+    const compoundMatch = equipOracle.match(/(?:equipped|enchanted)\s+creature\s+gets?\s+[+\-]\d+\/[+\-]\d+\s+and\s+(?:has|gains?)\s+([^.]+)/i);
+    if (compoundMatch) {
+      const extraAbilities = compoundMatch[1].split(/\s+and\s+|\s*,\s*/);
+      for (const ab of extraAbilities) {
+        const trimmed = ab.trim().replace(/\s+until\s+end\s+of\s+turn.*/i, '').trim().toLowerCase();
         if (trimmed && KNOWN_KEYWORDS.includes(trimmed) && !grantedAbilities.includes(trimmed)) {
           grantedAbilities.push(trimmed);
         }

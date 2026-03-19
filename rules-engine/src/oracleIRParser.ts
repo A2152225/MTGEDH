@@ -3,6 +3,7 @@ import {
   type ParsedAbility,
   type OracleTextParseResult,
   parseOracleText,
+  AbilityType,
 } from './oracleTextParser';
 import type {
   OracleEffectStep,
@@ -1066,8 +1067,109 @@ function parseGlobalLooseImpulsePermission(
   return null;
 }
 
+/**
+ * Matches "Choose one —", "Choose two —", "Choose up to two —",
+ * "Choose any number of modes —", etc.  Accepts both em-dash and hyphen
+ * because `normalizeOracleText` converts em-dashes to hyphens.
+ */
+const CHOOSE_MODE_HEADER_RE = /^Choose\s+(?:one|two|three|up\s+to\s+(?:two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?)\s*[-—]/i;
+
+/**
+ * When `effectText` begins with a "Choose N \u2014 \u2022 Mode1 \u2022 Mode2 ..." block, parse it into
+ * a single `choose_mode` OracleEffectStep.  Returns null otherwise.
+ *
+ * This is called before the generic `splitIntoClauses` path so the bullet
+ * structure (and its relationship to the "Choose N" header) is preserved.
+ */
+function tryParseChooseModeBlock(effectText: string): (OracleEffectStep & { kind: 'choose_mode' }) | null {
+  const normalized = normalizeOracleText(effectText);
+  if (!CHOOSE_MODE_HEADER_RE.test(normalized)) return null;
+  if (!/[\u2022\u2022\u2022•]/.test(normalized) && !/\n\s*•/.test(normalized) && !/\n\s*\u2022/.test(normalized)) {
+    // No bullets \u2014 nothing to group
+    if (!/[\u2022•]/.test(normalized)) return null;
+  }
+
+  // Match the "Choose N -" header and everything that follows
+  const m = normalized.match(/^(Choose\s+(?:one|two|three|up\s+to\s+(?:two|three|four|\w+)|any\s+number(?:\s+of\s+modes?)?))(?:\s*[-—][^\n]*\n?)([\s\S]*)$/i);
+  if (!m) return null;
+
+  const headerText = m[1].toLowerCase().trim();
+  const bodyText = (m[2] || '').trim();
+
+  // Must have at least one bullet
+  if (!/[\u2022•]/.test(bodyText)) return null;
+
+  // Split on bullets (ignoring any leading non-bullet preamble like reminder text)
+  const rawBullets = bodyText
+    .split(/\n?\s*[\u2022•]\s+/)
+    .map(b => b.trim())
+    .filter(Boolean);
+  if (rawBullets.length === 0) return null;
+
+  // Parse min/max from header
+  let minModes = 1;
+  let maxModes = 1;
+  if (/^choose\s+two/.test(headerText) && !/up\s+to/.test(headerText)) { minModes = 2; maxModes = 2; }
+  else if (/^choose\s+three/.test(headerText) && !/up\s+to/.test(headerText)) { minModes = 3; maxModes = 3; }
+  else if (/up\s+to\s+two/.test(headerText)) { minModes = 0; maxModes = 2; }
+  else if (/up\s+to\s+three/.test(headerText)) { minModes = 0; maxModes = 3; }
+  else if (/up\s+to\s+four/.test(headerText)) { minModes = 0; maxModes = 4; }
+  else if (/any\s+number/.test(headerText)) { minModes = 0; maxModes = -1; }
+  // "choose one" → defaults: minModes=1, maxModes=1
+
+  // Pattern for "Named Mode - Effect text" where all label words are Title Case.
+  // E.g. "Break Their Chains - Destroy target artifact."
+  const NAMED_LABEL_RE = /^((?:[A-Z][a-z]*(?:'[a-z]+)?(?:\s+[A-Z][a-z]*(?:'[a-z]+)?){0,5}))\s*-\s+(.+)$/;
+
+  const modes = rawBullets.map((bulletText, idx) => {
+    // Strip "Named Mode — " prefix if present (all-title-case label before " - ").
+    const labelMatch = bulletText.match(NAMED_LABEL_RE);
+    const label = labelMatch ? labelMatch[1].trim() : `Mode ${idx + 1}`;
+    const effectText = labelMatch ? labelMatch[2].trim() : bulletText;
+
+    // Process through the full ability parser so multi-clause effects (e.g. exile_top
+    // followed by impulse permission) are correctly upgraded (e.g. → impulse_exile_top).
+    // parseAbilityToIRAbility is a hoisted function declaration so it's safe to call here.
+    const mockAbility: ParsedAbility = {
+      type: AbilityType.SPELL,
+      text: effectText,
+      effect: effectText,
+    };
+    const parsedAbility = parseAbilityToIRAbility(mockAbility);
+    return {
+      label,
+      raw: bulletText,
+      steps: parsedAbility.steps,
+    };
+  });
+
+  return {
+    kind: 'choose_mode',
+    minModes,
+    maxModes,
+    modes,
+    raw: normalized.slice(0, 300),
+  };
+}
+
 function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
   const effectText = abilityEffectText(ability);
+
+  // Check for a modal "Choose N \u2014 \u2022 Mode A \u2022 Mode B" block at the top of the effect.
+  // When found, the entire effect is a single choose_mode step rather than
+  // individual flat clauses (which would lose the bullet grouping).
+  const chooseModeStep = tryParseChooseModeBlock(effectText);
+  if (chooseModeStep !== null) {
+    return {
+      type: ability.type,
+      text: ability.text,
+      cost: ability.cost,
+      triggerCondition: ability.triggerCondition,
+      effectText,
+      steps: [chooseModeStep],
+    };
+  }
+
   const clauses = splitIntoClauses(effectText);
 
   const steps: OracleEffectStep[] = [];

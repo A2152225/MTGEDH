@@ -65,6 +65,7 @@ import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
 import { CascadeModal } from "./components/CascadeModal";
 import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/OpponentMayPayModal";
+import { MayAbilityModal, type MayAbilityModalData } from "./components/MayAbilityModal";
 import { MutateTargetModal, type MutateTarget } from "./components/MutateTargetModal";
 import { GraveyardSelectionModal, type GraveyardCard } from "./components/GraveyardSelectionModal";
 import { IgnoredCardsPanel, type IgnoredCard, type IgnoredCardZone } from "./components/IgnoredCardsPanel";
@@ -803,6 +804,10 @@ export function App() {
     resolutionStepId?: string;
     resolutionStepMandatory?: boolean;
   } | null>(null);
+
+  // "You may" optional-ability modal state
+  const [mayAbilityModalOpen, setMayAbilityModalOpen] = useState(false);
+  const [mayAbilityModalData, setMayAbilityModalData] = useState<MayAbilityModalData | null>(null);
   
   // Mana Pool state - tracks floating mana for the current player
   const [manaPool, setManaPool] = useState<ManaPool | null>(null);
@@ -2520,6 +2525,19 @@ export function App() {
           reason: (step as any).reason || step.description,
         });
         setCreatureTypeModalOpen(true);
+      }
+      // Handle "you may" optional effects via resolution queue
+      else if (step.type === 'may_ability') {
+        setMayAbilityModalData({
+          stepId: step.id,
+          sourceName: step.sourceName || 'Ability',
+          sourceImage: step.sourceImage,
+          effectText: (step as any).effectText || step.description,
+          fullAbilityText: (step as any).fullAbilityText,
+          effectKey: (step as any).effectKey || '',
+          gameId: (safeView as any)?.id || '',
+        });
+        setMayAbilityModalOpen(true);
       }
       // Handle mode selection via resolution queue (modal spells / choice events)
       else if (step.type === 'mode_selection') {
@@ -6253,6 +6271,36 @@ export function App() {
           }
           setSquadCostModalOpen(false);
           setSquadCostModalData(null);
+        }}
+      />
+
+      {/* "You may" optional ability modal */}
+      <MayAbilityModal
+        open={mayAbilityModalOpen}
+        data={mayAbilityModalData}
+        onYes={(stepId) => {
+          if (safeView?.id) {
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId,
+              selections: ['yes'],
+              cancelled: false,
+            });
+          }
+          setMayAbilityModalOpen(false);
+          setMayAbilityModalData(null);
+        }}
+        onNo={(stepId) => {
+          if (safeView?.id) {
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId,
+              selections: ['no'],
+              cancelled: true,
+            });
+          }
+          setMayAbilityModalOpen(false);
+          setMayAbilityModalData(null);
         }}
       />
 

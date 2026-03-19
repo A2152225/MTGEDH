@@ -569,6 +569,14 @@ export interface GameState {
     sourceName: string;
     imageUrl?: string;
   }>;
+  /**
+   * Per-player "you may" auto-decision preferences.
+   * Key format: "{sourceName_lower}:{effectText_lower}".
+   * 'yes'    → always auto-execute
+   * 'no'     → always auto-skip
+   * number>0 → countdown: auto-execute that many more times, then delete
+   */
+  mayAutoPreferences?: Record<PlayerID, Record<string, 'yes' | 'no' | number>>;
 }
 
 /* Player protection state for effects like Teferi's Protection */

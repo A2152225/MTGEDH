@@ -245,6 +245,28 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      /**
+       * A modal spell or ability where the player must choose between two or more
+       * discrete effects.  Examples: "Choose one —", "Choose two —", "Choose up
+       * to two —", "Choose any number —".
+       */
+      readonly kind: 'choose_mode';
+      /** Minimum modes to pick (0 = optional set; usually 1). */
+      readonly minModes: number;
+      /** Maximum modes to pick (-1 = unlimited / "any number"). */
+      readonly maxModes: number;
+      readonly modes: readonly {
+        readonly label: string;
+        /** Raw bullet text for display. */
+        readonly raw: string;
+        /** Steps that resolve when this mode is chosen. */
+        readonly steps: readonly OracleEffectStep[];
+      }[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'unknown';
       readonly raw: string;
       readonly sequence?: 'then';

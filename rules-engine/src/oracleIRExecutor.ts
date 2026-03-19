@@ -179,6 +179,13 @@ export interface OracleIRExecutionResult {
   readonly log: readonly string[];
   readonly appliedSteps: readonly OracleEffectStep[];
   readonly skippedSteps: readonly OracleEffectStep[];
+  /**
+   * Steps that have `optional: true` ("you may") OR are `choose_mode` steps
+   * that were NOT auto-applied because they require player interaction.
+   * When `allowOptional` is false (the default), every such step is placed
+   * here so callers can queue the appropriate player prompts.
+   */
+  readonly pendingOptionalSteps: readonly OracleEffectStep[];
 }
 
 function getPlayableUntilTurnForImpulseDuration(state: GameState, duration: any): number | null {
@@ -736,10 +743,64 @@ function evaluateModifyPtWhereX(
     "x is the exiled creature's mana value": "x is that card's mana value",
     "x is the mana value of the exiled creature": "x is that card's mana value",
     "x is half the creature's power": "x is half that creature's power",
+    // card-type mana value aliases
+    "x is that artifact's mana value": "x is that card's mana value",
+    "x is that enchantment's mana value": "x is that card's mana value",
+    "x is that saga's mana value": "x is that card's mana value",
+    "x is the mana value of that artifact": "x is that card's mana value",
+    "x is the mana value of that enchantment": "x is that card's mana value",
+    "x is the mana value of that creature": "x is that card's mana value",
+    // context card mana value
+    "x is the milled card's mana value": "x is that card's mana value",
+    "x is the mana value of the milled card": "x is that card's mana value",
+    "x is the mana value of the returned creature": "x is that card's mana value",
+    "x is the returned creature's mana value": "x is that card's mana value",
+    "x is the mana value of the permanent exiled this way": "x is that card's mana value",
+    "x is the permanent exiled this way's mana value": "x is that card's mana value",
+    "x is the mana value of your precious": "x is that card's mana value",
+    // cast pronoun aliases
+    "x is the amount of mana spent to cast her": "x is the amount of mana spent to cast this spell",
+    "x is the amount of mana spent to cast it": "x is the amount of mana spent to cast this spell",
+    "x is the amount of mana spent to cast jeleva": "x is the amount of mana spent to cast this spell",
+    // pronoun normalizations
+    "x is his power": "x is its power",
+    // context-creature aliases
+    "x is the devoured creature's power": "x is that creature's power",
+    "x is the amassed army's power": "x is that creature's power",
+    // generic noun aliases for inner evaluation (used by half-wrapper)
+    "x is creature's power": "x is that creature's power",
+    "x is creature's toughness": "x is that creature's toughness",
+    "x is artifact's intensity": "x is this artifact's intensity",
+    // that creature's toughness (explicit alias for coverage)
+    "x is that creature's toughness": "x is that creature's toughness",
+    // half-creature rounded forms
+    "x is half the creature's power, rounded down": "x is half that creature's power",
+    "x is half the creature's power, rounded up": "x is half that creature's power, rounded up",
+    // greatest power among creatures you control — alias timing-qualified forms handled by strip below
+    // greatest mana value trailing clause — strip handled by post-alias processing
   };
 
   let raw = normalizeOracleText(whereRaw);
   raw = whereAliases[raw] || raw;
+
+  // Strip timing qualifiers: "as X resolves", "when X resolves", "as X begins to apply"
+  raw = raw.replace(/[,\s]+(?:as|when)\s+.{3,80}?\b(?:resolves?|begins?\s+to\s+apply)\s*$/i, '');
+  // Strip trailing "as you cast/activate this ..." qualifiers
+  raw = raw.replace(/\s+as\s+you\s+(?:cast|activate)\s+(?:this\b.*|that\b.*)$/i, '');
+  // Strip trailing "; and y is ..." or ", and y is ..." clauses (e.g. "x is P and y is T when ...")
+  raw = raw.replace(/\s+and\s+y\s+is\b.*$/i, '');
+  // Strip trailing ", then ..." clauses
+  raw = raw.replace(/,\s+(?:then|and)\s+.+$/i, '');
+  // Re-apply alias lookup after stripping (may have stripped to a known alias target)
+  raw = whereAliases[raw] || raw;
+  // Normalize word numbers for arithmetic matchers
+  raw = raw.replace(/\bfive\b/g, '5');
+  raw = raw.replace(/\bsix\b/g, '6');
+  raw = raw.replace(/\bseven\b/g, '7');
+  raw = raw.replace(/\beight\b/g, '8');
+  raw = raw.replace(/\bnine\b/g, '9');
+  raw = raw.replace(/\bten\b/g, '10');
+
   const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
   const controlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === controllerId);
   const opponentsControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() !== controllerId);
@@ -785,7 +846,7 @@ function evaluateModifyPtWhereX(
 
     const tl = typeLineLower(obj);
     if (!tl.includes('creature')) return [];
-    const emDashIdx = tl.indexOf('—');
+    const emDashIdx = tl.search(/[—\ufffd]/); // U+2014 em-dash or U+FFFD from corrupt encodings
     const hyphenDashIdx = tl.indexOf(' - ');
     const splitIdx = emDashIdx >= 0 ? emDashIdx : hyphenDashIdx;
     if (splitIdx < 0) return [];
@@ -1329,7 +1390,7 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is half the (.+?)(?:, rounded (up|down))?$/i);
+    const m = raw.match(/^x is half (?:the|this|that) (.+?)(?:, rounded (up|down))?$/i);
     if (m) {
       const expr = String(m[1] || '').trim();
       let inner = evaluateInner(expr);
@@ -3179,14 +3240,7 @@ function evaluateModifyPtWhereX(
         normalizedOwner === 'that' ||
         normalizedOwner === 'its' ||
         normalizedOwner === 'it' ||
-        normalizedOwner === 'this permanent' ||
-        normalizedOwner === 'that permanent' ||
-        normalizedOwner === 'this creature' ||
-        normalizedOwner === 'that creature' ||
-        normalizedOwner === 'this card' ||
-        normalizedOwner === 'that card' ||
-        normalizedOwner === 'this spell' ||
-        normalizedOwner === 'that spell'
+        /^(?:this|that|its)\s+\w+/.test(normalizedOwner)
       ) {
         // Let dedicated pronoun/antecedent matchers handle these forms.
       } else {
@@ -3214,7 +3268,7 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is (that|this|its) (creature|permanent|artifact|enchantment|planeswalker|card)'?s (power|toughness|mana value)$/i);
+    const m = raw.match(/^x is (that|this|its) (creature|permanent|artifact|enchantment|planeswalker|card)'?s (power|toughness|mana value|intensity)$/i);
     if (m) {
       const refWord = String(m[1] || '').toLowerCase();
       const objectWord = String(m[2] || '').toLowerCase();
@@ -3235,6 +3289,11 @@ function evaluateModifyPtWhereX(
 
       if (statWord === 'mana value') {
         return getCardManaValue(target?.card || target);
+      }
+
+      if (statWord === 'intensity') {
+        const intensity = Number(target?.intensity ?? target?.intensityValue ?? target?.card?.intensity ?? target?.card?.intensityValue);
+        return Number.isFinite(intensity) ? intensity : null;
       }
 
       const rawValue = statWord === 'power' ? target.power : target.toughness;
@@ -3812,6 +3871,304 @@ function evaluateModifyPtWhereX(
       return count;
     }
   }
+
+  // ── Greatest power/toughness among [subtype] you/they control ─────────────
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among ([\w]+(?:\s+[\w]+)*?)\s+(?:you control|they control|your opponents control|an opponent controls)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
+      const subtypeRaw = String(m[2] || '').trim().toLowerCase();
+      const controllerClause = String(m[0] || '').toLowerCase();
+      const pool = /they control|your opponents control|an opponent controls/.test(controllerClause)
+        ? opponentsControlled
+        : controlled;
+      let greatest = 0;
+      for (const p of pool as any[]) {
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        const subtypes = getCreatureSubtypeKeys(p);
+        if (!subtypes.some(s => s === subtypeRaw || subtypeRaw.startsWith(s) || s.startsWith(subtypeRaw.replace(/s$/, '')))) continue;
+        const n = Number(which === 'power' ? p?.power : p?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest power among other attacking creatures ─────────────────────────
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among other attacking creatures$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        if (!isAttackingObject(p)) continue;
+        const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest power among tapped creatures opponents control ────────────────
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among tapped creatures (?:your opponents control|an opponent controls|you don['']?t control|you do not control)$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      let greatest = 0;
+      for (const p of opponentsControlled as any[]) {
+        const tl = typeLineLower(p);
+        if (!tl.includes('creature')) continue;
+        if (!(p as any)?.tapped && !(p as any)?.isTapped) continue;
+        const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
+        if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest power among creature cards in graveyard ──────────────────────
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) power among creature cards? in (?:your graveyard|all graveyards|(?:your opponents?|their) graveyard)$/i);
+    if (m) {
+      const clause = String(m[0] || '').toLowerCase();
+      const allGy = /all graveyards/.test(clause);
+      let greatest = 0;
+      for (const player of (state.players || []) as any[]) {
+        const pid = String((player as any)?.id || '').trim();
+        if (!allGy && pid !== controllerId) continue;
+        const gy = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+        for (const card of gy as any[]) {
+          const tl = typeLineLower(card);
+          if (!tl.includes('creature')) continue;
+          const n = Number((card as any)?.power ?? (card as any)?.card?.power);
+          if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+        }
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest power among creature cards exiled this way ───────────────────
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) power among creature cards? exiled this way$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const player of (state.players || []) as any[]) {
+        const exile = Array.isArray((player as any)?.exile) ? (player as any).exile : [];
+        for (const card of exile as any[]) {
+          if (sourceId && String((card as any)?.exiledBy || '').trim() !== sourceId) continue;
+          const tl = typeLineLower(card);
+          if (!tl.includes('creature')) continue;
+          const n = Number((card as any)?.power ?? (card as any)?.card?.power);
+          if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+        }
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest MV among cards in graveyard / discarded this way / exiled this way ──
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) mana value among cards? (?:in your graveyard|discarded this way|exiled this way)$/i);
+    if (m) {
+      const clause = String(m[0] || '').toLowerCase();
+      const sourceId = String(ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const player of (state.players || []) as any[]) {
+        const pid = String((player as any)?.id || '').trim();
+        if (pid !== controllerId) continue;
+        const isExile = /exiled this way/.test(clause);
+        const zone: readonly any[] = isExile
+          ? (Array.isArray((player as any)?.exile) ? (player as any).exile : [])
+          : (Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : []);
+        for (const card of zone as any[]) {
+          if (isExile && sourceId && String((card as any)?.exiledBy || '').trim() !== sourceId) continue;
+          const mv = getCardManaValue((card as any)?.card || card);
+          if (mv !== null) greatest = Math.max(greatest, mv);
+        }
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest MV among elementals you control ──────────────────────────────
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) mana value among elementals? you control$/i);
+    if (m) {
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        const subtypes = getCreatureSubtypeKeys(p);
+        if (!subtypes.includes('elemental')) continue;
+        const mv = getCardManaValue((p as any)?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest MV among other artifacts you control ────────────────────────
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) mana value among other artifacts? you control$/i);
+    if (m) {
+      const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        const id = String((p as any)?.id || '').trim();
+        if (excludedId && id === excludedId) continue;
+        if (!typeLineLower(p).includes('artifact')) continue;
+        const mv = getCardManaValue((p as any)?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest MV among your commanders ────────────────────────────────────
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) mana value among (?:your |the )?commanders?$/i);
+    if (m) {
+      let greatest = 0;
+      for (const p of controlled as any[]) {
+        if (!isCommanderObject(p)) continue;
+        const mv = getCardManaValue((p as any)?.card || p);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      for (const obj of collectCommandZoneObjects()) {
+        const ownerId = String((obj as any)?.ownerId || (obj as any)?.owner || (obj as any)?.controllerId || '').trim();
+        if (ownerId && ownerId !== controllerId) continue;
+        if (!isCommanderObject(obj)) continue;
+        const mv = getCardManaValue((obj as any)?.card || obj);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest MV among instant and sorcery spells you've cast this turn ────
+  {
+    const m = raw.match(/^x is the (?:greatest|highest) mana value among instant(?:\s+and\s+sorcery)?\s+(?:and sorcery\s+)?spells? (?:you(?:'ve)? cast|cast) (?:from\s+.+\s+)?this turn$/i);
+    if (m) {
+      const spells: readonly any[] = Array.isArray((state as any)?.spellsCastThisTurn)
+        ? (state as any).spellsCastThisTurn
+        : [];
+      let greatest = 0;
+      for (const spell of spells as any[]) {
+        const spellControllerId = String((spell as any)?.controllerId || (spell as any)?.controller || '').trim();
+        if (spellControllerId && spellControllerId !== controllerId) continue;
+        const tl = typeLineLower(spell);
+        if (!tl.includes('instant') && !tl.includes('sorcery')) continue;
+        const mv = getCardManaValue((spell as any)?.card || spell);
+        if (mv !== null) greatest = Math.max(greatest, mv);
+      }
+      return greatest;
+    }
+  }
+
+  // ── Greatest number of artifacts an opponent controls ─────────────────────
+  {
+    const m = raw.match(/^x is the greatest number of artifacts? (?:an? )?opponent(?:s?) controls?$/i);
+    if (m) {
+      const opponentIds = (state.players || [])
+        .map((p: any) => String((p as any)?.id || '').trim())
+        .filter(pid => pid.length > 0 && pid !== controllerId);
+      let greatest = 0;
+      for (const opponentId of opponentIds) {
+        const oppArts = battlefield.filter((p: any) =>
+          String((p as any)?.controller || '').trim() === opponentId &&
+          typeLineLower(p).includes('artifact')
+        );
+        if (oppArts.length > greatest) greatest = oppArts.length;
+      }
+      return greatest;
+    }
+  }
+
+  // ── Number of [type] counters on [named card] ────────────────────────────
+  {
+    const m = raw.match(/^x is (?:the number of|the amount of) (.+?) counters? on ([a-z0-9][a-z0-9 ,'.-]{2,60})$/i);
+    if (m) {
+      const counterType = String(m[1] || '').trim();
+      const cardName = String(m[2] || '').trim();
+      const ref = findObjectByName(cardName);
+      if (!ref) return null;
+      return getCounterCountOnObject(ref, counterType);
+    }
+  }
+
+  // ── Difference between power and toughness ────────────────────────────────
+  {
+    const m = raw.match(/^x is the difference between (?:its|that creature'?s|this creature'?s) power and toughness$/i);
+    if (m) {
+      const refId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      if (!refId) return null;
+      const target = battlefield.find((p: any) => String((p as any)?.id || '').trim() === refId) as any;
+      if (!target) return null;
+      const pw = Number(target?.power);
+      const tg = Number(target?.toughness);
+      if (!Number.isFinite(pw) || !Number.isFinite(tg)) return null;
+      return Math.abs(pw - tg);
+    }
+  }
+
+  // ── Loyalty stat of a named planeswalker ─────────────────────────────────
+  {
+    const m = raw.match(/^x is ([a-z0-9 ,.'-]+)'s loyalty$/i);
+    if (m) {
+      const walkerName = String(m[1] || '').trim();
+      const ref = findObjectByName(walkerName) as any;
+      if (!ref) return null;
+      const loyalty = Number(ref?.loyalty ?? ref?.card?.loyalty ?? ref?.loyaltyCounters ?? ref?.counters?.loyalty);
+      return Number.isFinite(loyalty) ? loyalty : null;
+    }
+  }
+
+  // ── Amount of {E} energy you have ────────────────────────────────────────
+  {
+    const m = raw.match(/^x is the amount of \{e\} you have$/i);
+    if (m) {
+      const player = (state.players || []).find((p: any) => String((p as any)?.id || '').trim() === controllerId) as any;
+      if (!player) return null;
+      const energy = Number(player?.energyCounters ?? player?.energy ?? player?.counters?.energy ?? 0);
+      return Number.isFinite(energy) ? energy : 0;
+    }
+  }
+
+  // ── How far below 0 its power is (negative power) ────────────────────────
+  {
+    const m = raw.match(/^x is how (?:far below 0|much less than 0) its power is$/i);
+    if (m) {
+      const refId = String(targetCreatureId || ctx?.sourceId || '').trim();
+      if (!refId) return null;
+      const target = battlefield.find((p: any) => String((p as any)?.id || '').trim() === refId) as any;
+      if (!target) return null;
+      const pw = Number(target?.power);
+      if (!Number.isFinite(pw)) return null;
+      return pw < 0 ? Math.abs(pw) : 0;
+    }
+  }
+
+  // ── Safe-skips (non-deterministic or complex context) ────────────────────
+  // Random numbers
+  if (/^x is a number (?:chosen at random|from \d+ to \d+ chosen at random)/i.test(raw)) return null;
+  // Noted numbers
+  if (/^x is the (?:noted number|highest number you noted)/i.test(raw)) return null;
+  // Chosen number (player choice)
+  if (/^x is the chosen number$/i.test(raw)) return null;
+  // First/second chosen result pair
+  if (/^x is the first chosen result/i.test(raw)) return null;
+  // Number in creature's text box
+  if (/^x is a number in the sacrificed creature'?s text box$/i.test(raw)) return null;
+  // Complex structural counts
+  if (/^x is the greatest number of (?:consecutive|stored results)/i.test(raw)) return null;
+  // Specific total-damage tracking (requires complex event log)
+  if (/^x is the greatest amount of damage dealt by a source/i.test(raw)) return null;
 
   return null;
 }
@@ -5534,12 +5891,14 @@ export function applyOracleIRStepsToGameState(
   let lastScryLookedAtCount = 0;
 
   let nextState = state;
+  const pendingOptionalSteps: OracleEffectStep[] = [];
 
   for (const step of steps) {
     const isOptional = Boolean((step as any).optional);
     if (isOptional && !options.allowOptional) {
       skippedSteps.push(step);
-      log.push(`Skipped optional step: ${step.raw}`);
+      pendingOptionalSteps.push(step);
+      log.push(`Skipped optional step (needs player choice): ${(step as any).raw ?? step.kind}`);
       continue;
     }
 
@@ -6655,6 +7014,14 @@ export function applyOracleIRStepsToGameState(
         break;
       }
 
+      case 'choose_mode':
+        // Requires player mode selection — cannot be resolved deterministically
+        // without knowing the chosen mode(s).  Surface via pendingOptionalSteps.
+        skippedSteps.push(step);
+        pendingOptionalSteps.push(step);
+        log.push(`Skipped choose_mode step (needs player selection): ${(step as any).raw ?? step.kind}`);
+        break;
+
       default:
         skippedSteps.push(step);
         log.push(`Skipped unsupported step: ${step.raw}`);
@@ -6662,5 +7029,5 @@ export function applyOracleIRStepsToGameState(
     }
   }
 
-  return { state: nextState, log, appliedSteps, skippedSteps };
+  return { state: nextState, log, appliedSteps, skippedSteps, pendingOptionalSteps };
 }

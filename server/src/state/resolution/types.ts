@@ -863,8 +863,30 @@ export interface ActivatedAbilityStep extends BaseResolutionStep {
 }
 
 /**
- * Union of all resolution step types
+ * May Ability resolution step
+ * Prompts the active player to choose whether to apply an optional ("you may") effect.
+ * Players can set per-effect auto-yes / auto-no preferences that short-circuit this prompt.
  */
+export interface MayAbilityStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.MAY_ABILITY;
+  /** Short description of the optional effect, e.g. "draw a card" */
+  readonly effectText: string;
+  /** Full ability sentence for context, e.g. "When ~ enters, you may draw a card." */
+  readonly fullAbilityText?: string;
+  /**
+   * Stable key used to store per-player auto-preferences.
+   * Typically "{sourceName}:{effectText}" normalised to lowercase.
+   */
+  readonly effectKey: string;
+  /**
+   * Opaque server-side callback ID. The server resolves the actual execution
+   * when the player's response arrives (yes = execute the effect, no = skip).
+   * Clients must echo this ID back in the submitResolutionResponse payload.
+   */
+  readonly pendingCallbackId: string;
+}
+
+
 export type ResolutionStep = 
   | TargetSelectionStep
   | MutateTargetSelectionStep
@@ -904,6 +926,7 @@ export type ResolutionStep =
   | SuspendCastStep
   | MorphTurnFaceUpStep
   | ActivatedAbilityStep
+  | MayAbilityStep
   | BaseResolutionStep;
 
 /**

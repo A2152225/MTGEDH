@@ -59,6 +59,95 @@ import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
 
 /**
+ * Pending "you may" callbacks keyed by gameId → callbackId.
+ * When a MAY_ABILITY step resolves "yes", the registered callback is invoked
+ * to execute the deferred oracle IR steps.  Entries are cleaned up on step
+ * completion or game teardown.
+ */
+const pendingMayCallbacks = new Map<string, Map<string, () => Promise<void>>>();
+
+/** Register a may-ability callback for a game. Returns the generated callbackId. */
+export function registerMayCallback(gameId: string, callback: () => Promise<void>): string {
+  if (!pendingMayCallbacks.has(gameId)) {
+    pendingMayCallbacks.set(gameId, new Map());
+  }
+  const id = `may_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  pendingMayCallbacks.get(gameId)!.set(id, callback);
+  return id;
+}
+
+/** Remove all pending may callbacks for a game (call on game teardown). */
+export function clearMayCallbacks(gameId: string): void {
+  pendingMayCallbacks.delete(gameId);
+}
+
+/**
+ * Queue a MAY_ABILITY step, respecting per-player auto-preferences.
+ *
+ * @param io       Socket.IO server
+ * @param gameId   Game to target
+ * @param game     In-memory game object
+ * @param playerId Player who must decide
+ * @param sourceName  Display name of the source card/ability
+ * @param effectText  Short description of the optional effect ("draw a card")
+ * @param fullAbilityText Full oracle sentence, if available
+ * @param callback Function to call when the player says "yes"
+ */
+export function queueMayAbilityStep(
+  io: Server,
+  gameId: string,
+  game: any,
+  playerId: string,
+  sourceName: string,
+  effectText: string,
+  fullAbilityText: string | undefined,
+  callback: () => Promise<void>
+): void {
+  const effectKey = `${sourceName.toLowerCase()}:${effectText.toLowerCase()}`;
+  const prefs = (game.state as any)?.mayAutoPreferences ?? {};
+  const playerPrefs = prefs[playerId] ?? {};
+  const autoPref: 'yes' | 'no' | number | undefined = playerPrefs[effectKey];
+
+  if (autoPref === 'yes') {
+    debug(2, `[May] Auto-yes for ${effectKey} (player ${playerId})`);
+    callback().catch(err => debugError(1, `[May] Auto-yes callback error:`, err));
+    return;
+  }
+  if (autoPref === 'no') {
+    debug(2, `[May] Auto-no for ${effectKey} (player ${playerId})`);
+    return;
+  }
+  if (typeof autoPref === 'number' && autoPref > 0) {
+    // Countdown: decrement and auto-yes
+    const st = (game as any).state;
+    const remaining = autoPref - 1;
+    if (remaining <= 0) {
+      delete st.mayAutoPreferences[playerId][effectKey];
+    } else {
+      st.mayAutoPreferences[playerId][effectKey] = remaining;
+    }
+    debug(2, `[May] Auto-yes countdown for ${effectKey} (player ${playerId}), ${remaining} remaining`);
+    callback().catch(err => debugError(1, `[May] Auto-yes callback error:`, err));
+    return;
+  }
+
+  const callbackId = registerMayCallback(gameId, callback);
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.MAY_ABILITY,
+    playerId: playerId as import('../../../shared/src/types.js').PlayerID,
+    description: `You may: ${effectText}`,
+    mandatory: false,
+    sourceId: undefined,
+    sourceName,
+    effectText,
+    fullAbilityText,
+    effectKey,
+    pendingCallbackId: callbackId,
+  } as any);
+  debug(2, `[May] Queued MAY_ABILITY step for ${effectKey} (player ${playerId})`);
+}
+
+/**
  * Handle AI player resolution steps automatically
  * This is called when a step is added to check if it's for an AI player
  */
@@ -1474,7 +1563,7 @@ async function handleAIResolutionStep(
         // Generic keyword choice - select first option
         const kwStep = step as any;
         const options = kwStep.options || [];
-        
+
         if (options.length > 0) {
           response = {
             stepId: step.id,
@@ -1495,7 +1584,40 @@ async function handleAIResolutionStep(
         }
         break;
       }
-      
+
+      case ResolutionStepType.MAY_ABILITY: {
+        // AI auto-evaluates benefit. For simplicity, AI always says "yes" unless
+        // the effect is clearly harmful (e.g. drawing when nearly decked out).
+        // Callers may set effectText to communicate the kind of effect.
+        const mayStep = step as any;
+        const effectText: string = String(mayStep.effectText || '').toLowerCase();
+        const playerId = step.playerId;
+        const playerState = (game.state?.players || []).find((p: any) => p.id === playerId);
+
+        // Be conservative about drawing when near-decked
+        let shouldAccept = true;
+        if (effectText.includes('draw') || effectText.includes('draws')) {
+          const libraryZone = (game.state as any)?.zones?.[playerId]?.library
+            ?? (game.state as any)?.libraries?.[playerId]
+            ?? (playerState as any)?.library ?? [];
+          const deckSize = Array.isArray(libraryZone) ? libraryZone.length : 0;
+          if (deckSize <= 3) {
+            shouldAccept = false;
+            debug(2, `[Resolution] AI MAY_ABILITY: declining draw — near empty library (${deckSize} cards)`);
+          }
+        }
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: shouldAccept ? ['yes'] : ['no'],
+          cancelled: !shouldAccept,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI MAY_ABILITY: ${shouldAccept ? 'accepting' : 'declining'} "${effectText}"`);
+        break;
+      }
+
       // Default handler for any unhandled step types
       default: {
         // For any unhandled step type, attempt a generic response
@@ -5139,7 +5261,49 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
   
   // Register the event handler
   ResolutionQueueManager.on(queueEventHandler);
-  
+
+  // =========================================================================
+  // "You may" auto-preference management
+  // =========================================================================
+
+  /**
+   * Store or clear a player's automatic yes/no preference for a specific
+   * "you may" effect.  The effectKey is "{sourceName_lower}:{effectText_lower}".
+   * Passing value=null removes an existing preference.
+   */
+  socket.on("setMayAutoPreference", (payload?: {
+    gameId?: unknown;
+    effectKey?: unknown;
+    value?: unknown;
+  }) => {
+    const gameId = payload?.gameId;
+    const pid = socket.data.playerId as string | undefined;
+    if (!gameId || typeof gameId !== 'string' || !pid) return;
+    if (!(socket as any)?.rooms?.has?.(gameId)) return;
+
+    const effectKey = payload?.effectKey;
+    const value = payload?.value;
+    if (!effectKey || typeof effectKey !== 'string') return;
+    const isValidCount = typeof value === 'number' && Number.isInteger(value) && value > 0;
+    if (value !== 'yes' && value !== 'no' && value !== null && !isValidCount) return;
+
+    let game: any;
+    try { game = ensureGame(gameId); } catch { return; }
+    if (!game) return;
+
+    const state = game.state as any;
+    if (!state.mayAutoPreferences) state.mayAutoPreferences = {};
+    if (!state.mayAutoPreferences[pid]) state.mayAutoPreferences[pid] = {};
+
+    if (value === null) {
+      delete state.mayAutoPreferences[pid][effectKey];
+      debug(2, `[May] ${pid} cleared auto-pref for "${effectKey}"`);
+    } else {
+      state.mayAutoPreferences[pid][effectKey] = value as 'yes' | 'no' | number;
+      debug(2, `[May] ${pid} set auto-pref "${effectKey}" = ${value}`);
+    }
+  });
+
   // Clean up when socket disconnects
   socket.on("disconnect", () => {
     ResolutionQueueManager.off(queueEventHandler);
@@ -9388,6 +9552,10 @@ async function handleStepResponse(
     
     case ResolutionStepType.ENTRAPMENT_MANEUVER:
       handleEntrapmentManeuverResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.MAY_ABILITY:
+      await handleMayAbilityResponse(io, game, gameId, step, response);
       break;
     
     // Add more handlers as needed
@@ -22607,5 +22775,55 @@ async function handleSoldierProgramChoice(
   }
 }
 
+
+/**
+ * Handle a player's response to a MAY_ABILITY resolution step.
+ * "cancelled" means the player chose not to execute the optional effect.
+ * Any non-cancelled response (selections=['yes'] or just not cancelled) triggers the callback.
+ */
+async function handleMayAbilityResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const pid = response.playerId;
+  const stepAny = step as any;
+  const callbackId: string = stepAny.pendingCallbackId ?? '';
+  const effectText: string = stepAny.effectText || 'effect';
+  const sourceName: string = step.sourceName || 'Ability';
+
+  const gameCallbacks = pendingMayCallbacks.get(gameId);
+  const callback = gameCallbacks?.get(callbackId);
+
+  // If cancelled == true the player said "No"
+  if (response.cancelled) {
+    if (callbackId && gameCallbacks) {
+      gameCallbacks.delete(callbackId);
+    }
+    debug(2, `[May] ${pid} declined "${effectText}" for ${sourceName}`);
+    return;
+  }
+
+  // Player said "Yes" — execute the callback
+  if (callback) {
+    gameCallbacks!.delete(callbackId);
+    try {
+      await callback();
+      debug(2, `[May] ${pid} accepted "${effectText}" for ${sourceName} — executed`);
+    } catch (err) {
+      debugError(1, `[May] Callback error for "${effectText}":`, err);
+    }
+  } else {
+    debug(2, `[May] No callback found for callbackId "${callbackId}" — may have already executed`);
+  }
+
+  // Broadcast updated game state
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+  broadcastGame(io, game, gameId);
+}
 
 export default { registerResolutionHandlers };

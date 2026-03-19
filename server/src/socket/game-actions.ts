@@ -1,7 +1,7 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
-import { processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder } from "./resolution.js";
+import { processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
 import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
@@ -23,6 +23,8 @@ import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
+import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
+import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
 
 // Import land-related helpers from modularized module
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -40,6 +42,84 @@ import {
 } from "./land-helpers";
 
 export const emitPendingDamageTriggers = emitPendingDamageTriggersImpl;
+
+/**
+ * After resolveTopOfStack(), scan the resolved spell's oracle IR for optional
+ * ("you may") effects and queue a MayAbilityStep for each one so the player
+ * is prompted.  AI players are auto-resolved by queueMayAbilityStep using the
+ * library-size heuristic from resolution.ts.
+ *
+ * Only runs for `type === 'spell'` or `type === 'ability'` stack items.
+ * `choose_mode` steps are skipped here because modal selection is handled
+ * at cast time via extractModalModesFromOracleText.
+ */
+async function processOracleIRInteractions(
+  io: Server,
+  game: any,
+  gameId: string,
+  topItem: any
+): Promise<void> {
+  if (!topItem) return;
+  // Only process spells and activated abilities; triggered ability effects are
+  // handled by their own trigger resolution path.
+  if (topItem.type !== 'spell' && topItem.type !== 'ability') return;
+
+  const resolvedCard = topItem.card;
+  const resolvedController = String(topItem.controller || '');
+  const oracleText: string = resolvedCard?.oracle_text || '';
+  if (!oracleText || !resolvedController) return;
+
+  const cardName: string = resolvedCard?.name || 'Spell';
+  const sourceImage: string | undefined = resolvedCard?.image_uris?.small || resolvedCard?.image_uris?.normal;
+  const stackItemId: string = String(topItem.id || '');
+  const ctx = {
+    controllerId: resolvedController as PlayerID,
+    sourceId: stackItemId,
+    sourceName: cardName,
+  };
+
+  let ir: any;
+  try {
+    ir = parseOracleTextToIR(oracleText, cardName);
+  } catch (err) {
+    debug(2, `[OracleIR] Failed to parse oracle text for ${cardName}:`, err);
+    return;
+  }
+
+  for (const ability of (ir?.abilities ?? [])) {
+    for (const step of (ability?.steps ?? [])) {
+      // choose_mode is handled at cast time via extractModalModesFromOracleText
+      if (step.kind === 'choose_mode') continue;
+      // Only queue prompts for optional ("you may") steps
+      if (!(step as any).optional) continue;
+
+      const effectText: string = String((step as any).raw || step.kind || '').toLowerCase();
+      const fullAbilityText: string | undefined = ability.text || ability.effectText || undefined;
+
+      queueMayAbilityStep(
+        io, gameId, game,
+        resolvedController, cardName,
+        effectText, fullAbilityText,
+        async () => {
+          try {
+            const result = applyOracleIRStepsToGameState(
+              game.state as any,
+              [step],
+              ctx,
+              { allowOptional: true }
+            );
+            // Merge executor output back into the live game state.
+            // Object.assign replaces top-level fields (zones, life, battlefield,
+            // etc.) while preserving any server-side extra properties.
+            Object.assign(game.state as any, result.state);
+          } catch (err) {
+            debug(1, `[OracleIR] Error applying optional step for ${cardName}:`, err);
+          }
+        }
+      );
+    }
+  }
+}
 
 // Note: SHOCK_LANDS, BOUNCE_LANDS, isShockLand, isBounceLand, detectScryOnETB, 
 // detectSacrificeUnlessPayETB, detectETBTappedPattern, evaluateConditionalLandETB,
@@ -7387,7 +7467,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         if (typeof (game as any).resolveTopOfStack === 'function') {
           (game as any).resolveTopOfStack();
           debug(2, `[passPriority] Stack resolved for game ${gameId}`);
-          
+
+          // Queue prompts for any "you may" oracle IR effects on the resolved spell
+          await processOracleIRInteractions(io, game, gameId, topItem);
+
           // Check for creature type selection requirements on newly entered permanents
           // (e.g., Morophon, Cavern of Souls, Kindred Discovery)
           checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
@@ -8258,7 +8341,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         if (typeof (game as any).resolveTopOfStack === 'function') {
           (game as any).resolveTopOfStack();
           debug(2, `[nextStep] Stack resolved for game ${gameId}`);
-          
+
+          // Queue prompts for any "you may" oracle IR effects on the resolved spell
+          await processOracleIRInteractions(io, game, gameId, topItem);
+
           checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
           checkColorChoiceForNewPermanents(io, game, gameId);
           checkPlayerSelectionForNewPermanents(io, game, gameId);

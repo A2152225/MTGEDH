@@ -84,7 +84,7 @@ describe('Oracle IR Executor', () => {
           name: 'P1',
           seat: 0,
           life: 40,
-          library: [{ id: 'land1', name: 'Forest', type_line: 'Basic Land — Forest' }],
+          library: [{ id: 'land1', name: 'Forest', type_line: 'Basic Land � Forest' }],
           hand: [],
           graveyard: [],
         } as any,
@@ -377,7 +377,7 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'exile_top')).toBe(true);
   });
 
-  it('applies exile_top for each opponent’s library (curly apostrophe)', () => {
+  it('applies exile_top for each opponent�s library (curly apostrophe)', () => {
     const ir = parseOracleTextToIR('Exile the top card of each opponent’s library.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
 
@@ -3020,7 +3020,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land1', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land1', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3072,7 +3072,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land69', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land69', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3124,7 +3124,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land14', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land14', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3176,7 +3176,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land74', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land74', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3228,7 +3228,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land15', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land15', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3280,7 +3280,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land84', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land84', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3332,7 +3332,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land16', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land16', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3384,7 +3384,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land75', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land75', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3436,7 +3436,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land17', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land17', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3488,7 +3488,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land85', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land85', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3540,7 +3540,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land33', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land33', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3592,7 +3592,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land86', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land86', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3644,7 +3644,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land34', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land34', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3696,7 +3696,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land76', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land76', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3748,7 +3748,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land35', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land35', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3800,7 +3800,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land87', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land87', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3852,7 +3852,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land36', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land36', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3904,7 +3904,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land2', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land2', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -3956,7 +3956,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land70', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land70', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4008,7 +4008,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4060,7 +4060,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell2', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell2', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4112,7 +4112,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land3', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land3', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4164,7 +4164,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land18', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land18', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4216,7 +4216,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land77', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land77', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4268,7 +4268,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land68', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land68', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4320,7 +4320,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land88', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land88', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4372,7 +4372,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land37', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land37', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4424,7 +4424,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land19', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land19', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4476,7 +4476,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land89', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land89', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4528,7 +4528,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land20', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land20', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4580,7 +4580,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land78', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land78', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4632,7 +4632,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land21', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land21', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4684,7 +4684,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land90', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land90', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4736,7 +4736,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land22', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land22', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4788,7 +4788,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land79', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land79', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4840,7 +4840,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2land23', name: 'Forest', type_line: 'Basic Land — Forest' }, { id: 'p2c2' }],
+          library: [{ id: 'p2land23', name: 'Forest', type_line: 'Basic Land � Forest' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4892,7 +4892,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell3', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell3', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4944,7 +4944,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell71', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell71', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -4996,7 +4996,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell9', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell9', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5048,7 +5048,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell10', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell10', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5100,7 +5100,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell11', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell11', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5152,7 +5152,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell12', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell12', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5204,7 +5204,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell80', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell80', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5256,7 +5256,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell13', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell13', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5308,7 +5308,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell81', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell81', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5360,7 +5360,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell4', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell4', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5412,7 +5412,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell72', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell72', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5464,7 +5464,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell5', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell5', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5516,7 +5516,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell82', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell82', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5568,7 +5568,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell6', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell6', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5620,7 +5620,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell83', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell83', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5672,7 +5672,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell7', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell7', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5724,7 +5724,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell73', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell73', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -5776,7 +5776,7 @@ describe('Oracle IR Executor', () => {
           name: 'P2',
           seat: 1,
           life: 40,
-          library: [{ id: 'p2spell8', name: 'Grizzly Bears', type_line: 'Creature — Bear' }, { id: 'p2c2' }],
+          library: [{ id: 'p2spell8', name: 'Grizzly Bears', type_line: 'Creature � Bear' }, { id: 'p2c2' }],
           hand: [],
           graveyard: [],
           exile: [],
@@ -7008,8 +7008,8 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', name: 'Island', type_line: 'Basic Land — Island' },
-            { id: 'p2c2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p2c1', name: 'Island', type_line: 'Basic Land � Island' },
+            { id: 'p2c2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           hand: [],
           graveyard: [],
@@ -7062,9 +7062,9 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', type_line: 'Basic Land — Swamp' },
+            { id: 'p2c1', type_line: 'Basic Land � Swamp' },
             { id: 'p2c2', type_line: 'Land' },
-            { id: 'p2c3', type_line: 'Creature — Horror' },
+            { id: 'p2c3', type_line: 'Creature � Horror' },
             { id: 'p2c4', type_line: 'Instant' },
           ],
           hand: [],
@@ -7166,8 +7166,8 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', type_line: 'Basic Land — Forest' },
-            { id: 'p2c2', type_line: 'Creature — Elf' },
+            { id: 'p2c1', type_line: 'Basic Land � Forest' },
+            { id: 'p2c2', type_line: 'Creature � Elf' },
             { id: 'p2c3', type_line: 'Instant' },
             { id: 'p2c4', type_line: 'Sorcery' },
           ],
@@ -7222,9 +7222,9 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', type_line: 'Creature — Elf' },
+            { id: 'p2c1', type_line: 'Creature � Elf' },
             { id: 'p2c2', type_line: 'Land' },
-            { id: 'p2c3', type_line: 'Creature — Human' },
+            { id: 'p2c3', type_line: 'Creature � Human' },
           ],
           hand: [],
           graveyard: [],
@@ -7274,8 +7274,8 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', name: 'Forest', type_line: 'Basic Land — Forest' },
-            { id: 'p2c2', name: 'Runeclaw Bear', type_line: 'Creature — Bear' },
+            { id: 'p2c1', name: 'Forest', type_line: 'Basic Land � Forest' },
+            { id: 'p2c2', name: 'Runeclaw Bear', type_line: 'Creature � Bear' },
             { id: 'p2c3', name: 'Shock', type_line: 'Instant' },
             { id: 'p2c4', name: 'Opt', type_line: 'Instant' },
           ],
@@ -7330,8 +7330,8 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', type_line: 'Basic Land — Plains' },
-            { id: 'p2c2', type_line: 'Creature — Knight' },
+            { id: 'p2c1', type_line: 'Basic Land � Plains' },
+            { id: 'p2c2', type_line: 'Creature � Knight' },
           ],
           hand: [],
           graveyard: [],
@@ -7446,8 +7446,8 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', type_line: 'Basic Land — Forest' },
-            { id: 'p2c2', type_line: 'Creature — Bear' },
+            { id: 'p2c1', type_line: 'Basic Land � Forest' },
+            { id: 'p2c2', type_line: 'Creature � Bear' },
             { id: 'p2c3', type_line: 'Instant' },
             { id: 'p2c4', type_line: 'Sorcery' },
           ],
@@ -7462,7 +7462,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [
             { id: 'p3c1', type_line: 'Sorcery' },
-            { id: 'p3c2', type_line: 'Creature — Elf' },
+            { id: 'p3c2', type_line: 'Creature � Elf' },
           ],
           hand: [],
           graveyard: [],
@@ -7511,7 +7511,7 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', type_line: 'Creature — Elf' },
+            { id: 'p2c1', type_line: 'Creature � Elf' },
             { id: 'p2c2', type_line: 'Land' },
           ],
           hand: [],
@@ -7525,7 +7525,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [
             { id: 'p3c1', type_line: 'Instant' },
-            { id: 'p3c2', type_line: 'Creature — Human' },
+            { id: 'p3c2', type_line: 'Creature � Human' },
           ],
           hand: [],
           graveyard: [],
@@ -8127,9 +8127,9 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
         { id: 'a1', controller: 'p2', owner: 'p2', card: { id: 'a1_card', name: 'Sol Ring', type_line: 'Artifact' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8156,8 +8156,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'pw1', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker — Test' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'pw1', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker � Test' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8182,8 +8182,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'b1', controller: 'p2', owner: 'p2', counters: { defense: 5 }, card: { id: 'b1_card', name: 'Test Siege', type_line: 'Battle — Siege' } } as any,
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
+        { id: 'b1', controller: 'p2', owner: 'p2', counters: { defense: 5 }, card: { id: 'b1_card', name: 'Test Siege', type_line: 'Battle � Siege' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8252,8 +8252,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8278,8 +8278,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'pw_home', controller: 'p1', owner: 'p1', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_home_card', name: 'Home Walker', type_line: 'Planeswalker — Test' } } as any,
-        { id: 'pw_opp', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_opp_card', name: 'Opp Walker', type_line: 'Planeswalker — Test' } } as any,
+        { id: 'pw_home', controller: 'p1', owner: 'p1', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_home_card', name: 'Home Walker', type_line: 'Planeswalker � Test' } } as any,
+        { id: 'pw_opp', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_opp_card', name: 'Opp Walker', type_line: 'Planeswalker � Test' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8304,8 +8304,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'b_home', controller: 'p1', owner: 'p1', counters: { defense: 5 }, card: { id: 'b_home_card', name: 'Home Siege', type_line: 'Battle — Siege' } } as any,
-        { id: 'b_opp', controller: 'p2', owner: 'p2', counters: { defense: 5 }, card: { id: 'b_opp_card', name: 'Opp Siege', type_line: 'Battle — Siege' } } as any,
+        { id: 'b_home', controller: 'p1', owner: 'p1', counters: { defense: 5 }, card: { id: 'b_home_card', name: 'Home Siege', type_line: 'Battle � Siege' } } as any,
+        { id: 'b_opp', controller: 'p2', owner: 'p2', counters: { defense: 5 }, card: { id: 'b_opp_card', name: 'Opp Siege', type_line: 'Battle � Siege' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8330,8 +8330,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8356,8 +8356,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8386,9 +8386,9 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
-        { id: 'pw1', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker — Test' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
+        { id: 'pw1', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker � Test' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8420,9 +8420,9 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c_you', controller: 'p1', owner: 'p1', card: { id: 'c_you_card', name: 'Your Bear', type_line: 'Creature — Bear' } } as any,
-        { id: 'c_opp_2', controller: 'p2', owner: 'p2', card: { id: 'c_opp_2_card', name: 'Opp 2 Giant', type_line: 'Creature — Giant' } } as any,
-        { id: 'c_opp_3', controller: 'p3', owner: 'p3', card: { id: 'c_opp_3_card', name: 'Opp 3 Lion', type_line: 'Creature — Cat' } } as any,
+        { id: 'c_you', controller: 'p1', owner: 'p1', card: { id: 'c_you_card', name: 'Your Bear', type_line: 'Creature � Bear' } } as any,
+        { id: 'c_opp_2', controller: 'p2', owner: 'p2', card: { id: 'c_opp_2_card', name: 'Opp 2 Giant', type_line: 'Creature � Giant' } } as any,
+        { id: 'c_opp_3', controller: 'p3', owner: 'p3', card: { id: 'c_opp_3_card', name: 'Opp 3 Lion', type_line: 'Creature � Cat' } } as any,
       ] as any,
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8456,8 +8456,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'pw_you', controller: 'p1', owner: 'p1', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_you_card', name: 'Your Walker', type_line: 'Planeswalker — Test' } } as any,
-        { id: 'pw_opp', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_opp_card', name: 'Opp Walker', type_line: 'Planeswalker — Test' } } as any,
+        { id: 'pw_you', controller: 'p1', owner: 'p1', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_you_card', name: 'Your Walker', type_line: 'Planeswalker � Test' } } as any,
+        { id: 'pw_opp', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_opp_card', name: 'Opp Walker', type_line: 'Planeswalker � Test' } } as any,
       ] as any,
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8486,8 +8486,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8516,8 +8516,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8549,8 +8549,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8582,8 +8582,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8615,8 +8615,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8649,8 +8649,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8685,8 +8685,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8720,8 +8720,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8750,8 +8750,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'pw1', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker — Test' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'pw1', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker � Test' } } as any,
         { id: 'a1', controller: 'p2', owner: 'p2', card: { id: 'a1_card', name: 'Sol Ring', type_line: 'Artifact' } } as any,
       ],
       priority: 'p1',
@@ -8783,8 +8783,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8809,8 +8809,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8839,15 +8839,15 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
         {
           id: 'pw1',
           controller: 'p2',
           owner: 'p2',
           loyalty: 5,
           counters: { loyalty: 5 },
-          card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker — Test' },
+          card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker � Test' },
         } as any,
       ],
       priority: 'p1',
@@ -8879,8 +8879,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8915,7 +8915,7 @@ describe('Oracle IR Executor', () => {
           owner: 'p2',
           loyalty: 5,
           counters: { loyalty: 5 },
-          card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker — Test' },
+          card: { id: 'pw1_card', name: 'Test Walker', type_line: 'Planeswalker � Test' },
         } as any,
         {
           id: 'pw2',
@@ -8923,7 +8923,7 @@ describe('Oracle IR Executor', () => {
           owner: 'p1',
           loyalty: 4,
           counters: { loyalty: 4 },
-          card: { id: 'pw2_card', name: 'Home Walker', type_line: 'Planeswalker — Test' },
+          card: { id: 'pw2_card', name: 'Home Walker', type_line: 'Planeswalker � Test' },
         } as any,
       ],
       priority: 'p1',
@@ -8953,8 +8953,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8979,8 +8979,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -8995,7 +8995,7 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
   });
 
-  it("applies deal_damage to each creature you don’t control (curly apostrophe variant)", () => {
+  it("applies deal_damage to each creature you don�t control (curly apostrophe variant)", () => {
     const ir = parseOracleTextToIR("It deals 2 damage to each creature you don’t control.", 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
 
@@ -9005,8 +9005,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -9021,7 +9021,7 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
   });
 
-  it("applies deal_damage to each creature you don’t control and you (mixed deterministic targets, curly apostrophe)", () => {
+  it("applies deal_damage to each creature you don�t control and you (mixed deterministic targets, curly apostrophe)", () => {
     const ir = parseOracleTextToIR("It deals 2 damage to each creature you don’t control and you.", 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
 
@@ -9031,8 +9031,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -9061,8 +9061,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -9077,7 +9077,7 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
   });
 
-  it("applies deal_damage to each opponent’s creatures and you (possessive + curly apostrophe mixed target)", () => {
+  it("applies deal_damage to each opponent�s creatures and you (possessive + curly apostrophe mixed target)", () => {
     const ir = parseOracleTextToIR("It deals 2 damage to each opponent’s creatures and you.", 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
 
@@ -9087,8 +9087,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature — Bear' } } as any,
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature — Giant' } } as any,
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'Grizzly Bears', type_line: 'Creature � Bear' } } as any,
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'Hill Giant', type_line: 'Creature � Giant' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -9117,8 +9117,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'pw_home', controller: 'p1', owner: 'p1', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_home_card', name: 'Home Walker', type_line: 'Planeswalker — Test' } } as any,
-        { id: 'pw_opp', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_opp_card', name: 'Opp Walker', type_line: 'Planeswalker — Test' } } as any,
+        { id: 'pw_home', controller: 'p1', owner: 'p1', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_home_card', name: 'Home Walker', type_line: 'Planeswalker � Test' } } as any,
+        { id: 'pw_opp', controller: 'p2', owner: 'p2', loyalty: 5, counters: { loyalty: 5 }, card: { id: 'pw_opp_card', name: 'Opp Walker', type_line: 'Planeswalker � Test' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -9143,8 +9143,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'b_home', controller: 'p1', owner: 'p1', counters: { defense: 5 }, card: { id: 'b_home_card', name: 'Home Siege', type_line: 'Battle — Siege' } } as any,
-        { id: 'b_opp', controller: 'p2', owner: 'p2', counters: { defense: 5 }, card: { id: 'b_opp_card', name: 'Opp Siege', type_line: 'Battle — Siege' } } as any,
+        { id: 'b_home', controller: 'p1', owner: 'p1', counters: { defense: 5 }, card: { id: 'b_home_card', name: 'Home Siege', type_line: 'Battle � Siege' } } as any,
+        { id: 'b_opp', controller: 'p2', owner: 'p2', counters: { defense: 5 }, card: { id: 'b_opp_card', name: 'Opp Siege', type_line: 'Battle � Siege' } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -9191,13 +9191,13 @@ describe('Oracle IR Executor', () => {
           id: 'bf1',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
         },
         {
           id: 'bf2',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'c_creature_2', name: 'Hill Giant', type_line: 'Creature — Giant' },
+          card: { id: 'c_creature_2', name: 'Hill Giant', type_line: 'Creature � Giant' },
         },
         {
           id: 'bf3',
@@ -9410,9 +9410,9 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature � Bear' } },
         { id: 'bf2', controller: 'p1', owner: 'p1', card: { id: 'a1', name: 'Sol Ring', type_line: 'Artifact' } },
-        { id: 'bf3', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+        { id: 'bf3', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature � Cat' } },
       ] as any,
       priority: 'p1',
       turnPlayer: 'p1',
@@ -9443,9 +9443,9 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [{ id: 'h0', name: 'Existing', type_line: 'Instant' }],
           graveyard: [
-            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
             { id: 'g2', name: 'Shock', type_line: 'Instant' },
-            { id: 'g3', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'g3', name: 'Hill Giant', type_line: 'Creature � Giant' },
           ],
         } as any,
       ],
@@ -9473,9 +9473,9 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [
-            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
             { id: 'g2', name: 'Shock', type_line: 'Instant' },
-            { id: 'g3', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'g3', name: 'Hill Giant', type_line: 'Creature � Giant' },
           ],
           exile: [{ id: 'e0', name: 'Already Exiled', type_line: 'Sorcery' }],
         } as any,
@@ -9504,9 +9504,9 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [{ id: 'h0', name: 'Existing', type_line: 'Instant' }],
           graveyard: [
-            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
             { id: 'g2', name: 'Shock', type_line: 'Instant' },
-            { id: 'g3', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'g3', name: 'Hill Giant', type_line: 'Creature � Giant' },
           ],
           exile: [],
         } as any,
@@ -9535,9 +9535,9 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [
-            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
             { id: 'g2', name: 'Shock', type_line: 'Instant' },
-            { id: 'g3', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'g3', name: 'Hill Giant', type_line: 'Creature � Giant' },
           ],
           exile: [{ id: 'e0', name: 'Existing', type_line: 'Sorcery' }],
         } as any,
@@ -9584,13 +9584,13 @@ describe('Oracle IR Executor', () => {
           id: 'c1',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'c1card', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          card: { id: 'c1card', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
         },
         {
           id: 'c2',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'c2card', name: 'Hill Giant', type_line: 'Creature — Giant' },
+          card: { id: 'c2card', name: 'Hill Giant', type_line: 'Creature � Giant' },
         },
         {
           id: 'a1',
@@ -9658,7 +9658,7 @@ describe('Oracle IR Executor', () => {
           id: 'p2thing',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'p2thingCard', name: 'Hill Giant', type_line: 'Creature — Giant' },
+          card: { id: 'p2thingCard', name: 'Hill Giant', type_line: 'Creature � Giant' },
         },
       ] as any,
       priority: 'p1',
@@ -9708,19 +9708,19 @@ describe('Oracle IR Executor', () => {
           id: 'p1Creature',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'p1CreatureCard', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          card: { id: 'p1CreatureCard', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
         },
         {
           id: 'stolenCreature',
           controller: 'p1',
           owner: 'p2',
-          card: { id: 'stolenCreatureCard', name: 'Hill Giant', type_line: 'Creature — Giant' },
+          card: { id: 'stolenCreatureCard', name: 'Hill Giant', type_line: 'Creature � Giant' },
         },
         {
           id: 'p2Creature',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'p2CreatureCard', name: 'Silvercoat Lion', type_line: 'Creature — Cat' },
+          card: { id: 'p2CreatureCard', name: 'Silvercoat Lion', type_line: 'Creature � Cat' },
         },
         {
           id: 'p1Artifact',
@@ -9778,19 +9778,19 @@ describe('Oracle IR Executor', () => {
           id: 'p1Creature',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'p1CreatureCard', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          card: { id: 'p1CreatureCard', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
         },
         {
           id: 'p2Creature',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'p2CreatureCard', name: 'Silvercoat Lion', type_line: 'Creature — Cat' },
+          card: { id: 'p2CreatureCard', name: 'Silvercoat Lion', type_line: 'Creature � Cat' },
         },
         {
           id: 'stolenCreature',
           controller: 'p2',
           owner: 'p1',
-          card: { id: 'stolenCreatureCard', name: 'Hill Giant', type_line: 'Creature — Giant' },
+          card: { id: 'stolenCreatureCard', name: 'Hill Giant', type_line: 'Creature � Giant' },
         },
         {
           id: 'p2Artifact',
@@ -9830,9 +9830,9 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [
-            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
             { id: 'g2', name: 'Opt', type_line: 'Instant' },
-            { id: 'g3', name: 'Silvercoat Lion', type_line: 'Creature — Cat' },
+            { id: 'g3', name: 'Silvercoat Lion', type_line: 'Creature � Cat' },
           ],
           exile: [],
         } as any,
@@ -9894,7 +9894,7 @@ describe('Oracle IR Executor', () => {
           id: 'bf3',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
         },
       ] as any,
       priority: 'p1',
@@ -9935,7 +9935,7 @@ describe('Oracle IR Executor', () => {
           id: 'bf2',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
         },
       ] as any,
       priority: 'p1',
@@ -9970,13 +9970,13 @@ describe('Oracle IR Executor', () => {
           id: 'bf1',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'c_pw_1', name: 'Test Walker', type_line: 'Planeswalker — Test' },
+          card: { id: 'c_pw_1', name: 'Test Walker', type_line: 'Planeswalker � Test' },
         },
         {
           id: 'bf2',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
         },
       ] as any,
       priority: 'p1',
@@ -10011,13 +10011,13 @@ describe('Oracle IR Executor', () => {
           id: 'bf1',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'c_battle_1', name: 'Test Siege', type_line: 'Battle — Siege' },
+          card: { id: 'c_battle_1', name: 'Test Siege', type_line: 'Battle � Siege' },
         },
         {
           id: 'bf2',
           controller: 'p1',
           owner: 'p1',
-          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          card: { id: 'c_creature_1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
         },
       ] as any,
       priority: 'p1',
@@ -10040,8 +10040,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
-        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature � Bear' } },
+        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature � Cat' } },
       ] as any,
       priority: 'p1',
       turnPlayer: 'p1',
@@ -10062,8 +10062,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
-        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature � Bear' } },
+        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature � Cat' } },
       ] as any,
       priority: 'p1',
       turnPlayer: 'p1',
@@ -10085,8 +10085,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
-        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature � Bear' } },
+        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature � Cat' } },
       ] as any,
       priority: 'p1',
       turnPlayer: 'p1',
@@ -10107,8 +10107,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
-        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature � Bear' } },
+        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature � Cat' } },
         { id: 'bf3', controller: 'p2', owner: 'p2', card: { id: 'a1', name: 'Sol Ring', type_line: 'Artifact' } },
       ] as any,
       priority: 'p1',
@@ -10133,8 +10133,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
-        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature � Bear' } },
+        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature � Cat' } },
         { id: 'bf3', controller: 'p2', owner: 'p2', card: { id: 'a1', name: 'Sol Ring', type_line: 'Artifact' } },
       ] as any,
       priority: 'p1',
@@ -10164,8 +10164,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature — Bear' } },
-        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+        { id: 'bf1', controller: 'p1', owner: 'p1', card: { id: 'c1', name: 'P1 Bear', type_line: 'Creature � Bear' } },
+        { id: 'bf2', controller: 'p2', owner: 'p2', card: { id: 'c2', name: 'P2 Lion', type_line: 'Creature � Cat' } },
       ] as any,
       priority: 'p1',
       turnPlayer: 'p1',
@@ -10196,7 +10196,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [
             { id: 'p1g1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           exile: [],
         } as any,
@@ -10231,7 +10231,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear', canBePlayedBy: 'p1', playableUntilTurn: 123 },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear', canBePlayedBy: 'p1', playableUntilTurn: 123 },
           ],
         } as any,
       ],
@@ -10270,7 +10270,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
       ],
@@ -10307,7 +10307,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p1e1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          exile: [{ id: 'p1e1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
         } as any,
         {
           id: 'p2',
@@ -10319,7 +10319,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p2e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p2e2', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e2', name: 'Hill Giant', type_line: 'Creature � Giant' },
           ],
         } as any,
       ],
@@ -10363,7 +10363,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
         {
@@ -10375,7 +10375,7 @@ describe('Oracle IR Executor', () => {
           hand: [{ id: 'p2h0', name: 'Existing2', type_line: 'Land' }],
           graveyard: [],
           exile: [
-            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
           ],
         } as any,
@@ -10429,7 +10429,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [],
           exile: [
-            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
           ],
         } as any,
@@ -10441,7 +10441,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p3e1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          exile: [{ id: 'p3e1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
         } as any,
       ],
       battlefield: [],
@@ -10490,7 +10490,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
         {
@@ -10501,7 +10501,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
         } as any,
       ],
       battlefield: [],
@@ -10547,7 +10547,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [{ id: 'p1h0', name: 'Existing', type_line: 'Sorcery' }],
           graveyard: [],
-          exile: [{ id: 'p1e1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          exile: [{ id: 'p1e1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
         } as any,
         {
           id: 'p2',
@@ -10558,7 +10558,7 @@ describe('Oracle IR Executor', () => {
           hand: [{ id: 'p2h0', name: 'Existing2', type_line: 'Land' }],
           graveyard: [],
           exile: [
-            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
           ],
         } as any,
@@ -10570,7 +10570,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p3e1', name: 'Silvercoat Lion', type_line: 'Creature — Cat' }],
+          exile: [{ id: 'p3e1', name: 'Silvercoat Lion', type_line: 'Creature � Cat' }],
         } as any,
       ],
       battlefield: [],
@@ -10613,7 +10613,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [{ id: 'p1g0', name: 'Existing', type_line: 'Sorcery' }],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
         {
@@ -10624,7 +10624,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
         } as any,
       ],
       battlefield: [],
@@ -10659,7 +10659,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [{ id: 'p1g0', name: 'Existing', type_line: 'Sorcery' }],
-          exile: [{ id: 'p1e1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          exile: [{ id: 'p1e1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
         } as any,
         {
           id: 'p2',
@@ -10670,7 +10670,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [],
           exile: [
-            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
           ],
         } as any,
@@ -10682,7 +10682,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [{ id: 'p3g0', name: 'Existing3', type_line: 'Land' }],
-          exile: [{ id: 'p3e1', name: 'Silvercoat Lion', type_line: 'Creature — Cat' }],
+          exile: [{ id: 'p3e1', name: 'Silvercoat Lion', type_line: 'Creature � Cat' }],
         } as any,
       ],
       battlefield: [],
@@ -10730,7 +10730,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
         {
@@ -10741,7 +10741,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
         } as any,
       ],
       battlefield: [],
@@ -10793,7 +10793,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
         } as any,
       ],
       battlefield: [],
@@ -10841,7 +10841,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [],
           exile: [
-            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
           ],
         } as any,
@@ -10853,7 +10853,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p3e1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          exile: [{ id: 'p3e1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
         } as any,
       ],
       battlefield: [],
@@ -10905,7 +10905,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
         {
@@ -10916,7 +10916,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
         } as any,
       ],
       battlefield: [],
@@ -10977,7 +10977,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [],
           exile: [
-            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
           ],
         } as any,
@@ -10989,7 +10989,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p3e1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          exile: [{ id: 'p3e1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
         } as any,
       ],
       battlefield: [],
@@ -11043,7 +11043,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
         {
@@ -11054,7 +11054,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
         } as any,
       ],
       battlefield: [],
@@ -11117,7 +11117,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [],
           exile: [
-            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
           ],
         } as any,
@@ -11129,7 +11129,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p3e1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          exile: [{ id: 'p3e1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
         } as any,
       ],
       battlefield: [],
@@ -11180,7 +11180,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
         {
@@ -11192,7 +11192,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [],
           exile: [
-            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
           ],
         } as any,
@@ -11244,7 +11244,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
         {
@@ -11255,7 +11255,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          exile: [{ id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
         } as any,
       ],
       battlefield: [],
@@ -11307,7 +11307,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [],
           exile: [
             { id: 'p1e1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1e2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
         } as any,
         {
@@ -11319,7 +11319,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [],
           exile: [
-            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2e1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2e2', name: 'Opt', type_line: 'Instant' },
           ],
         } as any,
@@ -11363,7 +11363,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
       ],
@@ -11394,7 +11394,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [
             { id: 'p1g1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           exile: [{ id: 'p1e0', name: 'Existing', type_line: 'Sorcery' }],
         } as any,
@@ -11436,7 +11436,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [
             { id: 'p1h1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1h2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1h2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           graveyard: [],
           exile: [],
@@ -11526,7 +11526,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p3g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p3g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [{ id: 'p3e0', name: 'Existing', type_line: 'Sorcery' }],
         } as any,
       ],
@@ -11583,7 +11583,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [
-            { id: 'p3h1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p3h1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
             { id: 'p3h2', name: 'Opt', type_line: 'Instant' },
           ],
           graveyard: [],
@@ -11661,7 +11661,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
         {
@@ -11673,7 +11673,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [
             { id: 'p2g1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p2g2', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2g2', name: 'Hill Giant', type_line: 'Creature � Giant' },
           ],
           exile: [],
         } as any,
@@ -11685,7 +11685,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [
-            { id: 'p3g1', name: 'Silvercoat Lion', type_line: 'Creature — Cat' },
+            { id: 'p3g1', name: 'Silvercoat Lion', type_line: 'Creature � Cat' },
             { id: 'p3g2', name: 'Shock', type_line: 'Instant' },
           ],
           exile: [{ id: 'p3e0', name: 'Existing', type_line: 'Sorcery' }],
@@ -11739,7 +11739,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [
             { id: 'p2h1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p2h2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p2h2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           graveyard: [{ id: 'p2g0', name: 'Existing', type_line: 'Sorcery' }],
           exile: [],
@@ -11752,7 +11752,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [
             { id: 'p3h1', name: 'Shock', type_line: 'Instant' },
-            { id: 'p3h2', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p3h2', name: 'Hill Giant', type_line: 'Creature � Giant' },
           ],
           graveyard: [],
           exile: [],
@@ -11794,7 +11794,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [
             { id: 'p1g1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           exile: [],
         } as any,
@@ -11805,7 +11805,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
           exile: [{ id: 'p2e0', name: 'Existing', type_line: 'Sorcery' }],
         } as any,
       ],
@@ -11836,7 +11836,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [{ id: 'p1h0', name: 'Existing', type_line: 'Sorcery' }],
           graveyard: [
-            { id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
             { id: 'p1g2', name: 'Opt', type_line: 'Instant' },
           ],
           exile: [],
@@ -11849,7 +11849,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [
-            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2g2', name: 'Shock', type_line: 'Instant' },
           ],
           exile: [],
@@ -11861,7 +11861,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [{ id: 'p3h0', name: 'Existing', type_line: 'Sorcery' }],
-          graveyard: [{ id: 'p3g1', name: 'Silvercoat Lion', type_line: 'Creature — Cat' }],
+          graveyard: [{ id: 'p3g1', name: 'Silvercoat Lion', type_line: 'Creature � Cat' }],
           exile: [],
         } as any,
       ],
@@ -11902,7 +11902,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
         {
@@ -11913,7 +11913,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [
-            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2g2', name: 'Opt', type_line: 'Instant' },
           ],
           exile: [],
@@ -11925,7 +11925,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p3g1', name: 'Silvercoat Lion', type_line: 'Creature — Cat' }],
+          graveyard: [{ id: 'p3g1', name: 'Silvercoat Lion', type_line: 'Creature � Cat' }],
           exile: [],
         } as any,
       ],
@@ -11979,7 +11979,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
         {
@@ -11990,7 +11990,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [],
           graveyard: [
-            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' },
             { id: 'p2g2', name: 'Opt', type_line: 'Instant' },
           ],
           exile: [],
@@ -12041,7 +12041,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [
             { id: 'p1g1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           exile: [],
         } as any,
@@ -12052,7 +12052,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -12102,7 +12102,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
         {
@@ -12112,7 +12112,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -12149,7 +12149,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
         {
@@ -12159,7 +12159,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -12199,7 +12199,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
         {
@@ -12209,7 +12209,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -12253,7 +12253,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -12296,7 +12296,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [
             { id: 'p2g1', name: 'Shock', type_line: 'Instant' },
-            { id: 'p2g2', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'p2g2', name: 'Hill Giant', type_line: 'Creature � Giant' },
           ],
           exile: [],
         } as any,
@@ -12331,7 +12331,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [
             { id: 'p1g1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           exile: [],
         } as any,
@@ -12342,7 +12342,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -12392,7 +12392,7 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [
             { id: 'p1g1', name: 'Opt', type_line: 'Instant' },
-            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p1g2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           exile: [],
         } as any,
@@ -12403,7 +12403,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -12457,7 +12457,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p1g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
         {
@@ -12467,7 +12467,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'Hill Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -12497,7 +12497,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [
             { id: 'h1', name: 'Shock', type_line: 'Instant' },
-            { id: 'h2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'h2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           graveyard: [{ id: 'g0', name: 'Existing', type_line: 'Sorcery' }],
           exile: [],
@@ -12531,7 +12531,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [
-            { id: 'hLand', name: 'Plains', type_line: 'Basic Land — Plains' },
+            { id: 'hLand', name: 'Plains', type_line: 'Basic Land � Plains' },
             { id: 'hSpell', name: 'Shock', type_line: 'Instant' },
           ],
           graveyard: [],
@@ -12586,7 +12586,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [
             { id: 'p2i', name: 'Opt', type_line: 'Instant' },
-            { id: 'p2c', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'p2c', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
           ],
           graveyard: [],
           exile: [],
@@ -12622,7 +12622,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
       ],
@@ -12650,8 +12650,8 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [
             { id: 'h1', name: 'Shock', type_line: 'Instant' },
-            { id: 'h2', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
-            { id: 'h3', name: 'Hill Giant', type_line: 'Creature — Giant' },
+            { id: 'h2', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
+            { id: 'h3', name: 'Hill Giant', type_line: 'Creature � Giant' },
           ],
           graveyard: [],
           exile: [{ id: 'e0', name: 'Existing', type_line: 'Sorcery' }],
@@ -12679,7 +12679,7 @@ describe('Oracle IR Executor', () => {
           seat: 0,
           life: 40,
           library: [],
-          hand: [{ id: 'h1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          hand: [{ id: 'h1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           graveyard: [],
           exile: [],
         } as any,
@@ -12707,7 +12707,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
         } as any,
       ],
     });
@@ -12733,7 +12733,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
       ],
@@ -12779,7 +12779,7 @@ describe('Oracle IR Executor', () => {
           id: 'p2creature',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'c2', name: 'Hill Giant', type_line: 'Creature — Giant' },
+          card: { id: 'c2', name: 'Hill Giant', type_line: 'Creature � Giant' },
         },
         {
           id: 'p2artifact',
@@ -12815,7 +12815,7 @@ describe('Oracle IR Executor', () => {
           id: 'p2creature',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'c2', name: 'Hill Giant', type_line: 'Creature — Giant' },
+          card: { id: 'c2', name: 'Hill Giant', type_line: 'Creature � Giant' },
         },
         {
           id: 'p2artifact',
@@ -12854,7 +12854,7 @@ describe('Oracle IR Executor', () => {
           id: 'p2creature',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'c2', name: 'Hill Giant', type_line: 'Creature — Giant' },
+          card: { id: 'c2', name: 'Hill Giant', type_line: 'Creature � Giant' },
         },
         {
           id: 'p2artifact',
@@ -12911,13 +12911,13 @@ describe('Oracle IR Executor', () => {
           id: 'p2creature1',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'c2a', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+          card: { id: 'c2a', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
         },
         {
           id: 'p2creature2',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'c2b', name: 'Hill Giant', type_line: 'Creature — Giant' },
+          card: { id: 'c2b', name: 'Hill Giant', type_line: 'Creature � Giant' },
         },
       ] as any,
       priority: 'p1',
@@ -12985,9 +12985,9 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'P1 Bear', type_line: 'Creature — Bear' } },
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'P1 Bear', type_line: 'Creature � Bear' } },
         { id: 'a1', controller: 'p1', owner: 'p1', card: { id: 'a1_card', name: 'Sol Ring', type_line: 'Artifact' } },
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'P2 Lion', type_line: 'Creature � Cat' } },
       ] as any,
       priority: 'p1',
       turnPlayer: 'p1',
@@ -13014,9 +13014,9 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'P1 Bear', type_line: 'Creature — Bear' } },
+        { id: 'c1', controller: 'p1', owner: 'p1', card: { id: 'c1_card', name: 'P1 Bear', type_line: 'Creature � Bear' } },
         { id: 'a1', controller: 'p1', owner: 'p1', card: { id: 'a1_card', name: 'Sol Ring', type_line: 'Artifact' } },
-        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'P2 Lion', type_line: 'Creature — Cat' } },
+        { id: 'c2', controller: 'p2', owner: 'p2', card: { id: 'c2_card', name: 'P2 Lion', type_line: 'Creature � Cat' } },
       ] as any,
       priority: 'p1',
       turnPlayer: 'p1',
@@ -13317,7 +13317,7 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', type_line: 'Creature — Human' },
+            { id: 'p2c1', type_line: 'Creature � Human' },
             { id: 'p2c2', type_line: 'Instant' },
             { id: 'p2c3', type_line: 'Land' },
             { id: 'p2c4', type_line: 'Sorcery' },
@@ -14058,9 +14058,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetOppIslandCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p2Island1', ownerId: 'p2', controller: 'p2', name: 'Island', type_line: 'Basic Land — Island', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p2Island2', ownerId: 'p2', controller: 'p2', name: 'Dual', type_line: 'Land — Island Swamp', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p2NonIsland', ownerId: 'p2', controller: 'p2', name: 'Mountain', type_line: 'Basic Land — Mountain', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p2Island1', ownerId: 'p2', controller: 'p2', name: 'Island', type_line: 'Basic Land � Island', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p2Island2', ownerId: 'p2', controller: 'p2', name: 'Dual', type_line: 'Land � Island Swamp', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p2NonIsland', ownerId: 'p2', controller: 'p2', name: 'Mountain', type_line: 'Basic Land � Mountain', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -14092,9 +14092,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetDefendingLands', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p2Land1', ownerId: 'p2', controller: 'p2', name: 'Island', type_line: 'Basic Land — Island', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p2Land2', ownerId: 'p2', controller: 'p2', name: 'Mountain', type_line: 'Basic Land — Mountain', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p1Land', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land — Plains', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p2Land1', ownerId: 'p2', controller: 'p2', name: 'Island', type_line: 'Basic Land � Island', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p2Land2', ownerId: 'p2', controller: 'p2', name: 'Mountain', type_line: 'Basic Land � Mountain', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p1Land', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land � Plains', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -14130,12 +14130,12 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqThoseOppCreatures', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetThoseOppCreatures', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqThoseOppCreatures', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetThoseOppCreatures', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetThoseOppCreatures', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p2CreatureA', ownerId: 'p2', controller: 'p2', name: 'P2 Creature', type_line: 'Creature — Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p3CreatureA', ownerId: 'p3', controller: 'p3', name: 'P3 Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p2CreatureA', ownerId: 'p2', controller: 'p2', name: 'P2 Creature', type_line: 'Creature � Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p3CreatureA', ownerId: 'p3', controller: 'p3', name: 'P3 Creature', type_line: 'Creature � Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'p3Artifact', ownerId: 'p3', controller: 'p3', name: 'P3 Relic', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p1Creature', ownerId: 'p1', controller: 'p1', name: 'P1 Creature', type_line: 'Creature — Human', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p1Creature', ownerId: 'p1', controller: 'p1', name: 'P1 Creature', type_line: 'Creature � Human', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -14355,9 +14355,9 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'g1', type_line: 'Creature — Elf' },
+            { id: 'g1', type_line: 'Creature � Elf' },
             { id: 'g2', type_line: 'Instant' },
-            { id: 'g3', type_line: 'Creature — Human' },
+            { id: 'g3', type_line: 'Creature � Human' },
           ],
           exile: [],
         } as any,
@@ -14400,7 +14400,7 @@ describe('Oracle IR Executor', () => {
           graveyard: [
             { id: 'is1', type_line: 'Instant' },
             { id: 'is2', type_line: 'Sorcery' },
-            { id: 'is3', type_line: 'Creature — Elf' },
+            { id: 'is3', type_line: 'Creature � Elf' },
           ],
           exile: [],
         } as any,
@@ -14438,7 +14438,7 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'perm1', type_line: 'Creature — Elf' },
+            { id: 'perm1', type_line: 'Creature � Elf' },
             { id: 'perm2', type_line: 'Artifact' },
             { id: 'perm3', type_line: 'Land' },
             { id: 'perm4', type_line: 'Instant' },
@@ -14479,8 +14479,8 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'landGy1', type_line: 'Basic Land — Forest' },
-            { id: 'landGy2', type_line: 'Land — Cave' },
+            { id: 'landGy1', type_line: 'Basic Land � Forest' },
+            { id: 'landGy2', type_line: 'Land � Cave' },
             { id: 'spellGy1', type_line: 'Instant' },
           ],
           exile: [],
@@ -14514,11 +14514,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqZombie', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetZombie', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqZombie', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetZombie', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetZombie', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'z1', ownerId: 'p1', controller: 'p1', name: 'Zombie 1', type_line: 'Creature — Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'z2', ownerId: 'p1', controller: 'p1', name: 'Zombie 2', type_line: 'Creature — Zombie Wizard', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonz', ownerId: 'p1', controller: 'p1', name: 'Elf', type_line: 'Creature — Elf', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'z1', ownerId: 'p1', controller: 'p1', name: 'Zombie 1', type_line: 'Creature � Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'z2', ownerId: 'p1', controller: 'p1', name: 'Zombie 2', type_line: 'Creature � Zombie Wizard', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonz', ownerId: 'p1', controller: 'p1', name: 'Elf', type_line: 'Creature � Elf', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -14606,7 +14606,7 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetAndOrSpacecraft', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'spacecraftAndOr', ownerId: 'p1', controller: 'p1', name: 'Skyhulk', type_line: 'Artifact — Spacecraft', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'spacecraftAndOr', ownerId: 'p1', controller: 'p1', name: 'Skyhulk', type_line: 'Artifact � Spacecraft', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -14864,8 +14864,8 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p2c1' }],
           hand: [],
           graveyard: [
-            { id: 'gCreature1', name: 'Bear Cub', type_line: 'Creature — Bear' },
-            { id: 'gCreature2', name: 'Goblin', type_line: 'Creature — Goblin' },
+            { id: 'gCreature1', name: 'Bear Cub', type_line: 'Creature � Bear' },
+            { id: 'gCreature2', name: 'Goblin', type_line: 'Creature � Goblin' },
             { id: 'gNonCreature', name: 'Shock', type_line: 'Instant' },
           ],
           exile: [],
@@ -15179,9 +15179,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'creatureLandCount', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'land1', ownerId: 'p1', controller: 'p1', name: 'Plains', cardType: 'Basic Land — Plains', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'land2', ownerId: 'p1', controller: 'p1', name: 'Island', cardType: 'Basic Land — Island', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'land3', ownerId: 'p1', controller: 'p1', name: 'Mountain', cardType: 'Basic Land — Mountain', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land1', ownerId: 'p1', controller: 'p1', name: 'Plains', cardType: 'Basic Land � Plains', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land2', ownerId: 'p1', controller: 'p1', name: 'Island', cardType: 'Basic Land � Island', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land3', ownerId: 'p1', controller: 'p1', name: 'Mountain', cardType: 'Basic Land � Mountain', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'artifactNotLand', ownerId: 'p1', controller: 'p1', name: 'Signet', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -15759,9 +15759,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNH1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNH1', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNH1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonHumanBig1', ownerId: 'p1', controller: 'p1', name: 'Non-Human Big', cardType: 'Creature', type_line: 'Creature — Beast', power: 7, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'humanBig1', ownerId: 'p1', controller: 'p1', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature — Human Knight', power: 10, toughness: 10, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNH1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonHumanBig1', ownerId: 'p1', controller: 'p1', name: 'Non-Human Big', cardType: 'Creature', type_line: 'Creature � Beast', power: 7, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanBig1', ownerId: 'p1', controller: 'p1', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature � Human Knight', power: 10, toughness: 10, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -15794,10 +15794,10 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNH2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'oppTargetNH1', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'p1Support1', ownerId: 'p1', controller: 'p1', name: 'Support', cardType: 'Creature', type_line: 'Creature — Elf', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppTargetNH1', ownerId: 'p2', controller: 'p2', name: 'Target Opponent Creature', cardType: 'Creature', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppNonHumanBig1', ownerId: 'p2', controller: 'p2', name: 'Non-Human Big', cardType: 'Creature', type_line: 'Creature — Zombie', power: 3, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppHumanBig1', ownerId: 'p2', controller: 'p2', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 12, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'p1Support1', ownerId: 'p1', controller: 'p1', name: 'Support', cardType: 'Creature', type_line: 'Creature � Elf', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppTargetNH1', ownerId: 'p2', controller: 'p2', name: 'Target Opponent Creature', cardType: 'Creature', type_line: 'Creature � Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppNonHumanBig1', ownerId: 'p2', controller: 'p2', name: 'Non-Human Big', cardType: 'Creature', type_line: 'Creature � Zombie', power: 3, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHumanBig1', ownerId: 'p2', controller: 'p2', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature � Human Soldier', power: 9, toughness: 12, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -15829,9 +15829,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqONH1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetONH1', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetONH1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 9, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'otherNonHumanONH1', ownerId: 'p1', controller: 'p1', name: 'Other Non-Human', cardType: 'Creature', type_line: 'Creature — Elf', power: 6, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'humanONH1', ownerId: 'p1', controller: 'p1', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Knight', power: 11, toughness: 11, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetONH1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Beast', power: 9, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanONH1', ownerId: 'p1', controller: 'p1', name: 'Other Non-Human', cardType: 'Creature', type_line: 'Creature � Elf', power: 6, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanONH1', ownerId: 'p1', controller: 'p1', name: 'Human', cardType: 'Creature Human', type_line: 'Creature � Human Knight', power: 11, toughness: 11, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -15864,9 +15864,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqONH2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetONH2', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetONH2', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 3, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'otherNonHumanONH2', ownerId: 'p2', controller: 'p2', name: 'Other Non-Human', cardType: 'Creature', type_line: 'Creature — Zombie', power: 2, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'humanONH2', ownerId: 'p2', controller: 'p2', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 12, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetONH2', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature � Beast', power: 3, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanONH2', ownerId: 'p2', controller: 'p2', name: 'Other Non-Human', cardType: 'Creature', type_line: 'Creature � Zombie', power: 2, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanONH2', ownerId: 'p2', controller: 'p2', name: 'Human', cardType: 'Creature Human', type_line: 'Creature � Human Soldier', power: 9, toughness: 12, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -15898,9 +15898,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNA1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNA1', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNA1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'artifactCreatureNA1', ownerId: 'p1', controller: 'p1', name: 'Artifact Creature', cardType: 'Artifact Creature', type_line: 'Artifact Creature — Golem', power: 12, toughness: 12, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonArtifactCreatureNA1', ownerId: 'p1', controller: 'p1', name: 'Nonartifact Creature', cardType: 'Creature', type_line: 'Creature — Beast', power: 7, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNA1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactCreatureNA1', ownerId: 'p1', controller: 'p1', name: 'Artifact Creature', cardType: 'Artifact Creature', type_line: 'Artifact Creature � Golem', power: 12, toughness: 12, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactCreatureNA1', ownerId: 'p1', controller: 'p1', name: 'Nonartifact Creature', cardType: 'Creature', type_line: 'Creature � Beast', power: 7, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -15933,9 +15933,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNL1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNL1', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNL1', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 3, toughness: 10, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'landCreatureNL1', ownerId: 'p1', controller: 'p1', name: 'Land Creature', cardType: 'Land Creature', type_line: 'Land Creature — Dryad', power: 2, toughness: 15, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonLandCreatureNL1', ownerId: 'p2', controller: 'p2', name: 'Nonland Creature', cardType: 'Creature', type_line: 'Creature — Zombie', power: 4, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNL1', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature � Beast', power: 3, toughness: 10, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landCreatureNL1', ownerId: 'p1', controller: 'p1', name: 'Land Creature', cardType: 'Land Creature', type_line: 'Land Creature � Dryad', power: 2, toughness: 15, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonLandCreatureNL1', ownerId: 'p2', controller: 'p2', name: 'Nonland Creature', cardType: 'Creature', type_line: 'Creature � Zombie', power: 4, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -15999,9 +15999,9 @@ describe('Oracle IR Executor', () => {
       players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
       battlefield: [
         { id: 'eqNC1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC1', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'artifactCreatureNC1', ownerId: 'p1', controller: 'p1', name: 'Artifact Creature', cardType: 'Artifact Creature', type_line: 'Artifact Creature — Golem', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'plainCreatureNC1', ownerId: 'p1', controller: 'p1', name: 'Plain Creature', cardType: 'Creature', type_line: 'Creature — Beast', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC1', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'artifactCreatureNC1', ownerId: 'p1', controller: 'p1', name: 'Artifact Creature', cardType: 'Artifact Creature', type_line: 'Artifact Creature � Golem', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'plainCreatureNC1', ownerId: 'p1', controller: 'p1', name: 'Plain Creature', cardType: 'Creature', type_line: 'Creature � Beast', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -16030,9 +16030,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNC2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC2', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC2', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'otherNonHumanNC2', ownerId: 'p2', controller: 'p2', name: 'Other Nonhuman', cardType: 'Creature', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'humanNC2', ownerId: 'p2', controller: 'p2', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC2', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature � Zombie', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanNC2', ownerId: 'p2', controller: 'p2', name: 'Other Nonhuman', cardType: 'Creature', type_line: 'Creature � Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanNC2', ownerId: 'p2', controller: 'p2', name: 'Human', cardType: 'Creature Human', type_line: 'Creature � Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -16061,7 +16061,7 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNC3', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC3', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC3', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC3', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'artifactNC3', ownerId: 'p2', controller: 'p2', name: 'Artifact', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'nonArtifactNC3A', ownerId: 'p1', controller: 'p1', name: 'Enchantment', cardType: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'nonArtifactNC3B', ownerId: 'p2', controller: 'p2', name: 'Land', cardType: 'Land', tapped: false, summoningSick: false, counters: {} } as any,
@@ -16093,9 +16093,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNC4', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC4', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC4', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'otherNonlandCreatureNC4', ownerId: 'p2', controller: 'p2', name: 'Other Nonland Creature', cardType: 'Creature', type_line: 'Creature — Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'landCreatureNC4', ownerId: 'p2', controller: 'p2', name: 'Land Creature', cardType: 'Land Creature', type_line: 'Land Creature — Elemental', power: 8, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC4', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Beast', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonlandCreatureNC4', ownerId: 'p2', controller: 'p2', name: 'Other Nonland Creature', cardType: 'Creature', type_line: 'Creature � Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landCreatureNC4', ownerId: 'p2', controller: 'p2', name: 'Land Creature', cardType: 'Land Creature', type_line: 'Land Creature � Elemental', power: 8, toughness: 8, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -16121,7 +16121,7 @@ describe('Oracle IR Executor', () => {
       players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
       battlefield: [
         { id: 'eqNC5', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC5', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC5', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC5', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'artifactPermNC5', ownerId: 'p1', controller: 'p1', name: 'Artifact', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'nonArtifactPermNC5', ownerId: 'p1', controller: 'p1', name: 'Enchantment', cardType: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
       ],
@@ -16152,7 +16152,7 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNC6', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC6', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC6', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC6', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature � Zombie', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'oppArtifactPermNC6', ownerId: 'p2', controller: 'p2', name: 'Opp Artifact', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'oppNonArtifactPermNC6', ownerId: 'p2', controller: 'p2', name: 'Opp Enchantment', cardType: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
       ],
@@ -16183,9 +16183,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNC6A', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC6A', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC6A', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppNonHumanNC6A', ownerId: 'p2', controller: 'p2', name: 'Opp Nonhuman', cardType: 'Creature', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppHumanNC6A', ownerId: 'p2', controller: 'p2', name: 'Opp Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC6A', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature � Zombie', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppNonHumanNC6A', ownerId: 'p2', controller: 'p2', name: 'Opp Nonhuman', cardType: 'Creature', type_line: 'Creature � Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHumanNC6A', ownerId: 'p2', controller: 'p2', name: 'Opp Human', cardType: 'Creature Human', type_line: 'Creature � Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -16214,7 +16214,7 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNC6B', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC6B', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC6B', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC6B', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature � Zombie', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'oppArtifactNC6B', ownerId: 'p2', controller: 'p2', name: 'Opp Artifact', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'oppNonArtifactNC6B', ownerId: 'p2', controller: 'p2', name: 'Opp Enchantment', cardType: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
       ],
@@ -16242,9 +16242,9 @@ describe('Oracle IR Executor', () => {
       players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
       battlefield: [
         { id: 'eqNC7', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC7', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC7', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'otherNonHumanNC7', ownerId: 'p1', controller: 'p1', name: 'Other Nonhuman', cardType: 'Creature', type_line: 'Creature — Beast', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'humanNC7', ownerId: 'p1', controller: 'p1', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC7', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Zombie', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanNC7', ownerId: 'p1', controller: 'p1', name: 'Other Nonhuman', cardType: 'Creature', type_line: 'Creature � Beast', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanNC7', ownerId: 'p1', controller: 'p1', name: 'Human', cardType: 'Creature Human', type_line: 'Creature � Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -16273,9 +16273,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNC8', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC8', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC8', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Zombie', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'otherNonHumanNC8', ownerId: 'p2', controller: 'p2', name: 'Other Nonhuman', cardType: 'Creature', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'humanNC8', ownerId: 'p2', controller: 'p2', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC8', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature � Zombie', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherNonHumanNC8', ownerId: 'p2', controller: 'p2', name: 'Other Nonhuman', cardType: 'Creature', type_line: 'Creature � Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanNC8', ownerId: 'p2', controller: 'p2', name: 'Human', cardType: 'Creature Human', type_line: 'Creature � Human Soldier', power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -16304,7 +16304,7 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNC9', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNC9', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNC9', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNC9', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'artifactNC9', ownerId: 'p2', controller: 'p2', name: 'Artifact', cardType: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'nonArtifactNC9A', ownerId: 'p1', controller: 'p1', name: 'Enchantment', cardType: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'nonArtifactNC9B', ownerId: 'p2', controller: 'p2', name: 'Land', cardType: 'Land', tapped: false, summoningSick: false, counters: {} } as any,
@@ -16572,9 +16572,9 @@ describe('Oracle IR Executor', () => {
       players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any],
       battlefield: [
         { id: 'eqLeast9', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast9', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetLeast9', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 7, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonHumanSmallLeast9', ownerId: 'p1', controller: 'p1', name: 'Nonhuman Small', cardType: 'Creature', type_line: 'Creature — Beast', power: 1, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'humanLeast9', ownerId: 'p1', controller: 'p1', name: 'Human', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 0, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast9', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Elf', power: 7, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonHumanSmallLeast9', ownerId: 'p1', controller: 'p1', name: 'Nonhuman Small', cardType: 'Creature', type_line: 'Creature � Beast', power: 1, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanLeast9', ownerId: 'p1', controller: 'p1', name: 'Human', cardType: 'Creature Human', type_line: 'Creature � Human Soldier', power: 0, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -16603,9 +16603,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqLeast10', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetLeast10', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetLeast10', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 5, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppNonHumanSmallLeast10', ownerId: 'p2', controller: 'p2', name: 'Opp Nonhuman Small', cardType: 'Creature', type_line: 'Creature — Zombie', power: 3, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppHumanLeast10', ownerId: 'p2', controller: 'p2', name: 'Opp Human', cardType: 'Creature Human', type_line: 'Creature — Human Knight', power: 2, toughness: 0, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetLeast10', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature � Beast', power: 5, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppNonHumanSmallLeast10', ownerId: 'p2', controller: 'p2', name: 'Opp Nonhuman Small', cardType: 'Creature', type_line: 'Creature � Zombie', power: 3, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppHumanLeast10', ownerId: 'p2', controller: 'p2', name: 'Opp Human', cardType: 'Creature Human', type_line: 'Creature � Human Knight', power: 2, toughness: 0, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -17439,9 +17439,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNH3', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNH3', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNH3', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature — Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonHumanBig3', ownerId: 'p1', controller: 'p1', name: 'Nonhuman Big', cardType: 'Creature', type_line: 'Creature — Beast', power: 6, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'humanBig3', ownerId: 'p1', controller: 'p1', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature — Human Knight', power: 11, toughness: 11, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNH3', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature � Elf', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonHumanBig3', ownerId: 'p1', controller: 'p1', name: 'Nonhuman Big', cardType: 'Creature', type_line: 'Creature � Beast', power: 6, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanBig3', ownerId: 'p1', controller: 'p1', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature � Human Knight', power: 11, toughness: 11, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -17474,9 +17474,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'eqNH4', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetNH4', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetNH4', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonHumanBig4', ownerId: 'p1', controller: 'p1', name: 'Nonhuman Big', cardType: 'Creature', type_line: 'Creature — Dragon', power: 4, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'humanBig4', ownerId: 'p2', controller: 'p2', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature — Human Soldier', power: 8, toughness: 13, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetNH4', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature � Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonHumanBig4', ownerId: 'p1', controller: 'p1', name: 'Nonhuman Big', cardType: 'Creature', type_line: 'Creature � Dragon', power: 4, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'humanBig4', ownerId: 'p2', controller: 'p2', name: 'Human Big', cardType: 'Creature Human', type_line: 'Creature � Human Soldier', power: 8, toughness: 13, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -17511,7 +17511,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [{ id: 'p1c1' }],
           hand: [],
-          graveyard: [{ id: 'g1', type_line: 'Creature — Elf' }, { id: 'g2', type_line: 'Instant' }],
+          graveyard: [{ id: 'g1', type_line: 'Creature � Elf' }, { id: 'g2', type_line: 'Instant' }],
           exile: [],
         } as any,
         {
@@ -17521,7 +17521,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [{ id: 'p2c1' }],
           hand: [],
-          graveyard: [{ id: 'g3', type_line: 'Creature — Human' }],
+          graveyard: [{ id: 'g3', type_line: 'Creature � Human' }],
           exile: [],
         } as any,
       ],
@@ -17616,7 +17616,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [{ id: 'p2c1' }],
           hand: [],
-          graveyard: [{ id: 'g1', type_line: 'Creature — Elf' }, { id: 'g2', type_line: 'Instant' }, { id: 'g3', type_line: 'Creature — Human' }],
+          graveyard: [{ id: 'g1', type_line: 'Creature � Elf' }, { id: 'g2', type_line: 'Instant' }, { id: 'g3', type_line: 'Creature � Human' }],
           exile: [],
         } as any,
       ],
@@ -17682,7 +17682,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [{ id: 'p1c1' }],
           hand: [],
-          graveyard: [{ id: 'p1g1', type_line: 'Creature — Elf' }],
+          graveyard: [{ id: 'p1g1', type_line: 'Creature � Elf' }],
           exile: [],
         } as any,
         {
@@ -17693,8 +17693,8 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p2c1' }],
           hand: [],
           graveyard: [
-            { id: 'p2g1', type_line: 'Creature — Zombie' },
-            { id: 'p2g2', type_line: 'Creature — Human' },
+            { id: 'p2g1', type_line: 'Creature � Zombie' },
+            { id: 'p2g2', type_line: 'Creature � Human' },
             { id: 'p2s1', type_line: 'Instant' },
           ],
           exile: [],
@@ -17819,9 +17819,9 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [
             { id: 'gType1', name: 'Shock', type_line: 'Instant' },
-            { id: 'gType2', name: 'Bear', type_line: 'Creature — Bear' },
+            { id: 'gType2', name: 'Bear', type_line: 'Creature � Bear' },
             { id: 'gType3', name: 'Signet', type_line: 'Artifact' },
-            { id: 'gType4', name: 'Forest', type_line: 'Basic Land — Forest' },
+            { id: 'gType4', name: 'Forest', type_line: 'Basic Land � Forest' },
             { id: 'gType5', name: 'Another Artifact', type_line: 'Artifact' },
           ],
           exile: [],
@@ -17965,7 +17965,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqLifeGain', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetLifeGain', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqLifeGain', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetLifeGain', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetLifeGain', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -17996,7 +17996,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppLifeGain', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppLifeGain', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppLifeGain', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppLifeGain', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppLifeGain', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18027,7 +18027,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppLifeGainedNoHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppLifeGainedNoHave', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppLifeGainedNoHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppLifeGainedNoHave', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppLifeGainedNoHave', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18058,7 +18058,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppGainedNoTurnNoHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppGainedNoTurnNoHave', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppGainedNoTurnNoHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppGainedNoTurnNoHave', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppGainedNoTurnNoHave', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18087,7 +18087,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqLifeGainNoTurn', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetLifeGainNoTurn', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqLifeGainNoTurn', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetLifeGainNoTurn', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetLifeGainNoTurn', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18130,7 +18130,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqAliasLifeBatch', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetAliasLifeBatch', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqAliasLifeBatch', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetAliasLifeBatch', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetAliasLifeBatch', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18174,7 +18174,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqAliasOppActivityBatch', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetAliasOppActivityBatch', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqAliasOppActivityBatch', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetAliasOppActivityBatch', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetAliasOppActivityBatch', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18207,7 +18207,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2l1' }, { id: 'p2l2' }, { id: 'p2l3' }, { id: 'p2l4' }], hand: [], graveyard: [{ id: 'p2g1' }, { id: 'p2g2' }, { id: 'p2g3' }], exile: [{ id: 'p2e1' }, { id: 'p2e2' }] } as any,
       ],
       battlefield: [
-        { id: 'eqAliasOppZoneBatch', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetAliasOppZoneBatch', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqAliasOppZoneBatch', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetAliasOppZoneBatch', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetAliasOppZoneBatch', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18277,7 +18277,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqLifeGainedHaveAlias', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetLifeGainedHaveAlias', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqLifeGainedHaveAlias', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetLifeGainedHaveAlias', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetLifeGainedHaveAlias', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18306,7 +18306,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqLifeGainedApostropheAlias', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetLifeGainedApostropheAlias', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqLifeGainedApostropheAlias', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetLifeGainedApostropheAlias', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetLifeGainedApostropheAlias', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18337,7 +18337,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqDamageOpps', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetDamageOpps', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqDamageOpps', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetDamageOpps', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetDamageOpps', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18368,7 +18368,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppLifeLost', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppLifeLost', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppLifeLost', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppLifeLost', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppLifeLost', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18399,7 +18399,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppLifeLostTotal', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppLifeLostTotal', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppLifeLostTotal', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppLifeLostTotal', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppLifeLostTotal', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18430,7 +18430,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppLifeLostNoHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppLifeLostNoHave', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppLifeLostNoHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppLifeLostNoHave', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppLifeLostNoHave', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18461,7 +18461,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppLifeLostNoTurn', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppLifeLostNoTurn', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppLifeLostNoTurn', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppLifeLostNoTurn', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppLifeLostNoTurn', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18492,7 +18492,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppLostNoHaveNoTurn', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppLostNoHaveNoTurn', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppLostNoHaveNoTurn', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppLostNoHaveNoTurn', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppLostNoHaveNoTurn', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18521,7 +18521,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqLifeLost', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetLifeLost', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqLifeLost', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetLifeLost', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetLifeLost', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18550,7 +18550,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqLifeLostApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetLifeLostApos', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqLifeLostApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetLifeLostApos', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetLifeLostApos', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18579,7 +18579,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqDiscardedTurnApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetDiscardedTurnApos', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqDiscardedTurnApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetDiscardedTurnApos', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetDiscardedTurnApos', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18608,7 +18608,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqDiscardedTurnHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetDiscardedTurnHave', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqDiscardedTurnHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetDiscardedTurnHave', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetDiscardedTurnHave', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18637,7 +18637,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqDrawnTurnApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetDrawnTurnApos', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqDrawnTurnApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetDrawnTurnApos', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetDrawnTurnApos', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18666,7 +18666,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqDrewTurn', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetDrewTurn', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqDrewTurn', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetDrewTurn', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetDrewTurn', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18697,7 +18697,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppDrawnHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppDrawnHave', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppDrawnHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppDrawnHave', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppDrawnHave', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18728,7 +18728,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppDrew', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppDrew', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppDrew', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppDrew', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppDrew', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18757,7 +18757,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqSpellsCastApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetSpellsCastApos', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqSpellsCastApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetSpellsCastApos', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetSpellsCastApos', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18786,7 +18786,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqSpellsCast', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetSpellsCast', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqSpellsCast', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetSpellsCast', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetSpellsCast', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18817,7 +18817,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppSpellsCastHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppSpellsCastHave', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppSpellsCastHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppSpellsCastHave', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppSpellsCastHave', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18848,7 +18848,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppSpellsCast', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppSpellsCast', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppSpellsCast', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppSpellsCast', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppSpellsCast', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18877,7 +18877,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqLandsPlayedApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetLandsPlayedApos', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqLandsPlayedApos', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetLandsPlayedApos', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetLandsPlayedApos', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18906,7 +18906,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqLandsPlayed', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetLandsPlayed', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqLandsPlayed', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetLandsPlayed', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetLandsPlayed', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18937,7 +18937,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppLandsPlayedHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppLandsPlayedHave', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppLandsPlayedHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppLandsPlayedHave', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppLandsPlayedHave', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18968,7 +18968,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppLandsPlayed', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppLandsPlayed', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppLandsPlayed', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppLandsPlayed', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppLandsPlayed', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -18999,7 +18999,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppDiscardedHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppDiscardedHave', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppDiscardedHave', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppDiscardedHave', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppDiscardedHave', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -19030,7 +19030,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p3', name: 'P3', seat: 2, life: 40, library: [{ id: 'p3c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOppDiscarded', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppDiscarded', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqOppDiscarded', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppDiscarded', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppDiscarded', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -19062,8 +19062,8 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [
             { id: 'rev1', type_line: 'Instant' },
-            { id: 'rev2', type_line: 'Creature — Elf' },
-            { id: 'rev3', type_line: 'Land — Forest' },
+            { id: 'rev2', type_line: 'Creature � Elf' },
+            { id: 'rev3', type_line: 'Land � Forest' },
             { id: 'rev4', type_line: 'Sorcery' },
           ],
           hand: [],
@@ -19072,7 +19072,7 @@ describe('Oracle IR Executor', () => {
         } as any,
       ],
       battlefield: [
-        { id: 'eqRevealedThisWay', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetRevealedThisWay', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqRevealedThisWay', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetRevealedThisWay', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetRevealedThisWay', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -19609,7 +19609,7 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'sacrificedCreature1', name: 'Sacrificed Beast', type_line: 'Creature — Beast', power: 5, toughness: 3, manaValue: 6 },
+            { id: 'sacrificedCreature1', name: 'Sacrificed Beast', type_line: 'Creature � Beast', power: 5, toughness: 3, manaValue: 6 },
           ],
           exile: [],
         } as any,
@@ -19647,7 +19647,7 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'sacrificedCreatureToughness', name: 'Sacrificed Turtle', type_line: 'Creature — Turtle', power: 2, toughness: 7, manaValue: 5 },
+            { id: 'sacrificedCreatureToughness', name: 'Sacrificed Turtle', type_line: 'Creature � Turtle', power: 2, toughness: 7, manaValue: 5 },
           ],
           exile: [],
         } as any,
@@ -19685,7 +19685,7 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'sacrificedCreature2', name: 'Sacrificed Titan', type_line: 'Creature — Giant', power: 6, toughness: 6, manaValue: 8 },
+            { id: 'sacrificedCreature2', name: 'Sacrificed Titan', type_line: 'Creature � Giant', power: 6, toughness: 6, manaValue: 8 },
           ],
           exile: [],
         } as any,
@@ -19718,9 +19718,9 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqCommanderMv', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetCommanderMv', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqCommanderMv', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetCommanderMv', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetCommanderMv', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'bfCommander', ownerId: 'p1', controller: 'p1', name: 'Battlefield Commander', type_line: 'Legendary Creature — Human', isCommander: true, manaValue: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bfCommander', ownerId: 'p1', controller: 'p1', name: 'Battlefield Commander', type_line: 'Legendary Creature � Human', isCommander: true, manaValue: 4, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       commandZone: {
         objects: [
@@ -19752,7 +19752,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqCommanderTax', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetCommanderTax', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqCommanderTax', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetCommanderTax', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetCommanderTax', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       commandZone: {
@@ -20032,7 +20032,7 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetBobbleheadCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'bobblehead1', ownerId: 'p1', controller: 'p1', name: 'Vault Bobblehead', cardType: 'Artifact — Bobblehead', type_line: 'Artifact — Bobblehead', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bobblehead1', ownerId: 'p1', controller: 'p1', name: 'Vault Bobblehead', cardType: 'Artifact � Bobblehead', type_line: 'Artifact � Bobblehead', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'artifactNonBobble', ownerId: 'p1', controller: 'p1', name: 'Relic', cardType: 'Artifact', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -20064,8 +20064,8 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetBobbleheadActivate', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'bobbleheadActivate1', ownerId: 'p1', controller: 'p1', name: 'Vault Bobblehead', cardType: 'Artifact — Bobblehead', type_line: 'Artifact — Bobblehead', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'bobbleheadActivate2', ownerId: 'p1', controller: 'p1', name: 'Science Bobblehead', cardType: 'Artifact — Bobblehead', type_line: 'Artifact — Bobblehead', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bobbleheadActivate1', ownerId: 'p1', controller: 'p1', name: 'Vault Bobblehead', cardType: 'Artifact � Bobblehead', type_line: 'Artifact � Bobblehead', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bobbleheadActivate2', ownerId: 'p1', controller: 'p1', name: 'Science Bobblehead', cardType: 'Artifact � Bobblehead', type_line: 'Artifact � Bobblehead', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20096,8 +20096,8 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetShrineCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'shrine1', ownerId: 'p1', controller: 'p1', name: 'Sanctum of Tranquil Light', cardType: 'Legendary Enchantment — Shrine', type_line: 'Legendary Enchantment — Shrine', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'shrine2', ownerId: 'p1', controller: 'p1', name: 'Sanctum of Calm Waters', cardType: 'Legendary Enchantment — Shrine', type_line: 'Legendary Enchantment — Shrine', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'shrine1', ownerId: 'p1', controller: 'p1', name: 'Sanctum of Tranquil Light', cardType: 'Legendary Enchantment � Shrine', type_line: 'Legendary Enchantment � Shrine', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'shrine2', ownerId: 'p1', controller: 'p1', name: 'Sanctum of Calm Waters', cardType: 'Legendary Enchantment � Shrine', type_line: 'Legendary Enchantment � Shrine', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20261,11 +20261,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqLegend', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetLegend', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqLegend', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetLegend', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetLegend', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'legend1', ownerId: 'p1', controller: 'p1', name: 'Legend One', type_line: 'Legendary Creature — Human Wizard', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'legend2', ownerId: 'p1', controller: 'p1', name: 'Legend Two', type_line: 'Legendary Creature — Elf Druid', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonlegend', ownerId: 'p1', controller: 'p1', name: 'Not Legend', type_line: 'Creature — Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'legend1', ownerId: 'p1', controller: 'p1', name: 'Legend One', type_line: 'Legendary Creature � Human Wizard', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'legend2', ownerId: 'p1', controller: 'p1', name: 'Legend Two', type_line: 'Legendary Creature � Elf Druid', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonlegend', ownerId: 'p1', controller: 'p1', name: 'Not Legend', type_line: 'Creature � Beast', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20292,11 +20292,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqDefender', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetDefender', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqDefender', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetDefender', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetDefender', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'wall1', ownerId: 'p1', controller: 'p1', name: 'Wall', type_line: 'Creature — Wall Defender', power: 0, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'wall2', ownerId: 'p1', controller: 'p1', name: 'Keyword Defender', type_line: 'Creature — Human Soldier', keywords: ['Defender'], power: 1, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'attacker', ownerId: 'p1', controller: 'p1', name: 'Attacker', type_line: 'Creature — Goblin', power: 2, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'wall1', ownerId: 'p1', controller: 'p1', name: 'Wall', type_line: 'Creature � Wall Defender', power: 0, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'wall2', ownerId: 'p1', controller: 'p1', name: 'Keyword Defender', type_line: 'Creature � Human Soldier', keywords: ['Defender'], power: 1, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'attacker', ownerId: 'p1', controller: 'p1', name: 'Attacker', type_line: 'Creature � Goblin', power: 2, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20323,11 +20323,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqNames', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetNames', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqNames', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetNames', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetNames', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'landA1', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land — Forest', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'landA2', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land — Forest', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'landB', ownerId: 'p1', controller: 'p1', name: 'Island', type_line: 'Basic Land — Island', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landA1', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land � Forest', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landA2', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land � Forest', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landB', ownerId: 'p1', controller: 'p1', name: 'Island', type_line: 'Basic Land � Island', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'landC', ownerId: 'p1', controller: 'p1', name: 'Command Tower', type_line: 'Land', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -20356,9 +20356,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'target1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'land1', ownerId: 'p1', controller: 'p1', name: 'Tropical', type_line: 'Land — Forest Island', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'land2', ownerId: 'p1', controller: 'p1', name: 'Badlands', type_line: 'Land — Swamp Mountain', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'land3', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land — Plains', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land1', ownerId: 'p1', controller: 'p1', name: 'Tropical', type_line: 'Land � Forest Island', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land2', ownerId: 'p1', controller: 'p1', name: 'Badlands', type_line: 'Land � Swamp Mountain', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land3', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land � Plains', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20386,9 +20386,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetShrine', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'shrine1', ownerId: 'p1', controller: 'p1', name: 'Honden One', type_line: 'Legendary Enchantment — Shrine', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'shrine2', ownerId: 'p1', controller: 'p1', name: 'Honden Two', type_line: 'Legendary Enchantment — Shrine', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonshrine', ownerId: 'p1', controller: 'p1', name: 'Aura', type_line: 'Enchantment — Aura', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'shrine1', ownerId: 'p1', controller: 'p1', name: 'Honden One', type_line: 'Legendary Enchantment � Shrine', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'shrine2', ownerId: 'p1', controller: 'p1', name: 'Honden Two', type_line: 'Legendary Enchantment � Shrine', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonshrine', ownerId: 'p1', controller: 'p1', name: 'Aura', type_line: 'Enchantment � Aura', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20415,11 +20415,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqElfCount2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetElfCount2', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqElfCount2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetElfCount2', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetElfCount2', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'elfCount2A', ownerId: 'p1', controller: 'p1', name: 'Elf A', type_line: 'Creature — Elf Druid', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'elfCount2B', ownerId: 'p1', controller: 'p1', name: 'Elf B', type_line: 'Creature — Elf Warrior', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'notElfCount2', ownerId: 'p1', controller: 'p1', name: 'Human', type_line: 'Creature — Human', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'elfCount2A', ownerId: 'p1', controller: 'p1', name: 'Elf A', type_line: 'Creature � Elf Druid', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'elfCount2B', ownerId: 'p1', controller: 'p1', name: 'Elf B', type_line: 'Creature � Elf Warrior', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'notElfCount2', ownerId: 'p1', controller: 'p1', name: 'Human', type_line: 'Creature � Human', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20447,9 +20447,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetSnowPerm', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'snow1', ownerId: 'p1', controller: 'p1', name: 'Snow-Covered Forest', type_line: 'Basic Snow Land — Forest', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'snow1', ownerId: 'p1', controller: 'p1', name: 'Snow-Covered Forest', type_line: 'Basic Snow Land � Forest', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'snow2', ownerId: 'p1', controller: 'p1', name: 'Coldsteel Heart', type_line: 'Snow Artifact', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonsnow1', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land — Plains', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonsnow1', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land � Plains', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20481,7 +20481,7 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'gyCave1', type_line: 'Land — Cave' },
+            { id: 'gyCave1', type_line: 'Land � Cave' },
             { id: 'gyOther1', type_line: 'Instant' },
           ],
           exile: [],
@@ -20489,8 +20489,8 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetCaveMix', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'bfCave1', ownerId: 'p1', controller: 'p1', name: 'Hidden Cave', type_line: 'Land — Cave', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'bfOther1', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land — Forest', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bfCave1', ownerId: 'p1', controller: 'p1', name: 'Hidden Cave', type_line: 'Land � Cave', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bfOther1', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land � Forest', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20518,9 +20518,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetMountain', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'mountain1', ownerId: 'p1', controller: 'p1', name: 'Mountain', type_line: 'Basic Land — Mountain', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'mountain2', ownerId: 'p1', controller: 'p1', name: 'Steam Vents', type_line: 'Land — Island Mountain', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'plains1', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land — Plains', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'mountain1', ownerId: 'p1', controller: 'p1', name: 'Mountain', type_line: 'Basic Land � Mountain', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'mountain2', ownerId: 'p1', controller: 'p1', name: 'Steam Vents', type_line: 'Land � Island Mountain', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'plains1', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land � Plains', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20547,10 +20547,10 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqBattlefieldCreatures', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetBattlefieldCreatures', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqBattlefieldCreatures', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetBattlefieldCreatures', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetBattlefieldCreatures', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'otherCreatureA', ownerId: 'p1', controller: 'p1', name: 'Bear Cub', type_line: 'Creature — Bear', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'otherCreatureB', ownerId: 'p2', controller: 'p2', name: 'Opponent Goblin', type_line: 'Creature — Goblin', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherCreatureA', ownerId: 'p1', controller: 'p1', name: 'Bear Cub', type_line: 'Creature � Bear', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherCreatureB', ownerId: 'p2', controller: 'p2', name: 'Opponent Goblin', type_line: 'Creature � Goblin', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'nonCreaturePerm', ownerId: 'p1', controller: 'p1', name: 'Signet', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -20579,9 +20579,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetForest', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'forest1', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land — Forest', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'forest2', ownerId: 'p1', controller: 'p1', name: 'Temple Garden', type_line: 'Land — Forest Plains', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'island1', ownerId: 'p1', controller: 'p1', name: 'Island', type_line: 'Basic Land — Island', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'forest1', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land � Forest', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'forest2', ownerId: 'p1', controller: 'p1', name: 'Temple Garden', type_line: 'Land � Forest Plains', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'island1', ownerId: 'p1', controller: 'p1', name: 'Island', type_line: 'Basic Land � Island', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20609,9 +20609,9 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetSwamp', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'swamp1', ownerId: 'p1', controller: 'p1', name: 'Swamp', type_line: 'Basic Land — Swamp', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'swamp2', ownerId: 'p1', controller: 'p1', name: 'Watery Grave', type_line: 'Land — Island Swamp', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'plains2', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land — Plains', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'swamp1', ownerId: 'p1', controller: 'p1', name: 'Swamp', type_line: 'Basic Land � Swamp', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'swamp2', ownerId: 'p1', controller: 'p1', name: 'Watery Grave', type_line: 'Land � Island Swamp', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'plains2', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land � Plains', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20639,8 +20639,8 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'targetEnchantments', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'enchantment1', ownerId: 'p1', controller: 'p1', name: 'Pacifism', type_line: 'Enchantment — Aura', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'enchantment2', ownerId: 'p1', controller: 'p1', name: 'Darksteel Mutation', type_line: 'Enchantment — Aura', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'enchantment1', ownerId: 'p1', controller: 'p1', name: 'Pacifism', type_line: 'Enchantment � Aura', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'enchantment2', ownerId: 'p1', controller: 'p1', name: 'Darksteel Mutation', type_line: 'Enchantment � Aura', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'artifact1', ownerId: 'p1', controller: 'p1', name: 'Relic', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -20669,11 +20669,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqAlliesCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetAllies', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqAlliesCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetAllies', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetAllies', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'ally1', ownerId: 'p1', controller: 'p1', name: 'Ally A', type_line: 'Creature — Human Ally', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'ally2', ownerId: 'p1', controller: 'p1', name: 'Ally B', type_line: 'Creature — Kor Ally', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppAlly', ownerId: 'p2', controller: 'p2', name: 'Opp Ally', type_line: 'Creature — Human Ally', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'ally1', ownerId: 'p1', controller: 'p1', name: 'Ally A', type_line: 'Creature � Human Ally', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'ally2', ownerId: 'p1', controller: 'p1', name: 'Ally B', type_line: 'Creature � Kor Ally', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppAlly', ownerId: 'p2', controller: 'p2', name: 'Opp Ally', type_line: 'Creature � Human Ally', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20701,11 +20701,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqSoldierCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetSoldierCount', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqSoldierCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetSoldierCount', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetSoldierCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'soldier1', ownerId: 'p1', controller: 'p1', name: 'Soldier A', type_line: 'Creature — Human Soldier', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'soldier2', ownerId: 'p1', controller: 'p1', name: 'Soldier B', type_line: 'Creature — Cat Soldier', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppSoldier', ownerId: 'p2', controller: 'p2', name: 'Opp Soldier', type_line: 'Creature — Human Soldier', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'soldier1', ownerId: 'p1', controller: 'p1', name: 'Soldier A', type_line: 'Creature � Human Soldier', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'soldier2', ownerId: 'p1', controller: 'p1', name: 'Soldier B', type_line: 'Creature � Cat Soldier', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppSoldier', ownerId: 'p2', controller: 'p2', name: 'Opp Soldier', type_line: 'Creature � Human Soldier', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20733,11 +20733,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqVampireCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetVampireCount', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqVampireCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetVampireCount', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetVampireCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'vampire1', ownerId: 'p1', controller: 'p1', name: 'Vampire A', type_line: 'Creature — Vampire', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'vampire2', ownerId: 'p1', controller: 'p1', name: 'Vampire B', type_line: 'Creature — Vampire Rogue', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppVampire', ownerId: 'p2', controller: 'p2', name: 'Opp Vampire', type_line: 'Creature — Vampire', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'vampire1', ownerId: 'p1', controller: 'p1', name: 'Vampire A', type_line: 'Creature � Vampire', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'vampire2', ownerId: 'p1', controller: 'p1', name: 'Vampire B', type_line: 'Creature � Vampire Rogue', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppVampire', ownerId: 'p2', controller: 'p2', name: 'Opp Vampire', type_line: 'Creature � Vampire', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20765,11 +20765,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqDragonCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetDragonCount', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqDragonCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetDragonCount', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetDragonCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'dragon1', ownerId: 'p1', controller: 'p1', name: 'Dragon A', type_line: 'Creature — Dragon', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'dragon2', ownerId: 'p1', controller: 'p1', name: 'Dragon B', type_line: 'Creature — Dragon Shaman', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppDragon', ownerId: 'p2', controller: 'p2', name: 'Opp Dragon', type_line: 'Creature — Dragon', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'dragon1', ownerId: 'p1', controller: 'p1', name: 'Dragon A', type_line: 'Creature � Dragon', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'dragon2', ownerId: 'p1', controller: 'p1', name: 'Dragon B', type_line: 'Creature � Dragon Shaman', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppDragon', ownerId: 'p2', controller: 'p2', name: 'Opp Dragon', type_line: 'Creature � Dragon', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20797,11 +20797,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqWalkerCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetWalkerCount', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqWalkerCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetWalkerCount', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetWalkerCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'walker1', ownerId: 'p1', controller: 'p1', name: 'Walker A', type_line: 'Legendary Planeswalker — Jace', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'walker2', ownerId: 'p1', controller: 'p1', name: 'Walker B', type_line: 'Legendary Planeswalker — Liliana', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'oppWalker', ownerId: 'p2', controller: 'p2', name: 'Opp Walker', type_line: 'Legendary Planeswalker — Chandra', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'walker1', ownerId: 'p1', controller: 'p1', name: 'Walker A', type_line: 'Legendary Planeswalker � Jace', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'walker2', ownerId: 'p1', controller: 'p1', name: 'Walker B', type_line: 'Legendary Planeswalker � Liliana', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppWalker', ownerId: 'p2', controller: 'p2', name: 'Opp Walker', type_line: 'Legendary Planeswalker � Chandra', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20829,11 +20829,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqClericCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetClericCount', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqClericCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetClericCount', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetClericCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'clericA', ownerId: 'p1', controller: 'p1', name: 'Cleric A', type_line: 'Creature — Human Cleric', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'clericB', ownerId: 'p2', controller: 'p2', name: 'Cleric B', type_line: 'Creature — Kor Cleric', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonCleric', ownerId: 'p2', controller: 'p2', name: 'Non Cleric', type_line: 'Creature — Human Soldier', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'clericA', ownerId: 'p1', controller: 'p1', name: 'Cleric A', type_line: 'Creature � Human Cleric', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'clericB', ownerId: 'p2', controller: 'p2', name: 'Cleric B', type_line: 'Creature � Kor Cleric', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonCleric', ownerId: 'p2', controller: 'p2', name: 'Non Cleric', type_line: 'Creature � Human Soldier', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20861,12 +20861,12 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqElves', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetElf', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqElves', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetElf', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetElf', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'elf1', ownerId: 'p1', controller: 'p1', name: 'Llanowar Elves', type_line: 'Creature — Elf Druid', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'elf2', ownerId: 'p1', controller: 'p1', name: 'Elvish Mystic', type_line: 'Creature — Elf Druid', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'elf3', ownerId: 'p2', controller: 'p2', name: 'Wirewood Hivemaster', type_line: 'Creature — Elf', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'human1', ownerId: 'p2', controller: 'p2', name: 'Soldier', type_line: 'Creature — Human Soldier', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'elf1', ownerId: 'p1', controller: 'p1', name: 'Llanowar Elves', type_line: 'Creature � Elf Druid', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'elf2', ownerId: 'p1', controller: 'p1', name: 'Elvish Mystic', type_line: 'Creature � Elf Druid', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'elf3', ownerId: 'p2', controller: 'p2', name: 'Wirewood Hivemaster', type_line: 'Creature � Elf', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'human1', ownerId: 'p2', controller: 'p2', name: 'Soldier', type_line: 'Creature � Human Soldier', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20894,12 +20894,12 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqGoblins', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetGoblin', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqGoblins', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetGoblin', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetGoblin', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'goblin1', ownerId: 'p1', controller: 'p1', name: 'Goblin A', type_line: 'Creature — Goblin', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'goblin2', ownerId: 'p1', controller: 'p1', name: 'Goblin B', type_line: 'Creature — Goblin Warrior', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'goblin3', ownerId: 'p2', controller: 'p2', name: 'Goblin C', type_line: 'Creature — Goblin Rogue', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nongoblin', ownerId: 'p2', controller: 'p2', name: 'Human', type_line: 'Creature — Human Soldier', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'goblin1', ownerId: 'p1', controller: 'p1', name: 'Goblin A', type_line: 'Creature � Goblin', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'goblin2', ownerId: 'p1', controller: 'p1', name: 'Goblin B', type_line: 'Creature � Goblin Warrior', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'goblin3', ownerId: 'p2', controller: 'p2', name: 'Goblin C', type_line: 'Creature � Goblin Rogue', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nongoblin', ownerId: 'p2', controller: 'p2', name: 'Human', type_line: 'Creature � Human Soldier', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20926,13 +20926,13 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqParty', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetParty', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqParty', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetParty', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetParty', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'cleric1', ownerId: 'p1', controller: 'p1', name: 'Cleric', type_line: 'Creature — Human Cleric', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'rogue1', ownerId: 'p1', controller: 'p1', name: 'Rogue', type_line: 'Creature — Merfolk Rogue', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'warrior1', ownerId: 'p1', controller: 'p1', name: 'Warrior', type_line: 'Creature — Orc Warrior', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'wizard1', ownerId: 'p1', controller: 'p1', name: 'Wizard', type_line: 'Creature — Vedalken Wizard', power: 1, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'extraRogue', ownerId: 'p1', controller: 'p1', name: 'Another Rogue', type_line: 'Creature — Human Rogue', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'cleric1', ownerId: 'p1', controller: 'p1', name: 'Cleric', type_line: 'Creature � Human Cleric', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'rogue1', ownerId: 'p1', controller: 'p1', name: 'Rogue', type_line: 'Creature � Merfolk Rogue', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'warrior1', ownerId: 'p1', controller: 'p1', name: 'Warrior', type_line: 'Creature � Orc Warrior', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'wizard1', ownerId: 'p1', controller: 'p1', name: 'Wizard', type_line: 'Creature � Vedalken Wizard', power: 1, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'extraRogue', ownerId: 'p1', controller: 'p1', name: 'Another Rogue', type_line: 'Creature � Human Rogue', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -20959,10 +20959,10 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqTotalPower', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetTotalPower', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqTotalPower', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetTotalPower', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetTotalPower', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'ally1', ownerId: 'p1', controller: 'p1', name: 'Ally 1', type_line: 'Creature — Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'ally2', ownerId: 'p1', controller: 'p1', name: 'Ally 2', type_line: 'Creature — Human', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'ally1', ownerId: 'p1', controller: 'p1', name: 'Ally 1', type_line: 'Creature � Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'ally2', ownerId: 'p1', controller: 'p1', name: 'Ally 2', type_line: 'Creature � Human', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'nonCreature', ownerId: 'p1', controller: 'p1', name: 'Relic', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -20990,11 +20990,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqPowerThreshold', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetPowerThreshold', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqPowerThreshold', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetPowerThreshold', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetPowerThreshold', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'smallCreature', ownerId: 'p1', controller: 'p1', name: 'Small Ally', type_line: 'Creature — Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'bigCreature1', ownerId: 'p1', controller: 'p1', name: 'Big Ally 1', type_line: 'Creature — Giant', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'bigCreature2', ownerId: 'p1', controller: 'p1', name: 'Big Ally 2', type_line: 'Creature — Beast', power: 6, toughness: 6, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'smallCreature', ownerId: 'p1', controller: 'p1', name: 'Small Ally', type_line: 'Creature � Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bigCreature1', ownerId: 'p1', controller: 'p1', name: 'Big Ally 1', type_line: 'Creature � Giant', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bigCreature2', ownerId: 'p1', controller: 'p1', name: 'Big Ally 2', type_line: 'Creature � Beast', power: 6, toughness: 6, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -21021,11 +21021,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqColors', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetColors', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqColors', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetColors', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetColors', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'bluePerm', ownerId: 'p1', controller: 'p1', name: 'Blue Permanent', type_line: 'Enchantment', colors: ['U'], tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'redPerm', ownerId: 'p1', controller: 'p1', name: 'Red Permanent', type_line: 'Artifact Creature', colors: ['R'], power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'greenWhitePerm', ownerId: 'p1', controller: 'p1', name: 'Hybrid Permanent', type_line: 'Creature — Elf', manaCost: '{G/W}{G/W}', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'greenWhitePerm', ownerId: 'p1', controller: 'p1', name: 'Hybrid Permanent', type_line: 'Creature � Elf', manaCost: '{G/W}{G/W}', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'colorlessPerm', ownerId: 'p1', controller: 'p1', name: 'Colorless Permanent', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -21053,7 +21053,7 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'sourceManaValue', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', manaValue: 5, attachedTo: 'targetManaValue', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'sourceManaValue', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', manaValue: 5, attachedTo: 'targetManaValue', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetManaValue', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -21081,8 +21081,8 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqOilCounterCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOilCounterCount', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetOilCounterCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature — Bear', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: { oil: 1 } } as any,
+        { id: 'eqOilCounterCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOilCounterCount', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetOilCounterCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature � Bear', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: { oil: 1 } } as any,
         { id: 'artifactOilTwo', ownerId: 'p1', controller: 'p1', name: 'Oil Relic', type_line: 'Artifact', tapped: false, summoningSick: false, counters: { oil: 2 } } as any,
         { id: 'landNoOil', ownerId: 'p1', controller: 'p1', name: 'Wastes', type_line: 'Basic Land', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'offColorCounters', ownerId: 'p1', controller: 'p1', name: 'Counter Rock', type_line: 'Artifact', tapped: false, summoningSick: false, counters: { charge: 3 } } as any,
@@ -21226,11 +21226,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqGreatestArtifactMv', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetGreatestArtifactMv', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqGreatestArtifactMv', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetGreatestArtifactMv', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetGreatestArtifactMv', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'artifactMv2', ownerId: 'p1', controller: 'p1', name: 'Signet', type_line: 'Artifact', manaValue: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'artifactMv6', ownerId: 'p1', controller: 'p1', name: 'Big Relic', type_line: 'Artifact', manaValue: 6, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nonArtifactMv9', ownerId: 'p1', controller: 'p1', name: 'Huge Creature', type_line: 'Creature — Beast', manaValue: 9, power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonArtifactMv9', ownerId: 'p1', controller: 'p1', name: 'Huge Creature', type_line: 'Creature � Beast', manaValue: 9, power: 9, toughness: 9, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -21257,12 +21257,12 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'eqSharedTypeCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetSharedTypeCount', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'targetSharedTypeCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature — Bear', type_line: 'Creature — Bear', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'sharedElf1', ownerId: 'p1', controller: 'p1', name: 'Elf Scout', type_line: 'Creature — Elf Scout', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'sharedElf2', ownerId: 'p1', controller: 'p1', name: 'Elf Druid', type_line: 'Creature — Elf Druid', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'sharedElf3', ownerId: 'p1', controller: 'p1', name: 'Elf Warrior', type_line: 'Creature — Elf Warrior', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'sharedZombieOnly', ownerId: 'p1', controller: 'p1', name: 'Zombie Rogue', type_line: 'Creature — Zombie Rogue', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'eqSharedTypeCount', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetSharedTypeCount', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetSharedTypeCount', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature � Bear', type_line: 'Creature � Bear', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'sharedElf1', ownerId: 'p1', controller: 'p1', name: 'Elf Scout', type_line: 'Creature � Elf Scout', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'sharedElf2', ownerId: 'p1', controller: 'p1', name: 'Elf Druid', type_line: 'Creature � Elf Druid', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'sharedElf3', ownerId: 'p1', controller: 'p1', name: 'Elf Warrior', type_line: 'Creature � Elf Warrior', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'sharedZombieOnly', ownerId: 'p1', controller: 'p1', name: 'Zombie Rogue', type_line: 'Creature � Zombie Rogue', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -21602,10 +21602,10 @@ describe('Oracle IR Executor', () => {
       whereText: 'X is 1 plus the number of basic land types among lands you control',
       setup: {
         battlefield: [
-          { id: 'landTypeForest', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land — Forest' },
-          { id: 'landTypeIsland', ownerId: 'p1', controller: 'p1', name: 'Island', type_line: 'Basic Land — Island' },
-          { id: 'landTypeMountain', ownerId: 'p1', controller: 'p1', name: 'Mountain', type_line: 'Basic Land — Mountain' },
-          { id: 'landTypeForestDup', ownerId: 'p1', controller: 'p1', name: 'Forest 2', type_line: 'Basic Land — Forest' },
+          { id: 'landTypeForest', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land � Forest' },
+          { id: 'landTypeIsland', ownerId: 'p1', controller: 'p1', name: 'Island', type_line: 'Basic Land � Island' },
+          { id: 'landTypeMountain', ownerId: 'p1', controller: 'p1', name: 'Mountain', type_line: 'Basic Land � Mountain' },
+          { id: 'landTypeForestDup', ownerId: 'p1', controller: 'p1', name: 'Forest 2', type_line: 'Basic Land � Forest' },
         ],
       },
       expected: 4,
@@ -21652,9 +21652,9 @@ describe('Oracle IR Executor', () => {
       whereText: 'X is one plus the number of foods you control',
       setup: {
         battlefield: [
-          { id: 'foodCountA', ownerId: 'p1', controller: 'p1', name: 'Food A', type_line: 'Artifact — Food' },
-          { id: 'foodCountB', ownerId: 'p1', controller: 'p1', name: 'Food B', type_line: 'Artifact — Food' },
-          { id: 'foodCountC', ownerId: 'p2', controller: 'p2', name: 'Opp Food', type_line: 'Artifact — Food' },
+          { id: 'foodCountA', ownerId: 'p1', controller: 'p1', name: 'Food A', type_line: 'Artifact � Food' },
+          { id: 'foodCountB', ownerId: 'p1', controller: 'p1', name: 'Food B', type_line: 'Artifact � Food' },
+          { id: 'foodCountC', ownerId: 'p2', controller: 'p2', name: 'Opp Food', type_line: 'Artifact � Food' },
         ],
       },
       expected: 3,
@@ -21723,11 +21723,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'mountVehicleSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetMountVehicleDirectExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'mountVehicleSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetMountVehicleDirectExecutor', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetMountVehicleDirectExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'mountVehicleDirectExecutorA', ownerId: 'p1', controller: 'p1', name: 'Rider Mount', type_line: 'Creature — Mount', cardType: 'Creature — Mount' } as any,
-        { id: 'mountVehicleDirectExecutorB', ownerId: 'p1', controller: 'p1', name: 'Sky Vehicle', type_line: 'Artifact — Vehicle', cardType: 'Artifact — Vehicle' } as any,
-        { id: 'mountVehicleDirectExecutorC', ownerId: 'p1', controller: 'p1', name: 'Elf', type_line: 'Creature — Elf', cardType: 'Creature' } as any,
+        { id: 'mountVehicleDirectExecutorA', ownerId: 'p1', controller: 'p1', name: 'Rider Mount', type_line: 'Creature � Mount', cardType: 'Creature � Mount' } as any,
+        { id: 'mountVehicleDirectExecutorB', ownerId: 'p1', controller: 'p1', name: 'Sky Vehicle', type_line: 'Artifact � Vehicle', cardType: 'Artifact � Vehicle' } as any,
+        { id: 'mountVehicleDirectExecutorC', ownerId: 'p1', controller: 'p1', name: 'Elf', type_line: 'Creature � Elf', cardType: 'Creature' } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -21762,11 +21762,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'mountVehiclePlusSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetMountVehiclePlusExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'mountVehiclePlusSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetMountVehiclePlusExecutor', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetMountVehiclePlusExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'mountVehiclePlusExecutorA', ownerId: 'p1', controller: 'p1', name: 'Rider Mount', type_line: 'Creature — Mount', cardType: 'Creature — Mount' } as any,
-        { id: 'mountVehiclePlusExecutorB', ownerId: 'p1', controller: 'p1', name: 'Sky Vehicle', type_line: 'Artifact — Vehicle', cardType: 'Artifact — Vehicle' } as any,
-        { id: 'mountVehiclePlusExecutorC', ownerId: 'p1', controller: 'p1', name: 'Elf', type_line: 'Creature — Elf', cardType: 'Creature' } as any,
+        { id: 'mountVehiclePlusExecutorA', ownerId: 'p1', controller: 'p1', name: 'Rider Mount', type_line: 'Creature � Mount', cardType: 'Creature � Mount' } as any,
+        { id: 'mountVehiclePlusExecutorB', ownerId: 'p1', controller: 'p1', name: 'Sky Vehicle', type_line: 'Artifact � Vehicle', cardType: 'Artifact � Vehicle' } as any,
+        { id: 'mountVehiclePlusExecutorC', ownerId: 'p1', controller: 'p1', name: 'Elf', type_line: 'Creature � Elf', cardType: 'Creature' } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -21801,13 +21801,13 @@ describe('Oracle IR Executor', () => {
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'halfZombieSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetHalfZombieExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'halfZombieSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetHalfZombieExecutor', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetHalfZombieExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'halfZombieExecA', ownerId: 'p1', controller: 'p1', name: 'Zombie A', type_line: 'Creature — Zombie' } as any,
-        { id: 'halfZombieExecB', ownerId: 'p1', controller: 'p1', name: 'Zombie B', type_line: 'Creature — Zombie' } as any,
-        { id: 'halfZombieExecC', ownerId: 'p1', controller: 'p1', name: 'Zombie C', type_line: 'Creature — Zombie' } as any,
-        { id: 'halfZombieExecD', ownerId: 'p1', controller: 'p1', name: 'Zombie D', type_line: 'Creature — Zombie' } as any,
-        { id: 'halfZombieExecE', ownerId: 'p1', controller: 'p1', name: 'Zombie E', type_line: 'Creature — Zombie' } as any,
+        { id: 'halfZombieExecA', ownerId: 'p1', controller: 'p1', name: 'Zombie A', type_line: 'Creature � Zombie' } as any,
+        { id: 'halfZombieExecB', ownerId: 'p1', controller: 'p1', name: 'Zombie B', type_line: 'Creature � Zombie' } as any,
+        { id: 'halfZombieExecC', ownerId: 'p1', controller: 'p1', name: 'Zombie C', type_line: 'Creature � Zombie' } as any,
+        { id: 'halfZombieExecD', ownerId: 'p1', controller: 'p1', name: 'Zombie D', type_line: 'Creature � Zombie' } as any,
+        { id: 'halfZombieExecE', ownerId: 'p1', controller: 'p1', name: 'Zombie E', type_line: 'Creature � Zombie' } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -21845,11 +21845,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p4', name: 'P4', seat: 3, life: 40, library: [{ id: 'p4l1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'oppControllerArtifactSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppControllerArtifactExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppControllerArtifactSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppControllerArtifactExecutor', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppControllerArtifactExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'oppAArtifactExec', ownerId: 'p2', controller: 'p2', name: 'Relic A', type_line: 'Artifact' } as any,
-        { id: 'oppBCreatureOnlyExec', ownerId: 'p3', controller: 'p3', name: 'Elf', type_line: 'Creature — Elf' } as any,
-        { id: 'oppCArtifactExec', ownerId: 'p4', controller: 'p4', name: 'Relic C', type_line: 'Artifact — Equipment' } as any,
+        { id: 'oppBCreatureOnlyExec', ownerId: 'p3', controller: 'p3', name: 'Elf', type_line: 'Creature � Elf' } as any,
+        { id: 'oppCArtifactExec', ownerId: 'p4', controller: 'p4', name: 'Relic C', type_line: 'Artifact � Equipment' } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -21887,11 +21887,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p4', name: 'P4', seat: 3, life: 40, library: [{ id: 'p4l1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'oppControllerArtifactsSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppControllerArtifactsExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppControllerArtifactsSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppControllerArtifactsExecutor', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppControllerArtifactsExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'oppArtifactsExecA', ownerId: 'p2', controller: 'p2', name: 'Relic A', type_line: 'Artifact' } as any,
-        { id: 'oppArtifactsExecB', ownerId: 'p3', controller: 'p3', name: 'Relic B', type_line: 'Artifact — Equipment' } as any,
-        { id: 'oppNoArtifactsExec', ownerId: 'p4', controller: 'p4', name: 'Elf', type_line: 'Creature — Elf' } as any,
+        { id: 'oppArtifactsExecB', ownerId: 'p3', controller: 'p3', name: 'Relic B', type_line: 'Artifact � Equipment' } as any,
+        { id: 'oppNoArtifactsExec', ownerId: 'p4', controller: 'p4', name: 'Elf', type_line: 'Creature � Elf' } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -21929,11 +21929,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p4', name: 'P4', seat: 3, life: 40, library: [{ id: 'p4l1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'oppControllerArtEnchSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetOppControllerArtEnchExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'oppControllerArtEnchSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetOppControllerArtEnchExecutor', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetOppControllerArtEnchExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'oppArtEnchExecA', ownerId: 'p2', controller: 'p2', name: 'Relic A', type_line: 'Artifact' } as any,
-        { id: 'oppArtEnchExecB', ownerId: 'p3', controller: 'p3', name: 'Aura B', type_line: 'Enchantment — Aura' } as any,
-        { id: 'oppNoArtEnchExec', ownerId: 'p4', controller: 'p4', name: 'Elf', type_line: 'Creature — Elf' } as any,
+        { id: 'oppArtEnchExecB', ownerId: 'p3', controller: 'p3', name: 'Aura B', type_line: 'Enchantment � Aura' } as any,
+        { id: 'oppNoArtEnchExec', ownerId: 'p4', controller: 'p4', name: 'Elf', type_line: 'Creature � Elf' } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -21973,7 +21973,7 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1l1' }],
           hand: [],
           graveyard: [
-            { id: 'sacrificedCreaturePlusTwoExec', name: 'Sacrificed Titan', type_line: 'Creature — Giant', power: 6, toughness: 6, manaValue: 4 },
+            { id: 'sacrificedCreaturePlusTwoExec', name: 'Sacrificed Titan', type_line: 'Creature � Giant', power: 6, toughness: 6, manaValue: 4 },
           ],
           exile: [],
         } as any,
@@ -22071,7 +22071,7 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1l1' }],
           hand: [],
           graveyard: [
-            { id: 'sacCreatureSourceExecutor', name: 'Sac Beast', type_line: 'Creature — Beast', cardType: 'Creature', manaValue: 3, manaCost: '{2}{G}' },
+            { id: 'sacCreatureSourceExecutor', name: 'Sac Beast', type_line: 'Creature � Beast', cardType: 'Creature', manaValue: 3, manaCost: '{2}{G}' },
           ],
           exile: [],
         } as any,
@@ -22116,11 +22116,11 @@ describe('Oracle IR Executor', () => {
         { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2l1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'nonbasicLandTypesSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetNonbasicLandTypesExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonbasicLandTypesSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetNonbasicLandTypesExecutor', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetNonbasicLandTypesExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'nblTypeShock', ownerId: 'p2', controller: 'p2', name: 'Steam Vents', type_line: 'Land — Island Mountain' } as any,
-        { id: 'nblTypeTemple', ownerId: 'p2', controller: 'p2', name: 'Temple Garden', type_line: 'Land — Forest Plains' } as any,
-        { id: 'nblTypeSwamp', ownerId: 'p2', controller: 'p2', name: 'Watery Grave', type_line: 'Land — Island Swamp' } as any,
+        { id: 'nblTypeShock', ownerId: 'p2', controller: 'p2', name: 'Steam Vents', type_line: 'Land � Island Mountain' } as any,
+        { id: 'nblTypeTemple', ownerId: 'p2', controller: 'p2', name: 'Temple Garden', type_line: 'Land � Forest Plains' } as any,
+        { id: 'nblTypeSwamp', ownerId: 'p2', controller: 'p2', name: 'Watery Grave', type_line: 'Land � Island Swamp' } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -22165,12 +22165,12 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [],
           exile: [
-            { id: 'exiledCreatureMvAliasRef', name: 'Exiled Beast', type_line: 'Creature — Beast', manaValue: 4, manaCost: '{2}{G}{G}' },
+            { id: 'exiledCreatureMvAliasRef', name: 'Exiled Beast', type_line: 'Creature � Beast', manaValue: 4, manaCost: '{2}{G}{G}' },
           ],
         } as any,
       ],
       battlefield: [
-        { id: 'exiledCreatureAliasSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetExiledCreatureAliasExecutor', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'exiledCreatureAliasSourceExecutor', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetExiledCreatureAliasExecutor', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetExiledCreatureAliasExecutor', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
       ],
       priority: 'p1',
@@ -22216,12 +22216,12 @@ describe('Oracle IR Executor', () => {
           hand: [],
           graveyard: [],
           exile: [
-            { id: 'exiledCreatureMvAliasRefTwo', name: 'Exiled Giant', type_line: 'Creature — Giant', manaValue: 5, manaCost: '{3}{G}{G}' },
+            { id: 'exiledCreatureMvAliasRefTwo', name: 'Exiled Giant', type_line: 'Creature � Giant', manaValue: 5, manaCost: '{3}{G}{G}' },
           ],
         } as any,
       ],
       battlefield: [
-        { id: 'exiledCreatureAliasSourceExecutorTwo', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact — Equipment', type_line: 'Artifact — Equipment', attachedTo: 'targetExiledCreatureAliasExecutorTwo', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'exiledCreatureAliasSourceExecutorTwo', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetExiledCreatureAliasExecutorTwo', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetExiledCreatureAliasExecutorTwo', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
       ],
       priority: 'p1',
@@ -22627,6 +22627,225 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it.each([
+    { whereText: "X is Agatha's mana value", expected: 4, ownerName: 'Agatha', baseManaValue: 4 },
+    { whereText: "X is one plus Agatha's mana value", expected: 5, ownerName: 'Agatha', baseManaValue: 4 },
+    { whereText: "X is 2 plus Amy Rose's mana value", expected: 5, ownerName: 'Amy Rose', baseManaValue: 3 },
+    { whereText: "X is 10 minus Agatha's mana value", expected: 6, ownerName: 'Agatha', baseManaValue: 4 },
+    { whereText: "X is Agatha's mana value minus 2", expected: 2, ownerName: 'Agatha', baseManaValue: 4 },
+    { whereText: "X is twice Vadrik's mana value", expected: 4, ownerName: 'Vadrik', baseManaValue: 2 },
+    { whereText: "X is half the Tifa Lockhart's mana value, rounded down", expected: 2, ownerName: 'Tifa Lockhart', baseManaValue: 5 },
+    { whereText: "X is half the Tifa Lockhart's mana value, rounded up", expected: 3, ownerName: 'Tifa Lockhart', baseManaValue: 5 },
+  ])('applies executor modify_pt owner mana-value arithmetic lock: $whereText', ({ whereText, expected, ownerName, baseManaValue }) => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: whereText },
+        raw: 'The creature gets +X/+0 until end of turn where ' + whereText + '.',
+      } as any,
+    ];
+
+    const ownerRef: any = {
+      id: 'ownerManaValueArithmeticRefObject',
+      ownerId: 'p1',
+      controller: 'p1',
+      name: ownerName,
+      type_line: 'Creature',
+      cardType: 'Creature',
+      manaValue: baseManaValue,
+      counters: {},
+    };
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        ownerRef,
+        { id: 'ownerManaValueArithmeticEquip', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact - Equipment', type_line: 'Artifact - Equipment', attachedTo: 'ownerManaValueArithmeticTarget', counters: {} } as any,
+        { id: 'ownerManaValueArithmeticTarget', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'ownerManaValueArithmeticEquip',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'ownerManaValueArithmeticTarget') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(expected);
+    expect(ptMod.toughness).toBe(0);
+  });
+  it.each([
+    { whereText: "X is Agatha's power", expected: 6, ownerName: 'Agatha', stat: 'power', statValue: 6 },
+    { whereText: "X is Amy Rose's power", expected: 5, ownerName: 'Amy Rose', stat: 'power', statValue: 5 },
+    { whereText: "X is Elenda's power", expected: 4, ownerName: 'Elenda', stat: 'power', statValue: 4 },
+    { whereText: "X is Fang's power", expected: 3, ownerName: 'Fang', stat: 'power', statValue: 3 },
+    { whereText: "X is Fire Lord Zuko's power", expected: 7, ownerName: 'Fire Lord Zuko', stat: 'power', statValue: 7 },
+    { whereText: "X is Flavor Disaster's power", expected: 8, ownerName: 'Flavor Disaster', stat: 'power', statValue: 8 },
+    { whereText: "X is Halana and Alena's power", expected: 5, ownerName: 'Halana and Alena', stat: 'power', statValue: 5 },
+    { whereText: "X is Halana and Alena and Gisa and Geralf's power", expected: 9, ownerName: 'Halana and Alena and Gisa and Geralf', stat: 'power', statValue: 9 },
+    { whereText: "X is Helga's power", expected: 4, ownerName: 'Helga', stat: 'power', statValue: 4 },
+    { whereText: "X is Jyoti's power", expected: 6, ownerName: 'Jyoti', stat: 'power', statValue: 6 },
+    { whereText: "X is Maelstrom Muse's power", expected: 3, ownerName: 'Maelstrom Muse', stat: 'power', statValue: 3 },
+    { whereText: "X is Mona Lisa's power", expected: 5, ownerName: 'Mona Lisa', stat: 'power', statValue: 5 },
+    { whereText: "X is Obuun's power", expected: 7, ownerName: 'Obuun', stat: 'power', statValue: 7 },
+    { whereText: "X is Paladin Elizabeth Taggerdy's power", expected: 4, ownerName: 'Paladin Elizabeth Taggerdy', stat: 'power', statValue: 4 },
+    { whereText: "X is Ratatwotwo's power", expected: 6, ownerName: 'Ratatwotwo', stat: 'power', statValue: 6 },
+    { whereText: "X is Redshift's power", expected: 5, ownerName: 'Redshift', stat: 'power', statValue: 5 },
+    { whereText: "X is Resilient Khenra's power", expected: 2, ownerName: 'Resilient Khenra', stat: 'power', statValue: 2 },
+    { whereText: "X is Sarevok's power", expected: 8, ownerName: 'Sarevok', stat: 'power', statValue: 8 },
+    { whereText: "X is Syr Faren's power", expected: 2, ownerName: 'Syr Faren', stat: 'power', statValue: 2 },
+    { whereText: "X is Tifa Lockhart's power", expected: 9, ownerName: 'Tifa Lockhart', stat: 'power', statValue: 9 },
+    { whereText: "X is Tomakul Phoenix's power", expected: 4, ownerName: 'Tomakul Phoenix', stat: 'power', statValue: 4 },
+    { whereText: "X is Vadrik's power", expected: 3, ownerName: 'Vadrik', stat: 'power', statValue: 3 },
+    { whereText: "X is Vivi Ornitier's power", expected: 2, ownerName: 'Vivi Ornitier', stat: 'power', statValue: 2 },
+    { whereText: "X is Arek's intensity", expected: 4, ownerName: 'Arek', stat: 'intensity', statValue: 4 },
+    { whereText: "X is Chittering Skullspeaker's intensity", expected: 3, ownerName: 'Chittering Skullspeaker', stat: 'intensity', statValue: 3 },
+    { whereText: "X is Legion's Chant's intensity", expected: 2, ownerName: "Legion's Chant", stat: 'intensity', statValue: 2 },
+    { whereText: "X is Minthara of the Absolute's intensity", expected: 5, ownerName: 'Minthara of the Absolute', stat: 'intensity', statValue: 5 },
+    { whereText: "X is Teysa's intensity", expected: 4, ownerName: 'Teysa', stat: 'intensity', statValue: 4 },
+  ])('applies executor modify_pt owner-stat lock: $whereText', ({ whereText, expected, ownerName, stat, statValue }) => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: whereText },
+        raw: `The creature gets +X/+0 until end of turn where ${whereText}.`,
+      } as any,
+    ];
+
+    const ownerRef: any = {
+      id: 'ownerStatRefObject',
+      ownerId: 'p1',
+      controller: 'p1',
+      name: ownerName,
+      type_line: stat === 'intensity' ? 'Artifact' : 'Creature',
+      cardType: stat === 'intensity' ? 'Artifact' : 'Creature',
+      counters: {},
+    };
+    if (stat === 'power') ownerRef.power = statValue;
+    if (stat === 'intensity') ownerRef.intensity = statValue;
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        ownerRef,
+        { id: 'ownerStatEquip', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact - Equipment', type_line: 'Artifact - Equipment', attachedTo: 'ownerStatTarget', counters: {} } as any,
+        { id: 'ownerStatTarget', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'ownerStatEquip',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'ownerStatTarget') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(expected);
+    expect(ptMod.toughness).toBe(0);
+  });
+  it.each([
+    { whereText: "X is Agatha's power", expected: 6, ownerName: 'Agatha', stat: 'power', statValue: 6 },
+    { whereText: "X is Amy Rose's power", expected: 5, ownerName: 'Amy Rose', stat: 'power', statValue: 5 },
+    { whereText: "X is Elenda's power", expected: 4, ownerName: 'Elenda', stat: 'power', statValue: 4 },
+    { whereText: "X is Fang's power", expected: 3, ownerName: 'Fang', stat: 'power', statValue: 3 },
+    { whereText: "X is Fire Lord Zuko's power", expected: 7, ownerName: 'Fire Lord Zuko', stat: 'power', statValue: 7 },
+    { whereText: "X is Flavor Disaster's power", expected: 8, ownerName: 'Flavor Disaster', stat: 'power', statValue: 8 },
+    { whereText: "X is Halana and Alena's power", expected: 5, ownerName: 'Halana and Alena', stat: 'power', statValue: 5 },
+    { whereText: "X is Halana and Alena and Gisa and Geralf's power", expected: 9, ownerName: 'Halana and Alena and Gisa and Geralf', stat: 'power', statValue: 9 },
+    { whereText: "X is Helga's power", expected: 4, ownerName: 'Helga', stat: 'power', statValue: 4 },
+    { whereText: "X is Jyoti's power", expected: 6, ownerName: 'Jyoti', stat: 'power', statValue: 6 },
+    { whereText: "X is Maelstrom Muse's power", expected: 3, ownerName: 'Maelstrom Muse', stat: 'power', statValue: 3 },
+    { whereText: "X is Mona Lisa's power", expected: 5, ownerName: 'Mona Lisa', stat: 'power', statValue: 5 },
+    { whereText: "X is Obuun's power", expected: 7, ownerName: 'Obuun', stat: 'power', statValue: 7 },
+    { whereText: "X is Paladin Elizabeth Taggerdy's power", expected: 4, ownerName: 'Paladin Elizabeth Taggerdy', stat: 'power', statValue: 4 },
+    { whereText: "X is Ratatwotwo's power", expected: 6, ownerName: 'Ratatwotwo', stat: 'power', statValue: 6 },
+    { whereText: "X is Redshift's power", expected: 5, ownerName: 'Redshift', stat: 'power', statValue: 5 },
+    { whereText: "X is Resilient Khenra's power", expected: 2, ownerName: 'Resilient Khenra', stat: 'power', statValue: 2 },
+    { whereText: "X is Sarevok's power", expected: 8, ownerName: 'Sarevok', stat: 'power', statValue: 8 },
+    { whereText: "X is Syr Faren's power", expected: 2, ownerName: 'Syr Faren', stat: 'power', statValue: 2 },
+    { whereText: "X is Tifa Lockhart's power", expected: 9, ownerName: 'Tifa Lockhart', stat: 'power', statValue: 9 },
+    { whereText: "X is Tomakul Phoenix's power", expected: 4, ownerName: 'Tomakul Phoenix', stat: 'power', statValue: 4 },
+    { whereText: "X is Vadrik's power", expected: 3, ownerName: 'Vadrik', stat: 'power', statValue: 3 },
+    { whereText: "X is Vivi Ornitier's power", expected: 2, ownerName: 'Vivi Ornitier', stat: 'power', statValue: 2 },
+    { whereText: "X is Arek's intensity", expected: 4, ownerName: 'Arek', stat: 'intensity', statValue: 4 },
+    { whereText: "X is Chittering Skullspeaker's intensity", expected: 3, ownerName: 'Chittering Skullspeaker', stat: 'intensity', statValue: 3 },
+    { whereText: "X is Legion's Chant's intensity", expected: 2, ownerName: "Legion's Chant", stat: 'intensity', statValue: 2 },
+    { whereText: "X is Minthara of the Absolute's intensity", expected: 5, ownerName: 'Minthara of the Absolute', stat: 'intensity', statValue: 5 },
+    { whereText: "X is Teysa's intensity", expected: 4, ownerName: 'Teysa', stat: 'intensity', statValue: 4 },
+  ])('applies executor modify_pt owner-stat lock: $whereText', ({ whereText, expected, ownerName, stat, statValue }) => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'equipped_creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: whereText },
+        raw: `The creature gets +X/+0 until end of turn where ${whereText}.`,
+      } as any,
+    ];
+
+    const ownerRef: any = {
+      id: 'ownerStatRefObject',
+      ownerId: 'p1',
+      controller: 'p1',
+      name: ownerName,
+      type_line: stat === 'intensity' ? 'Artifact' : 'Creature',
+      cardType: stat === 'intensity' ? 'Artifact' : 'Creature',
+      counters: {},
+    };
+    if (stat === 'power') ownerRef.power = statValue;
+    if (stat === 'intensity') ownerRef.intensity = statValue;
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1l1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        ownerRef,
+        { id: 'ownerStatEquip', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact - Equipment', type_line: 'Artifact - Equipment', attachedTo: 'ownerStatTarget', counters: {} } as any,
+        { id: 'ownerStatTarget', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'ownerStatEquip',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'ownerStatTarget') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(expected);
+    expect(ptMod.toughness).toBe(0);
+  });
   it('applies executor modify_pt where X is Agatha\'s Soul Cauldron\'s intensity', () => {
     const steps = [
       {
@@ -23315,7 +23534,7 @@ describe('Oracle IR Executor', () => {
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [],
-          exile: [{ id: 'exiledRef2', manaValue: 7, type_line: 'Creature — Dragon' }],
+          exile: [{ id: 'exiledRef2', manaValue: 7, type_line: 'Creature � Dragon' }],
         } as any,
       ],
       battlefield: [
@@ -23374,7 +23593,7 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         { id: 'verseTarget', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'verseSource', ownerId: 'p1', controller: 'p1', name: 'Song', type_line: 'Enchantment — Saga', tapped: false, summoningSick: false, counters: { verse: 4, lore: 1 } } as any,
+        { id: 'verseSource', ownerId: 'p1', controller: 'p1', name: 'Song', type_line: 'Enchantment � Saga', tapped: false, summoningSick: false, counters: { verse: 4, lore: 1 } } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -23610,7 +23829,7 @@ describe('Oracle IR Executor', () => {
           seat: 1,
           life: 40,
           library: [
-            { id: 'p2c1', type_line: 'Creature — Human' },
+            { id: 'p2c1', type_line: 'Creature � Human' },
             { id: 'p2c2', type_line: 'Instant' },
             { id: 'p2c3', type_line: 'Land' },
             { id: 'p2c4', type_line: 'Sorcery' },
@@ -25560,7 +25779,7 @@ describe('Oracle IR Executor', () => {
           library: [],
           hand: [{ id: 'h0', name: 'Existing', type_line: 'Instant' }],
           graveyard: [
-            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature � Bear' },
             { id: 'g2', name: 'Shock', type_line: 'Instant' },
           ],
           exile: [],
@@ -25592,7 +25811,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p1g1', name: 'P1 Bear', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p1g1', name: 'P1 Bear', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
         {
@@ -25602,7 +25821,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'P2 Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'P2 Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -26132,7 +26351,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p1g1', name: 'P1 Bear', type_line: 'Creature — Bear' }],
+          graveyard: [{ id: 'p1g1', name: 'P1 Bear', type_line: 'Creature � Bear' }],
           exile: [],
         } as any,
         {
@@ -26142,7 +26361,7 @@ describe('Oracle IR Executor', () => {
           life: 40,
           library: [],
           hand: [],
-          graveyard: [{ id: 'p2g1', name: 'P2 Giant', type_line: 'Creature — Giant' }],
+          graveyard: [{ id: 'p2g1', name: 'P2 Giant', type_line: 'Creature � Giant' }],
           exile: [],
         } as any,
       ],
@@ -26160,6 +26379,405 @@ describe('Oracle IR Executor', () => {
     expect(p2.graveyard.map((c: any) => c.id)).toEqual(['p2g1']);
     expect(p1.hand).toEqual([]);
     expect(p2.hand).toEqual([]);
+  });
+
+
+  // -- New where-X phrase regression tests -------------------------------------
+
+  describe('timing-qualifier strip in where-X phrases', () => {
+    it('strips "as that ability resolves" timing qualifier', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is that creature's power as that ability resolves.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [{ id: 'tc1', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 3, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tc1')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(3);
+      expect(ptMod?.toughness).toBe(0);
+    });
+
+    it('strips "when bulk up resolves" timing qualifier', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+X until end of turn where X is that creature's power when bulk up resolves.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [{ id: 'tc2', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 4, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tc2')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(4);
+    });
+
+    it('strips "as you cast this spell" qualifier', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is that creature's power as you cast this spell.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [
+          { id: 'tc3', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature', power: 5, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tc3')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(5);
+    });
+  });
+
+  describe('alias normalizations in where-X phrases', () => {
+    it('resolves "that artifact\'s mana value" as source card MV', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is that artifact's mana value.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        stack: [{ id: 'artSrc', type: 'spell', manaValue: 6, card: { manaValue: 6 } } as any],
+        battlefield: [{ id: 'tc4', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'artSrc' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tc4')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(6);
+    });
+
+    it('resolves "his power when his last ability resolves" -> its power', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is his power when his last ability resolves.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [{ id: 'tHis', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 7, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tHis')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(7);
+    });
+
+    it('strips trailing ", then draw three cards" clause', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is the greatest mana value among permanents you control, then draw three cards.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [
+          { id: 'tcStrip', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {}, card: { manaValue: 2 } } as any,
+          { id: 'artStrip', ownerId: 'p1', controller: 'p1', name: 'Art', cardType: 'Artifact', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {}, card: { manaValue: 5 } } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcStrip')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(5);
+    });
+  });
+
+  describe('word-number normalization in where-X phrases', () => {
+    it('resolves word number "five" normalization in where-X phrases', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is five plus the number of creatures you control.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [
+          { id: 'tcFive', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcFive')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(6); // five(5) + 1 creature = 6
+    });
+  });
+
+  describe('greatest power among [subtype] you control', () => {
+    it('resolves "greatest power among giants you control"', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature an opponent controls gets +X/+0 until end of turn where X is the greatest power among giants you control.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        ],
+        battlefield: [
+          { id: 'tcGiant', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'g1', ownerId: 'p1', controller: 'p1', name: 'Giant1', cardType: 'Creature', type_line: 'Creature', subtypes: ['Giant'], power: 6, toughness: 6, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'g2', ownerId: 'p1', controller: 'p1', name: 'Giant2', cardType: 'Creature', type_line: 'Creature', subtypes: ['Giant'], power: 9, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcGiant')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(9);
+    });
+  });
+
+  describe('greatest power among creature cards in graveyard', () => {
+    it('resolves "greatest power among creature cards in your graveyard"', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is the greatest power among creature cards in your graveyard.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{
+          id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], exile: [],
+          graveyard: [
+            { id: 'gg1', name: 'Bear1', type_line: 'Creature', power: 3 },
+            { id: 'gg2', name: 'Bear2', type_line: 'Creature', power: 5 },
+            { id: 'gg3', name: 'Fire', type_line: 'Instant' },
+          ],
+        } as any],
+        battlefield: [{ id: 'tcGy', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcGy')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(5);
+    });
+
+    it('resolves "greatest power among creature cards in all graveyards"', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is the greatest power among creature cards in all graveyards.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], exile: [], graveyard: [{ id: 'p1g1', name: 'Bear', type_line: 'Creature', power: 4 }] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], exile: [], graveyard: [{ id: 'p2g1', name: 'Dragon', type_line: 'Creature', power: 8 }] } as any,
+        ],
+        battlefield: [{ id: 'tcAllGy', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcAllGy')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(8);
+    });
+  });
+
+  describe('greatest mana value among cards in graveyard', () => {
+    it('resolves "greatest mana value among cards in your graveyard"', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is the greatest mana value among cards in your graveyard.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{
+          id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], exile: [],
+          graveyard: [
+            { id: 'gc1', name: 'Bear', type_line: 'Creature', card: { manaValue: 2 } },
+            { id: 'gc2', name: 'Dragon', type_line: 'Creature', card: { manaValue: 7 } },
+          ],
+        } as any],
+        battlefield: [{ id: 'tcMvGy', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcMvGy')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(7);
+    });
+  });
+
+  describe('greatest mana value among your commanders', () => {
+    it('resolves "greatest mana value among your commanders" (commander on battlefield)', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is the greatest mana value among your commanders.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [
+          { id: 'tcCmd', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'cmd1', ownerId: 'p1', controller: 'p1', name: 'Commander1', isCommander: true, cardType: 'Legendary Planeswalker', type_line: 'Legendary Planeswalker', tapped: false, summoningSick: false, counters: {}, card: { manaValue: 6 } } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcCmd')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(6);
+    });
+  });
+
+  describe('greatest number of artifacts an opponent controls', () => {
+    it('resolves X as the largest artifact count among opponents', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is the greatest number of artifacts an opponent controls.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+          { id: 'p3', name: 'P3', seat: 2, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        ],
+        battlefield: [
+          { id: 'tcArt', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'p2a1', ownerId: 'p2', controller: 'p2', name: 'Rod', cardType: 'Artifact', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'p2a2', ownerId: 'p2', controller: 'p2', name: 'Sword', cardType: 'Artifact', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'p3a1', ownerId: 'p3', controller: 'p3', name: 'Sol Ring', cardType: 'Artifact', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcArt')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(2); // p2 has 2, p3 has 1
+    });
+  });
+
+  describe('number of counters on named permanent', () => {
+    it('resolves "number of +1/+1 counters on Aerith Gainsborough"', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is the number of +1/+1 counters on Aerith Gainsborough.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [
+          { id: 'tcCtr', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'aerith', ownerId: 'p1', controller: 'p1', name: 'Aerith Gainsborough', cardType: 'Legendary Planeswalker', type_line: 'Legendary Planeswalker', tapped: false, summoningSick: false, counters: { '+1/+1': 4 } } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcCtr')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(4);
+    });
+  });
+
+  describe('difference between power and toughness', () => {
+    it('resolves "difference between its power and toughness"', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is the difference between its power and toughness.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [{ id: 'tcDiff', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 7, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcDiff')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(4); // |7 - 3| = 4
+    });
+  });
+
+  describe('half this artifact\'s intensity', () => {
+    it('resolves "half this artifact\'s intensity, rounded down"', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is half this artifact's intensity, rounded down.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [
+          { id: 'tcHalfInt', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'srcArtInt', ownerId: 'p1', controller: 'p1', name: 'Intense Artifact', cardType: 'Artifact', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {}, intensity: 7 } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'srcArtInt' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcHalfInt')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(3); // floor(7/2) = 3
+    });
+  });
+
+  describe('safe-skips for non-deterministic where-X phrases', () => {
+    it('returns null for "a number chosen at random from 0 to 4" (no modifier applied)', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is a number chosen at random from 0 to 4.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [{ id: 'tcRand', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'tcRand') as any;
+      const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+      expect(ptMod).toBeUndefined();
+    });
+
+    it('returns null for "the noted number" (no modifier applied)', () => {
+      const ir = parseOracleTextToIR(
+        "Target creature gets +X/+0 until end of turn where X is the noted number.",
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [{ id: 'tcNoted', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'tcNoted') as any;
+      const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+      expect(ptMod).toBeUndefined();
+    });
   });
 });
 
