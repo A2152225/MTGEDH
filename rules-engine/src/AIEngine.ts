@@ -126,6 +126,7 @@ import {
   SynergyArchetype,
   type CardAnalysis,
   type BattlefieldAnalysis,
+  type DeckArchetypeProfile,
 } from './CardAnalyzer';
 
 /**
@@ -184,6 +185,7 @@ export interface AIPlayerConfig {
   readonly strategy: AIStrategy;
   readonly difficulty?: number; // 0-1, affects decision quality
   readonly thinkTime?: number;  // Simulated think time in ms
+  readonly deckProfile?: DeckArchetypeProfile;
 }
 
 /**
@@ -258,6 +260,74 @@ export class AIEngine {
    */
   getAIConfig(playerId: PlayerID): AIPlayerConfig | undefined {
     return this.aiPlayers.get(playerId);
+  }
+
+  private getPrimaryArchetypes(config: AIPlayerConfig): readonly SynergyArchetype[] {
+    return config.deckProfile?.primaryArchetypes || [];
+  }
+
+  private getCombatDeckModifiers(
+    perm: BattlefieldPermanent,
+    config: AIPlayerConfig
+  ): { attackBias: number; preserveBias: number } {
+    const archetypes = this.getPrimaryArchetypes(config);
+    if (archetypes.length === 0) {
+      return { attackBias: 0, preserveBias: 0 };
+    }
+
+    const analysis = cardAnalyzer.analyzeCard(perm);
+    const isCommander = Boolean((perm as any).isCommander) || analysis.categories.includes(CardCategory.COMMANDER);
+    const isToken = Boolean((perm as any).isToken);
+    let attackBias = 0;
+    let preserveBias = 0;
+
+    for (const archetype of archetypes) {
+      switch (archetype) {
+        case SynergyArchetype.ARISTOCRATS:
+          if (analysis.details.hasDeathTrigger) attackBias += 10;
+          if (analysis.categories.includes(CardCategory.ARISTOCRAT)) attackBias += 6;
+          if (analysis.categories.includes(CardCategory.SACRIFICE_OUTLET)) preserveBias += 6;
+          if (isToken) attackBias += 5;
+          break;
+        case SynergyArchetype.TOKENS:
+          if (isToken || analysis.categories.includes(CardCategory.TOKEN_GENERATOR)) attackBias += 6;
+          break;
+        case SynergyArchetype.VOLTRON:
+          if (isCommander) {
+            attackBias += 14;
+          } else {
+            preserveBias += 8;
+            attackBias -= 3;
+          }
+          break;
+        case SynergyArchetype.COMBO:
+          if (analysis.comboPotential >= 7) preserveBias += 14;
+          if (analysis.categories.includes(CardCategory.TUTOR) || analysis.categories.includes(CardCategory.DRAW)) preserveBias += 4;
+          break;
+        case SynergyArchetype.SPELLSLINGER:
+        case SynergyArchetype.STAX:
+          if (analysis.details.producesMana || analysis.details.drawsCards || analysis.details.hasActivatedAbility) {
+            preserveBias += 8;
+          }
+          break;
+        case SynergyArchetype.LANDFALL:
+          if (analysis.categories.includes(CardCategory.LANDFALL)) attackBias += 5;
+          if (analysis.categories.includes(CardCategory.RAMP)) preserveBias += 3;
+          break;
+        case SynergyArchetype.GRAVEYARD:
+          if (analysis.details.hasDeathTrigger) attackBias += 5;
+          if (analysis.categories.includes(CardCategory.REANIMATOR)) preserveBias += 5;
+          break;
+      }
+    }
+
+    return { attackBias, preserveBias };
+  }
+
+  private hasPotentialManaSink(gameState: GameState, playerId: PlayerID): boolean {
+    const player = gameState.players.find((entry) => entry.id === playerId) as any;
+    const hand = Array.isArray(player?.hand) ? player.hand : [];
+    return hand.some((card: any) => typeof card === 'object' && card && typeof card.mana_cost === 'string' && card.mana_cost.length > 0);
   }
   
   // ============================================================================
@@ -1000,11 +1070,15 @@ export class AIEngine {
       if (!perm) return { id, value: 0, wantsToGetKilled: false };
       
       const evaluation = this.evaluateCombatValue(perm, true);
+      const deckModifiers = this.getCombatDeckModifiers(perm, config);
       return {
         id,
-        value: evaluation.combatValue,
+        value: evaluation.combatValue + deckModifiers.attackBias - deckModifiers.preserveBias,
         wantsToGetKilled: evaluation.wantsToGetKilled,
         deathBenefit: evaluation.deathBenefit,
+        isCommander: Boolean((perm as any).isCommander),
+        preserveBias: deckModifiers.preserveBias,
+        attackBias: deckModifiers.attackBias,
       };
     });
     
@@ -1016,7 +1090,24 @@ export class AIEngine {
     // Apply difficulty-based mistakes to attack decisions
     let regularAttackers = attackerEvaluations
       .filter(e => !e.wantsToGetKilled && e.value > 0)
+      .sort((a, b) => b.value - a.value)
       .map(e => e.id);
+
+    const archetypes = this.getPrimaryArchetypes(config);
+    if (archetypes.includes(SynergyArchetype.VOLTRON)) {
+      const preferred = attackerEvaluations
+        .filter(e => e.isCommander || e.attackBias >= e.preserveBias + 5)
+        .sort((a, b) => b.value - a.value)
+        .map(e => e.id);
+      regularAttackers = preferred;
+    }
+
+    if (archetypes.includes(SynergyArchetype.COMBO) || archetypes.includes(SynergyArchetype.SPELLSLINGER)) {
+      regularAttackers = attackerEvaluations
+        .filter(e => !e.wantsToGetKilled && e.attackBias >= e.preserveBias)
+        .sort((a, b) => b.value - a.value)
+        .map(e => e.id);
+    }
     
     // DIFFICULTY IMPLEMENTATION: Attack decision mistakes
     // Example: AI has 3/3, 3/3, 2/2, 1/1 creatures. Optimal = attack with 3/3, 3/3, 2/2
@@ -1116,12 +1207,15 @@ export class AIEngine {
     // Evaluate each blocker for combat value and death trigger benefits
     const blockerEvaluations = blockerPermanents.map((perm: BattlefieldPermanent) => {
       const evaluation = this.evaluateCombatValue(perm, false);
+      const deckModifiers = this.getCombatDeckModifiers(perm, config);
       return {
         perm,
         creature: createCombatCreature(perm),
         wantsToGetKilled: evaluation.wantsToGetKilled,
         deathBenefit: evaluation.deathBenefit,
         baseValue: this.evaluatePermanentValue(perm),
+        preserveBias: deckModifiers.preserveBias,
+        attackBias: deckModifiers.attackBias,
       };
     });
     
@@ -1259,6 +1353,13 @@ export class AIEngine {
         // Avoid sacrificing valuable creatures without benefit (unless lethal)
         if (blockerDies && !blockerEval.wantsToGetKilled && !attackerDies && !isLethalIfUnblocked) {
           score -= blockerEval.baseValue * 2; // Penalty based on creature value
+        }
+
+        if (blockerDies && !isLethalIfUnblocked) {
+          score -= blockerEval.preserveBias;
+        }
+        if (!blockerDies && blockerEval.attackBias > 0) {
+          score += Math.min(6, blockerEval.attackBias / 2);
         }
         
         if (score > bestScore) {
@@ -2800,10 +2901,36 @@ export class AIEngine {
    * Returns a score indicating how beneficial it would be to activate this ability
    * Higher score = more beneficial
    */
-  private evaluateActivatedAbilityValue(perm: BattlefieldPermanent, abilityText: string): number {
+  private evaluateActivatedAbilityValue(
+    perm: BattlefieldPermanent,
+    abilityText: string,
+    gameState: GameState,
+    playerId: PlayerID,
+    config: AIPlayerConfig
+  ): number {
     let value = 0;
     const lowerText = abilityText.toLowerCase();
     const card = perm.card as KnownCardRef;
+    const analysis = cardAnalyzer.analyzeCard(perm);
+    const archetypes = this.getPrimaryArchetypes(config);
+    const isOwnTurn = gameState.turnPlayer === playerId;
+    const phase = String(gameState.phase || '').toLowerCase();
+    const step = String(gameState.step || '').toLowerCase();
+    const isMainPhase = phase.includes('main') || step.includes('main');
+    const isPreCombat = isOwnTurn && isMainPhase && (!step || step.includes('precombat') || !step.includes('combat'));
+    const isTapAbility = lowerText.includes('{t}:') || lowerText.includes('{t},');
+    const isPureManaAbility =
+      ((lowerText.includes('add {') && lowerText.includes('mana')) ||
+        lowerText.includes('add {c}') ||
+        lowerText.includes('add {w}') ||
+        lowerText.includes('add {u}') ||
+        lowerText.includes('add {b}') ||
+        lowerText.includes('add {r}') ||
+        lowerText.includes('add {g}')) &&
+      !lowerText.includes('draw') &&
+      !lowerText.includes('search your library') &&
+      !lowerText.includes('create') &&
+      !lowerText.includes('damage');
     
     // CARD DRAW: Very high value! Drawing cards is one of the best things you can do
     if (lowerText.includes('draw') && !lowerText.includes('opponent draws')) {
@@ -2882,7 +3009,7 @@ export class AIEngine {
     // COST CONSIDERATIONS: Reduce value based on costs
     
     // Check if ability requires tapping
-    if (lowerText.includes('{t}:') || lowerText.includes('{t},')) {
+    if (isTapAbility) {
       // Small penalty for tap cost (creature won't be able to block or attack)
       value -= 1;
     }
@@ -2919,6 +3046,43 @@ export class AIEngine {
     // Each opponent gets benefit
     if (lowerText.includes('each opponent') && (lowerText.includes('draw') || lowerText.includes('create'))) {
       value -= 4; // Helping opponents is bad
+    }
+
+    if (isPureManaAbility && !this.hasPotentialManaSink(gameState, playerId)) {
+      value -= 12;
+    }
+
+    if (isPreCombat && isTapAbility && archetypes.includes(SynergyArchetype.VOLTRON)) {
+      const isCommander = Boolean((perm as any).isCommander) || analysis.categories.includes(CardCategory.COMMANDER);
+      if (isCommander || analysis.categories.includes(CardCategory.CREATURE)) {
+        value -= isCommander ? 25 : 10;
+      }
+    }
+
+    if (archetypes.includes(SynergyArchetype.COMBO)) {
+      if (analysis.comboPotential >= 7) {
+        value += 8;
+      }
+      if (lowerText.includes('search your library') || lowerText.includes('untap') || lowerText.includes('draw')) {
+        value += 6;
+      }
+      if (isPureManaAbility && analysis.details.producesMana) {
+        value += 4;
+      }
+    }
+
+    if (archetypes.includes(SynergyArchetype.SPELLSLINGER)) {
+      if (lowerText.includes('draw')) value += 4;
+      if (lowerText.includes('add {')) value += 2;
+    }
+
+    if (archetypes.includes(SynergyArchetype.ARISTOCRATS)) {
+      if (lowerText.includes('sacrifice') && analysis.details.hasDeathTrigger) {
+        value += 8;
+      }
+      if (lowerText.includes('create') && lowerText.includes('token')) {
+        value += 3;
+      }
     }
     
     return Math.max(0, value);
@@ -2972,7 +3136,8 @@ export class AIEngine {
    */
   private findBestActivatedAbility(
     gameState: GameState,
-    playerId: PlayerID
+      playerId: PlayerID,
+      config: AIPlayerConfig
   ): { permanent: BattlefieldPermanent; abilityText: string; value: number } | null {
     const battlefield = gameState.battlefield || [];
     
@@ -2993,7 +3158,7 @@ export class AIEngine {
       if (!this.canActivateAbilityNow(perm, gameState, playerId)) continue;
       
       // Evaluate the ability value
-      const value = this.evaluateActivatedAbilityValue(perm, abilityText);
+      const value = this.evaluateActivatedAbilityValue(perm, abilityText, gameState, playerId, config);
       
       // Keep track of best ability
       if (value > bestValue) {
@@ -3021,7 +3186,7 @@ export class AIEngine {
     const { gameState, playerId } = context;
     
     // Find the best activated ability to use
-    const bestAbility = this.findBestActivatedAbility(gameState, playerId);
+    const bestAbility = this.findBestActivatedAbility(gameState, playerId, config);
     
     if (!bestAbility) {
       return {

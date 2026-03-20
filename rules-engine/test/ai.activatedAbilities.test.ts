@@ -5,6 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext } from '../src/AIEngine';
+import { SynergyArchetype } from '../src/CardAnalyzer';
 import type { GameState, BattlefieldPermanent, PlayerID } from '../../shared/src/types';
 
 describe('AI Activated Abilities', () => {
@@ -248,6 +249,106 @@ describe('AI Activated Abilities', () => {
       // AI should value tutoring abilities
       expect(decision.action?.activate).toBe(true);
       expect(decision.action?.cardName).toBe('Expedition Map');
+    });
+
+    it('should avoid pointless pure mana activations with no mana sink', async () => {
+      const manaRock: BattlefieldPermanent = {
+        id: 'perm3',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          name: 'Mind Stone',
+          type_line: 'Artifact',
+          oracle_text: '{T}: Add {C}.',
+        },
+      };
+
+      const gameState: Partial<GameState> = {
+        phase: 'MAIN',
+        step: 'precombat_main',
+        turnPlayer: playerId,
+        priority: playerId,
+        battlefield: [manaRock],
+        stack: [],
+        players: [
+          { id: playerId, name: 'AI', life: 40, hand: [], battlefield: [] } as any,
+          { id: opponentId, name: 'Opponent', life: 40, hand: [], battlefield: [] } as any,
+        ],
+      };
+
+      const context: AIDecisionContext = {
+        gameState: gameState as GameState,
+        playerId,
+        decisionType: AIDecisionType.ACTIVATE_ABILITY,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+      expect(decision.action?.activate).toBe(false);
+    });
+
+    it('should preserve voltron commanders from precombat tap abilities', async () => {
+      const specializedEngine = new AIEngine();
+      specializedEngine.registerAI({
+        playerId,
+        strategy: AIStrategy.BASIC,
+        difficulty: 0.5,
+        deckProfile: {
+          totalCards: 99,
+          landCount: 36,
+          averageCmc: 3.2,
+          curve: { low: 23, mid: 31, high: 9 },
+          categoryCounts: {},
+          synergyTagCounts: { voltron: 8 },
+          archetypeScores: { [SynergyArchetype.VOLTRON]: 12 },
+          primaryArchetypes: [SynergyArchetype.VOLTRON],
+          comboPairs: [],
+          keyCards: ['Rafiq of the Many'],
+        },
+      });
+
+      const commander: BattlefieldPermanent = {
+        id: 'perm4',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        isCommander: true as any,
+        counters: {},
+        card: {
+          name: 'Rafiq of the Many',
+          type_line: 'Legendary Creature — Human Knight',
+          oracle_text: '{T}: Draw a card.',
+          power: '3',
+          toughness: '3',
+        },
+      };
+
+      const gameState: Partial<GameState> = {
+        phase: 'MAIN',
+        step: 'precombat_main',
+        turnPlayer: playerId,
+        priority: playerId,
+        battlefield: [commander],
+        stack: [],
+        players: [
+          { id: playerId, name: 'AI', life: 40, hand: [{ id: 'spellx', name: 'Sword', mana_cost: '{2}' }], battlefield: [] } as any,
+          { id: opponentId, name: 'Opponent', life: 40, hand: [], battlefield: [] } as any,
+        ],
+      };
+
+      const context: AIDecisionContext = {
+        gameState: gameState as GameState,
+        playerId,
+        decisionType: AIDecisionType.ACTIVATE_ABILITY,
+        options: [],
+      };
+
+      const decision = await specializedEngine.makeDecision(context);
+      expect(decision.action?.activate).toBe(false);
     });
   });
   

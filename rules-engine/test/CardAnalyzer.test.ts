@@ -300,6 +300,43 @@ describe('CardAnalyzer', () => {
       const synergy = cardAnalyzer.checkSynergy(bloodArtist, visceraSeer);
       expect(synergy.hasSynergy).toBe(true);
     });
+
+    it('should analyze deck themes for aristocrats shells', () => {
+      const deck = [
+        createMockCard({ name: 'Blood Artist', type_line: 'Creature — Vampire', oracle_text: 'Whenever Blood Artist or another creature dies, target player loses 1 life and you gain 1 life.' }),
+        createMockCard({ name: 'Viscera Seer', type_line: 'Creature — Vampire Wizard', oracle_text: 'Sacrifice a creature: Scry 1.' }),
+        createMockCard({ name: 'Zulaport Cutthroat', type_line: 'Creature — Human Rogue Ally', oracle_text: 'Whenever Zulaport Cutthroat or another creature you control dies, each opponent loses 1 life and you gain 1 life.' }),
+        createMockCard({ name: 'Ophiomancer', type_line: 'Creature — Human Shaman', oracle_text: 'At the beginning of each upkeep, if you control no Snakes, create a 1/1 black Snake creature token with deathtouch.' }),
+        createMockCard({ name: 'Grave Pact', type_line: 'Enchantment', oracle_text: 'Whenever a creature you control dies, each other player sacrifices a creature.' }),
+        createMockCard({ name: 'Swamp', type_line: 'Basic Land — Swamp', oracle_text: '' }),
+        createMockCard({ name: 'Swamp Two', type_line: 'Basic Land — Swamp', oracle_text: '' }),
+      ];
+
+      const profile = cardAnalyzer.analyzeDeck(deck);
+
+      expect(profile.primaryArchetypes).toContain(SynergyArchetype.ARISTOCRATS);
+      expect(profile.primaryArchetypes).toContain(SynergyArchetype.TOKENS);
+      expect(profile.categoryCounts[CardCategory.SACRIFICE_OUTLET]).toBeGreaterThan(0);
+      expect(profile.synergyTagCounts.aristocrats).toBeGreaterThan(0);
+    });
+
+    it('should identify landfall and combo themes from deck composition', () => {
+      const deck = [
+        createMockCard({ name: 'Lotus Cobra', type_line: 'Creature — Snake', oracle_text: 'Landfall — Whenever a land enters the battlefield under your control, add one mana of any color.', power: '2', toughness: '1' }),
+        createMockCard({ name: 'Scute Swarm', type_line: 'Creature — Insect', oracle_text: 'Landfall — Whenever a land enters the battlefield under your control, create a 1/1 green Insect creature token. If you control six or more lands, create a token that is a copy of Scute Swarm instead.', power: '1', toughness: '1' }),
+        createMockCard({ name: 'Cultivate', type_line: 'Sorcery', oracle_text: 'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.' }),
+        createMockCard({ name: 'Dramatic Reversal', type_line: 'Instant', oracle_text: 'Untap all nonland permanents you control.' }),
+        createMockCard({ name: 'Isochron Scepter', type_line: 'Artifact', oracle_text: 'Imprint — When Isochron Scepter enters the battlefield, you may exile an instant card with mana value 2 or less from your hand.' }),
+        createMockCard({ name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '' }),
+        createMockCard({ name: 'Forest Two', type_line: 'Basic Land — Forest', oracle_text: '' }),
+      ];
+
+      const profile = cardAnalyzer.analyzeDeck(deck);
+
+      expect(profile.primaryArchetypes).toContain(SynergyArchetype.LANDFALL);
+      expect(profile.primaryArchetypes).toContain(SynergyArchetype.COMBO);
+      expect(profile.comboPairs.some((pair) => pair.includes('Dramatic Reversal') && pair.includes('Isochron Scepter'))).toBe(true);
+    });
   });
   
   describe('Sacrifice Target Selection', () => {

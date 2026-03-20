@@ -35,7 +35,7 @@ import { checkAndPromptOpeningHandActions } from "./opening-hand.js";
 import { executeDeclareAttackers, resolveAttackTriggerManaPaymentChoice } from "./combat.js";
 import { parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
-import { handleBounceLandETB } from "./ai.js";
+import { handleBounceLandETB, chooseAILibrarySearchCards, chooseAIGraveyardSelectionIds } from "./ai.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { isShockLand } from "./land-helpers.js";
@@ -720,50 +720,11 @@ async function handleAIResolutionStep(
           break;
         }
         
-        // Score cards based on usefulness for AI
-        const scoredCards = availableCards.map((card: any) => {
-          let score = 50; // Base score
-          const cmc = card.cmc || 0;
-          const typeLine = (card.type_line || '').toLowerCase();
-          const oracleText = (card.oracle_text || '').toLowerCase();
-          const name = (card.name || '').toLowerCase();
-          
-          // Prefer lower CMC cards for hand/battlefield (more castable)
-          if (destination === 'hand' || destination === 'battlefield') {
-            score += Math.max(0, 10 - cmc);
-          }
-          
-          // Prefer creatures for battlefield tutors
-          if (destination === 'battlefield' && typeLine.includes('creature')) {
-            score += 10;
-          }
-          
-          // Prefer cards with good abilities
-          if (oracleText.includes('draw') || oracleText.includes('destroy')) {
-            score += 5;
-          }
-          
-          // Prefer cards with higher power for creature-specific searches
-          if (filter.maxPower !== undefined) {
-            const power = card.power ? parseInt(String(card.power), 10) : 0;
-            // Higher power within limit is better
-            score += power * 2;
-          }
-          
-          return { card, score };
+        const selectedCardIds = chooseAILibrarySearchCards(game, step.playerId as any, availableCards, {
+          minSelections,
+          maxSelections,
+          destination,
         });
-        
-        // Sort by score (highest first)
-        scoredCards.sort((a: any, b: any) => b.score - a.score);
-        
-        // Select the best cards up to maxSelections
-        // If cards are available, select at least 1 (up to maxSelections), respecting minSelections
-        const defaultSelection = scoredCards.length > 0 ? 1 : 0;
-        const desiredSelection = Math.max(minSelections, Math.min(maxSelections, defaultSelection));
-        const numToSelect = Math.min(scoredCards.length, desiredSelection);
-        const selectedCardIds = scoredCards
-          .slice(0, numToSelect)
-          .map((sc: any) => sc.card.id);
         
         response = {
           stepId: step.id,
@@ -778,12 +739,7 @@ async function handleAIResolutionStep(
 
       case ResolutionStepType.GRAVEYARD_SELECTION: {
         const stepData = step as any;
-        const validTargets: any[] = Array.isArray(stepData.validTargets) ? stepData.validTargets : [];
-        const minTargets = Math.max(0, Number(stepData.minTargets ?? 0));
-        const maxTargets = Math.max(minTargets, Number(stepData.maxTargets ?? minTargets));
-
-        const desired = Math.min(validTargets.length, Math.max(minTargets, Math.min(maxTargets, maxTargets || minTargets || 0)));
-        const selectedCardIds = validTargets.slice(0, desired).map((c: any) => String(c?.id || ''));
+        const selectedCardIds = chooseAIGraveyardSelectionIds(game, step.playerId as any, stepData);
 
         response = {
           stepId: step.id,

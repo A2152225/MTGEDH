@@ -13,6 +13,7 @@
 import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
+import { cardAnalyzer, CardCategory, SynergyArchetype, type DeckArchetypeProfile } from "../../../rules-engine/src/CardAnalyzer.js";
 import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
 import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
@@ -998,6 +999,1187 @@ const aiEngine = new AIEngine();
 // Track AI players per game
 const aiPlayers = new Map<string, Map<PlayerID, AIPlayerConfig>>();
 
+const ARCHETYPE_CATEGORY_WEIGHTS: Record<string, Partial<Record<CardCategory, number>>> = {
+  [SynergyArchetype.ARISTOCRATS]: {
+    [CardCategory.SACRIFICE_OUTLET]: 10,
+    [CardCategory.ARISTOCRAT]: 10,
+    [CardCategory.DEATH_TRIGGER]: 8,
+    [CardCategory.TOKEN_GENERATOR]: 6,
+  },
+  [SynergyArchetype.TOKENS]: {
+    [CardCategory.TOKEN_GENERATOR]: 10,
+    [CardCategory.ARISTOCRAT]: 6,
+    [CardCategory.SACRIFICE_OUTLET]: 5,
+  },
+  [SynergyArchetype.GRAVEYARD]: {
+    [CardCategory.REANIMATOR]: 10,
+    [CardCategory.DEATH_TRIGGER]: 5,
+  },
+  [SynergyArchetype.LANDFALL]: {
+    [CardCategory.LANDFALL]: 12,
+    [CardCategory.RAMP]: 7,
+    [CardCategory.LAND]: 3,
+  },
+  [SynergyArchetype.SPELLSLINGER]: {
+    [CardCategory.DRAW]: 5,
+    [CardCategory.REMOVAL]: 5,
+    [CardCategory.COUNTERSPELL]: 6,
+  },
+  [SynergyArchetype.ARTIFACTS]: {
+    [CardCategory.RAMP]: 5,
+  },
+  [SynergyArchetype.ENCHANTMENTS]: {
+    [CardCategory.DRAW]: 4,
+    [CardCategory.PROTECTION]: 4,
+  },
+  [SynergyArchetype.VOLTRON]: {
+    [CardCategory.PROTECTION]: 6,
+    [CardCategory.CREATURE]: 4,
+    [CardCategory.COMMANDER]: 6,
+  },
+  [SynergyArchetype.COMBO]: {
+    [CardCategory.TUTOR]: 8,
+    [CardCategory.DRAW]: 5,
+  },
+  [SynergyArchetype.STAX]: {
+    [CardCategory.REMOVAL]: 4,
+    [CardCategory.COUNTERSPELL]: 6,
+  },
+};
+
+const ARCHETYPE_TAG_WEIGHTS: Record<string, Record<string, number>> = {
+  [SynergyArchetype.ARISTOCRATS]: { aristocrats: 8, tokens: 3, graveyard: 2 },
+  [SynergyArchetype.TOKENS]: { tokens: 8, aristocrats: 3 },
+  [SynergyArchetype.GRAVEYARD]: { graveyard: 8, aristocrats: 2 },
+  [SynergyArchetype.LANDFALL]: { landfall: 10 },
+  [SynergyArchetype.SPELLSLINGER]: { spellslinger: 8 },
+  [SynergyArchetype.COUNTERS]: { counters: 8 },
+  [SynergyArchetype.ARTIFACTS]: { artifacts: 8 },
+  [SynergyArchetype.ENCHANTMENTS]: { enchantments: 8 },
+  [SynergyArchetype.VOLTRON]: { voltron: 8 },
+  [SynergyArchetype.STAX]: { stax: 8 },
+};
+
+function getVisibleDeckCardsForAI(game: any, playerId: PlayerID): any[] {
+  const zones = game?.state?.zones?.[playerId] || {};
+  const commandZone = Array.isArray(game?.state?.commandZone?.[playerId])
+    ? game.state.commandZone[playerId]
+    : [];
+  const buckets = [zones.library, zones.hand, zones.graveyard, zones.exile, commandZone];
+  const seen = new Set<string>();
+  const cards: any[] = [];
+
+  for (const bucket of buckets) {
+    if (!Array.isArray(bucket)) continue;
+    for (const card of bucket) {
+      if (!card || typeof card !== 'object') continue;
+      const cardId = String(card.id || '');
+      if (!cardId || seen.has(cardId)) continue;
+      seen.add(cardId);
+      cards.push(card);
+    }
+  }
+
+  return cards;
+}
+
+function ensureAIDeckProfile(game: any, playerId: PlayerID): DeckArchetypeProfile | null {
+  const stateAny = game?.state as any;
+  if (!stateAny) return null;
+
+  stateAny.aiDeckProfiles = stateAny.aiDeckProfiles || {};
+  const cached = stateAny.aiDeckProfiles[playerId];
+  if (cached && typeof cached === 'object' && Number(cached.totalCards || 0) > 0) {
+    return cached as DeckArchetypeProfile;
+  }
+
+  const visibleCards = getVisibleDeckCardsForAI(game, playerId);
+  if (visibleCards.length === 0) {
+    return null;
+  }
+
+  const profile = cardAnalyzer.analyzeDeck(visibleCards);
+  stateAny.aiDeckProfiles[playerId] = profile;
+  return profile;
+}
+
+function calculateCardThemeAlignment(card: any, profile: DeckArchetypeProfile | null): number {
+  if (!profile) return 0;
+
+  const analysis = cardAnalyzer.analyzeCard(card);
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
+  let score = 0;
+
+  for (const archetype of profile.primaryArchetypes) {
+    const categoryWeights = ARCHETYPE_CATEGORY_WEIGHTS[archetype] || {};
+    for (const category of analysis.categories) {
+      score += categoryWeights[category] || 0;
+    }
+
+    const tagWeights = ARCHETYPE_TAG_WEIGHTS[archetype] || {};
+    for (const tag of analysis.synergyTags) {
+      score += tagWeights[tag] || 0;
+    }
+
+    if (archetype === SynergyArchetype.COMBO && analysis.comboPotential >= 7) {
+      score += 16;
+    }
+    if (archetype === SynergyArchetype.SPELLSLINGER && (typeLine.includes('instant') || typeLine.includes('sorcery'))) {
+      score += 8;
+    }
+    if (archetype === SynergyArchetype.ARTIFACTS && typeLine.includes('artifact')) {
+      score += 8;
+    }
+    if (archetype === SynergyArchetype.ENCHANTMENTS && typeLine.includes('enchantment')) {
+      score += 8;
+    }
+    if (archetype === SynergyArchetype.VOLTRON && (typeLine.includes('equipment') || typeLine.includes('aura'))) {
+      score += 8;
+    }
+    if (archetype === SynergyArchetype.GROUP_HUG && /each player (?:draws|may|gains)/i.test(oracleText)) {
+      score += 8;
+    }
+  }
+
+  if (profile.keyCards.includes(String(card?.name || ''))) {
+    score += 4;
+  }
+
+  return score;
+}
+
+function calculateCardSynergyPressure(
+  card: any,
+  otherCards: readonly any[],
+  battlefield: readonly any[],
+  playerId: PlayerID,
+  profile: DeckArchetypeProfile | null
+): number {
+  let score = calculateCardThemeAlignment(card, profile);
+
+  const battlefieldSynergy = cardAnalyzer.findSynergyCards([card], battlefield as any, playerId);
+  if (battlefieldSynergy.length > 0) {
+    score += Math.min(18, battlefieldSynergy[0].synergyScore * 2);
+  }
+
+  let bestHandSynergy = 0;
+  let handSynergyTotal = 0;
+  for (const otherCard of otherCards) {
+    if (!otherCard || otherCard.id === card.id) continue;
+    const synergy = cardAnalyzer.checkSynergy(card, otherCard);
+    if (!synergy.hasSynergy) continue;
+    bestHandSynergy = Math.max(bestHandSynergy, synergy.strength);
+    handSynergyTotal += synergy.strength;
+  }
+
+  score += Math.min(12, handSynergyTotal);
+  if (bestHandSynergy >= 8) {
+    score += 6;
+  }
+
+  return score;
+}
+
+function summarizeAIHandPlan(hand: readonly any[], profile: DeckArchetypeProfile | null): {
+  themedCards: number;
+  synergyPairs: number;
+  strongestPair: number;
+  comboPieces: number;
+} {
+  let themedCards = 0;
+  let synergyPairs = 0;
+  let strongestPair = 0;
+  let comboPieces = 0;
+
+  for (const card of hand) {
+    if (calculateCardThemeAlignment(card, profile) >= 8) {
+      themedCards += 1;
+    }
+    if (cardAnalyzer.analyzeCard(card).comboPotential >= 7) {
+      comboPieces += 1;
+    }
+  }
+
+  for (let index = 0; index < hand.length; index += 1) {
+    for (let inner = index + 1; inner < hand.length; inner += 1) {
+      const synergy = cardAnalyzer.checkSynergy(hand[index], hand[inner]);
+      if (!synergy.hasSynergy) continue;
+      synergyPairs += 1;
+      strongestPair = Math.max(strongestPair, synergy.strength);
+    }
+  }
+
+  return { themedCards, synergyPairs, strongestPair, comboPieces };
+}
+
+function getAIHand(game: any, playerId: PlayerID): any[] {
+  const zones = game?.state?.zones?.[playerId];
+  return Array.isArray(zones?.hand) ? zones.hand : [];
+}
+
+function getAIBattlefield(game: any, playerId: PlayerID): any[] {
+  return (game?.state?.battlefield || []).filter((perm: any) => perm?.controller === playerId);
+}
+
+function getAIPlayerLife(game: any, playerId: PlayerID): number {
+  const stateLife = Number(game?.state?.life?.[playerId]);
+  if (Number.isFinite(stateLife)) return stateLife;
+  const player = (game?.state?.players || []).find((entry: any) => entry?.id === playerId);
+  const playerLife = Number(player?.life);
+  if (Number.isFinite(playerLife)) return playerLife;
+  return Number(game?.state?.startingLife || 40) || 40;
+}
+
+function scoreCardForAIAcquisition(
+  game: any,
+  playerId: PlayerID,
+  card: any,
+  destination: string,
+  profile: DeckArchetypeProfile | null
+): number {
+  let score = 50;
+  const cmc = Number(card?.cmc || 0) || 0;
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
+  const analysis = cardAnalyzer.analyzeCard(card);
+  const hand = getAIHand(game, playerId);
+  const battlefield = getAIBattlefield(game, playerId);
+
+  if (destination === 'hand' || destination === 'battlefield') {
+    score += Math.max(0, 10 - cmc);
+  }
+
+  if (destination === 'battlefield') {
+    if (typeLine.includes('creature')) score += 10;
+    if (analysis.details.hasETBTrigger) score += 12;
+    if (analysis.details.producesMana) score += 6;
+  }
+
+  if (oracleText.includes('draw') || oracleText.includes('destroy') || oracleText.includes('search your library')) {
+    score += 5;
+  }
+
+  score += calculateCardSynergyPressure(card, hand, battlefield, playerId, profile);
+
+  if (profile?.primaryArchetypes.includes(SynergyArchetype.COMBO) && analysis.comboPotential >= 7) {
+    score += 16;
+  }
+
+  return score;
+}
+
+function rehydrateCardsById(sourceCards: readonly any[], ids: readonly string[]): any[] {
+  const byId = new Map(sourceCards.map((card: any) => [String(card?.id || ''), card]));
+  return ids
+    .map((id) => byId.get(String(id || '')) || { id })
+    .filter(Boolean);
+}
+
+export function chooseAILibrarySearchCards(
+  game: any,
+  playerId: PlayerID,
+  availableCards: readonly any[],
+  options?: {
+    minSelections?: number;
+    maxSelections?: number;
+    destination?: string;
+  }
+): string[] {
+  const minSelections = Math.max(0, Number(options?.minSelections ?? 0));
+  const maxSelections = Math.max(minSelections, Number(options?.maxSelections ?? 1));
+  const defaultSelection = availableCards.length > 0 ? 1 : 0;
+  const desiredSelection = Math.max(minSelections, Math.min(maxSelections, defaultSelection));
+  const numToSelect = Math.min(availableCards.length, desiredSelection);
+  const profile = ensureAIDeckProfile(game, playerId);
+  const destination = String(options?.destination || 'hand');
+
+  return [...availableCards]
+    .map((card: any) => ({
+      id: String(card?.id || ''),
+      score: scoreCardForAIAcquisition(game, playerId, card, destination, profile),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, numToSelect)
+    .map((entry) => entry.id)
+    .filter(Boolean);
+}
+
+export function chooseAIGraveyardSelectionIds(
+  game: any,
+  playerId: PlayerID,
+  step: any
+): string[] {
+  const validTargets = Array.isArray(step?.validTargets) ? step.validTargets : [];
+  const minTargets = Math.max(0, Number(step?.minTargets ?? 0));
+  const maxTargets = Math.max(minTargets, Number(step?.maxTargets ?? minTargets));
+  const desired = Math.min(validTargets.length, Math.max(minTargets, Math.min(maxTargets, maxTargets || minTargets || 0)));
+  if (desired <= 0 || validTargets.length === 0) {
+    return [];
+  }
+
+  const targetPlayerId = String(step?.targetPlayerId || playerId);
+  const graveyard = Array.isArray(game?.state?.zones?.[targetPlayerId]?.graveyard)
+    ? game.state.zones[targetPlayerId].graveyard
+    : [];
+  const cards = rehydrateCardsById(graveyard, validTargets.map((card: any) => String(card?.id || '')));
+  const profile = ensureAIDeckProfile(game, playerId);
+  const destination = String(step?.destination || 'hand');
+  const exileLike = destination === 'exile' || String(step?.purpose || '') === 'collectEvidence';
+  const collectEvidenceMinManaValue = Math.max(0, Number(step?.collectEvidenceMinManaValue ?? 0));
+
+  const scored = cards
+    .map((card: any) => {
+      const retentionScore = scoreCardForAIAcquisition(game, playerId, card, 'hand', profile);
+      const manaValue = Number(card?.cmc || 0) || 0;
+      return {
+        id: String(card?.id || ''),
+        manaValue,
+        acquisitionScore: scoreCardForAIAcquisition(game, playerId, card, destination, profile),
+        exileScore: retentionScore - manaValue * 2,
+      };
+    })
+    .filter((entry) => Boolean(entry.id));
+
+  if (exileLike && collectEvidenceMinManaValue > 0) {
+    const selected: string[] = [];
+    let totalManaValue = 0;
+    for (const entry of [...scored].sort((left, right) => left.exileScore - right.exileScore || right.manaValue - left.manaValue)) {
+      if (selected.length >= maxTargets) break;
+      selected.push(entry.id);
+      totalManaValue += entry.manaValue;
+      if (totalManaValue >= collectEvidenceMinManaValue && selected.length >= minTargets) {
+        break;
+      }
+    }
+    return selected;
+  }
+
+  return [...scored]
+    .sort((left, right) => {
+      if (exileLike) {
+        return left.exileScore - right.exileScore;
+      }
+      return right.acquisitionScore - left.acquisitionScore;
+    })
+    .slice(0, desired)
+    .map((entry) => entry.id);
+}
+
+function getProtectedStackItem(game: any, step: any): any | null {
+  const triggeredBy = String(step?.wardTriggeredBy || step?.sourceId || '').trim();
+  if (!triggeredBy) return null;
+  return (game?.state?.stack || []).find((entry: any) => String(entry?.id || '') === triggeredBy) || null;
+}
+
+function scoreProtectedObjectForWard(game: any, playerId: PlayerID, step: any): number {
+  const stackItem = getProtectedStackItem(game, step);
+  const card = stackItem?.card;
+  if (!card) return 40;
+
+  let score = 40;
+  const analysis = cardAnalyzer.analyzeCard(card);
+  score += analysis.comboPotential * 4;
+  if (analysis.categories.includes(CardCategory.TUTOR)) score += 12;
+  if (analysis.categories.includes(CardCategory.REMOVAL)) score += 8;
+  if (analysis.categories.includes(CardCategory.DRAW)) score += 6;
+  if (analysis.categories.includes(CardCategory.FINISHER)) score += 8;
+  score += calculateCardThemeAlignment(card, ensureAIDeckProfile(game, playerId));
+  return score;
+}
+
+function scoreGenericChoiceOption(step: any, option: any): number {
+  const text = `${String(option?.label || '')} ${String(option?.description || '')} ${String(step?.description || '')}`.toLowerCase();
+  let score = 0;
+  if (/(draw|search|destroy|exile|counter|return .*battlefield|untap|treasure|create token|add counter)/i.test(text)) score += 12;
+  if (/(gain life|scry|surveil)/i.test(text)) score += 4;
+  if (/(opponent draws|each opponent draws|lose life|sacrifice|discard|countered|enters tapped|decline|no)/i.test(text)) score -= 8;
+  if (/(yes|accept|pay)/i.test(text)) score += 2;
+  return score;
+}
+
+function getPermanentKeywordSet(permanent: any): Set<string> {
+  const keywords = new Set<string>();
+
+  for (const keyword of Array.isArray(permanent?.card?.keywords) ? permanent.card.keywords : []) {
+    const normalized = String(keyword || '').trim().toLowerCase();
+    if (normalized) keywords.add(normalized);
+  }
+
+  for (const ability of Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : []) {
+    const normalized = String(ability || '').trim().toLowerCase();
+    if (normalized) keywords.add(normalized);
+  }
+
+  const counters = permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : {};
+  for (const [counterName, amount] of Object.entries(counters)) {
+    if (Number(amount || 0) <= 0) continue;
+    const normalized = String(counterName || '').trim().toLowerCase();
+    if (normalized && !normalized.includes('+') && !normalized.includes('-')) {
+      keywords.add(normalized);
+    }
+  }
+
+  return keywords;
+}
+
+function getPermanentCombatStats(permanent: any): { power: number; toughness: number } {
+  return {
+    power: Number(permanent?.card?.power || permanent?.basePower || 0) || 0,
+    toughness: Number(permanent?.card?.toughness || permanent?.baseToughness || 0) || 0,
+  };
+}
+
+function normalizeKeywordChoice(value: string): string {
+  return String(value || '').trim().toLowerCase().replace(/_/g, ' ');
+}
+
+function scoreKeywordCounterChoiceOption(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  option: any,
+): number {
+  const optionId = String(option?.id || option?.value || option || '');
+  const keyword = normalizeKeywordChoice(optionId || option?.label || '');
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const targetPermanentId = String(step?.keywordCounterChoiceData?.targetPermanentId || '');
+  const targetPermanent = battlefield.find((perm: any) => String(perm?.id || '') === targetPermanentId);
+  if (!targetPermanent) {
+    return scoreGenericChoiceOption(step, option);
+  }
+
+  const existingKeywords = getPermanentKeywordSet(targetPermanent);
+  if (!keyword || existingKeywords.has(keyword)) {
+    return -1000;
+  }
+
+  const profile = ensureAIDeckProfile(game, playerId);
+  const typeLine = String(targetPermanent?.card?.type_line || '').toLowerCase();
+  const isCreature = typeLine.includes('creature');
+  const isCommander = Boolean((targetPermanent as any)?.isCommander);
+  const { power, toughness } = getPermanentCombatStats(targetPermanent);
+  const offensiveWeight = power >= 4 ? 1 : 0;
+  const opponents = battlefield.filter((perm: any) => perm?.controller !== playerId);
+  const opposingFlyers = opponents.filter((perm: any) => {
+    if (!String(perm?.card?.type_line || '').toLowerCase().includes('creature')) return false;
+    const keywords = getPermanentKeywordSet(perm);
+    const oracleText = String(perm?.card?.oracle_text || '').toLowerCase();
+    return keywords.has('flying') || oracleText.includes('flying');
+  }).length;
+
+  let score = scoreGenericChoiceOption(step, option);
+
+  switch (keyword) {
+    case 'trample':
+      score += isCreature ? 10 + (power >= 5 ? 10 : 4) : 0;
+      if (profile?.primaryArchetypes.includes(SynergyArchetype.VOLTRON)) score += 8;
+      if (profile?.primaryArchetypes.includes(SynergyArchetype.COUNTERS)) score += 4;
+      break;
+    case 'flying':
+      score += isCreature ? 14 + (power >= 3 ? 5 : 0) : 0;
+      if (isCommander) score += 4;
+      if (profile?.primaryArchetypes.includes(SynergyArchetype.VOLTRON)) score += 6;
+      break;
+    case 'double strike':
+      score += isCreature ? 12 + power * 2 : 0;
+      if (isCommander) score += 6;
+      if (profile?.primaryArchetypes.includes(SynergyArchetype.VOLTRON)) score += 8;
+      break;
+    case 'first strike':
+      score += isCreature ? 8 + (power >= 3 ? 6 : 0) : 0;
+      break;
+    case 'lifelink':
+      score += isCreature ? 8 + (power >= 4 ? 6 : 0) : 0;
+      if (getAIPlayerLife(game, playerId) <= 18) score += 10;
+      break;
+    case 'vigilance':
+      score += isCreature ? 7 + (power >= 3 ? 4 : 0) : 0;
+      if (isCommander) score += 3;
+      break;
+    case 'reach':
+      score += opposingFlyers > 0 ? 16 : 2;
+      if (toughness >= 4) score += 2;
+      break;
+    case 'deathtouch':
+      score += isCreature ? (power <= 3 ? 14 : 8) : 0;
+      break;
+    case 'menace':
+      score += isCreature ? 8 + (offensiveWeight ? 5 : 0) : 0;
+      break;
+    case 'hexproof':
+      score += 14;
+      if (isCommander) score += 10;
+      if (power + toughness >= 8) score += 6;
+      if (profile?.primaryArchetypes.includes(SynergyArchetype.VOLTRON)) score += 8;
+      break;
+    case 'indestructible':
+      score += 13;
+      if (isCommander) score += 8;
+      if (power + toughness >= 8) score += 5;
+      break;
+    default:
+      break;
+  }
+
+  return score;
+}
+
+function chooseAIKeywordCounterSelectionsForStep(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+): { selections: string[]; cancelled: boolean } {
+  const resolveOptionId = (option: any): string => String(option?.id || option?.value || option || '');
+  const ranked = [...options]
+    .map((option: any) => ({
+      id: resolveOptionId(option),
+      score: scoreKeywordCounterChoiceOption(game, playerId, step, option),
+    }))
+    .filter((entry) => Boolean(entry.id))
+    .sort((left, right) => right.score - left.score);
+
+  const best = ranked[0]?.id;
+  return { selections: best ? [best] : [], cancelled: !best };
+}
+
+function scoreCardForAIPutFromHand(
+  game: any,
+  playerId: PlayerID,
+  card: any,
+  tappedAndAttacking: boolean,
+): number {
+  const profile = ensureAIDeckProfile(game, playerId);
+  const analysis = cardAnalyzer.analyzeCard(card);
+  const battlefield = getAIBattlefield(game, playerId);
+  const hand = getAIHand(game, playerId);
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
+  const power = Number(card?.power || 0) || 0;
+  const toughness = Number(card?.toughness || 0) || 0;
+  const cmc = Number(card?.cmc || 0) || 0;
+
+  let score = 20;
+  score += calculateCardThemeAlignment(card, profile);
+  score += calculateCardSynergyPressure(card, hand, battlefield, playerId, profile);
+  score += analysis.comboPotential * 5;
+  score += cmc;
+
+  if (analysis.categories.includes(CardCategory.FINISHER)) score += 12;
+  if (analysis.categories.includes(CardCategory.DRAW)) score += 8;
+  if (analysis.categories.includes(CardCategory.REMOVAL)) score += 10;
+  if (analysis.categories.includes(CardCategory.TUTOR)) score += 8;
+
+  if (tappedAndAttacking) {
+    score += power * 4;
+    if (/(flying|trample|double strike|menace|can't be blocked|unblockable)/i.test(oracleText)) score += 10;
+    if (/deathtouch/i.test(oracleText)) score += 5;
+  } else {
+    if (analysis.details.hasETBTrigger) score += 18;
+    if (analysis.details.producesMana) score += 6;
+    score += power + toughness;
+  }
+
+  if (!typeLine.includes('creature')) {
+    score -= 100;
+  }
+
+  return score;
+}
+
+function chooseAIPutFromHandSelectionsForStep(
+  game: any,
+  playerId: PlayerID,
+  step: any,
+  options: any[],
+): { selections: string[]; cancelled: boolean } {
+  const putFromHandData = step?.putFromHandData;
+  const validCardIds = new Set(
+    Array.isArray(putFromHandData?.validCardIds)
+      ? putFromHandData.validCardIds.map((id: any) => String(id))
+      : [],
+  );
+  const tappedAndAttacking = putFromHandData?.tappedAndAttacking === true;
+  const hand = getAIHand(game, playerId);
+
+  const ranked = hand
+    .filter((card: any) => validCardIds.has(String(card?.id || '')))
+    .map((card: any) => ({
+      id: String(card?.id || ''),
+      score: scoreCardForAIPutFromHand(game, playerId, card, tappedAndAttacking),
+    }))
+    .filter((entry) => Boolean(entry.id))
+    .sort((left, right) => right.score - left.score);
+
+  const best = ranked[0]?.id;
+  if (best) {
+    return { selections: [best], cancelled: false };
+  }
+
+  const declineOption = options.find((option: any) => String(option?.id || option?.value || option || '') === 'decline');
+  if (declineOption) {
+    return { selections: ['decline'], cancelled: true };
+  }
+
+  return { selections: [], cancelled: true };
+}
+
+export function chooseAIOptionSelectionsForStep(
+  game: any,
+  playerId: PlayerID,
+  step: any
+): { selections: string[]; cancelled: boolean } {
+  const options = Array.isArray(step?.options) ? step.options : [];
+  if (options.length === 0) {
+    return { selections: [], cancelled: false };
+  }
+
+  const resolveOptionId = (option: any): string => String(option?.id || option?.value || option || '');
+
+  if (step?.mayAbilityPrompt === true) {
+    const effectText = String(step?.effectText || step?.description || '').toLowerCase();
+    let shouldAccept = true;
+    if (effectText.includes('draw')) {
+      const libraryZone = (game.state as any)?.zones?.[playerId]?.library
+        ?? (game.state as any)?.libraries?.[playerId]
+        ?? [];
+      const deckSize = Array.isArray(libraryZone) ? libraryZone.length : 0;
+      if (deckSize <= 3) {
+        shouldAccept = false;
+      }
+    }
+    const choiceId = options.some((option: any) => resolveOptionId(option) === 'yes')
+      ? (shouldAccept ? 'yes' : 'no')
+      : resolveOptionId(options[shouldAccept ? 0 : Math.min(1, options.length - 1)]);
+    return { selections: [choiceId], cancelled: !shouldAccept };
+  }
+
+  if (step?.shockLandChoice === true) {
+    const payLifeAmount = Number(step?.payLifeAmount || 2);
+    const currentLife = getAIPlayerLife(game, playerId);
+    const isOwnTurn = game?.state?.turnPlayer === playerId;
+    const phase = String(game?.state?.phase || '').toLowerCase();
+    const hand = getAIHand(game, playerId);
+    const wantUntapped = isOwnTurn && phase.includes('main') && hand.some((card: any) => String(card?.mana_cost || '').length > 0);
+    const shouldPay = currentLife - payLifeAmount >= 10 && wantUntapped;
+    return { selections: [shouldPay ? 'pay_2_life' : 'enter_tapped'], cancelled: false };
+  }
+
+  if (step?.wardPayment === true) {
+    const paymentType = String(step?.wardPaymentType || '').trim().toLowerCase();
+    const wardValue = scoreProtectedObjectForWard(game, playerId, step);
+    if (paymentType === 'mana') {
+      const wardCost = String(step?.wardCost || '');
+      const parsed = parseManaCost(wardCost);
+      const manaPool = getAvailableMana(game.state, playerId);
+      const canPay = canPayManaCost(manaPool, parsed);
+      return { selections: [canPay ? 'pay_ward_cost' : 'decline_ward_cost'], cancelled: false };
+    }
+    if (paymentType === 'life') {
+      const lifeAmount = Number(step?.wardLifeAmount || 0);
+      const currentLife = getAIPlayerLife(game, playerId);
+      const shouldPay = currentLife - lifeAmount >= (wardValue >= 60 ? 5 : 12);
+      return { selections: [shouldPay ? 'pay_ward_cost' : 'decline_ward_cost'], cancelled: false };
+    }
+    if (paymentType === 'discard') {
+      const discardCount = Number(step?.wardDiscardCount || 1);
+      const hand = getAIHand(game, playerId);
+      const shouldPay = hand.length >= discardCount && (hand.length - discardCount >= 2 || wardValue >= 60);
+      return { selections: [shouldPay ? 'pay_ward_cost' : 'decline_ward_cost'], cancelled: false };
+    }
+    if (paymentType === 'sacrifice') {
+      const sacCount = Number(step?.wardSacrificeCount || 1);
+      const battlefield = getAIBattlefield(game, playerId);
+      const expendable = battlefield.filter((perm: any) => {
+        const analysis = cardAnalyzer.analyzeCard(perm);
+        const theme = calculateCardThemeAlignment(perm.card || perm, ensureAIDeckProfile(game, playerId));
+        return Boolean((perm as any).isToken) || (analysis.comboPotential <= 3 && theme <= 4);
+      });
+      const shouldPay = expendable.length >= sacCount && wardValue >= 55;
+      return { selections: [shouldPay ? 'pay_ward_cost' : 'decline_ward_cost'], cancelled: false };
+    }
+  }
+
+  if (step?.keywordCounterChoiceData) {
+    return chooseAIKeywordCounterSelectionsForStep(game, playerId, step, options);
+  }
+
+  if (step?.putFromHandData) {
+    return chooseAIPutFromHandSelectionsForStep(game, playerId, step, options);
+  }
+
+  const minSelections = Math.max(1, Number(step?.minSelections ?? 1));
+  const maxSelections = Math.max(minSelections, Number(step?.maxSelections ?? minSelections));
+  const desired = Math.min(options.length, Math.max(minSelections, Math.min(maxSelections, 1)));
+
+  const selections = [...options]
+    .map((option: any) => ({ id: resolveOptionId(option), score: scoreGenericChoiceOption(step, option) }))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, desired)
+    .map((entry) => entry.id)
+    .filter(Boolean);
+
+  return {
+    selections,
+    cancelled: selections.length === 1 && /^(?:no|decline|decline_ward_cost)$/i.test(selections[0]),
+  };
+}
+
+function scoreModeOption(game: any, playerId: PlayerID, step: any, mode: any): number {
+  const text = `${String(mode?.label || '')} ${String(mode?.description || '')}`.toLowerCase();
+  let score = 0;
+
+  if (/(destroy|exile|counter|return .*hand|bounce)/i.test(text)) score += 14;
+  if (/(draw|search your library|tutor)/i.test(text)) score += 12;
+  if (/(create .*token|treasure|clue|food)/i.test(text)) score += 8;
+  if (/(untap|add mana)/i.test(text)) score += 7;
+  if (/(damage each opponent|each opponent loses|deal .*damage to each opponent)/i.test(text)) score += 10;
+  if (/(gain life|lifelink)/i.test(text)) score += getAIPlayerLife(game, playerId) <= 12 ? 8 : 2;
+  if (/(trample|flying|double strike|vigilance)/i.test(text)) score += 6;
+  if (/(discard|sacrifice|lose life)/i.test(text)) score -= 6;
+
+  return score;
+}
+
+function chooseAbundantHarvestMode(game: any, playerId: PlayerID, modes: any[]): string[] {
+  const battlefield = getAIBattlefield(game, playerId);
+  const landsOnBattlefield = battlefield.filter((perm: any) => String(perm?.card?.type_line || '').toLowerCase().includes('land')).length;
+  const hand = getAIHand(game, playerId);
+  const landsInHand = hand.filter((card: any) => String(card?.type_line || '').toLowerCase().includes('land')).length;
+  const wantLand = landsOnBattlefield <= 2 || (landsOnBattlefield <= 4 && landsInHand === 0);
+  const chosen = modes.find((mode: any) => String(mode?.id || '').toLowerCase() === (wantLand ? 'land' : 'nonland')) || modes[0];
+  return [String(chosen?.id || '')].filter(Boolean);
+}
+
+function chooseOverloadMode(game: any, playerId: PlayerID, step: any, modes: any[]): string[] {
+  const castArgs = step?.castSpellFromHandArgs || {};
+  const cardId = String(castArgs.cardId || step?.sourceId || '');
+  const hand = getAIHand(game, playerId);
+  const cardInHand = hand.find((card: any) => String(card?.id || '') === cardId);
+  const oracleText = String(cardInHand?.oracle_text || '').toLowerCase();
+  const overloadMatch = oracleText.match(/overload\s*\{([^}]+)\}/i);
+  const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
+  const manaPool = getAvailableMana(game.state, playerId);
+  const canPayOverload = overloadCost ? canPayManaCost(manaPool, parseManaCost(overloadCost)) : false;
+  const opponentNonlandPermanents = (game?.state?.battlefield || []).filter((perm: any) =>
+    perm?.controller !== playerId && !String(perm?.card?.type_line || '').toLowerCase().includes('land')
+  ).length;
+  const shouldOverload = Boolean(canPayOverload && opponentNonlandPermanents >= 2);
+  const preferredId = shouldOverload ? 'overload' : 'normal';
+  const chosen = modes.find((mode: any) => String(mode?.id || '') === preferredId) || modes[0];
+  return [String(chosen?.id || '')].filter(Boolean);
+}
+
+export function chooseAIModeSelectionsForStep(
+  game: any,
+  playerId: PlayerID,
+  step: any
+): { selections: string[]; cancelled: boolean } {
+  const modes = Array.isArray(step?.modes) ? step.modes : [];
+  if (modes.length === 0) {
+    return { selections: [], cancelled: true };
+  }
+
+  const purpose = String(step?.modeSelectionPurpose || '');
+  if (purpose === 'abundantChoice') {
+    return { selections: chooseAbundantHarvestMode(game, playerId, modes), cancelled: false };
+  }
+  if (purpose === 'overload') {
+    return { selections: chooseOverloadMode(game, playerId, step, modes), cancelled: false };
+  }
+
+  const minModes = Math.max(1, Number(step?.minModes ?? 1));
+  const maxModesRaw = Number(step?.maxModes ?? 1);
+  const maxModes = maxModesRaw < 0 ? modes.length : Math.max(minModes, maxModesRaw);
+
+  let selections = [...modes]
+    .map((mode: any) => ({ id: String(mode?.id || ''), score: scoreModeOption(game, playerId, step, mode) }))
+    .filter((entry) => Boolean(entry.id))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, maxModes)
+    .map((entry) => entry.id);
+
+  if (selections.length < minModes) {
+    const fallback = modes
+      .map((mode: any) => String(mode?.id || ''))
+      .filter(Boolean);
+    selections = fallback.slice(0, minModes);
+  } else if (purpose !== 'spree' && maxModes > minModes) {
+    selections = selections.slice(0, minModes);
+  } else if (purpose === 'spree') {
+    selections = selections.filter((id, index) => index < maxModes);
+  }
+
+  return { selections, cancelled: false };
+}
+
+function getPermanentForTarget(game: any, target: TargetRef): any | null {
+  if (target.kind !== 'permanent') return null;
+  const battlefield = game?.state?.battlefield || [];
+  return battlefield.find((perm: any) => perm?.id === target.id) || null;
+}
+
+function getPlayerForTarget(game: any, target: TargetRef): any | null {
+  if (target.kind !== 'player') return null;
+  return (game?.state?.players || []).find((player: any) => player?.id === target.id) || null;
+}
+
+function isHelpfulSpellOp(op: SpellSpec['op']): boolean {
+  return op === 'UNTAP_TARGET' ||
+    op === 'FLICKER_TARGET' ||
+    op === 'ADD_COUNTERS_TARGET' ||
+    op === 'GAIN_LIFE_TARGET_PLAYER' ||
+    op === 'DRAW_TARGET_PLAYER' ||
+    op === 'SURVEIL_TARGET_PLAYER';
+}
+
+function isHostileSpellOp(op: SpellSpec['op']): boolean {
+  return op === 'DESTROY_TARGET' ||
+    op === 'EXILE_TARGET' ||
+    op === 'BOUNCE_TARGET' ||
+    op === 'TAP_TARGET' ||
+    op === 'GOAD_TARGET' ||
+    op === 'DAMAGE_TARGET' ||
+    op === 'ANY_TARGET_DAMAGE' ||
+    op === 'LOSE_LIFE_TARGET_PLAYER' ||
+    op === 'DAMAGE_TARGET_PLAYER' ||
+    op === 'DISCARD_TARGET_PLAYER' ||
+    op === 'BLIGHT_TARGET_OPPONENT' ||
+    op === 'BLIGHT_TARGET_PLAYER' ||
+    op === 'MILL_TARGET_PLAYER';
+}
+
+function scorePermanentTargetForSpell(
+  game: any,
+  playerId: PlayerID,
+  card: any,
+  spellSpec: SpellSpec,
+  target: TargetRef,
+  profile: DeckArchetypeProfile | null,
+  threatAssessment: ReturnType<AIEngine['assessBattlefieldThreats']>
+): number {
+  const permanent = getPermanentForTarget(game, target);
+  if (!permanent) return -9999;
+
+  const analysis = cardAnalyzer.analyzeCard(permanent);
+  const isOwnPermanent = permanent.controller === playerId;
+  const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+  const oracleText = String(permanent.card?.oracle_text || '').toLowerCase();
+  const power = Number(permanent.card?.power || permanent.basePower || 0) || 0;
+  const toughness = Number(permanent.card?.toughness || permanent.baseToughness || 0) || 0;
+  const amount = Number(spellSpec.amount || 0) || 0;
+  let score = 0;
+
+  if (isHelpfulSpellOp(spellSpec.op)) {
+    score += isOwnPermanent ? 40 : -60;
+    score += calculateCardThemeAlignment(permanent.card || permanent, profile);
+    score += calculateCardSynergyPressure(
+      permanent.card || permanent,
+      Array.isArray(game?.state?.zones?.[playerId]?.hand) ? game.state.zones[playerId].hand : [],
+      (game?.state?.battlefield || []).filter((perm: any) => perm?.controller === playerId),
+      playerId,
+      profile,
+    );
+
+    if (spellSpec.op === 'FLICKER_TARGET') {
+      if (analysis.details.hasETBTrigger) score += 22;
+      if (analysis.categories.includes(CardCategory.TOKEN_GENERATOR)) score += 8;
+      if (analysis.categories.includes(CardCategory.REANIMATOR)) score += 6;
+      if (permanent.isToken) score -= 100;
+    }
+
+    if (spellSpec.op === 'UNTAP_TARGET') {
+      if (analysis.details.producesMana) score += 16;
+      if (typeLine.includes('creature') && power >= 4) score += 6;
+      if (permanent.tapped === false) score -= 10;
+    }
+
+    if (spellSpec.op === 'ADD_COUNTERS_TARGET') {
+      if ((permanent as any).isCommander) score += 10;
+      if (profile?.primaryArchetypes.includes(SynergyArchetype.COUNTERS)) score += 10;
+      if (profile?.primaryArchetypes.includes(SynergyArchetype.VOLTRON)) score += 10;
+      score += power + toughness;
+    }
+
+    return score;
+  }
+
+  score += isOwnPermanent ? -120 : 50;
+  score += analysis.removalTargetPriority * 6;
+  score += analysis.comboPotential * 8;
+  if (analysis.comboPotential >= 9) {
+    score += 40;
+  } else if (analysis.comboPotential >= 7) {
+    score += 20;
+  }
+  score += threatAssessment.highestThreatPlayer === permanent.controller ? 10 : 0;
+
+  const recommended = threatAssessment.recommendedTargets.find((entry) => entry.permanentId === permanent.id);
+  if (recommended) {
+    score += recommended.priority * 5;
+  }
+
+  if (spellSpec.op === 'EXILE_TARGET' && analysis.details.hasDeathTrigger && analysis.details.deathTriggerBenefitsMe) {
+    score += 10;
+  }
+  if (spellSpec.op === 'BOUNCE_TARGET' && analysis.details.hasETBTrigger) {
+    score -= 8;
+  }
+  if (spellSpec.op === 'TAP_TARGET') {
+    score += permanent.tapped ? -20 : 10;
+    score += power * 3;
+  }
+  if (spellSpec.op === 'GOAD_TARGET') {
+    score += power * 4;
+    score += permanent.tapped ? -15 : 0;
+  }
+  if ((spellSpec.op === 'DAMAGE_TARGET' || spellSpec.op === 'ANY_TARGET_DAMAGE') && amount > 0) {
+    if (toughness <= amount) score += 20;
+    else score -= 8;
+  }
+  if (typeLine.includes('planeswalker')) {
+    score += 12;
+  }
+  if (oracleText.includes('draw') || oracleText.includes('whenever')) {
+    score += 4;
+  }
+
+  return score;
+}
+
+function scorePlayerTargetForSpell(
+  game: any,
+  playerId: PlayerID,
+  spellSpec: SpellSpec,
+  target: TargetRef,
+  profile: DeckArchetypeProfile | null,
+  threatAssessment: ReturnType<AIEngine['assessBattlefieldThreats']>
+): number {
+  const player = getPlayerForTarget(game, target);
+  if (!player) return -9999;
+
+  const isSelf = player.id === playerId;
+  const comboWarning = aiEngine.detectOpponentCombo(game.state as any, playerId);
+  let score = 0;
+
+  if (isHelpfulSpellOp(spellSpec.op)) {
+    score += isSelf ? 80 : -40;
+    if (spellSpec.op === 'SURVEIL_TARGET_PLAYER' && !isSelf && profile?.primaryArchetypes.includes(SynergyArchetype.GRAVEYARD)) {
+      score -= 20;
+    }
+    return score;
+  }
+
+  score += isSelf ? -120 : 40;
+  score += player.life <= 10 ? 20 : player.life <= 20 ? 10 : 0;
+  score += threatAssessment.highestThreatPlayer === player.id ? 18 : 0;
+
+  if (comboWarning.comboPlayers.includes(player.id)) {
+    score += comboWarning.comboThreat === 'imminent' ? 30 : 15;
+  }
+
+  if (spellSpec.op === 'MILL_TARGET_PLAYER' && profile?.primaryArchetypes.includes(SynergyArchetype.GRAVEYARD) && isSelf) {
+    score += 120;
+  }
+
+  return score;
+}
+
+export function chooseAITargetsForSpell(
+  game: any,
+  playerId: PlayerID,
+  card: any,
+  spellSpec: SpellSpec,
+  validTargets: TargetRef[],
+  targetCount?: number
+): TargetRef[] {
+  const desiredTargetCount = Math.max(
+    1,
+    Number.isFinite(targetCount as number)
+      ? Number(targetCount)
+      : Math.max(spellSpec.minTargets || 1, 1)
+  );
+  const profile = ensureAIDeckProfile(game, playerId);
+  const threatAssessment = aiEngine.assessBattlefieldThreats(game.state as any, playerId);
+
+  const scoredTargets = validTargets.map((target) => {
+    const score = target.kind === 'permanent'
+      ? scorePermanentTargetForSpell(game, playerId, card, spellSpec, target, profile, threatAssessment)
+      : scorePlayerTargetForSpell(game, playerId, spellSpec, target, profile, threatAssessment);
+    return { target, score };
+  });
+
+  scoredTargets.sort((left, right) => right.score - left.score);
+  return scoredTargets.slice(0, desiredTargetCount).map((entry) => entry.target);
+}
+
+function resolveChoiceStepSourceCard(game: any, step: any): any | null {
+  const spellCastContext = step?.spellCastContext;
+  if (spellCastContext && (spellCastContext.oracleText || spellCastContext.cardName)) {
+    return {
+      id: spellCastContext.cardId || step?.sourceId || step?.id,
+      name: spellCastContext.cardName || step?.sourceName || 'Effect',
+      oracle_text: spellCastContext.oracleText || '',
+      mana_cost: spellCastContext.manaCost || '',
+      type_line: 'Spell',
+    };
+  }
+
+  const sourceId = String(step?.sourceId || '');
+  const battlefield = game?.state?.battlefield || [];
+  const permanent = battlefield.find((entry: any) => String(entry?.id || '') === sourceId);
+  if (permanent?.card) {
+    return permanent.card;
+  }
+
+  const stack = game?.state?.stack || [];
+  const stackItem = stack.find((entry: any) =>
+    String(entry?.id || '') === sourceId ||
+    String(entry?.source || '') === sourceId ||
+    String(entry?.card?.id || '') === sourceId ||
+    (step?.sourceName && String(entry?.sourceName || '') === String(step.sourceName))
+  );
+  if (stackItem?.card) {
+    return stackItem.card;
+  }
+
+  if (step?.abilityDescription || step?.description || step?.sourceName || step?.permanentName) {
+    return {
+      id: sourceId || step?.id,
+      name: step?.sourceName || step?.permanentName || 'Ability',
+      oracle_text: step?.abilityDescription || step?.description || '',
+      type_line: 'Ability',
+    };
+  }
+
+  return null;
+}
+
+function mapChoiceOptionToTargetRef(game: any, option: any): TargetRef | null {
+  const optionId = String(option?.id || '');
+  if (!optionId) {
+    return null;
+  }
+
+  const battlefield = game?.state?.battlefield || [];
+  if (battlefield.some((perm: any) => String(perm?.id || '') === optionId)) {
+    return { kind: 'permanent', id: optionId };
+  }
+
+  const players = game?.state?.players || [];
+  if (players.some((player: any) => String(player?.id || '') === optionId)) {
+    return { kind: 'player', id: optionId };
+  }
+
+  return null;
+}
+
+function scoreChoiceTargetFallback(
+  game: any,
+  playerId: PlayerID,
+  target: TargetRef,
+  sourceCard: any,
+  profile: DeckArchetypeProfile | null
+): number {
+  const oracleText = String(sourceCard?.oracle_text || '').toLowerCase();
+  const helpful = /(draw|gain life|return .*to the battlefield|untap|flicker|put .*counter|proliferate|hexproof|indestructible|you control)/i.test(oracleText);
+  const hostile = /(destroy|exile|damage|fight|goad|tap target|discard|lose life|sacrifice|counter target|return target .* to .* hand)/i.test(oracleText);
+
+  if (target.kind === 'permanent') {
+    const permanent = getPermanentForTarget(game, target);
+    if (!permanent) return -9999;
+
+    const isOwnPermanent = permanent.controller === playerId;
+    const analysis = cardAnalyzer.analyzeCard(permanent);
+    const power = Number(permanent.card?.power || permanent.basePower || 0) || 0;
+    let score = 0;
+
+    if (helpful) {
+      score += isOwnPermanent ? 50 : -50;
+      score += calculateCardThemeAlignment(permanent.card || permanent, profile);
+      if (analysis.details.hasETBTrigger) score += 18;
+      if ((permanent as any).isCommander) score += 8;
+      if (analysis.details.producesMana) score += 6;
+    }
+
+    if (hostile) {
+      score += isOwnPermanent ? -120 : 40;
+      score += analysis.removalTargetPriority * 5;
+      score += analysis.comboPotential * 6;
+      score += power * 2;
+    }
+
+    return score;
+  }
+
+  const player = getPlayerForTarget(game, target);
+  if (!player) return -9999;
+
+  const isSelf = player.id === playerId;
+  if (helpful) {
+    return isSelf ? 80 : -40;
+  }
+  if (hostile) {
+    return isSelf ? -120 : 40 + Math.max(0, 20 - Number(player.life || 20));
+  }
+  return isSelf ? 5 : 0;
+}
+
+export function chooseAITargetSelectionsForChoiceStep(
+  game: any,
+  playerId: PlayerID,
+  step: any
+): string[] {
+  const validTargets = Array.isArray(step?.validTargets) ? step.validTargets : [];
+  const minTargets = Math.max(0, Number(step?.minTargets ?? 0));
+  const rawMaxTargets = Number(step?.maxTargets ?? minTargets);
+  const maxTargets = Math.max(minTargets, Number.isFinite(rawMaxTargets) ? rawMaxTargets : minTargets);
+  const desiredCount = Math.min(
+    validTargets.length,
+    Math.max(minTargets, Math.min(maxTargets || minTargets || 1, maxTargets || minTargets || 1))
+  );
+
+  if (validTargets.length === 0 || desiredCount <= 0) {
+    return [];
+  }
+
+  const sourceCard = resolveChoiceStepSourceCard(game, step) || { name: step?.sourceName || 'Effect', oracle_text: step?.description || '' };
+  const oracleText = String(sourceCard?.oracle_text || step?.description || '');
+  const spellSpec = categorizeSpell(String(sourceCard?.name || step?.sourceName || ''), oracleText);
+  const mappedTargets = validTargets
+    .map((option: any) => ({ option, target: mapChoiceOptionToTargetRef(game, option) }))
+    .filter((entry: any) => Boolean(entry.target));
+
+  if (spellSpec && mappedTargets.length > 0) {
+    const selectedTargets = chooseAITargetsForSpell(
+      game,
+      playerId,
+      sourceCard,
+      spellSpec,
+      mappedTargets.map((entry: any) => entry.target),
+      desiredCount
+    );
+    if (selectedTargets.length > 0) {
+      return selectedTargets.map((entry) => entry.id);
+    }
+  }
+
+  const profile = ensureAIDeckProfile(game, playerId);
+  return validTargets
+    .map((option: any) => {
+      const target = mapChoiceOptionToTargetRef(game, option);
+      return {
+        id: String(option?.id || ''),
+        score: target ? scoreChoiceTargetFallback(game, playerId, target, sourceCard, profile) : 0,
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, desiredCount)
+    .map((entry: any) => entry.id)
+    .filter(Boolean);
+}
+
 /**
  * Register an AI player for a game
  */
@@ -1008,11 +2190,14 @@ export function registerAIPlayer(
   strategy: AIStrategy = AIStrategy.BASIC,
   difficulty: number = 0.5
 ): void {
+  const game = ensureGame(gameId);
+  const deckProfile = game ? ensureAIDeckProfile(game, playerId) || undefined : undefined;
   const config: AIPlayerConfig = {
     playerId,
     strategy,
     difficulty,
     thinkTime: 500, // 500ms delay for more natural feel
+    deckProfile,
   };
   
   aiEngine.registerAI(config);
@@ -1024,13 +2209,13 @@ export function registerAIPlayer(
   aiPlayers.get(gameId)!.set(playerId, config);
   
   // Add AI player to auto-pass set so they automatically pass when they can't respond
-  const game = ensureGame(gameId);
   if (game && game.state) {
     const stateAny = game.state as any;
     if (!stateAny.autoPassPlayers || !(stateAny.autoPassPlayers instanceof Set)) {
       stateAny.autoPassPlayers = new Set();
     }
     stateAny.autoPassPlayers.add(playerId);
+    ensureAIDeckProfile(game, playerId);
     debug(1, '[AI] Added AI player to auto-pass set:', { gameId, playerId });
   }
   
@@ -1766,6 +2951,10 @@ function calculateSpellPriority(card: any, game: any, playerId: PlayerID): numbe
   const typeLine = (card?.type_line || '').toLowerCase();
   const oracleText = (card?.oracle_text || '').toLowerCase();
   const cardName = (card?.name || '').toLowerCase();
+  const profile = ensureAIDeckProfile(game, playerId);
+  const zones = game.state?.zones?.[playerId];
+  const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+  const battlefield = (game.state?.battlefield || []).filter((perm: any) => perm?.controller === playerId);
   
   // Calculate CMC first - needed for early-game mana rock priority
   const parsedCost = parseManaCost(card?.mana_cost || '');
@@ -1884,6 +3073,12 @@ function calculateSpellPriority(card: any, game: any, playerId: PlayerID): numbe
   
   // Lower CMC spells get slight priority (play on curve)
   priority += Math.max(0, 10 - cmc);
+
+  priority += calculateCardSynergyPressure(card, hand, battlefield, playerId, profile);
+
+  if (profile?.primaryArchetypes.includes(SynergyArchetype.COMBO) && cardAnalyzer.analyzeCard(card).comboPotential >= 7) {
+    priority += 10;
+  }
   
   return priority;
 }
@@ -2061,6 +3256,8 @@ function needsToDiscard(game: any, playerId: PlayerID): { needsDiscard: boolean;
 function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: number): string[] {
   const zones = game.state?.zones?.[playerId];
   const hand = Array.isArray(zones?.hand) ? zones.hand : [];
+  const profile = ensureAIDeckProfile(game, playerId);
+  const battlefield = (game.state?.battlefield || []).filter((perm: any) => perm?.controller === playerId);
   
   if (hand.length <= discardCount) {
     return hand.map((c: any) => c.id);
@@ -2122,6 +3319,17 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
     // Keep card draw spells
     if (oracleText.includes('draw') && (oracleText.includes('card') || oracleText.includes('cards'))) {
       score += 25;
+    }
+
+    const synergyPressure = calculateCardSynergyPressure(card, hand, battlefield, playerId, profile);
+    score += synergyPressure;
+
+    const analysis = cardAnalyzer.analyzeCard(card);
+    if (profile?.primaryArchetypes.includes(SynergyArchetype.COMBO) && analysis.comboPotential >= 7) {
+      score += 25;
+    }
+    if (!canCastSoon && cmc >= 6 && synergyPressure < 8) {
+      score -= 12;
     }
     
     return { card, score };
@@ -3464,35 +4672,17 @@ async function executeAICastSpell(
         const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
         
         if (validTargets.length > 0) {
-          // AI target selection logic:
-          // For removal spells, prefer targeting opponent's permanents
-          // Prioritize high-threat targets
-          const opponentTargets = validTargets.filter((t: TargetRef) => {
-            if (t.kind !== 'permanent') return false;
-            const perm = battlefield.find((p: any) => p.id === t.id);
-            return perm && perm.controller !== playerId;
-          });
-          
-          // Sort opponent targets by threat level (creatures with higher power first)
-          opponentTargets.sort((a: TargetRef, b: TargetRef) => {
-            const permA = battlefield.find((p: any) => p.id === a.id);
-            const permB = battlefield.find((p: any) => p.id === b.id);
-            const powerA = parseInt(String(permA?.basePower ?? permA?.card?.power ?? '0'), 10) || 0;
-            const powerB = parseInt(String(permB?.basePower ?? permB?.card?.power ?? '0'), 10) || 0;
-            return powerB - powerA; // Higher power first
-          });
-          
-          // Select targets (prefer opponent's, fallback to any valid)
-          if (opponentTargets.length > 0) {
-            targets = opponentTargets.slice(0, spellSpec.maxTargets);
-          } else {
-            targets = validTargets.slice(0, spellSpec.maxTargets);
-          }
+          targets = chooseAITargetsForSpell(game, playerId, card, spellSpec, validTargets)
+            .slice(0, spellSpec.maxTargets || validTargets.length);
           
           debug(1, '[AI] Selected targets for spell:', { 
             cardName: card.name, 
             targetCount: targets.length,
             targets: targets.map((t: TargetRef) => {
+              if (t.kind === 'player') {
+                const player = game.state?.players?.find((entry: any) => entry?.id === t.id);
+                return player?.name || t.id;
+              }
               const perm = battlefield.find((p: any) => p.id === t.id);
               return perm?.card?.name || t.id;
             })
@@ -4350,15 +5540,39 @@ async function handleAIResolutionStep(
       }
       
       case 'target_selection': {
-        // AI auto-selects targets
-        const validTargets = step.validTargets || [];
-        const minTargets = step.minTargets || 0;
-        
-        // Select the minimum required targets (or all if less than min available)
-        const targetsToSelect = validTargets.slice(0, Math.max(minTargets, 1)).map((t: any) => t.id);
+        const targetsToSelect = chooseAITargetSelectionsForChoiceStep(game, playerId, step);
         
         ResolutionQueueManager.completeStep(gameId, step.id, createResponse(targetsToSelect));
         debug(1, `[AI] Target selection: Selected ${targetsToSelect.length} target(s)`);
+        break;
+      }
+
+      case 'option_choice':
+      case 'modal_choice': {
+        const optionDecision = chooseAIOptionSelectionsForStep(game, playerId, step);
+        const response = {
+          stepId: step.id,
+          playerId,
+          selections: optionDecision.selections,
+          cancelled: optionDecision.cancelled,
+          timestamp: Date.now(),
+        };
+        ResolutionQueueManager.completeStep(gameId, step.id, response);
+        debug(1, `[AI] ${step.type}: Selected ${optionDecision.selections.join(', ') || 'none'}`);
+        break;
+      }
+
+      case 'mode_selection': {
+        const modeDecision = chooseAIModeSelectionsForStep(game, playerId, step);
+        const response = {
+          stepId: step.id,
+          playerId,
+          selections: modeDecision.selections,
+          cancelled: modeDecision.cancelled,
+          timestamp: Date.now(),
+        };
+        ResolutionQueueManager.completeStep(gameId, step.id, response);
+        debug(1, `[AI] mode_selection: Selected ${modeDecision.selections.join(', ') || 'none'}`);
         break;
       }
 
@@ -4797,6 +6011,7 @@ export async function handleAIMulligan(
     const mulliganState = (game.state as any).mulliganState || {};
     const aiMulliganState = mulliganState[playerId];
     const currentMulligans = aiMulliganState?.mulligansTaken || 0;
+    const profile = ensureAIDeckProfile(game, playerId);
     
     // Calculate what hand size we'd have after the next mulligan (London Mulligan rule)
     const effectiveHandSizeAfterMulligan = calculateEffectiveHandSizeAfterMulligan(hand.length, currentMulligans);
@@ -4837,6 +6052,7 @@ export async function handleAIMulligan(
     const handSize = hand.length;
     const nonLandCount = hand.length - landCount;
     const totalManaProduction = landCount + manaSourceCount; // Effective mana sources
+    const handPlan = summarizeAIHandPlan(hand, profile);
     
     debug(1, '[AI] Mulligan analysis:', {
       gameId,
@@ -4850,6 +6066,11 @@ export async function handleAIMulligan(
       lowCostSpellCount,
       midCostSpellCount,
       highCostSpellCount,
+      primaryArchetypes: profile?.primaryArchetypes || [],
+      themedCards: handPlan.themedCards,
+      synergyPairs: handPlan.synergyPairs,
+      strongestPair: handPlan.strongestPair,
+      comboPieces: handPlan.comboPieces,
     });
     
     // Rule 1: If next mulligan would leave us with 4 or fewer cards, be very conservative
@@ -4900,6 +6121,10 @@ export async function handleAIMulligan(
           return false;
         }
       }
+      if (handPlan.strongestPair >= 9 && manaSourceCount >= 1 && effectiveHandSizeAfterMulligan >= 6) {
+        debug(1, '[AI] 1 land hand has strong internal synergy plus acceleration, keeping');
+        return true;
+      }
       debug(1, '[AI] Only 1 land without sufficient mana acceleration, mulliganing');
       return false; // Mulligan
     }
@@ -4923,6 +6148,11 @@ export async function handleAIMulligan(
         debug(1, '[AI] 2 lands with mana acceleration, keeping');
         return true; // Keep - 2 lands + rock/dork is playable
       }
+
+      if (handPlan.strongestPair >= 8 || handPlan.themedCards >= 3 || handPlan.comboPieces >= 1) {
+        debug(1, '[AI] 2 lands with strong deck-theme synergy, keeping');
+        return true;
+      }
       
       if (lowCostSpellCount >= 2) {
         debug(1, '[AI] 2 lands with multiple low-cost spells, keeping');
@@ -4943,6 +6173,10 @@ export async function handleAIMulligan(
     
     // Rule 6: Keep hands with 3-5 lands (good mana ratio)
     if (landCount >= 3 && landCount <= 5) {
+      if (profile && handPlan.themedCards === 0 && highCostSpellCount >= 4 && effectiveHandSizeAfterMulligan >= 6) {
+        debug(1, '[AI] 3-5 lands but hand is off-plan and top-heavy, mulliganing');
+        return false;
+      }
       debug(1, '[AI] Hand has good land count (3-5 lands), keeping');
       return true;
     }

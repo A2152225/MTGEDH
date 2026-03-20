@@ -154,6 +154,7 @@ export {
   type CardAnalysis,
   type CardEffectDetails,
   type BattlefieldAnalysis,
+  type DeckArchetypeProfile,
 } from './CardAnalyzer';
 
 // Game Simulator

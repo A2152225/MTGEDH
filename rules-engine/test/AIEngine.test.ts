@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AIEngine, AIStrategy, AIDecisionType } from '../src/AIEngine';
+import { SynergyArchetype } from '../src/CardAnalyzer';
 import type { GameState } from '../../shared/src';
 import type { AIDecisionContext } from '../src/AIEngine';
 
@@ -292,6 +293,144 @@ describe('AIEngine', () => {
       
       expect(decision.type).toBe(AIDecisionType.PASS_PRIORITY);
       expect(decision.reasoning).toContain('Random');
+    });
+
+    it('should prefer commander-led attacks for voltron decks', async () => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.BASIC,
+        thinkTime: 0,
+        deckProfile: {
+          totalCards: 99,
+          landCount: 36,
+          averageCmc: 3.1,
+          curve: { low: 24, mid: 32, high: 7 },
+          categoryCounts: {},
+          synergyTagCounts: { voltron: 10 },
+          archetypeScores: { [SynergyArchetype.VOLTRON]: 12 },
+          primaryArchetypes: [SynergyArchetype.VOLTRON],
+          comboPairs: [],
+          keyCards: ['Rafiq of the Many'],
+        },
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.battlefield = [
+        {
+          id: 'commander1',
+          controller: 'ai1',
+          owner: 'ai1',
+          isCommander: true,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'rafiq',
+            name: 'Rafiq of the Many',
+            type_line: 'Legendary Creature — Human Knight',
+            power: '3',
+            toughness: '3',
+            oracle_text: 'Exalted',
+          },
+        } as any,
+        {
+          id: 'support1',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'bear',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        } as any,
+      ];
+
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+      expect(decision.action.attackers.map((attacker: any) => attacker.creatureId)).toContain('commander1');
+      expect(decision.action.attackers.map((attacker: any) => attacker.creatureId)).not.toContain('support1');
+    });
+
+    it('should preserve combo creatures from speculative attacks', async () => {
+      aiEngine.registerAI({
+        playerId: 'ai1',
+        strategy: AIStrategy.BASIC,
+        thinkTime: 0,
+        deckProfile: {
+          totalCards: 99,
+          landCount: 34,
+          averageCmc: 2.8,
+          curve: { low: 30, mid: 26, high: 9 },
+          categoryCounts: {},
+          synergyTagCounts: { spellslinger: 6 },
+          archetypeScores: { [SynergyArchetype.COMBO]: 14 },
+          primaryArchetypes: [SynergyArchetype.COMBO],
+          comboPairs: ['Devoted Druid + Vizier of Remedies'],
+          keyCards: ['Devoted Druid'],
+        },
+      });
+
+      testGameState.phase = 'combat' as any;
+      testGameState.step = 'declare_attackers' as any;
+      testGameState.battlefield = [
+        {
+          id: 'combo1',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'devoted_druid',
+            name: 'Devoted Druid',
+            type_line: 'Creature — Elf Druid',
+            power: '0',
+            toughness: '2',
+            oracle_text: '{T}: Add {G}. Put a -1/-1 counter on Devoted Druid: Untap Devoted Druid.',
+          },
+        } as any,
+        {
+          id: 'bear2',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'bear2_card',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        } as any,
+      ];
+
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+      const attackerIds = decision.action.attackers.map((attacker: any) => attacker.creatureId);
+      expect(attackerIds).toContain('bear2');
+      expect(attackerIds).not.toContain('combo1');
     });
   });
   
