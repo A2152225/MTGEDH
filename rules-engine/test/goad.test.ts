@@ -16,6 +16,7 @@ import {
   getGoadedBy,
   getGoadedAttackTargets,
   canGoadedCreatureAttack,
+  getCombatDamageValue,
   getGoadedAttackers,
   validateDeclareAttackers,
   type DeclareAttackersAction,
@@ -72,6 +73,58 @@ describe('Rule 701.15: Goad Mechanic', () => {
       expect(isGoaded(creature, 5)).toBe(false); // At expiration
       expect(isGoaded(creature, 6)).toBe(false); // After expiration
     });
+
+    it('should detect static goad from Baeloth based on battlefield conditions', () => {
+      const battlefield = [
+        {
+          id: 'baeloth',
+          controller: 'player2',
+          owner: 'player2',
+          card: {
+            name: 'Baeloth Barrityl, Entertainer',
+            type_line: 'Legendary Creature — Elf Shaman',
+            oracle_text: "Creatures your opponents control with power less than Baeloth Barrityl, Entertainer's power are goaded.",
+            power: '2',
+            toughness: '5',
+          },
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'creature1',
+          controller: 'player1',
+          owner: 'player1',
+          card: { name: 'Small Creature', type_line: 'Creature', power: '1', toughness: '1' },
+          tapped: false,
+        } as BattlefieldPermanent,
+      ];
+
+      expect(isGoaded(battlefield[1], 5, battlefield)).toBe(true);
+    });
+
+    it('should detect goad from attached aura text', () => {
+      const battlefield = [
+        {
+          id: 'creature1',
+          controller: 'player1',
+          owner: 'player1',
+          card: { name: 'Enchanted Creature', type_line: 'Creature', power: '2', toughness: '2' },
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'shiny-impetus',
+          controller: 'player2',
+          owner: 'player2',
+          attachedTo: 'creature1',
+          card: {
+            name: 'Shiny Impetus',
+            type_line: 'Enchantment — Aura',
+            oracle_text: "Enchant creature\nEnchanted creature gets +2/+2 and is goaded. (It attacks each combat if able and attacks a player other than you if able.)",
+          },
+        } as BattlefieldPermanent,
+      ];
+
+      expect(isGoaded(battlefield[0], 5, battlefield)).toBe(true);
+    });
   });
   
   describe('getGoadedBy', () => {
@@ -115,6 +168,58 @@ describe('Rule 701.15: Goad Mechanic', () => {
       expect(goaders).toContain('player3'); // Still active
       expect(goaders).not.toContain('player2'); // Expired
       expect(goaders).toHaveLength(1);
+    });
+
+    it('should report Baeloth controller as static goader', () => {
+      const battlefield = [
+        {
+          id: 'baeloth',
+          controller: 'player2',
+          owner: 'player2',
+          card: {
+            name: 'Baeloth Barrityl, Entertainer',
+            type_line: 'Legendary Creature — Elf Shaman',
+            oracle_text: "Creatures your opponents control with power less than Baeloth Barrityl, Entertainer's power are goaded.",
+            power: '2',
+            toughness: '5',
+          },
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'creature1',
+          controller: 'player1',
+          owner: 'player1',
+          card: { name: 'Small Creature', type_line: 'Creature', power: '1', toughness: '1' },
+          tapped: false,
+        } as BattlefieldPermanent,
+      ];
+
+      expect(getGoadedBy(battlefield[1], 5, battlefield)).toEqual(['player2']);
+    });
+
+    it('should report aura controller as goader for impetus auras', () => {
+      const battlefield = [
+        {
+          id: 'creature1',
+          controller: 'player1',
+          owner: 'player1',
+          card: { name: 'Enchanted Creature', type_line: 'Creature', power: '2', toughness: '2' },
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'incriminating-impetus',
+          controller: 'player2',
+          owner: 'player2',
+          attachedTo: 'creature1',
+          card: {
+            name: 'Incriminating Impetus',
+            type_line: 'Enchantment — Aura',
+            oracle_text: "Enchant creature\nWhen this Aura enters, suspect enchanted creature. (It has menace and can't block.)\nEnchanted creature gets +2/+2 and is goaded. (It attacks each combat if able and attacks a player other than you if able.)",
+          },
+        } as BattlefieldPermanent,
+      ];
+
+      expect(getGoadedBy(battlefield[0], 5, battlefield)).toEqual(['player2']);
     });
   });
   
@@ -435,6 +540,90 @@ describe('Rule 701.15: Goad Mechanic', () => {
       const result = validateDeclareAttackers(state, action);
       
       expect(result.legal).toBe(true);
+    });
+
+    it('should require attacks for creatures statically goaded by Baeloth', () => {
+      const battlefield: BattlefieldPermanent[] = [
+        {
+          id: 'baeloth',
+          controller: 'player2',
+          owner: 'player2',
+          card: {
+            name: 'Baeloth Barrityl, Entertainer',
+            type_line: 'Legendary Creature — Elf Shaman',
+            oracle_text: "Creatures your opponents control with power less than Baeloth Barrityl, Entertainer's power are goaded.",
+            power: '2',
+            toughness: '5',
+          },
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'creature1',
+          controller: 'player1',
+          owner: 'player1',
+          card: { name: 'Small Creature', type_line: 'Creature', power: '1', toughness: '1' },
+          tapped: false,
+        } as BattlefieldPermanent,
+      ];
+
+      const state: GameState = {
+        turn: 5,
+        step: GameStep.DECLARE_ATTACKERS,
+        activePlayerIndex: 0,
+        battlefield,
+        players: [
+          { id: 'player1', life: 40, battlefield: [] } as any,
+          { id: 'player2', life: 40, battlefield: [] } as any,
+          { id: 'player3', life: 40, battlefield: [] } as any,
+        ],
+      } as GameState;
+
+      const action: DeclareAttackersAction = {
+        type: 'declareAttackers',
+        playerId: 'player1',
+        attackers: [],
+      };
+
+      const result = validateDeclareAttackers(state, action);
+
+      expect(result.legal).toBe(false);
+      expect(result.reason).toContain('must attack');
+    });
+  });
+
+  describe('Impetus aura combat stats', () => {
+    it('should apply Shiny Impetus +2/+2 to combat damage calculations', () => {
+      const battlefield: BattlefieldPermanent[] = [
+        {
+          id: 'enchanted-creature',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            name: 'Enchanted Creature',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+          },
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'shiny-impetus',
+          controller: 'player2',
+          owner: 'player2',
+          attachedTo: 'enchanted-creature',
+          card: {
+            name: 'Shiny Impetus',
+            type_line: 'Enchantment — Aura',
+            oracle_text: "Enchant creature\nEnchanted creature gets +2/+2 and is goaded. (It attacks each combat if able and attacks a player other than you if able.)\nWhenever enchanted creature attacks, you create a Treasure token.",
+          },
+        } as BattlefieldPermanent,
+      ];
+
+      const state = {
+        battlefield,
+      } as GameState;
+
+      expect(getCombatDamageValue(battlefield[0], state)).toBe(4);
     });
   });
 });

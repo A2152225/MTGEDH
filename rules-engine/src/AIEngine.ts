@@ -128,6 +128,7 @@ import {
   type BattlefieldAnalysis,
   type DeckArchetypeProfile,
 } from './CardAnalyzer';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 /**
  * Default starting life total in Commander format
@@ -1004,7 +1005,7 @@ export class AIEngine {
     
     // Get the player and global battlefield
     const player = context.gameState.players.find(p => p.id === context.playerId);
-    const globalBattlefield = context.gameState.battlefield || [];
+    const globalBattlefield = applyStaticAbilitiesToBattlefield((context.gameState.battlefield || []) as BattlefieldPermanent[]);
     
     // Helper to find a permanent by ID in global battlefield
     const findPermanent = (id: string) => {
@@ -1042,7 +1043,7 @@ export class AIEngine {
       if (!perm) continue;
       
       // Get valid targets for this goaded creature
-      const validTargets = getGoadedAttackTargets(perm, allPlayerIds, context.gameState.turn);
+      const validTargets = getGoadedAttackTargets(perm, allPlayerIds, context.gameState.turn, globalBattlefield as any[]);
       
       if (validTargets.length === 0) {
         // Can't attack (all opponents have protection, etc.)

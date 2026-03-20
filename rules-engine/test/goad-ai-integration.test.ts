@@ -299,5 +299,67 @@ describe('Goad AI Integration', () => {
       // Untapped goaded creature must attack
       expect(attackingCreatureIds).toContain('untapped-goaded');
     });
+
+    it('should respect Baeloth static goad when choosing AI attackers', async () => {
+      const aiEngine = new AIEngine();
+      aiEngine.registerAI({
+        playerId: 'ai-player',
+        strategy: AIStrategy.BASIC,
+        difficulty: 0.8,
+      });
+
+      const battlefield: BattlefieldPermanent[] = [
+        {
+          id: 'baeloth',
+          controller: 'player2',
+          owner: 'player2',
+          card: {
+            name: 'Baeloth Barrityl, Entertainer',
+            type_line: 'Legendary Creature — Elf Shaman',
+            oracle_text: "Creatures your opponents control with power less than Baeloth Barrityl, Entertainer's power are goaded.",
+            power: '2',
+            toughness: '5',
+          },
+          tapped: false,
+        } as BattlefieldPermanent,
+        {
+          id: 'ai-small-creature',
+          controller: 'ai-player',
+          owner: 'ai-player',
+          card: {
+            name: 'AI Small Creature',
+            type_line: 'Creature — Bear',
+            power: '1',
+            toughness: '1',
+          },
+          tapped: false,
+        } as BattlefieldPermanent,
+      ];
+
+      const gameState: GameState = {
+        turn: 5,
+        step: GameStep.DECLARE_ATTACKERS,
+        activePlayerIndex: 0,
+        battlefield,
+        players: [
+          { id: 'ai-player', life: 40, battlefield } as any,
+          { id: 'player2', life: 40, battlefield: [] } as any,
+          { id: 'player3', life: 40, battlefield: [] } as any,
+        ],
+      } as GameState;
+
+      const context: AIDecisionContext = {
+        gameState,
+        playerId: 'ai-player',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+      const attack = decision.action.attackers.find((a: any) => a.creatureId === 'ai-small-creature');
+
+      expect(attack).toBeDefined();
+      expect(attack.defendingPlayerId).toBe('player3');
+    });
   });
 });

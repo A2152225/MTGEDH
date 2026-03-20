@@ -10,7 +10,7 @@
  * - Rule 510: Combat Damage Step
  */
 
-import type { GameState, CombatInfo, CombatantInfo } from '../../../shared/src';
+import type { GameState, CombatInfo, CombatantInfo, BattlefieldPermanent } from '../../../shared/src';
 import { GameStep as SharedGameStep } from '../../../shared/src';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
@@ -21,6 +21,7 @@ import {
   type AttackCostCheckResult,
   type AttackCostRequirement,
 } from '../pillowfortEffects';
+import { applyStaticAbilitiesToBattlefield } from '../staticAbilities';
 
 export interface AttackerDeclaration {
   readonly creatureId: string;
@@ -571,38 +572,80 @@ function hasAbility(permanent: any, abilityName: string, battlefield?: any[]): b
  * @param battlefield - Optional battlefield array (deprecated - static goad now uses isStaticallyGoaded flag)
  * @returns true if the permanent is currently goaded by any player
  */
+function buildProcessedBattlefieldForGoad(battlefield?: any[]): any[] {
+  if (!Array.isArray(battlefield) || battlefield.length === 0) return [];
+  try {
+    return applyStaticAbilitiesToBattlefield(battlefield as BattlefieldPermanent[]) as any[];
+  } catch {
+    return battlefield;
+  }
+}
+
+function getPermanentForGoadAnalysis(permanent: any, battlefield?: any[]): any {
+  if (!permanent) return permanent;
+  const permanentId = String((permanent as any)?.id || '').trim();
+  if (!permanentId || !Array.isArray(battlefield) || battlefield.length === 0) return permanent;
+  return battlefield.find((candidate: any) => String((candidate as any)?.id || '').trim() === permanentId) || permanent;
+}
+
+function addUniqueGoaders(target: string[], source: readonly string[] | undefined): void {
+  if (!Array.isArray(source)) return;
+  for (const goaderId of source) {
+    const normalized = String(goaderId || '').trim();
+    if (normalized && !target.includes(normalized)) {
+      target.push(normalized);
+    }
+  }
+}
+
+function getBattlefieldStaticGoaders(permanent: any, battlefield?: any[]): string[] {
+  if (!permanent || !Array.isArray(battlefield) || battlefield.length === 0) return [];
+
+  const processedBattlefield = buildProcessedBattlefieldForGoad(battlefield);
+  const analyzedPermanent = getPermanentForGoadAnalysis(permanent, processedBattlefield);
+  if (!analyzedPermanent) return [];
+
+  const goaders: string[] = [];
+  addUniqueGoaders(goaders, analyzedPermanent.isStaticallyGoaded ? analyzedPermanent.staticGoadedBy : undefined);
+
+  const permanentId = String((analyzedPermanent as any)?.id || '').trim();
+  const permanentPower = getPermanentPower(analyzedPermanent);
+
+  for (const source of processedBattlefield) {
+    const sourceId = String((source as any)?.id || '').trim();
+    const sourceController = String((source as any)?.controller || '').trim();
+    const sourceOracle = String((source as any)?.card?.oracle_text || (source as any)?.oracle_text || '').toLowerCase();
+    if (!sourceOracle) continue;
+
+    if (sourceId && permanentId && sourceId !== permanentId && String((source as any)?.attachedTo || '').trim() === permanentId) {
+      if (/(?:enchanted|equipped)\s+creature\b[^.]*\bis goaded\b/i.test(sourceOracle)) {
+        if (sourceController && !goaders.includes(sourceController)) {
+          goaders.push(sourceController);
+        }
+      }
+    }
+
+    if (!sourceController || sourceController === String((analyzedPermanent as any)?.controller || '').trim()) {
+      continue;
+    }
+
+    if (
+      sourceOracle.includes('creatures your opponents control') &&
+      sourceOracle.includes('power less than') &&
+      sourceOracle.includes('are goaded')
+    ) {
+      const sourcePower = getPermanentPower(source);
+      if (permanentPower < sourcePower && !goaders.includes(sourceController)) {
+        goaders.push(sourceController);
+      }
+    }
+  }
+
+  return goaders;
+}
+
 export function isGoaded(permanent: any, currentTurn?: number, battlefield?: any[]): boolean {
-  if (!permanent) return false;
-  
-  // Check for static goad effects (Baeloth, etc.) - set by applyStaticAbilitiesToBattlefield
-  if (permanent.isStaticallyGoaded === true) {
-    return true;
-  }
-  
-  // Check direct goad effects on the permanent
-  const goadedBy = permanent.goadedBy;
-  if (goadedBy && Array.isArray(goadedBy) && goadedBy.length > 0) {
-    // If no turn tracking, just check if goaded by anyone
-    if (currentTurn === undefined) {
-      return true;
-    }
-    
-    // Check if any goad effects are still active
-    const goadedUntil = permanent.goadedUntil;
-    if (!goadedUntil) {
-      return true; // Has goad but no expiration tracking, assume active
-    }
-    
-    // Check if any goad is still active
-    const hasActiveGoad = goadedBy.some(playerId => {
-      const expiryTurn = goadedUntil[playerId];
-      return expiryTurn === undefined || expiryTurn > currentTurn;
-    });
-    
-    if (hasActiveGoad) return true;
-  }
-  
-  return false;
+  return getGoadedBy(permanent, currentTurn, battlefield).length > 0;
 }
 
 /**
@@ -612,27 +655,29 @@ export function isGoaded(permanent: any, currentTurn?: number, battlefield?: any
  * @param currentTurn - Current turn number (optional, for expiration checking)
  * @returns Array of player IDs who have goaded this creature
  */
-export function getGoadedBy(permanent: any, currentTurn?: number): string[] {
+export function getGoadedBy(permanent: any, currentTurn?: number, battlefield?: any[]): string[] {
   const goaders: string[] = [];
+  const processedBattlefield = buildProcessedBattlefieldForGoad(battlefield);
+  const analyzedPermanent = getPermanentForGoadAnalysis(permanent, processedBattlefield);
+  if (!analyzedPermanent) return goaders;
   
   // Check for static goad sources (Baeloth, etc.)
-  if (permanent.isStaticallyGoaded && permanent.staticGoadedBy && Array.isArray(permanent.staticGoadedBy)) {
-    goaders.push(...permanent.staticGoadedBy);
-  }
+  addUniqueGoaders(goaders, analyzedPermanent.isStaticallyGoaded ? analyzedPermanent.staticGoadedBy : undefined);
+  addUniqueGoaders(goaders, getBattlefieldStaticGoaders(analyzedPermanent, processedBattlefield));
   
   // Check for direct goad effects
-  if (permanent.goadedBy && Array.isArray(permanent.goadedBy)) {
+  if (analyzedPermanent.goadedBy && Array.isArray(analyzedPermanent.goadedBy)) {
     // If no turn tracking, return all goaders
     if (currentTurn === undefined) {
-      for (const goaderId of permanent.goadedBy) {
+      for (const goaderId of analyzedPermanent.goadedBy) {
         if (!goaders.includes(goaderId)) {
           goaders.push(goaderId);
         }
       }
     } else {
       // Filter to only active goad effects
-      const goadedUntil = permanent.goadedUntil || {};
-      for (const goaderId of permanent.goadedBy) {
+      const goadedUntil = analyzedPermanent.goadedUntil || {};
+      for (const goaderId of analyzedPermanent.goadedBy) {
         const expiryTurn = goadedUntil[goaderId];
         if (expiryTurn === undefined || expiryTurn > currentTurn) {
           if (!goaders.includes(goaderId)) {
@@ -659,9 +704,10 @@ export function getGoadedBy(permanent: any, currentTurn?: number): string[] {
 export function getGoadedAttackTargets(
   permanent: any,
   allPlayers: string[],
-  currentTurn?: number
+  currentTurn?: number,
+  battlefield?: any[]
 ): string[] {
-  const goaders = getGoadedBy(permanent, currentTurn);
+  const goaders = getGoadedBy(permanent, currentTurn, battlefield);
   if (goaders.length === 0) {
     // Not goaded, can attack anyone except controller
     return allPlayers.filter(p => p !== permanent.controller);
@@ -694,17 +740,18 @@ export function canGoadedCreatureAttack(
   permanent: any,
   targetPlayerId: string,
   allPlayers: string[],
-  currentTurn?: number
+  currentTurn?: number,
+  battlefield?: any[]
 ): { canAttack: boolean; reason?: string } {
-  if (!isGoaded(permanent, currentTurn)) {
+  if (!isGoaded(permanent, currentTurn, battlefield)) {
     // Not goaded, use normal attack rules
     return { canAttack: true };
   }
   
-  const validTargets = getGoadedAttackTargets(permanent, allPlayers, currentTurn);
+  const validTargets = getGoadedAttackTargets(permanent, allPlayers, currentTurn, battlefield);
   
   if (!validTargets.includes(targetPlayerId)) {
-    const goaders = getGoadedBy(permanent, currentTurn);
+    const goaders = getGoadedBy(permanent, currentTurn, battlefield);
     if (goaders.includes(targetPlayerId)) {
       return { 
         canAttack: false, 
@@ -727,15 +774,19 @@ export function canGoadedCreatureAttack(
  */
 export function getCombatDamageValue(permanent: any, state?: GameState): number {
   if (!permanent) return 0;
+  const processedBattlefield = state?.battlefield ? buildProcessedBattlefieldForGoad(state.battlefield as any[]) : undefined;
+  const analyzedPermanent = processedBattlefield
+    ? getPermanentForGoadAnalysis(permanent, processedBattlefield)
+    : permanent;
   
   // Default to power
-  let power = getPermanentPower(permanent);
-  let toughness = getPermanentToughness(permanent);
+  let power = getPermanentPower(analyzedPermanent);
+  let toughness = getPermanentToughness(analyzedPermanent);
   
   // Check for power/toughness damage swap effects
   // (e.g., Doran, the Siege Tower - "Each creature assigns combat damage equal to its toughness rather than its power")
-  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
-    for (const mod of permanent.modifiers) {
+  if (analyzedPermanent.modifiers && Array.isArray(analyzedPermanent.modifiers)) {
+    for (const mod of analyzedPermanent.modifiers) {
       if (mod.type === 'combatDamageFromToughness' || mod.useToughnessForDamage) {
         return toughness;
       }
@@ -882,7 +933,7 @@ export function getGoadedAttackers(state: GameState, playerId: string): string[]
   
   // Check global battlefield (single source of truth)
   for (const perm of battlefield) {
-    if (perm.controller === playerId && isGoaded(perm, currentTurn)) {
+    if (perm.controller === playerId && isGoaded(perm, currentTurn, battlefield)) {
       const result = canPermanentAttack(perm, playerId);
       if (result.canParticipate) {
         goadedAttackers.push(perm.id);
@@ -968,13 +1019,14 @@ export function validateDeclareAttackers(
     
     // Check goad restrictions (Rule 701.15b)
     // Static goad effects (Baeloth) are now handled via isStaticallyGoaded flag
-    if (isGoaded(permanent, state.turn)) {
+    if (isGoaded(permanent, state.turn, state.battlefield as any[])) {
       const allPlayerIds = state.players.map(p => p.id);
       const goadCheck = canGoadedCreatureAttack(
         permanent,
         attacker.defendingPlayerId,
         allPlayerIds,
-        state.turn
+        state.turn,
+        state.battlefield as any[]
       );
       if (!goadCheck.canAttack) {
         return { 
