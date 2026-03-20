@@ -210,6 +210,22 @@ export function completeMulliganPhase(
       log: ['Game not found'],
     };
   }
+
+  const turnStartBattlefieldSnapshot = Array.isArray(state.battlefield)
+    ? state.battlefield.map(permanent => ({ ...permanent }))
+    : [];
+  const turnStartHandSnapshot = Object.fromEntries(
+    (state.players || []).map(player => {
+      const playerId = String((player as any)?.id || '').trim();
+      const hand = Array.isArray((player as any)?.hand) ? (player as any).hand : [];
+      return [
+        playerId,
+        hand
+          .map((card: any) => String(card?.id || '').trim())
+          .filter((id: string) => id.length > 0),
+      ];
+    }).filter(([playerId]) => playerId.length > 0)
+  );
   
   // Move to first turn
   const nextState: GameState = {
@@ -217,6 +233,8 @@ export function completeMulliganPhase(
     phase: GamePhase.BEGINNING as any,
     step: GameStep.UNTAP as any,
     turn: 1,
+    turnStartBattlefieldSnapshot: turnStartBattlefieldSnapshot as any,
+    turnStartHandSnapshot: turnStartHandSnapshot as any,
   };
   
   context.setState(gameId, nextState);
@@ -225,7 +243,7 @@ export function completeMulliganPhase(
     type: RulesEngineEvent.TURN_STARTED,
     timestamp: Date.now(),
     gameId,
-    data: { turn: 1, activePlayer: state.players[0]?.id },
+    data: { turn: 1, activePlayer: state.players[0]?.id, turnStartBattlefieldSnapshot, turnStartHandSnapshot },
   });
   
   return {

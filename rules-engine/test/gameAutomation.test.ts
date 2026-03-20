@@ -384,4 +384,32 @@ describe('Game Advancement', () => {
     // Priority passes should still be reset
     expect((result.next as any).priorityPasses).toBe(0);
   });
+
+  it('should snapshot the battlefield when a new turn starts before untap actions run', () => {
+    const gameStates = new Map<string, GameState>();
+    const state: GameState = {
+      players: [
+        { id: 'player1', name: 'Player 1', life: 40, battlefield: [], library: [{ id: 'c1' }], hand: [] },
+        { id: 'player2', name: 'Player 2', life: 40, battlefield: [], library: [], hand: [] },
+      ],
+      phase: GamePhase.ENDING,
+      step: GameStep.CLEANUP,
+      activePlayerIndex: 0,
+      priorityPlayerIndex: 1,
+      turn: 1,
+      stack: [],
+      battlefield: [
+        { id: 'turnStartLand', ownerId: 'player2', controller: 'player2', name: 'Island', type_line: 'Basic Land — Island', tapped: true } as any,
+      ],
+    } as any;
+    gameStates.set('test-game', state);
+    const context = createMockContext(gameStates);
+
+    const result = advanceGame('test-game', context);
+
+    expect(result.next.step).toBe(GameStep.UNTAP);
+    expect(((result.next as any).turnStartBattlefieldSnapshot || [])[0]?.id).toBe('turnStartLand');
+    expect(((result.next as any).turnStartBattlefieldSnapshot || [])[0]?.tapped).toBe(true);
+    expect(((result.next as any).battlefield || [])[0]?.tapped).toBe(false);
+  });
 });

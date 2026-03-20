@@ -943,13 +943,15 @@ describe('Trigger Parsing', () => {
 
   describe('Resolution event data builder', () => {
     it('buildResolutionEventDataFromGameState derives controller turn/life/battlefield context', () => {
-      const state = makeState({ turnPlayer: 'p1' } as any);
+      const state = makeState({ turnPlayer: 'p1', turnStartHandSnapshot: { p1: ['opening1', 'opening2'] } } as any);
       const out = buildResolutionEventDataFromGameState(state, 'p1');
 
       expect(out.sourceControllerId).toBe('p1');
       expect(out.isYourTurn).toBe(true);
       expect(out.isOpponentsTurn).toBe(false);
       expect(out.lifeTotal).toBe(40);
+      expect(Array.isArray(out.hand)).toBe(true);
+      expect(out.handAtBeginningOfTurn).toEqual(['opening1', 'opening2']);
       expect(Array.isArray(out.battlefield)).toBe(true);
     });
 
@@ -1019,6 +1021,42 @@ describe('Trigger Parsing', () => {
 
       expect(ok).toBe(true);
       expect(fail).toBe(false);
+    });
+
+    it('evaluateTriggerCondition supports hand-size checks at the beginning of this turn', () => {
+      const noCardsOk = evaluateTriggerCondition(
+        'if you had no cards in hand at the beginning of this turn',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          hand: ['drawnLater'],
+          handAtBeginningOfTurn: [],
+        } as any
+      );
+
+      const hadCardOk = evaluateTriggerCondition(
+        'if you had a card in hand at the beginning of this turn',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          hand: [],
+          handAtBeginningOfTurn: ['openingCard'],
+        } as any
+      );
+
+      const hadCardFail = evaluateTriggerCondition(
+        'if you had a card in hand at the beginning of this turn',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          hand: ['currentCard'],
+          handAtBeginningOfTurn: [],
+        } as any
+      );
+
+      expect(noCardsOk).toBe(true);
+      expect(hadCardOk).toBe(true);
+      expect(hadCardFail).toBe(false);
     });
 
     it('evaluateTriggerCondition supports opponent control checks for enchantments and permanents', () => {

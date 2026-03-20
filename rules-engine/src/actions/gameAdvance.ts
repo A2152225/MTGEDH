@@ -12,6 +12,25 @@ import { GamePhase, GameStep, getNextGameStep, doesStepReceivePriority } from '.
 import { executeTurnBasedAction } from './turnActions';
 import { performStateBasedActions, checkWinConditions } from './stateBasedActionsHandler';
 
+function snapshotBattlefieldForTurnStart(state: GameState): readonly BattlefieldPermanent[] {
+  return Array.isArray(state.battlefield)
+    ? state.battlefield.map((permanent: BattlefieldPermanent) => ({ ...permanent }))
+    : [];
+}
+
+function snapshotHandsForTurnStart(state: GameState): Record<string, string[]> {
+  const snapshot: Record<string, string[]> = {};
+  for (const player of state.players || []) {
+    const playerId = String((player as any)?.id || '').trim();
+    if (!playerId) continue;
+    const hand = Array.isArray((player as any)?.hand) ? (player as any).hand : [];
+    snapshot[playerId] = hand
+      .map((card: any) => String(card?.id || '').trim())
+      .filter((id: string) => id.length > 0);
+  }
+  return snapshot;
+}
+
 /**
  * Advance game to next step/phase
  */
@@ -61,11 +80,15 @@ export function advanceGame(
   
   // If new turn, advance active player
   if (isNewTurn) {
+    const turnStartBattlefieldSnapshot = snapshotBattlefieldForTurnStart(state);
+    const turnStartHandSnapshot = snapshotHandsForTurnStart(state);
     updatedState = {
       ...updatedState,
       activePlayerIndex: activePlayerIndex, // Use pre-calculated value
       turn: (state.turn || 0) + 1,
       landsPlayedThisTurn: {}, // Reset lands played
+      turnStartBattlefieldSnapshot: turnStartBattlefieldSnapshot as any,
+      turnStartHandSnapshot: turnStartHandSnapshot as any,
     };
     
     logs.push(`Turn ${updatedState.turn} - ${updatedState.players[activePlayerIndex]?.name}`);
@@ -77,6 +100,8 @@ export function advanceGame(
       data: { 
         turn: updatedState.turn,
         activePlayer: updatedState.players[activePlayerIndex]?.id,
+        turnStartBattlefieldSnapshot,
+        turnStartHandSnapshot,
       },
     });
   }

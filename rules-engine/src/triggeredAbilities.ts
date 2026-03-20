@@ -405,6 +405,7 @@ export interface TriggerEventData {
   readonly controlledPermanents?: readonly string[];
   readonly graveyard?: readonly string[];
   readonly hand?: readonly string[];
+  readonly handAtBeginningOfTurn?: readonly string[];
   /** Generic affected player ids for the triggering event. */
   readonly affectedPlayerIds?: readonly string[];
   /** Affected opponent ids for the triggering event. */
@@ -595,6 +596,8 @@ export function buildTriggerEventDataFromPayloads(
 
   const sourceId = scalarString('sourceId');
   const targetId = scalarString('targetId') ?? targetPlayerId ?? targetOpponentId;
+  const hand = collectIds('hand');
+  const handAtBeginningOfTurn = collectIds('handAtBeginningOfTurn');
 
   return {
     sourceId,
@@ -611,6 +614,8 @@ export function buildTriggerEventDataFromPayloads(
     spellType: scalarString('spellType'),
     isYourTurn: scalarBool('isYourTurn'),
     isOpponentsTurn: scalarBool('isOpponentsTurn'),
+    hand: hand.length > 0 ? hand : undefined,
+    handAtBeginningOfTurn: handAtBeginningOfTurn.length > 0 ? handAtBeginningOfTurn : undefined,
     affectedPlayerIds: affectedPlayerIds && affectedPlayerIds.length > 0 ? affectedPlayerIds : undefined,
     affectedOpponentIds:
       affectedOpponentIdsSanitized.length > 0 ? affectedOpponentIdsSanitized : undefined,
@@ -647,6 +652,8 @@ export function buildStackTriggerMetaFromEventData(
     spellType?: string;
     isYourTurn?: boolean;
     isOpponentsTurn?: boolean;
+      hand?: readonly string[];
+      handAtBeginningOfTurn?: readonly string[];
     battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
   };
 } {
@@ -676,6 +683,8 @@ export function buildStackTriggerMetaFromEventData(
       spellType: normalized.spellType,
       isYourTurn: normalized.isYourTurn,
       isOpponentsTurn: normalized.isOpponentsTurn,
+      hand: normalized.hand,
+      handAtBeginningOfTurn: normalized.handAtBeginningOfTurn,
       battlefield: normalized.battlefield,
     },
   };
@@ -791,6 +800,21 @@ export function buildResolutionEventDataFromGameState(
     (p: any) => normalizeId(p?.id) === normalizedControllerId
   ) as any;
   const hasValidController = Boolean(controller);
+  const resolvedHand = Array.isArray(controller?.hand)
+    ? controller.hand
+        .map((card: any) => normalizeId(card?.id))
+        .filter((id: string | undefined): id is string => Boolean(id))
+    : Array.isArray(base?.hand)
+      ? [...base.hand]
+      : undefined;
+  const turnStartHandSnapshot = (state as any)?.turnStartHandSnapshot;
+  const resolvedHandAtBeginningOfTurn = normalizedControllerId && turnStartHandSnapshot && Array.isArray(turnStartHandSnapshot[normalizedControllerId])
+    ? turnStartHandSnapshot[normalizedControllerId]
+        .map((id: any) => normalizeId(id))
+        .filter((id: string | undefined): id is string => Boolean(id))
+    : Array.isArray(base?.handAtBeginningOfTurn)
+      ? [...base.handAtBeginningOfTurn]
+      : undefined;
   const resolvedLifeTotal = (() => {
     const controllerLife = Number(controller?.life);
     if (Number.isFinite(controllerLife)) return controllerLife;
@@ -810,6 +834,8 @@ export function buildResolutionEventDataFromGameState(
       hasValidController && normalizedTurnPlayerId !== undefined
         ? normalizedTurnPlayerId !== normalizedControllerId
         : Boolean(base?.isOpponentsTurn),
+    hand: resolvedHand,
+    handAtBeginningOfTurn: resolvedHandAtBeginningOfTurn,
     battlefield,
   };
 }
@@ -996,7 +1022,7 @@ export function evaluateTriggerCondition(
   }
   
   // Hand size checks
-  if (conditionLower.includes('cards in hand')) {
+  if (conditionLower.includes('cards in hand') || conditionLower.includes('card in hand')) {
     return evaluateHandCondition(conditionLower, eventData);
   }
   
@@ -1217,6 +1243,17 @@ function evaluateHandCondition(
   eventData: TriggerEventData
 ): boolean {
   const handSize = eventData.hand?.length || 0;
+  const handSizeAtBeginningOfTurn = eventData.handAtBeginningOfTurn?.length;
+
+  if (condition.includes('at the beginning of this turn')) {
+    if (condition.includes('no cards in hand')) {
+      return (handSizeAtBeginningOfTurn ?? handSize) === 0;
+    }
+
+    if (condition.includes('a card in hand')) {
+      return (handSizeAtBeginningOfTurn ?? handSize) > 0;
+    }
+  }
   
   // "X or more cards in hand"
   const moreMatch = condition.match(/(\d+)\s+or\s+more\s+cards\s+in\s+hand/);

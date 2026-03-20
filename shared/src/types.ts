@@ -448,6 +448,8 @@ export interface GameState {
   turnNumber?: number; // Current turn number (incremented each turn)
   activePlayerIndex?: number;
   landsPlayedThisTurn?: Record<PlayerID, number>;
+  turnStartBattlefieldSnapshot?: BattlefieldPermanent[];
+  turnStartHandSnapshot?: Record<PlayerID, string[]>;
   // AI mana retention taps tracking - prevents infinite loops
   aiManaRetentionTaps?: Record<PlayerID, number>;
   // Special game designations (Rules 724-730)

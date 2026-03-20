@@ -20,6 +20,8 @@ export interface OracleIRSelectorContext {
   readonly targetOpponentId?: PlayerID;
   /** Bound antecedent set for selectors parsed as "each of those opponents". */
   readonly eachOfThoseOpponents?: readonly PlayerID[];
+  /** Bound chosen objects for multi-selection antecedents such as "the chosen creatures". */
+  readonly chosenObjectIds?: readonly string[];
 }
 
 export interface OracleIRExecutionEventHint {
@@ -151,6 +153,13 @@ export function buildOracleIRExecutionContext(
       baseTargetOpponentId ??
       baseTargetFromPlayer,
     ...(sanitizedEachOfThoseOpponents ? { eachOfThoseOpponents: sanitizedEachOfThoseOpponents } : {}),
+    ...(Array.isArray(baseSel?.chosenObjectIds) && baseSel.chosenObjectIds.length > 0
+      ? {
+          chosenObjectIds: baseSel.chosenObjectIds
+            .map(id => String(id || '').trim())
+            .filter(Boolean),
+        }
+      : {}),
   };
 
   const referenceSpellTypes =
@@ -719,6 +728,7 @@ function evaluateModifyPtWhereX(
     readonly lastRevealedCardCount?: number;
     readonly lastDiscardedCardCount?: number;
     readonly lastExiledCardCount?: number;
+    readonly lastExiledCards?: readonly any[];
     readonly lastSacrificedCreaturesPowerTotal?: number;
     readonly lastExcessDamageDealtThisWay?: number;
     readonly lastScryLookedAtCount?: number;
@@ -1152,7 +1162,7 @@ function evaluateModifyPtWhereX(
     }).length;
   };
 
-  const getColorsFromPermanent = (perm: any): readonly string[] => {
+  const getColorsFromObject = (obj: any): readonly string[] => {
     const normalizeColor = (value: unknown): string | null => {
       const color = String(value || '').trim().toUpperCase();
       return ['W', 'U', 'B', 'R', 'G'].includes(color) ? color : null;
@@ -1168,21 +1178,34 @@ function evaluateModifyPtWhereX(
       return out;
     };
 
-    const direct = fromArray((perm as any)?.colors);
+    const direct = fromArray((obj as any)?.colors);
     if (direct.length > 0) return direct;
-    const nested = fromArray((perm as any)?.card?.colors);
+    const nested = fromArray((obj as any)?.card?.colors);
     if (nested.length > 0) return nested;
+    const spellColors = fromArray((obj as any)?.spell?.colors);
+    if (spellColors.length > 0) return spellColors;
 
-    const colorIdentity = fromArray((perm as any)?.colorIdentity);
+    const colorIndicator = fromArray((obj as any)?.colorIndicator);
+    if (colorIndicator.length > 0) return colorIndicator;
+    const nestedColorIndicator = fromArray((obj as any)?.card?.colorIndicator);
+    if (nestedColorIndicator.length > 0) return nestedColorIndicator;
+    const spellColorIndicator = fromArray((obj as any)?.spell?.colorIndicator);
+    if (spellColorIndicator.length > 0) return spellColorIndicator;
+
+    const colorIdentity = fromArray((obj as any)?.colorIdentity);
     if (colorIdentity.length > 0) return colorIdentity;
-    const nestedColorIdentity = fromArray((perm as any)?.card?.colorIdentity);
+    const nestedColorIdentity = fromArray((obj as any)?.card?.colorIdentity);
     if (nestedColorIdentity.length > 0) return nestedColorIdentity;
+    const spellColorIdentity = fromArray((obj as any)?.spell?.colorIdentity);
+    if (spellColorIdentity.length > 0) return spellColorIdentity;
 
     const manaCost = String(
-      (perm as any)?.manaCost ||
-      (perm as any)?.mana_cost ||
-      (perm as any)?.card?.manaCost ||
-      (perm as any)?.card?.mana_cost ||
+      (obj as any)?.manaCost ||
+      (obj as any)?.mana_cost ||
+      (obj as any)?.card?.manaCost ||
+      (obj as any)?.card?.mana_cost ||
+      (obj as any)?.spell?.manaCost ||
+      (obj as any)?.spell?.mana_cost ||
       ''
     ).toUpperCase();
 
@@ -1192,6 +1215,30 @@ function evaluateModifyPtWhereX(
       if (manaCost.includes(symbol)) out.push(symbol);
     }
     return out;
+  };
+
+  const getColorsFromPermanent = (perm: any): readonly string[] => getColorsFromObject(perm);
+
+  const countManaSymbolsInManaCost = (obj: any, colorSymbol: string): number => {
+    const symbol = String(colorSymbol || '').trim().toUpperCase();
+    if (!symbol) return 0;
+
+    const manaCost = String(
+      (obj as any)?.manaCost ||
+      (obj as any)?.mana_cost ||
+      (obj as any)?.card?.manaCost ||
+      (obj as any)?.card?.mana_cost ||
+      ''
+    ).trim();
+    if (!manaCost) return 0;
+
+    let total = 0;
+    const symbols = Array.from(manaCost.matchAll(/\{([^}]+)\}/g));
+    for (const sym of symbols) {
+      const inner = String(sym?.[1] || '').toUpperCase();
+      if (inner.includes(symbol)) total += 1;
+    }
+    return total;
   };
 
   const normalizeManaColorCode = (value: unknown): string | null => {
@@ -1442,6 +1489,17 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is (.+) minus (.+)$/i);
+    if (m) {
+      const minuend = evaluateInner(String(m[1] || ''));
+      if (minuend !== null) {
+        const subtrahend = evaluateInner(String(m[2] || ''));
+        if (subtrahend !== null) return minuend - subtrahend;
+      }
+    }
+  }
+
+  {
     const m = raw.match(/^x is twice (.+)$/i);
     if (m) {
       const inner = evaluateInner(String(m[1] || ''));
@@ -1499,8 +1557,31 @@ function evaluateModifyPtWhereX(
     return classes;
   };
 
-  const countByClasses = (permanents: readonly BattlefieldPermanent[], classes: readonly string[]): number => {
+  const parseColorQualifiedClassSpec = (
+    text: string
+  ): { readonly classes: readonly string[]; readonly requiredColor?: string } | null => {
+    const normalized = String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!normalized) return null;
+
+    const colorMatch = normalized.match(/^(white|blue|black|red|green)\s+(.+)$/i);
+    if (!colorMatch) {
+      const classes = parseClassList(text);
+      return classes ? { classes } : null;
+    }
+
+    const requiredColor = normalizeManaColorCode(colorMatch[1]);
+    const classes = parseClassList(String(colorMatch[2] || ''));
+    if (!requiredColor || !classes) return null;
+    return { classes, requiredColor };
+  };
+
+  const countByClasses = (
+    permanents: readonly BattlefieldPermanent[],
+    classes: readonly string[],
+    requiredColor?: string
+  ): number => {
     return permanents.filter((p: any) => {
+      if (requiredColor && !getColorsFromPermanent(p).includes(requiredColor)) return false;
       const tl = typeLineLower(p);
       return classes.some((klass) => {
         if (klass === 'permanent') return true;
@@ -1665,30 +1746,32 @@ function evaluateModifyPtWhereX(
   {
     const m = raw.match(/^x is the number of opponents who control (?:(?:an?|the)\s+)?(.+)$/i);
     if (m) {
-      const classes = parseClassList(String(m[1] || ''));
-      if (!classes) return null;
+      const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
+      if (!spec) {
+        // Fall through to more specific phrase handlers.
+      } else {
+        const opponentIds = (state.players || [])
+          .map((p: any) => String((p as any)?.id || '').trim())
+          .filter(pid => pid.length > 0 && pid !== controllerId);
 
-      const opponentIds = (state.players || [])
-        .map((p: any) => String((p as any)?.id || '').trim())
-        .filter(pid => pid.length > 0 && pid !== controllerId);
+        let opponentCount = 0;
+        for (const opponentId of opponentIds) {
+          const oppPermanents = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === opponentId);
+          const hasMatchingPermanent = countByClasses(oppPermanents, spec.classes, spec.requiredColor) > 0;
+          if (hasMatchingPermanent) opponentCount += 1;
+        }
 
-      let opponentCount = 0;
-      for (const opponentId of opponentIds) {
-        const oppPermanents = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === opponentId);
-        const hasMatchingPermanent = countByClasses(oppPermanents, classes) > 0;
-        if (hasMatchingPermanent) opponentCount += 1;
+        return opponentCount;
       }
-
-      return opponentCount;
     }
   }
 
   {
     const m = raw.match(/^x is the number of (.+) you control$/i);
     if (m) {
-      const classes = parseClassList(String(m[1] || ''));
-      if (classes) {
-        return countByClasses(controlled, classes);
+      const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
+      if (spec) {
+        return countByClasses(controlled, spec.classes, spec.requiredColor);
       }
     }
   }
@@ -1696,9 +1779,9 @@ function evaluateModifyPtWhereX(
   {
     const m = raw.match(/^x is the number of (.+) your opponents control$/i);
     if (m) {
-      const classes = parseClassList(String(m[1] || ''));
-      if (classes) {
-        return countByClasses(opponentsControlled, classes);
+      const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
+      if (spec) {
+        return countByClasses(opponentsControlled, spec.classes, spec.requiredColor);
       }
     }
   }
@@ -1706,39 +1789,57 @@ function evaluateModifyPtWhereX(
   {
     const m = raw.match(/^x is the number of (.+) target opponent controls$/i);
     if (m) {
-      const classes = parseClassList(String(m[1] || ''));
-      if (!classes) return null;
-      const targetOpponentId = String(ctx?.selectorContext?.targetOpponentId || '').trim();
-      if (!targetOpponentId) return null;
-      const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === targetOpponentId);
-      return countByClasses(targetControlled, classes);
+      const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
+      if (spec) {
+        const targetOpponentId = String(ctx?.selectorContext?.targetOpponentId || '').trim();
+        if (!targetOpponentId) return null;
+        const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === targetOpponentId);
+        return countByClasses(targetControlled, spec.classes, spec.requiredColor);
+      }
     }
   }
 
   {
     const m = raw.match(/^x is the number of (.+) (?:the )?defending player controls$/i);
     if (m) {
-      const classes = parseClassList(String(m[1] || ''));
-      if (!classes) return null;
-      const targetOpponentId = String(ctx?.selectorContext?.targetOpponentId || '').trim();
-      if (!targetOpponentId) return null;
-      const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === targetOpponentId);
-      return countByClasses(targetControlled, classes);
+      const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
+      if (spec) {
+        const targetOpponentId = String(ctx?.selectorContext?.targetOpponentId || '').trim();
+        if (!targetOpponentId) return null;
+        const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === targetOpponentId);
+        return countByClasses(targetControlled, spec.classes, spec.requiredColor);
+      }
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (.+) (?:that player controls|they control)$/i);
+    if (m) {
+      const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
+      if (spec) {
+        const player = resolveContextPlayer();
+        if (!player) return null;
+        const playerId = String((player as any)?.id || '').trim();
+        if (!playerId) return null;
+        const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === playerId);
+        return countByClasses(targetControlled, spec.classes, spec.requiredColor);
+      }
     }
   }
 
   {
     const m = raw.match(/^x is the number of (.+) (?:those opponents|all of those opponents|all those opponents|each of those opponents) control$/i);
     if (m) {
-      const classes = parseClassList(String(m[1] || ''));
-      if (!classes) return null;
-      const ids = Array.isArray(ctx?.selectorContext?.eachOfThoseOpponents)
-        ? (ctx?.selectorContext?.eachOfThoseOpponents || []).map(id => String(id || '').trim()).filter(Boolean)
-        : [];
-      if (ids.length === 0) return null;
-      const idSet = new Set(ids);
-      const pool = battlefield.filter((p: any) => idSet.has(String((p as any)?.controller || '').trim()));
-      return countByClasses(pool, classes);
+      const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
+      if (spec) {
+        const ids = Array.isArray(ctx?.selectorContext?.eachOfThoseOpponents)
+          ? (ctx?.selectorContext?.eachOfThoseOpponents || []).map(id => String(id || '').trim()).filter(Boolean)
+          : [];
+        if (ids.length === 0) return null;
+        const idSet = new Set(ids);
+        const pool = battlefield.filter((p: any) => idSet.has(String((p as any)?.controller || '').trim()));
+        return countByClasses(pool, spec.classes, spec.requiredColor);
+      }
     }
   }
 
@@ -1830,12 +1931,17 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the total power of creatures you control$/i);
+    const m = raw.match(/^x is the total (power|toughness) of (other )?creatures you control$/i);
     if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const isOther = Boolean(String(m[2] || '').trim());
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+
       return controlled.reduce((sum: number, p: any) => {
         const tl = typeLineLower(p);
         if (!tl.includes('creature')) return sum;
-        const n = Number((p as any)?.power);
+        if (excludedId && String((p as any)?.id || '').trim() === excludedId) return sum;
+        const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
         return sum + (Number.isFinite(n) ? n : 0);
       }, 0);
     }
@@ -1897,6 +2003,42 @@ function evaluateModifyPtWhereX(
         const attackedId = String((p as any)?.attacking || (p as any)?.attackingPlayerId || (p as any)?.defendingPlayerId || '').trim();
         return attackedId === controllerId;
       }).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the difference between the chosen creatures' powers$/i);
+    if (m) {
+      const chosenIds = Array.isArray(ctx?.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+        : [];
+      if (chosenIds.length < 2) return null;
+
+      const chosenCreatures = chosenIds
+        .map(id => findObjectById(id))
+        .filter((obj): obj is any => Boolean(obj) && typeLineLower(obj).includes('creature'));
+      if (chosenCreatures.length < 2) return null;
+
+      const powerValues = chosenCreatures.slice(0, 2).map(obj => Number((obj as any)?.power ?? (obj as any)?.card?.power));
+      if (powerValues.some(value => !Number.isFinite(value))) return null;
+      return Math.abs(Number(powerValues[0]) - Number(powerValues[1]));
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the total (power|toughness) of (other )?attacking creatures$/i);
+    if (m) {
+      const which = String(m[1] || '').toLowerCase();
+      const isOther = Boolean(String(m[2] || '').trim());
+      const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
+
+      return battlefield.reduce((sum: number, p: any) => {
+        if (!typeLineLower(p).includes('creature')) return sum;
+        if (!isAttackingObject(p)) return sum;
+        if (excludedId && String((p as any)?.id || '').trim() === excludedId) return sum;
+        const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
+        return sum + (Number.isFinite(n) ? n : 0);
+      }, 0);
     }
   }
 
@@ -2004,17 +2146,28 @@ function evaluateModifyPtWhereX(
 
       let devotion = 0;
       for (const p of controlled as any[]) {
-        const manaCost = String((p as any)?.manaCost || (p as any)?.mana_cost || (p as any)?.card?.manaCost || (p as any)?.card?.mana_cost || '').trim();
-        if (!manaCost) continue;
-
-        const symbols = Array.from(manaCost.matchAll(/\{([^}]+)\}/g));
-        for (const sym of symbols) {
-          const inner = String(sym?.[1] || '').toUpperCase();
-          if (inner.includes(colorSymbol)) devotion += 1;
-        }
+        devotion += countManaSymbolsInManaCost(p, colorSymbol);
       }
 
       return devotion;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of (white|blue|black|red|green) mana symbols in the mana costs of permanents you control$/i);
+    if (m) {
+      const colorName = String(m[1] || '').toLowerCase();
+      const colorSymbolByName: Record<string, string> = {
+        white: 'W',
+        blue: 'U',
+        black: 'B',
+        red: 'R',
+        green: 'G',
+      };
+      const colorSymbol = colorSymbolByName[colorName];
+      if (!colorSymbol) return null;
+
+      return controlled.reduce((sum: number, permanent: any) => sum + countManaSymbolsInManaCost(permanent, colorSymbol), 0);
     }
   }
 
@@ -2068,47 +2221,73 @@ function evaluateModifyPtWhereX(
     }
   }
 
-    {
-      const m = raw.match(/^x is the number of (.+) counters? on ([a-z0-9 ,.'-]+)$/i);
-      if (m) {
-        const counterName = String(m[1] || '');
-        const objectName = String(m[2] || '').trim();
-        if (!objectName) return null;
+  {
+    const m = raw.match(/^x is the number of (.+) counters? on ([a-z0-9 ,.'-]+)$/i);
+    if (m) {
+      const counterName = String(m[1] || '');
+      const objectName = String(m[2] || '').trim();
+      if (!objectName) return null;
 
-        const normalizedObjectName = normalizeOracleText(objectName);
-        if (
-          normalizedObjectName === 'it' ||
-          normalizedObjectName === 'this' ||
-          normalizedObjectName === 'that' ||
-          /^this\s+/.test(normalizedObjectName) ||
-          /^that\s+/.test(normalizedObjectName)
-        ) {
-          // Let pronoun/antecedent-specific matchers resolve these forms.
-        } else {
-          const obj = findObjectByName(objectName);
-
-    {
-      const m = raw.match(/^x is the number of untapped lands (?:that player controls|they control)$/i);
-      if (m) {
-        const targetPlayerId = String(
-          ctx?.selectorContext?.targetPlayerId ||
-          ctx?.selectorContext?.targetOpponentId ||
-          ''
-        ).trim();
-        if (!targetPlayerId) return null;
-
-        return battlefield.filter((p: any) => {
-          if (String((p as any)?.controller || '').trim() !== targetPlayerId) return false;
-          if (!typeLineLower(p).includes('land')) return false;
-          return (p as any)?.tapped !== true;
-        }).length;
+      const normalizedObjectName = normalizeOracleText(objectName);
+      if (
+        normalizedObjectName === 'it' ||
+        normalizedObjectName === 'this' ||
+        normalizedObjectName === 'that' ||
+        /^this\s+/.test(normalizedObjectName) ||
+        /^that\s+/.test(normalizedObjectName)
+      ) {
+        // Let pronoun/antecedent-specific matchers resolve these forms.
+      } else {
+        const obj = findObjectByName(objectName);
+        if (!obj) return null;
+        return getCounterCountOnObject(obj, counterName);
       }
     }
-          if (!obj) return null;
-          return getCounterCountOnObject(obj, counterName);
-        }
-      }
+  }
+
+  {
+    const m = raw.match(/^x is the number of untapped lands (?:that player controls|they control)$/i);
+    if (m) {
+      const targetPlayerId = String(
+        ctx?.selectorContext?.targetPlayerId ||
+        ctx?.selectorContext?.targetOpponentId ||
+        ''
+      ).trim();
+      if (!targetPlayerId) return null;
+
+      return battlefield.filter((p: any) => {
+        if (String((p as any)?.controller || '').trim() !== targetPlayerId) return false;
+        if (!typeLineLower(p).includes('land')) return false;
+        return (p as any)?.tapped !== true;
+      }).length;
     }
+  }
+
+  {
+    const m = raw.match(/^x is the number of untapped lands (?:that player|they) controlled at the beginning of this turn$/i);
+    if (m) {
+      const targetPlayerId = String(
+        ctx?.selectorContext?.targetPlayerId ||
+        ctx?.selectorContext?.targetOpponentId ||
+        ''
+      ).trim();
+      if (!targetPlayerId) return null;
+
+      const stateAny: any = state as any;
+      const snapshot = Array.isArray(stateAny.turnStartBattlefieldSnapshot)
+        ? stateAny.turnStartBattlefieldSnapshot
+        : Array.isArray(stateAny.beginningOfTurnBattlefieldSnapshot)
+          ? stateAny.beginningOfTurnBattlefieldSnapshot
+          : null;
+      if (!snapshot) return null;
+
+      return snapshot.filter((p: any) => {
+        if (String((p as any)?.controller || '').trim() !== targetPlayerId) return false;
+        if (!typeLineLower(p).includes('land')) return false;
+        return (p as any)?.tapped !== true;
+      }).length;
+    }
+  }
 
   {
     const m = raw.match(/^x is the number of cards? in your (graveyard|hand|library|exile)$/i);
@@ -2715,6 +2894,17 @@ function evaluateModifyPtWhereX(
   }
 
   {
+    const m = raw.match(/^x is the total power of (?:the )?cards? exiled this way$/i);
+    if (m) {
+      const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
+      return exiledCards.reduce((sum: number, card: any) => {
+        const n = Number((card as any)?.power ?? (card as any)?.card?.power);
+        return sum + (Number.isFinite(n) ? n : 0);
+      }, 0);
+    }
+  }
+
+  {
     const m = raw.match(/^x is the total power of (?:the )?creatures? sacrificed this way$/i);
     if (m) {
       const totalPower = Number(runtime?.lastSacrificedCreaturesPowerTotal ?? 0);
@@ -3263,6 +3453,38 @@ function evaluateModifyPtWhereX(
       if (!ref) return null;
       const mv = getCardManaValue((ref as any)?.spell || (ref as any)?.card || ref);
       return Number.isFinite(mv as number) ? (mv as number) : null;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of colors that spell is$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+      return getColorsFromObject((ref as any)?.spell || (ref as any)?.card || ref).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of colors that (creature|card|permanent) was$/i);
+    if (m) {
+      const sourceId = String(ctx?.sourceId || '').trim();
+      if (!sourceId) return null;
+      const ref = findObjectById(sourceId);
+      if (!ref) return null;
+
+      const subject = String(m[1] || '').toLowerCase();
+      const refCard = (ref as any)?.card || ref;
+      const tl = typeLineLower(refCard);
+      if (subject === 'creature' && !tl.includes('creature')) return null;
+      if (subject === 'permanent') {
+        const isPermanent = ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'].some(type => tl.includes(type));
+        if (!isPermanent) return null;
+      }
+
+      return getColorsFromObject(refCard).length;
     }
   }
 
@@ -4122,6 +4344,18 @@ function evaluateModifyPtWhereX(
   {
     const m = raw.match(/^x is the (?:greatest|highest) power among creature cards? exiled this way$/i);
     if (m) {
+      const runtimeCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : null;
+      if (runtimeCards) {
+        let greatest = 0;
+        for (const card of runtimeCards as any[]) {
+          const tl = typeLineLower(card);
+          if (!tl.includes('creature')) continue;
+          const n = Number((card as any)?.power ?? (card as any)?.card?.power);
+          if (Number.isFinite(n)) greatest = Math.max(greatest, n);
+        }
+        return greatest;
+      }
+
       const sourceId = String(ctx?.sourceId || '').trim();
       let greatest = 0;
       for (const player of (state.players || []) as any[]) {
@@ -4143,6 +4377,15 @@ function evaluateModifyPtWhereX(
     const m = raw.match(/^x is the (?:greatest|highest) mana value among cards? (?:in your graveyard|discarded this way|exiled this way)$/i);
     if (m) {
       const clause = String(m[0] || '').toLowerCase();
+      if (/exiled this way/.test(clause) && Array.isArray(runtime?.lastExiledCards)) {
+        let greatest = 0;
+        for (const card of runtime.lastExiledCards as any[]) {
+          const mv = getCardManaValue((card as any)?.card || card);
+          if (mv !== null) greatest = Math.max(greatest, mv);
+        }
+        return greatest;
+      }
+
       const sourceId = String(ctx?.sourceId || '').trim();
       let greatest = 0;
       for (const player of (state.players || []) as any[]) {
@@ -6128,6 +6371,7 @@ export function applyOracleIRStepsToGameState(
   let lastRevealedCardCount = 0;
   let lastDiscardedCardCount = 0;
   let lastExiledCardCount = 0;
+  let lastExiledCards: any[] = [];
   let lastSacrificedCreaturesPowerTotal = 0;
   let lastExcessDamageDealtThisWay = 0;
   let lastScryLookedAtCount = 0;
@@ -6172,15 +6416,18 @@ export function applyOracleIRStepsToGameState(
         }
 
         let totalExiled = 0;
+        const exiledCardsThisStep: any[] = [];
         for (const playerId of players) {
           const amount = exileCountByPlayer.get(playerId) ?? 0;
           const r = exileTopCardsForPlayer(nextState, playerId, amount);
           nextState = r.state;
           totalExiled += Math.max(0, r.exiled.length | 0);
+          exiledCardsThisStep.push(...(r.exiled as any[]));
           log.push(...r.log);
         }
 
         lastExiledCardCount = totalExiled;
+        lastExiledCards = exiledCardsThisStep;
 
         appliedSteps.push(step);
         break;
@@ -6226,11 +6473,13 @@ export function applyOracleIRStepsToGameState(
         const shuffleRestIntoLibrary = shouldShuffleRestIntoLibrary(step as any);
 
         let totalExiled = 0;
+        const exiledCardsThisStep: any[] = [];
         for (const playerId of players) {
           const amount = exileCountByPlayer.get(playerId) ?? 0;
           const r = exileTopCardsForPlayer(nextState, playerId, amount);
           nextState = r.state;
           totalExiled += Math.max(0, r.exiled.length | 0);
+          exiledCardsThisStep.push(...(r.exiled as any[]));
           log.push(...r.log);
 
           const markerResult = applyImpulsePermissionMarkers(nextState, playerId, r.exiled, {
@@ -6261,6 +6510,7 @@ export function applyOracleIRStepsToGameState(
         }
 
         lastExiledCardCount = totalExiled;
+        lastExiledCards = exiledCardsThisStep;
 
         appliedSteps.push(step);
         break;
@@ -6471,6 +6721,7 @@ export function applyOracleIRStepsToGameState(
                 lastRevealedCardCount,
                 lastDiscardedCardCount,
                 lastExiledCardCount,
+                lastExiledCards,
                 lastSacrificedCreaturesPowerTotal,
                 lastExcessDamageDealtThisWay,
                 lastScryLookedAtCount,
