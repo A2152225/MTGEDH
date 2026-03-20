@@ -738,12 +738,20 @@ export function movePermanentToLibrary(
     const cardAny = card as any;
     // Defer zone change - let player choose command zone or library via Resolution Queue
     ResolutionQueueManager.addStep(ctx.gameId, {
-      type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+      type: ResolutionStepType.OPTION_CHOICE,
       playerId: owner,
       sourceId: permanentId,
       sourceName: cardAny.name || 'Unknown Commander',
+      sourceImage: cardAny.image_uris?.small || cardAny.image_uris?.normal,
       description: `Your commander ${cardAny.name || 'Unknown Commander'} would be put into your library (${position}). Move it to the command zone instead?`,
       mandatory: true,
+      minSelections: 1,
+      maxSelections: 1,
+      commanderZoneChoice: true,
+      options: [
+        { id: 'command', label: 'Move to Command Zone' },
+        { id: 'stay', label: position === 'top' ? 'Put on top of library' : position === 'bottom' ? 'Put on bottom of library' : 'Shuffle into library' },
+      ],
       commanderId: cardAny.id,
       commanderName: cardAny.name || 'Unknown Commander',
       fromZone: 'library',
@@ -841,12 +849,20 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
     // Defer zone change - let player choose command zone or hand
     // Defer zone change - let player choose command zone or hand via Resolution Queue
     ResolutionQueueManager.addStep(ctx.gameId, {
-      type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+      type: ResolutionStepType.OPTION_CHOICE,
       playerId: owner,
       sourceId: permanentId,
       sourceName: card.name,
+      sourceImage: card.image_uris?.small || card.image_uris?.normal,
       description: `Your commander ${card.name} would be returned to your hand. Move it to the command zone instead?`,
       mandatory: true,
+      minSelections: 1,
+      maxSelections: 1,
+      commanderZoneChoice: true,
+      options: [
+        { id: 'command', label: 'Move to Command Zone' },
+        { id: 'stay', label: 'Let it go to hand' },
+      ],
       commanderId: card.id,
       commanderName: card.name,
       fromZone: 'hand',

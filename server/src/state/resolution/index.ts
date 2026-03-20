@@ -53,7 +53,6 @@ export {
   type TargetSelectionStep,
   type ModeSelectionStep,
   type DiscardSelectionStep,
-  type CommanderZoneChoiceStep,
   type TriggerOrderStep,
   type LibrarySearchStep,
   type OptionChoiceStep,

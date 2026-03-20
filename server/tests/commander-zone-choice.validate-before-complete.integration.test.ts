@@ -46,8 +46,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-describe('COMMANDER_ZONE_CHOICE validate-before-complete (integration)', () => {
-  const gameId = 'test_commander_zone_choice_validate_before_complete';
+describe('Commander replacement OPTION_CHOICE validate-before-complete (integration)', () => {
+  const gameId = 'test_commander_replacement_option_choice_validate_before_complete';
 
   beforeAll(async () => {
     await initDb();
@@ -84,10 +84,17 @@ describe('COMMANDER_ZONE_CHOICE validate-before-complete (integration)', () => {
     (game.state as any).battlefield = [];
 
     ResolutionQueueManager.addStep(gameId, {
-      type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+      type: ResolutionStepType.OPTION_CHOICE,
       playerId: p1 as any,
       description: 'Commander replacement',
       mandatory: true,
+      minSelections: 1,
+      maxSelections: 1,
+      commanderZoneChoice: true,
+      options: [
+        { id: 'command', label: 'Move to Command Zone' },
+        { id: 'stay', label: 'Let it go to graveyard' },
+      ],
       commanderId: 'c1',
       commanderName: 'Commander',
       fromZone: 'graveyard',
@@ -102,12 +109,12 @@ describe('COMMANDER_ZONE_CHOICE validate-before-complete (integration)', () => {
     registerResolutionHandlers(io as any, socket as any);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const step = queue.steps.find((s: any) => s.type === 'commander_zone_choice');
+    const step = queue.steps.find((s: any) => s.type === 'option_choice' && (s as any).commanderZoneChoice === true);
     expect(step).toBeDefined();
 
     const stepId = String((step as any).id);
 
-    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'nope' });
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: ['nope'] });
 
     const err = emitted.find(e => e.event === 'error');
     expect(err?.payload?.code).toBe('INVALID_SELECTION');
@@ -116,7 +123,7 @@ describe('COMMANDER_ZONE_CHOICE validate-before-complete (integration)', () => {
     expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
 
     // Valid response should complete.
-    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'stay' });
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: ['stay'] });
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
   });

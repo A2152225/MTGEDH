@@ -1731,8 +1731,13 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         ],
         minSelections: 1,
         maxSelections: 1,
-        pwDrawTwoDiscardTwoUnlessArtifact: true,
-        pwDrawTwoDiscardTwoUnlessArtifactSourceName: sourceName,
+        chooseDiscardPlanChoice: true,
+        chooseDiscardPlanPlayerId: controller,
+        chooseDiscardPlanSourceName: sourceName,
+        chooseDiscardPlanPreferredOptionId: 'discard_artifact',
+        chooseDiscardPlanPreferredType: 'artifact',
+        chooseDiscardPlanPreferredCount: 1,
+        chooseDiscardPlanFallbackCount: 2,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -2549,10 +2554,10 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         })),
         minSelections: 1,
         maxSelections: 1,
-        pwExileTopTwoChooseOnePlay: true,
-        pwExileTopTwoChooseOnePlayController: controller,
-        pwExileTopTwoChooseOnePlaySourceName: sourceName,
-        pwExileTopTwoChooseOnePlayCardIds: exiledCardIds,
+        grantPlayableFromExileChoice: true,
+        grantPlayableFromExileController: controller,
+        grantPlayableFromExileSourceName: sourceName,
+        grantPlayableFromExileCardIds: exiledCardIds,
       } as any);
 
       (ctx as any).bumpSeq?.();
@@ -2640,9 +2645,10 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         })),
         minSelections: 1,
         maxSelections: 1,
-        pwDrawThenHandToTop: true,
-        pwDrawThenHandToTopController: controller,
-        pwDrawThenHandToTopSourceName: sourceName,
+        moveChosenHandCardToLibraryChoice: true,
+        moveChosenHandCardToLibraryController: controller,
+        moveChosenHandCardToLibrarySourceName: sourceName,
+        moveChosenHandCardToLibraryPosition: 'top',
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -2694,9 +2700,10 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         })),
         minSelections: 1,
         maxSelections: 1,
-        pwDrawThenHandToBottom: true,
-        pwDrawThenHandToBottomController: controller,
-        pwDrawThenHandToBottomSourceName: sourceName,
+        moveChosenHandCardToLibraryChoice: true,
+        moveChosenHandCardToLibraryController: controller,
+        moveChosenHandCardToLibrarySourceName: sourceName,
+        moveChosenHandCardToLibraryPosition: 'bottom',
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -4316,10 +4323,12 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         options,
         minSelections: 1,
         maxSelections: 1,
-        pwLook2Pick1HandBottom: true,
-        pwLook2Controller: controller,
-        pwLook2SourceName: sourceName,
-        pwLook2TopCardIds: topTwo.map((c: any) => c.id),
+        chooseLookedAtCardsDestinationChoice: true,
+        chooseLookedAtCardsDestinationController: controller,
+        chooseLookedAtCardsDestinationSourceName: sourceName,
+        chooseLookedAtCardsDestinationTopCardIds: topTwo.map((c: any) => c.id),
+        chooseLookedAtCardsDestinationChosenZone: 'hand',
+        chooseLookedAtCardsDestinationOtherZone: 'bottom_library',
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -4353,10 +4362,12 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         options,
         minSelections: 1,
         maxSelections: 1,
-        pwLook2Pick1HandOtherGraveyard: true,
-        pwLook2Controller: controller,
-        pwLook2SourceName: sourceName,
-        pwLook2TopCardIds: topTwo.map((c: any) => c.id),
+        chooseLookedAtCardsDestinationChoice: true,
+        chooseLookedAtCardsDestinationController: controller,
+        chooseLookedAtCardsDestinationSourceName: sourceName,
+        chooseLookedAtCardsDestinationTopCardIds: topTwo.map((c: any) => c.id),
+        chooseLookedAtCardsDestinationChosenZone: 'hand',
+        chooseLookedAtCardsDestinationOtherZone: 'graveyard',
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -4403,10 +4414,12 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         options,
         minSelections: 1,
         maxSelections: 1,
-        pwLook2Put1Graveyard: true,
-        pwLook2Controller: controller,
-        pwLook2SourceName: sourceName,
-        pwLook2TopCardIds: topTwo.map((c: any) => c.id),
+        chooseLookedAtCardsDestinationChoice: true,
+        chooseLookedAtCardsDestinationController: controller,
+        chooseLookedAtCardsDestinationSourceName: sourceName,
+        chooseLookedAtCardsDestinationTopCardIds: topTwo.map((c: any) => c.id),
+        chooseLookedAtCardsDestinationChosenZone: 'graveyard',
+        chooseLookedAtCardsDestinationOtherZone: 'top_library',
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -4471,11 +4484,18 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
             imageUrl: c.image_uris?.normal || c.image_uris?.art_crop || c.image_uris?.small,
           })),
           minPerPile: 0,
-          pwJaceTop3TwoPiles: true,
-          pwJaceControllerId: controller,
-          pwJaceSourceName: sourceName,
-          pwJaceTopCards: revealed,
-          pwJaceTopCardIds: topCardIds,
+          choosePileFromSplitChoice: true,
+          choosePileFromSplitChooserPlayerId: controller,
+          choosePileFromSplitSourceName: sourceName,
+          choosePileFromSplitItems: revealed,
+          choosePileFromSplitOriginalOrder: topCardIds,
+          choosePileFromSplitChosenAction: 'move_cards',
+          choosePileFromSplitChosenDestination: 'hand',
+          choosePileFromSplitOtherDestination: 'library',
+          choosePileFromSplitMovePlayerId: controller,
+          choosePileFromSplitChoiceDescription: `${sourceName}: Choose a pile to put into your hand`,
+          choosePileFromSplitChatMessage: `${sourceName}: A pile was chosen to put into hand.`,
+          choosePileFromSplitSplitMessage: `${sourceName}: The cards were separated into two piles.`,
         } as any);
       };
 
@@ -4494,11 +4514,28 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         options: opponents.map((p: any) => ({ id: p.id, label: p.name || p.id })),
         minSelections: 1,
         maxSelections: 1,
-        pwJaceTop3ChooseOpponent: true,
-        pwJaceControllerId: controller,
-        pwJaceSourceName: sourceName,
-        pwJaceTopCards: revealed,
-        pwJaceTopCardIds: topCardIds,
+        choosePlayerForTwoPileSplitChoice: true,
+        choosePlayerForTwoPileSplitController: controller,
+        choosePlayerForTwoPileSplitSourceName: sourceName,
+        choosePlayerForTwoPileSplitDescription: `${sourceName}: Separate the revealed cards into two piles`,
+        choosePlayerForTwoPileSplitItems: revealed.map((c: any) => ({
+          id: c.id,
+          label: c.name || 'Unknown',
+          description: c.type_line,
+          imageUrl: c.image_uris?.normal || c.image_uris?.art_crop || c.image_uris?.small,
+        })),
+        choosePlayerForTwoPileSplitMinPerPile: 0,
+        choosePileFromSplitChoice: true,
+        choosePileFromSplitChooserPlayerId: controller,
+        choosePileFromSplitSourceName: sourceName,
+        choosePileFromSplitItems: revealed,
+        choosePileFromSplitOriginalOrder: topCardIds,
+        choosePileFromSplitChosenAction: 'move_cards',
+        choosePileFromSplitChosenDestination: 'hand',
+        choosePileFromSplitOtherDestination: 'library',
+        choosePileFromSplitMovePlayerId: controller,
+        choosePileFromSplitChoiceDescription: `${sourceName}: Choose a pile to put into your hand`,
+        choosePileFromSplitChatMessage: `${sourceName}: A pile was chosen to put into hand.`,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -4526,10 +4563,10 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         ],
         minSelections: 1,
         maxSelections: 1,
-        pwMayDiscardThenDraw: true,
-        pwMayDiscardThenDrawStage: "ask",
-        pwMayDiscardThenDrawPlayerId: controller,
-        pwMayDiscardThenDrawSourceName: sourceName,
+        optionalDiscardThenDrawChoice: true,
+        optionalDiscardThenDrawPlayerId: controller,
+        optionalDiscardThenDrawSourceName: sourceName,
+        optionalDiscardThenDrawCount: 1,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -4994,12 +5031,13 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         options: colorOptions,
         minSelections: 1,
         maxSelections: 1,
-        pwAddTwoManaAnyCombination: true,
-        pwAddTwoManaStage: "first",
-        pwAddTwoManaController: controller,
-        pwAddTwoManaSourceName: sourceName,
-        pwAddTwoManaSourceId: sourceId,
-        pwAddTwoManaRestriction: "unrestricted",
+        chooseManaColorsChoice: true,
+        chooseManaColorsController: controller,
+        chooseManaColorsSourceName: sourceName,
+        chooseManaColorsSourceId: sourceId,
+        chooseManaColorsRestriction: "unrestricted",
+        chooseManaColorsSelectionsTotal: 2,
+        chooseManaColorsAmountPerSelection: 1,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -5032,10 +5070,13 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         options: colorOptions,
         minSelections: 1,
         maxSelections: 1,
-        pwAddTenManaOneColor: true,
-        pwAddTenManaController: controller,
-        pwAddTenManaSourceName: sourceName,
-        pwAddTenManaSourceId: sourceId,
+        chooseManaColorsChoice: true,
+        chooseManaColorsController: controller,
+        chooseManaColorsSourceName: sourceName,
+        chooseManaColorsSourceId: sourceId,
+        chooseManaColorsRestriction: "unrestricted",
+        chooseManaColorsSelectionsTotal: 1,
+        chooseManaColorsAmountPerSelection: 10,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -5676,9 +5717,10 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         ],
         minSelections: 1,
         maxSelections: 1,
-        pwBeastKeywordCounterData: {
-          tokenPermanentId,
-          tokenName: "Beast",
+        keywordCounterChoiceData: {
+          targetPermanentId: tokenPermanentId,
+          targetName: 'Beast',
+          allowedKeywords: ['vigilance', 'reach', 'trample'],
         },
       } as any);
 
@@ -5999,10 +6041,11 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         ],
         minSelections: 1,
         maxSelections: 1,
-        attachEquipmentToCreatedToken: true,
-        attachEquipmentToCreatedTokenPermanentId: tokenPermanentId,
-        attachEquipmentToCreatedTokenController: controller,
-        attachEquipmentToCreatedTokenSourceName: sourceName,
+        attachEquipmentToPermanentChoice: true,
+        attachEquipmentToPermanentTargetPermanentId: tokenPermanentId,
+        attachEquipmentToPermanentController: controller,
+        attachEquipmentToPermanentSourceName: sourceName,
+        attachEquipmentToPermanentTargetName: 'Kor Soldier token',
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -6699,11 +6742,16 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
           options,
           minSelections: 1,
           maxSelections: 1,
-          pwkarn: true,
-          pwkarnStage: "chooseCard",
-          pwkarnController: controller,
-          pwkarnSourceName: sourceName,
-          pwkarnTopCardIds: topCards.map((c: any) => c.id),
+          chooseLookedAtCardsDestinationChoice: true,
+          chooseLookedAtCardsDestinationController: controller,
+          chooseLookedAtCardsDestinationSourceName: sourceName,
+          chooseLookedAtCardsDestinationTopCardIds: topCards.map((c: any) => c.id),
+          chooseLookedAtCardsDestinationChosenZone: 'hand',
+          chooseLookedAtCardsDestinationOtherZone: 'exile',
+          chooseLookedAtCardsDestinationOtherCardPatch: {
+            silverCounters: 1,
+            exiledBy: sourceName,
+          },
         } as any);
 
         debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (opponent chooses)`);
@@ -6725,11 +6773,11 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         options: oppOptions,
         minSelections: 1,
         maxSelections: 1,
-        pwkarn: true,
-        pwkarnStage: "chooseOpponent",
-        pwkarnController: controller,
-        pwkarnSourceName: sourceName,
-        pwkarnTopCards: topCards.map((c: any) => ({
+        choosePlayerForLookedAtCardsChoice: true,
+        choosePlayerForLookedAtCardsController: controller,
+        choosePlayerForLookedAtCardsSourceName: sourceName,
+        choosePlayerForLookedAtCardsDescription: `${sourceName}: Choose a card to put into ${controllerName}'s hand`,
+        choosePlayerForLookedAtCardsOptions: topCards.map((c: any) => ({
           id: c.id,
           name: c.name,
           type_line: c.type_line,
@@ -6739,6 +6787,15 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
           cmc: c.cmc,
           colors: c.colors,
         })),
+        choosePlayerForLookedAtCardsDestinationController: controller,
+        choosePlayerForLookedAtCardsDestinationSourceName: sourceName,
+        choosePlayerForLookedAtCardsDestinationTopCardIds: topCards.map((c: any) => c.id),
+        choosePlayerForLookedAtCardsDestinationChosenZone: 'hand',
+        choosePlayerForLookedAtCardsDestinationOtherZone: 'exile',
+        choosePlayerForLookedAtCardsDestinationOtherCardPatch: {
+          silverCounters: 1,
+          exiledBy: sourceName,
+        },
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (controller chooses opponent)`);
@@ -6806,12 +6863,13 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         options: colorOptions,
         minSelections: 1,
         maxSelections: 1,
-        pwAddTwoManaAnyCombination: true,
-        pwAddTwoManaStage: "first",
-        pwAddTwoManaController: controller,
-        pwAddTwoManaSourceName: sourceName,
-        pwAddTwoManaSourceId: sourceId,
-        pwAddTwoManaRestriction: "dragon_spells",
+        chooseManaColorsChoice: true,
+        chooseManaColorsController: controller,
+        chooseManaColorsSourceName: sourceName,
+        chooseManaColorsSourceId: sourceId,
+        chooseManaColorsRestriction: "dragon_spells",
+        chooseManaColorsSelectionsTotal: 2,
+        chooseManaColorsAmountPerSelection: 1,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -6847,10 +6905,9 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         options,
         minSelections: 1,
         maxSelections: 1,
-        pwPayAnyAmountLook: true,
-        pwPayAnyAmountLookStage: "chooseX",
-        pwPayAnyAmountLookController: controller,
-        pwPayAnyAmountLookSourceName: sourceName,
+        payManaToLookAndChooseCardChoice: true,
+        payManaToLookAndChooseCardController: controller,
+        payManaToLookAndChooseCardSourceName: sourceName,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -8612,9 +8669,13 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
           imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
         })),
         minPerPile: 0,
-        pwLilianaSplitPermanents: true,
-        pwLilianaTargetPlayerId: targetPlayer,
-        pwLilianaSourceName: sourceName,
+        choosePileFromSplitChoice: true,
+        choosePileFromSplitChooserPlayerId: targetPlayer,
+        choosePileFromSplitSourceName: sourceName,
+        choosePileFromSplitChosenAction: 'sacrifice_permanents',
+        choosePileFromSplitTargetPlayerId: targetPlayer,
+        choosePileFromSplitChoiceDescription: `${sourceName}: Choose a pile to sacrifice`,
+        choosePileFromSplitSplitMessage: `${sourceName}: The permanents were separated into two piles.`,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -9490,7 +9551,11 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         sourceName,
         allowSourceSacrifice: false,
         hasCreatures: true,
-        afterSacrificeDestroyTargetCreatureOrPlaneswalker: true,
+        afterSacrificeFollowupTargetSelection: true,
+        afterSacrificeFollowupDescription: `${sourceName}: Destroy target creature or planeswalker`,
+        afterSacrificeFollowupAction: 'destroy_target_creature_or_planeswalker',
+        afterSacrificeFollowupTargetTypes: ['creature', 'planeswalker'],
+        afterSacrificeFollowupTargetDescription: 'target creature or planeswalker',
         creatures: creatures.map((perm: any) => ({
           id: perm.id,
           name: perm.card?.name || 'Creature',
@@ -9547,11 +9612,12 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         mandatory: true,
         sourceName: sourceName,
         scryCount: scryN,
-        pwScryThenDamageToEachOpponent: true,
-        pwScryThenDamageController: controller,
-        pwScryThenDamageAmount: dmg,
-        pwScryThenDamageSourceName: sourceName,
-        pwScryThenDamageSourcePermanentId: triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id,
+        scryFollowupChoice: true,
+        scryFollowupKind: 'damage_each_opponent',
+        scryFollowupController: controller,
+        scryFollowupAmount: dmg,
+        scryFollowupSourceName: sourceName,
+        scryFollowupSourcePermanentId: triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued scry ${scryN}, dmg ${dmg})`);
@@ -9575,10 +9641,11 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         mandatory: true,
         sourceName: sourceName,
         scryCount: scryN,
-        pwScryThenDrawCards: true,
-        pwScryThenDrawCardsController: controller,
-        pwScryThenDrawCardsAmount: 1,
-        pwScryThenDrawCardsSourceName: sourceName,
+        scryFollowupChoice: true,
+        scryFollowupKind: 'draw_cards',
+        scryFollowupController: controller,
+        scryFollowupAmount: 1,
+        scryFollowupSourceName: sourceName,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued scry ${scryN}, draw 1)`);
@@ -9602,11 +9669,12 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         mandatory: true,
         sourceName: sourceName,
         scryCount: scryN,
-        pwScryThenDrawCards: true,
-        pwScryThenDrawCardsIfControllerControlsArtifact: true,
-        pwScryThenDrawCardsController: controller,
-        pwScryThenDrawCardsAmount: 1,
-        pwScryThenDrawCardsSourceName: sourceName,
+        scryFollowupChoice: true,
+        scryFollowupKind: 'draw_cards',
+        scryFollowupController: controller,
+        scryFollowupAmount: 1,
+        scryFollowupSourceName: sourceName,
+        scryFollowupCondition: 'controller_controls_artifact',
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued scry ${scryN}, conditional draw)`);
@@ -11279,12 +11347,13 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         ],
         minSelections: 1,
         maxSelections: 1,
-        pwSacAnotherPermanentGainLifeDraw: true,
-        pwSacAnotherPermanentStage: 'ask',
-        pwSacAnotherPermanentController: controller,
-        pwSacAnotherPermanentSourceName: sourceName,
-        pwSacAnotherPermanentSourcePermanentId: sourceId,
-        pwSacAnotherPermanentLifeGain: lifeGain,
+        sacrificeAnotherPermanentForBenefitChoice: true,
+        sacrificeAnotherPermanentForBenefitStage: 'ask',
+        sacrificeAnotherPermanentForBenefitController: controller,
+        sacrificeAnotherPermanentForBenefitSourceName: sourceName,
+        sacrificeAnotherPermanentForBenefitSourcePermanentId: sourceId,
+        sacrificeAnotherPermanentForBenefitLifeGain: lifeGain,
+        sacrificeAnotherPermanentForBenefitDrawCount: 1,
       } as any);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (queued)`);
@@ -11912,21 +11981,19 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         type: ResolutionStepType.OPTION_CHOICE,
         playerId: controller as any,
         description: `${sourceName}: You may cast ${topCard?.name || 'that card'}. If you don't, ${sourceName} deals ${dmg} damage to each opponent.`,
-        mandatory: true,
+        mandatory: false,
         sourceName,
         options: [
           { id: 'cast', label: `Cast ${topCard?.name || 'that card'}` },
-          { id: 'dont', label: "Don't cast" },
+          { id: 'decline', label: "Don't cast" },
         ],
         minSelections: 1,
         maxSelections: 1,
-        pwChandraImpulseCastOrBurn: true,
-        pwChandraImpulseStage: 'ask',
-        pwChandraImpulseController: controller,
-        pwChandraImpulseSourceName: sourceName,
-        pwChandraImpulseSourcePermanentId: triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id,
-        pwChandraImpulseExiledCardId: cardId,
-        pwChandraImpulseDamage: dmg,
+        castFromExileCardId: cardId,
+        castFromExileCard: exiled,
+        castFromExileDeclineDestination: 'exile',
+        castFromExileDeclineDamageEachOpponent: dmg,
+        castFromExileDeclineDamageSourcePermanentId: triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id,
       } as any);
 
       (ctx as any).bumpSeq?.();

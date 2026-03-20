@@ -103,12 +103,12 @@ export function handleKynaiosChoiceResponse(
   const { choice, landCardId } = parseKynaiosChoice(response.selections);
 
   const stepData = step as any;
-  const isController = stepData.isController || false;
-  const sourceController = (stepData.sourceController || pid) as PlayerID;
+  const isController = stepData.landPlayOrFallbackIsController ?? stepData.isController ?? false;
+  const sourceController = (stepData.landPlayOrFallbackSourceController || stepData.sourceController || pid) as PlayerID;
   const sourceName = step.sourceName || 'Kynaios and Tiro of Meletis';
-  const canPlayLand = stepData.canPlayLand !== false;
-  const landsInHand = stepData.landsInHand || [];
-  const options = stepData.options || ['play_land', 'draw_card', 'decline'];
+  const canPlayLand = (stepData.landPlayOrFallbackCanPlayLand ?? stepData.canPlayLand) !== false;
+  const landsInHand = stepData.landPlayOrFallbackLandsInHand || stepData.landsInHand || [];
+  const options = stepData.landPlayOrFallbackOptions || stepData.options || ['play_land', 'draw_card', 'decline'];
   const batchId = String(stepData.kynaiosBatchId || step.id);
 
   if (!options.includes(choice as any)) {

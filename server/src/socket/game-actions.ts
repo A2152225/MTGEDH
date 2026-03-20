@@ -1311,6 +1311,25 @@ function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any
   return triggers;
 }
 
+function getSpellCastTriggerUsageKey(trigger: SpellCastTrigger): string {
+  const effectKey = trigger.replacementEffect?.kind || trigger.effect || trigger.description;
+  return `${String(trigger.permanentId || '')}:${String(effectKey || '')}`;
+}
+
+function hasSpellCastTriggerTriggeredThisTurn(game: any, trigger: SpellCastTrigger): boolean {
+  if (!trigger.oncePerTurn) return false;
+  const turnNumber = Number((game.state as any)?.turnNumber ?? 0);
+  const usage = ((game.state as any).spellCastTriggerUsageThisTurn || {})[getSpellCastTriggerUsageKey(trigger)];
+  return usage === turnNumber;
+}
+
+function markSpellCastTriggerTriggeredThisTurn(game: any, trigger: SpellCastTrigger): void {
+  if (!trigger.oncePerTurn) return;
+  const stateAny = game.state as any;
+  stateAny.spellCastTriggerUsageThisTurn = stateAny.spellCastTriggerUsageThisTurn || {};
+  stateAny.spellCastTriggerUsageThisTurn[getSpellCastTriggerUsageKey(trigger)] = Number(stateAny.turnNumber ?? 0);
+}
+
 /**
  * Apply spell-cast untap trigger effects (Jeskai Ascendancy, Paradox Engine)
  */
@@ -2840,36 +2859,34 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Both are lands - prompt user to choose
           const existing = ResolutionQueueManager
             .getStepsForPlayer(gameId, playerId as any)
-            .find((s: any) => s?.type === ResolutionStepType.MDFC_FACE_SELECTION && String((s as any)?.cardId || '') === String(cardId));
+            .find((s: any) => s?.type === ResolutionStepType.OPTION_CHOICE && (s as any)?.mdfcFaceChoice === true && String((s as any)?.cardId || '') === String(cardId));
 
           if (!existing) {
             ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.MDFC_FACE_SELECTION,
+              type: ResolutionStepType.OPTION_CHOICE,
               playerId: playerId as any,
               sourceId: cardId,
               sourceName: cardName,
               sourceImage: cardImageUrl,
               description: `${cardName} is a Modal Double-Faced Card. Choose which land to play.`,
               mandatory: true,
+              minSelections: 1,
+              maxSelections: 1,
               cardId,
               cardName,
               fromZone: sourceZone,
-              title: 'Choose which side to play',
-              faces: [
+              mdfcFaceChoice: true,
+              options: [
                 {
-                  index: 0,
-                  name: face0.name,
-                  typeLine: face0.type_line,
-                  oracleText: face0.oracle_text,
-                  manaCost: face0.mana_cost,
+                  id: '0',
+                  label: face0.name,
+                  description: [face0.type_line, face0.oracle_text].filter(Boolean).join(' - '),
                   imageUrl: face0.image_uris?.small || face0.image_uris?.normal,
                 },
                 {
-                  index: 1,
-                  name: face1.name,
-                  typeLine: face1.type_line,
-                  oracleText: face1.oracle_text,
-                  manaCost: face1.mana_cost,
+                  id: '1',
+                  label: face1.name,
+                  description: [face1.type_line, face1.oracle_text].filter(Boolean).join(' - '),
                   imageUrl: face1.image_uris?.small || face1.image_uris?.normal,
                 },
               ],
@@ -6834,6 +6851,11 @@ export function registerGameActions(io: Server, socket: Socket) {
 
         const spellCastTriggers = getSpellCastTriggersForCard(game, playerId, cardInHand);
         for (const trigger of spellCastTriggers) {
+          if (hasSpellCastTriggerTriggeredThisTurn(game, trigger)) {
+            debug(2, `[castSpellFromHand] Skipping once-per-turn spell-cast trigger already used: ${trigger.cardName}`);
+            continue;
+          }
+
           // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
           const raw = String(trigger.description || trigger.effect || "").trim();
           let triggerText = raw;
@@ -6866,6 +6888,36 @@ export function registerGameActions(io: Server, socket: Socket) {
           }
 
           debug(2, `[castSpellFromHand] Triggered: ${trigger.cardName} - ${trigger.description}`);
+
+          if (trigger.replacementEffect?.kind === 'bottom_spell_reveal_until_nonland') {
+            markSpellCastTriggerTriggeredThisTurn(game, trigger);
+
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.OPTION_CHOICE,
+              playerId: playerId as any,
+              description: `${trigger.cardName}: Put ${cardInHand.name} on the bottom of its owner's library and reveal until a nonland card?`,
+              mandatory: false,
+              sourceId: trigger.permanentId,
+              sourceName: trigger.cardName,
+              options: [
+                { id: 'yes', label: 'Use ability' },
+                { id: 'no', label: 'Decline' },
+              ],
+              minSelections: 1,
+              maxSelections: 1,
+              spellBottomRevealUntilNonlandChoice: true,
+              triggeringStackItemId,
+              triggeringSpellControllerId: playerId,
+              triggeringSpellCard: {
+                ...cardInHand,
+                owner: (cardInHand as any).owner || playerId,
+              },
+              revealFromLibraryPlayerId: trigger.controllerId,
+              revealSourcePermanentId: trigger.permanentId,
+              revealSourceCardName: trigger.cardName,
+            } as any);
+            continue;
+          }
           
           // Handle different trigger effects
           const effectLower = trigger.effect.toLowerCase();

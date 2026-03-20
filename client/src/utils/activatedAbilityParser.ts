@@ -89,6 +89,20 @@ export interface ActivationContext {
   stackEmpty: boolean;
 }
 
+function parseStationThreshold(oracleText: string): number | undefined {
+  const inlineMatch = oracleText.match(/station\s*(\d+)/i);
+  if (inlineMatch) {
+    return parseInt(inlineMatch[1], 10);
+  }
+
+  const thresholdLineMatch = oracleText.match(/station(?:\s*\([^)]*\))?\s*(?:\r?\n)+\s*(\d+)\+\s*\|/i);
+  if (thresholdLineMatch) {
+    return parseInt(thresholdLineMatch[1], 10);
+  }
+
+  return undefined;
+}
+
 /**
  * Check if a creature can activate tap abilities considering summoning sickness and haste effects
  */
@@ -832,9 +846,8 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   // Station N (Rule 702.184a): Tap another untapped creature you control: Put charge counters
   // equal to that creature's power on this permanent
   if (typeLine.includes('spacecraft') || lowerOracle.includes('station')) {
-    const stationMatch = oracleText.match(/station\s*(\d+)/i);
-    if (stationMatch) {
-      const stationThreshold = parseInt(stationMatch[1], 10);
+    const stationThreshold = parseStationThreshold(oracleText);
+    if (typeof stationThreshold === 'number' && Number.isFinite(stationThreshold)) {
       abilities.push({
         id: `${card.id}-station-${abilityIndex++}`,
         label: `Station ${stationThreshold}`,

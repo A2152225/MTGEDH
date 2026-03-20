@@ -343,7 +343,6 @@ function mapChoiceEventType(choiceType: string): ResolutionStepType {
     hand_to_bottom: ResolutionStepType.HAND_TO_BOTTOM,
     token_ceases_to_exist: ResolutionStepType.TOKEN_CEASES_TO_EXIST,
     copy_ceases_to_exist: ResolutionStepType.COPY_CEASES_TO_EXIST,
-    commander_zone_choice: ResolutionStepType.COMMANDER_ZONE_CHOICE,
     trigger_order: ResolutionStepType.TRIGGER_ORDER,
     trigger_target: ResolutionStepType.TRIGGER_TARGET,
     replacement_effect_choice: ResolutionStepType.REPLACEMENT_EFFECT_CHOICE,

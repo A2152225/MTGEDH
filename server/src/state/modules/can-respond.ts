@@ -748,6 +748,37 @@ function hasActivateOnlyDuringYourTurnRestriction(oracleText: string): boolean {
   return /activate (?:this ability )?only during your turn/i.test(oracleText);
 }
 
+function hasStationActivationWindow(ctx: GameContext, playerId: PlayerID, permanent: any): boolean {
+  if (!permanent?.card) return false;
+
+  const state = ctx.state as any;
+  const oracleText = String(permanent.card.oracle_text || '');
+  const typeLine = String(permanent.card.type_line || '').toLowerCase();
+  const keywords = Array.isArray(permanent.card.keywords) ? permanent.card.keywords : [];
+  const hasStationKeyword = keywords.some((keyword: any) => String(keyword || '').toLowerCase() === 'station');
+  const hasStationText = /station\s*\(/i.test(oracleText) || oracleText.toLowerCase().includes('station (');
+
+  if (!hasStationKeyword && !hasStationText && !typeLine.includes('spacecraft') && !typeLine.includes('planet')) {
+    return false;
+  }
+
+  const isTurnPlayer = String(state?.turnPlayer || state?.activePlayer || '') === String(playerId);
+  const stackEmpty = !Array.isArray(state?.stack) || state.stack.length === 0;
+  const phase = String(state?.phase || '').toUpperCase();
+  const inMainPhase = isInMainPhase(ctx) || phase.includes('MAIN');
+
+  if (!isTurnPlayer || !stackEmpty || !inMainPhase) {
+    return false;
+  }
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  return battlefield.some((candidate: any) => {
+    if (!candidate || String(candidate.id || '') === String(permanent.id || '')) return false;
+    if (String(candidate.controller || '') !== String(playerId)) return false;
+    return candidate.tapped !== true;
+  });
+}
+
 /**
  * Check if a permanent has an activated ability that can be activated
  * and requires priority (excludes mana abilities per Rule 605)
@@ -771,6 +802,10 @@ function hasActivatableAbility(
   // This function only considers abilities that require priority, so treating the activation as non-mana is fine.
   if (isAbilityActivationProhibitedByChosenName(state, playerId, permanent.card?.name || '', false).prohibited) {
     return false;
+  }
+
+  if (hasStationActivationWindow(ctx, playerId, permanent)) {
+    return true;
   }
   
   // Check for tap abilities: "{T}: Effect" or "{Cost}, {T}: Effect" or "{T}, Cost: Effect"

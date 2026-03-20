@@ -46,8 +46,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-describe('MDFC_FACE_SELECTION validate-before-complete (integration)', () => {
-  const gameId = 'test_mdfc_face_selection_validate_before_complete';
+describe('MDFC face OPTION_CHOICE validate-before-complete (integration)', () => {
+  const gameId = 'test_mdfc_face_option_choice_validate_before_complete';
 
   beforeAll(async () => {
     await initDb();
@@ -71,15 +71,18 @@ describe('MDFC_FACE_SELECTION validate-before-complete (integration)', () => {
     (game.state as any).life = { [p1]: 40 };
 
     ResolutionQueueManager.addStep(gameId, {
-      type: ResolutionStepType.MDFC_FACE_SELECTION,
+      type: ResolutionStepType.OPTION_CHOICE,
       playerId: p1 as any,
       cardId: 'mdfc_1',
       cardName: 'Test MDFC',
       fromZone: 'hand',
       mandatory: true,
-      faces: [
-        { index: 0, name: 'Face A' },
-        { index: 1, name: 'Face B' },
+      mdfcFaceChoice: true,
+      minSelections: 1,
+      maxSelections: 1,
+      options: [
+        { id: '0', label: 'Face A' },
+        { id: '1', label: 'Face B' },
       ],
       description: 'Choose a face',
     } as any);
@@ -92,21 +95,21 @@ describe('MDFC_FACE_SELECTION validate-before-complete (integration)', () => {
     registerResolutionHandlers(io as any, socket as any);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const step = queue.steps.find((s: any) => s.type === 'mdfc_face_selection');
+    const step = queue.steps.find((s: any) => s.type === 'option_choice' && (s as any).mdfcFaceChoice === true);
     expect(step).toBeDefined();
 
     const stepId = String((step as any).id);
 
-    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 5 });
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: ['5'] });
 
     const err = emitted.find(e => e.event === 'error');
-    expect(err?.payload?.code).toBe('INVALID_FACE');
+    expect(err?.payload?.code).toBe('INVALID_SELECTION');
 
     const queueAfter = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
 
     // Valid selection should now complete.
-    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 0 });
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: ['0'] });
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
   });

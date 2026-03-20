@@ -468,6 +468,43 @@ describe('canActivateAnyAbility', () => {
     // Note: The permanment itself can always be sacrificed (it's sacrificing itself)
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
   });
+
+  it('should return true when controlling a Station with another untapped creature during a main phase', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'station1',
+          controller: 'p1',
+          tapped: true,
+          card: {
+            name: 'Test Spacecraft',
+            type_line: 'Artifact - Spacecraft',
+            oracle_text: 'Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It\'s an artifact creature at 8+.)',
+            keywords: ['Station'],
+          },
+        },
+        {
+          id: 'creature1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Support Creature',
+            type_line: 'Creature - Human',
+            oracle_text: '',
+          },
+        },
+      ],
+      stack: [],
+      turnPlayer: 'p1',
+      phase: 'PRECOMBAT_MAIN',
+      step: 'MAIN_1',
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
 });
 
 describe('canRespond', () => {

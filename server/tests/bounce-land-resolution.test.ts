@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
-describe('Bounce Land Resolution Queue Integration', () => {
+describe('Return Controlled Permanent Resolution Queue Integration', () => {
   const testGameId = 'test_game_bounce_land';
   
   beforeEach(() => {
@@ -9,18 +9,19 @@ describe('Bounce Land Resolution Queue Integration', () => {
     ResolutionQueueManager.removeQueue(testGameId);
   });
   
-  it('should create a bounce land choice resolution step', () => {
-    // Simulate adding a bounce land choice step to the queue
+  it('should create a return-controlled-permanent resolution step', () => {
+    // Simulate adding a generic return-controlled-permanent step to the queue.
     const step = ResolutionQueueManager.addStep(testGameId, {
-      type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+      type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
       playerId: 'p1' as any,
       description: 'Azorius Chancery: Return a land you control to its owner\'s hand',
       mandatory: true,
       sourceId: 'perm_bounce_1',
       sourceName: 'Azorius Chancery',
-      bounceLandId: 'perm_bounce_1',
-      bounceLandName: 'Azorius Chancery',
-      landsToChoose: [
+      returnControlledPermanentChoice: true,
+      returnControlledPermanentSourceName: 'Azorius Chancery',
+      returnControlledPermanentDestination: 'hand',
+      returnControlledPermanentOptions: [
         {
           permanentId: 'perm_forest_1',
           cardName: 'Forest',
@@ -37,25 +38,26 @@ describe('Bounce Land Resolution Queue Integration', () => {
     
     // Verify the step was created correctly
     expect(step).toBeDefined();
-    expect(step.type).toBe(ResolutionStepType.BOUNCE_LAND_CHOICE);
+    expect(step.type).toBe(ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE);
     expect(step.playerId).toBe('p1');
     expect(step.mandatory).toBe(true);
-    expect((step as any).bounceLandName).toBe('Azorius Chancery');
-    expect((step as any).landsToChoose).toHaveLength(2);
+    expect((step as any).returnControlledPermanentSourceName).toBe('Azorius Chancery');
+    expect((step as any).returnControlledPermanentOptions).toHaveLength(2);
   });
   
-  it('should track bounce land choice step in the queue', () => {
-    // Add a bounce land choice step
+  it('should track the return-controlled-permanent step in the queue', () => {
+    // Add a generic return-controlled-permanent step.
     ResolutionQueueManager.addStep(testGameId, {
-      type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+      type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
       playerId: 'p1' as any,
       description: 'Simic Growth Chamber: Return a land you control to its owner\'s hand',
       mandatory: true,
       sourceId: 'perm_bounce_2',
       sourceName: 'Simic Growth Chamber',
-      bounceLandId: 'perm_bounce_2',
-      bounceLandName: 'Simic Growth Chamber',
-      landsToChoose: [
+      returnControlledPermanentChoice: true,
+      returnControlledPermanentSourceName: 'Simic Growth Chamber',
+      returnControlledPermanentDestination: 'hand',
+      returnControlledPermanentOptions: [
         { permanentId: 'perm_island_1', cardName: 'Island' },
       ],
     });
@@ -65,29 +67,35 @@ describe('Bounce Land Resolution Queue Integration', () => {
     
     expect(summary.hasPending).toBe(true);
     expect(summary.pendingCount).toBe(1);
-    expect(summary.pendingTypes).toContain('bounce_land_choice');
+    expect(summary.pendingTypes).toContain('return_controlled_permanent_choice');
   });
   
-  it('should retrieve bounce land choice step for player', () => {
+  it('should retrieve the return-controlled-permanent step for each player', () => {
     // Add steps for multiple players
     ResolutionQueueManager.addStep(testGameId, {
-      type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+      type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
       playerId: 'p1' as any,
       description: 'Return a land',
       mandatory: true,
-      bounceLandId: 'b1',
-      bounceLandName: 'Bounce Land 1',
-      landsToChoose: [],
+      sourceId: 'b1',
+      sourceName: 'Bounce Land 1',
+      returnControlledPermanentChoice: true,
+      returnControlledPermanentSourceName: 'Bounce Land 1',
+      returnControlledPermanentDestination: 'hand',
+      returnControlledPermanentOptions: [],
     });
     
     ResolutionQueueManager.addStep(testGameId, {
-      type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+      type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
       playerId: 'p2' as any,
       description: 'Return a land',
       mandatory: true,
-      bounceLandId: 'b2',
-      bounceLandName: 'Bounce Land 2',
-      landsToChoose: [],
+      sourceId: 'b2',
+      sourceName: 'Bounce Land 2',
+      returnControlledPermanentChoice: true,
+      returnControlledPermanentSourceName: 'Bounce Land 2',
+      returnControlledPermanentDestination: 'hand',
+      returnControlledPermanentOptions: [],
     });
     
     // Get steps for player 1
@@ -95,26 +103,29 @@ describe('Bounce Land Resolution Queue Integration', () => {
     
     expect(p1Steps).toHaveLength(1);
     expect(p1Steps[0].playerId).toBe('p1');
-    expect((p1Steps[0] as any).bounceLandName).toBe('Bounce Land 1');
+    expect((p1Steps[0] as any).returnControlledPermanentSourceName).toBe('Bounce Land 1');
     
     // Get steps for player 2
     const p2Steps = ResolutionQueueManager.getStepsForPlayer(testGameId, 'p2' as any);
     
     expect(p2Steps).toHaveLength(1);
     expect(p2Steps[0].playerId).toBe('p2');
-    expect((p2Steps[0] as any).bounceLandName).toBe('Bounce Land 2');
+    expect((p2Steps[0] as any).returnControlledPermanentSourceName).toBe('Bounce Land 2');
   });
   
-  it('should complete bounce land choice step when player responds', () => {
-    // Add a bounce land choice step
+  it('should complete the return-controlled-permanent step when the player responds', () => {
+    // Add a generic return-controlled-permanent step.
     const step = ResolutionQueueManager.addStep(testGameId, {
-      type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+      type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
       playerId: 'p1' as any,
       description: 'Return a land',
       mandatory: true,
-      bounceLandId: 'b1',
-      bounceLandName: 'Test Bounce Land',
-      landsToChoose: [
+      sourceId: 'b1',
+      sourceName: 'Test Bounce Land',
+      returnControlledPermanentChoice: true,
+      returnControlledPermanentSourceName: 'Test Bounce Land',
+      returnControlledPermanentDestination: 'hand',
+      returnControlledPermanentOptions: [
         { permanentId: 'land_1', cardName: 'Forest' },
         { permanentId: 'land_2', cardName: 'Island' },
       ],
@@ -139,39 +150,48 @@ describe('Bounce Land Resolution Queue Integration', () => {
     expect(summary.pendingCount).toBe(0);
   });
   
-  it('should handle multiple bounce lands in APNAP order', () => {
-    // Simulate multiple bounce lands triggering at the same time
+  it('should handle multiple return-controlled-permanent steps in APNAP order', () => {
+    // Simulate multiple bounce-land-originated generic steps triggering at the same time.
     // Active player is p1, turn order is p1, p2, p3
     const turnOrder = ['p1', 'p2', 'p3'] as any[];
     const activePlayer = 'p1' as any;
     
     const stepConfigs = [
       {
-        type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+        type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
         playerId: 'p2' as any,
         description: 'Return a land',
         mandatory: true,
-        bounceLandId: 'b2',
-        bounceLandName: 'P2 Bounce Land',
-        landsToChoose: [],
+        sourceId: 'b2',
+        sourceName: 'P2 Bounce Land',
+        returnControlledPermanentChoice: true,
+        returnControlledPermanentSourceName: 'P2 Bounce Land',
+        returnControlledPermanentDestination: 'hand',
+        returnControlledPermanentOptions: [],
       },
       {
-        type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+        type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
         playerId: 'p1' as any,
         description: 'Return a land',
         mandatory: true,
-        bounceLandId: 'b1',
-        bounceLandName: 'P1 Bounce Land',
-        landsToChoose: [],
+        sourceId: 'b1',
+        sourceName: 'P1 Bounce Land',
+        returnControlledPermanentChoice: true,
+        returnControlledPermanentSourceName: 'P1 Bounce Land',
+        returnControlledPermanentDestination: 'hand',
+        returnControlledPermanentOptions: [],
       },
       {
-        type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+        type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
         playerId: 'p3' as any,
         description: 'Return a land',
         mandatory: true,
-        bounceLandId: 'b3',
-        bounceLandName: 'P3 Bounce Land',
-        landsToChoose: [],
+        sourceId: 'b3',
+        sourceName: 'P3 Bounce Land',
+        returnControlledPermanentChoice: true,
+        returnControlledPermanentSourceName: 'P3 Bounce Land',
+        returnControlledPermanentDestination: 'hand',
+        returnControlledPermanentOptions: [],
       },
     ];
     

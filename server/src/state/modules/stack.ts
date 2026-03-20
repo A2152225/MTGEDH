@@ -3028,6 +3028,12 @@ function executeTriggerEffect(
   if (!state) return;
 
   let desc = String(description || "").replace(/[’]/g, "'").toLowerCase();
+  const sourceNameLower = String(sourceName || '').toLowerCase();
+  const triggerSourceNameLower = String((triggerItem as any)?.sourceName || (triggerItem as any)?.card?.name || '').toLowerCase();
+  const isKynaiosEffect =
+    sourceNameLower.includes('kynaios and tiro of meletis') ||
+    triggerSourceNameLower.includes('kynaios and tiro of meletis') ||
+    (desc.includes('each player may put a land') && desc.includes('opponent') && desc.includes('draws a card'));
 
   // Many trigger detectors store the comma-delimited fragment starting with an intervening-if clause
   // (e.g. "if that player has two or fewer cards in hand, that player loses 3 life.").
@@ -3841,7 +3847,7 @@ function executeTriggerEffect(
   let handled = false;
   
   // Pattern: "Draw a card" (standalone or as part of combined effect)
-  if (desc.includes('draw a card') || desc.includes('draw 1 card') || desc.match(/draw \d+ cards?/i)) {
+  if (!isKynaiosEffect && (desc.includes('draw a card') || desc.includes('draw 1 card') || desc.match(/draw \d+ cards?/i))) {
     const drawCountMatch = desc.match(/draw (\d+) cards?/i);
     const drawCount = drawCountMatch ? parseInt(drawCountMatch[1], 10) : 1;
     
@@ -4086,11 +4092,12 @@ function executeTriggerEffect(
         })),
         minSelections: 1,
         maxSelections: 1,
-        // Store data for resolution handler
-        elspethCounterData: {
-          targetCreatureId: targetId,
-          targetCreatureName: targetCreature.card?.name,
-          counterOptions,
+        keywordCounterChoiceData: {
+          targetPermanentId: targetId,
+          targetName: targetCreature.card?.name || 'the creature',
+          allowedKeywords: counterOptions,
+          extraCounters: { '+1/+1': 1 },
+          sourceName,
         },
       });
       
@@ -4287,7 +4294,7 @@ function executeTriggerEffect(
   
   // Pattern: "Draw a card" or "Draw X cards"
   const drawMatch = desc.match(/draw (?:a card|(\d+) cards?)/i);
-  if (drawMatch && !desc.includes('each player may put a land')) {
+  if (drawMatch && !isKynaiosEffect) {
     // Skip if this is a Kynaios-style effect (handled below)
     const count = drawMatch[1] ? parseInt(drawMatch[1], 10) : 1;
     // Set up pending draw - actual draw happens through zone management
@@ -4300,7 +4307,7 @@ function executeTriggerEffect(
   // Pattern: Kynaios and Tiro of Meletis style - "draw a card. Each player may put a land...then each opponent who didn't draws a card"
   // This is a complex multi-step effect that requires player choices
   // Uses the unified Resolution Queue system for proper APNAP ordering
-  if (desc.includes('each player may put a land') && desc.includes('opponent') && desc.includes('draws a card')) {
+  if (isKynaiosEffect) {
     // First, controller draws a card
     state.pendingDraws = state.pendingDraws || {};
     state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + 1;
@@ -4330,6 +4337,9 @@ function executeTriggerEffect(
     const stepConfigs = players.map((p: any) => {
       const playerId = p.id;
       const isController = playerId === controller;
+      const options = isController
+        ? ['play_land', 'decline'] as const
+        : ['play_land', 'draw_card'] as const;
       
       // Get lands in hand for this player
       const playerZones = state.zones?.[playerId];
@@ -4351,14 +4361,21 @@ function executeTriggerEffect(
         isController,
         sourceController: controller,
         canPlayLand: landsInHand.length > 0,
+        landPlayOrFallbackIsController: isController,
+        landPlayOrFallbackSourceController: controller,
+        landPlayOrFallbackCanPlayLand: landsInHand.length > 0,
         landsInHand: landsInHand.map((card: any) => ({
           id: card.id,
           name: card.name,
           imageUrl: card.image_uris?.small || card.image_uris?.normal,
         })),
-        options: isController 
-          ? ['play_land', 'decline'] as const
-          : ['play_land', 'draw_card'] as const,
+        landPlayOrFallbackLandsInHand: landsInHand.map((card: any) => ({
+          id: card.id,
+          name: card.name,
+          imageUrl: card.image_uris?.small || card.image_uris?.normal,
+        })),
+        options,
+        landPlayOrFallbackOptions: options,
       };
     });
     
@@ -5650,12 +5667,20 @@ function executeTriggerEffect(
             // If a commander would be put into graveyard from anywhere,
             // its owner may put it into the command zone instead.
             ResolutionQueueManager.addStep(ctx.gameId, {
-              type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+              type: ResolutionStepType.OPTION_CHOICE,
               playerId: owner,
               sourceId: destroyedPermanentId,
               sourceName: card.name,
+              sourceImage: card.image_uris?.small || card.image_uris?.normal,
               description: `Your commander ${card.name} would be put into your graveyard. Move it to the command zone instead?`,
               mandatory: true,
+              minSelections: 1,
+              maxSelections: 1,
+              commanderZoneChoice: true,
+              options: [
+                { id: 'command', label: 'Move to Command Zone' },
+                { id: 'stay', label: 'Let it go to graveyard' },
+              ],
               commanderId: card.id,
               commanderName: card.name,
               fromZone: 'graveyard',
@@ -5727,12 +5752,20 @@ function executeTriggerEffect(
           if (isCommander && card) {
             // Defer zone change - let player choose command zone or hand
             ResolutionQueueManager.addStep(ctx.gameId, {
-              type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+              type: ResolutionStepType.OPTION_CHOICE,
               playerId: owner,
               sourceId: bouncedPermanentId,
               sourceName: card.name,
+              sourceImage: card.image_uris?.small || card.image_uris?.normal,
               description: `Your commander ${card.name} would be returned to your hand. Move it to the command zone instead?`,
               mandatory: true,
+              minSelections: 1,
+              maxSelections: 1,
+              commanderZoneChoice: true,
+              options: [
+                { id: 'command', label: 'Move to Command Zone' },
+                { id: 'stay', label: 'Let it go to hand' },
+              ],
               commanderId: card.id,
               commanderName: card.name,
               fromZone: 'hand',
@@ -6954,7 +6987,8 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     // ========================================================================
-    // BOUNCE LAND ETB TRIGGER: Add resolution step for player to select a land to return
+    // RETURN CONTROLLED PERMANENT TRIGGER: add a resolution step before the ETB resolves.
+    // Bounce lands currently use this generic payload with the legacy wire step value.
     // This must happen BEFORE executing the trigger effect
     // Uses the resolution queue instead of legacy pendingBounceLandChoice
     // ========================================================================
@@ -6984,16 +7018,17 @@ export function resolveTopOfStack(ctx: GameContext) {
           const gameId = (ctx as any).gameId || 'unknown';
           
           ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.BOUNCE_LAND_CHOICE,
+            type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
             playerId: triggerController as PlayerID,
             description: `${sourceName}: Return a land you control to its owner's hand`,
             mandatory: true,
             sourceId: bounceLandPerm.id,
             sourceName: sourceName,
             sourceImage: bounceLandPerm.card?.image_uris?.small || bounceLandPerm.card?.image_uris?.normal,
-            bounceLandId: bounceLandPerm.id,
-            bounceLandName: sourceName,
-            landsToChoose: availableLands.map((p: any) => ({
+            returnControlledPermanentChoice: true,
+            returnControlledPermanentSourceName: sourceName,
+            returnControlledPermanentDestination: 'hand',
+            returnControlledPermanentOptions: availableLands.map((p: any) => ({
               permanentId: p.id,
               cardName: p.card?.name || 'Land',
               imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
@@ -9404,12 +9439,20 @@ export function resolveTopOfStack(ctx: GameContext) {
         if (isCommander && targetCard) {
           // Defer zone change - let player choose command zone or library via Resolution Queue
           ResolutionQueueManager.addStep(ctx.gameId, {
-            type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+            type: ResolutionStepType.OPTION_CHOICE,
             playerId: owner,
             sourceId: targetPermId,
             sourceName: targetCard.name,
+            sourceImage: targetCard.image_uris?.small || targetCard.image_uris?.normal,
             description: `Your commander ${targetCard.name} would be shuffled into your library. Move it to the command zone instead?`,
             mandatory: true,
+            minSelections: 1,
+            maxSelections: 1,
+            commanderZoneChoice: true,
+            options: [
+              { id: 'command', label: 'Move to Command Zone' },
+              { id: 'stay', label: 'Shuffle into library' },
+            ],
             commanderId: targetCard.id,
             commanderName: targetCard.name,
             fromZone: 'library',
@@ -9432,6 +9475,14 @@ export function resolveTopOfStack(ctx: GameContext) {
           const lib = ctx.libraries?.get(owner) || [];
           if (lib.length > 0) {
             const topCard = lib[0];
+            const viewers = new Set<any>([owner as any, 'spectator:judge' as const]);
+            for (const player of (state.players || []) as any[]) {
+              if (player?.id) viewers.add(player.id);
+            }
+            ctx.revealedLibraryTopByOwner?.set(owner, {
+              cardId: String(topCard?.id || ''),
+              viewers,
+            });
             const topTypeLine = (topCard?.type_line || '').toLowerCase();
             const isPermanent = topTypeLine.includes('creature') || 
                                 topTypeLine.includes('artifact') || 
@@ -9442,6 +9493,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             if (isPermanent) {
               lib.shift();
               ctx.libraries?.set(owner, lib);
+              ctx.revealedLibraryTopByOwner?.delete(owner);
               const newPerm = {
                 id: `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                 card: topCard,
@@ -9475,6 +9527,14 @@ export function resolveTopOfStack(ctx: GameContext) {
         // Reveal top card of library
         if (lib.length > 0) {
           const topCard = lib[0];
+          const viewers = new Set<any>([owner as any, 'spectator:judge' as const]);
+          for (const player of (state.players || []) as any[]) {
+            if (player?.id) viewers.add(player.id);
+          }
+          ctx.revealedLibraryTopByOwner?.set(owner, {
+            cardId: String(topCard?.id || ''),
+            viewers,
+          });
           const topTypeLine = (topCard?.type_line || '').toLowerCase();
           
           // Check if it's a permanent card (creature, artifact, enchantment, land, planeswalker, battle)
@@ -9489,6 +9549,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             // Remove from library
             lib.shift();
             ctx.libraries?.set(owner, lib);
+            ctx.revealedLibraryTopByOwner?.delete(owner);
             
             // Put onto battlefield
             const isCreature = topTypeLine.includes('creature');

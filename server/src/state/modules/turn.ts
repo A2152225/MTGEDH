@@ -632,7 +632,7 @@ function checkPendingInteractions(ctx: GameContext): {
       }
     }
     
-    // Clean up deprecated pendingCommanderZoneChoice (now handled by Resolution Queue COMMANDER_ZONE_CHOICE)
+    // Clean up deprecated pendingCommanderZoneChoice (now handled by generic Resolution Queue option_choice prompts)
     if (state.pendingCommanderZoneChoice && Object.keys(state.pendingCommanderZoneChoice).length > 0) {
       debugWarn(1, `${ts()} [checkPendingInteractions] Found deprecated pendingCommanderZoneChoice state - cleaning up`);
       delete state.pendingCommanderZoneChoice;

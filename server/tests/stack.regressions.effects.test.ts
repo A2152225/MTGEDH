@@ -5,8 +5,56 @@ import type { PlayerID, KnownCardRef } from '../../shared/src';
 import { GamePhase } from '../../shared/src';
 import { handleElixirShuffle } from '../src/state/modules/zone-manipulation';
 import { detectXAbility, executeXAbility } from '../src/state/modules/x-activated-abilities';
+import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { detectSpellCastTriggers } from '../src/state/modules/triggered-abilities';
+import { viewFor } from '../src/state/modules/view';
 
 describe('Stack / zone regression effects', () => {
+  it('Kynaios creates queued land-or-draw choices even when the trigger description is truncated', () => {
+    const gameId = 'kynaios_truncated_description_regression';
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const g = createInitialGameState(gameId);
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    const p3 = 'p3' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'Player 1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'Player 2' });
+    g.applyEvent!({ type: 'join', playerId: p3, name: 'Player 3' });
+
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).activePlayer = p1;
+    (g.state as any).zones = {
+      [p1]: { hand: [{ id: 'plains_1', name: 'Plains', type_line: 'Basic Land - Plains' }], handCount: 1, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [{ id: 'forest_1', name: 'Forest', type_line: 'Basic Land - Forest' }], handCount: 1, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      [p3]: { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+
+    (g.state as any).stack = [
+      {
+        id: 'kynaios_trigger_1',
+        type: 'triggered_ability',
+        controller: p1,
+        sourceName: 'Kynaios and Tiro of Meletis',
+        description: 'draw a card.',
+        permanentId: 'kynaios_perm_1',
+        triggerType: 'end_step',
+        gameId,
+      },
+    ];
+
+    g.resolveTopOfStack();
+
+    expect((g.state as any).pendingDraws?.[p1]).toBe(1);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.filter((step: any) => step.type === 'kynaios_choice')).toHaveLength(3);
+
+    ResolutionQueueManager.removeQueue(gameId);
+  });
+
   it("Nature's Claim grants 4 life to destroyed permanent's controller", () => {
     const g = createInitialGameState('natures_claim_life_gain');
 
@@ -122,6 +170,56 @@ describe('Stack / zone regression effects', () => {
     expect(ids.has('gy_1')).toBe(true);
     expect(ids.has('gy_2')).toBe(true);
     expect(ids.has('elixir_card_1')).toBe(true);
+  });
+
+  it('parses generic bottom-then-reveal-until-nonland spell-cast triggers with once-per-turn metadata', () => {
+    const triggers = detectSpellCastTriggers(
+      {
+        id: 'neera_card',
+        name: 'Neera, Wild Mage',
+        type_line: 'Legendary Creature — Human Elf Shaman',
+        oracle_text:
+          "Whenever you cast a spell, you may put it on the bottom of its owner's library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast it without paying its mana cost. Put the rest on the bottom of your library in a random order. This ability triggers only once each turn.",
+      },
+      { id: 'neera_perm', controller: 'p1' }
+    );
+
+    const trigger = triggers.find((entry) => entry.replacementEffect?.kind === 'bottom_spell_reveal_until_nonland');
+    expect(trigger).toBeDefined();
+    expect(trigger?.spellCondition).toBe('any');
+    expect(trigger?.mandatory).toBe(false);
+    expect(trigger?.oncePerTurn).toBe(true);
+  });
+
+  it('shows a revealed nonpermanent top card to viewers while it remains on top', () => {
+    const ctx = createContext('revealed_library_top_regression');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    (ctx.state as any).players = [
+      { id: p1, name: 'Player 1', seat: 0 },
+      { id: p2, name: 'Player 2', seat: 1 },
+    ] as any;
+    (ctx.state as any).zones[p1] = { hand: [], handCount: 0, libraryCount: 1, graveyard: [], graveyardCount: 0 } as any;
+    (ctx.state as any).zones[p2] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 } as any;
+
+    ctx.libraries.set(p1, [
+      { id: 'top_spell', name: 'Counterspell', type_line: 'Instant', oracle_text: 'Counter target spell.' } as any,
+    ]);
+    ctx.revealedLibraryTopByOwner.set(p1, {
+      cardId: 'top_spell',
+      viewers: new Set([p1, p2]),
+    });
+
+    const visible = viewFor(ctx as any, p2, false);
+    expect((visible.zones as any)[p1]?.libraryTop?.name).toBe('Counterspell');
+
+    ctx.libraries.set(p1, [
+      { id: 'new_top', name: 'Island', type_line: 'Basic Land — Island', oracle_text: '' } as any,
+    ]);
+
+    const hidden = viewFor(ctx as any, p2, false);
+    expect((hidden.zones as any)[p1]?.libraryTop).toBeUndefined();
   });
 
   it('Steel Hellkite {X} destroys nonland permanents with mana value X for damaged opponents', () => {

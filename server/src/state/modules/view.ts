@@ -41,6 +41,18 @@ function canSeeOwnersHidden(
   return !!set && set.has(viewer as PlayerID);
 }
 
+function canSeeRevealedLibraryTop(
+  ctx: GameContext,
+  viewer: PlayerID | "spectator:judge",
+  owner: PlayerID,
+  topCardId: string | undefined
+) {
+  if (!topCardId) return false;
+  const revealed = ctx.revealedLibraryTopByOwner?.get(owner);
+  if (!revealed || revealed.cardId !== topCardId) return false;
+  return revealed.viewers.has(viewer);
+}
+
 export function viewFor(
   ctx: GameContext,
   viewer: PlayerID | "spectator:judge",
@@ -224,10 +236,10 @@ export function viewFor(
       typeof z.handCount === "number" ? z.handCount : rawHand.length;
 
     let libraryTop: KnownCardRef | undefined;
-    if (canSee) {
-      const libArr = libraries.get(p.id);
-      if (libArr && libArr.length > 0) {
-        const top = libArr[0];
+    const libArr = libraries.get(p.id);
+    const top = libArr && libArr.length > 0 ? libArr[0] : undefined;
+    const canSeeLibraryTop = canSee || canSeeRevealedLibraryTop(ctx, viewer, p.id as PlayerID, top?.id);
+    if (canSeeLibraryTop && top) {
         libraryTop = {
           id: top.id,
           name: top.name,
@@ -241,7 +253,6 @@ export function viewFor(
           layout: (top as any).layout,
           zone: "library",
         } as any;
-      }
     }
 
     filteredZones[p.id] = {

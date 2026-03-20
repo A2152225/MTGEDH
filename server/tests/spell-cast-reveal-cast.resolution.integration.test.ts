@@ -46,8 +46,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-describe('RETURN_CONTROLLED_PERMANENT_CHOICE validate-before-complete (integration)', () => {
-  const gameId = 'test_return_controlled_permanent_choice_validate_before_complete';
+describe('spell-cast reveal/cast queue flow (integration)', () => {
+  const gameId = 'test_spell_cast_reveal_cast_resolution';
 
   beforeAll(async () => {
     await initDb();
@@ -60,16 +60,19 @@ describe('RETURN_CONTROLLED_PERMANENT_CHOICE validate-before-complete (integrati
     games.delete(gameId as any);
   });
 
-  it('does not consume the step on invalid selection', async () => {
+  it('moves the triggering spell to the bottom, reveals until a nonland, and offers a free cast', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
 
     const p1 = 'p1';
     (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
-    (game.state as any).startingLife = 40;
-    (game.state as any).life = { [p1]: 40 };
-
+    (game.state as any).turnNumber = 3;
+    (game as any).libraries = new Map();
+    (game as any).libraries.set(p1, [
+      { id: 'land_1', name: 'Mountain', type_line: 'Basic Land — Mountain', zone: 'library' },
+      { id: 'hit_1', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Lightning Bolt deals 3 damage to any target.', zone: 'library' },
+    ]);
     (game.state as any).zones = {
       [p1]: {
         graveyard: [],
@@ -78,27 +81,35 @@ describe('RETURN_CONTROLLED_PERMANENT_CHOICE validate-before-complete (integrati
         exileCount: 0,
         hand: [],
         handCount: 0,
-        libraryCount: 0,
+        libraryCount: 2,
       },
     };
-
-    (game.state as any).battlefield = [
-      { id: 'land_1', controller: p1, owner: p1, tapped: false, card: { id: 'land_1', name: 'Forest', type_line: 'Basic Land — Forest' } },
-      { id: 'land_2', controller: p1, owner: p1, tapped: false, card: { id: 'land_2', name: 'Island', type_line: 'Basic Land — Island' } },
+    (game.state as any).stack = [
+      {
+        id: 'spell_1',
+        type: 'spell',
+        controller: p1,
+        card: { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.', owner: p1, zone: 'stack' },
+      },
     ];
 
     ResolutionQueueManager.addStep(gameId, {
-      type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
+      type: ResolutionStepType.OPTION_CHOICE,
       playerId: p1 as any,
-      description: 'Return a land to hand',
-      mandatory: true,
-      returnControlledPermanentChoice: true,
-      returnControlledPermanentSourceName: 'Simic Growth Chamber',
-      returnControlledPermanentDestination: 'hand',
-      returnControlledPermanentOptions: [
-        { permanentId: 'land_1', cardName: 'Forest' },
-        { permanentId: 'land_2', cardName: 'Island' },
+      description: 'Neera, Wild Mage: Put Opt on the bottom and reveal until a nonland?',
+      mandatory: false,
+      sourceName: 'Neera, Wild Mage',
+      options: [
+        { id: 'yes', label: 'Use ability' },
+        { id: 'no', label: 'Decline' },
       ],
+      minSelections: 1,
+      maxSelections: 1,
+      spellBottomRevealUntilNonlandChoice: true,
+      triggeringStackItemId: 'spell_1',
+      triggeringSpellCard: { id: 'cast_1', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.', owner: p1 },
+      revealFromLibraryPlayerId: p1,
+      revealSourcePermanentId: 'neera_perm',
     } as any);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -109,21 +120,25 @@ describe('RETURN_CONTROLLED_PERMANENT_CHOICE validate-before-complete (integrati
     registerResolutionHandlers(io as any, socket as any);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const step = queue.steps.find((s: any) => s.type === ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE);
-    expect(step).toBeDefined();
+    const firstStep = queue.steps.find((s: any) => s.type === 'option_choice');
+    expect(firstStep).toBeDefined();
 
-    const stepId = String((step as any).id);
+    await handlers['submitResolutionResponse']({ gameId, stepId: String((firstStep as any).id), selections: 'yes' });
 
-    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'nope' });
+    expect(((game.state as any).stack || []).some((item: any) => item.id === 'spell_1')).toBe(false);
+    expect(((game as any).libraries.get(p1) || []).some((card: any) => card.id === 'cast_1')).toBe(true);
 
-    const err = emitted.find(e => e.event === 'error');
-    expect(err?.payload?.code).toBe('INVALID_SELECTION');
+    const queueAfterFirst = ResolutionQueueManager.getQueue(gameId);
+    const secondStep = queueAfterFirst.steps.find((s: any) => (s as any).castRevealedFromLibraryChoice === true);
+    expect(secondStep).toBeDefined();
 
-    const queueAfter = ResolutionQueueManager.getQueue(gameId);
-    expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
+    await handlers['submitResolutionResponse']({ gameId, stepId: String((secondStep as any).id), selections: 'cast' });
 
-    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'land_1' });
-    const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
-    expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+    const stackNames = ((game.state as any).stack || []).map((item: any) => item.card?.name);
+    expect(stackNames).toContain('Lightning Bolt');
+
+    const libraryIds = new Set(((game as any).libraries.get(p1) || []).map((card: any) => card.id));
+    expect(libraryIds.has('land_1')).toBe(true);
+    expect(libraryIds.has('cast_1')).toBe(true);
   });
 });

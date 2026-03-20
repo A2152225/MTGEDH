@@ -8,14 +8,8 @@ import { games } from '../src/socket/socket.js';
 
 function createNoopIo() {
   return {
-    to: (_room: string) => ({
-      emit: (_event: string, _payload: any) => {
-        // no-op
-      },
-    }),
-    emit: (_event: string, _payload: any) => {
-      // no-op
-    },
+    to: (_room: string) => ({ emit: (_event: string, _payload: any) => {} }),
+    emit: (_event: string, _payload: any) => {},
   } as any;
 }
 
@@ -26,7 +20,7 @@ function createMockIo(emitted: Array<{ room?: string; event: string; payload: an
     }),
     emit: (event: string, payload: any) => emitted.push({ event, payload }),
     sockets: {
-      sockets: new Map(sockets.map((s, idx) => [`s_${idx}`, s])),
+      sockets: new Map(sockets.map((socket, index) => [`s_${index}`, socket])),
     },
   } as any;
 }
@@ -36,8 +30,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   const socket = {
     data: { playerId, spectator: false },
     rooms: new Set<string>(),
-    on: (ev: string, fn: Function) => {
-      handlers[ev] = fn;
+    on: (event: string, fn: Function) => {
+      handlers[event] = fn;
     },
     emit: (event: string, payload: any) => {
       emitted.push({ event, payload });
@@ -46,13 +40,13 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-describe('RETURN_CONTROLLED_PERMANENT_CHOICE validate-before-complete (integration)', () => {
-  const gameId = 'test_return_controlled_permanent_choice_validate_before_complete';
+describe('return controlled permanent choice (integration)', () => {
+  const gameId = 'test_return_controlled_permanent_choice';
 
   beforeAll(async () => {
     await initDb();
     initializePriorityResolutionHandler(createNoopIo() as any);
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
   beforeEach(() => {
@@ -60,16 +54,13 @@ describe('RETURN_CONTROLLED_PERMANENT_CHOICE validate-before-complete (integrati
     games.delete(gameId as any);
   });
 
-  it('does not consume the step on invalid selection', async () => {
+  it('uses generic return-controlled-permanent payload fields to move the chosen permanent to hand', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
 
     const p1 = 'p1';
     (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
-    (game.state as any).startingLife = 40;
-    (game.state as any).life = { [p1]: 40 };
-
     (game.state as any).zones = {
       [p1]: {
         graveyard: [],
@@ -81,49 +72,42 @@ describe('RETURN_CONTROLLED_PERMANENT_CHOICE validate-before-complete (integrati
         libraryCount: 0,
       },
     };
-
     (game.state as any).battlefield = [
       { id: 'land_1', controller: p1, owner: p1, tapped: false, card: { id: 'land_1', name: 'Forest', type_line: 'Basic Land — Forest' } },
-      { id: 'land_2', controller: p1, owner: p1, tapped: false, card: { id: 'land_2', name: 'Island', type_line: 'Basic Land — Island' } },
+      { id: 'land_2', controller: p1, owner: p1, tapped: true, card: { id: 'land_2', name: 'Utility Land', type_line: 'Land' } },
     ];
 
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
       playerId: p1 as any,
-      description: 'Return a land to hand',
+      description: 'Source: Return a permanent you control to hand',
       mandatory: true,
+      sourceName: 'Source',
       returnControlledPermanentChoice: true,
-      returnControlledPermanentSourceName: 'Simic Growth Chamber',
+      returnControlledPermanentSourceName: 'Source',
       returnControlledPermanentDestination: 'hand',
       returnControlledPermanentOptions: [
         { permanentId: 'land_1', cardName: 'Forest' },
-        { permanentId: 'land_2', cardName: 'Island' },
+        { permanentId: 'land_2', cardName: 'Utility Land' },
       ],
     } as any);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
     socket.rooms.add(gameId);
-
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const step = queue.steps.find((s: any) => s.type === ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE);
+    const step = queue.steps.find((entry: any) => entry.type === ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE);
     expect(step).toBeDefined();
 
-    const stepId = String((step as any).id);
+    await handlers['submitResolutionResponse']({ gameId, stepId: String((step as any).id), selections: 'land_2' });
 
-    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'nope' });
-
-    const err = emitted.find(e => e.event === 'error');
-    expect(err?.payload?.code).toBe('INVALID_SELECTION');
-
-    const queueAfter = ResolutionQueueManager.getQueue(gameId);
-    expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
-
-    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'land_1' });
-    const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
-    expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+    expect(((game.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual(['land_1']);
+    expect(((game.state as any).zones[p1].hand || []).map((card: any) => card.id)).toEqual(['land_2']);
+    const chat = emitted.find((entry) => entry.event === 'chat');
+    expect(chat?.payload?.message).toContain('Utility Land');
+    expect(chat?.payload?.message).toContain('to hand');
   });
 });

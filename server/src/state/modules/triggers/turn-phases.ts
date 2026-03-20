@@ -605,6 +605,22 @@ export function detectDoesntUntapEffects(card: any, permanent: any): DoesntUntap
       });
     }
   }
+
+  // Self-referential pattern: "[This permanent] doesn't untap during your/its controller's untap step"
+  if (
+    oracleText.includes("doesn't untap during your untap step") ||
+    oracleText.includes("doesn't untap during its controller's untap step")
+  ) {
+    effects.push({
+      permanentId,
+      cardName,
+      controllerId,
+      affectedType: 'specific_permanent',
+      affectedController: 'all',
+      targetPermanentId: permanentId,
+      description: `${cardName} doesn't untap during its controller's untap step`,
+    });
+  }
   
   // Global effect: "Creatures don't untap during their controllers' untap steps"
   if (oracleText.includes('creatures') && oracleText.includes("don't untap") && oracleText.includes('controllers')) {

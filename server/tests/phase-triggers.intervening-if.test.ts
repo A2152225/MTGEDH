@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { GameContext } from '../src/state/context';
 import { getBeginningOfCombatTriggers, getEndStepTriggers } from '../src/state/modules/triggered-abilities';
+import { isPermanentPreventedFromUntapping } from '../src/state/modules/triggers/turn-phases';
 
 describe('Intervening-if phase trigger filtering (trigger time)', () => {
   it('filters beginning-of-combat triggers when recognized intervening-if is false', () => {
@@ -111,5 +112,31 @@ describe('Intervening-if phase trigger filtering (trigger time)', () => {
     // Now satisfy the condition for the active player.
     baseState.zones[p2].handCount = 2;
     expect(getEndStepTriggers(ctx, p2).length).toBeGreaterThan(0);
+  });
+
+  it("prevents self-referential permanents from untapping during their controller's untap step", () => {
+    const p1 = 'p1';
+    const basalt = {
+      id: 'basalt_1',
+      controller: p1,
+      owner: p1,
+      tapped: true,
+      card: {
+        id: 'basalt_card',
+        name: 'Basalt Monolith',
+        type_line: 'Artifact',
+        oracle_text: '{T}: Add {C}{C}{C}. Basalt Monolith doesn\'t untap during your untap step. {3}: Untap Basalt Monolith.',
+      },
+    };
+
+    const ctx = {
+      state: {
+        turnPlayer: p1,
+        players: [{ id: p1 }],
+        battlefield: [basalt],
+      },
+    } as unknown as GameContext;
+
+    expect(isPermanentPreventedFromUntapping(ctx, basalt, p1)).toBe(true);
   });
 });

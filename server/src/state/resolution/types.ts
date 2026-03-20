@@ -51,7 +51,6 @@ export enum ResolutionStepType {
   BOTTOM_ORDER = 'bottom_order',
   TOKEN_CEASES_TO_EXIST = 'token_ceases_to_exist',
   COPY_CEASES_TO_EXIST = 'copy_ceases_to_exist',
-  COMMANDER_ZONE_CHOICE = 'commander_zone_choice',
   TRIGGER_ORDER = 'trigger_order',
   TRIGGER_TARGET = 'trigger_target',
   REPLACEMENT_EFFECT_CHOICE = 'replacement_effect_choice',
@@ -87,10 +86,6 @@ export enum ResolutionStepType {
   COUNTER_TARGET = 'counter_target',
   // Legacy interactive: Station creature selection (Spacecraft)
   STATION_CREATURE_SELECTION = 'station_creature_selection',
-  // Legacy interactive: Forbidden Orchard opponent selection
-  FORBIDDEN_ORCHARD_TARGET = 'forbidden_orchard_target',
-  // Legacy interactive: MDFC face selection (play land as chosen face)
-  MDFC_FACE_SELECTION = 'mdfc_face_selection',
   // Legacy interactive: pay X life as part of casting a spell (Toxic Deluge, Hatred, etc.)
   LIFE_PAYMENT = 'life_payment',
   // Legacy interactive: discard/sacrifice as an additional cost to cast
@@ -102,7 +97,7 @@ export enum ResolutionStepType {
   MODAL_CHOICE = 'modal_choice',
   MANA_COLOR_SELECTION = 'mana_color_selection',
   LIBRARY_SEARCH = 'library_search',
-  BOUNCE_LAND_CHOICE = 'bounce_land_choice',
+  RETURN_CONTROLLED_PERMANENT_CHOICE = 'return_controlled_permanent_choice',
   HIDEAWAY_CHOICE = 'hideaway_choice',
   FLICKER_RETURNS = 'flicker_returns',
   LINKED_EXILE_RETURNS = 'linked_exile_returns',
@@ -164,7 +159,6 @@ export const STEP_TO_CHOICE_EVENT_TYPE: Partial<Record<ResolutionStepType, Choic
   [ResolutionStepType.HAND_TO_BOTTOM]: ChoiceEventType.HAND_TO_BOTTOM,
   [ResolutionStepType.TOKEN_CEASES_TO_EXIST]: ChoiceEventType.TOKEN_CEASES_TO_EXIST,
   [ResolutionStepType.COPY_CEASES_TO_EXIST]: ChoiceEventType.COPY_CEASES_TO_EXIST,
-  [ResolutionStepType.COMMANDER_ZONE_CHOICE]: ChoiceEventType.COMMANDER_ZONE_CHOICE,
   [ResolutionStepType.TRIGGER_ORDER]: ChoiceEventType.TRIGGER_ORDER,
   [ResolutionStepType.TRIGGER_TARGET]: ChoiceEventType.TRIGGER_TARGET,
   [ResolutionStepType.REPLACEMENT_EFFECT_CHOICE]: ChoiceEventType.REPLACEMENT_EFFECT_CHOICE,
@@ -405,35 +399,21 @@ export interface StationCreatureSelectionStep extends BaseResolutionStep {
     imageUrl?: string;
   }[];
   readonly title?: string;
-}
-
-/**
- * Forbidden Orchard target selection step
- * "When you tap Forbidden Orchard for mana, target opponent creates a 1/1 colorless Spirit creature token."
- */
-export interface ForbiddenOrchardTargetStep extends BaseResolutionStep {
-  readonly type: ResolutionStepType.FORBIDDEN_ORCHARD_TARGET;
-  readonly opponents: readonly { id: string; name: string }[];
-  readonly permanentId: string;
-  readonly cardName: 'Forbidden Orchard' | string;
-}
-
-/**
- * MDFC face selection step
- * Used when a player needs to choose which face of a modal_dfc card to play as a land.
- */
-export interface MdfcFaceSelectionStep extends BaseResolutionStep {
-  readonly type: ResolutionStepType.MDFC_FACE_SELECTION;
-  readonly cardId: string;
-  readonly cardName: string;
-  readonly fromZone: 'hand' | 'graveyard';
-  readonly title?: string;
-  readonly faces: readonly {
-    index: number;
+  readonly tapForCountersSource?: {
+    id: string;
     name: string;
-    typeLine?: string;
-    oracleText?: string;
-    manaCost?: string;
+    imageUrl?: string;
+    threshold?: number;
+    currentCounters?: number;
+    counterType?: string;
+    amountFrom?: 'power';
+    requireAnother?: boolean;
+  };
+  readonly tapForCountersCreatures?: readonly {
+    id: string;
+    name: string;
+    power: number;
+    toughness: number;
     imageUrl?: string;
   }[];
 }
@@ -546,25 +526,6 @@ export interface DiscardSelectionStep extends BaseResolutionStep {
 export interface OpeningHandActionsStep extends BaseResolutionStep {
   readonly type: ResolutionStepType.OPENING_HAND_ACTIONS;
   readonly leylineCount?: number;
-}
-
-/**
- * Commander zone choice resolution step
- */
-export interface CommanderZoneChoiceStep extends BaseResolutionStep {
-  readonly type: ResolutionStepType.COMMANDER_ZONE_CHOICE;
-  readonly commanderId: string;
-  readonly commanderName: string;
-  readonly fromZone: 'graveyard' | 'exile' | 'library' | 'hand';
-  /** For library destination: where the commander would go if not sent to command zone */
-  readonly libraryPosition?: 'top' | 'bottom' | 'shuffle';
-  /** Extra metadata for exile moves (e.g., linked exile) */
-  readonly exileTag?: {
-    exiledWithSourceId?: string;
-    exiledWithOracleId?: string;
-    exiledWithSourceName?: string;
-  };
-  readonly card: KnownCardRef;
 }
 
 /**
@@ -745,6 +706,11 @@ export interface KynaiosChoiceStep extends BaseResolutionStep {
   readonly canPlayLand: boolean;
   readonly landsInHand: readonly { id: string; name: string; imageUrl?: string }[];
   readonly options: readonly ('play_land' | 'draw_card' | 'decline')[];
+  readonly landPlayOrFallbackIsController?: boolean;
+  readonly landPlayOrFallbackSourceController?: string;
+  readonly landPlayOrFallbackCanPlayLand?: boolean;
+  readonly landPlayOrFallbackLandsInHand?: readonly { id: string; name: string; imageUrl?: string }[];
+  readonly landPlayOrFallbackOptions?: readonly ('play_land' | 'draw_card' | 'decline')[];
 }
 
 /**
@@ -777,21 +743,24 @@ export interface TemptingOfferStep extends BaseResolutionStep {
 }
 
 /**
- * Bounce Land Choice resolution step
- * When a bounce land enters the battlefield, the controller must return a land to hand.
- * Player selects which land to return (including the bounce land itself).
+ * Return Controlled Permanent Choice resolution step
+ * Generic prompt for effects that ask a player to return a controlled permanent.
+ * Bounce lands remain the primary compatibility caller for now.
  */
-export interface BounceLandChoiceStep extends BaseResolutionStep {
-  readonly type: ResolutionStepType.BOUNCE_LAND_CHOICE;
-  readonly bounceLandId: string;
-  readonly bounceLandName: string;
-  readonly landsToChoose: readonly { 
-    permanentId: string; 
-    cardName: string; 
-    imageUrl?: string; 
+export interface ReturnControlledPermanentChoiceStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE;
+  readonly returnControlledPermanentChoice?: boolean;
+  readonly returnControlledPermanentSourceName?: string;
+  readonly returnControlledPermanentDestination?: 'hand';
+  readonly returnControlledPermanentOptions?: readonly {
+    permanentId: string;
+    cardName: string;
+    imageUrl?: string;
   }[];
   readonly stackItemId?: string;
 }
+
+export type BounceLandChoiceStep = ReturnControlledPermanentChoiceStep;
 
 /**
  * Cascade resolution step
@@ -896,15 +865,12 @@ export type ResolutionStep =
   | CounterMovementStep
   | CounterTargetStep
   | StationCreatureSelectionStep
-  | ForbiddenOrchardTargetStep
-  | MdfcFaceSelectionStep
   | LifePaymentStep
   | AdditionalCostPaymentStep
   | SquadCostPaymentStep
   | ModeSelectionStep
   | DiscardSelectionStep
   | OpeningHandActionsStep
-  | CommanderZoneChoiceStep
   | TriggerOrderStep
   | LibrarySearchStep
   | OptionChoiceStep
@@ -920,7 +886,7 @@ export type ResolutionStep =
   | KynaiosChoiceStep
   | JoinForcesStep
   | TemptingOfferStep
-  | BounceLandChoiceStep
+  | ReturnControlledPermanentChoiceStep
   | CascadeStep
   | DevourSelectionStep
   | SuspendCastStep

@@ -71,6 +71,20 @@ const WORD_TO_NUMBER: Record<string, number> = {
   'ten': 10, '10': 10,
 };
 
+function parseStationThreshold(oracleText: string): number {
+  const inlineMatch = oracleText.match(/station\s*(\d+)/i);
+  if (inlineMatch) {
+    return parseInt(inlineMatch[1], 10);
+  }
+
+  const thresholdLineMatch = oracleText.match(/station(?:\s*\([^)]*\))?\s*(?:\r?\n)+\s*(\d+)\+\s*\|/i);
+  if (thresholdLineMatch) {
+    return parseInt(thresholdLineMatch[1], 10);
+  }
+
+  return 0;
+}
+
 // ============================================================================
 // Special Land Activated Abilities Configuration
 // ============================================================================
@@ -4341,8 +4355,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const isStationAbility = abilityId.includes("station") || (isSpacecraft && oracleText.includes("station"));
     if (isStationAbility) {
       // Parse station threshold from oracle text
-      const stationMatch = oracleText.match(/station\s*(\d+)/i);
-      const stationThreshold = stationMatch ? parseInt(stationMatch[1], 10) : 0;
+      const stationThreshold = parseStationThreshold(oracleText);
       
       // Per Rule 702.184a, station is activated at sorcery speed
       // Check if it's the player's turn and main phase
@@ -4412,6 +4425,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           currentCounters: (permanent as any).counters?.charge || 0,
         },
         creatures: creatureOptions,
+        tapForCountersSource: {
+          id: permanentId,
+          name: cardName,
+          imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+          threshold: stationThreshold,
+          currentCounters: (permanent as any).counters?.charge || 0,
+          counterType: 'charge',
+          amountFrom: 'power',
+          requireAnother: true,
+        },
+        tapForCountersCreatures: creatureOptions,
         title: `Station ${stationThreshold}`,
       });
       
@@ -4895,19 +4919,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const opponents = players.filter((p: any) => p?.id != null && p.id !== pid && !p.hasLost);
         
         if (opponents.length > 0) {
-          // Queue opponent choice via Resolution Queue (AI auto-responds in resolution.ts)
+          // Queue opponent choice via the generic option-choice flow.
           ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.FORBIDDEN_ORCHARD_TARGET,
+            type: ResolutionStepType.OPTION_CHOICE,
             playerId: pid as PlayerID,
             sourceId: permanentId,
             sourceName: 'Forbidden Orchard',
             sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
             description: 'Choose target opponent to create a 1/1 colorless Spirit creature token.',
             mandatory: true,
-            opponents: opponents.map((p: any) => ({
+            options: opponents.map((p: any) => ({
               id: String(p.id),
-              name: String(p.name || p.id),
+              label: String(p.name || p.id),
             })),
+            minSelections: 1,
+            maxSelections: 1,
+            forbiddenOrchardTargetChoice: true,
             permanentId,
             cardName: 'Forbidden Orchard',
           });

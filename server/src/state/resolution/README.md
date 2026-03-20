@@ -28,7 +28,7 @@ Central manager that handles adding, completing, and querying steps across all g
 
 ### ✅ Fully Migrated (Use These as Examples)
 - `CASCADE` - See `processPendingCascades()` in `resolution.ts`
-- `BOUNCE_LAND_CHOICE` - Full queue integration
+- `RETURN_CONTROLLED_PERMANENT_CHOICE` - Full queue integration
 - `LIBRARY_SEARCH` - Uses queue via intermediate state
 - `JOIN_FORCES` - Queue-based with APNAP ordering
 - `TEMPTING_OFFER` - Queue-based with opponent choices
@@ -274,8 +274,8 @@ ResolutionQueueManager.addStep(gameId, {
 
 ## 🔍 Examples to Study
 
-### Simple Choice: Bounce Land
-See `handleBounceLandChoiceResponse()` in `resolution.ts` for a straightforward example.
+### Simple Choice: Return Controlled Permanent
+See `handleReturnControlledPermanentChoiceResponse()` in `resolution.ts` for a straightforward example.
 
 ### Complex Choice with APNAP: Join Forces  
 See `handleJoinForcesResponse()` for multiplayer, ordered resolution.

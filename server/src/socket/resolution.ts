@@ -203,20 +203,19 @@ async function handleAIResolutionStep(
         break;
       }
 
-      case ResolutionStepType.BOUNCE_LAND_CHOICE: {
+      case ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE: {
         const stepData = step as any;
-        const landsToChoose = stepData.landsToChoose || [];
+        const optionsToChoose = stepData.returnControlledPermanentOptions || [];
         
-        if (landsToChoose.length === 0) {
-          debugWarn(1, `[Resolution] AI bounce land choice: no lands available`);
+        if (optionsToChoose.length === 0) {
+          debugWarn(1, `[Resolution] AI return-controlled-permanent choice: no options available`);
           break;
         }
         
-        // Use existing AI logic to choose which land to return
-        // We need to score the lands and pick the best one to return
+        // Use existing AI logic to choose which permanent to return.
         const battlefield = game.state.battlefield || [];
         const playerId = step.playerId;
-        const bounceLandName = stepData.bounceLandName || 'Bounce Land';
+        const sourceName = stepData.returnControlledPermanentSourceName || stepData.sourceName || 'Return Controlled Permanent';
         
         // Check for landfall synergy
         const hasLandfallSynergy = battlefield.some((perm: any) => {
@@ -228,24 +227,24 @@ async function handleAIResolutionStep(
         });
         
         // Score each land option
-        const scoredLands = landsToChoose.map((landOption: any) => {
-          const perm = battlefield.find((p: any) => p.id === landOption.permanentId);
-          if (!perm) return { landOption, score: 1000 }; // Not found, don't choose
+        const scoredOptions = optionsToChoose.map((option: any) => {
+          const perm = battlefield.find((p: any) => p.id === option.permanentId);
+          if (!perm) return { option, score: 1000 };
           
           let score = 50; // Base score
           const card = perm.card;
           const typeLine = (card?.type_line || '').toLowerCase();
           const permName = (card?.name || '').toLowerCase();
           
-          // The bounce land itself
-          if (permName === bounceLandName.toLowerCase()) {
-            if (landsToChoose.length === 1) {
+          // The triggering source itself is often a good candidate to return.
+          if (permName === sourceName.toLowerCase()) {
+            if (optionsToChoose.length === 1) {
               score = 0; // Only option
             } else {
               score += hasLandfallSynergy ? 10 : 30;
               if (perm.tapped) score -= 10;
             }
-            return { landOption, score };
+            return { option, score };
           }
           
           // Basic lands are least valuable
@@ -257,22 +256,22 @@ async function handleAIResolutionStep(
           // Tapped lands are good to return
           if (perm.tapped) score -= 10;
           
-          return { landOption, score };
+          return { option, score };
         });
         
         // Sort by score (lowest first = return first)
-        scoredLands.sort((a: any, b: any) => a.score - b.score);
-        const chosenLand = scoredLands[0]?.landOption;
+        scoredOptions.sort((a: any, b: any) => a.score - b.score);
+        const chosenOption = scoredOptions[0]?.option;
         
-        if (chosenLand) {
+        if (chosenOption) {
           response = {
             stepId: step.id,
             playerId: step.playerId,
-            selections: chosenLand.permanentId,
+            selections: chosenOption.permanentId,
             cancelled: false,
             timestamp: Date.now(),
           };
-          debug(2, `[Resolution] AI chose to return land: ${chosenLand.cardName}`);
+          debug(2, `[Resolution] AI chose to return permanent: ${chosenOption.cardName}`);
         }
         break;
       }
@@ -504,7 +503,11 @@ async function handleAIResolutionStep(
 
       case ResolutionStepType.STATION_CREATURE_SELECTION: {
         const stepData = step as any;
-        const creatures: any[] = Array.isArray(stepData.creatures) ? stepData.creatures : [];
+        const creatures: any[] = Array.isArray(stepData.tapForCountersCreatures)
+          ? stepData.tapForCountersCreatures
+          : Array.isArray(stepData.creatures)
+            ? stepData.creatures
+            : [];
 
         if (creatures.length === 0) {
           debugWarn(1, `[Resolution] AI STATION_CREATURE_SELECTION: no creature options`);
@@ -531,60 +534,6 @@ async function handleAIResolutionStep(
           timestamp: Date.now(),
         };
         debug(2, `[Resolution] AI STATION_CREATURE_SELECTION: chose ${String(best?.name || best?.id)}`);
-        break;
-      }
-
-      case ResolutionStepType.FORBIDDEN_ORCHARD_TARGET: {
-        const stepData = step as any;
-        const opponents: any[] = Array.isArray(stepData.opponents) ? stepData.opponents : [];
-
-        if (opponents.length === 0) {
-          debugWarn(1, `[Resolution] AI FORBIDDEN_ORCHARD_TARGET: no opponents`);
-          response = {
-            stepId: step.id,
-            playerId: step.playerId,
-            selections: [],
-            cancelled: true,
-            timestamp: Date.now(),
-          };
-          break;
-        }
-
-        // Simple AI: pick first opponent
-        response = {
-          stepId: step.id,
-          playerId: step.playerId,
-          selections: [String(opponents[0].id)],
-          cancelled: false,
-          timestamp: Date.now(),
-        };
-        debug(2, `[Resolution] AI FORBIDDEN_ORCHARD_TARGET: chose ${String(opponents[0].id)}`);
-        break;
-      }
-
-      case ResolutionStepType.MDFC_FACE_SELECTION: {
-        const stepData = step as any;
-        const faces: any[] = Array.isArray(stepData.faces) ? stepData.faces : [];
-        if (faces.length === 0) {
-          debugWarn(1, `[Resolution] AI MDFC_FACE_SELECTION: no faces`);
-          response = {
-            stepId: step.id,
-            playerId: step.playerId,
-            selections: 0,
-            cancelled: true,
-            timestamp: Date.now(),
-          };
-          break;
-        }
-
-        // Simple AI: choose face 0
-        response = {
-          stepId: step.id,
-          playerId: step.playerId,
-          selections: 0,
-          cancelled: false,
-          timestamp: Date.now(),
-        };
         break;
       }
 
@@ -945,19 +894,6 @@ async function handleAIResolutionStep(
         break;
       }
       
-      case ResolutionStepType.COMMANDER_ZONE_CHOICE: {
-        // AI always sends commander back to command zone
-        response = {
-          stepId: step.id,
-          playerId: step.playerId,
-          selections: true, // Go to command zone
-          cancelled: false,
-          timestamp: Date.now(),
-        };
-        debug(2, `[Resolution] AI commander zone choice: sending to command zone`);
-        break;
-      }
-      
       case ResolutionStepType.COLOR_CHOICE: {
         // AI chooses a random color (could be improved based on deck/situation)
         const colors = ['white', 'blue', 'black', 'red', 'green'];
@@ -1168,8 +1104,8 @@ async function handleAIResolutionStep(
       case ResolutionStepType.KYNAIOS_CHOICE: {
         // AI chooses to draw a card (simple strategy)
         const kynaiosStep = step as any;
-        const isController = kynaiosStep.isController;
-        const options = kynaiosStep.options || [];
+        const isController = kynaiosStep.landPlayOrFallbackIsController ?? kynaiosStep.isController;
+        const options = kynaiosStep.landPlayOrFallbackOptions || kynaiosStep.options || [];
         
         // Controller: prefer draw if available, otherwise decline
         // Opponent: prefer draw over giving controller benefit
@@ -1929,14 +1865,14 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         }
       }
 
-      if ((step as any)?.attachEquipmentToCreatedTokenSelectEquipment === true) {
-        const tokenPermanentId = String((step as any).attachEquipmentToCreatedTokenPermanentId || '');
+      if ((step as any)?.attachEquipmentToPermanentSelectEquipment === true) {
+        const targetPermanentId = String((step as any).attachEquipmentToPermanentTargetPermanentId || '');
         const equipPermanentId = selectedIds[0];
         const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
         const equipment = battlefield.find((p: any) => p && String(p.id) === String(equipPermanentId));
-        const token = tokenPermanentId ? battlefield.find((p: any) => p && String(p.id) === String(tokenPermanentId)) : null;
-        if (!equipment || !token) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected equipment or token is no longer on the battlefield' });
+        const targetPermanent = targetPermanentId ? battlefield.find((p: any) => p && String(p.id) === String(targetPermanentId)) : null;
+        if (!equipment || !targetPermanent) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected equipment or target permanent is no longer on the battlefield' });
           return;
         }
       }
@@ -2415,38 +2351,6 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             return;
           }
         }
-      }
-    }
-
-    // Validate MDFC_FACE_SELECTION before completing the step.
-    // If we complete first, invalid input would permanently consume the step and break the land-play flow.
-    if (step.type === ResolutionStepType.MDFC_FACE_SELECTION) {
-      const stepAny = step as any;
-      const faces: any[] = Array.isArray(stepAny.faces) ? stepAny.faces : [];
-
-      if (cancelled) {
-        socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
-        return;
-      }
-
-      let selectedFace: number | null = null;
-      const raw = response.selections as any;
-      if (typeof raw === 'number') selectedFace = raw;
-      else if (typeof raw === 'string') {
-        const n = Number(raw);
-        selectedFace = Number.isFinite(n) ? n : null;
-      } else if (Array.isArray(raw) && raw.length > 0) {
-        const n = Number(raw[0]);
-        selectedFace = Number.isFinite(n) ? n : null;
-      } else if (raw && typeof raw === 'object' && raw.selectedFace != null) {
-        const n = Number(raw.selectedFace);
-        selectedFace = Number.isFinite(n) ? n : null;
-      }
-
-      // Only allow integer indices.
-      if (selectedFace == null || !Number.isInteger(selectedFace) || selectedFace < 0 || selectedFace >= faces.length) {
-        socket.emit('error', { code: 'INVALID_FACE', message: 'Invalid card face selection' });
-        return;
       }
     }
 
@@ -3016,10 +2920,17 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           }
         }
 
-        // Keyword counter modals: enforce allowed set (defense-in-depth).
-        if (stepAny?.pwBeastKeywordCounterData && selectionIds.length > 0) {
-          const allowed = new Set(['vigilance', 'reach', 'trample']);
-          if (!allowed.has(String(selectionIds[0]).toLowerCase())) {
+        // Keyword counter modals: enforce the configured allowed set (defense-in-depth).
+        if (stepAny?.keywordCounterChoiceData && selectionIds.length > 0) {
+          const keywordMap = new Map<string, string>();
+          for (const keyword of Array.isArray(stepAny.keywordCounterChoiceData?.allowedKeywords)
+            ? stepAny.keywordCounterChoiceData.allowedKeywords
+            : []) {
+            const canonical = String(keyword).toLowerCase().trim();
+            if (!canonical) continue;
+            keywordMap.set(canonical.replace(/\s+/g, '_'), canonical);
+          }
+          if (keywordMap.size > 0 && !keywordMap.has(String(selectionIds[0]).toLowerCase().trim())) {
             socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid counter choice' });
             return;
           }
@@ -3108,40 +3019,6 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         if (modeIds.length > 0 && normalized.some((id) => !modeIdSet.has(String(id)))) {
           socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected mode is not valid' });
           return;
-        }
-      }
-    }
-
-    // Validate COMMANDER_ZONE_CHOICE selections before completing the step.
-    // If we complete first, invalid input would permanently consume the step and skip the replacement choice.
-    if (step.type === ResolutionStepType.COMMANDER_ZONE_CHOICE) {
-      if (cancelled) {
-        if (step.mandatory) {
-          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
-          return;
-        }
-      } else {
-        const rawSel: any = response.selections as any;
-
-        const normalize = (raw: any): string | boolean | null => {
-          if (typeof raw === 'boolean') return raw;
-          if (typeof raw === 'string') return raw;
-          if (Array.isArray(raw) && raw.length === 1 && typeof raw[0] === 'string') return raw[0];
-          return null;
-        };
-
-        const sel = normalize(rawSel);
-        if (sel == null) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid commander zone choice format' });
-          return;
-        }
-
-        if (typeof sel === 'string') {
-          const v = sel.trim().toLowerCase();
-          if (v !== 'command' && v !== 'stay') {
-            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid commander zone choice' });
-            return;
-          }
         }
       }
     }
@@ -4066,7 +3943,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         }
 
         const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
-        const stationId = String(stepAny?.station?.id || step.sourceId || '').trim();
+        const stationId = String(stepAny?.tapForCountersSource?.id || stepAny?.station?.id || step.sourceId || '').trim();
         const station = battlefield.find((p: any) => p?.id === stationId);
         if (!station) {
           socket.emit('error', { code: 'STATION_NOT_FOUND', message: 'Station permanent not found' });
@@ -4100,35 +3977,6 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
-    // Validate FORBIDDEN_ORCHARD_TARGET selections before completing the step.
-    if (step.type === ResolutionStepType.FORBIDDEN_ORCHARD_TARGET) {
-      const stepAny = step as any;
-      const selection: any = response.selections as any;
-
-      if (cancelled) {
-        if (step.mandatory) {
-          socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
-          return;
-        }
-      } else {
-        const targetOpponentId = Array.isArray(selection)
-          ? String(selection[0] || '')
-          : (typeof selection === 'string' ? selection : String(selection?.targetOpponentId || ''));
-
-        if (!targetOpponentId || !String(targetOpponentId).trim()) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Must choose a target opponent' });
-          return;
-        }
-
-        const opponents: any[] = Array.isArray(stepAny.opponents) ? stepAny.opponents : [];
-        const isValid = opponents.some((o: any) => String(o?.id) === String(targetOpponentId));
-        if (!isValid) {
-          socket.emit('error', { code: 'INVALID_TARGET', message: 'Invalid target opponent' });
-          return;
-        }
-      }
-    }
-
     // Validate KYNAIOS_CHOICE selections before completing the step.
     // If we complete first, invalid input would permanently consume the step and skip the choice.
     if (step.type === ResolutionStepType.KYNAIOS_CHOICE) {
@@ -4154,14 +4002,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           choice = String(raw || 'decline');
         }
 
-        const options: string[] = Array.isArray(stepAny?.options) ? stepAny.options.map((x: any) => String(x)) : ['play_land', 'draw_card', 'decline'];
+        const options: string[] = Array.isArray(stepAny?.landPlayOrFallbackOptions)
+          ? stepAny.landPlayOrFallbackOptions.map((x: any) => String(x))
+          : Array.isArray(stepAny?.options)
+            ? stepAny.options.map((x: any) => String(x))
+            : ['play_land', 'draw_card', 'decline'];
         if (!options.includes(choice)) {
           socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid choice' });
           return;
         }
 
         if (choice === 'play_land') {
-          const canPlayLand = stepAny?.canPlayLand !== false;
+          const canPlayLand = (stepAny?.landPlayOrFallbackCanPlayLand ?? stepAny?.canPlayLand) !== false;
           if (!canPlayLand) {
             socket.emit('error', { code: 'INVALID_SELECTION', message: 'You cannot play a land' });
             return;
@@ -4172,7 +4024,11 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          const landsInHand: any[] = Array.isArray(stepAny?.landsInHand) ? stepAny.landsInHand : [];
+          const landsInHand: any[] = Array.isArray(stepAny?.landPlayOrFallbackLandsInHand)
+            ? stepAny.landPlayOrFallbackLandsInHand
+            : Array.isArray(stepAny?.landsInHand)
+              ? stepAny.landsInHand
+              : [];
           const allowed = new Set(landsInHand.map((l: any) => String(l?.id)).filter(Boolean));
           if (!allowed.has(String(landCardId))) {
             socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected land is not a valid choice' });
@@ -4182,9 +4038,9 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
-    // Validate BOUNCE_LAND_CHOICE selections before completing the step.
+    // Validate return-controlled-permanent selections before completing the step.
     // If we complete first, invalid input would permanently consume the step and skip returning a land.
-    if (step.type === ResolutionStepType.BOUNCE_LAND_CHOICE) {
+    if (step.type === ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE) {
       const stepAny = step as any;
 
       if (cancelled) {
@@ -4201,14 +4057,16 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
 
         returnPermanentId = String(returnPermanentId || '').trim();
         if (!returnPermanentId) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'No land selected' });
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'No permanent selected' });
           return;
         }
 
-        const landsToChoose: any[] = Array.isArray(stepAny?.landsToChoose) ? stepAny.landsToChoose : [];
-        const validIds = new Set(landsToChoose.map((l: any) => String(l?.permanentId)).filter(Boolean));
+        const optionsToChoose: any[] = Array.isArray(stepAny?.returnControlledPermanentOptions)
+          ? stepAny.returnControlledPermanentOptions
+          : [];
+        const validIds = new Set(optionsToChoose.map((option: any) => String(option?.permanentId)).filter(Boolean));
         if (!validIds.has(returnPermanentId)) {
-          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected land is not a valid choice' });
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected permanent is not a valid choice' });
           return;
         }
       }
@@ -5557,21 +5415,9 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
     case ResolutionStepType.STATION_CREATURE_SELECTION:
       if ('station' in step) fields.station = (step as any).station;
       if ('creatures' in step) fields.creatures = (step as any).creatures;
+      if ('tapForCountersSource' in step) fields.tapForCountersSource = (step as any).tapForCountersSource;
+      if ('tapForCountersCreatures' in step) fields.tapForCountersCreatures = (step as any).tapForCountersCreatures;
       if ('title' in step) fields.title = (step as any).title;
-      break;
-
-    case ResolutionStepType.FORBIDDEN_ORCHARD_TARGET:
-      if ('opponents' in step) fields.opponents = (step as any).opponents;
-      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
-      if ('cardName' in step) fields.cardName = (step as any).cardName;
-      break;
-
-    case ResolutionStepType.MDFC_FACE_SELECTION:
-      if ('cardId' in step) fields.cardId = (step as any).cardId;
-      if ('cardName' in step) fields.cardName = (step as any).cardName;
-      if ('fromZone' in step) fields.fromZone = (step as any).fromZone;
-      if ('title' in step) fields.title = (step as any).title;
-      if ('faces' in step) fields.faces = (step as any).faces;
       break;
 
     case ResolutionStepType.LIFE_PAYMENT:
@@ -5616,15 +5462,6 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('reason' in step) fields.reason = step.reason;
       break;
       
-    case ResolutionStepType.COMMANDER_ZONE_CHOICE:
-      if ('commanderId' in step) fields.commanderId = step.commanderId;
-      if ('commanderName' in step) fields.commanderName = step.commanderName;
-      if ('fromZone' in step) fields.fromZone = step.fromZone;
-      if ('libraryPosition' in step) fields.libraryPosition = (step as any).libraryPosition;
-      if ('exileTag' in step) fields.exileTag = (step as any).exileTag;
-      if ('card' in step) fields.card = step.card;
-      break;
-      
     case ResolutionStepType.TRIGGER_ORDER:
       if ('triggers' in step) fields.triggers = step.triggers;
       if ('requireAll' in step) fields.requireAll = step.requireAll;
@@ -5657,33 +5494,6 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('colors' in step) fields.colors = (step as any).colors;
       break;
 
-    case ResolutionStepType.MANA_COLOR_SELECTION:
-      // Supports both "any color" selection and "distribution" (mana in any combination).
-      if ('selectionKind' in step) fields.selectionKind = (step as any).selectionKind;
-      if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
-      if ('cardName' in step) fields.cardName = (step as any).cardName;
-      if ('amount' in step) fields.amount = (step as any).amount;
-      if ('allowedColors' in step) fields.allowedColors = (step as any).allowedColors;
-      if ('singleColor' in step) fields.singleColor = (step as any).singleColor;
-      if ('availableColors' in step) fields.availableColors = (step as any).availableColors;
-      if ('totalAmount' in step) fields.totalAmount = (step as any).totalAmount;
-      if ('message' in step) fields.message = (step as any).message;
-      if ('isStorageCounter' in step) fields.isStorageCounter = (step as any).isStorageCounter;
-      if ('counterType' in step) fields.counterType = (step as any).counterType;
-      if ('removeCounterCount' in step) fields.removeCounterCount = (step as any).removeCounterCount;
-      break;
-
-    case ResolutionStepType.MANA_PAYMENT_CHOICE:
-      // Currently used for Phyrexian mana payment choice prompts.
-      if ('phyrexianManaChoice' in step) fields.phyrexianManaChoice = (step as any).phyrexianManaChoice;
-      // Also used for unified spell payment prompts.
-      if ('spellPaymentRequired' in step) fields.spellPaymentRequired = (step as any).spellPaymentRequired;
-      if ('effectId' in step) fields.effectId = (step as any).effectId;
-      if ('targets' in step) fields.targets = (step as any).targets;
-      if ('costReduction' in step) fields.costReduction = (step as any).costReduction;
-      if ('convokeOptions' in step) fields.convokeOptions = (step as any).convokeOptions;
-      if ('forcedAlternateCostId' in step) fields.forcedAlternateCostId = (step as any).forcedAlternateCostId;
-      if ('pendingId' in step) fields.pendingId = (step as any).pendingId;
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
       if ('cardId' in step) fields.cardId = (step as any).cardId;
       if ('castSpellArgs' in step) fields.castSpellArgs = (step as any).castSpellArgs;
@@ -5844,6 +5654,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('canPlayLand' in step) fields.canPlayLand = step.canPlayLand;
       if ('landsInHand' in step) fields.landsInHand = step.landsInHand;
       if ('options' in step) fields.options = step.options;
+      if ('landPlayOrFallbackIsController' in step) fields.landPlayOrFallbackIsController = (step as any).landPlayOrFallbackIsController;
+      if ('landPlayOrFallbackSourceController' in step) fields.landPlayOrFallbackSourceController = (step as any).landPlayOrFallbackSourceController;
+      if ('landPlayOrFallbackCanPlayLand' in step) fields.landPlayOrFallbackCanPlayLand = (step as any).landPlayOrFallbackCanPlayLand;
+      if ('landPlayOrFallbackLandsInHand' in step) fields.landPlayOrFallbackLandsInHand = (step as any).landPlayOrFallbackLandsInHand;
+      if ('landPlayOrFallbackOptions' in step) fields.landPlayOrFallbackOptions = (step as any).landPlayOrFallbackOptions;
       break;
       
     case ResolutionStepType.JOIN_FORCES:
@@ -5863,10 +5678,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('isOpponent' in step) fields.isOpponent = step.isOpponent;
       break;
       
-    case ResolutionStepType.BOUNCE_LAND_CHOICE:
-      if ('bounceLandId' in step) fields.bounceLandId = step.bounceLandId;
-      if ('bounceLandName' in step) fields.bounceLandName = step.bounceLandName;
-      if ('landsToChoose' in step) fields.landsToChoose = step.landsToChoose;
+    case ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE:
+      if ('returnControlledPermanentChoice' in step) fields.returnControlledPermanentChoice = (step as any).returnControlledPermanentChoice;
+      if ('returnControlledPermanentSourceName' in step) fields.returnControlledPermanentSourceName = (step as any).returnControlledPermanentSourceName;
+      if ('returnControlledPermanentDestination' in step) fields.returnControlledPermanentDestination = (step as any).returnControlledPermanentDestination;
+      if ('returnControlledPermanentOptions' in step) fields.returnControlledPermanentOptions = (step as any).returnControlledPermanentOptions;
       if ('stackItemId' in step) fields.stackItemId = step.stackItemId;
       break;
       
@@ -7003,6 +6819,15 @@ async function handleStepResponse(
         break;
       }
 
+      const counterType = String(stepData.counterType || '').toLowerCase();
+      if (!counterType) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_SELECTION',
+          message: 'Missing counter type',
+        });
+        break;
+      }
+
       const battlefield = game.state?.battlefield || [];
       const targetPermanent = battlefield.find((p: any) => p?.id === targetId);
       if (!targetPermanent) {
@@ -7014,14 +6839,14 @@ async function handleStepResponse(
       }
 
       const targetControllerRule: 'opponent' | 'any' | 'you' = stepData.targetController || 'any';
-      if (targetControllerRule === 'you' && targetPermanent.controller !== pid) {
+      if (targetControllerRule === 'you' && String(targetPermanent.controller) !== String(pid)) {
         emitToPlayer(io, pid as any, 'error', {
           code: 'INVALID_TARGET',
           message: 'Target must be a permanent you control',
         });
         break;
       }
-      if (targetControllerRule === 'opponent' && targetPermanent.controller === pid) {
+      if (targetControllerRule === 'opponent' && String(targetPermanent.controller) === String(pid)) {
         emitToPlayer(io, pid as any, 'error', {
           code: 'INVALID_TARGET',
           message: "Target must be a permanent you don't control",
@@ -7029,60 +6854,31 @@ async function handleStepResponse(
         break;
       }
 
-      // Calculate number of counters to add (supports simple scaling like "for each Elf you control")
-      let counterCount = 1;
-      const scalingText = String(stepData.scalingText || '');
-      if (scalingText) {
-        const scalingMatch = scalingText.match(/(?:for each )?(\w+)(?: you control)?/i);
-        if (scalingMatch) {
-          const searchType = scalingMatch[1].toLowerCase();
-          counterCount = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
-            if (!perm || perm.controller !== pid) return false;
-            const typeLine = String(perm.card?.type_line || '').toLowerCase();
-            const name = String(perm.card?.name || '').toLowerCase();
-            return typeLine.includes(searchType) || name.includes(searchType);
-          }).length;
-          debug(2, `[Resolution] COUNTER_TARGET scaling: ${counterCount} ${searchType}(s) controlled by ${pid}`);
-        }
-      }
+      const targetCounters = (targetPermanent as any).counters || {};
+      targetCounters[counterType] = Number(targetCounters[counterType] || 0) + 1;
+      (targetPermanent as any).counters = targetCounters;
 
-      const counterType = String(stepData.counterType || '').toLowerCase();
-      if (!counterType) {
-        emitToPlayer(io, pid as any, 'error', {
-          code: 'INVALID_SELECTION',
-          message: 'Missing counter type',
-        });
-        break;
-      }
-
-      (targetPermanent as any).counters = (targetPermanent as any).counters || {};
-      (targetPermanent as any).counters[counterType] = Number((targetPermanent as any).counters[counterType] || 0) + counterCount;
-
-      const targetName = String(targetPermanent.card?.name || 'permanent');
-      const sourceName = String(step.sourceName || 'an ability');
+      const sourceName = String(step.sourceName || stepData.title || 'an ability');
+      const targetName = String((targetPermanent as any).card?.name || 'permanent');
+      const targetController = String((targetPermanent as any).controller || '').trim();
 
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
         from: 'system',
-        message: `${getPlayerName(game, pid)} activated ${sourceName}: Put ${counterCount} ${counterType} counter${counterCount > 1 ? 's' : ''} on ${targetName}.`,
+        message: `${getPlayerName(game, pid)} puts a ${counterType} counter on ${targetName} with ${sourceName}.`,
         ts: Date.now(),
       });
 
-      // Additional effects (e.g., Gwafa Hazid "Its controller draws a card")
-      const oracleText = String(stepData.oracleText || step.description || '');
-      if (oracleText.includes('its controller draws') || oracleText.includes('that player draws')) {
-        const targetController = targetPermanent.controller;
-        if (targetController) {
-          debug(2, `[Resolution] COUNTER_TARGET: ${String(targetController)} should draw a card (oracle text effect)`);
-          io.to(gameId).emit('chat', {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: 'system',
-            message: `${getPlayerName(game, targetController)} draws a card.`,
-            ts: Date.now(),
-          });
-        }
+      if (/draw a card/i.test(String(stepData.oracleText || '')) && targetController) {
+        debug(2, `[Resolution] COUNTER_TARGET: ${String(targetController)} should draw a card (oracle text effect)`);
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, targetController)} draws a card.`,
+          ts: Date.now(),
+        });
       }
 
       try {
@@ -7121,7 +6917,7 @@ async function handleStepResponse(
       }
 
       const battlefield = game.state?.battlefield || [];
-      const stationId = String(stepData?.station?.id || step.sourceId || '');
+      const stationId = String(stepData?.tapForCountersSource?.id || stepData?.station?.id || step.sourceId || '');
       const station = battlefield.find((p: any) => p?.id === stationId);
       if (!station) {
         emitToPlayer(io, pid as any, 'error', {
@@ -7176,18 +6972,19 @@ async function handleStepResponse(
       const creaturePower = getEffectivePower(creature);
       const countersToAdd = Math.max(0, Number(creaturePower || 0));
       const creatureName = String((creature as any).card?.name || 'creature');
+      const counterType = String(stepData?.tapForCountersSource?.counterType || 'charge');
 
       // Tap the creature
       (creature as any).tapped = true;
 
-      // Add charge counters
+      // Add counters using the generic tap-for-counters metadata when present.
       (station as any).counters = (station as any).counters || {};
-      const currentCounters = Number((station as any).counters.charge || 0);
-      (station as any).counters.charge = currentCounters + countersToAdd;
+      const currentCounters = Number((station as any).counters[counterType] || 0);
+      (station as any).counters[counterType] = currentCounters + countersToAdd;
 
-      const newCounterCount = Number((station as any).counters.charge || 0);
-      const stationThreshold = Number(stepData?.station?.threshold || 0);
-      const stationName = String((station as any).card?.name || stepData?.station?.name || step.sourceName || 'Station');
+      const newCounterCount = Number((station as any).counters[counterType] || 0);
+      const stationThreshold = Number(stepData?.tapForCountersSource?.threshold || stepData?.station?.threshold || 0);
+      const stationName = String((station as any).card?.name || stepData?.tapForCountersSource?.name || stepData?.station?.name || step.sourceName || 'Station');
 
       // Check if threshold is met
       if (stationThreshold > 0 && newCounterCount >= stationThreshold && !(station as any).stationed) {
@@ -7232,141 +7029,6 @@ async function handleStepResponse(
         game.bumpSeq();
       }
       broadcastGame(io, game, gameId);
-      break;
-    }
-
-    case ResolutionStepType.FORBIDDEN_ORCHARD_TARGET: {
-      const stepData = step as any;
-      const selection = response.selections as any;
-
-      const targetOpponentId = Array.isArray(selection)
-        ? String(selection[0] || '')
-        : (typeof selection === 'string' ? selection : String(selection?.targetOpponentId || ''));
-
-      if (!targetOpponentId) {
-        emitToPlayer(io, pid as any, 'error', {
-          code: 'INVALID_SELECTION',
-          message: 'Must choose a target opponent',
-        });
-        break;
-      }
-
-      const opponents: any[] = Array.isArray(stepData.opponents) ? stepData.opponents : [];
-      const isValid = opponents.some((o: any) => String(o?.id) === targetOpponentId);
-      if (!isValid) {
-        emitToPlayer(io, pid as any, 'error', {
-          code: 'INVALID_TARGET',
-          message: 'Invalid target opponent',
-        });
-        break;
-      }
-
-      // Create 1/1 colorless Spirit token for the chosen opponent
-      const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      game.state.battlefield = game.state.battlefield || [];
-      const spiritToken = {
-        id: tokenId,
-        controller: targetOpponentId,
-        owner: targetOpponentId,
-        tapped: false,
-        summoningSickness: true,
-        counters: {},
-        card: {
-          id: tokenId,
-          name: 'Spirit',
-          type_line: 'Token Creature — Spirit',
-          oracle_text: '',
-          mana_cost: '',
-          cmc: 0,
-          colors: [],
-        },
-        basePower: 1,
-        baseToughness: 1,
-        isToken: true,
-      };
-      game.state.battlefield.push(spiritToken);
-
-      // Trigger ETB effects from other permanents (Cathars' Crusade, Soul Warden, etc.)
-      const ctx = {
-        state: game.state,
-        bumpSeq: game.bumpSeq?.bind(game) || (() => {
-          debugWarn(2, '[Forbidden Orchard] bumpSeq not available, state updates may not propagate');
-        }),
-      };
-      triggerETBEffectsForToken(ctx as any, spiritToken as any, targetOpponentId);
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `Forbidden Orchard: ${getPlayerName(game, targetOpponentId)} creates a 1/1 colorless Spirit token.`,
-        ts: Date.now(),
-      });
-
-      try {
-        await appendEvent(gameId, (game as any).seq ?? 0, 'confirmForbiddenOrchardTarget', {
-          playerId: pid,
-          stepId: step.id,
-          permanentId: String(stepData.permanentId || step.sourceId || ''),
-          targetOpponentId,
-        });
-      } catch (e) {
-        debugWarn(1, '[Resolution] appendEvent(confirmForbiddenOrchardTarget) failed:', e);
-      }
-
-      if (typeof game.bumpSeq === 'function') {
-        game.bumpSeq();
-      }
-      broadcastGame(io, game, gameId);
-      break;
-    }
-
-    case ResolutionStepType.MDFC_FACE_SELECTION: {
-      const stepData = step as any;
-      const cardId = String(stepData.cardId || stepData.sourceId || '');
-      const faces: any[] = Array.isArray(stepData.faces) ? stepData.faces : [];
-
-      let selectedFace: number | null = null;
-      if (typeof response.selections === 'number') {
-        selectedFace = response.selections;
-      } else if (typeof response.selections === 'string') {
-        const n = Number(response.selections);
-        selectedFace = Number.isFinite(n) ? n : null;
-      } else if (Array.isArray(response.selections) && response.selections.length > 0) {
-        const n = Number(response.selections[0]);
-        selectedFace = Number.isFinite(n) ? n : null;
-      } else if ((response.selections as any)?.selectedFace != null) {
-        const n = Number((response.selections as any).selectedFace);
-        selectedFace = Number.isFinite(n) ? n : null;
-      }
-
-      if (selectedFace == null || selectedFace < 0 || selectedFace >= faces.length) {
-        emitToPlayer(io, pid as any, 'error', {
-          code: 'INVALID_FACE',
-          message: 'Invalid card face selection',
-        });
-        break;
-      }
-
-      const selected = faces.find((f: any) => Number(f?.index) === selectedFace) || faces[selectedFace];
-      const cardName = String(stepData.cardName || stepData.sourceName || 'MDFC');
-      const faceName = String(selected?.name || `Face ${selectedFace}`);
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${getPlayerName(game, pid)} plays ${faceName} (from ${cardName}).`,
-        ts: Date.now(),
-      });
-
-      // Continue the land play by telling the client to re-emit playLand with selectedFace.
-      emitToPlayer(io, pid as any, 'mdfcFaceSelectionComplete', {
-        gameId,
-        cardId,
-        selectedFace,
-      });
-
       break;
     }
 
@@ -9426,10 +9088,6 @@ async function handleStepResponse(
       await handleXValueSelectionResponse(io, game, gameId, step, response);
       break;
       
-    case ResolutionStepType.COMMANDER_ZONE_CHOICE:
-      handleCommanderZoneResponse(io, game, gameId, step, response);
-      break;
-      
     case ResolutionStepType.TARGET_SELECTION:
       await handleTargetSelectionResponse(io, game, gameId, step, response);
       break;
@@ -9458,8 +9116,8 @@ async function handleStepResponse(
       handleTemptingOfferResponse(io, game, gameId, step, response);
       break;
       
-    case ResolutionStepType.BOUNCE_LAND_CHOICE:
-      handleBounceLandChoiceResponse(io, game, gameId, step, response);
+    case ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE:
+      handleReturnControlledPermanentChoiceResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.ACTIVATED_ABILITY:
@@ -12501,15 +12159,14 @@ async function handleTargetSelectionResponse(
   if (!(step as any)?.keywordBlight && step.type === ResolutionStepType.TARGET_SELECTION) {
     const sourceId = (step as any)?.sourceId as string | undefined;
     if (!sourceId || !game.state?.stack) {
-      // If we can't associate targets with a stack item, we can't apply ward.
-      return;
-    }
+      // Non-stack target-selection steps do not participate in Ward handling.
+    } else {
 
-    const stackItem = game.state.stack.find((item: any) => item && item.id === sourceId);
-    const casterId = String(stackItem?.controller || pid);
-    if (!casterId) return;
+      const stackItem = game.state.stack.find((item: any) => item && item.id === sourceId);
+      const casterId = String(stackItem?.controller || pid);
+      if (!casterId) return;
 
-    const battlefield = game.state?.battlefield || [];
+      const battlefield = game.state?.battlefield || [];
 
     const parseBlightN = (cost: string): number | null => {
       const m = String(cost || '').match(/\bblight\s*(\d+)\b/i);
@@ -12532,7 +12189,7 @@ async function handleTargetSelectionResponse(
       }
     };
 
-    for (const targetId of selections) {
+      for (const targetId of selections) {
       const targetPerm = battlefield.find((p: any) => p && p.id === targetId);
       if (!targetPerm) continue;
 
@@ -12904,6 +12561,7 @@ async function handleTargetSelectionResponse(
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
         return;
       }
+      }
     }
   }
 
@@ -12978,11 +12636,11 @@ async function handleTargetSelectionResponse(
     return;
   }
 
-  // ===== PLANESWALKER: Sacrifice another permanent → gain life + draw =====
-  if ((step as any)?.pwSacAnotherPermanentGainLifeDraw === true && String((step as any).pwSacAnotherPermanentStage || '') === 'select_sacrifice') {
-    const controllerId = String((step as any).pwSacAnotherPermanentController || pid);
-    const lifeGain = Number((step as any).pwSacAnotherPermanentLifeGain || 0);
-    const sourceName = String((step as any).pwSacAnotherPermanentSourceName || step.sourceName || 'Ability');
+  if ((step as any)?.sacrificeAnotherPermanentForBenefitChoice === true && String((step as any).sacrificeAnotherPermanentForBenefitStage || '') === 'select_sacrifice') {
+    const controllerId = String((step as any).sacrificeAnotherPermanentForBenefitController || pid);
+    const lifeGain = Number((step as any).sacrificeAnotherPermanentForBenefitLifeGain || 0);
+    const drawCount = Number((step as any).sacrificeAnotherPermanentForBenefitDrawCount || 0);
+    const sourceName = String((step as any).sacrificeAnotherPermanentForBenefitSourceName || step.sourceName || 'Ability');
     const permanentIdToSac = selections[0];
 
     const ctx = {
@@ -13011,21 +12669,23 @@ async function handleTargetSelectionResponse(
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} gains ${lifeGain} life and draws a card.`,
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} gains ${lifeGain} life${drawCount > 0 ? ` and draws ${drawCount} card${drawCount === 1 ? '' : 's'}` : ''}.`,
       ts: Date.now(),
     });
 
-    // Draw a card
-    if (typeof (game as any).drawCards === 'function') {
-      (game as any).drawCards(controllerId, 1);
+    if (drawCount > 0 && typeof (game as any).drawCards === 'function') {
+      (game as any).drawCards(controllerId, drawCount);
     } else {
       const zones = game.state?.zones?.[controllerId];
       if (zones) {
         zones.hand = zones.hand || [];
         const lib = (game as any).libraries?.get?.(controllerId) || zones.library || [];
-        if (Array.isArray(lib) && lib.length > 0) {
-          const drawn = lib.shift();
-          zones.hand.push({ ...drawn, zone: 'hand' });
+        if (Array.isArray(lib)) {
+          for (let i = 0; i < drawCount; i++) {
+            if (lib.length <= 0) break;
+            const drawn = lib.shift();
+            zones.hand.push({ ...drawn, zone: 'hand' });
+          }
         }
         zones.handCount = zones.hand.length;
         zones.libraryCount = Array.isArray(lib) ? lib.length : zones.libraryCount;
@@ -13040,48 +12700,48 @@ async function handleTargetSelectionResponse(
     return;
   }
 
-  // ===== GENERIC: Attach Equipment to created token (after selecting equipment) =====
-  if ((step as any)?.attachEquipmentToCreatedTokenSelectEquipment === true) {
-    const controllerId = String((step as any).attachEquipmentToCreatedTokenController || pid);
-    const tokenPermanentId = String((step as any).attachEquipmentToCreatedTokenPermanentId || '');
-    const sourceName = String((step as any).attachEquipmentToCreatedTokenSourceName || step.sourceName || 'Ability');
-    const equipPermanentId = selections[0];
+  // ===== GENERIC: Attach Equipment to target permanent (after selecting equipment) =====
+  if ((step as any)?.attachEquipmentToPermanentSelectEquipment === true) {
+    const controllerId = String((step as any).attachEquipmentToPermanentController || pid);
+    const targetPermanentId = String((step as any).attachEquipmentToPermanentTargetPermanentId || '');
+    const sourceName = String((step as any).attachEquipmentToPermanentSourceName || step.sourceName || 'Ability');
+    const targetName = String((step as any).attachEquipmentToPermanentTargetName || 'the permanent');
+    const equipPermanentId = String(selections[0] || '');
 
     const battlefield = game.state?.battlefield || [];
     const equipment = battlefield.find((p: any) => p?.id === equipPermanentId);
-    const token = battlefield.find((p: any) => p?.id === tokenPermanentId);
-    if (!equipment || !token) {
-      debugWarn(2, `[Resolution] attachEquipmentToCreatedToken: missing equipment or token`);
+    const targetPermanent = battlefield.find((p: any) => p?.id === targetPermanentId);
+    if (!equipment || !targetPermanent) {
+      debugWarn(2, `[Resolution] attachEquipmentToPermanent: missing equipment or target permanent`);
       return;
     }
 
     // Detach from previous creature if needed
-    const prevAttachedTo = equipment.attachedTo;
-    if (prevAttachedTo) {
-      const prevCreature = battlefield.find((p: any) => p?.id === prevAttachedTo);
-      if (prevCreature) {
-        prevCreature.attachedEquipment = Array.isArray(prevCreature.attachedEquipment)
-          ? prevCreature.attachedEquipment.filter((id: string) => id !== equipment.id)
-          : [];
-        if (prevCreature.attachedEquipment.length === 0) {
-          prevCreature.isEquipped = false;
-        }
+    const equipmentId = String((equipment as any).id || equipPermanentId);
+    for (const permanent of battlefield) {
+      const attachedEquipment = Array.isArray((permanent as any)?.attachedEquipment)
+        ? (permanent as any).attachedEquipment
+        : null;
+      if (!attachedEquipment) continue;
+      (permanent as any).attachedEquipment = attachedEquipment.filter((id: any) => String(id) !== equipmentId);
+      if ((permanent as any).attachedEquipment.length === 0) {
+        (permanent as any).isEquipped = false;
       }
     }
 
     // Attach
-    equipment.attachedTo = token.id;
-    token.attachedEquipment = Array.isArray(token.attachedEquipment) ? token.attachedEquipment : [];
-    if (!token.attachedEquipment.includes(equipment.id)) {
-      token.attachedEquipment.push(equipment.id);
+    equipment.attachedTo = targetPermanent.id;
+    targetPermanent.attachedEquipment = Array.isArray(targetPermanent.attachedEquipment) ? targetPermanent.attachedEquipment : [];
+    if (!targetPermanent.attachedEquipment.some((id: any) => String(id) === equipmentId)) {
+      targetPermanent.attachedEquipment.push(equipmentId);
     }
-    token.isEquipped = true;
+    targetPermanent.isEquipped = true;
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} attached ${equipment.card?.name || 'an Equipment'} to ${token.card?.name || 'the token'}.`,
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} attached ${equipment.card?.name || 'an Equipment'} to ${targetPermanent.card?.name || targetName}.`,
       ts: Date.now(),
     });
 
@@ -13973,147 +13633,6 @@ function handleTriggerOrderResponse(
 }
 
 /**
- * Handle Kynaios and Tiro style choice response
- * Player can either play a land from hand, draw a card (opponents), or decline (controller)
- */
-function handleKynaiosChoiceResponse(
-  io: Server,
-  game: any,
-  gameId: string,
-  step: ResolutionStep,
-  response: ResolutionStepResponse
-): void {
-  const pid = response.playerId;
-  const selection = response.selections;
-  
-  // Extract choice and landCardId from selection
-  let choice: string;
-  let landCardId: string | undefined;
-  
-  if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
-    choice = (selection as any).choice || 'decline';
-    landCardId = (selection as any).landCardId;
-  } else if (Array.isArray(selection) && selection.length > 0) {
-    choice = selection[0];
-    landCardId = selection[1];
-  } else {
-    choice = String(selection || 'decline');
-  }
-  
-  const stepData = step as any;
-  const isController = stepData.isController || false;
-  const sourceController = stepData.sourceController || pid;
-  const sourceName = step.sourceName || 'Kynaios and Tiro of Meletis';
-  const canPlayLand = stepData.canPlayLand !== false; // default true if not specified
-  const landsInHand = stepData.landsInHand || [];
-  const options = stepData.options || ['play_land', 'draw_card', 'decline'];
-  
-  // Validate choice is in allowed options
-  if (!options.includes(choice as any)) {
-    debugWarn(1, `[Resolution] Invalid Kynaios choice: ${choice} not in allowed options`);
-    return;
-  }
-  
-  debug(2, `[Resolution] Kynaios choice: player=${pid}, choice=${choice}, landCardId=${landCardId}, isController=${isController}`);
-  
-  if (choice === 'play_land' && landCardId) {
-    // Validate player can play land
-    if (!canPlayLand) {
-      debugWarn(1, `[Resolution] Kynaios: player ${pid} cannot play land`);
-      return;
-    }
-    
-    // Validate landCardId is in landsInHand list
-    const isValidLand = landsInHand.some((land: any) => land.id === landCardId);
-    if (!isValidLand) {
-      debugWarn(1, `[Resolution] Invalid Kynaios land choice: ${landCardId} not in hand`);
-      return;
-    }
-    
-    // Move the land from hand to battlefield
-    const zones = game.state?.zones?.[pid];
-    if (zones?.hand) {
-      const cardIndex = zones.hand.findIndex((c: any) => c.id === landCardId);
-      if (cardIndex !== -1) {
-        const [card] = zones.hand.splice(cardIndex, 1);
-        const cardName = card.name || 'a land';
-        
-        // Create battlefield permanent
-        const permanentId = `perm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-        const permanent = {
-          id: permanentId,
-          controller: pid,
-          owner: pid,
-          tapped: false,
-          counters: {},
-          card: { ...card, zone: 'battlefield' },
-        };
-        
-        // Add to battlefield
-        game.state.battlefield = game.state.battlefield || [];
-        game.state.battlefield.push(permanent);
-        
-        // Update zone counts
-        zones.handCount = zones.hand.length;
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} puts ${cardName} onto the battlefield (${sourceName}).`,
-          ts: Date.now(),
-        });
-        
-        debug(2, `[Resolution] ${pid} played land ${cardName} via Kynaios choice`);
-      }
-    }
-  } else if (choice === 'draw_card' && !isController) {
-    // Opponent chose to draw a card instead of playing a land
-    game.state.pendingDraws = game.state.pendingDraws || {};
-    game.state.pendingDraws[pid] = (game.state.pendingDraws[pid] || 0) + 1;
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} chooses to draw a card instead of playing a land (${sourceName}).`,
-      ts: Date.now(),
-    });
-    
-    debug(2, `[Resolution] ${pid} chose to draw via Kynaios choice`);
-  } else {
-    // Player declined
-    if (!isController) {
-      // Opponent who declined gets to draw
-      game.state.pendingDraws = game.state.pendingDraws || {};
-      game.state.pendingDraws[pid] = (game.state.pendingDraws[pid] || 0) + 1;
-      
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} declines to play a land and draws a card (${sourceName}).`,
-        ts: Date.now(),
-      });
-    } else {
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, pid)} declines to play a land (${sourceName}).`,
-        ts: Date.now(),
-      });
-    }
-    
-    debug(2, `[Resolution] ${pid} declined Kynaios land play option`);
-  }
-  
-  if (typeof game.bumpSeq === "function") {
-    game.bumpSeq();
-  }
-}
-
-/**
  * Handle Upkeep Sacrifice choice response
  * Player must sacrifice a creature, or if they can't, sacrifice the source (e.g., Eldrazi Monument)
  */
@@ -14231,15 +13750,24 @@ function handleUpkeepSacrificeResponse(
     game.bumpSeq();
   }
 
-  // Planeswalker helper: "You may sacrifice a creature. When you do, destroy target creature or planeswalker."
-  if ((stepData as any).afterSacrificeDestroyTargetCreatureOrPlaneswalker === true) {
+  if ((stepData as any).afterSacrificeFollowupTargetSelection === true) {
     const battlefieldNow = game.state?.battlefield || [];
+    const followupTargetTypes: string[] = Array.isArray((stepData as any).afterSacrificeFollowupTargetTypes)
+      ? (stepData as any).afterSacrificeFollowupTargetTypes.map((targetType: any) => String(targetType || '').toLowerCase()).filter(Boolean)
+      : [];
+    const followupAction = String((stepData as any).afterSacrificeFollowupAction || '').trim();
+    const followupDescription = String((stepData as any).afterSacrificeFollowupDescription || `${sourceName}: Choose a target`).trim();
+    const followupTargetDescription = String((stepData as any).afterSacrificeFollowupTargetDescription || 'target permanent').trim();
+
+    const matchesFollowupTarget = (permanent: any) => {
+      if (!permanent) return false;
+      if (followupTargetTypes.length === 0) return true;
+      const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+      return followupTargetTypes.some((targetType) => typeLine.includes(targetType));
+    };
 
     const validTargets = battlefieldNow
-      .filter((p: any) => {
-        const tl = String(p?.card?.type_line || '').toLowerCase();
-        return tl.includes('creature') || tl.includes('planeswalker');
-      })
+      .filter((p: any) => matchesFollowupTarget(p))
       .map((p: any) => ({
         id: p.id,
         type: 'permanent',
@@ -14256,16 +13784,16 @@ function handleUpkeepSacrificeResponse(
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: pid as any,
-        description: `${sourceName}: Destroy target creature or planeswalker`,
+        description: followupDescription,
         mandatory: true,
         sourceId: step.sourceId,
         sourceName: step.sourceName,
         validTargets,
-        targetTypes: ['creature', 'planeswalker'],
+        targetTypes: followupTargetTypes,
         minTargets: 1,
         maxTargets: 1,
-        targetDescription: 'target creature or planeswalker',
-        action: 'destroy_target_creature_or_planeswalker',
+        targetDescription: followupTargetDescription,
+        action: followupAction,
       } as any);
     }
   }
@@ -15005,10 +14533,10 @@ function applyTemptingOfferEffect(
 }
 
 /**
- * Handle Bounce Land Choice response
- * Player selects which land to return to hand when a bounce land enters the battlefield
+ * Handle Return Controlled Permanent Choice response.
+ * The current primary caller is a bounce-land ETB trigger, but the handler is generic.
  */
-function handleBounceLandChoiceResponse(
+function handleReturnControlledPermanentChoiceResponse(
   io: Server,
   game: any,
   gameId: string,
@@ -15029,22 +14557,22 @@ function handleBounceLandChoiceResponse(
   }
   
   if (!returnPermanentId) {
-    debugWarn(1, `[Resolution] Bounce land choice: no land selected by ${pid}`);
+    debugWarn(1, `[Resolution] Return-controlled-permanent choice: no permanent selected by ${pid}`);
     return;
   }
   
   const stepData = step as any;
-  const bounceLandId = stepData.bounceLandId;
-  const bounceLandName = stepData.bounceLandName || 'Bounce Land';
+  const sourceName = stepData.returnControlledPermanentSourceName || stepData.sourceName || 'Return Controlled Permanent';
+  const destination = String(stepData.returnControlledPermanentDestination || 'hand').toLowerCase();
   const stackItemId = stepData.stackItemId;
-  const landsToChoose = stepData.landsToChoose || [];
+  const optionsToChoose = stepData.returnControlledPermanentOptions || [];
   
-  debug(2, `[Resolution] Bounce land choice: player=${pid} returns land ${returnPermanentId}`);
+  debug(2, `[Resolution] Return-controlled-permanent choice: player=${pid} returns ${returnPermanentId}`);
   
-  // Validate that the selected land is in the list of valid choices
-  const validLandIds = new Set(landsToChoose.map((land: any) => land.permanentId));
-  if (!validLandIds.has(returnPermanentId)) {
-    debugWarn(1, `[Resolution] Invalid bounce land choice: ${returnPermanentId} not in valid options`);
+  // Validate that the selected permanent is in the list of valid choices.
+  const validPermanentIds = new Set(optionsToChoose.map((option: any) => option.permanentId));
+  if (!validPermanentIds.has(returnPermanentId)) {
+    debugWarn(1, `[Resolution] Invalid return-controlled-permanent choice: ${returnPermanentId} not in valid options`);
     return;
   }
   
@@ -15054,29 +14582,29 @@ function handleBounceLandChoiceResponse(
   
   const battlefield = game.state.battlefield;
   
-  // Find the land to return
-  const landToReturn = battlefield.find((p: any) => 
+  // Find the permanent to return.
+  const permanentToReturn = battlefield.find((p: any) => 
     p.id === returnPermanentId && p.controller === pid
   );
   
-  if (!landToReturn) {
-    debugWarn(1, `[Resolution] Land to return not found: ${returnPermanentId}`);
+  if (!permanentToReturn) {
+    debugWarn(1, `[Resolution] Permanent to return not found: ${returnPermanentId}`);
     return;
   }
   
-  const returnedLandName = (landToReturn as any).card?.name || "Land";
+  const returnedPermanentName = (permanentToReturn as any).card?.name || 'Permanent';
   
-  // Remove the land from battlefield
-  const idx = battlefield.indexOf(landToReturn);
+  // Remove the permanent from battlefield.
+  const idx = battlefield.indexOf(permanentToReturn);
   if (idx !== -1) {
     battlefield.splice(idx, 1);
   }
   
-  // Add the land to player's hand
+  // Add the permanent to the configured destination.
   const zones = game.state?.zones?.[pid];
-  if (zones) {
+  if (zones && destination === 'hand') {
     zones.hand = zones.hand || [];
-    const returnedCard = { ...(landToReturn as any).card, zone: 'hand' };
+    const returnedCard = { ...(permanentToReturn as any).card, zone: 'hand' };
     (zones.hand as any[]).push(returnedCard);
     zones.handCount = (zones.hand as any[]).length;
   }
@@ -15096,7 +14624,7 @@ function handleBounceLandChoiceResponse(
     id: `m_${Date.now()}`,
     gameId,
     from: "system",
-    message: `${getPlayerName(game, pid)}'s ${bounceLandName} returns ${returnedLandName} to hand.`,
+    message: `${getPlayerName(game, pid)}'s ${sourceName} returns ${returnedPermanentName} to ${destination}.`,
     ts: Date.now(),
   });
   
@@ -15578,11 +15106,8 @@ function handleScryResponse(
     ts: Date.now(),
   });
 
-  // Optional planeswalker follow-up: after scry resolves, deal N damage to each opponent.
-  // This is used by template-driven planeswalker abilities like:
-  // "Scry X. [Name] deals N damage to each opponent."
   const stepData = step as any;
-  if (stepData?.pwScryThenDamageToEachOpponent === true) {
+  if (stepData?.scryFollowupChoice === true && stepData?.scryFollowupKind === 'damage_each_opponent') {
     const findCreatureOnBattlefieldById = (id: string): any | null => {
       if (!id) return null;
       const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -15622,10 +15147,10 @@ function handleScryResponse(
       } catch {}
     };
 
-    const controllerId = String(stepData.pwScryThenDamageController || pid);
-    const damage = Number(stepData.pwScryThenDamageAmount || 0);
-    const sourceName = String(stepData.pwScryThenDamageSourceName || step.sourceName || 'Ability');
-    const sourcePermanentId = String(stepData.pwScryThenDamageSourcePermanentId || '');
+    const controllerId = String(stepData.scryFollowupController || pid);
+    const damage = Number(stepData.scryFollowupAmount || 0);
+    const sourceName = String(stepData.scryFollowupSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = String(stepData.scryFollowupSourcePermanentId || '');
 
     if (Number.isFinite(damage) && damage > 0) {
       const startingLife = game.state.startingLife || 40;
@@ -15654,16 +15179,14 @@ function handleScryResponse(
     }
   }
 
-  // Optional planeswalker follow-up: after scry resolves, draw cards.
-  // Used by template-driven planeswalker abilities like:
-  // "Scry X, then draw a card." and "Scry X. If you control an artifact, draw a card."
-  if (stepData?.pwScryThenDrawCards === true) {
-    const controllerId = String(stepData.pwScryThenDrawCardsController || pid);
-    const drawCount = Number(stepData.pwScryThenDrawCardsAmount || 0);
-    const sourceName = String(stepData.pwScryThenDrawCardsSourceName || step.sourceName || 'Ability');
+  if (stepData?.scryFollowupChoice === true && stepData?.scryFollowupKind === 'draw_cards') {
+    const controllerId = String(stepData.scryFollowupController || pid);
+    const drawCount = Number(stepData.scryFollowupAmount || 0);
+    const sourceName = String(stepData.scryFollowupSourceName || step.sourceName || 'Ability');
+    const condition = String(stepData.scryFollowupCondition || '');
 
     let shouldDraw = Number.isFinite(drawCount) && drawCount > 0;
-    if (shouldDraw && stepData?.pwScryThenDrawCardsIfControllerControlsArtifact === true) {
+    if (shouldDraw && condition === 'controller_controls_artifact') {
       const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
       const controlsArtifact = battlefield.some((perm: any) => {
         if (!perm) return false;
@@ -17855,22 +17378,20 @@ async function handleTwoPileSplitResponse(
     }
   }
 
-  // ===== PLANESWALKER: JACE (TOP 3 -> OPPONENT SPLITS -> CONTROLLER CHOOSES PILE) =====
-  if (stepData.pwJaceTop3TwoPiles === true) {
-    const controllerId = String(stepData.pwJaceControllerId || '');
-    const sourceName = String(stepData.pwJaceSourceName || step.sourceName || 'Planeswalker');
-    const topCards: any[] = Array.isArray(stepData.pwJaceTopCards) ? stepData.pwJaceTopCards : [];
-    const originalOrder: string[] = Array.isArray(stepData.pwJaceTopCardIds)
-      ? stepData.pwJaceTopCardIds.map(String)
-      : topCards.map((c: any) => c?.id).filter(Boolean);
-
-    const byId = new Map(topCards.map((c: any) => [String(c?.id || ''), c]));
-    const names = (ids: string[]) => ids.map((id) => byId.get(id)?.name).filter(Boolean).join(', ') || '(empty)';
+  if (stepData.choosePileFromSplitChoice === true) {
+    const chooserPlayerId = String(stepData.choosePileFromSplitChooserPlayerId || response.playerId);
+    const sourceName = String(stepData.choosePileFromSplitSourceName || step.sourceName || 'Ability');
+    const splitItems: any[] = Array.isArray(stepData.choosePileFromSplitItems) ? stepData.choosePileFromSplitItems : [];
+    const byId = new Map(splitItems.map((item: any) => [String(item?.id || ''), item]));
+    const names = (ids: string[]) => ids
+      .map((id) => byId.get(id)?.card?.name || byId.get(id)?.name || byId.get(id)?.label)
+      .filter(Boolean)
+      .join(', ') || '(empty)';
 
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.OPTION_CHOICE,
-      playerId: controllerId as PlayerID,
-      description: `${sourceName}: Choose a pile to put into your hand`,
+      playerId: chooserPlayerId as PlayerID,
+      description: String(stepData.choosePileFromSplitChoiceDescription || `${sourceName}: Choose a pile`),
       mandatory: true,
       sourceName,
       options: [
@@ -17879,60 +17400,31 @@ async function handleTwoPileSplitResponse(
       ],
       minSelections: 1,
       maxSelections: 1,
-      pwJaceTop3PickPile: true,
-      pwJaceControllerId: controllerId,
-      pwJaceSourceName: sourceName,
-      pwJaceTopCards: topCards,
-      pwJaceTopCardIds: originalOrder,
-      pwJacePileA: pileA,
-      pwJacePileB: pileB,
+      choosePileFromSplitChoice: true,
+      choosePileFromSplitChooserPlayerId: chooserPlayerId,
+      choosePileFromSplitSourceName: sourceName,
+      choosePileFromSplitItems: splitItems,
+      choosePileFromSplitOriginalOrder: stepData.choosePileFromSplitOriginalOrder,
+      choosePileFromSplitChosenAction: stepData.choosePileFromSplitChosenAction,
+      choosePileFromSplitChosenDestination: stepData.choosePileFromSplitChosenDestination,
+      choosePileFromSplitOtherDestination: stepData.choosePileFromSplitOtherDestination,
+      choosePileFromSplitMovePlayerId: stepData.choosePileFromSplitMovePlayerId,
+      choosePileFromSplitTargetPlayerId: stepData.choosePileFromSplitTargetPlayerId,
+      choosePileFromSplitChatMessage: stepData.choosePileFromSplitChatMessage,
+      choosePileFromSplitPileA: pileA,
+      choosePileFromSplitPileB: pileB,
     } as any);
 
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, response.playerId)} separated the cards into two piles.`,
-      ts: Date.now(),
-    });
-    return;
-  }
-
-  // ===== PLANESWALKER: LILIANA (TARGET PLAYER SPLITS PERMANENTS -> CHOOSES PILE TO SACRIFICE) =====
-  if (stepData.pwLilianaSplitPermanents === true) {
-    const targetPlayerId = String(stepData.pwLilianaTargetPlayerId || response.playerId);
-    const sourceName = String(stepData.pwLilianaSourceName || step.sourceName || 'Planeswalker');
-
-    const battlefield = (game.state?.battlefield || []) as any[];
-    const byPermId = new Map(battlefield.map((p: any) => [String(p?.id || ''), p]));
-    const pileDesc = (ids: string[]) => ids.map((id) => byPermId.get(id)?.card?.name || byPermId.get(id)?.name).filter(Boolean).join(', ') || '(empty)';
-
-    ResolutionQueueManager.addStep(gameId, {
-      type: ResolutionStepType.OPTION_CHOICE,
-      playerId: targetPlayerId as PlayerID,
-      description: `${sourceName}: Choose a pile to sacrifice`,
-      mandatory: true,
-      sourceName,
-      options: [
-        { id: 'pileA', label: `Pile A (${pileA.length})`, description: pileDesc(pileA) },
-        { id: 'pileB', label: `Pile B (${pileB.length})`, description: pileDesc(pileB) },
-      ],
-      minSelections: 1,
-      maxSelections: 1,
-      pwLilianaChoosePileToSacrifice: true,
-      pwLilianaTargetPlayerId: targetPlayerId,
-      pwLilianaSourceName: sourceName,
-      pwLilianaPileA: pileA,
-      pwLilianaPileB: pileB,
-    } as any);
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, targetPlayerId)} separated their permanents into two piles.`,
-      ts: Date.now(),
-    });
+    const splitMessage = String(stepData.choosePileFromSplitSplitMessage || '');
+    if (splitMessage) {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: splitMessage,
+        ts: Date.now(),
+      });
+    }
     return;
   }
 
@@ -18394,6 +17886,216 @@ async function handleOptionChoiceResponse(
     return null;
   };
 
+  if (stepData.spellBottomRevealUntilNonlandChoice === true) {
+    const choiceId = extractId(selectedOption) || 'no';
+    const controllerId = String(stepData.revealFromLibraryPlayerId || playerId);
+    const triggeringStackItemId = String(stepData.triggeringStackItemId || '');
+    const triggeringSpellCard = stepData.triggeringSpellCard || null;
+    const sourceName = String(stepData.sourceName || step.sourceName || 'Ability');
+
+    if (choiceId !== 'yes') {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} declines to use ${sourceName}.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    const stackItems = Array.isArray(game.state?.stack) ? game.state.stack : [];
+    const stackIndex = stackItems.findIndex((item: any) => String(item?.id || '') === triggeringStackItemId);
+    const stackItem = stackIndex >= 0 ? stackItems[stackIndex] : null;
+
+    if (!stackItem || !triggeringSpellCard) {
+      debugWarn(2, `[Resolution] Spell-bottom reveal trigger: stack item ${triggeringStackItemId} no longer exists`);
+      return;
+    }
+
+    stackItems.splice(stackIndex, 1);
+
+    const spellOwner = String(
+      stackItem?.card?.owner ||
+      stackItem?.owner ||
+      triggeringSpellCard?.owner ||
+      stackItem?.controller ||
+      playerId
+    );
+
+    const ownerLibrary = (game as any).libraries?.get(spellOwner) || [];
+    ownerLibrary.push({ ...(stackItem.card || triggeringSpellCard), zone: 'library' });
+    (game as any).libraries?.set?.(spellOwner, ownerLibrary);
+
+    const revealLibrary = (game as any).libraries?.get(controllerId) || [];
+    const revealedCards: any[] = [];
+    let hitCard: any | null = null;
+    while (revealLibrary.length > 0) {
+      const card = revealLibrary.shift();
+      if (!card) break;
+      revealedCards.push(card);
+      const typeLine = String(card.type_line || '').toLowerCase();
+      if (!typeLine.includes('land')) {
+        hitCard = card;
+        break;
+      }
+    }
+    (game as any).libraries?.set?.(controllerId, revealLibrary);
+
+    const zones = game.state.zones = game.state.zones || {};
+    const ownerZones = zones[spellOwner] = zones[spellOwner] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+    ownerZones.libraryCount = ownerLibrary.length;
+    const revealZones = zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+    revealZones.libraryCount = revealLibrary.length;
+
+    const bottomRandom = (cards: any[]) => {
+      const randomized = [...cards];
+      for (let i = randomized.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [randomized[i], randomized[j]] = [randomized[j], randomized[i]];
+      }
+      for (const card of randomized) {
+        revealLibrary.push({ ...card, zone: 'library' });
+      }
+      revealZones.libraryCount = revealLibrary.length;
+    };
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} puts ${stackItem.card?.name || triggeringSpellCard?.name || 'that spell'} on the bottom of its owner's library for ${sourceName}.`,
+      ts: Date.now(),
+    });
+
+    if (!hitCard) {
+      bottomRandom(revealedCards);
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+      return;
+    }
+
+    const nonHitCards = revealedCards.filter((card: any) => String(card?.id || '') !== String(hitCard?.id || ''));
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: controllerId as any,
+      description: `${sourceName}: Cast ${hitCard.name} without paying its mana cost?`,
+      mandatory: false,
+      sourceName,
+      sourceId: stepData.revealSourcePermanentId,
+      options: [
+        { id: 'cast', label: `Cast ${hitCard.name}` },
+        { id: 'decline', label: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      castRevealedFromLibraryChoice: true,
+      castRevealedFromLibraryCard: hitCard,
+      castRevealedFromLibraryOtherCards: nonHitCards,
+      castRevealedFromLibraryPlayerId: controllerId,
+    } as any);
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
+  if (stepData.mdfcFaceChoice === true) {
+    const choiceId = extractId(selectedOption);
+    const selectedFace = choiceId == null ? NaN : Number(choiceId);
+    const options = Array.isArray(stepData.options) ? stepData.options : [];
+    const selected = options.find((option: any) => String(option?.id || '') === String(choiceId || ''));
+    const cardId = String(stepData.cardId || stepData.sourceId || '');
+    const cardName = String(stepData.cardName || stepData.sourceName || 'MDFC');
+    const faceName = String(selected?.label || `Face ${selectedFace}`);
+
+    if (!Number.isInteger(selectedFace) || selectedFace < 0) {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'INVALID_SELECTION',
+        message: 'Invalid card face selection',
+      });
+      return;
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} plays ${faceName} (from ${cardName}).`,
+      ts: Date.now(),
+    });
+
+    emitToPlayer(io, playerId as any, 'mdfcFaceSelectionComplete', {
+      gameId,
+      cardId,
+      selectedFace,
+    });
+    return;
+  }
+
+  if (stepData.castRevealedFromLibraryChoice === true && stepData.castRevealedFromLibraryCard) {
+    const choiceId = extractId(selectedOption) || 'decline';
+    const controllerId = String(stepData.castRevealedFromLibraryPlayerId || playerId);
+    const hitCard = stepData.castRevealedFromLibraryCard;
+    const otherCards = Array.isArray(stepData.castRevealedFromLibraryOtherCards)
+      ? [...stepData.castRevealedFromLibraryOtherCards]
+      : [];
+    const sourceName = String(stepData.sourceName || step.sourceName || 'Ability');
+    const lib = (game as any).libraries?.get(controllerId) || [];
+    const zones = game.state.zones = game.state.zones || {};
+    const z = zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+
+    const bottomRandom = (cards: any[]) => {
+      const randomized = [...cards];
+      for (let i = randomized.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [randomized[i], randomized[j]] = [randomized[j], randomized[i]];
+      }
+      for (const card of randomized) {
+        lib.push({ ...card, zone: 'library' });
+      }
+      z.libraryCount = lib.length;
+    };
+
+    if (choiceId === 'cast') {
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push({
+        id: uid('reveal_cast_spell'),
+        type: 'spell',
+        card: { ...hitCard, zone: 'stack' },
+        controller: controllerId,
+        targets: [],
+        castFromHand: false,
+        castWithoutPayingManaCost: true,
+      });
+      bottomRandom(otherCards);
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, controllerId)} casts ${hitCard.name} without paying its mana cost (${sourceName}).`,
+        ts: Date.now(),
+      });
+    } else {
+      bottomRandom([...otherCards, hitCard]);
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, controllerId)} declines to cast ${hitCard.name} (${sourceName}).`,
+        ts: Date.now(),
+      });
+    }
+
+    (game as any).libraries?.set?.(controllerId, lib);
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
   // ===== DECK IMPORT WIPE CONFIRM =====
   if (stepData?.importWipeConfirm === true) {
     const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';
@@ -18419,6 +18121,84 @@ async function handleOptionChoiceResponse(
 
     const accept = !response.cancelled && choiceId === 'accept';
     handleJudgeConfirmVote(io, game, gameId, confirmId, String(playerId), accept);
+    return;
+  }
+
+  // ===== FORBIDDEN ORCHARD: choose opponent to receive a Spirit token =====
+  if (stepData?.forbiddenOrchardTargetChoice === true) {
+    const targetOpponentId = extractId(selectedOption) || '';
+    const options = Array.isArray(stepData?.options) ? stepData.options : [];
+    const isValid = options.some((option: any) => String(option?.id || '') === String(targetOpponentId));
+    if (!isValid) {
+      debugWarn(1, `[Resolution] forbiddenOrchardTargetChoice: invalid target ${targetOpponentId}`);
+      return;
+    }
+
+    const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    game.state.battlefield = game.state.battlefield || [];
+    const spiritToken = {
+      id: tokenId,
+      controller: targetOpponentId,
+      owner: targetOpponentId,
+      tapped: false,
+      summoningSickness: true,
+      counters: {},
+      card: {
+        id: tokenId,
+        name: 'Spirit',
+        type_line: 'Token Creature — Spirit',
+        oracle_text: '',
+        mana_cost: '',
+        cmc: 0,
+        colors: [],
+      },
+      basePower: 1,
+      baseToughness: 1,
+      isToken: true,
+    };
+    game.state.battlefield.push(spiritToken);
+
+    const ctx = {
+      state: game.state,
+      bumpSeq: game.bumpSeq?.bind(game) || (() => {
+        debugWarn(2, '[Forbidden Orchard] bumpSeq not available, state updates may not propagate');
+      }),
+    };
+    triggerETBEffectsForToken(ctx as any, spiritToken as any, targetOpponentId);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `Forbidden Orchard: ${getPlayerName(game, targetOpponentId)} creates a 1/1 colorless Spirit token.`,
+      ts: Date.now(),
+    });
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'confirmForbiddenOrchardTarget', {
+        playerId,
+        stepId: step.id,
+        permanentId: String(stepData.permanentId || step.sourceId || ''),
+        targetOpponentId,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] appendEvent(confirmForbiddenOrchardTarget) failed:', e);
+    }
+
+    if (typeof game.bumpSeq === 'function') {
+      game.bumpSeq();
+    }
+
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (stepData?.commanderZoneChoice === true) {
+    const commanderSelection = extractId(selectedOption);
+    handleCommanderZoneResponse(io, game, gameId, step, {
+      ...response,
+      selections: commanderSelection ? [commanderSelection] : (response.cancelled ? ['stay'] : response.selections),
+    });
     return;
   }
 
@@ -19680,11 +19460,14 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  // ===== PLANESWALKER: "Draw two cards. Then discard two cards unless you discard an artifact card." =====
-  if (stepData?.pwDrawTwoDiscardTwoUnlessArtifact === true) {
-    const choiceId = extractId(selectedOption) || 'discard_two';
-    const controllerId = String(response.playerId);
-    const sourceName = String(stepData.pwDrawTwoDiscardTwoUnlessArtifactSourceName || step.sourceName || 'Planeswalker');
+  if (stepData?.chooseDiscardPlanChoice === true) {
+    const choiceId = extractId(selectedOption) || 'fallback';
+    const controllerId = String(stepData.chooseDiscardPlanPlayerId || response.playerId);
+    const sourceName = String(stepData.chooseDiscardPlanSourceName || step.sourceName || 'Ability');
+    const preferredOptionId = String(stepData.chooseDiscardPlanPreferredOptionId || 'preferred');
+    const preferredType = String(stepData.chooseDiscardPlanPreferredType || '').toLowerCase();
+    const preferredCount = Math.max(1, Number(stepData.chooseDiscardPlanPreferredCount || 1));
+    const fallbackCount = Math.max(1, Number(stepData.chooseDiscardPlanFallbackCount || 1));
 
     const state = game.state || {};
     const zones = (state.zones = state.zones || {});
@@ -19699,7 +19482,9 @@ async function handleOptionChoiceResponse(
     });
     const hand: any[] = Array.isArray(z.hand) ? z.hand : (z.hand = []);
 
-    const artifactHand = hand.filter((c: any) => String(c?.type_line || '').toLowerCase().includes('artifact'));
+    const preferredHand = preferredType
+      ? hand.filter((c: any) => String(c?.type_line || '').toLowerCase().includes(preferredType))
+      : hand;
     const toHandCards = (cards: any[]) =>
       cards.map((c: any) => ({
         id: c.id,
@@ -19712,18 +19497,18 @@ async function handleOptionChoiceResponse(
         colors: c.colors,
       }));
 
-    if (choiceId === 'discard_artifact' && artifactHand.length > 0) {
+    if (choiceId === preferredOptionId && preferredHand.length > 0) {
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.DISCARD_SELECTION,
         playerId: controllerId as any,
-        description: `${sourceName}: Discard 1 artifact card`,
+        description: `${sourceName}: Discard ${preferredCount} ${preferredType || ''} card${preferredCount === 1 ? '' : 's'}`.replace('  ', ' '),
         mandatory: true,
         sourceName,
-        discardCount: 1,
-        hand: toHandCards(artifactHand),
+        discardCount: Math.min(preferredCount, preferredHand.length),
+        hand: toHandCards(preferredHand),
       } as any);
     } else {
-      const discardCount = Math.min(2, hand.length);
+      const discardCount = Math.min(fallbackCount, hand.length);
       if (discardCount <= 0) {
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -19751,41 +19536,38 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  // ===== PLANESWALKER: JACE TOP 3 -> CONTROLLER CHOOSES OPPONENT TO SPLIT =====
-  if (stepData?.pwJaceTop3ChooseOpponent === true) {
+  if (stepData?.choosePlayerForTwoPileSplitChoice === true) {
     const chosenOpponentId = extractId(selectedOption);
-    const controllerId = String(stepData.pwJaceControllerId || playerId);
-    const sourceName = String(stepData.pwJaceSourceName || step.sourceName || 'Planeswalker');
-    const topCards: any[] = Array.isArray(stepData.pwJaceTopCards) ? stepData.pwJaceTopCards : [];
-    const topCardIds: string[] = Array.isArray(stepData.pwJaceTopCardIds)
-      ? stepData.pwJaceTopCardIds.map(String)
-      : topCards.map((c: any) => c?.id).filter(Boolean);
+    const controllerId = String(stepData.choosePlayerForTwoPileSplitController || playerId);
+    const sourceName = String(stepData.choosePlayerForTwoPileSplitSourceName || step.sourceName || 'Ability');
+    const items: any[] = Array.isArray(stepData.choosePlayerForTwoPileSplitItems) ? stepData.choosePlayerForTwoPileSplitItems : [];
 
     if (!chosenOpponentId) {
-      debugWarn(2, `[Resolution] pwJaceTop3ChooseOpponent: missing opponent choice`);
+      debugWarn(2, `[Resolution] choosePlayerForTwoPileSplitChoice: missing player choice`);
       return;
     }
-
-    const items = topCards.map((c: any) => ({
-      id: c.id,
-      label: c.name || 'Unknown',
-      description: c.type_line,
-      imageUrl: c.image_uris?.normal || c.image_uris?.art_crop || c.image_uris?.small,
-    }));
 
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.TWO_PILE_SPLIT,
       playerId: chosenOpponentId as PlayerID,
-      description: `${sourceName}: Separate the revealed cards into two piles`,
+      description: String(stepData.choosePlayerForTwoPileSplitDescription || `${sourceName}: Separate the items into two piles`),
       mandatory: true,
       sourceName,
       items,
-      minPerPile: 0,
-      pwJaceTop3TwoPiles: true,
-      pwJaceControllerId: controllerId,
-      pwJaceSourceName: sourceName,
-      pwJaceTopCards: topCards,
-      pwJaceTopCardIds: topCardIds,
+      minPerPile: Number(stepData.choosePlayerForTwoPileSplitMinPerPile || 0),
+      choosePileFromSplitChoice: stepData.choosePileFromSplitChoice,
+      choosePileFromSplitChooserPlayerId: stepData.choosePileFromSplitChooserPlayerId,
+      choosePileFromSplitSourceName: stepData.choosePileFromSplitSourceName,
+      choosePileFromSplitItems: stepData.choosePileFromSplitItems,
+      choosePileFromSplitOriginalOrder: stepData.choosePileFromSplitOriginalOrder,
+      choosePileFromSplitChosenAction: stepData.choosePileFromSplitChosenAction,
+      choosePileFromSplitChosenDestination: stepData.choosePileFromSplitChosenDestination,
+      choosePileFromSplitOtherDestination: stepData.choosePileFromSplitOtherDestination,
+      choosePileFromSplitMovePlayerId: stepData.choosePileFromSplitMovePlayerId,
+      choosePileFromSplitTargetPlayerId: stepData.choosePileFromSplitTargetPlayerId,
+      choosePileFromSplitChoiceDescription: stepData.choosePileFromSplitChoiceDescription,
+      choosePileFromSplitChatMessage: stepData.choosePileFromSplitChatMessage,
+      choosePileFromSplitSplitMessage: `${sourceName}: ${getPlayerName(game, chosenOpponentId)} separated the cards into two piles.`,
     } as any);
 
     io.to(gameId).emit('chat', {
@@ -19799,12 +19581,46 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  if (stepData.grantPlayableFromExileChoice === true) {
+    const chosenCardId = extractId(selectedOption);
+    const controllerId = String(stepData.grantPlayableFromExileController || playerId);
+    const sourceName = String(stepData.grantPlayableFromExileSourceName || step.sourceName || 'Ability');
+    const cardIds: string[] = Array.isArray(stepData.grantPlayableFromExileCardIds)
+      ? stepData.grantPlayableFromExileCardIds.map(String)
+      : [];
+
+    if (!chosenCardId || cardIds.length === 0 || !cardIds.includes(String(chosenCardId))) {
+      debugWarn(2, `[Resolution] grantPlayableFromExileChoice: invalid selection`);
+      return;
+    }
+
+    ;(game.state as any).playableFromExile = (game.state as any).playableFromExile || {};
+    const pfe = (((game.state as any).playableFromExile[controllerId] =
+      (game.state as any).playableFromExile[controllerId] || {}) as any);
+    pfe[String(chosenCardId)] = (game.state as any).turnNumber ?? 0;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} chose an exiled card to play this turn.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
   // ===== GENERIC: "You may cast <that card> from exile without paying its mana cost." =====
   // Used by planeswalker templates and other effects that exile a card then offer a free cast.
   if (stepData.castFromExileCardId && stepData.castFromExileCard) {
     const choiceId = extractId(selectedOption) || 'decline';
     const exiledCardId = String(stepData.castFromExileCardId);
     const declineDestination = String(stepData.castFromExileDeclineDestination || 'exile');
+    const declineDamageEachOpponent = Number(stepData.castFromExileDeclineDamageEachOpponent || 0);
+    const declineDamageSourcePermanentId = String(stepData.castFromExileDeclineDamageSourcePermanentId || '');
     const zones = game.state?.zones?.[playerId];
     if (!zones || !zones.exile) {
       debugWarn(2, `[Resolution] Cast-from-exile: No exile zone found for player ${playerId}`);
@@ -19848,6 +19664,46 @@ async function handleOptionChoiceResponse(
         ts: Date.now(),
       });
     } else {
+      const findCreatureOnBattlefieldById = (id: string): any | null => {
+        if (!id) return null;
+        const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const perm = battlefield.find((p: any) => String(p?.id || '') === String(id));
+        if (!perm) return null;
+        const tl = String(perm?.card?.type_line || '').toLowerCase();
+        if (!tl.includes('creature')) return null;
+        return perm;
+      };
+
+      const recordPlayerDamageThisTurn = (targetPlayerId: string, dmg: number) => {
+        if (!Number.isFinite(dmg) || dmg <= 0) return;
+        try {
+          (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+          (game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] =
+            ((game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] || 0) + dmg;
+        } catch {}
+        try {
+          (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+          (game.state as any).lifeLostThisTurn[String(targetPlayerId)] =
+            ((game.state as any).lifeLostThisTurn[String(targetPlayerId)] || 0) + dmg;
+        } catch {}
+      };
+
+      const recordCreatureDealtDamageToPlayerThisTurn = (sourceCreature: any, targetPlayerId: string, dmg: number) => {
+        const sourceId = String(sourceCreature?.id || '');
+        if (!sourceId || !Number.isFinite(dmg) || dmg <= 0) return;
+        try {
+          (game.state as any).creaturesThatDealtDamageToPlayer = (game.state as any).creaturesThatDealtDamageToPlayer || {};
+          const perPlayer = (((game.state as any).creaturesThatDealtDamageToPlayer[String(targetPlayerId)] =
+            (game.state as any).creaturesThatDealtDamageToPlayer[String(targetPlayerId)] || {}) as any);
+          const creatureName = String(sourceCreature?.card?.name || 'Unknown Creature');
+          perPlayer[sourceId] = {
+            creatureName,
+            totalDamage: (perPlayer[sourceId]?.totalDamage || 0) + dmg,
+            lastDamageTime: Date.now(),
+          };
+        } catch {}
+      };
+
       if (declineDestination === 'graveyard') {
         zones.exile.splice(cardIndex, 1);
         zones.exileCount = zones.exile.length;
@@ -19859,14 +19715,32 @@ async function handleOptionChoiceResponse(
         zones.graveyardCount = zones.graveyard.length;
       }
 
+      if (Number.isFinite(declineDamageEachOpponent) && declineDamageEachOpponent > 0) {
+        const startingLife = game.state.startingLife || 40;
+        game.state.life = game.state.life || {};
+        const sourceCreature = findCreatureOnBattlefieldById(declineDamageSourcePermanentId);
+        for (const p of game.state.players || []) {
+          if (!p?.id || String(p.id) === String(playerId)) continue;
+          const pid = String(p.id);
+          const currentLife = game.state.life?.[pid] ?? startingLife;
+          game.state.life[pid] = currentLife - declineDamageEachOpponent;
+          recordPlayerDamageThisTurn(pid, declineDamageEachOpponent);
+          if (sourceCreature) {
+            recordCreatureDealtDamageToPlayerThisTurn(sourceCreature, pid, declineDamageEachOpponent);
+          }
+        }
+      }
+
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
         from: 'system',
         message:
-          declineDestination === 'graveyard'
-            ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put into their graveyard (${sourceName}).`
-            : `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} (${sourceName}).`,
+          declineDamageEachOpponent > 0
+            ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name}${declineDestination === 'graveyard' ? ' and it was put into their graveyard' : ''}. ${sourceName} deals ${declineDamageEachOpponent} damage to each opponent.`
+            : declineDestination === 'graveyard'
+              ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put into their graveyard (${sourceName}).`
+              : `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} (${sourceName}).`,
         ts: Date.now(),
       });
     }
@@ -19913,144 +19787,15 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  // ===== PLANESWALKER: "Exile the top card... You may cast... If you don't, deal N to each opponent." =====
-  if (stepData?.pwChandraImpulseCastOrBurn === true) {
-    const findCreatureOnBattlefieldById = (id: string): any | null => {
-      if (!id) return null;
-      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-      const perm = battlefield.find((p: any) => String(p?.id) === String(id));
-      if (!perm) return null;
-      const tl = String(perm?.card?.type_line || '').toLowerCase();
-      if (!tl.includes('creature')) return null;
-      return perm;
-    };
-
-    const recordPlayerDamageThisTurn = (targetPlayerId: string, dmg: number) => {
-      if (!Number.isFinite(dmg) || dmg <= 0) return;
-      try {
-        (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
-        (game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] =
-          ((game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] || 0) + dmg;
-      } catch {}
-      try {
-        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
-        (game.state as any).lifeLostThisTurn[String(targetPlayerId)] = ((game.state as any).lifeLostThisTurn[String(targetPlayerId)] || 0) + dmg;
-      } catch {}
-    };
-
-    const recordCreatureDealtDamageToPlayerThisTurn = (sourceCreature: any, targetPlayerId: string, dmg: number) => {
-      const sourceId = String(sourceCreature?.id || '');
-      if (!sourceId || !Number.isFinite(dmg) || dmg <= 0) return;
-      try {
-        (game.state as any).creaturesThatDealtDamageToPlayer = (game.state as any).creaturesThatDealtDamageToPlayer || {};
-        const perPlayer = (((game.state as any).creaturesThatDealtDamageToPlayer[String(targetPlayerId)] =
-          (game.state as any).creaturesThatDealtDamageToPlayer[String(targetPlayerId)] || {}) as any);
-        const creatureName = String(sourceCreature?.card?.name || 'Unknown Creature');
-        perPlayer[sourceId] = {
-          creatureName,
-          totalDamage: (perPlayer[sourceId]?.totalDamage || 0) + dmg,
-          lastDamageTime: Date.now(),
-        };
-      } catch {}
-    };
-
-    const choiceId = extractId(selectedOption) || 'dont';
-    const controllerId = String(stepData.pwChandraImpulseController || playerId);
-    const damage = Number(stepData.pwChandraImpulseDamage || 0);
-    const sourceName = String(stepData.pwChandraImpulseSourceName || step.sourceName || 'Ability');
-    const sourcePermanentId = String(stepData.pwChandraImpulseSourcePermanentId || '');
-    const exiledCardId = String(stepData.pwChandraImpulseExiledCardId || '');
-
-    if (choiceId === 'cast') {
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${sourceName}: ${getPlayerName(game, controllerId)} chose to cast the exiled card${exiledCardId ? ` (${exiledCardId})` : ''}.`,
-        ts: Date.now(),
-      });
-
-      // Note: We currently don't have a resolution-step-driven "cast a spell now" flow.
-      // The card remains in exile and may be cast via the normal casting pipeline.
-    } else {
-      if (!Number.isFinite(damage) || damage <= 0) {
-        if (typeof (game as any).bumpSeq === 'function') {
-          (game as any).bumpSeq();
-        }
-        return;
-      }
-
-      const startingLife = game.state.startingLife || 40;
-      game.state.life = game.state.life || {};
-
-      const sourceCreature = findCreatureOnBattlefieldById(sourcePermanentId);
-
-      for (const p of game.state.players || []) {
-        if (!p?.id) continue;
-        if (String(p.id) === controllerId) continue;
-        const pid = String(p.id);
-        const currentLife = game.state.life?.[pid] ?? startingLife;
-        game.state.life[pid] = currentLife - damage;
-
-        recordPlayerDamageThisTurn(pid, damage);
-        if (sourceCreature) recordCreatureDealtDamageToPlayerThisTurn(sourceCreature, pid, damage);
-      }
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to cast the exiled card. ${sourceName} deals ${damage} damage to each opponent.`,
-        ts: Date.now(),
-      });
-    }
-
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-    return;
-  }
-
-  // ===== PLANESWALKER: "Exile the top two cards... Choose one... You may play it this turn." =====
-  if (stepData?.pwExileTopTwoChooseOnePlay === true) {
+  if (stepData?.moveChosenHandCardToLibraryChoice === true) {
     const chosenCardId = extractId(selectedOption);
-    const controllerId = String(stepData.pwExileTopTwoChooseOnePlayController || playerId);
-    const sourceName = String(stepData.pwExileTopTwoChooseOnePlaySourceName || step.sourceName || 'Planeswalker');
-    const cardIds: string[] = Array.isArray(stepData.pwExileTopTwoChooseOnePlayCardIds)
-      ? stepData.pwExileTopTwoChooseOnePlayCardIds
-      : [];
-
-    if (!chosenCardId || cardIds.length === 0 || !cardIds.includes(chosenCardId)) {
-      debugWarn(2, `[Resolution] pwExileTopTwoChooseOnePlay: invalid selection`);
-      return;
-    }
-
-    ;(game.state as any).playableFromExile = (game.state as any).playableFromExile || {};
-    const pfe = (((game.state as any).playableFromExile[controllerId] =
-      (game.state as any).playableFromExile[controllerId] || {}) as any);
-    pfe[chosenCardId] = (game.state as any).turnNumber ?? 0;
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} chose an exiled card to play this turn.`,
-      ts: Date.now(),
-    });
-
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-    return;
-  }
-
-  // ===== PLANESWALKER: "Draw a card, then put a card from your hand on top of your library." =====
-  if (stepData?.pwDrawThenHandToTop === true) {
-    const chosenCardId = extractId(selectedOption);
-    const controllerId = String(stepData.pwDrawThenHandToTopController || playerId);
-    const sourceName = String(stepData.pwDrawThenHandToTopSourceName || step.sourceName || 'Planeswalker');
+    const controllerId = String(stepData.moveChosenHandCardToLibraryController || playerId);
+    const sourceName = String(stepData.moveChosenHandCardToLibrarySourceName || step.sourceName || 'Ability');
+    const position = String(stepData.moveChosenHandCardToLibraryPosition || 'top').toLowerCase() === 'bottom'
+      ? 'bottom'
+      : 'top';
     if (!chosenCardId) {
-      debugWarn(2, `[Resolution] pwDrawThenHandToTop: missing selection`);
+      debugWarn(2, `[Resolution] moveChosenHandCardToLibraryChoice: missing selection`);
       return;
     }
 
@@ -20067,14 +19812,18 @@ async function handleOptionChoiceResponse(
 
     const idx = (z.hand as any[]).findIndex((c: any) => String(c?.id) === String(chosenCardId));
     if (idx < 0) {
-      debugWarn(2, `[Resolution] pwDrawThenHandToTop: selected card not in hand`);
+      debugWarn(2, `[Resolution] moveChosenHandCardToLibraryChoice: selected card not in hand`);
       return;
     }
 
     const [card] = (z.hand as any[]).splice(idx, 1);
 
     const lib = (game as any).libraries?.get?.(controllerId) || (z.library as any[]) || [];
-    lib.unshift({ ...card, zone: 'library' });
+    if (position === 'bottom') {
+      lib.push({ ...card, zone: 'library' });
+    } else {
+      lib.unshift({ ...card, zone: 'library' });
+    }
     if ((game as any).libraries?.set) {
       (game as any).libraries.set(controllerId, lib);
     } else {
@@ -20088,7 +19837,7 @@ async function handleOptionChoiceResponse(
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} put a card from their hand on top of their library.`,
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} put a card from their hand on the ${position} of their library.`,
       ts: Date.now(),
     });
 
@@ -20098,68 +19847,14 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  // ===== PLANESWALKER: "Draw N cards, then put a card from your hand on the bottom of your library." =====
-  if (stepData?.pwDrawThenHandToBottom === true) {
-    const chosenCardId = extractId(selectedOption);
-    const controllerId = String(stepData.pwDrawThenHandToBottomController || playerId);
-    const sourceName = String(stepData.pwDrawThenHandToBottomSourceName || step.sourceName || 'Planeswalker');
-    if (!chosenCardId) {
-      debugWarn(2, `[Resolution] pwDrawThenHandToBottom: missing selection`);
-      return;
-    }
-
-    const state = game.state || {};
-    const zones = (state.zones = state.zones || {});
-    const z = (zones[controllerId] = zones[controllerId] || {
-      hand: [],
-      handCount: 0,
-      libraryCount: 0,
-      graveyard: [],
-      graveyardCount: 0,
-    });
-    z.hand = z.hand || [];
-
-    const idx = (z.hand as any[]).findIndex((c: any) => String(c?.id) === String(chosenCardId));
-    if (idx < 0) {
-      debugWarn(2, `[Resolution] pwDrawThenHandToBottom: selected card not in hand`);
-      return;
-    }
-
-    const [card] = (z.hand as any[]).splice(idx, 1);
-
-    const lib = (game as any).libraries?.get?.(controllerId) || (z.library as any[]) || [];
-    lib.push({ ...card, zone: 'library' });
-    if ((game as any).libraries?.set) {
-      (game as any).libraries.set(controllerId, lib);
-    } else {
-      z.library = lib;
-    }
-
-    z.handCount = (z.hand as any[]).length;
-    z.libraryCount = lib.length;
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} put a card from their hand on the bottom of their library.`,
-      ts: Date.now(),
-    });
-
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-    return;
-  }
-
-  // ===== PLANESWALKER: "You may sacrifice another permanent. If you do, gain N life and draw." =====
-  if (stepData?.pwSacAnotherPermanentGainLifeDraw === true) {
+  if (stepData?.sacrificeAnotherPermanentForBenefitChoice === true) {
     const choiceId = extractId(selectedOption) || 'dont';
-    const stage = String(stepData.pwSacAnotherPermanentStage || '');
-    const controllerId = String(stepData.pwSacAnotherPermanentController || playerId);
-    const lifeGain = Number(stepData.pwSacAnotherPermanentLifeGain || 0);
-    const sourceName = String(stepData.pwSacAnotherPermanentSourceName || step.sourceName || 'Ability');
-    const sourcePermanentId = stepData.pwSacAnotherPermanentSourcePermanentId as string | undefined;
+    const stage = String(stepData.sacrificeAnotherPermanentForBenefitStage || '');
+    const controllerId = String(stepData.sacrificeAnotherPermanentForBenefitController || playerId);
+    const lifeGain = Number(stepData.sacrificeAnotherPermanentForBenefitLifeGain || 0);
+    const drawCount = Number(stepData.sacrificeAnotherPermanentForBenefitDrawCount || 0);
+    const sourceName = String(stepData.sacrificeAnotherPermanentForBenefitSourceName || step.sourceName || 'Ability');
+    const sourcePermanentId = stepData.sacrificeAnotherPermanentForBenefitSourcePermanentId as string | undefined;
 
     if (stage === 'ask') {
       if (choiceId !== 'sac') {
@@ -20209,12 +19904,13 @@ async function handleOptionChoiceResponse(
         minTargets: 1,
         maxTargets: 1,
         targetDescription: 'a permanent you control',
-        pwSacAnotherPermanentGainLifeDraw: true,
-        pwSacAnotherPermanentStage: 'select_sacrifice',
-        pwSacAnotherPermanentController: controllerId,
-        pwSacAnotherPermanentSourceName: sourceName,
-        pwSacAnotherPermanentSourcePermanentId: sourcePermanentId,
-        pwSacAnotherPermanentLifeGain: lifeGain,
+        sacrificeAnotherPermanentForBenefitChoice: true,
+        sacrificeAnotherPermanentForBenefitStage: 'select_sacrifice',
+        sacrificeAnotherPermanentForBenefitController: controllerId,
+        sacrificeAnotherPermanentForBenefitSourceName: sourceName,
+        sacrificeAnotherPermanentForBenefitSourcePermanentId: sourcePermanentId,
+        sacrificeAnotherPermanentForBenefitLifeGain: lifeGain,
+        sacrificeAnotherPermanentForBenefitDrawCount: drawCount,
       } as any);
 
       return;
@@ -20299,14 +19995,15 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  // ===== GENERIC: Attach an Equipment you control to a created token =====
-  if (stepData?.attachEquipmentToCreatedToken === true) {
+  // ===== GENERIC: Attach an Equipment you control to a target permanent =====
+  if (stepData?.attachEquipmentToPermanentChoice === true) {
     const choiceId = extractId(selectedOption);
-    const controllerId = (stepData.attachEquipmentToCreatedTokenController as string | undefined) || playerId;
-    const tokenPermanentId = stepData.attachEquipmentToCreatedTokenPermanentId as string | undefined;
-    const sourceName = String(stepData.attachEquipmentToCreatedTokenSourceName || step.sourceName || 'Ability');
+    const controllerId = (stepData.attachEquipmentToPermanentController as string | undefined) || playerId;
+    const targetPermanentId = stepData.attachEquipmentToPermanentTargetPermanentId as string | undefined;
+    const sourceName = String(stepData.attachEquipmentToPermanentSourceName || step.sourceName || 'Ability');
+    const targetName = String(stepData.attachEquipmentToPermanentTargetName || 'the permanent');
 
-    if (!tokenPermanentId) return;
+    if (!targetPermanentId) return;
 
     if (!choiceId || choiceId === 'decline') {
       io.to(gameId).emit('chat', {
@@ -20354,10 +20051,11 @@ async function handleOptionChoiceResponse(
       minTargets: 1,
       maxTargets: 1,
       targetDescription: 'Equipment you control',
-      attachEquipmentToCreatedTokenSelectEquipment: true,
-      attachEquipmentToCreatedTokenPermanentId: tokenPermanentId,
-      attachEquipmentToCreatedTokenController: controllerId,
-      attachEquipmentToCreatedTokenSourceName: sourceName,
+      attachEquipmentToPermanentSelectEquipment: true,
+      attachEquipmentToPermanentTargetPermanentId: targetPermanentId,
+      attachEquipmentToPermanentController: controllerId,
+      attachEquipmentToPermanentSourceName: sourceName,
+      attachEquipmentToPermanentTargetName: targetName,
     } as any);
 
     return;
@@ -20542,124 +20240,19 @@ async function handleOptionChoiceResponse(
     return;
   }
 
-  // ===== PLANESWALKER: LOOK TOP TWO, PUT ONE INTO HAND, OTHER ON BOTTOM =====
-  if (stepData?.pwLook2Pick1HandBottom === true) {
-    const extractId = (sel: any): string | null => {
-      if (typeof sel === 'string') return sel;
-      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
-      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
-      return null;
-    };
-
+  if (stepData?.chooseLookedAtCardsDestinationChoice === true) {
     const chosenCardId = extractId(selectedOption);
-    const controllerId = (stepData.pwLook2Controller as string | undefined) || playerId;
-    const sourceName = (stepData.pwLook2SourceName as string | undefined) || step.sourceName || 'Planeswalker';
-    const topCardIds: string[] = Array.isArray(stepData.pwLook2TopCardIds) ? stepData.pwLook2TopCardIds : [];
-    if (!chosenCardId || topCardIds.length < 2) {
-      debugWarn(2, `[Resolution] pwLook2Pick1HandBottom: invalid selection or missing card ids`);
-      return;
-    }
-
-    const state = game.state || {};
-    const zones = (state.zones = state.zones || {});
-    const z = (zones[controllerId] = zones[controllerId] || { library: [], libraryCount: 0, hand: [], handCount: 0, graveyard: [], graveyardCount: 0 });
-    const lib: any[] = z.library || [];
-    const hand: any[] = z.hand || [];
-
-    const removed: any[] = [];
-    for (const cid of topCardIds) {
-      const idx = lib.findIndex((c: any) => c?.id === cid);
-      if (idx >= 0) removed.push(lib.splice(idx, 1)[0]);
-    }
-    while (removed.length < 2 && lib.length > 0) removed.push(lib.shift());
-
-    const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
-    const other = removed.find((c: any) => c?.id !== chosen?.id) || removed[1];
-
-    if (chosen) hand.push({ ...chosen, zone: 'hand' });
-    if (other) lib.push({ ...other, zone: 'library' });
-
-    z.library = lib;
-    z.hand = hand;
-    z.libraryCount = lib.length;
-    z.handCount = hand.length;
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their hand and put the other on the bottom of their library.`,
-      ts: Date.now(),
-    });
-
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-
-    return;
-  }
-
-  // ===== PLANESWALKER: LOOK TOP TWO, PUT ONE INTO HAND, OTHER INTO GRAVEYARD =====
-  if (stepData?.pwLook2Pick1HandOtherGraveyard === true) {
-    const chosenCardId = extractId(selectedOption);
-    const controllerId = (stepData.pwLook2Controller as string | undefined) || playerId;
-    const sourceName = (stepData.pwLook2SourceName as string | undefined) || step.sourceName || 'Planeswalker';
-    const topCardIds: string[] = Array.isArray(stepData.pwLook2TopCardIds) ? stepData.pwLook2TopCardIds : [];
-    if (!chosenCardId || topCardIds.length < 2) {
-      debugWarn(2, `[Resolution] pwLook2Pick1HandOtherGraveyard: invalid selection or missing card ids`);
-      return;
-    }
-
-    const state = game.state || {};
-    const zones = (state.zones = state.zones || {});
-    const z = (zones[controllerId] = zones[controllerId] || { library: [], libraryCount: 0, hand: [], handCount: 0, graveyard: [], graveyardCount: 0 });
-    const lib: any[] = z.library || [];
-    const hand: any[] = z.hand || [];
-    const gy: any[] = z.graveyard || (z.graveyard = []);
-
-    const removed: any[] = [];
-    for (const cid of topCardIds) {
-      const idx = lib.findIndex((c: any) => c?.id === cid);
-      if (idx >= 0) removed.push(lib.splice(idx, 1)[0]);
-    }
-    while (removed.length < 2 && lib.length > 0) removed.push(lib.shift());
-
-    const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
-    const other = removed.find((c: any) => c?.id !== chosen?.id) || removed[1];
-
-    if (chosen) hand.push({ ...chosen, zone: 'hand' });
-    if (other) gy.unshift({ ...other, zone: 'graveyard' });
-
-    z.library = lib;
-    z.hand = hand;
-    z.graveyard = gy;
-    z.libraryCount = lib.length;
-    z.handCount = hand.length;
-    z.graveyardCount = gy.length;
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their hand and put the other into their graveyard.`,
-      ts: Date.now(),
-    });
-
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-
-    return;
-  }
-
-  // ===== PLANESWALKER: LOOK TOP TWO, PUT ONE INTO GRAVEYARD =====
-  if (stepData?.pwLook2Put1Graveyard === true) {
-    const chosenCardId = extractId(selectedOption);
-    const controllerId = (stepData.pwLook2Controller as string | undefined) || playerId;
-    const sourceName = (stepData.pwLook2SourceName as string | undefined) || step.sourceName || 'Planeswalker';
-    const topCardIds: string[] = Array.isArray(stepData.pwLook2TopCardIds) ? stepData.pwLook2TopCardIds : [];
-    if (!chosenCardId || topCardIds.length < 2) {
-      debugWarn(2, `[Resolution] pwLook2Put1Graveyard: invalid selection or missing card ids`);
+    const controllerId = (stepData.chooseLookedAtCardsDestinationController as string | undefined) || playerId;
+    const sourceName = (stepData.chooseLookedAtCardsDestinationSourceName as string | undefined) || step.sourceName || 'Ability';
+    const topCardIds: string[] = Array.isArray(stepData.chooseLookedAtCardsDestinationTopCardIds)
+      ? stepData.chooseLookedAtCardsDestinationTopCardIds.map(String)
+      : [];
+    const chosenZone = String(stepData.chooseLookedAtCardsDestinationChosenZone || '').toLowerCase();
+    const otherZone = String(stepData.chooseLookedAtCardsDestinationOtherZone || '').toLowerCase();
+    const otherCardPatch = stepData.chooseLookedAtCardsDestinationOtherCardPatch as Record<string, any> | undefined;
+    const randomizeOtherOrder = stepData.chooseLookedAtCardsDestinationRandomizeOtherOrder === true;
+    if (!chosenCardId || topCardIds.length < 1) {
+      debugWarn(2, `[Resolution] chooseLookedAtCardsDestinationChoice: invalid selection or missing card ids`);
       return;
     }
 
@@ -20673,261 +20266,351 @@ async function handleOptionChoiceResponse(
       graveyard: [],
       graveyardCount: 0,
     });
-    const lib: any[] = z.library || [];
-    const gy: any[] = z.graveyard || (z.graveyard = []);
-
-    const removed: any[] = [];
-    for (const cid of topCardIds) {
-      const idx = lib.findIndex((c: any) => c?.id === cid);
-      if (idx >= 0) removed.push(lib.splice(idx, 1)[0]);
-    }
-    while (removed.length < 2 && lib.length > 0) removed.push(lib.shift());
-
-    const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
-    const other = removed.find((c: any) => c?.id !== chosen?.id) || removed[1];
-
-    if (chosen) gy.unshift({ ...chosen, zone: 'graveyard' });
-    if (other) lib.unshift({ ...other, zone: 'library' });
-
-    z.library = lib;
-    z.graveyard = gy;
-    z.libraryCount = lib.length;
-    z.graveyardCount = gy.length;
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their graveyard.`,
-      ts: Date.now(),
-    });
-
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-
-    return;
-  }
-
-  // ===== PLANESWALKER: JACE TOP 3 -> CONTROLLER CHOOSES PILE TO PUT INTO HAND =====
-  if (stepData?.pwJaceTop3PickPile === true) {
-    const choiceId = extractId(selectedOption);
-    if (choiceId !== 'pileA' && choiceId !== 'pileB') {
-      debugWarn(2, `[Resolution] pwJaceTop3PickPile: invalid choice ${choiceId}`);
-      return;
-    }
-
-    const controllerId = String(stepData.pwJaceControllerId || playerId);
-    const sourceName = String(stepData.pwJaceSourceName || step.sourceName || 'Planeswalker');
-    const topCards: any[] = Array.isArray(stepData.pwJaceTopCards) ? stepData.pwJaceTopCards : [];
-    const originalOrder: string[] = Array.isArray(stepData.pwJaceTopCardIds)
-      ? stepData.pwJaceTopCardIds.map(String)
-      : topCards.map((c: any) => c?.id).filter(Boolean);
-    const pileA: string[] = Array.isArray(stepData.pwJacePileA) ? stepData.pwJacePileA.map(String) : [];
-    const pileB: string[] = Array.isArray(stepData.pwJacePileB) ? stepData.pwJacePileB.map(String) : [];
-
-    const chosenIds = choiceId === 'pileA' ? pileA : pileB;
-    const otherIds = choiceId === 'pileA' ? pileB : pileA;
-
-    const byId = new Map(topCards.map((c: any) => [String(c?.id || ''), c]));
-    const orderedIds = (ids: string[]) => {
-      const set = new Set(ids);
-      return originalOrder.filter((id) => set.has(id));
-    };
-
-    const chosenCards = orderedIds(chosenIds).map((id) => byId.get(id)).filter(Boolean);
-    const otherCards = orderedIds(otherIds).map((id) => byId.get(id)).filter(Boolean);
-
-    const state = game.state || {};
-    const zones = (state.zones = state.zones || {});
-    const z = (zones[controllerId] = zones[controllerId] || {
-      library: [],
-      libraryCount: 0,
-      hand: [],
-      handCount: 0,
-      graveyard: [],
-      graveyardCount: 0,
-      exile: [],
-      exileCount: 0,
-    });
+    const lib: any[] = Array.isArray(z.library) ? z.library : [];
     const hand: any[] = Array.isArray(z.hand) ? z.hand : [];
+    const gy: any[] = Array.isArray(z.graveyard) ? z.graveyard : (z.graveyard = []);
+
+    const removed: any[] = [];
+    for (const cid of topCardIds) {
+      const idx = lib.findIndex((c: any) => c?.id === cid);
+      if (idx >= 0) removed.push(lib.splice(idx, 1)[0]);
+    }
+    while (removed.length < topCardIds.length && lib.length > 0) removed.push(lib.shift());
+
+    const chosen = removed.find((c: any) => String(c?.id) === String(chosenCardId)) || removed[0];
+    const others = removed.filter((c: any) => String(c?.id) !== String(chosen?.id));
+
+    const moveCard = (card: any, destination: string) => {
+      if (!card) return;
+      if (destination === 'hand') {
+        hand.push({ ...card, zone: 'hand' });
+        return;
+      }
+      if (destination === 'graveyard') {
+        gy.unshift({ ...card, zone: 'graveyard' });
+        return;
+      }
+      if (destination === 'top_library') {
+        lib.unshift({ ...card, zone: 'library' });
+        return;
+      }
+      if (destination === 'bottom_library') {
+        lib.push({ ...card, zone: 'library' });
+        return;
+      }
+      if (destination === 'exile') {
+        const exile: any[] = Array.isArray(z.exile) ? z.exile : (z.exile = []);
+        exile.push({ ...card, zone: 'exile', ...(otherCardPatch || {}) });
+      }
+    };
+
+    moveCard(chosen, chosenZone);
+    if (randomizeOtherOrder && others.length > 1) {
+      for (let i = others.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [others[i], others[j]] = [others[j], others[i]];
+      }
+    }
+    for (const other of others) moveCard(other, otherZone);
+
+    z.library = lib;
+    z.hand = hand;
+    z.graveyard = gy;
+    z.libraryCount = lib.length;
+    z.handCount = hand.length;
+    z.graveyardCount = gy.length;
+    z.exileCount = Array.isArray(z.exile) ? z.exile.length : z.exileCount;
+
+    const message =
+      chosenZone === 'hand' && otherZone === 'bottom_library'
+        ? `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their hand and put the other on the bottom of their library.`
+        : chosenZone === 'hand' && otherZone === 'graveyard'
+          ? `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their hand and put the other into their graveyard.`
+          : chosenZone === 'graveyard' && otherZone === 'top_library'
+            ? `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their graveyard.`
+            : chosenZone === 'hand' && otherZone === 'exile'
+              ? `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into hand and exiled the other card.`
+            : `${sourceName}: ${getPlayerName(game, controllerId)} moved the looked-at cards.`;
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    return;
+  }
+
+  if (stepData?.payManaToLookAndChooseCardChoice === true) {
+    const chosenX = Number(extractId(selectedOption) || 0);
+    const controllerId = (stepData.payManaToLookAndChooseCardController as string | undefined) || playerId;
+    const sourceName = (stepData.payManaToLookAndChooseCardSourceName as string | undefined) || step.sourceName || 'Ability';
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || { library: [], libraryCount: 0, hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 });
     const lib: any[] = Array.isArray(z.library) ? z.library : [];
 
-    for (const c of chosenCards) hand.push({ ...c, zone: 'hand' });
-    for (const c of otherCards) lib.push({ ...c, zone: 'library' });
-
-    z.hand = hand;
-    z.library = lib;
-    z.handCount = hand.length;
-    z.libraryCount = lib.length;
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} chose a pile to put into their hand.`,
-      ts: Date.now(),
-    });
-
-    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-    return;
-  }
-
-  // ===== PLANESWALKER: LILIANA -> TARGET PLAYER CHOOSES PILE TO SACRIFICE =====
-  if (stepData?.pwLilianaChoosePileToSacrifice === true) {
-    const choiceId = extractId(selectedOption);
-    if (choiceId !== 'pileA' && choiceId !== 'pileB') {
-      debugWarn(2, `[Resolution] pwLilianaChoosePileToSacrifice: invalid choice ${choiceId}`);
-      return;
+    const pool = { ...(((state as any).manaPool?.[controllerId] || {}) as any) };
+    let remaining = Math.max(0, chosenX);
+    const spendOrder = ['colorless', 'white', 'blue', 'black', 'red', 'green'];
+    for (const color of spendOrder) {
+      if (remaining <= 0) break;
+      const available = Number(pool[color] || 0);
+      if (available <= 0) continue;
+      const take = Math.min(available, remaining);
+      pool[color] = available - take;
+      remaining -= take;
     }
+    if (!(state as any).manaPool) (state as any).manaPool = {};
+    (state as any).manaPool[controllerId] = pool;
 
-    const targetPlayerId = String(stepData.pwLilianaTargetPlayerId || playerId);
-    const sourceName = String(stepData.pwLilianaSourceName || step.sourceName || 'Planeswalker');
-    const pileA: string[] = Array.isArray(stepData.pwLilianaPileA) ? stepData.pwLilianaPileA.map(String) : [];
-    const pileB: string[] = Array.isArray(stepData.pwLilianaPileB) ? stepData.pwLilianaPileB.map(String) : [];
-    const toSacrifice = choiceId === 'pileA' ? pileA : pileB;
-
-    if (!toSacrifice.length) {
+    if (chosenX <= 0 || lib.length === 0) {
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
         from: 'system',
-        message: `${sourceName}: ${getPlayerName(game, targetPlayerId)} chose an empty pile to sacrifice.`,
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} paid ${chosenX} and looked at 0 cards.`,
         ts: Date.now(),
       });
       if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
       return;
     }
 
-    const ctx = {
-      gameId,
-      state: game.state,
-      commandZone: (game.state as any).commandZone || {},
-      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-    } as unknown as GameContext;
-
-    const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
-
-    for (const permId of toSacrifice) {
-      try {
-        movePermanentToGraveyard(ctx, permId, true);
-      } catch {
-        // ignore
-      }
-    }
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, targetPlayerId)} sacrificed ${toSacrifice.length} permanent${toSacrifice.length !== 1 ? 's' : ''}.`,
-      ts: Date.now(),
-    });
+    const top = lib.slice(0, chosenX);
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: controllerId,
+      description: `${sourceName}: Choose a card to put into your hand`,
+      mandatory: true,
+      sourceName,
+      options: top.map((c: any) => ({
+        id: c?.id,
+        label: c?.name || 'Unknown',
+        description: c?.type_line,
+        imageUrl: c?.image_uris?.normal || c?.image_uris?.art_crop || c?.image_uris?.small,
+      })),
+      minSelections: 1,
+      maxSelections: 1,
+      chooseLookedAtCardsDestinationChoice: true,
+      chooseLookedAtCardsDestinationController: controllerId,
+      chooseLookedAtCardsDestinationSourceName: sourceName,
+      chooseLookedAtCardsDestinationTopCardIds: top.map((c: any) => c?.id).filter(Boolean),
+      chooseLookedAtCardsDestinationChosenZone: 'hand',
+      chooseLookedAtCardsDestinationOtherZone: 'bottom_library',
+      chooseLookedAtCardsDestinationRandomizeOtherOrder: true,
+    } as any);
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     return;
   }
 
-  // ===== PLANESWALKER: YOU MAY DISCARD; IF YOU DO, DRAW =====
-  if (stepData?.pwMayDiscardThenDraw === true) {
-    const extractId = (sel: any): string | null => {
-      if (typeof sel === 'string') return sel;
-      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
-      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
-      return null;
+  if (stepData?.choosePileFromSplitChoice === true && (stepData?.choosePileFromSplitPileA || stepData?.choosePileFromSplitPileB)) {
+    const choiceId = extractId(selectedOption);
+    if (choiceId !== 'pileA' && choiceId !== 'pileB') {
+      debugWarn(2, `[Resolution] choosePileFromSplitChoice: invalid choice ${choiceId}`);
+      return;
+    }
+
+    const sourceName = String(stepData.choosePileFromSplitSourceName || step.sourceName || 'Ability');
+    const items: any[] = Array.isArray(stepData.choosePileFromSplitItems) ? stepData.choosePileFromSplitItems : [];
+    const originalOrder: string[] = Array.isArray(stepData.choosePileFromSplitOriginalOrder)
+      ? stepData.choosePileFromSplitOriginalOrder.map(String)
+      : items.map((c: any) => c?.id).filter(Boolean);
+    const pileA: string[] = Array.isArray(stepData.choosePileFromSplitPileA) ? stepData.choosePileFromSplitPileA.map(String) : [];
+    const pileB: string[] = Array.isArray(stepData.choosePileFromSplitPileB) ? stepData.choosePileFromSplitPileB.map(String) : [];
+    const action = String(stepData.choosePileFromSplitChosenAction || '');
+
+    const chosenIds = choiceId === 'pileA' ? pileA : pileB;
+    const otherIds = choiceId === 'pileA' ? pileB : pileA;
+
+    const byId = new Map(items.map((c: any) => [String(c?.id || ''), c]));
+    const orderedIds = (ids: string[]) => {
+      const set = new Set(ids);
+      return originalOrder.filter((id) => set.has(id));
     };
 
-    const choiceId = extractId(selectedOption);
-    const stage = String(stepData.pwMayDiscardThenDrawStage || '');
-    const controllerId = (stepData.pwMayDiscardThenDrawPlayerId as string | undefined) || playerId;
-    const sourceName = (stepData.pwMayDiscardThenDrawSourceName as string | undefined) || step.sourceName || 'Planeswalker';
-
-    if (stage === 'ask') {
-      if (!choiceId || choiceId === 'dont' || choiceId === 'decline') {
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to discard.`,
-          ts: Date.now(),
-        });
-        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-        return;
-      }
-
-      if (choiceId !== 'discard') {
-        debugWarn(2, `[Resolution] pwMayDiscardThenDraw: unexpected choice ${choiceId}`);
-        return;
-      }
+    if (action === 'move_cards') {
+      const movePlayerId = String(stepData.choosePileFromSplitMovePlayerId || playerId);
+      const chosenCards = orderedIds(chosenIds).map((id) => byId.get(id)).filter(Boolean);
+      const otherCards = orderedIds(otherIds).map((id) => byId.get(id)).filter(Boolean);
+      const chosenDestination = String(stepData.choosePileFromSplitChosenDestination || 'hand');
+      const otherDestination = String(stepData.choosePileFromSplitOtherDestination || 'library');
 
       const state = game.state || {};
       const zones = (state.zones = state.zones || {});
-      const z = (zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 });
-      const hand: any[] = z.hand || [];
-      const actualDiscard = hand.length > 0 ? 1 : 0;
-      if (actualDiscard <= 0) {
+      const z = (zones[movePlayerId] = zones[movePlayerId] || {
+        library: [],
+        libraryCount: 0,
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      });
+      const chosenZone: any[] = Array.isArray((z as any)[chosenDestination]) ? (z as any)[chosenDestination] : [];
+      const otherZone: any[] = Array.isArray((z as any)[otherDestination]) ? (z as any)[otherDestination] : [];
+
+      for (const c of chosenCards) chosenZone.push({ ...c, zone: chosenDestination });
+      for (const c of otherCards) otherZone.push({ ...c, zone: otherDestination });
+
+      (z as any)[chosenDestination] = chosenZone;
+      (z as any)[otherDestination] = otherZone;
+      if (chosenDestination === 'hand') z.handCount = chosenZone.length;
+      if (chosenDestination === 'library') z.libraryCount = chosenZone.length;
+      if (otherDestination === 'hand') z.handCount = otherZone.length;
+      if (otherDestination === 'library') z.libraryCount = otherZone.length;
+    } else if (action === 'sacrifice_permanents') {
+      const targetPlayerId = String(stepData.choosePileFromSplitTargetPlayerId || playerId);
+      const toSacrifice = choiceId === 'pileA' ? pileA : pileB;
+
+      if (!toSacrifice.length) {
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
           from: 'system',
-          message: `${sourceName}: ${getPlayerName(game, controllerId)} had no cards to discard.`,
+          message: `${sourceName}: ${getPlayerName(game, targetPlayerId)} chose an empty pile to sacrifice.`,
           ts: Date.now(),
         });
         if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
         return;
       }
 
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.DISCARD_SELECTION,
-        playerId: controllerId,
-        description: `${sourceName}: Discard 1 card`,
-        mandatory: true,
-        sourceName: sourceName,
-        discardCount: 1,
-        hand: hand.map((c: any) => ({
-          id: c.id,
-          name: c.name,
-          type_line: c.type_line,
-          oracle_text: c.oracle_text,
-          image_uris: c.image_uris,
-          mana_cost: c.mana_cost,
-          cmc: c.cmc,
-          colors: c.colors,
-        })),
-        afterDiscardDrawCount: 1,
-      } as any);
+      const ctx = {
+        gameId,
+        state: game.state,
+        commandZone: (game.state as any).commandZone || {},
+        bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      } as unknown as GameContext;
 
-      if (typeof (game as any).bumpSeq === 'function') {
-        (game as any).bumpSeq();
+      const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+      for (const permId of toSacrifice) {
+        try {
+          movePermanentToGraveyard(ctx, permId, true);
+        } catch {
+          // ignore
+        }
       }
 
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, targetPlayerId)} sacrificed ${toSacrifice.length} permanent${toSacrifice.length !== 1 ? 's' : ''}.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
       return;
     }
+
+    const chatMessage = String(stepData.choosePileFromSplitChatMessage || '');
+    if (chatMessage) {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: chatMessage,
+        ts: Date.now(),
+      });
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
   }
 
-  // ===== PLANESWALKER: ADD TWO MANA IN ANY COMBINATION (DRAGONS ONLY) =====
-  if (stepData?.pwAddTwoManaAnyCombination === true) {
-    const extractId = (sel: any): string | null => {
-      if (typeof sel === 'string') return sel;
-      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
-      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
-      return null;
-    };
+  if (stepData?.optionalDiscardThenDrawChoice === true) {
+    const choiceId = extractId(selectedOption);
+    const controllerId = (stepData.optionalDiscardThenDrawPlayerId as string | undefined) || playerId;
+    const sourceName = (stepData.optionalDiscardThenDrawSourceName as string | undefined) || step.sourceName || 'Ability';
+    const drawCount = Number(stepData.optionalDiscardThenDrawCount || 1);
 
-    const stage = String(stepData.pwAddTwoManaStage || '');
-    const controllerId = (stepData.pwAddTwoManaController as string | undefined) || playerId;
-    const sourceName = (stepData.pwAddTwoManaSourceName as string | undefined) || step.sourceName || 'Planeswalker';
-    const sourceId = (stepData.pwAddTwoManaSourceId as string | undefined) || step.sourceId;
-    const restriction = (stepData.pwAddTwoManaRestriction as any) || 'dragon_spells';
+    if (!choiceId || choiceId === 'dont' || choiceId === 'decline') {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} chose not to discard.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    if (choiceId !== 'discard') {
+      debugWarn(2, `[Resolution] optionalDiscardThenDrawChoice: unexpected choice ${choiceId}`);
+      return;
+    }
+
+    const state = game.state || {};
+    const zones = (state.zones = state.zones || {});
+    const z = (zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 });
+    const hand: any[] = z.hand || [];
+    if (!hand.length) {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName}: ${getPlayerName(game, controllerId)} has no cards to discard.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId: controllerId,
+      description: `${sourceName}: Discard 1 card`,
+      mandatory: true,
+      sourceName,
+      discardCount: 1,
+      hand: hand.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        image_uris: c.image_uris,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+        colors: c.colors,
+      })),
+      afterDiscardDrawCount: drawCount,
+    } as any);
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    return;
+  }
+
+  if (stepData?.chooseManaColorsChoice === true) {
+    const controllerId = (stepData.chooseManaColorsController as string | undefined) || playerId;
+    const sourceName = (stepData.chooseManaColorsSourceName as string | undefined) || step.sourceName || 'Ability';
+    const sourceId = (stepData.chooseManaColorsSourceId as string | undefined) || step.sourceId;
+    const restriction = (stepData.chooseManaColorsRestriction as any) || 'unrestricted';
+    const selectionsTotal = Math.max(1, Number(stepData.chooseManaColorsSelectionsTotal || 1));
+    const amountPerSelection = Math.max(1, Number(stepData.chooseManaColorsAmountPerSelection || 1));
+    const previouslyChosen: string[] = Array.isArray(stepData.chooseManaColorsChosen)
+      ? stepData.chooseManaColorsChosen.map((c: any) => String(c).toLowerCase())
+      : [];
     const isUnrestricted = restriction === 'unrestricted' || restriction === 'none' || restriction === null || restriction === undefined;
 
     const validColors = new Set(['white', 'blue', 'black', 'red', 'green']);
     const chosen = extractId(selectedOption);
     if (!chosen || !validColors.has(String(chosen).toLowerCase())) {
-      debugWarn(2, `[Resolution] pwAddTwoManaAnyCombination: invalid color selection`);
+      debugWarn(2, `[Resolution] chooseManaColorsChoice: invalid color selection`);
       return;
     }
     const chosenColor = String(chosen).toLowerCase();
+    const chosenColors = [...previouslyChosen, chosenColor];
 
     const options = [
       { id: 'white', label: 'White' },
@@ -20937,109 +20620,116 @@ async function handleOptionChoiceResponse(
       { id: 'green', label: 'Green' },
     ];
 
-    if (stage === 'first') {
-      // Queue second color choice.
+    if (chosenColors.length < selectionsTotal) {
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.OPTION_CHOICE,
         playerId: controllerId,
         description: isUnrestricted
-          ? `${sourceName}: Choose a color for the second mana`
-          : `${sourceName}: Choose a color for the second mana (spend only to cast Dragon spells)`,
+          ? `${sourceName}: Choose a color for the next mana`
+          : `${sourceName}: Choose a color for the next mana (spend only to cast Dragon spells)`,
         mandatory: true,
         sourceName,
         options,
         minSelections: 1,
         maxSelections: 1,
-        pwAddTwoManaAnyCombination: true,
-        pwAddTwoManaStage: 'second',
-        pwAddTwoManaController: controllerId,
-        pwAddTwoManaSourceName: sourceName,
-        pwAddTwoManaSourceId: sourceId,
-        pwAddTwoManaRestriction: restriction,
-        pwAddTwoManaFirstColor: chosenColor,
+        chooseManaColorsChoice: true,
+        chooseManaColorsController: controllerId,
+        chooseManaColorsSourceName: sourceName,
+        chooseManaColorsSourceId: sourceId,
+        chooseManaColorsRestriction: restriction,
+        chooseManaColorsSelectionsTotal: selectionsTotal,
+        chooseManaColorsAmountPerSelection: amountPerSelection,
+        chooseManaColorsChosen: chosenColors,
       } as any);
 
       if (typeof (game as any).bumpSeq === 'function') {
         (game as any).bumpSeq();
       }
-
       return;
     }
 
-    if (stage === 'second') {
-      const firstColor = String(stepData.pwAddTwoManaFirstColor || '').toLowerCase();
-      if (!validColors.has(firstColor)) {
-        debugWarn(2, `[Resolution] pwAddTwoManaAnyCombination: missing first color`);
-        return;
+    if (isUnrestricted) {
+      const { getOrInitManaPool } = await import('./util.js');
+      const pool = getOrInitManaPool(game.state, controllerId) as any;
+      for (const color of chosenColors) {
+        pool[color] = (pool[color] || 0) + amountPerSelection;
       }
-
-      if (isUnrestricted) {
-        const { getOrInitManaPool } = await import('./util.js');
-        const pool = getOrInitManaPool(game.state, controllerId) as any;
-        if (firstColor === chosenColor) {
-          pool[firstColor] = (pool[firstColor] || 0) + 2;
-        } else {
-          pool[firstColor] = (pool[firstColor] || 0) + 1;
-          pool[chosenColor] = (pool[chosenColor] || 0) + 1;
-        }
-      } else {
-        const { addRestrictedManaToPool } = await import('./util.js');
-        // Add two restricted mana (merge if same color).
-        if (firstColor === chosenColor) {
-          addRestrictedManaToPool(game.state, controllerId, firstColor as any, 2, restriction, undefined, sourceId, sourceName);
-        } else {
-          addRestrictedManaToPool(game.state, controllerId, firstColor as any, 1, restriction, undefined, sourceId, sourceName);
-          addRestrictedManaToPool(game.state, controllerId, chosenColor as any, 1, restriction, undefined, sourceId, sourceName);
-        }
+    } else {
+      const { addRestrictedManaToPool } = await import('./util.js');
+      for (const color of chosenColors) {
+        addRestrictedManaToPool(game.state, controllerId, color as any, amountPerSelection, restriction, undefined, sourceId, sourceName);
       }
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: isUnrestricted
-          ? `${sourceName}: ${getPlayerName(game, controllerId)} added two mana (${firstColor}${firstColor === chosenColor ? '' : ` and ${chosenColor}`}).`
-          : `${sourceName}: ${getPlayerName(game, controllerId)} added two mana (${firstColor}${firstColor === chosenColor ? '' : ` and ${chosenColor}`}) that can be spent only to cast Dragon spells.`,
-        ts: Date.now(),
-      });
-
-      if (typeof (game as any).bumpSeq === 'function') {
-        (game as any).bumpSeq();
-      }
-
-      return;
     }
-  }
 
-  // ===== PLANESWALKER: ADD TEN MANA OF ANY ONE COLOR =====
-  if (stepData?.pwAddTenManaOneColor === true) {
-    const extractId = (sel: any): string | null => {
-      if (typeof sel === 'string') return sel;
-      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
-      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
-      return null;
-    };
-
-    const controllerId = (stepData.pwAddTenManaController as string | undefined) || playerId;
-    const sourceName = (stepData.pwAddTenManaSourceName as string | undefined) || step.sourceName || 'Planeswalker';
-
-    const validColors = new Set(['white', 'blue', 'black', 'red', 'green']);
-    const chosen = extractId(selectedOption);
-    if (!chosen || !validColors.has(String(chosen).toLowerCase())) {
-      debugWarn(2, `[Resolution] pwAddTenManaOneColor: invalid color selection`);
-      return;
-    }
-    const chosenColor = String(chosen).toLowerCase();
-
-    const { getOrInitManaPool } = await import('./util.js');
-    const pool = getOrInitManaPool(game.state, controllerId) as any;
-    pool[chosenColor] = (pool[chosenColor] || 0) + 10;
+    const colorSummary = chosenColors
+      .reduce((acc: Record<string, number>, color: string) => {
+        acc[color] = (acc[color] || 0) + amountPerSelection;
+        return acc;
+      }, {});
+    const summaryText = Object.entries(colorSummary)
+      .map(([color, amount]) => `${amount} ${color}`)
+      .join(', ');
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} added ten mana (${chosenColor}).`,
+      message: isUnrestricted
+        ? `${sourceName}: ${getPlayerName(game, controllerId)} added ${summaryText}.`
+        : `${sourceName}: ${getPlayerName(game, controllerId)} added ${summaryText} that can be spent only to cast Dragon spells.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    return;
+  }
+
+  if (stepData?.choosePlayerForLookedAtCardsChoice === true) {
+    const chosenPlayerId = extractId(selectedOption);
+    const controllerId = String(stepData.choosePlayerForLookedAtCardsController || playerId);
+    const sourceName = String(stepData.choosePlayerForLookedAtCardsSourceName || step.sourceName || 'Ability');
+    const lookedAtCards: any[] = Array.isArray(stepData.choosePlayerForLookedAtCardsOptions)
+      ? stepData.choosePlayerForLookedAtCardsOptions
+      : [];
+    if (!chosenPlayerId || lookedAtCards.length === 0) {
+      debugWarn(2, `[Resolution] choosePlayerForLookedAtCardsChoice: invalid player choice or missing cards`);
+      return;
+    }
+
+    const controllerName = getPlayerName(game, controllerId);
+    const options = lookedAtCards.map((c: any) => ({
+      id: c.id,
+      label: c.name || 'Unknown',
+      description: c.type_line,
+      imageUrl: c.image_uris?.normal || c.image_uris?.art_crop || c.image_uris?.small,
+    }));
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: chosenPlayerId,
+      description: String(stepData.choosePlayerForLookedAtCardsDescription || `${sourceName}: Choose a card`),
+      mandatory: true,
+      sourceName,
+      options,
+      minSelections: 1,
+      maxSelections: 1,
+      chooseLookedAtCardsDestinationChoice: true,
+      chooseLookedAtCardsDestinationController: stepData.choosePlayerForLookedAtCardsDestinationController,
+      chooseLookedAtCardsDestinationSourceName: stepData.choosePlayerForLookedAtCardsDestinationSourceName,
+      chooseLookedAtCardsDestinationTopCardIds: stepData.choosePlayerForLookedAtCardsDestinationTopCardIds,
+      chooseLookedAtCardsDestinationChosenZone: stepData.choosePlayerForLookedAtCardsDestinationChosenZone,
+      chooseLookedAtCardsDestinationOtherZone: stepData.choosePlayerForLookedAtCardsDestinationOtherZone,
+      chooseLookedAtCardsDestinationOtherCardPatch: stepData.choosePlayerForLookedAtCardsDestinationOtherCardPatch,
+    } as any);
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${sourceName}: ${controllerName} revealed ${options.map(o => o.label).join(' and ')}.`,
       ts: Date.now(),
     });
 
@@ -21047,304 +20737,6 @@ async function handleOptionChoiceResponse(
       (game as any).bumpSeq();
     }
     return;
-  }
-
-  // ===== PLANESWALKER: PAY ANY AMOUNT; LOOK X; PICK 1; BOTTOM RANDOM =====
-  if (stepData?.pwPayAnyAmountLook === true) {
-    const extractId = (sel: any): string | null => {
-      if (typeof sel === 'string') return sel;
-      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
-      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
-      return null;
-    };
-
-    const stage = String(stepData.pwPayAnyAmountLookStage || '');
-    const controllerId = (stepData.pwPayAnyAmountLookController as string | undefined) || playerId;
-    const sourceName = (stepData.pwPayAnyAmountLookSourceName as string | undefined) || step.sourceName || 'Planeswalker';
-
-    const state = game.state || {};
-    const zones = (state.zones = state.zones || {});
-    const z = (zones[controllerId] = zones[controllerId] || { library: [], libraryCount: 0, hand: [], handCount: 0 });
-    const lib: any[] = Array.isArray(z.library) ? z.library : [];
-    const hand: any[] = Array.isArray(z.hand) ? z.hand : [];
-
-    const pool: any = state.manaPool?.[controllerId] || {
-      white: 0,
-      blue: 0,
-      black: 0,
-      red: 0,
-      green: 0,
-      colorless: 0,
-    };
-
-    const maxPay =
-      (pool.white || 0) +
-      (pool.blue || 0) +
-      (pool.black || 0) +
-      (pool.red || 0) +
-      (pool.green || 0) +
-      (pool.colorless || 0);
-
-    if (stage === 'chooseX') {
-      const raw = extractId(selectedOption);
-      const chosenX = Math.max(0, Math.min(maxPay, parseInt(String(raw || '0'), 10) || 0));
-
-      // Deduct chosenX from unrestricted pool (restricted mana is not spendable for this effect).
-      let remaining = chosenX;
-      const spendOrder: Array<'colorless' | 'white' | 'blue' | 'black' | 'red' | 'green'> = [
-        'colorless',
-        'white',
-        'blue',
-        'black',
-        'red',
-        'green',
-      ];
-      for (const c of spendOrder) {
-        if (remaining <= 0) break;
-        const avail = pool[c] || 0;
-        if (avail <= 0) continue;
-        const take = Math.min(avail, remaining);
-        pool[c] = avail - take;
-        remaining -= take;
-      }
-
-      if (!state.manaPool) state.manaPool = {};
-      state.manaPool[controllerId] = pool;
-
-      if (chosenX <= 0 || lib.length === 0) {
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `${sourceName}: ${getPlayerName(game, controllerId)} paid ${chosenX} and looked at 0 cards.`,
-          ts: Date.now(),
-        });
-        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-        return;
-      }
-
-      const top = lib.slice(0, chosenX);
-      const options = top.map((c: any) => ({
-        id: c?.id,
-        label: c?.name || 'Unknown',
-        description: c?.type_line,
-        imageUrl: c?.image_uris?.normal || c?.image_uris?.art_crop || c?.image_uris?.small,
-      }));
-
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.OPTION_CHOICE,
-        playerId: controllerId,
-        description: `${sourceName}: Choose a card to put into your hand`,
-        mandatory: true,
-        sourceName,
-        options,
-        minSelections: 1,
-        maxSelections: 1,
-        pwPayAnyAmountLook: true,
-        pwPayAnyAmountLookStage: 'chooseCard',
-        pwPayAnyAmountLookController: controllerId,
-        pwPayAnyAmountLookSourceName: sourceName,
-        pwPayAnyAmountLookTopCardIds: top.map((c: any) => c?.id).filter(Boolean),
-        pwPayAnyAmountLookX: chosenX,
-      } as any);
-
-      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-      return;
-    }
-
-    if (stage === 'chooseCard') {
-      const chosenCardId = extractId(selectedOption);
-      const topCardIds: string[] = Array.isArray(stepData.pwPayAnyAmountLookTopCardIds)
-        ? stepData.pwPayAnyAmountLookTopCardIds
-        : [];
-
-      if (!chosenCardId || topCardIds.length === 0) {
-        debugWarn(2, `[Resolution] pwPayAnyAmountLook chooseCard: invalid selection or missing ids`);
-        return;
-      }
-
-      // Remove looked cards from library by id (best-effort), fallback to shifting.
-      const removed: any[] = [];
-      for (const cid of topCardIds) {
-        const idx = lib.findIndex((c: any) => c?.id === cid);
-        if (idx >= 0) removed.push(lib.splice(idx, 1)[0]);
-      }
-      while (removed.length < topCardIds.length && lib.length > 0) {
-        removed.push(lib.shift());
-      }
-
-      const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
-      const rest = removed.filter((c: any) => c && c?.id !== chosen?.id);
-
-      // Randomize rest order before putting on bottom.
-      for (let i = rest.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [rest[i], rest[j]] = [rest[j], rest[i]];
-      }
-
-      if (chosen) hand.push({ ...chosen, zone: 'hand' });
-      for (const c of rest) {
-        lib.push({ ...c, zone: 'library' });
-      }
-
-      z.library = lib;
-      z.hand = hand;
-      z.libraryCount = lib.length;
-      z.handCount = hand.length;
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${sourceName}: ${getPlayerName(game, controllerId)} put ${chosen?.name || 'a card'} into their hand and put the rest on the bottom of their library in a random order.`,
-        ts: Date.now(),
-      });
-
-      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-      return;
-    }
-  }
-
-  // ===== PLANESWALKER: REVEAL TOP TWO, OPPONENT CHOOSES (Karn-style) =====
-  if (stepData?.pwkarn === true) {
-    // Helper to extract first selected ID
-    const extractId = (sel: any): string | null => {
-      if (typeof sel === 'string') return sel;
-      if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
-      if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
-      return null;
-    };
-
-    const stage = String(stepData.pwkarnStage || '');
-    const controllerId = stepData.pwkarnController as string | undefined;
-    const sourceName = stepData.pwkarnSourceName as string | undefined;
-
-    if (!controllerId || !sourceName) {
-      debugWarn(2, `[Resolution] pwkarn step missing controller/sourceName`);
-      return;
-    }
-
-    // Stage 1: controller chooses which opponent makes the card choice
-    if (stage === 'chooseOpponent') {
-      const chosenOpponentId = extractId(selectedOption);
-      if (!chosenOpponentId) {
-        debugWarn(2, `[Resolution] pwkarn chooseOpponent: no opponent selected`);
-        return;
-      }
-
-      const topCards: any[] = Array.isArray(stepData.pwkarnTopCards) ? stepData.pwkarnTopCards : [];
-      if (topCards.length < 2) {
-        debugWarn(2, `[Resolution] pwkarn chooseOpponent: missing top cards snapshot`);
-        return;
-      }
-
-      const controllerName = getPlayerName(game, controllerId);
-      const options = topCards.slice(0, 2).map((c: any) => ({
-        id: c.id,
-        label: c.name || 'Unknown',
-        description: c.type_line,
-        imageUrl: c.image_uris?.normal || c.image_uris?.art_crop || c.image_uris?.small,
-      }));
-
-      // Enqueue the opponent's card choice as the next step.
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.OPTION_CHOICE,
-        playerId: chosenOpponentId,
-        description: `${sourceName}: Choose a card to put into ${controllerName}'s hand`,
-        mandatory: true,
-        sourceName,
-        options,
-        minSelections: 1,
-        maxSelections: 1,
-        pwkarn: true,
-        pwkarnStage: 'chooseCard',
-        pwkarnController: controllerId,
-        pwkarnSourceName: sourceName,
-        pwkarnTopCardIds: topCards.slice(0, 2).map((c: any) => c.id),
-      } as any);
-
-      if (typeof (game as any).bumpSeq === 'function') {
-        (game as any).bumpSeq();
-      }
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${sourceName}: ${controllerName} revealed ${options.map(o => o.label).join(' and ')}.`,
-        ts: Date.now(),
-      });
-
-      return;
-    }
-
-    // Stage 2: chosen opponent chooses which revealed card goes to hand
-    if (stage === 'chooseCard') {
-      const chosenCardId = extractId(selectedOption);
-      const topCardIds: string[] = Array.isArray(stepData.pwkarnTopCardIds) ? stepData.pwkarnTopCardIds : [];
-      if (!chosenCardId || topCardIds.length < 2) {
-        debugWarn(2, `[Resolution] pwkarn chooseCard: invalid selection or card ids`);
-        return;
-      }
-
-      const state = game.state || {};
-      const zones = (state.zones = state.zones || {});
-      const z = (zones[controllerId] = zones[controllerId] || { library: [], libraryCount: 0, hand: [], handCount: 0, exile: [], exileCount: 0 });
-
-      const lib: any[] = z.library || [];
-      const hand: any[] = z.hand || [];
-      const exile: any[] = z.exile || [];
-
-      // Remove the two revealed cards from the library by id (best-effort).
-      const removed: any[] = [];
-      for (const cid of topCardIds) {
-        const idx = lib.findIndex((c: any) => c?.id === cid);
-        if (idx >= 0) {
-          removed.push(lib.splice(idx, 1)[0]);
-        }
-      }
-
-      // Fallback: if we couldn't find by id, just take top two.
-      while (removed.length < 2 && lib.length > 0) {
-        removed.push(lib.shift());
-      }
-
-      const chosen = removed.find((c: any) => c?.id === chosenCardId) || removed[0];
-      const other = removed.find((c: any) => c?.id !== chosen?.id) || removed[1];
-
-      if (chosen) {
-        hand.push({ ...chosen, zone: 'hand' });
-      }
-      if (other) {
-        exile.push({
-          ...other,
-          zone: 'exile',
-          silverCounters: ((other as any).silverCounters || 0) + 1,
-          exiledBy: sourceName,
-        });
-      }
-
-      z.library = lib;
-      z.hand = hand;
-      z.exile = exile;
-      z.libraryCount = lib.length;
-      z.handCount = hand.length;
-      z.exileCount = exile.length;
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${sourceName}: ${getPlayerName(game, playerId)} chose ${chosen?.name || 'a card'} for ${getPlayerName(game, controllerId)}. The other card was exiled with a silver counter.`,
-        ts: Date.now(),
-      });
-
-      if (typeof (game as any).bumpSeq === 'function') {
-        (game as any).bumpSeq();
-      }
-
-      return;
-    }
   }
   
   // ===== REBOUND HANDLING =====
@@ -22472,101 +21864,19 @@ async function handleModalChoiceResponse(
     return;
   }
   
-  // ========================================================================
-  // ELSPETH RESPLENDENT +1 COUNTER CHOICE
-  // Handle "Put a +1/+1 counter and a counter from among flying, first strike, lifelink, or vigilance on it."
-  // ========================================================================
-  const elspethCounterData = (modalStep as any).elspethCounterData;
-  if (elspethCounterData) {
-    const { targetCreatureId, targetCreatureName } = elspethCounterData;
-    
-    // Get the chosen counter type
-    let chosenCounter: string | null = null;
-    if (typeof selections === 'string') {
-      chosenCounter = selections;
-    } else if (Array.isArray(selections) && selections.length > 0) {
-      chosenCounter = selections[0];
+  const keywordCounterChoiceData = (modalStep as any).keywordCounterChoiceData;
+  if (keywordCounterChoiceData) {
+    const targetPermanentId = String(keywordCounterChoiceData.targetPermanentId || '');
+    const targetName = String(keywordCounterChoiceData.targetName || 'Permanent');
+    const sourceName = String(keywordCounterChoiceData.sourceName || modalStep.sourceName || 'Ability');
+    const keywordMap = new Map<string, string>();
+    for (const keyword of Array.isArray(keywordCounterChoiceData.allowedKeywords)
+      ? keywordCounterChoiceData.allowedKeywords
+      : []) {
+      const canonical = String(keyword).toLowerCase().trim();
+      if (!canonical) continue;
+      keywordMap.set(canonical.replace(/\s+/g, '_'), canonical);
     }
-    
-    if (!chosenCounter || chosenCounter === 'decline') {
-      debug(2, `[Resolution] Elspeth Resplendent +1: No counter chosen`);
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-      return;
-    }
-    
-    // Find the target creature
-    const battlefield = game.state?.battlefield || [];
-    const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
-    
-    if (!targetCreature) {
-      debug(2, `[Resolution] Elspeth Resplendent +1: Target creature ${targetCreatureId} no longer on battlefield`);
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-      return;
-    }
-    
-    // Add +1/+1 counter
-    targetCreature.counters = targetCreature.counters || {};
-    targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + 1;
-    
-    // Map the choice ID back to the original counter name using counterOptions
-    // The ID was created by: opt.toLowerCase().replace(/\s+/g, '_')
-    // So we need to find the matching option from the original list
-    const counterOptions = elspethCounterData.counterOptions || [];
-    let counterName = chosenCounter.replace(/_/g, ' '); // Default: simple underscore-to-space
-    
-    // Try to find exact match in original options (more robust)
-    for (const opt of counterOptions) {
-      const optId = opt.toLowerCase().replace(/\s+/g, '_');
-      if (optId === chosenCounter) {
-        counterName = opt.toLowerCase();
-        break;
-      }
-    }
-    
-    targetCreature.counters[counterName] = (targetCreature.counters[counterName] || 0) + 1;
-    
-    // Also grant the ability via grantedAbilities for immediate effect
-    targetCreature.grantedAbilities = targetCreature.grantedAbilities || [];
-    if (!targetCreature.grantedAbilities.includes(counterName)) {
-      targetCreature.grantedAbilities.push(counterName);
-    }
-    
-    // Update keywords array on the card
-    targetCreature.card = targetCreature.card || {};
-    targetCreature.card.keywords = targetCreature.card.keywords || [];
-    const keywordCapitalized = counterName.split(' ').map((word: string) => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
-    if (!targetCreature.card.keywords.includes(keywordCapitalized)) {
-      targetCreature.card.keywords.push(keywordCapitalized);
-    }
-    
-    debug(2, `[Resolution] Elspeth Resplendent +1: Added +1/+1 and ${counterName} counters to ${targetCreature.card?.name || targetCreatureId}`);
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `Elspeth Resplendent puts a +1/+1 counter and a ${counterName} counter on ${targetCreature.card?.name || 'creature'}.`,
-      ts: Date.now(),
-    });
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    return;
-  }
-
-  // ========================================================================
-  // PLANESWALKER TOKEN KEYWORD COUNTER CHOICE (Beast: vigilance/reach/trample)
-  // ========================================================================
-  const beastCounterData = (modalStep as any).pwBeastKeywordCounterData;
-  if (beastCounterData) {
-    const { tokenPermanentId, tokenName } = beastCounterData;
 
     let chosen: string | null = null;
     if (typeof selections === 'string') {
@@ -22575,9 +21885,10 @@ async function handleModalChoiceResponse(
       chosen = selections[0];
     }
 
-    const allowed = new Set(['vigilance', 'reach', 'trample']);
-    if (!chosen || chosen === 'decline' || !allowed.has(String(chosen).toLowerCase())) {
-      debug(2, `[Resolution] Beast keyword counter: no valid choice`);
+    const chosenKey = String(chosen || '').toLowerCase().trim();
+    const counterName = keywordMap.get(chosenKey);
+    if (!chosen || chosen === 'decline' || !counterName) {
+      debug(2, `[Resolution] Keyword counter choice: no valid choice`);
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
@@ -22585,38 +21896,56 @@ async function handleModalChoiceResponse(
     }
 
     const battlefield = game.state?.battlefield || [];
-    const tokenPerm = battlefield.find((p: any) => p.id === tokenPermanentId);
-    if (!tokenPerm) {
-      debug(2, `[Resolution] Beast keyword counter: token ${tokenPermanentId} no longer on battlefield`);
+    const targetPerm = battlefield.find((p: any) => p.id === targetPermanentId);
+    if (!targetPerm) {
+      debug(2, `[Resolution] Keyword counter choice: target ${targetPermanentId} no longer on battlefield`);
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
       return;
     }
 
-    const counterName = String(chosen).toLowerCase();
-    tokenPerm.counters = tokenPerm.counters || {};
-    tokenPerm.counters[counterName] = (tokenPerm.counters[counterName] || 0) + 1;
+    targetPerm.counters = targetPerm.counters || {};
+    const extraCounters = keywordCounterChoiceData.extraCounters && typeof keywordCounterChoiceData.extraCounters === 'object'
+      ? keywordCounterChoiceData.extraCounters
+      : {};
+    for (const [counterKey, counterValue] of Object.entries(extraCounters)) {
+      const amount = Number(counterValue || 0);
+      if (!counterKey || amount <= 0) continue;
+      targetPerm.counters[counterKey] = (targetPerm.counters[counterKey] || 0) + amount;
+    }
+    targetPerm.counters[counterName] = (targetPerm.counters[counterName] || 0) + 1;
 
-    tokenPerm.grantedAbilities = tokenPerm.grantedAbilities || [];
-    if (!tokenPerm.grantedAbilities.includes(counterName)) {
-      tokenPerm.grantedAbilities.push(counterName);
+    targetPerm.grantedAbilities = targetPerm.grantedAbilities || [];
+    if (!targetPerm.grantedAbilities.includes(counterName)) {
+      targetPerm.grantedAbilities.push(counterName);
     }
 
-    tokenPerm.card = tokenPerm.card || {};
-    tokenPerm.card.keywords = tokenPerm.card.keywords || [];
-    const keywordCapitalized = counterName.charAt(0).toUpperCase() + counterName.slice(1);
-    if (!tokenPerm.card.keywords.includes(keywordCapitalized)) {
-      tokenPerm.card.keywords.push(keywordCapitalized);
+    targetPerm.card = targetPerm.card || {};
+    targetPerm.card.keywords = targetPerm.card.keywords || [];
+    const keywordCapitalized = counterName
+      .split(' ')
+      .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+    if (!targetPerm.card.keywords.includes(keywordCapitalized)) {
+      targetPerm.card.keywords.push(keywordCapitalized);
     }
 
-    debug(2, `[Resolution] Beast keyword counter: added ${counterName} to ${tokenName || 'token'} (${tokenPermanentId})`);
+    const extraCounterParts = Object.entries(extraCounters)
+      .map(([counterKey, counterValue]) => {
+        const amount = Number(counterValue || 0);
+        if (!counterKey || amount <= 0) return null;
+        return `${amount === 1 ? 'a' : amount} ${counterKey} counter${amount === 1 ? '' : 's'}`;
+      })
+      .filter(Boolean) as string[];
+
+    debug(2, `[Resolution] Keyword counter choice: added ${counterName} to ${targetName} (${targetPermanentId})`);
 
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${tokenName || 'Token'} gets a ${counterName} counter.`,
+      message: `${sourceName}: ${targetName} gets ${extraCounterParts.length > 0 ? `${extraCounterParts.join(' and ')} and ` : ''}a ${counterName} counter.`,
       ts: Date.now(),
     });
 

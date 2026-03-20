@@ -102,6 +102,15 @@ describe('STATION_CREATURE_SELECTION validate-before-complete (integration)', ()
       sourceId: stationId,
       sourceName: 'Station',
       station: { id: stationId, threshold: 5, name: 'Station' },
+      tapForCountersSource: {
+        id: stationId,
+        threshold: 5,
+        name: 'Station',
+        counterType: 'charge',
+        amountFrom: 'power',
+        requireAnother: true,
+      },
+      tapForCountersCreatures: [{ id: creatureId, name: 'Crewmate', power: 2, toughness: 2 }],
     } as any);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];

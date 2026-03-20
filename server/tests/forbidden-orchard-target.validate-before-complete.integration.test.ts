@@ -46,7 +46,7 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
   return { socket, handlers };
 }
 
-describe('FORBIDDEN_ORCHARD_TARGET validate-before-complete (integration)', () => {
+describe('OPTION_CHOICE forbidden orchard validate-before-complete (integration)', () => {
   const gameId = 'test_forbidden_orchard_target_validate_before_complete';
 
   beforeAll(async () => {
@@ -81,12 +81,15 @@ describe('FORBIDDEN_ORCHARD_TARGET validate-before-complete (integration)', () =
     (game.state as any).battlefield = [];
 
     ResolutionQueueManager.addStep(gameId, {
-      type: ResolutionStepType.FORBIDDEN_ORCHARD_TARGET,
+      type: ResolutionStepType.OPTION_CHOICE,
       playerId: p1 as any,
       description: 'Choose an opponent',
       mandatory: true,
       permanentId: 'orchard_1',
-      opponents: [{ id: p2, name: 'P2' }],
+      options: [{ id: p2, label: 'P2' }],
+      minSelections: 1,
+      maxSelections: 1,
+      forbiddenOrchardTargetChoice: true,
       sourceName: 'Forbidden Orchard',
     } as any);
 
@@ -97,13 +100,13 @@ describe('FORBIDDEN_ORCHARD_TARGET validate-before-complete (integration)', () =
     registerResolutionHandlers(io as any, socket as any);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const step = queue.steps.find((s: any) => s.type === 'forbidden_orchard_target');
+    const step = queue.steps.find((s: any) => s.type === 'option_choice');
     expect(step).toBeDefined();
     const stepId = String((step as any).id);
 
     await handlers['submitResolutionResponse']({ gameId, stepId, selections: ['p3'] });
     const err = emitted.find(e => e.event === 'error');
-    expect(err?.payload?.code).toBe('INVALID_TARGET');
+    expect(err?.payload?.code).toBe('INVALID_SELECTION');
 
     const queueAfter = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);

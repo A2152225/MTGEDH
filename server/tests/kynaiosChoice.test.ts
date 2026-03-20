@@ -69,6 +69,11 @@ describe('KynaiosChoice resolution', () => {
         canPlayLand: true,
         landsInHand: [{ id: 'b-land', name: 'Plains' }],
         options: ['play_land', 'draw_card'],
+        landPlayOrFallbackIsController: false,
+        landPlayOrFallbackSourceController: 'A',
+        landPlayOrFallbackCanPlayLand: true,
+        landPlayOrFallbackLandsInHand: [{ id: 'b-land', name: 'Plains' }],
+        landPlayOrFallbackOptions: ['play_land', 'draw_card'],
       },
       {
         type: ResolutionStepType.KYNAIOS_CHOICE,
@@ -82,6 +87,11 @@ describe('KynaiosChoice resolution', () => {
         canPlayLand: false,
         landsInHand: [],
         options: ['play_land', 'draw_card'],
+        landPlayOrFallbackIsController: false,
+        landPlayOrFallbackSourceController: 'A',
+        landPlayOrFallbackCanPlayLand: false,
+        landPlayOrFallbackLandsInHand: [],
+        landPlayOrFallbackOptions: ['play_land', 'draw_card'],
       },
     ];
 
@@ -152,11 +162,11 @@ describe('KynaiosChoice resolution', () => {
         mandatory: false,
         sourceName: 'Kynaios and Tiro of Meletis',
         kynaiosBatchId: batchId,
-        isController: false,
-        sourceController: 'A',
-        canPlayLand: true,
-        landsInHand: [{ id: 'b-land', name: 'Plains' }],
-        options: ['play_land', 'draw_card'],
+        landPlayOrFallbackIsController: false,
+        landPlayOrFallbackSourceController: 'A',
+        landPlayOrFallbackCanPlayLand: true,
+        landPlayOrFallbackLandsInHand: [{ id: 'b-land', name: 'Plains' }],
+        landPlayOrFallbackOptions: ['play_land', 'draw_card'],
       },
     ];
 

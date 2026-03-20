@@ -27,7 +27,7 @@ export function registerTriggerHandlers(io: Server, socket: Socket): void {
   // ========================================================================
   // NOTE: The legacy kynaiosChoiceResponse handler has been removed.
   // Kynaios and Tiro choices are now handled by the Resolution Queue system
-  // via submitResolutionResponse. See resolution.ts handleKynaiosChoiceResponse.
+  // via submitResolutionResponse. See state/resolution/handlers/kynaiosChoice.ts.
   // ========================================================================
 }
 

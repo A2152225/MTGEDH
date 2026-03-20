@@ -88,11 +88,11 @@ describe('KYNAIOS_CHOICE validate-before-complete (integration)', () => {
       playerId: p1 as any,
       description: 'Kynaios choice',
       mandatory: true,
-      isController: true,
-      sourceController: p1,
-      canPlayLand: true,
-      landsInHand: [{ id: 'land_1', name: 'Forest' }],
-      options: ['play_land', 'decline'],
+      landPlayOrFallbackIsController: true,
+      landPlayOrFallbackSourceController: p1,
+      landPlayOrFallbackCanPlayLand: true,
+      landPlayOrFallbackLandsInHand: [{ id: 'land_1', name: 'Forest' }],
+      landPlayOrFallbackOptions: ['play_land', 'decline'],
     } as any);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];

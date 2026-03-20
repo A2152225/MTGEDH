@@ -917,12 +917,20 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     }
 
     ResolutionQueueManager.addStep(ctx.gameId, {
-      type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+      type: ResolutionStepType.OPTION_CHOICE,
       playerId: owner,
       sourceId: perm.id,
       sourceName: card.name,
+      sourceImage: card.image_uris?.small || card.image_uris?.normal,
       description: `Your commander ${card.name} would be put into your graveyard. Move it to the command zone instead?`,
       mandatory: true,
+      minSelections: 1,
+      maxSelections: 1,
+      commanderZoneChoice: true,
+      options: [
+        { id: 'command', label: 'Move to Command Zone' },
+        { id: 'stay', label: 'Let it go to graveyard' },
+      ],
       commanderId: card.id,
       commanderName: card.name,
       fromZone: 'graveyard',
@@ -1078,12 +1086,20 @@ export function movePermanentToExile(
     };
 
     ResolutionQueueManager.addStep(ctx.gameId, {
-      type: ResolutionStepType.COMMANDER_ZONE_CHOICE,
+      type: ResolutionStepType.OPTION_CHOICE,
       playerId: owner,
       sourceId: perm.id,
       sourceName: card.name,
+      sourceImage: card.image_uris?.small || card.image_uris?.normal,
       description: `Your commander ${card.name} would be put into exile. Move it to the command zone instead?`,
       mandatory: true,
+      minSelections: 1,
+      maxSelections: 1,
+      commanderZoneChoice: true,
+      options: [
+        { id: 'command', label: 'Move to Command Zone' },
+        { id: 'stay', label: 'Let it be exiled' },
+      ],
       commanderId: card.id,
       commanderName: card.name,
       fromZone: 'exile',

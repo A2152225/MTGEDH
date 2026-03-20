@@ -2792,6 +2792,13 @@ export interface SpellCastTrigger {
     types: string;
     abilities?: string[];
   };
+  oncePerTurn?: boolean;
+  replacementEffect?: {
+    kind: 'bottom_spell_reveal_until_nonland';
+    revealFromLibraryOf: 'controller';
+    castWithoutPayingManaCost: boolean;
+    randomizeBottomRemainder: boolean;
+  };
   addsLoyaltyCounters?: number; // Number of loyalty counters to add (for planeswalkers like Ral, Crackling Wit)
   mandatory: boolean;
 }
@@ -2889,6 +2896,41 @@ export function detectSpellCastTriggers(card: any, permanent: any): SpellCastTri
         });
       }
     }
+  }
+
+  const hasBottomRevealNonlandPattern =
+    lowerOracle.includes('whenever you cast a spell') &&
+    lowerOracle.includes('you may put it on the bottom of its owner') &&
+    lowerOracle.includes('reveal cards from the top of your library until you reveal a nonland card') &&
+    lowerOracle.includes('you may cast it without paying its mana cost') &&
+    lowerOracle.includes('put the rest on the bottom of your library in a random order');
+
+  if (hasBottomRevealNonlandPattern) {
+    const oncePerTurn = lowerOracle.includes('this ability triggers only once each turn');
+    for (let i = triggers.length - 1; i >= 0; i--) {
+      if (triggers[i]?.effect?.toLowerCase().includes('you may put it on the bottom of its owner')) {
+        triggers.splice(i, 1);
+      }
+    }
+
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description:
+        'Whenever you cast a spell, you may put it on the bottom of its owner\'s library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast it without paying its mana cost. Put the rest on the bottom of your library in a random order.',
+      effect:
+        'you may put it on the bottom of its owner\'s library. If you do, reveal cards from the top of your library until you reveal a nonland card. You may cast it without paying its mana cost. Put the rest on the bottom of your library in a random order.',
+      spellCondition: 'any',
+      oncePerTurn,
+      replacementEffect: {
+        kind: 'bottom_spell_reveal_until_nonland',
+        revealFromLibraryOf: 'controller',
+        castWithoutPayingManaCost: true,
+        randomizeBottomRemainder: true,
+      },
+      mandatory: false,
+    });
   }
   
   // Beast Whisperer pattern: "Whenever you cast a creature spell, draw a card"

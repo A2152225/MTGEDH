@@ -4,6 +4,7 @@ import type {
   ClientGameView,
   PlayerID,
   KnownCardRef,
+  CardFace,
   ChatMsg,
   BattlefieldPermanent,
   CardRef,
@@ -22,7 +23,7 @@ import { VoteModal } from "./components/VoteModal";
 import { CastSpellModal } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
 import { CombatControlModal, type CombatControlDeclarations } from "./components/CombatControlModal";
-import { BounceLandChoiceModal } from "./components/BounceLandChoiceModal";
+import { ReturnControlledPermanentChoiceModal } from "./components/ReturnControlledPermanentChoiceModal";
 import { CardSelectionModal } from "./components/CardSelectionModal";
 import { TriggeredAbilityModal, type TriggerPromptData } from "./components/TriggeredAbilityModal";
 import { MulliganBottomModal } from "./components/MulliganBottomModal";
@@ -44,7 +45,6 @@ import { AdditionalCostModal } from "./components/AdditionalCostModal";
 import { SquadCostModal } from "./components/SquadCostModal";
 import { PhyrexianManaChoiceModal } from "./components/PhyrexianManaChoiceModal";
 import { CastingModeSelectionModal, type CastingMode } from "./components/CastingModeSelectionModal";
-import { MDFCFaceSelectionModal, type CardFace } from "./components/MDFCFaceSelectionModal";
 import { ModalSpellSelectionModal, type SpellMode } from "./components/ModalSpellSelectionModal";
 import { ReplacementEffectOrderModal, type ReplacementEffectItem, type OrderingMode } from "./components/ReplacementEffectOrderModal";
 import { ReplacementEffectSettingsPanel } from "./components/ReplacementEffectSettingsPanel";
@@ -55,7 +55,6 @@ import { TemptingOfferModal, type TemptingOfferRequest } from "./components/Temp
 import { KynaiosChoiceModal, type KynaiosChoiceRequest } from "./components/KynaiosChoiceModal";
 import { OptionChoiceModal, type OptionChoiceRequest } from "./components/OptionChoiceModal";
 import { TwoPileSplitModal, type TwoPileSplitRequest } from "./components/TwoPileSplitModal";
-import { CommanderZoneChoiceModal } from "./components/CommanderZoneChoiceModal";
 import { TapUntapTargetModal } from "./components/TapUntapTargetModal";
 import { CounterMovementModal } from "./components/CounterMovementModal";
 import { StationCreatureSelectionModal, type StationCreature, type StationInfo } from "./components/StationCreatureSelectionModal";
@@ -72,7 +71,7 @@ import { IgnoredCardsPanel, type IgnoredCard, type IgnoredCardZone } from "./com
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
 import { useGameSocket } from "./hooks/useGameSocket";
-import type { PaymentItem, ManaColor, PendingCommanderZoneChoice, TriggerShortcut } from "../../shared/src";
+import type { PaymentItem, ManaColor, TriggerShortcut } from "../../shared/src";
 import { GameStatusIndicator } from "./components/GameStatusIndicator";
 import { CreateGameModal, type GameCreationConfig } from "./components/CreateGameModal";
 import { PhaseNavigator } from "./components/PhaseNavigator";
@@ -257,22 +256,21 @@ export function App() {
   // NOTE: Mox Diamond replacement-effect interaction is now handled by the
   // Resolution Queue via a generic option-choice step.
   
-  // Bounce land choice modal state
-  const [bounceLandModalOpen, setBounceLandModalOpen] = useState(false);
-  const [bounceLandData, setBounceLandData] = useState<{
-    bounceLandId: string;
-    bounceLandName: string;
+  // Return-controlled-permanent prompt state (currently used by bounce-land choice)
+  const [returnControlledPermanentModalOpen, setReturnControlledPermanentModalOpen] = useState(false);
+  const [returnControlledPermanentData, setReturnControlledPermanentData] = useState<{
+    sourceId: string;
+    sourceName: string;
     imageUrl?: string;
-    landsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string }>;
+    optionsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string }>;
+    title?: string;
+    subtitle?: string;
+    oracleText?: string;
+    confirmButtonText?: string;
     stackItemId?: string;
     stepId?: string;  // Resolution queue step ID
   } | null>(null);
 
-  // Commander replacement (Resolution Queue)
-  const [resolutionCommanderZoneChoice, setResolutionCommanderZoneChoice] = useState<
-    { stepId: string; choice: any } | null
-  >(null);
-  
   // Proliferate modal state
   const [proliferateModalOpen, setProliferateModalOpen] = useState(false);
   const [proliferateData, setProliferateData] = useState<{
@@ -542,17 +540,6 @@ export function App() {
   } | null>(null);
   
   // Mana Payment Trigger Modal state - for attack triggers with optional mana payment (e.g., Casal)
-  
-  // MDFC Face Selection Modal state - for Modal Double-Faced Cards like Blightstep Pathway
-  const [mdfcFaceModalOpen, setMdfcFaceModalOpen] = useState(false);
-  const [mdfcFaceModalData, setMdfcFaceModalData] = useState<{
-    stepId?: string;
-    cardId: string;
-    cardName: string;
-    title?: string;
-    description?: string;
-    faces: CardFace[];
-  } | null>(null);
   
   // Modal Spell Selection Modal state - for Spree, Choose One/Two, etc.
   const [modalSpellModalOpen, setModalSpellModalOpen] = useState(false);
@@ -2188,19 +2175,6 @@ export function App() {
         setStationCreatureSelectionOpen(true);
       }
 
-      // MDFC face selection via Resolution Queue
-      else if (step.type === 'mdfc_face_selection') {
-        setMdfcFaceModalData({
-          stepId: String(step.id),
-          cardId: String(step.cardId || ''),
-          cardName: String(step.cardName || step.sourceName || ''),
-          title: step.title,
-          description: step.description,
-          faces: Array.isArray(step.faces) ? step.faces : [],
-        });
-        setMdfcFaceModalOpen(true);
-      }
-
       // Life payment (Toxic Deluge, Hatred, etc.) via Resolution Queue
       else if (step.type === 'life_payment') {
         setLifePaymentModalData({
@@ -2217,56 +2191,32 @@ export function App() {
         setLifePaymentModalOpen(true);
       }
 
-      // Forbidden Orchard target opponent selection via Resolution Queue
-      else if (step.type === 'forbidden_orchard_target') {
-        const opponents = Array.isArray(step.opponents) ? step.opponents : [];
-        const request: OptionChoiceRequest = {
-          gameId: payload.gameId,
-          stepId: String(step.id),
-          sourceId: String(step.permanentId || step.sourceId || ''),
-          sourceName: String(step.cardName || step.sourceName || 'Forbidden Orchard'),
-          sourceImage: step.sourceImage,
-          description: String(step.description || 'Choose target opponent.'),
-          options: opponents.map((p: any) => ({
-            id: String(p.id),
-            label: String(p.name || p.id),
-          })),
-          minSelections: 1,
-          maxSelections: 1,
-          mandatory: true,
-        };
-
-        setOptionChoiceRequest(request);
-        setOptionChoiceModalOpen(true);
-      }
-      
       // Handle Bounce Land choice resolution step
-      else if (step.type === 'bounce_land_choice') {
+      else if (step.type === 'return_controlled_permanent_choice') {
         debug(2, '[BounceLand] Received bounce land choice from resolution queue:', step);
-        setBounceLandData({
-          bounceLandId: step.bounceLandId,
-          bounceLandName: step.bounceLandName || step.sourceName || 'Bounce Land',
+        const optionsToChoose = step.returnControlledPermanentOptions || [];
+        const sourceName = step.returnControlledPermanentSourceName || step.sourceName || 'Return Controlled Permanent';
+        setReturnControlledPermanentData({
+          sourceId: step.sourceId || step.id,
+          sourceName,
           imageUrl: step.sourceImage || step.sourceImageUrl,
-          landsToChoose: step.landsToChoose || [],
+          optionsToChoose,
+          title: `${sourceName} Enters the Battlefield`,
+          subtitle: step.returnControlledPermanentChoice
+            ? 'Choose a permanent to return to your hand'
+            : 'Choose a land to return to your hand',
+          oracleText: step.returnControlledPermanentChoice
+            ? `When ${sourceName} resolves, return a permanent you control to its owner's hand.`
+            : `When ${sourceName} enters the battlefield, return a land you control to its owner's hand.`,
+          confirmButtonText: step.returnControlledPermanentChoice
+            ? 'Return Selected Permanent'
+            : 'Return Selected Land',
           stackItemId: step.stackItemId,
           stepId: step.id,  // Store the step ID for resolution response
         });
-        setBounceLandModalOpen(true);
+        setReturnControlledPermanentModalOpen(true);
       }
 
-      // Handle Commander replacement choice (Rule 903.9a) via Resolution Queue
-      else if (step.type === 'commander_zone_choice') {
-        const choice = {
-          commanderId: step.commanderId,
-          commanderName: step.commanderName,
-          destinationZone: step.fromZone,
-          libraryPosition: step.libraryPosition,
-          card: step.card,
-          exileTag: step.exileTag,
-        };
-        setResolutionCommanderZoneChoice({ stepId: step.id, choice });
-      }
-      
       // Handle Join Forces resolution step
       else if (step.type === 'join_forces') {
         const allPlayers = (safeView?.players || []).map(p => p.id);
@@ -3683,13 +3633,13 @@ export function App() {
     setCombatControlModalOpen(false);
   };
 
-  // Bounce land handler - player selects which land to return
-  const handleBounceLandSelect = (permanentId: string) => {
-    if (!safeView || !bounceLandData) return;
+  // Return-controlled-permanent handler - player selects which permanent to return
+  const handleReturnControlledPermanentSelect = (permanentId: string) => {
+    if (!safeView || !returnControlledPermanentData) return;
     
-    const stepId = (bounceLandData as any).stepId;
+    const stepId = (returnControlledPermanentData as any).stepId;
     if (!stepId) {
-      debug(1, '[BounceLand] Missing stepId - bounce lands must use resolution queue');
+      debug(1, '[ReturnControlledPermanent] Missing stepId - prompt must use resolution queue');
       return;
     }
     
@@ -3699,10 +3649,10 @@ export function App() {
       selections: permanentId,
       cancelled: false,
     });
-    debug(2, '[BounceLand] Completed resolution step via resolution queue');
+    debug(2, '[ReturnControlledPermanent] Completed resolution step via resolution queue');
     
-    setBounceLandModalOpen(false);
-    setBounceLandData(null);
+    setReturnControlledPermanentModalOpen(false);
+    setReturnControlledPermanentData(null);
   };
 
   // Proliferate handler - player selects targets to proliferate
@@ -4000,8 +3950,8 @@ export function App() {
       // Fuse: special case - for now use legacy flow
       // TODO: Implement fuse handling in requestCastSpell
       const manaCost =
-        ((cardFaces[0] as any)?.mana_cost || cardFaces[0]?.manaCost || '') +
-        ((cardFaces[1] as any)?.mana_cost || cardFaces[1]?.manaCost || '');
+        (cardFaces[0]?.mana_cost || '') +
+        (cardFaces[1]?.mana_cost || '');
       const displayName = `${cardFaces[0]?.name || 'Left'} // ${cardFaces[1]?.name || 'Right'}`;
       setSpellToCast({
         cardId: splitCardData.cardId,
@@ -5670,13 +5620,17 @@ export function App() {
         />
       )}
 
-      {/* Bounce Land Choice Modal */}
-      <BounceLandChoiceModal
-        open={bounceLandModalOpen}
-        bounceLandName={bounceLandData?.bounceLandName || ''}
-        bounceLandImageUrl={bounceLandData?.imageUrl}
-        landsToChoose={bounceLandData?.landsToChoose || []}
-        onSelectLand={handleBounceLandSelect}
+      {/* Return Controlled Permanent Modal */}
+      <ReturnControlledPermanentChoiceModal
+        open={returnControlledPermanentModalOpen}
+        sourceName={returnControlledPermanentData?.sourceName || ''}
+        sourceImageUrl={returnControlledPermanentData?.imageUrl}
+        optionsToChoose={returnControlledPermanentData?.optionsToChoose || []}
+        title={returnControlledPermanentData?.title}
+        subtitle={returnControlledPermanentData?.subtitle}
+        oracleText={returnControlledPermanentData?.oracleText}
+        confirmButtonText={returnControlledPermanentData?.confirmButtonText}
+        onSelectPermanent={handleReturnControlledPermanentSelect}
       />
 
       {/* Proliferate Modal */}
@@ -6341,38 +6295,6 @@ export function App() {
         }}
       />
 
-      {/* MDFC Face Selection Modal (Blightstep Pathway, etc.) */}
-      <MDFCFaceSelectionModal
-        open={mdfcFaceModalOpen}
-        cardName={mdfcFaceModalData?.cardName || ''}
-        title={mdfcFaceModalData?.title}
-        description={mdfcFaceModalData?.description}
-        faces={(mdfcFaceModalData?.faces || []).map((face, index) => ({
-          index,
-          name: face.name ?? (face as any).name ?? 'Face',
-          typeLine: (face as any).type_line ?? (face as any).typeLine ?? '',
-          oracleText: (face as any).oracle_text ?? (face as any).oracleText,
-          manaCost: (face as any).mana_cost ?? (face as any).manaCost,
-          imageUrl: (face as any).image_uris?.normal || (face as any).image_uris?.small || (face as any).imageUrl,
-        }))}
-        onConfirm={(selectedFace) => {
-          if (safeView?.id && mdfcFaceModalData?.stepId) {
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: mdfcFaceModalData.stepId,
-              selections: Number(selectedFace),
-              cancelled: false,
-            });
-          }
-          setMdfcFaceModalOpen(false);
-          setMdfcFaceModalData(null);
-        }}
-        onCancel={() => {
-          setMdfcFaceModalOpen(false);
-          setMdfcFaceModalData(null);
-        }}
-      />
-
       {/* Modal Spell Selection Modal (Spree, Choose One/Two, Charms, etc.) */}
       <ModalSpellSelectionModal
         open={modalSpellModalOpen}
@@ -6621,23 +6543,6 @@ export function App() {
           setTwoPileSplitRequest(null);
         }}
       />
-
-      {/* Commander Zone Choice Modal (Rule 903.9a/903.9b) */}
-      {resolutionCommanderZoneChoice && (
-        <CommanderZoneChoiceModal
-          choice={resolutionCommanderZoneChoice.choice}
-          onChoice={(moveToCommandZone) => {
-            if (!safeView?.id) return;
-            socket.emit('submitResolutionResponse', {
-              gameId: safeView.id,
-              stepId: resolutionCommanderZoneChoice.stepId,
-              selections: moveToCommandZone ? 'command' : 'stay',
-              cancelled: false,
-            });
-            setResolutionCommanderZoneChoice(null);
-          }}
-        />
-      )}
 
       {/* Ponder Modal (Ponder, Index, Telling Time, etc.) */}
       {ponderModalOpen && ponderRequest && (

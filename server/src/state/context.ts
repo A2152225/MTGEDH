@@ -47,6 +47,14 @@ export interface GameContext {
 
   // NEW: explicit visibility grants for hand (Telepathy, judge, reveal-hand effects)
   handVisibilityGrants: Map<PlayerID, Set<PlayerID | "spectator:judge">>;
+  // Revealed top-of-library knowledge that persists while the same card remains on top.
+  revealedLibraryTopByOwner: Map<
+    PlayerID,
+    {
+      cardId: string;
+      viewers: Set<PlayerID | "spectator:judge">;
+    }
+  >;
 
   // RNG and sequencing helpers
   rngSeed: number | null;
@@ -308,6 +316,7 @@ export function createContext(gameId: string): GameContext {
 
     // NEW: initialize hand visibility grants map
     handVisibilityGrants: new Map(),
+    revealedLibraryTopByOwner: new Map(),
 
     rngSeed,
     rng,
