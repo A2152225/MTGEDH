@@ -206,6 +206,10 @@ export interface AIDecisionContext {
 export class AIEngine {
   private aiPlayers: Map<PlayerID, AIPlayerConfig> = new Map();
   private decisionHistory: Map<PlayerID, AIDecision[]> = new Map();
+
+  private getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
+    return applyStaticAbilitiesToBattlefield((gameState.battlefield || []) as BattlefieldPermanent[]);
+  }
   
   /**
    * Register an AI player
@@ -349,7 +353,7 @@ export class AIEngine {
     comboDetected: boolean;
     recommendedTargets: { permanentId: string; playerId: PlayerID; priority: number; reason: string }[];
   } {
-    const battlefield = gameState.battlefield || [];
+    const battlefield = this.getProcessedBattlefield(gameState);
     const playerAnalyses = new Map<PlayerID, BattlefieldAnalysis>();
     const criticalThreats: { permanentId: string; playerId: PlayerID; analysis: CardAnalysis }[] = [];
     const recommendedTargets: { permanentId: string; playerId: PlayerID; priority: number; reason: string }[] = [];
@@ -433,7 +437,7 @@ export class AIEngine {
     gameState: GameState,
     playerId: PlayerID
   ): { card: KnownCardRef; synergyScore: number; synergiesWith: string[]; analysis: CardAnalysis }[] {
-    const battlefield = gameState.battlefield || [];
+    const battlefield = this.getProcessedBattlefield(gameState);
     const results = cardAnalyzer.findSynergyCards(hand, battlefield, playerId);
     
     return results.map(r => ({
@@ -1005,7 +1009,7 @@ export class AIEngine {
     
     // Get the player and global battlefield
     const player = context.gameState.players.find(p => p.id === context.playerId);
-    const globalBattlefield = applyStaticAbilitiesToBattlefield((context.gameState.battlefield || []) as BattlefieldPermanent[]);
+    const globalBattlefield = this.getProcessedBattlefield(context.gameState);
     
     // Helper to find a permanent by ID in global battlefield
     const findPermanent = (id: string) => {
@@ -1190,7 +1194,7 @@ export class AIEngine {
     }
     
     // Get blockers from global battlefield
-    const globalBattlefield = context.gameState.battlefield || [];
+    const globalBattlefield = this.getProcessedBattlefield(context.gameState);
     const blockerPermanents = globalBattlefield.filter((p: any) => 
       p.controller === context.playerId && legalBlockerIds.includes(p.id)
     );
@@ -1223,7 +1227,8 @@ export class AIEngine {
     // Convert attackers to combat creatures
     const attackerCreatures = attackingCreatures.map((a: any) => {
       if (typeof a === 'object' && a.id) {
-        return createCombatCreature(a);
+        const processedAttacker = globalBattlefield.find((perm: BattlefieldPermanent) => perm.id === a.id) || a;
+        return createCombatCreature(processedAttacker as BattlefieldPermanent);
       }
       return null;
     }).filter(Boolean) as CombatCreature[];
@@ -1559,7 +1564,7 @@ export class AIEngine {
    */
   private countOpponentThreats(gameState: GameState, playerId: PlayerID): number {
     let threatCount = 0;
-    const battlefield = gameState.battlefield || [];
+    const battlefield = this.getProcessedBattlefield(gameState);
     
     for (const perm of battlefield) {
       if (perm.controller !== playerId) {
@@ -2512,8 +2517,13 @@ export class AIEngine {
     }
     
     // Use combat automation to calculate lethal damage
-    const attackerCreature = createCombatCreature(attacker);
-    const blockerCreatures = blockers.map((b: BattlefieldPermanent) => createCombatCreature(b));
+    const processedBattlefield = this.getProcessedBattlefield(context.gameState);
+    const processedAttacker = processedBattlefield.find((perm: BattlefieldPermanent) => perm.id === attacker.id) || attacker;
+    const attackerCreature = createCombatCreature(processedAttacker as BattlefieldPermanent);
+    const blockerCreatures = blockers.map((b: BattlefieldPermanent) => {
+      const processedBlocker = processedBattlefield.find((perm: BattlefieldPermanent) => perm.id === b.id) || b;
+      return createCombatCreature(processedBlocker as BattlefieldPermanent);
+    });
     
     // Sort blockers by toughness (kill smallest first to maximize trample)
     blockerCreatures.sort((a: CombatCreature, b: CombatCreature) => a.toughness - b.toughness);
@@ -2564,9 +2574,13 @@ export class AIEngine {
     }
     
     // Order blockers by toughness ascending (kill smallest first for maximum trample)
+    const processedBattlefield = this.getProcessedBattlefield(context.gameState);
+    const resolvePermanent = (perm: any) => typeof perm === 'object' && perm?.id
+      ? processedBattlefield.find((entry: BattlefieldPermanent) => entry.id === perm.id) || perm
+      : perm;
     const ordered = [...blockers].sort((a: any, b: any) => {
-      const aToughness = typeof a === 'object' ? getCreatureToughness(a) : 0;
-      const bToughness = typeof b === 'object' ? getCreatureToughness(b) : 0;
+      const aToughness = typeof a === 'object' ? getCreatureToughness(resolvePermanent(a)) : 0;
+      const bToughness = typeof b === 'object' ? getCreatureToughness(resolvePermanent(b)) : 0;
       return aToughness - bToughness;
     });
     

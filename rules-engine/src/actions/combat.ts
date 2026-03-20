@@ -289,39 +289,41 @@ export function hasDefender(permanent: any): boolean {
  * @param controllerId - The controller's player ID
  * @returns CombatValidationResult with canParticipate and reason
  */
-export function canPermanentAttack(permanent: any, controllerId?: string): CombatValidationResult {
+export function canPermanentAttack(permanent: any, controllerId?: string, battlefield?: any[]): CombatValidationResult {
   if (!permanent) {
     return { canParticipate: false, reason: 'Permanent not found' };
   }
+
+  const analyzedPermanent = getPermanentForGoadAnalysis(permanent, battlefield);
   
   // Must be a creature to attack (Rule 508.1a)
-  if (!isCurrentlyCreature(permanent)) {
+  if (!isCurrentlyCreature(analyzedPermanent)) {
     return { canParticipate: false, reason: 'Only creatures can attack' };
   }
   
   // Cannot attack if tapped (Rule 508.1a)
-  if (permanent.tapped) {
+  if (analyzedPermanent.tapped) {
     return { canParticipate: false, reason: 'Cannot attack with tapped creature' };
   }
   
   // Cannot attack with defender (Rule 702.3b)
-  if (hasDefender(permanent)) {
+  if (hasDefender(analyzedPermanent)) {
     return { canParticipate: false, reason: 'Creatures with defender cannot attack' };
   }
   
   // Check for summoning sickness (Rule 302.6)
   // A creature can't attack unless it has been under its controller's 
   // control continuously since the beginning of their most recent turn
-  if (permanent.summoningSickness || permanent.summmoningSickness) {
+  if (analyzedPermanent.summoningSickness || analyzedPermanent.summmoningSickness) {
     // Check for haste which bypasses summoning sickness
-    if (!hasHaste(permanent)) {
+    if (!hasHaste(analyzedPermanent)) {
       return { canParticipate: false, reason: 'Creature has summoning sickness' };
     }
   }
   
   // Check for "can't attack" modifiers (e.g., Pacifism, Arrest)
-  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
-    for (const mod of permanent.modifiers) {
+  if (analyzedPermanent.modifiers && Array.isArray(analyzedPermanent.modifiers)) {
+    for (const mod of analyzedPermanent.modifiers) {
       if (mod.type === 'cantAttack' || mod.type === 'CANT_ATTACK') {
         return { canParticipate: false, reason: mod.reason || 'This creature cannot attack' };
       }
@@ -329,7 +331,7 @@ export function canPermanentAttack(permanent: any, controllerId?: string): Comba
   }
   
   // Check oracle text for "can't attack" effects on attached auras/equipment
-  const oracleText = permanent.card?.oracle_text?.toLowerCase() || '';
+  const oracleText = analyzedPermanent.card?.oracle_text?.toLowerCase() || '';
   if (oracleText.includes("can't attack") || oracleText.includes("cannot attack")) {
     // Self-restricting abilities like "can't attack alone" are handled differently
     // Full implementation would check specific conditions
@@ -407,20 +409,23 @@ export function canPermanentBlock(permanent: any, attacker?: any, battlefield?: 
   if (!permanent) {
     return { canParticipate: false, reason: 'Permanent not found' };
   }
+
+  const analyzedPermanent = getPermanentForGoadAnalysis(permanent, battlefield);
+  const analyzedAttacker = attacker ? getPermanentForGoadAnalysis(attacker, battlefield) : attacker;
   
   // Must be a creature to block (Rule 509.1a)
-  if (!isCurrentlyCreature(permanent)) {
+  if (!isCurrentlyCreature(analyzedPermanent)) {
     return { canParticipate: false, reason: 'Only creatures can block' };
   }
   
   // Cannot block if tapped (Rule 509.1a)
-  if (permanent.tapped) {
+  if (analyzedPermanent.tapped) {
     return { canParticipate: false, reason: 'Cannot block with tapped creature' };
   }
   
   // Check for "can't block" modifiers
-  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
-    for (const mod of permanent.modifiers) {
+  if (analyzedPermanent.modifiers && Array.isArray(analyzedPermanent.modifiers)) {
+    for (const mod of analyzedPermanent.modifiers) {
       if (mod.type === 'cantBlock' || mod.type === 'CANT_BLOCK') {
         return { canParticipate: false, reason: mod.reason || 'This creature cannot block' };
       }
@@ -428,7 +433,7 @@ export function canPermanentBlock(permanent: any, attacker?: any, battlefield?: 
   }
   
   // Check oracle text for "can't block" self-restrictions
-  const oracleText = permanent.card?.oracle_text?.toLowerCase() || '';
+  const oracleText = analyzedPermanent.card?.oracle_text?.toLowerCase() || '';
   if (oracleText.includes("can't block") && !oracleText.includes("can't be blocked")) {
     // Check if it's a self-restriction (simple cases)
     // Full implementation would parse the oracle text more carefully
@@ -439,8 +444,8 @@ export function canPermanentBlock(permanent: any, attacker?: any, battlefield?: 
   }
   
   // If an attacker is provided, check evasion abilities (flying, shadow, etc.)
-  if (attacker) {
-    const evasionResult = checkEvasionAbilities(permanent, attacker, battlefield);
+  if (analyzedAttacker) {
+    const evasionResult = checkEvasionAbilities(analyzedPermanent, analyzedAttacker, battlefield);
     if (!evasionResult.canParticipate) {
       return evasionResult;
     }
@@ -504,6 +509,11 @@ function hasAbility(permanent: any, abilityName: string, battlefield?: any[]): b
   if (!permanent) return false;
   
   const lowerName = abilityName.toLowerCase();
+  const oracleText = String(permanent.card?.oracle_text || permanent.oracle_text || '').toLowerCase();
+
+  if (oracleText.includes(lowerName)) {
+    return true;
+  }
   
   // Check granted abilities stored on the permanent
   if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {
@@ -900,15 +910,14 @@ function getPermanentToughness(permanent: any): number {
  */
 export function getLegalAttackers(state: GameState, playerId: string): string[] {
   const legalAttackers: string[] = [];
+  const battlefield = buildProcessedBattlefieldForGoad(state.battlefield as any[] | undefined);
   
   // Check global battlefield (single source of truth)
-  if (state.battlefield) {
-    for (const perm of state.battlefield as any[]) {
-      if (perm.controller === playerId) {
-        const result = canPermanentAttack(perm, playerId);
-        if (result.canParticipate) {
-          legalAttackers.push(perm.id);
-        }
+  for (const perm of battlefield) {
+    if (perm.controller === playerId) {
+      const result = canPermanentAttack(perm, playerId, battlefield);
+      if (result.canParticipate) {
+        legalAttackers.push(perm.id);
       }
     }
   }
@@ -929,12 +938,12 @@ export function getLegalAttackers(state: GameState, playerId: string): string[] 
 export function getGoadedAttackers(state: GameState, playerId: string): string[] {
   const goadedAttackers: string[] = [];
   const currentTurn = state.turn;
-  const battlefield = state.battlefield as any[] || [];
+  const battlefield = buildProcessedBattlefieldForGoad(state.battlefield as any[] | undefined);
   
   // Check global battlefield (single source of truth)
   for (const perm of battlefield) {
     if (perm.controller === playerId && isGoaded(perm, currentTurn, battlefield)) {
-      const result = canPermanentAttack(perm, playerId);
+      const result = canPermanentAttack(perm, playerId, battlefield);
       if (result.canParticipate) {
         goadedAttackers.push(perm.id);
       }
@@ -955,7 +964,7 @@ export function getGoadedAttackers(state: GameState, playerId: string): string[]
 export function getLegalBlockers(state: GameState, playerId: string, attackerId?: string): string[] {
   const legalBlockers: string[] = [];
   let attacker: any = null;
-  const battlefield = state.battlefield as any[] || [];
+  const battlefield = buildProcessedBattlefieldForGoad(state.battlefield as any[] | undefined);
   
   // Find the attacker if specified
   if (attackerId) {
@@ -989,6 +998,7 @@ export function validateDeclareAttackers(
   state: GameState,
   action: DeclareAttackersAction
 ): { legal: boolean; reason?: string; pillowfortCosts?: AttackCostCheckResult } {
+  const battlefield = buildProcessedBattlefieldForGoad(state.battlefield as any[] | undefined);
   // Check if it's the declare attackers step
   if (state.step !== SharedGameStep.DECLARE_ATTACKERS) {
     return { legal: false, reason: 'Not in declare attackers step' };
@@ -1003,7 +1013,7 @@ export function validateDeclareAttackers(
   // Validate each attacker using comprehensive validation
   for (const attacker of action.attackers) {
     // Check global battlefield (single source of truth)
-    const permanent = state.battlefield?.find(
+    const permanent = battlefield.find(
       (p: any) => p.id === attacker.creatureId && p.controller === action.playerId
     );
     
@@ -1012,21 +1022,21 @@ export function validateDeclareAttackers(
     }
     
     // Use comprehensive attack validation
-    const validationResult = canPermanentAttack(permanent, action.playerId);
+    const validationResult = canPermanentAttack(permanent, action.playerId, battlefield);
     if (!validationResult.canParticipate) {
       return { legal: false, reason: validationResult.reason || 'Cannot attack with this permanent' };
     }
     
     // Check goad restrictions (Rule 701.15b)
     // Static goad effects (Baeloth) are now handled via isStaticallyGoaded flag
-    if (isGoaded(permanent, state.turn, state.battlefield as any[])) {
+    if (isGoaded(permanent, state.turn, battlefield)) {
       const allPlayerIds = state.players.map(p => p.id);
       const goadCheck = canGoadedCreatureAttack(
         permanent,
         attacker.defendingPlayerId,
         allPlayerIds,
         state.turn,
-        state.battlefield as any[]
+        battlefield
       );
       if (!goadCheck.canAttack) {
         return { 
@@ -1044,7 +1054,7 @@ export function validateDeclareAttackers(
   for (const goadedId of goadedCreatures) {
     if (!attackingCreatureIds.has(goadedId)) {
       // Find the creature for error message (global battlefield only)
-      const creature = state.battlefield?.find((p: any) => p.id === goadedId);
+      const creature = battlefield.find((p: any) => p.id === goadedId);
       const creatureName = creature?.card?.name || 'Goaded creature';
       return { 
         legal: false, 
@@ -1163,6 +1173,7 @@ export function validateDeclareBlockers(
   state: GameState,
   action: DeclareBlockersAction
 ): { legal: boolean; reason?: string } {
+  const battlefield = buildProcessedBattlefieldForGoad(state.battlefield as any[] | undefined);
   // Check if it's the declare blockers step
   if (state.step !== SharedGameStep.DECLARE_BLOCKERS) {
     return { legal: false, reason: 'Not in declare blockers step' };
@@ -1171,7 +1182,7 @@ export function validateDeclareBlockers(
   // Validate each blocker using comprehensive validation
   for (const blocker of action.blockers) {
     // Find the blocker permanent (using centralized battlefield)
-    let permanent = state.battlefield?.find(
+    let permanent = battlefield.find(
       (p: any) => p.id === blocker.blockerId && p.controller === action.playerId
     );
     
@@ -1180,7 +1191,7 @@ export function validateDeclareBlockers(
     }
     
     // Find the attacker being blocked (for evasion checks)
-    let attacker = state.battlefield?.find(
+    let attacker = battlefield.find(
       (p: any) => p.id === blocker.attackerId
     );
     if (!attacker) {
@@ -1193,12 +1204,12 @@ export function validateDeclareBlockers(
       }
       // Attacker should already be in state.battlefield
       if (!attacker) {
-        attacker = (state.battlefield || []).find((p: any) => p.id === blocker.attackerId);
+        attacker = battlefield.find((p: any) => p.id === blocker.attackerId);
       }
     }
     
     // Use comprehensive block validation (includes evasion checks)
-    const validationResult = canPermanentBlock(permanent, attacker);
+    const validationResult = canPermanentBlock(permanent, attacker, battlefield);
     if (!validationResult.canParticipate) {
       return { legal: false, reason: validationResult.reason || 'Cannot block with this permanent' };
     }

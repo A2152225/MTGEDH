@@ -596,7 +596,13 @@ export function calculateEffectivePT(
   toughness += plusCounters - minusCounters;
   
   // Collect granted and removed abilities
-  const grantedAbilities: string[] = [];
+  const grantedAbilities = Array.isArray((permanent as any).grantedAbilities)
+    ? Array.from(new Set(
+        ((permanent as any).grantedAbilities as unknown[])
+          .filter((ability): ability is string => typeof ability === 'string')
+          .map(ability => ability.toLowerCase())
+      ))
+    : [];
   const removedAbilities: string[] = [];
   
   // Check for attached equipment/auras that grant abilities

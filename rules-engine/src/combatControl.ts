@@ -28,6 +28,24 @@ import type {
   GameState, 
   CombatControlEffect 
 } from '../../shared/src';
+import { canPermanentAttack, canPermanentBlock } from './actions/combat';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
+
+function getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
+  return applyStaticAbilitiesToBattlefield((gameState.battlefield || []) as BattlefieldPermanent[]);
+}
+
+function getKeywordList(permanent: BattlefieldPermanent): string[] {
+  const oracleText = (((permanent.card as any)?.oracle_text) || '').toLowerCase();
+  const grantedAbilities = Array.isArray((permanent as any).grantedAbilities)
+    ? ((permanent as any).grantedAbilities as unknown[])
+        .filter((ability): ability is string => typeof ability === 'string')
+        .map(ability => ability.toLowerCase())
+    : [];
+  const combinedText = `${oracleText} ${grantedAbilities.join(' ')}`;
+  const keywords = ['flying', 'first strike', 'double strike', 'trample', 'haste', 'vigilance', 'lifelink', 'deathtouch', 'defender', 'reach', 'shadow', 'horsemanship'];
+  return keywords.filter(keyword => combinedText.includes(keyword));
+}
 
 /**
  * Result of validating a combat control action
@@ -155,46 +173,17 @@ export function detectCombatControlEffect(
 export function canCreatureBeControlledToAttack(
   creature: BattlefieldPermanent,
   controller: PlayerID,
-  combatControl?: CombatControlEffect
+  combatControl?: CombatControlEffect,
+  battlefield?: BattlefieldPermanent[]
 ): { canAttack: boolean; reason?: string } {
-  const card = creature.card as { 
-    type_line?: string; 
-    oracle_text?: string;
-    name?: string;
-  } | undefined;
-  
-  const typeLine = (card?.type_line || '').toLowerCase();
-  const oracleText = (card?.oracle_text || '').toLowerCase();
-  const creatureName = card?.name || 'creature';
-  
-  // Must be a creature
-  if (!typeLine.includes('creature')) {
-    return { canAttack: false, reason: `${creatureName} is not a creature` };
-  }
-  
-  // Can't attack if tapped
-  if (creature.tapped) {
-    return { canAttack: false, reason: `${creatureName} is tapped` };
-  }
-  
-  // Can't attack with defender
-  if (oracleText.includes('defender')) {
-    return { canAttack: false, reason: `${creatureName} has defender` };
-  }
-  
-  // Can't attack with summoning sickness unless has haste
-  if (creature.summoningSickness) {
-    const hasHaste = oracleText.includes('haste') || 
-      (creature.grantedAbilities || []).some(a => 
-        typeof a === 'string' ? a.toLowerCase() === 'haste' : false
-      );
-    if (!hasHaste) {
-      return { canAttack: false, reason: `${creatureName} has summoning sickness` };
-    }
+  const validation = canPermanentAttack(creature, controller, battlefield);
+  if (!validation.canParticipate) {
+    return { canAttack: false, reason: validation.reason };
   }
   
   // Check if creature is prevented from attacking by combat control
   if (combatControl?.preventedAttackers?.includes(creature.id)) {
+    const creatureName = ((creature.card as any)?.name) || 'creature';
     return { canAttack: false, reason: `${creatureName} is prevented from attacking` };
   }
   
@@ -208,64 +197,17 @@ export function canCreatureBeControlledToAttack(
 export function canCreatureBeControlledToBlock(
   creature: BattlefieldPermanent,
   attacker: BattlefieldPermanent,
-  combatControl?: CombatControlEffect
+  combatControl?: CombatControlEffect,
+  battlefield?: BattlefieldPermanent[]
 ): { canBlock: boolean; reason?: string } {
-  const card = creature.card as { 
-    type_line?: string; 
-    oracle_text?: string;
-    name?: string;
-  } | undefined;
-  const attackerCard = attacker.card as {
-    oracle_text?: string;
-    name?: string;
-  } | undefined;
-  
-  const typeLine = (card?.type_line || '').toLowerCase();
-  const oracleText = (card?.oracle_text || '').toLowerCase();
-  const attackerText = (attackerCard?.oracle_text || '').toLowerCase();
-  const creatureName = card?.name || 'creature';
-  const attackerName = attackerCard?.name || 'attacker';
-  
-  // Must be a creature
-  if (!typeLine.includes('creature')) {
-    return { canBlock: false, reason: `${creatureName} is not a creature` };
-  }
-  
-  // Can't block if tapped
-  if (creature.tapped) {
-    return { canBlock: false, reason: `${creatureName} is tapped` };
-  }
-  
-  // Check for "can't block" effects
-  if (oracleText.includes("can't block") && !oracleText.includes("can't be blocked")) {
-    return { canBlock: false, reason: `${creatureName} can't block` };
-  }
-  
-  // Check flying - can only be blocked by flying or reach
-  if (attackerText.includes('flying')) {
-    const hasFlying = oracleText.includes('flying');
-    const hasReach = oracleText.includes('reach');
-    if (!hasFlying && !hasReach) {
-      return { canBlock: false, reason: `${creatureName} can't block ${attackerName} (flying)` };
-    }
-  }
-  
-  // Check shadow - can only be blocked by shadow
-  if (attackerText.includes('shadow')) {
-    if (!oracleText.includes('shadow')) {
-      return { canBlock: false, reason: `${creatureName} can't block ${attackerName} (shadow)` };
-    }
-  }
-  
-  // Check horsemanship - can only be blocked by horsemanship
-  if (attackerText.includes('horsemanship')) {
-    if (!oracleText.includes('horsemanship')) {
-      return { canBlock: false, reason: `${creatureName} can't block ${attackerName} (horsemanship)` };
-    }
+  const validation = canPermanentBlock(creature, attacker, battlefield);
+  if (!validation.canParticipate) {
+    return { canBlock: false, reason: validation.reason };
   }
   
   // Check if creature is prevented from blocking by combat control
   if (combatControl?.preventedBlockers?.includes(creature.id)) {
+    const creatureName = ((creature.card as any)?.name) || 'creature';
     return { canBlock: false, reason: `${creatureName} is prevented from blocking` };
   }
   
@@ -281,8 +223,7 @@ export function getControllableAttackers(
   combatControl: CombatControlEffect
 ): CombatCreatureInfo[] {
   const creatures: CombatCreatureInfo[] = [];
-  
-  const battlefield = gameState.battlefield || [];
+  const battlefield = getProcessedBattlefield(gameState);
   for (const perm of battlefield) {
     const card = perm.card as { 
       type_line?: string; 
@@ -297,16 +238,16 @@ export function getControllableAttackers(
     // Only include creatures
     if (!typeLine.includes('creature')) continue;
     
-    const oracleText = (card?.oracle_text || '').toLowerCase();
-    const { canAttack, reason } = canCreatureBeControlledToAttack(perm, perm.controller, combatControl);
+    const oracleText = `${(card?.oracle_text || '').toLowerCase()} ${(((perm as any).grantedAbilities) || []).join(' ').toLowerCase()}`;
+    const { canAttack } = canCreatureBeControlledToAttack(perm, perm.controller, combatControl, battlefield);
     
     // Parse power/toughness
-    const power = typeof card?.power === 'number' 
-      ? card.power 
-      : parseInt(String(card?.power || '0'), 10) || 0;
-    const toughness = typeof card?.toughness === 'number'
-      ? card.toughness
-      : parseInt(String(card?.toughness || '0'), 10) || 0;
+    const power = typeof (perm as any).effectivePower === 'number'
+      ? (perm as any).effectivePower
+      : (typeof card?.power === 'number' ? card.power : parseInt(String(card?.power || '0'), 10) || 0);
+    const toughness = typeof (perm as any).effectiveToughness === 'number'
+      ? (perm as any).effectiveToughness
+      : (typeof card?.toughness === 'number' ? card.toughness : parseInt(String(card?.toughness || '0'), 10) || 0);
     
     // Check for attack requirements ("must attack")
     const mustAttack = oracleText.includes('must attack') || 
@@ -316,16 +257,7 @@ export function getControllableAttackers(
     const cantAttack = !canAttack;
     
     // Extract keywords for display
-    const keywords: string[] = [];
-    if (oracleText.includes('flying')) keywords.push('flying');
-    if (oracleText.includes('first strike')) keywords.push('first strike');
-    if (oracleText.includes('double strike')) keywords.push('double strike');
-    if (oracleText.includes('trample')) keywords.push('trample');
-    if (oracleText.includes('haste')) keywords.push('haste');
-    if (oracleText.includes('vigilance')) keywords.push('vigilance');
-    if (oracleText.includes('lifelink')) keywords.push('lifelink');
-    if (oracleText.includes('deathtouch')) keywords.push('deathtouch');
-    if (oracleText.includes('defender')) keywords.push('defender');
+    const keywords = getKeywordList(perm);
     
     creatures.push({
       id: perm.id,
@@ -358,8 +290,7 @@ export function getControllableBlockers(
   combatControl: CombatControlEffect
 ): CombatCreatureInfo[] {
   const creatures: CombatCreatureInfo[] = [];
-  
-  const battlefield = gameState.battlefield || [];
+  const battlefield = getProcessedBattlefield(gameState);
   
   // Get defending players (those being attacked)
   const defendingPlayerIds = new Set(
@@ -383,15 +314,15 @@ export function getControllableBlockers(
     // Only include creatures
     if (!typeLine.includes('creature')) continue;
     
-    const oracleText = (card?.oracle_text || '').toLowerCase();
+    const oracleText = `${(card?.oracle_text || '').toLowerCase()} ${(((perm as any).grantedAbilities) || []).join(' ').toLowerCase()}`;
     
     // Parse power/toughness
-    const power = typeof card?.power === 'number' 
-      ? card.power 
-      : parseInt(String(card?.power || '0'), 10) || 0;
-    const toughness = typeof card?.toughness === 'number'
-      ? card.toughness
-      : parseInt(String(card?.toughness || '0'), 10) || 0;
+    const power = typeof (perm as any).effectivePower === 'number'
+      ? (perm as any).effectivePower
+      : (typeof card?.power === 'number' ? card.power : parseInt(String(card?.power || '0'), 10) || 0);
+    const toughness = typeof (perm as any).effectiveToughness === 'number'
+      ? (perm as any).effectiveToughness
+      : (typeof card?.toughness === 'number' ? card.toughness : parseInt(String(card?.toughness || '0'), 10) || 0);
     
     // General blocking ability (will be refined per-attacker)
     const canBlock = !perm.tapped && !oracleText.includes("can't block");
@@ -404,15 +335,7 @@ export function getControllableBlockers(
     const cantBlock = oracleText.includes("can't block") && !oracleText.includes("can't be blocked");
     
     // Extract keywords for display
-    const keywords: string[] = [];
-    if (oracleText.includes('flying')) keywords.push('flying');
-    if (oracleText.includes('first strike')) keywords.push('first strike');
-    if (oracleText.includes('double strike')) keywords.push('double strike');
-    if (oracleText.includes('trample')) keywords.push('trample');
-    if (oracleText.includes('reach')) keywords.push('reach');
-    if (oracleText.includes('vigilance')) keywords.push('vigilance');
-    if (oracleText.includes('lifelink')) keywords.push('lifelink');
-    if (oracleText.includes('deathtouch')) keywords.push('deathtouch');
+    const keywords = getKeywordList(perm);
     
     creatures.push({
       id: perm.id,
@@ -447,7 +370,7 @@ export function validateCombatControlAttackers(
     targetPermanentId?: string;
   }>
 ): CombatControlValidation {
-  const battlefield = gameState.battlefield || [];
+  const battlefield = getProcessedBattlefield(gameState);
   const invalidCreatures: string[] = [];
   const reasons: string[] = [];
   
@@ -462,7 +385,8 @@ export function validateCombatControlAttackers(
     const { canAttack, reason } = canCreatureBeControlledToAttack(
       creature, 
       creature.controller, 
-      combatControl
+      combatControl,
+      battlefield
     );
     
     if (!canAttack) {
@@ -515,7 +439,7 @@ export function validateCombatControlBlockers(
     attackerId: string;
   }>
 ): CombatControlValidation {
-  const battlefield = gameState.battlefield || [];
+  const battlefield = getProcessedBattlefield(gameState);
   const invalidCreatures: string[] = [];
   const reasons: string[] = [];
   
@@ -538,7 +462,8 @@ export function validateCombatControlBlockers(
     const { canBlock, reason } = canCreatureBeControlledToBlock(
       blocker,
       attacker,
-      combatControl
+      combatControl,
+      battlefield
     );
     
     if (!canBlock) {

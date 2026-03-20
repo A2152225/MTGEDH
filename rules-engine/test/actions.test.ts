@@ -805,6 +805,41 @@ describe('Combat Validation Helpers', () => {
       const attackers = getLegalAttackers(gameState, 'player1');
       expect(attackers).toEqual(['c2']); // Only the creature with haste
     });
+
+    it('should allow equipment-granted haste when determining legal attackers', () => {
+      const gameState = {
+        players: [
+          {
+            id: 'player1',
+          },
+        ],
+        battlefield: [
+          {
+            id: 'c1',
+            controller: 'player1',
+            owner: 'player1',
+            tapped: false,
+            summoningSickness: true,
+            attachedEquipment: ['boots1'],
+            card: { type_line: 'Creature — Bear', name: 'Grizzly Bears', power: '2', toughness: '2', oracle_text: '' },
+          },
+          {
+            id: 'boots1',
+            controller: 'player1',
+            owner: 'player1',
+            attachedTo: 'c1',
+            card: {
+              type_line: 'Artifact — Equipment',
+              name: 'Swiftfoot Boots',
+              oracle_text: 'Equipped creature has hexproof and haste.',
+            },
+          },
+        ],
+      } as unknown as GameState;
+
+      const attackers = getLegalAttackers(gameState, 'player1');
+      expect(attackers).toEqual(['c1']);
+    });
   });
 
   describe('getLegalBlockers', () => {
@@ -825,6 +860,46 @@ describe('Combat Validation Helpers', () => {
 
       const blockers = getLegalBlockers(gameState, 'player1');
       expect(blockers).toEqual(['c1']); // Only the untapped creature
+    });
+
+    it('should allow equipment-granted flying when blocking a flying attacker', () => {
+      const gameState = {
+        players: [
+          { id: 'player1' },
+          { id: 'player2' },
+        ],
+        battlefield: [
+          {
+            id: 'attacker1',
+            controller: 'player2',
+            owner: 'player2',
+            tapped: false,
+            card: { type_line: 'Creature — Drake', name: 'Wind Drake', power: '2', toughness: '2', oracle_text: 'Flying' },
+          },
+          {
+            id: 'blocker1',
+            controller: 'player1',
+            owner: 'player1',
+            tapped: false,
+            attachedEquipment: ['kitesail1'],
+            card: { type_line: 'Creature — Bear', name: 'Grizzly Bears', power: '2', toughness: '2', oracle_text: '' },
+          },
+          {
+            id: 'kitesail1',
+            controller: 'player1',
+            owner: 'player1',
+            attachedTo: 'blocker1',
+            card: {
+              type_line: 'Artifact — Equipment',
+              name: 'Cliffhaven Kitesail',
+              oracle_text: 'Equipped creature has flying.',
+            },
+          },
+        ],
+      } as unknown as GameState;
+
+      const blockers = getLegalBlockers(gameState, 'player1', 'attacker1');
+      expect(blockers).toEqual(['blocker1']);
     });
   });
 });

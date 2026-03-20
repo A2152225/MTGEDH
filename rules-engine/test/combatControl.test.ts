@@ -366,6 +366,38 @@ describe('Controllable Creatures', () => {
       const c3Info = attackers.find(a => a.id === 'c3');
       expect(c3Info?.canAttack).toBe(false);
     });
+
+    it('should treat equipment-granted haste as valid for controlled attacks', () => {
+      const creature = createTestPermanent('c1', 'Grizzly Bears', 2, 2, '', 'player1', {
+        summoningSickness: true,
+        attachedEquipment: ['boots1'],
+      });
+      const boots = {
+        id: 'boots1',
+        controller: 'player1',
+        owner: 'player1',
+        tapped: false,
+        attachedTo: 'c1',
+        card: {
+          id: 'boots1',
+          name: 'Swiftfoot Boots',
+          type_line: 'Artifact — Equipment',
+          oracle_text: 'Equipped creature has hexproof and haste.',
+        } as KnownCardRef,
+      } as BattlefieldPermanent;
+
+      const gameState = createTestGameState([creature, boots]);
+      const combatControl: CombatControlEffect = {
+        controllerId: 'player1',
+        sourceId: 'mw1',
+        sourceName: 'Master Warcraft',
+        controlsAttackers: true,
+        controlsBlockers: true,
+      };
+
+      const attackers = getControllableAttackers(gameState, combatControl);
+      expect(attackers.find(a => a.id === 'c1')?.canAttack).toBe(true);
+    });
   });
 
   describe('getControllableBlockers', () => {
@@ -393,6 +425,40 @@ describe('Controllable Creatures', () => {
       
       const b2Info = blockers.find(b => b.id === 'b2');
       expect(b2Info?.canBlock).toBe(false);
+    });
+
+    it('should treat equipment-granted flying as valid for controlled blocking', () => {
+      const attacker = createTestPermanent('a1', 'Wind Drake', 2, 2, 'Flying', 'player1');
+      const blocker = createTestPermanent('b1', 'Hill Giant', 3, 3, '', 'player2', {
+        attachedEquipment: ['kitesail1'],
+      });
+      const kitesail = {
+        id: 'kitesail1',
+        controller: 'player2',
+        owner: 'player2',
+        tapped: false,
+        attachedTo: 'b1',
+        card: {
+          id: 'kitesail1',
+          name: 'Cliffhaven Kitesail',
+          type_line: 'Artifact — Equipment',
+          oracle_text: 'Equipped creature has flying.',
+        } as KnownCardRef,
+      } as BattlefieldPermanent;
+
+      const gameState = createTestGameState([attacker, blocker, kitesail]);
+      const combatControl: CombatControlEffect = {
+        controllerId: 'player1',
+        sourceId: 'mw1',
+        sourceName: 'Master Warcraft',
+        controlsAttackers: true,
+        controlsBlockers: true,
+      };
+
+      const attackers = [{ creatureId: 'a1', targetPlayerId: 'player2' }];
+      const blockers = getControllableBlockers(gameState, attackers, combatControl);
+      expect(blockers.find(b => b.id === 'b1')?.canBlock).toBe(true);
+      expect(blockers.find(b => b.id === 'b1')?.keywords).toContain('flying');
     });
   });
 });
