@@ -321,9 +321,68 @@ function normalizeOracleText(value: string): string {
 }
 
 function getCardTypeLineLower(card: any): string {
-  return String(card?.type_line || card?.card?.type_line || '')
+  return String(card?.cardType || card?.type_line || card?.card?.type_line || '')
     .toLowerCase()
     .trim();
+}
+
+function isPermanentTypeQualifier(typeQualifier: string): boolean {
+  return typeQualifier === 'permanent' || typeQualifier === 'nonland permanent';
+}
+
+function matchesCardTypeQualifier(card: any, rawTypeQualifier?: string): boolean {
+  const typeQualifier = normalizeOracleText(String(rawTypeQualifier || ''));
+  if (!typeQualifier) return true;
+
+  const typeLine = getCardTypeLineLower(card);
+  if (!typeLine) return false;
+
+  if (typeQualifier === 'permanent') {
+    return !typeLine.includes('instant') && !typeLine.includes('sorcery');
+  }
+
+  if (typeQualifier === 'nonland permanent') {
+    return !typeLine.includes('land') && !typeLine.includes('instant') && !typeLine.includes('sorcery');
+  }
+
+  return typeLine.includes(typeQualifier);
+}
+
+function isCardExiledWithSource(card: any, sourceId: string): boolean {
+  if (!sourceId) return false;
+
+  const linkedIds = [
+    card?.exiledBy,
+    card?.exiledWith,
+    card?.exiledWithSourceId,
+    card?.card?.exiledBy,
+    card?.card?.exiledWith,
+    card?.card?.exiledWithSourceId,
+  ]
+    .map(value => String(value || '').trim())
+    .filter(Boolean);
+
+  return linkedIds.includes(sourceId);
+}
+
+function countCardsExiledWithSource(
+  state: GameState,
+  sourceId: string,
+  rawTypeQualifier?: string
+): number {
+  if (!sourceId) return 0;
+
+  let count = 0;
+  for (const player of state.players as any[]) {
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    for (const card of exile) {
+      if (!isCardExiledWithSource(card, sourceId)) continue;
+      if (!matchesCardTypeQualifier(card, rawTypeQualifier)) continue;
+      count++;
+    }
+  }
+
+  return count;
 }
 
 function getCardTypesFromTypeLine(card: any): readonly string[] | null {
@@ -2027,6 +2086,24 @@ function evaluateModifyPtWhereX(
           // Let pronoun/antecedent-specific matchers resolve these forms.
         } else {
           const obj = findObjectByName(objectName);
+
+    {
+      const m = raw.match(/^x is the number of untapped lands (?:that player controls|they control)$/i);
+      if (m) {
+        const targetPlayerId = String(
+          ctx?.selectorContext?.targetPlayerId ||
+          ctx?.selectorContext?.targetOpponentId ||
+          ''
+        ).trim();
+        if (!targetPlayerId) return null;
+
+        return battlefield.filter((p: any) => {
+          if (String((p as any)?.controller || '').trim() !== targetPlayerId) return false;
+          if (!typeLineLower(p).includes('land')) return false;
+          return (p as any)?.tapped !== true;
+        }).length;
+      }
+    }
           if (!obj) return null;
           return getCounterCountOnObject(obj, counterName);
         }
@@ -3934,27 +4011,19 @@ function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of cards? exiled with this (?:permanent|creature|artifact|enchantment|planeswalker|card)?$/i);
+    const m = raw.match(/^x is the number of (?:(nonland permanent|permanent|artifact|battle|creature|enchantment|instant|land|planeswalker|sorcery) )?cards? exiled with this (?:permanent|creature|artifact|enchantment|planeswalker|card)?$/i);
     if (m) {
       const sourceId = String(ctx?.sourceId || '').trim();
       if (!sourceId) return null;
-      let count = 0;
-      for (const player of state.players as any[]) {
-        const exile = Array.isArray(player?.exile) ? player.exile : [];
-        for (const card of exile) {
-          const exiledBy = String((card as any)?.exiledBy || '').trim();
-          if (exiledBy && exiledBy === sourceId) count++;
-        }
-      }
-      return count;
+      return countCardsExiledWithSource(state, sourceId, m[1]);
     }
   }
 
   // ── Cards exiled by a named permanent ────────────────────────────────────────
   {
-    const m = raw.match(/^x is the number of cards? exiled with (?!this\b)([a-z][a-z0-9 ,.'\u2019-]*)$/i);
+    const m = raw.match(/^x is the number of (?:(nonland permanent|permanent|artifact|battle|creature|enchantment|instant|land|planeswalker|sorcery) )?cards? exiled with (?!this\b)([a-z][a-z0-9 ,.'\u2019-]*)$/i);
     if (m) {
-      const wantedName = normalizeOracleText(String(m[1] || ''));
+      const wantedName = normalizeOracleText(String(m[2] || ''));
       if (!wantedName) return null;
       const namedPermanent = (battlefield as any[]).find((p: any) => {
         const name = normalizeOracleText(String((p as any)?.name || (p as any)?.card?.name || ''));
@@ -3963,14 +4032,7 @@ function evaluateModifyPtWhereX(
       const namedId = String((namedPermanent as any)?.id || '').trim();
       if (!namedId) return null;
 
-      let count = 0;
-      for (const player of state.players as any[]) {
-        const exile = Array.isArray(player?.exile) ? player.exile : [];
-        for (const card of exile) {
-          if (String((card as any)?.exiledBy || '').trim() === namedId) count++;
-        }
-      }
-      return count;
+      return countCardsExiledWithSource(state, namedId, m[1]);
     }
   }
 
