@@ -548,6 +548,13 @@ function resolveSingleCreatureTargetId(
   target: OracleObjectSelector,
   ctx: OracleIRExecutionContext
 ): string | undefined {
+  const directTargetCreatureId = String(ctx.targetCreatureId || '').trim();
+  if (directTargetCreatureId) {
+    const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+    const matched = battlefield.find((p: any) => String((p as any)?.id || '').trim() === directTargetCreatureId);
+    if (matched) return directTargetCreatureId;
+  }
+
   if (target.kind === 'equipped_creature') {
     return resolveTrepanationBoostTargetCreatureId(state, ctx);
   }
@@ -621,6 +628,121 @@ function applyTemporaryPowerToughnessModifier(
 
   battlefield[idx] = nextPerm as any;
   return { ...(state as any), battlefield } as any;
+}
+
+function resolveGoadTargetCreatureIds(
+  state: GameState,
+  target: OracleObjectSelector,
+  ctx: OracleIRExecutionContext
+): string[] {
+  const battlefield = ((state.battlefield || []) as BattlefieldPermanent[]).filter((p: any) => {
+    const typeLine = String((p as any)?.cardType || (p as any)?.type_line || (p as any)?.card?.type_line || '').toLowerCase();
+    return typeLine.includes('creature');
+  });
+
+  const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds
+        .map(id => String(id || '').trim())
+        .filter(Boolean)
+    : [];
+  if (chosenIds.length > 0) {
+    const chosenSet = new Set(chosenIds);
+    return battlefield
+      .filter((p: any) => chosenSet.has(String((p as any)?.id || '').trim()))
+      .map((p: any) => String((p as any)?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  const targetCreatureId = String(ctx.targetCreatureId || '').trim();
+  if (targetCreatureId) {
+    const matched = battlefield.find((p: any) => String((p as any)?.id || '').trim() === targetCreatureId);
+    if (matched) return [targetCreatureId];
+  }
+
+  if (target.kind !== 'raw') return [];
+
+  const raw = normalizeOracleText(target.text);
+  if (!raw) return [];
+
+  const controllerId = String(ctx.controllerId || '').trim();
+  const targetPlayerId = String(ctx.selectorContext?.targetPlayerId || '').trim();
+  const targetOpponentId = String(ctx.selectorContext?.targetOpponentId || '').trim();
+
+  const controlledBy = (playerId: string): string[] => battlefield
+    .filter((p: any) => String((p as any)?.controller || '').trim() === playerId)
+    .map((p: any) => String((p as any)?.id || '').trim())
+    .filter(Boolean);
+
+  const opponentsControlled = battlefield.filter(
+    (p: any) => String((p as any)?.controller || '').trim() !== controllerId
+  );
+
+  if (raw === 'all creatures your opponents control' || raw === "all creatures you don't control") {
+    return opponentsControlled.map((p: any) => String((p as any)?.id || '').trim()).filter(Boolean);
+  }
+
+  if (raw === 'target creature' || raw === 'creature' || raw === 'target creature you don\'t control' || raw === 'target creature an opponent controls' || raw === 'target creature your opponents control') {
+    const pool = raw === 'target creature'
+      || raw === 'creature'
+      ? battlefield
+      : opponentsControlled;
+    return pool.length === 1 ? [String((pool[0] as any)?.id || '').trim()] : [];
+  }
+
+  if ((raw === 'target creature that player controls' || raw === 'each creature that player controls' || raw === 'each creature target player controls') && targetPlayerId) {
+    const pool = controlledBy(targetPlayerId);
+    if (raw.startsWith('each ')) return pool;
+    return pool.length === 1 ? pool : [];
+  }
+
+  if ((raw === 'target creature that opponent controls' || raw === 'each creature that opponent controls' || raw === 'each creature target opponent controls' || raw === 'target creature defending player controls') && (targetOpponentId || targetPlayerId)) {
+    const pool = controlledBy(targetOpponentId || targetPlayerId);
+    if (raw.startsWith('each ')) return pool;
+    return pool.length === 1 ? pool : [];
+  }
+
+  return [];
+}
+
+function applyGoadToCreatures(
+  state: GameState,
+  creatureIds: readonly string[],
+  goaderId: PlayerID
+): GameState | null {
+  if (!Array.isArray(creatureIds) || creatureIds.length === 0) return null;
+
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const turnNumber = Number((state as any)?.turnNumber ?? 0) || 0;
+  const expiryTurn = turnNumber + 1;
+  const idSet = new Set(creatureIds.map(id => String(id || '').trim()).filter(Boolean));
+  let changed = false;
+
+  for (let idx = 0; idx < battlefield.length; idx++) {
+    const perm: any = battlefield[idx] as any;
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!idSet.has(permanentId)) continue;
+
+    const typeLine = String((perm as any)?.cardType || (perm as any)?.type_line || (perm as any)?.card?.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) continue;
+
+    const goadedBy = Array.isArray(perm.goadedBy)
+      ? perm.goadedBy.map((value: unknown) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const nextGoadedBy = goadedBy.includes(goaderId) ? goadedBy : [...goadedBy, goaderId];
+    const nextGoadedUntil = {
+      ...((perm as any)?.goadedUntil && typeof (perm as any).goadedUntil === 'object' ? (perm as any).goadedUntil : {}),
+      [goaderId]: expiryTurn,
+    };
+
+    battlefield[idx] = {
+      ...perm,
+      goadedBy: nextGoadedBy,
+      goadedUntil: nextGoadedUntil,
+    } as any;
+    changed = true;
+  }
+
+  return changed ? ({ ...(state as any), battlefield } as any) : null;
 }
 
 function evaluateModifyPtCondition(
@@ -729,6 +851,7 @@ function evaluateModifyPtWhereX(
     readonly lastDiscardedCardCount?: number;
     readonly lastExiledCardCount?: number;
     readonly lastExiledCards?: readonly any[];
+    readonly lastGoadedCreatures?: readonly BattlefieldPermanent[];
     readonly lastSacrificedCreaturesPowerTotal?: number;
     readonly lastExcessDamageDealtThisWay?: number;
     readonly lastScryLookedAtCount?: number;
@@ -2899,6 +3022,17 @@ function evaluateModifyPtWhereX(
       const exiledCards = Array.isArray(runtime?.lastExiledCards) ? runtime.lastExiledCards : [];
       return exiledCards.reduce((sum: number, card: any) => {
         const n = Number((card as any)?.power ?? (card as any)?.card?.power);
+        return sum + (Number.isFinite(n) ? n : 0);
+      }, 0);
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the total power of (?:the )?creatures? goaded this way$/i);
+    if (m) {
+      const goadedCreatures = Array.isArray(runtime?.lastGoadedCreatures) ? runtime.lastGoadedCreatures : [];
+      return goadedCreatures.reduce((sum: number, creature: any) => {
+        const n = Number((creature as any)?.power ?? (creature as any)?.card?.power);
         return sum + (Number.isFinite(n) ? n : 0);
       }, 0);
     }
@@ -6372,6 +6506,7 @@ export function applyOracleIRStepsToGameState(
   let lastDiscardedCardCount = 0;
   let lastExiledCardCount = 0;
   let lastExiledCards: any[] = [];
+  let lastGoadedCreatures: BattlefieldPermanent[] = [];
   let lastSacrificedCreaturesPowerTotal = 0;
   let lastExcessDamageDealtThisWay = 0;
   let lastScryLookedAtCount = 0;
@@ -6512,6 +6647,30 @@ export function applyOracleIRStepsToGameState(
         lastExiledCardCount = totalExiled;
         lastExiledCards = exiledCardsThisStep;
 
+        appliedSteps.push(step);
+        break;
+      }
+
+      case 'goad': {
+        const targetCreatureIds = resolveGoadTargetCreatureIds(nextState, step.target, ctx);
+        if (targetCreatureIds.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped goad (no deterministic creature targets): ${step.raw}`);
+          break;
+        }
+
+        const next = applyGoadToCreatures(nextState, targetCreatureIds, controllerId);
+        if (!next) {
+          skippedSteps.push(step);
+          log.push(`Skipped goad (failed to apply): ${step.raw}`);
+          break;
+        }
+
+        nextState = next;
+        const goadedSet = new Set(targetCreatureIds);
+        lastGoadedCreatures = (((nextState as any).battlefield || []) as BattlefieldPermanent[])
+          .filter((perm: any) => goadedSet.has(String((perm as any)?.id || '').trim()));
+        log.push(`Goaded ${targetCreatureIds.length} creature(s)`);
         appliedSteps.push(step);
         break;
       }
@@ -6722,6 +6881,7 @@ export function applyOracleIRStepsToGameState(
                 lastDiscardedCardCount,
                 lastExiledCardCount,
                 lastExiledCards,
+                lastGoadedCreatures,
                 lastSacrificedCreaturesPowerTotal,
                 lastExcessDamageDealtThisWay,
                 lastScryLookedAtCount,

@@ -124,6 +124,13 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'goad';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'modify_pt';
       readonly target: OracleObjectSelector;
       readonly power: number;

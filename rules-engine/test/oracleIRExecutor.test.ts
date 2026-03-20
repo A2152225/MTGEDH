@@ -13557,6 +13557,129 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('applies goad steps to deterministic creature targets', () => {
+    const steps = [
+      {
+        kind: 'goad',
+        target: { kind: 'raw', text: 'target creature' },
+        raw: 'Goad target creature.',
+      },
+    ] as any;
+
+    const start = makeState({
+      turnNumber: 10,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'onlyCreatureToGoad',
+          ownerId: 'p2',
+          controller: 'p2',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 4,
+          toughness: 4,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'onlyCreatureToGoad') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'goad')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'goad')).toBe(false);
+    expect(creature.goadedBy).toContain('p1');
+    expect(creature.goadedUntil?.p1).toBe(11);
+  });
+
+  it('applies X-based modify_pt where X is the total power of creatures goaded this way', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is the total power of creatures goaded this way.',
+      'Test'
+    );
+    const modifyPtStep = ir.abilities[0]?.steps?.find(step => step.kind === 'modify_pt');
+    const steps = [
+      {
+        kind: 'goad',
+        target: { kind: 'raw', text: 'chosen creatures' },
+        raw: 'Goad those creatures.',
+      },
+      modifyPtStep,
+    ].filter(Boolean) as any;
+
+    const start = makeState({
+      turnNumber: 7,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'goadedPowerTarget',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Buff Target',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+        {
+          id: 'goadedPowerA',
+          ownerId: 'p2',
+          controller: 'p2',
+          name: 'Opponent A',
+          cardType: 'Creature',
+          power: 3,
+          toughness: 3,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+        {
+          id: 'goadedPowerB',
+          ownerId: 'p3',
+          controller: 'p3',
+          name: 'Opponent B',
+          cardType: 'Creature',
+          power: 5,
+          toughness: 5,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'goadedPowerTarget',
+      selectorContext: {
+        chosenObjectIds: ['goadedPowerA', 'goadedPowerB'],
+      } as any,
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'goadedPowerTarget') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'goad')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(8);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies X-based modify_pt where X is the total power of the creatures sacrificed this way', () => {
     const ir = parseOracleTextToIR(
       'Each opponent sacrifices a creature. Target creature you control gets +X/+0 until end of turn where X is the total power of the creatures sacrificed this way.',

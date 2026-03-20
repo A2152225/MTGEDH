@@ -345,6 +345,18 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     }
   }
 
+  // Goad
+  {
+    const m = clause.match(/^goad\s+(.+)$/i);
+    if (m) {
+      return withMeta({
+        kind: 'goad',
+        target: parseObjectSelector(m[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
   // Temporary P/T modification (composable: target + base delta + duration + optional scaler)
   {
     const parseSignedPtComponent = (raw: string): { value: number; usesX: boolean } | null => {
