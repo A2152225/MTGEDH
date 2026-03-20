@@ -60,7 +60,7 @@ import { handleJudgeConfirmVote } from "./judge.js";
 
 /**
  * Pending "you may" callbacks keyed by gameId → callbackId.
- * When a MAY_ABILITY step resolves "yes", the registered callback is invoked
+ * When a may-ability prompt resolves "yes", the registered callback is invoked
  * to execute the deferred oracle IR steps.  Entries are cleaned up on step
  * completion or game teardown.
  */
@@ -82,7 +82,7 @@ export function clearMayCallbacks(gameId: string): void {
 }
 
 /**
- * Queue a MAY_ABILITY step, respecting per-player auto-preferences.
+ * Queue an optional may-ability prompt, respecting per-player auto-preferences.
  *
  * @param io       Socket.IO server
  * @param gameId   Game to target
@@ -133,18 +133,25 @@ export function queueMayAbilityStep(
 
   const callbackId = registerMayCallback(gameId, callback);
   ResolutionQueueManager.addStep(gameId, {
-    type: ResolutionStepType.MAY_ABILITY,
+    type: ResolutionStepType.OPTION_CHOICE,
     playerId: playerId as import('../../../shared/src/types.js').PlayerID,
     description: `You may: ${effectText}`,
     mandatory: false,
     sourceId: undefined,
     sourceName,
+    options: [
+      { id: 'yes', label: 'Yes' },
+      { id: 'no', label: 'No' },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    mayAbilityPrompt: true,
     effectText,
     fullAbilityText,
     effectKey,
     pendingCallbackId: callbackId,
   } as any);
-  debug(2, `[May] Queued MAY_ABILITY step for ${effectKey} (player ${playerId})`);
+  debug(2, `[May] Queued option_choice MAY_ABILITY prompt for ${effectKey} (player ${playerId})`);
 }
 
 /**
@@ -928,28 +935,53 @@ async function handleAIResolutionStep(
       
       case ResolutionStepType.OPTION_CHOICE:
       case ResolutionStepType.MODAL_CHOICE: {
-        // AI selects the first available option (simple strategy)
         const optionStep = step as any;
-        const options = optionStep.options || [];
-        
-        if (options.length > 0) {
-          const firstOption = options[0];
-          const selection = firstOption.id || firstOption.value || firstOption;
-          
+        if (optionStep.mayAbilityPrompt === true) {
+          const effectText: string = String(optionStep.effectText || '').toLowerCase();
+          const playerId = step.playerId;
+          const playerState = (game.state?.players || []).find((p: any) => p.id === playerId);
+
+          let shouldAccept = true;
+          if (effectText.includes('draw') || effectText.includes('draws')) {
+            const libraryZone = (game.state as any)?.zones?.[playerId]?.library
+              ?? (game.state as any)?.libraries?.[playerId]
+              ?? (playerState as any)?.library ?? [];
+            const deckSize = Array.isArray(libraryZone) ? libraryZone.length : 0;
+            if (deckSize <= 3) {
+              shouldAccept = false;
+              debug(2, `[Resolution] AI MAY_ABILITY: declining draw - near empty library (${deckSize} cards)`);
+            }
+          }
+
           response = {
             stepId: step.id,
             playerId: step.playerId,
-            selections: [selection], // Wrap in array for type compatibility
+            selections: [shouldAccept ? 'yes' : 'no'],
+            cancelled: !shouldAccept,
+            timestamp: Date.now(),
+          };
+          debug(2, `[Resolution] AI MAY_ABILITY: ${shouldAccept ? 'accepting' : 'declining'} "${effectText}"`);
+          break;
+        }
+
+        const options = optionStep.options || [];
+        if (options.length > 0) {
+          const firstOption = options[0];
+          const selection = firstOption.id || firstOption.value || firstOption;
+
+          response = {
+            stepId: step.id,
+            playerId: step.playerId,
+            selections: [selection],
             cancelled: false,
             timestamp: Date.now(),
           };
           debug(2, `[Resolution] AI option/modal choice: selected first option`);
         } else {
-          // No options - decline
           response = {
             stepId: step.id,
             playerId: step.playerId,
-            selections: ['decline'], // Wrap in array for type compatibility
+            selections: ['decline'],
             cancelled: false,
             timestamp: Date.now(),
           };
@@ -1518,39 +1550,6 @@ async function handleAIResolutionStep(
             timestamp: Date.now(),
           };
         }
-        break;
-      }
-
-      case ResolutionStepType.MAY_ABILITY: {
-        // AI auto-evaluates benefit. For simplicity, AI always says "yes" unless
-        // the effect is clearly harmful (e.g. drawing when nearly decked out).
-        // Callers may set effectText to communicate the kind of effect.
-        const mayStep = step as any;
-        const effectText: string = String(mayStep.effectText || '').toLowerCase();
-        const playerId = step.playerId;
-        const playerState = (game.state?.players || []).find((p: any) => p.id === playerId);
-
-        // Be conservative about drawing when near-decked
-        let shouldAccept = true;
-        if (effectText.includes('draw') || effectText.includes('draws')) {
-          const libraryZone = (game.state as any)?.zones?.[playerId]?.library
-            ?? (game.state as any)?.libraries?.[playerId]
-            ?? (playerState as any)?.library ?? [];
-          const deckSize = Array.isArray(libraryZone) ? libraryZone.length : 0;
-          if (deckSize <= 3) {
-            shouldAccept = false;
-            debug(2, `[Resolution] AI MAY_ABILITY: declining draw — near empty library (${deckSize} cards)`);
-          }
-        }
-
-        response = {
-          stepId: step.id,
-          playerId: step.playerId,
-          selections: shouldAccept ? ['yes'] : ['no'],
-          cancelled: !shouldAccept,
-          timestamp: Date.now(),
-        };
-        debug(2, `[Resolution] AI MAY_ABILITY: ${shouldAccept ? 'accepting' : 'declining'} "${effectText}"`);
         break;
       }
 
@@ -5550,6 +5549,11 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('minSelections' in step) fields.minSelections = step.minSelections;
       if ('maxSelections' in step) fields.maxSelections = step.maxSelections;
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('effectText' in step) fields.effectText = (step as any).effectText;
+      if ('fullAbilityText' in step) fields.fullAbilityText = (step as any).fullAbilityText;
+      if ('effectKey' in step) fields.effectKey = (step as any).effectKey;
+      if ('pendingCallbackId' in step) fields.pendingCallbackId = (step as any).pendingCallbackId;
+      if ('mayAbilityPrompt' in step) fields.mayAbilityPrompt = (step as any).mayAbilityPrompt;
 
       // Custom: Opponent-may-pay prompts (Smothering Tithe, Rhystic Study, etc.)
       if ((step as any)?.opponentMayPayChoice === true) {
@@ -9212,10 +9216,6 @@ async function handleStepResponse(
       handleEntrapmentManeuverResponse(io, game, gameId, step, response);
       break;
 
-    case ResolutionStepType.MAY_ABILITY:
-      await handleMayAbilityResponse(io, game, gameId, step, response);
-      break;
-    
     // Add more handlers as needed
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
@@ -18202,6 +18202,11 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  if (stepData?.mayAbilityPrompt === true) {
+    await handleMayAbilityResponse(io, game, gameId, step, response);
+    return;
+  }
+
   // ===== MIRACLE (Rule 702.94) =====
   // The draw module queues a Miracle prompt as an OPTION_CHOICE step.
   // If accepted, we kick off the normal requestCastSpell flow but force the alternate cost to Miracle.
@@ -22106,7 +22111,7 @@ async function handleSoldierProgramChoice(
 
 
 /**
- * Handle a player's response to a MAY_ABILITY resolution step.
+ * Handle a player's response to a may-ability prompt.
  * "cancelled" means the player chose not to execute the optional effect.
  * Any non-cancelled response (selections=['yes'] or just not cancelled) triggers the callback.
  */

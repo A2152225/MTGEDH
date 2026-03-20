@@ -45,8 +45,8 @@ export const emitPendingDamageTriggers = emitPendingDamageTriggersImpl;
 
 /**
  * After resolveTopOfStack(), scan the resolved spell's oracle IR for optional
- * ("you may") effects and queue a MayAbilityStep for each one so the player
- * is prompted.  AI players are auto-resolved by queueMayAbilityStep using the
+ * ("you may") effects and queue an optional may-ability prompt for each one so the player
+ * is prompted. AI players are auto-resolved by queueMayAbilityStep using the
  * library-size heuristic from resolution.ts.
  *
  * Only runs for `type === 'spell'` or `type === 'ability'` stack items.

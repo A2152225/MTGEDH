@@ -335,7 +335,6 @@ function mapChoiceEventType(choiceType: string): ResolutionStepType {
     x_value_selection: ResolutionStepType.X_VALUE_SELECTION,
     attacker_declaration: ResolutionStepType.ATTACKER_DECLARATION,
     blocker_declaration: ResolutionStepType.BLOCKER_DECLARATION,
-    may_ability: ResolutionStepType.MAY_ABILITY,
     combat_damage_assignment: ResolutionStepType.COMBAT_DAMAGE_ASSIGNMENT,
     blocker_order: ResolutionStepType.BLOCKER_ORDER,
     damage_division: ResolutionStepType.DAMAGE_DIVISION,

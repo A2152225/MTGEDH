@@ -40,7 +40,6 @@ export enum ResolutionStepType {
   X_VALUE_SELECTION = 'x_value_selection',
   ATTACKER_DECLARATION = 'attacker_declaration',
   BLOCKER_DECLARATION = 'blocker_declaration',
-  MAY_ABILITY = 'may_ability',
   COMBAT_DAMAGE_ASSIGNMENT = 'combat_damage_assignment',
   BLOCKER_ORDER = 'blocker_order',
   DAMAGE_DIVISION = 'damage_division',
@@ -151,7 +150,6 @@ export const STEP_TO_CHOICE_EVENT_TYPE: Partial<Record<ResolutionStepType, Choic
   [ResolutionStepType.X_VALUE_SELECTION]: ChoiceEventType.X_VALUE_SELECTION,
   [ResolutionStepType.ATTACKER_DECLARATION]: ChoiceEventType.ATTACKER_DECLARATION,
   [ResolutionStepType.BLOCKER_DECLARATION]: ChoiceEventType.BLOCKER_DECLARATION,
-  [ResolutionStepType.MAY_ABILITY]: ChoiceEventType.MAY_ABILITY,
   [ResolutionStepType.COMBAT_DAMAGE_ASSIGNMENT]: ChoiceEventType.COMBAT_DAMAGE_ASSIGNMENT,
   [ResolutionStepType.BLOCKER_ORDER]: ChoiceEventType.BLOCKER_ORDER,
   [ResolutionStepType.DAMAGE_DIVISION]: ChoiceEventType.DAMAGE_DIVISION,
@@ -831,31 +829,6 @@ export interface ActivatedAbilityStep extends BaseResolutionStep {
   readonly abilityData?: Record<string, any>;
 }
 
-/**
- * May Ability resolution step
- * Prompts the active player to choose whether to apply an optional ("you may") effect.
- * Players can set per-effect auto-yes / auto-no preferences that short-circuit this prompt.
- */
-export interface MayAbilityStep extends BaseResolutionStep {
-  readonly type: ResolutionStepType.MAY_ABILITY;
-  /** Short description of the optional effect, e.g. "draw a card" */
-  readonly effectText: string;
-  /** Full ability sentence for context, e.g. "When ~ enters, you may draw a card." */
-  readonly fullAbilityText?: string;
-  /**
-   * Stable key used to store per-player auto-preferences.
-   * Typically "{sourceName}:{effectText}" normalised to lowercase.
-   */
-  readonly effectKey: string;
-  /**
-   * Opaque server-side callback ID. The server resolves the actual execution
-   * when the player's response arrives (yes = execute the effect, no = skip).
-   * Clients must echo this ID back in the submitResolutionResponse payload.
-   */
-  readonly pendingCallbackId: string;
-}
-
-
 export type ResolutionStep = 
   | TargetSelectionStep
   | MutateTargetSelectionStep
@@ -892,7 +865,6 @@ export type ResolutionStep =
   | SuspendCastStep
   | MorphTurnFaceUpStep
   | ActivatedAbilityStep
-  | MayAbilityStep
   | BaseResolutionStep;
 
 /**

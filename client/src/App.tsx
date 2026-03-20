@@ -2476,8 +2476,8 @@ export function App() {
         });
         setCreatureTypeModalOpen(true);
       }
-      // Handle "you may" optional effects via resolution queue
-      else if (step.type === 'may_ability') {
+      // Handle "you may" optional effects via resolution queue option_choice metadata
+      else if ((step.type === 'option_choice' || step.type === 'modal_choice') && (step as any).mayAbilityPrompt === true) {
         setMayAbilityModalData({
           stepId: step.id,
           sourceName: step.sourceName || 'Ability',
