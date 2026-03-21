@@ -23,6 +23,7 @@
  */
 
 import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 /**
  * Types of curse effects
@@ -261,9 +262,9 @@ export function collectPlayerCurses(
   playerId: string
 ): CurseEffect[] {
   const curses: CurseEffect[] = [];
+  const battlefield = getProcessedBattlefield(state);
   
   // Check centralized battlefield for curses attached to this player
-  const battlefield = state.battlefield || [];
   for (const permanent of battlefield as any[]) {
     // Check if this permanent is a curse attached to the target player
     if (isCurse(permanent)) {
@@ -277,22 +278,13 @@ export function collectPlayerCurses(
     }
   }
   
-  // Also check global battlefield
-  if (state.battlefield) {
-    for (const permanent of state.battlefield as any[]) {
-      if (isCurse(permanent)) {
-        const attachedTo = permanent.attachedTo || permanent.enchanting;
-        if (attachedTo === playerId) {
-          const effect = detectCurseEffect(permanent, playerId);
-          if (effect && !curses.some(c => c.sourceId === effect.sourceId)) {
-            curses.push(effect);
-          }
-        }
-      }
-    }
-  }
-  
   return curses;
+}
+
+function getProcessedBattlefield(state: GameState): BattlefieldPermanent[] {
+  return applyStaticAbilitiesToBattlefield(
+    (state.battlefield || []) as BattlefieldPermanent[]
+  ) as BattlefieldPermanent[];
 }
 
 /**

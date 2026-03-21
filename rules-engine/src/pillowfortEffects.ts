@@ -23,6 +23,7 @@
 
 import type { GameState, BattlefieldPermanent } from '../../shared/src';
 import type { ManaCost } from './types/mana';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 /**
  * Types of attack cost effects
@@ -211,14 +212,15 @@ export function collectPillowfortEffects(
   defendingPlayerId: string
 ): AttackCostRequirement[] {
   const requirements: AttackCostRequirement[] = [];
+  const battlefield = getProcessedBattlefield(state);
   
   // Check the defending player's centralized battlefield for pillowfort permanents
   const defender = state.players.find(p => p.id === defendingPlayerId);
   if (!defender) return requirements;
   
   // Check defender's permanents on centralized battlefield
-  if (state.battlefield) {
-    for (const permanent of state.battlefield as any[]) {
+  if (battlefield.length > 0) {
+    for (const permanent of battlefield as any[]) {
       if (permanent.controller === defendingPlayerId || permanent.controllerId === defendingPlayerId) {
         const effect = detectPillowfortEffect(permanent, defendingPlayerId);
         if (effect) {
@@ -246,6 +248,7 @@ export function calculateTotalAttackCost(
   state: GameState,
   defendingPlayerId: string
 ): { manaCost: ManaCost; lifeCostOption: number } {
+  const battlefield = getProcessedBattlefield(state);
   // Use a plain object for accumulation, then cast to ManaCost at the end
   const totalManaCost: Record<string, number> = {};
   let totalLifeCost = 0;
@@ -262,9 +265,9 @@ export function calculateTotalAttackCost(
     
     // Additional multiplier for enchantment-count effects (Sphere of Safety)
     if (req.multiplierSourceType === 'enchantment' && defender) {
-      const enchantmentCount = (state.battlefield || []).filter((p: any) =>
+      const enchantmentCount = battlefield.filter((p: any) =>
         p.controller === defendingPlayerId &&
-        (p.card?.type_line || '').toLowerCase().includes('enchantment')
+        permanentHasType(p, 'enchantment')
       ).length;
       multiplier *= enchantmentCount;
     }
@@ -273,9 +276,9 @@ export function calculateTotalAttackCost(
     if (req.multiplierSourceType === 'basic_land_type' && defender) {
       const basicLandTypes = new Set<string>();
       // Count basic land types on centralized battlefield controlled by defender
-      for (const perm of state.battlefield || [] as any[]) {
+      for (const perm of battlefield as any[]) {
         if (perm.controller !== defender.id) continue;
-        const typeLine = (perm.card?.type_line || '').toLowerCase();
+        const typeLine = getPermanentTypeLine(perm);
         if (typeLine.includes('plains')) basicLandTypes.add('plains');
         if (typeLine.includes('island')) basicLandTypes.add('island');
         if (typeLine.includes('swamp')) basicLandTypes.add('swamp');
@@ -455,6 +458,34 @@ export function isPillowfortCard(permanent: BattlefieldPermanent | any): boolean
   // The detection doesn't actually depend on controllerId for pattern matching
   const controllerId = permanent.controller || permanent.controllerId || '';
   return detectPillowfortEffect(permanent, controllerId) !== null;
+}
+
+function getProcessedBattlefield(state: GameState): BattlefieldPermanent[] {
+  return applyStaticAbilitiesToBattlefield(
+    (state.battlefield || []) as BattlefieldPermanent[]
+  ) as BattlefieldPermanent[];
+}
+
+function getPermanentTypeLine(permanent: BattlefieldPermanent | any): string {
+  return [permanent.card?.type_line, permanent.type_line]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join(' ')
+    .toLowerCase();
+}
+
+function permanentHasType(permanent: BattlefieldPermanent | any, typeName: string): boolean {
+  const normalizedType = typeName.toLowerCase();
+  if (getPermanentTypeLine(permanent).includes(normalizedType)) {
+    return true;
+  }
+
+  for (const list of [permanent.types, permanent.effectiveTypes, permanent.grantedTypes]) {
+    if (Array.isArray(list) && list.some((entry: unknown) => typeof entry === 'string' && entry.toLowerCase() === normalizedType)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**

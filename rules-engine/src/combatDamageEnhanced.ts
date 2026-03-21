@@ -29,6 +29,7 @@ import {
   type CombatCreature,
   type CombatKeywords,
 } from './combatAutomation';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { TriggerEvent, type TriggerInstance, createTriggerInstance, type TriggeredAbility } from './triggeredAbilities';
 
 /**
@@ -472,7 +473,8 @@ export function calculateCombatDamage(
   }[],
   currentLifeTotals: Record<PlayerID, number>,
   creatureState: Record<string, { toughness: number; existingDamage: number; indestructible: boolean }>,
-  timestamp: number
+  timestamp: number,
+  battlefieldContext?: readonly BattlefieldPermanent[]
 ): CombatDamageCalculation {
   const allAssignments: DetailedDamageAssignment[] = [];
   const firstStrikeAssignments: DetailedDamageAssignment[] = [];
@@ -480,21 +482,29 @@ export function calculateCombatDamage(
   const log: string[] = [];
   
   // Collect all permanents for trigger checking
-  const allPermanents: BattlefieldPermanent[] = [];
+  const combatPermanents: BattlefieldPermanent[] = [];
   for (const data of attackerData) {
-    allPermanents.push(data.attacker);
-    allPermanents.push(...data.orderedBlockers);
+    combatPermanents.push(data.attacker);
+    combatPermanents.push(...data.orderedBlockers);
   }
+  const allPermanents = applyStaticAbilitiesToBattlefield(
+    (battlefieldContext && battlefieldContext.length > 0 ? battlefieldContext : combatPermanents) as BattlefieldPermanent[]
+  );
+  const resolvePermanent = (permanent: BattlefieldPermanent): BattlefieldPermanent => {
+    return allPermanents.find(candidate => candidate.id === permanent.id) || permanent;
+  };
   
   // Process each attacker
   for (const { attacker, defendingPlayerId, orderedBlockers } of attackerData) {
+    const analyzedAttacker = resolvePermanent(attacker);
+    const analyzedBlockers = orderedBlockers.map(resolvePermanent);
     const attackerCard = attacker.card as KnownCardRef;
-    const attackerKeywords = extractCombatKeywords(attacker);
+    const attackerKeywords = extractCombatKeywords(analyzedAttacker);
     
-    if (orderedBlockers.length === 0) {
+    if (analyzedBlockers.length === 0) {
       // Unblocked - deal damage to player
       for (const phase of [CombatDamagePhase.FIRST_STRIKE, CombatDamagePhase.REGULAR]) {
-        const assignment = processUnblockedAttacker(attacker, defendingPlayerId, phase);
+        const assignment = processUnblockedAttacker(analyzedAttacker, defendingPlayerId, phase);
         if (assignment) {
           allAssignments.push(assignment);
           if (phase === CombatDamagePhase.FIRST_STRIKE) {
@@ -518,7 +528,7 @@ export function calculateCombatDamage(
         
         const power = getCreaturePower(attacker);
         const { assignments, remainingDamage } = assignDamageToBlockers(
-          attacker, orderedBlockers, power, {}, phase
+          analyzedAttacker, analyzedBlockers, power, {}, phase
         );
         
         allAssignments.push(...assignments);
@@ -535,7 +545,7 @@ export function calculateCombatDamage(
         // Trample damage
         if (attackerKeywords.trample && remainingDamage > 0) {
           const trampleAssign = calculateTrampleToPlayer(
-            attacker, orderedBlockers, power - remainingDamage, defendingPlayerId, phase
+            analyzedAttacker, analyzedBlockers, power - remainingDamage, defendingPlayerId, phase
           );
           if (trampleAssign) {
             allAssignments.push(trampleAssign);
@@ -550,9 +560,9 @@ export function calculateCombatDamage(
       }
       
       // Blockers deal damage back
-      for (const blocker of orderedBlockers) {
+      for (const blocker of analyzedBlockers) {
         for (const phase of [CombatDamagePhase.FIRST_STRIKE, CombatDamagePhase.REGULAR]) {
-          const blockerAssign = processBlockerDamageToAttacker(blocker, attacker, phase);
+          const blockerAssign = processBlockerDamageToAttacker(blocker, analyzedAttacker, phase);
           if (blockerAssign) {
             allAssignments.push(blockerAssign);
             if (phase === CombatDamagePhase.FIRST_STRIKE) {

@@ -285,6 +285,36 @@ describe('Pillowfort Effects', () => {
       expect(manaCost.white).toBe(3); // 1W * 3 = 3W
       expect(lifeCostOption).toBe(6); // 2 life * 3 = 6 life
     });
+
+    it('counts effective enchantments for Sphere of Safety style costs', () => {
+      const requirements = [
+        {
+          sourceId: 'sphere-1',
+          sourceName: 'Sphere of Safety',
+          sourceControllerId: 'player1',
+          type: AttackCostType.MANA_PER_ENCHANTMENT,
+          manaCost: { generic: 1 },
+          perCreatureAttacking: true,
+          multiplierSourceType: 'enchantment',
+        },
+      ];
+
+      const effectiveEnchantment = {
+        id: 'perm-1',
+        controller: 'player1',
+        effectiveTypes: ['Enchantment', 'Creature'],
+        card: {
+          name: 'Animated Blessing',
+          type_line: 'Creature',
+          oracle_text: '',
+        },
+      };
+
+      const state = createGameState([effectiveEnchantment], []);
+      const { manaCost } = calculateTotalAttackCost(requirements, 2, state, 'player1');
+
+      expect(manaCost.generic).toBe(2);
+    });
   });
   
   describe('checkAttackCosts', () => {

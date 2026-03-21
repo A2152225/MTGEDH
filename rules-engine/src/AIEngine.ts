@@ -1116,7 +1116,7 @@ export class AIEngine {
     
     // DIFFICULTY IMPLEMENTATION: Attack decision mistakes
     // Example: AI has 3/3, 3/3, 2/2, 1/1 creatures. Optimal = attack with 3/3, 3/3, 2/2
-    if (this.shouldMakeMistake(difficulty)) {
+    if (!archetypes.includes(SynergyArchetype.VOLTRON) && this.shouldMakeMistake(difficulty)) {
       // Randomly choose between two types of mistakes:
       if (Math.random() < 0.5) {
         // MISTAKE TYPE A: Too Cautious

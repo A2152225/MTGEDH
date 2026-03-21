@@ -24,6 +24,7 @@
  */
 
 import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 /**
  * Types of player protection
@@ -164,8 +165,9 @@ export function collectPlayerProtection(
   if (!player) return effects;
   
   // Check centralized battlefield for permanents controlled by player
-  if (state.battlefield) {
-    for (const permanent of state.battlefield as any[]) {
+  const battlefield = getProcessedBattlefield(state);
+  if (battlefield.length > 0) {
+    for (const permanent of battlefield as any[]) {
       const controllerId = permanent.controller || permanent.controllerId;
       if (controllerId === playerId) {
         const detected = detectPlayerProtection(permanent, playerId);
@@ -195,6 +197,12 @@ export function collectPlayerProtection(
   }
   
   return effects;
+}
+
+function getProcessedBattlefield(state: GameState): BattlefieldPermanent[] {
+  return applyStaticAbilitiesToBattlefield(
+    (state.battlefield || []) as BattlefieldPermanent[]
+  ) as BattlefieldPermanent[];
 }
 
 /**

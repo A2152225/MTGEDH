@@ -481,6 +481,35 @@ describe('Full Combat Damage Calculation', () => {
       expect(result.lifeChanges['player1']).toBe(3); // Gained 3 life
       expect(result.lifeChanges['player2']).toBe(-3); // Lost 3 life
     });
+
+    it('should apply equipment-granted lifelink and power bonuses in combat damage', () => {
+      const attacker = createTestPermanent('1', 'Bear', 2, 2, '', 'player1');
+      (attacker as any).attachedEquipment = ['hammer1'];
+      const warhammer = {
+        id: 'hammer1',
+        controller: 'player1',
+        owner: 'player1',
+        attachedTo: '1',
+        card: {
+          id: 'hammer1',
+          name: 'Loxodon Warhammer',
+          type_line: 'Artifact — Equipment',
+          oracle_text: 'Equipped creature gets +3/+0 and has trample and lifelink.',
+        },
+      } as BattlefieldPermanent;
+
+      const result = calculateCombatDamage(
+        [{ attacker, defendingPlayerId: 'player2', orderedBlockers: [] }],
+        { player1: 40, player2: 40 },
+        {},
+        Date.now(),
+        [attacker, warhammer]
+      );
+
+      expect(result.lifeChanges['player1']).toBe(5);
+      expect(result.lifeChanges['player2']).toBe(-5);
+      expect(result.assignments[0].properties.lifelink).toBe(true);
+    });
     
     it('should handle double strike', () => {
       const attacker = createTestPermanent('1', 'Warrior', 3, 3, 'Double strike', 'player1');

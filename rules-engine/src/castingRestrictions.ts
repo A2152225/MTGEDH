@@ -24,6 +24,8 @@
  */
 
 import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import { isCurrentlyCreature } from './actions/combat';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 /**
  * Types of casting restrictions
@@ -228,6 +230,7 @@ export function collectCastingRestrictions(
   state: GameState
 ): Map<string, CastingRestriction[]> {
   const playerRestrictions = new Map<string, CastingRestriction[]>();
+  const battlefield = getProcessedBattlefield(state);
   
   // Initialize empty arrays for all players
   for (const player of state.players) {
@@ -246,7 +249,7 @@ export function collectCastingRestrictions(
   }
   
   // Check all permanents on centralized battlefield for continuous restrictions
-  for (const permanent of (state.battlefield || []) as any[]) {
+  for (const permanent of battlefield as any[]) {
     const controllerId = permanent.controller || permanent.controllerId;
     if (!controllerId) continue;
     
@@ -684,6 +687,7 @@ export function hasValidTargetsForSpell(
   currentPlayerId: string
 ): { hasTargets: boolean; reason?: string } {
   const text = (oracleText || '').toLowerCase();
+  const battlefield = getProcessedBattlefield(gameState);
   
   // Pattern for Delirium: needs creatures controlled by the opponent whose turn it is
   // "Tap target creature that player controls"
@@ -692,9 +696,8 @@ export function hasValidTargetsForSpell(
     const activePlayerId = gameState.turnPlayer || gameState.players[gameState.activePlayerIndex || 0]?.id;
     
     // Find creatures controlled by the active player (the opponent whose turn it is)
-    const opponentCreatures = gameState.battlefield.filter(perm => {
-      const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
-      return typeLine.includes('creature') && perm.controller === activePlayerId;
+    const opponentCreatures = battlefield.filter(perm => {
+      return isCurrentlyCreature(perm) && perm.controller === activePlayerId;
     });
     
     if (opponentCreatures.length === 0) {
@@ -709,9 +712,8 @@ export function hasValidTargetsForSpell(
   
   // Generic "target creature" check
   if (text.includes('target creature')) {
-    const creatures = gameState.battlefield.filter(perm => {
-      const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
-      return typeLine.includes('creature');
+    const creatures = battlefield.filter(perm => {
+      return isCurrentlyCreature(perm);
     });
     
     if (creatures.length === 0) {
@@ -739,9 +741,8 @@ export function hasValidTargetsForSpell(
     }
     
     // Check for attacking creatures on the battlefield
-    const attackingCreatures = gameState.battlefield.filter(perm => {
-      const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
-      const isCreature = typeLine.includes('creature');
+    const attackingCreatures = battlefield.filter(perm => {
+      const isCreature = isCurrentlyCreature(perm);
       const isAttacking = (perm as any).attacking === true;
       return isCreature && isAttacking;
     });
@@ -766,4 +767,10 @@ export function hasValidTargetsForSpell(
   }
   
   return { hasTargets: true };
+}
+
+function getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
+  return applyStaticAbilitiesToBattlefield(
+    (gameState.battlefield || []) as BattlefieldPermanent[]
+  ) as BattlefieldPermanent[];
 }

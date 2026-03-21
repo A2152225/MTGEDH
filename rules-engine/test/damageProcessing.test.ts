@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  createDamageSourceFromPermanent,
   parseDamageAbilities,
   processDamageToPlayer,
   processDamageToCreature,
@@ -16,6 +17,46 @@ import {
 import type { DamageEvent, DamageSourceCharacteristics } from '../src/damageProcessing';
 
 describe('Damage Processing', () => {
+  describe('createDamageSourceFromPermanent', () => {
+    it('should detect granted lifelink and toxic values from granted abilities', () => {
+      const source = {
+        id: 'source-1',
+        controller: 'player1',
+        owner: 'player1',
+        grantedAbilities: ['lifelink', 'toxic 2'],
+        card: {
+          id: 'source-1',
+          name: 'Buffed Creature',
+          type_line: 'Creature',
+          oracle_text: '',
+        },
+      } as any;
+
+      const result = createDamageSourceFromPermanent(source);
+      expect(result.hasLifelink).toBe(true);
+      expect(result.hasToxic).toBe(true);
+      expect(result.toxicValue).toBe(2);
+    });
+
+    it('should detect granted deathtouch from object-style granted abilities', () => {
+      const source = {
+        id: 'source-1',
+        controller: 'player1',
+        owner: 'player1',
+        grantedAbilities: [{ name: 'deathtouch' }],
+        card: {
+          id: 'source-1',
+          name: 'Buffed Creature',
+          type_line: 'Creature',
+          oracle_text: '',
+        },
+      } as any;
+
+      const result = createDamageSourceFromPermanent(source);
+      expect(result.hasDeathtouch).toBe(true);
+    });
+  });
+
   describe('parseDamageAbilities', () => {
     it('should detect infect', () => {
       const abilities = parseDamageAbilities('Infect', '');

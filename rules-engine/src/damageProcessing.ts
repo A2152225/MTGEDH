@@ -118,18 +118,22 @@ export function createDamageSourceFromPermanent(
   const abilities = parseDamageAbilities(card?.oracle_text, card?.type_line);
   
   // Also check granted abilities
-  const grantedAbilities = permanent.grantedAbilities || [];
-  const grantedText = grantedAbilities.join(' ').toLowerCase();
+  const grantedAbilities = Array.isArray(permanent.grantedAbilities) ? permanent.grantedAbilities : [];
+  const grantedText = grantedAbilities
+    .map((ability: any) => typeof ability === 'string' ? ability : (ability?.name || ability?.type || ''))
+    .join(' ')
+    .toLowerCase();
+  const grantedAbilityData = parseDamageAbilities(grantedText, card?.type_line);
   
   return {
-    hasInfect: abilities.hasInfect || grantedText.includes('infect'),
-    hasWither: abilities.hasWither || grantedText.includes('wither'),
-    hasToxic: abilities.hasToxic || grantedText.includes('toxic'),
-    toxicValue: abilities.toxicValue || 0,
-    hasPoisonous: abilities.hasPoisonous || grantedText.includes('poisonous'),
-    poisonousValue: abilities.poisonousValue || 0,
-    hasLifelink: abilities.hasLifelink || grantedText.includes('lifelink'),
-    hasDeathtouch: abilities.hasDeathtouch || grantedText.includes('deathtouch'),
+    hasInfect: Boolean(abilities.hasInfect || grantedAbilityData.hasInfect),
+    hasWither: Boolean(abilities.hasWither || grantedAbilityData.hasWither),
+    hasToxic: Boolean(abilities.hasToxic || grantedAbilityData.hasToxic),
+    toxicValue: Math.max(abilities.toxicValue || 0, grantedAbilityData.toxicValue || 0),
+    hasPoisonous: Boolean(abilities.hasPoisonous || grantedAbilityData.hasPoisonous),
+    poisonousValue: Math.max(abilities.poisonousValue || 0, grantedAbilityData.poisonousValue || 0),
+    hasLifelink: Boolean(abilities.hasLifelink || grantedAbilityData.hasLifelink),
+    hasDeathtouch: Boolean(abilities.hasDeathtouch || grantedAbilityData.hasDeathtouch),
     sourceId: permanent.id,
     sourceName: card?.name || 'Unknown',
     controllerId: permanent.controller,

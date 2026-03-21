@@ -12,6 +12,7 @@ import {
   applySilenceEffect,
   clearEndOfTurnRestrictions,
   canActivateAbilities,
+  hasValidTargetsForSpell,
   CastingRestrictionType,
   RestrictionDuration,
 } from '../src/castingRestrictions';
@@ -438,6 +439,46 @@ describe('Casting Restrictions', () => {
       // Player2 has both Rule of Law and Teferi (as opponent)
       const player2Restrictions = restrictions.get('player2') || [];
       expect(player2Restrictions.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('hasValidTargetsForSpell', () => {
+    it('treats animated noncreatures as valid creature targets', () => {
+      const animatedArtifact = {
+        id: 'artifact-1',
+        controller: 'player2',
+        isCreature: true,
+        card: {
+          name: 'Animated Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+        },
+      };
+
+      const state = createGameState([], [animatedArtifact]);
+      const result = hasValidTargetsForSpell('Destroy target creature.', state, 'player1');
+
+      expect(result.hasTargets).toBe(true);
+    });
+
+    it('ignores permanents that no longer count as creatures', () => {
+      const moonedCreature = {
+        id: 'creature-1',
+        controller: 'player2',
+        notCreature: true,
+        effectiveTypes: ['Land'],
+        card: {
+          name: 'Moon-Bound Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+        },
+      };
+
+      const state = createGameState([], [moonedCreature]);
+      const result = hasValidTargetsForSpell('Destroy target creature.', state, 'player1');
+
+      expect(result.hasTargets).toBe(false);
+      expect(result.reason).toContain('No creatures');
     });
   });
 });

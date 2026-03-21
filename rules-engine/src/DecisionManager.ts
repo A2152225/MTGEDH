@@ -22,6 +22,8 @@ import {
   DecisionOption,
   DecisionResult,
 } from './AutomationService';
+import { canPermanentAttack, canPermanentBlock, isCurrentlyCreature } from './actions/combat';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 /**
  * Player's response to a pending decision
@@ -292,21 +294,18 @@ export class DecisionManager {
     }
     
     // Check if it's a permanent on the battlefield
-    const permanent = (gameState.battlefield || []).find(
+    const permanent = this.getProcessedBattlefield(gameState).find(
       (p: BattlefieldPermanent) => p.id === targetId
     );
     
     if (permanent) {
-      const card = permanent.card as any;
-      const typeLine = (card?.type_line || '').toLowerCase();
-      
       // Check type matching
       if (targetTypes.length === 0 || targetTypes.includes('permanent')) {
         return { valid: true };
       }
       
       for (const type of targetTypes) {
-        if (typeLine.includes(type.toLowerCase())) {
+        if (this.matchesPermanentTargetType(permanent, type)) {
           return { valid: true };
         }
       }
@@ -456,7 +455,7 @@ export class DecisionManager {
       return { valid: false, error: 'Invalid attacker selection format' };
     }
     
-    const battlefield = gameState.battlefield || [];
+    const battlefield = this.getProcessedBattlefield(gameState);
     const activePlayerId = gameState.players[gameState.activePlayerIndex || 0]?.id;
     
     for (const { attackerId, defendingPlayer } of selection) {
@@ -470,30 +469,10 @@ export class DecisionManager {
         return { valid: false, error: 'Can only attack with your own creatures' };
       }
       
-      // Check it's a creature
       const card = attacker.card as any;
-      const typeLine = (card?.type_line || '').toLowerCase();
-      if (!typeLine.includes('creature')) {
-        return { valid: false, error: `${card?.name} is not a creature` };
-      }
-      
-      // Check not tapped
-      if (attacker.tapped) {
-        return { valid: false, error: `${card?.name} is tapped` };
-      }
-      
-      // Check no summoning sickness (unless has haste)
-      if (attacker.summoningSickness) {
-        const oracleText = (card?.oracle_text || '').toLowerCase();
-        if (!oracleText.includes('haste')) {
-          return { valid: false, error: `${card?.name} has summoning sickness` };
-        }
-      }
-      
-      // Check defender keyword
-      const oracleText = (card?.oracle_text || '').toLowerCase();
-      if (oracleText.includes('defender')) {
-        return { valid: false, error: `${card?.name} has defender and cannot attack` };
+      const attackValidation = canPermanentAttack(attacker, activePlayerId, battlefield);
+      if (!attackValidation.canParticipate) {
+        return { valid: false, error: `${card?.name || attackerId} ${attackValidation.reason || 'cannot attack'}`.trim() };
       }
       
       // Check defending player is valid
@@ -522,7 +501,7 @@ export class DecisionManager {
       return { valid: false, error: 'Invalid blocker selection format' };
     }
     
-    const battlefield = gameState.battlefield || [];
+    const battlefield = this.getProcessedBattlefield(gameState);
     const playerId = decision.playerId;
     
     for (const { blockerId, attackerId } of selection) {
@@ -536,35 +515,75 @@ export class DecisionManager {
         return { valid: false, error: 'Can only block with your own creatures' };
       }
       
-      // Check it's a creature
       const card = blocker.card as any;
-      const typeLine = (card?.type_line || '').toLowerCase();
-      if (!typeLine.includes('creature')) {
-        return { valid: false, error: `${card?.name} is not a creature` };
-      }
-      
-      // Check not tapped
-      if (blocker.tapped) {
-        return { valid: false, error: `${card?.name} is tapped and cannot block` };
-      }
       
       // Check attacker exists and is attacking
       const attacker = battlefield.find((p: BattlefieldPermanent) => p.id === attackerId);
       if (!attacker || !attacker.attacking) {
         return { valid: false, error: `${attackerId} is not attacking` };
       }
-      
-      // Check for flying/reach
-      const attackerCard = attacker.card as any;
-      const attackerText = (attackerCard?.oracle_text || '').toLowerCase();
-      const blockerText = (card?.oracle_text || '').toLowerCase();
-      
-      if (attackerText.includes('flying') && !blockerText.includes('flying') && !blockerText.includes('reach')) {
-        return { valid: false, error: `${card?.name} cannot block flying creatures` };
+
+      const blockValidation = canPermanentBlock(blocker, attacker, battlefield);
+      if (!blockValidation.canParticipate) {
+        return { valid: false, error: `${card?.name || blockerId} ${blockValidation.reason || 'cannot block'}`.trim() };
       }
     }
     
     return { valid: true, processedSelection: selection };
+  }
+
+  private getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
+    return applyStaticAbilitiesToBattlefield(
+      (gameState.battlefield || []) as BattlefieldPermanent[]
+    ) as BattlefieldPermanent[];
+  }
+
+  private matchesPermanentTargetType(permanent: BattlefieldPermanent, type: string): boolean {
+    const normalizedType = type.toLowerCase();
+    if (normalizedType === 'permanent') {
+      return true;
+    }
+
+    if (normalizedType === 'creature') {
+      return isCurrentlyCreature(permanent);
+    }
+
+    const effectiveTypes = this.getPermanentTypeNames(permanent);
+    return effectiveTypes.includes(normalizedType);
+  }
+
+  private getPermanentTypeNames(permanent: BattlefieldPermanent): string[] {
+    const typeNames = new Set<string>();
+    const addTypes = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          if (typeof entry === 'string') {
+            typeNames.add(entry.toLowerCase());
+          }
+        }
+      }
+    };
+
+    const rawTypeLine = [permanent.card?.type_line, (permanent as any).type_line]
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .join(' ')
+      .toLowerCase();
+
+    for (const type of ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker']) {
+      if (rawTypeLine.includes(type)) {
+        typeNames.add(type);
+      }
+    }
+
+    if (isCurrentlyCreature(permanent)) {
+      typeNames.add('creature');
+    }
+
+    addTypes((permanent as any).types);
+    addTypes((permanent as any).effectiveTypes);
+    addTypes((permanent as any).grantedTypes);
+
+    return [...typeNames];
   }
   
   /**

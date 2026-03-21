@@ -15,6 +15,7 @@ import {
   checkCommanderDamage,
   checkLegendRule,
 } from '../stateBasedActions';
+import { applyStaticAbilitiesToBattlefield } from '../staticAbilities';
 
 export interface SBAResult {
   state: GameState;
@@ -97,15 +98,17 @@ function checkCreatureDeaths(state: GameState): {
   actions: string[];
 } {
   const allPermanents = state.battlefield || [];
+  const processedBattlefield = applyStaticAbilitiesToBattlefield(allPermanents as any[]);
   const creatureDeaths: string[] = [];
   const actions: string[] = [];
   
-  for (const perm of allPermanents) {
+  for (const perm of processedBattlefield) {
     if (!perm.card?.type_line?.toLowerCase().includes('creature')) continue;
     
     const baseToughness = parseInt(String(perm.card.toughness || '0'), 10);
-    const toughnessModifier = perm.counters?.['toughness'] || 0;
-    const toughness = baseToughness + toughnessModifier;
+    const toughness = typeof (perm as any).effectiveToughness === 'number'
+      ? (perm as any).effectiveToughness
+      : baseToughness;
     const damage = perm.counters?.damage || 0;
     
     // Zero toughness

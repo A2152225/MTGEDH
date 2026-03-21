@@ -4,6 +4,8 @@ import type { OracleEffectStep, OracleObjectSelector, OraclePlayerSelector, Orac
 import { parseManaSymbols } from './types/numbers';
 import { addMana, createEmptyManaPool, ManaType } from './types/mana';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
+import { isCurrentlyCreature } from './actions/combat';
 
 export interface OracleIRExecutionOptions {
   /**
@@ -529,7 +531,7 @@ function resolveTrepanationBoostTargetCreatureId(
   state: GameState,
   ctx: OracleIRExecutionContext
 ): string | undefined {
-  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const battlefield = getProcessedBattlefield(state);
   const sourceId = String(ctx.sourceId || '').trim();
 
   if (sourceId) {
@@ -561,12 +563,8 @@ function resolveSingleCreatureTargetId(
 
   if (target.kind !== 'raw') return undefined;
   const t = String(target.text || '').trim().toLowerCase();
-  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
-  const creatures = battlefield.filter((p: any) => {
-    const cardType = String((p as any)?.cardType || '').toLowerCase();
-    const typeLine = String((p as any)?.type_line || '').toLowerCase();
-    return cardType.includes('creature') || typeLine.includes('creature');
-  });
+  const battlefield = getProcessedBattlefield(state);
+  const creatures = battlefield.filter((p: any) => isExecutorCreature(p));
 
   const controllerId = String(ctx.controllerId || '').trim();
   const controlledCreatures = creatures.filter(
@@ -635,10 +633,7 @@ function resolveGoadTargetCreatureIds(
   target: OracleObjectSelector,
   ctx: OracleIRExecutionContext
 ): string[] {
-  const battlefield = ((state.battlefield || []) as BattlefieldPermanent[]).filter((p: any) => {
-    const typeLine = String((p as any)?.cardType || (p as any)?.type_line || (p as any)?.card?.type_line || '').toLowerCase();
-    return typeLine.includes('creature');
-  });
+  const battlefield = getProcessedBattlefield(state).filter((p: any) => isExecutorCreature(p));
 
   const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
     ? ctx.selectorContext.chosenObjectIds
@@ -722,8 +717,7 @@ function applyGoadToCreatures(
     const permanentId = String((perm as any)?.id || '').trim();
     if (!idSet.has(permanentId)) continue;
 
-    const typeLine = String((perm as any)?.cardType || (perm as any)?.type_line || (perm as any)?.card?.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) continue;
+    if (!isExecutorCreature(perm)) continue;
 
     const goadedBy = Array.isArray(perm.goadedBy)
       ? perm.goadedBy.map((value: unknown) => String(value || '').trim()).filter(Boolean)
@@ -745,6 +739,46 @@ function applyGoadToCreatures(
   return changed ? ({ ...(state as any), battlefield } as any) : null;
 }
 
+function getProcessedBattlefield(state: GameState): BattlefieldPermanent[] {
+  return applyStaticAbilitiesToBattlefield(
+    (state.battlefield || []) as BattlefieldPermanent[]
+  ) as BattlefieldPermanent[];
+}
+
+function isExecutorCreature(permanent: BattlefieldPermanent | any): boolean {
+  if (isCurrentlyCreature(permanent)) {
+    return true;
+  }
+
+  return getExecutorTypeLineLower(permanent).includes('creature');
+}
+
+function getExecutorTypeLineLower(permanent: BattlefieldPermanent | any): string {
+  const rawParts = [
+    (permanent as any)?.cardType,
+    (permanent as any)?.type_line,
+    (permanent as any)?.card?.type_line,
+  ]
+    .map(value => String(value || '').toLowerCase().trim())
+    .filter(Boolean);
+
+  for (const list of [(permanent as any)?.types, (permanent as any)?.effectiveTypes, (permanent as any)?.grantedTypes]) {
+    if (!Array.isArray(list)) continue;
+    for (const value of list) {
+      const normalized = String(value || '').toLowerCase().trim();
+      if (normalized) rawParts.push(normalized);
+    }
+  }
+
+  if (rawParts.length === 0) return '';
+
+  const uniqueParts: string[] = [];
+  for (const part of rawParts) {
+    if (!uniqueParts.includes(part)) uniqueParts.push(part);
+  }
+  return uniqueParts.join(' ').trim();
+}
+
 function evaluateModifyPtCondition(
   state: GameState,
   controllerId: PlayerID,
@@ -753,26 +787,10 @@ function evaluateModifyPtCondition(
   const raw = normalizeOracleText(conditionRaw);
   if (!raw) return null;
 
-  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const battlefield = getProcessedBattlefield(state);
   const controlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === controllerId);
 
-  const typeLineLower = (p: any): string => {
-    const rawParts = [
-      (p as any)?.cardType,
-      (p as any)?.type_line,
-      (p as any)?.card?.type_line,
-    ]
-      .map(value => String(value || '').toLowerCase().trim())
-      .filter(Boolean);
-
-    if (rawParts.length === 0) return '';
-
-    const uniqueParts: string[] = [];
-    for (const part of rawParts) {
-      if (!uniqueParts.includes(part)) uniqueParts.push(part);
-    }
-    return uniqueParts.join(' ').trim();
-  };
+  const typeLineLower = (p: any): string => getExecutorTypeLineLower(p);
 
   const normalizeClass = (s: string): string | null => normalizeControlledClassKey(s);
   const countByClass = (klass: string): number => countControlledByClass(controlled, klass, typeLineLower);
@@ -995,13 +1013,10 @@ function evaluateModifyPtWhereX(
   raw = raw.replace(/\bnine\b/g, '9');
   raw = raw.replace(/\bten\b/g, '10');
 
-  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const battlefield = getProcessedBattlefield(state);
   const controlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === controllerId);
   const opponentsControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() !== controllerId);
-  const typeLineLower = (p: any): string =>
-    String((p as any)?.cardType || (p as any)?.type_line || (p as any)?.card?.type_line || '')
-      .toLowerCase()
-      .trim();
+  const typeLineLower = (p: any): string => getExecutorTypeLineLower(p);
   const isAttackingObject = (obj: any): boolean => {
     const attackingValue = String((obj as any)?.attacking || (obj as any)?.attackingPlayerId || (obj as any)?.defendingPlayerId || '').trim();
     if (attackingValue.length > 0) return true;
@@ -1714,6 +1729,24 @@ function evaluateModifyPtWhereX(
     }).length;
   };
 
+  const hasExecutorClass = (permanent: BattlefieldPermanent | any, klass: string): boolean => {
+    const tl = typeLineLower(permanent);
+    if (!tl) return false;
+    if (klass === 'creature') return isExecutorCreature(permanent);
+    if (klass === 'permanent') {
+      return (
+        tl.includes('artifact') ||
+        tl.includes('battle') ||
+        tl.includes('creature') ||
+        tl.includes('enchantment') ||
+        tl.includes('land') ||
+        tl.includes('planeswalker')
+      );
+    }
+    if (klass === 'nonland permanent') return hasExecutorClass(permanent, 'permanent') && !tl.includes('land');
+    return tl.includes(klass);
+  };
+
   const countNegatedClass = (
     permanents: readonly BattlefieldPermanent[],
     base: 'creature' | 'permanent',
@@ -1725,17 +1758,7 @@ function evaluateModifyPtWhereX(
       if (excludedId && id === excludedId) return false;
       const tl = typeLineLower(p);
       if (!tl) return false;
-      if (base === 'creature' && !tl.includes('creature')) return false;
-      if (base === 'permanent') {
-        const isPermanent =
-          tl.includes('artifact') ||
-          tl.includes('battle') ||
-          tl.includes('creature') ||
-          tl.includes('enchantment') ||
-          tl.includes('land') ||
-          tl.includes('planeswalker');
-        if (!isPermanent) return false;
-      }
+      if (!hasExecutorClass(p, base)) return false;
       return excludedQualifier ? !tl.includes(excludedQualifier) : true;
     }).length;
   };
@@ -1750,7 +1773,7 @@ function evaluateModifyPtWhereX(
       const id = String((p as any)?.id || '').trim();
       if (opts?.excludedId && id === opts.excludedId) continue;
       const tl = typeLineLower(p);
-      if (!tl.includes('creature')) continue;
+      if (!hasExecutorClass(p, 'creature')) continue;
       if (opts?.excludedSubtype && tl.includes(opts.excludedSubtype)) continue;
       const n = Number(which === 'power' ? p?.power : p?.toughness);
       if (!Number.isFinite(n)) continue;
@@ -1768,14 +1791,7 @@ function evaluateModifyPtWhereX(
       const id = String((p as any)?.id || '').trim();
       if (opts?.excludedId && id === opts.excludedId) continue;
       const tl = typeLineLower(p);
-      const isPermanent =
-        tl.includes('artifact') ||
-        tl.includes('battle') ||
-        tl.includes('creature') ||
-        tl.includes('enchantment') ||
-        tl.includes('land') ||
-        tl.includes('planeswalker');
-      if (!isPermanent) continue;
+      if (!hasExecutorClass(p, 'permanent')) continue;
       if (opts?.excludedQualifier && tl.includes(opts.excludedQualifier)) continue;
       const mv = getCardManaValue(p?.card || p);
       if (mv === null) continue;
@@ -1982,12 +1998,7 @@ function evaluateModifyPtWhereX(
       return controlled.filter((p: any) => {
         const tapped = Boolean((p as any)?.tapped);
         if (which === 'tapped' ? !tapped : tapped) return false;
-        const tl = typeLineLower(p);
-        return classes.some((klass) => {
-          if (klass === 'permanent') return true;
-          if (klass === 'nonland permanent') return !tl.includes('land');
-          return tl.includes(klass);
-        });
+        return classes.some((klass) => hasExecutorClass(p, klass));
       }).length;
     }
   }
@@ -1997,7 +2008,7 @@ function evaluateModifyPtWhereX(
     if (m) {
       const which = String(m[1] || '').toLowerCase();
       return controlled.filter((p: any) => {
-        if (!typeLineLower(p).includes('creature')) return false;
+        if (!hasExecutorClass(p, 'creature')) return false;
         const tapped = Boolean((p as any)?.tapped);
         return which === 'tapped' ? tapped : !tapped;
       }).length;
@@ -2010,7 +2021,7 @@ function evaluateModifyPtWhereX(
       const excludedId = String(targetCreatureId || ctx?.sourceId || '').trim();
       return controlled.filter((p: any) => {
         if (excludedId && String((p as any)?.id || '').trim() === excludedId) return false;
-        return typeLineLower(p).includes('creature');
+        return hasExecutorClass(p, 'creature');
       }).length;
     }
   }
@@ -2020,7 +2031,7 @@ function evaluateModifyPtWhereX(
     if (m) {
       return controlled.filter((p: any) => {
         const tl = typeLineLower(p);
-        return tl.includes('legendary') && tl.includes('creature');
+        return tl.includes('legendary') && hasExecutorClass(p, 'creature');
       }).length;
     }
   }
@@ -2031,7 +2042,7 @@ function evaluateModifyPtWhereX(
       return controlled.filter((p: any) => {
         const tl = typeLineLower(p);
         const keywords = String((p as any)?.keywords || (p as any)?.card?.keywords || '').toLowerCase();
-        return tl.includes('creature') && (tl.includes('defender') || keywords.includes('defender'));
+        return hasExecutorClass(p, 'creature') && (tl.includes('defender') || keywords.includes('defender'));
       }).length;
     }
   }
@@ -2061,8 +2072,7 @@ function evaluateModifyPtWhereX(
       const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
 
       return controlled.reduce((sum: number, p: any) => {
-        const tl = typeLineLower(p);
-        if (!tl.includes('creature')) return sum;
+        if (!hasExecutorClass(p, 'creature')) return sum;
         if (excludedId && String((p as any)?.id || '').trim() === excludedId) return sum;
         const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
         return sum + (Number.isFinite(n) ? n : 0);
@@ -2075,7 +2085,7 @@ function evaluateModifyPtWhereX(
     if (m) {
       const threshold = Math.max(0, parseInt(String(m[1] || '0'), 10) || 0);
       return controlled.filter((p: any) => {
-        if (!typeLineLower(p).includes('creature')) return false;
+        if (!hasExecutorClass(p, 'creature')) return false;
         const n = Number((p as any)?.power);
         return Number.isFinite(n) && n >= threshold;
       }).length;
@@ -2087,8 +2097,7 @@ function evaluateModifyPtWhereX(
     if (m) {
       const seen = new Set<string>();
       for (const p of controlled as any[]) {
-        const tl = typeLineLower(p);
-        if (!tl.includes('land')) continue;
+        if (!hasExecutorClass(p, 'land')) continue;
         const name = String((p as any)?.name || (p as any)?.card?.name || '').trim().toLowerCase();
         if (!name) continue;
         seen.add(name);
@@ -2110,7 +2119,7 @@ function evaluateModifyPtWhereX(
         const pool = useOpponents ? opponentsControlled : useControlled ? controlled : battlefield;
         return pool.filter((p: any) => {
           if (excludedId && String((p as any)?.id || '').trim() === excludedId) return false;
-          if (!typeLineLower(p).includes('creature')) return false;
+          if (!hasExecutorClass(p, 'creature')) return false;
           return String((p as any)?.attacking || '').trim().length > 0;
         }).length;
       }
@@ -2121,7 +2130,7 @@ function evaluateModifyPtWhereX(
     const m = raw.match(/^x is the number of creatures attacking you$/i);
     if (m) {
       return battlefield.filter((p: any) => {
-        if (!typeLineLower(p).includes('creature')) return false;
+        if (!hasExecutorClass(p, 'creature')) return false;
         if (!isAttackingObject(p)) return false;
         const attackedId = String((p as any)?.attacking || (p as any)?.attackingPlayerId || (p as any)?.defendingPlayerId || '').trim();
         return attackedId === controllerId;
@@ -2139,7 +2148,7 @@ function evaluateModifyPtWhereX(
 
       const chosenCreatures = chosenIds
         .map(id => findObjectById(id))
-        .filter((obj): obj is any => Boolean(obj) && typeLineLower(obj).includes('creature'));
+        .filter((obj): obj is any => Boolean(obj) && hasExecutorClass(obj, 'creature'));
       if (chosenCreatures.length < 2) return null;
 
       const powerValues = chosenCreatures.slice(0, 2).map(obj => Number((obj as any)?.power ?? (obj as any)?.card?.power));
@@ -2156,7 +2165,7 @@ function evaluateModifyPtWhereX(
       const excludedId = isOther ? String(targetCreatureId || ctx?.sourceId || '').trim() : '';
 
       return battlefield.reduce((sum: number, p: any) => {
-        if (!typeLineLower(p).includes('creature')) return sum;
+        if (!hasExecutorClass(p, 'creature')) return sum;
         if (!isAttackingObject(p)) return sum;
         if (excludedId && String((p as any)?.id || '').trim() === excludedId) return sum;
         const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
@@ -2169,7 +2178,7 @@ function evaluateModifyPtWhereX(
     const m = raw.match(/^x is the number of attacking creatures with flying$/i);
     if (m) {
       return battlefield.filter((p: any) => {
-        if (!typeLineLower(p).includes('creature')) return false;
+        if (!hasExecutorClass(p, 'creature')) return false;
         if (!isAttackingObject(p)) return false;
         return hasFlyingKeyword(p);
       }).length;
@@ -2204,7 +2213,7 @@ function evaluateModifyPtWhereX(
       const seen = new Set<string>();
       for (const p of controlled as any[]) {
         const tl = typeLineLower(p);
-        if (!tl.includes('land')) continue;
+        if (!hasExecutorClass(p, 'land')) continue;
         for (const basic of basicLandTypes) {
           if (tl.includes(basic)) seen.add(basic);
         }
@@ -2228,7 +2237,7 @@ function evaluateModifyPtWhereX(
       const seen = new Set<string>();
       for (const p of targetControlled as any[]) {
         const tl = typeLineLower(p);
-        if (!tl.includes('land')) continue;
+        if (!hasExecutorClass(p, 'land')) continue;
         for (const basic of basicLandTypes) {
           if (tl.includes(basic)) seen.add(basic);
         }
@@ -2244,7 +2253,7 @@ function evaluateModifyPtWhereX(
       const filled = new Set<string>();
       for (const p of controlled as any[]) {
         const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         for (const role of partyRoles) {
           if (tl.includes(role)) filled.add(role);
         }
@@ -2319,7 +2328,7 @@ function evaluateModifyPtWhereX(
       const matchesExpectedType = (obj: any): boolean => {
         if (!obj) return false;
         if (expectedType === 'permanent') return true;
-        return typeLineLower(obj).includes(expectedType);
+        return hasExecutorClass(obj, expectedType);
       };
 
       const objectToRead =

@@ -122,6 +122,44 @@ describe('State-Based Actions', () => {
     expect(result.playerLost).toBe('player1');
   });
 
+  it('should keep creatures alive when an attached aura raises toughness above marked damage', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 40, battlefield: [], hand: [], library: [], graveyard: [] },
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { damage: 2 },
+          card: {
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'aura1',
+          controller: 'player1',
+          owner: 'player1',
+          attachedTo: 'creature1',
+          card: {
+            name: 'Shiny Impetus',
+            type_line: 'Enchantment — Aura',
+            oracle_text: 'Enchant creature\nEnchanted creature gets +2/+2 and is goaded.',
+          },
+        },
+      ],
+    } as any;
+
+    const result = performStateBasedActions(state);
+    expect(result.state.battlefield.some((perm: any) => perm.id === 'creature1')).toBe(true);
+    expect(result.actions).not.toContain('Grizzly Bears dies (lethal damage)');
+  });
+
   it('should detect last player standing', () => {
     const state: GameState = {
       players: [

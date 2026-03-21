@@ -18,6 +18,7 @@
  */
 
 import type { GameState, BattlefieldPermanent, StackItem, PlayerRef, ManaPool } from '../../shared/src';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 /** Type for mana color keys (subset of ManaPool that are numeric) */
 type ManaColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
@@ -355,12 +356,12 @@ export function calculateCombatDamage(state: GameState): {
   const pendingDecisions: PendingDecision[] = [];
   let requiresPlayerInput = false;
   
-  const battlefield = state.battlefield || [];
+  const battlefield = applyStaticAbilitiesToBattlefield((state.battlefield || []) as BattlefieldPermanent[]);
   const attackers = battlefield.filter((p: BattlefieldPermanent) => p.attacking);
   
   for (const attacker of attackers) {
     const card = attacker.card as any;
-    const power = parseInt(card?.power || '0', 10);
+    const power = getCombatPower(attacker);
     const blockers = attacker.blockedBy || [];
     
     if (blockers.length === 0) {
@@ -384,7 +385,7 @@ export function calculateCombatDamage(state: GameState): {
           targetId: blockers[0],
           targetType: 'creature',
           damage: power,
-          isLethal: power >= parseInt((blocker.card as any)?.toughness || '1', 10),
+          isLethal: power >= getCombatToughness(blocker),
         });
       }
     } else {
@@ -417,7 +418,7 @@ export function calculateCombatDamage(state: GameState): {
   
   for (const blocker of blockers) {
     const card = blocker.card as any;
-    const power = parseInt(card?.power || '0', 10);
+    const power = getCombatPower(blocker);
     
     // Blockers can only deal damage to one attacker they're blocking
     // (unless first strike/double strike is involved)
@@ -439,6 +440,24 @@ export function calculateCombatDamage(state: GameState): {
     requiresPlayerInput,
     pendingDecisions,
   };
+}
+
+function getCombatPower(permanent: BattlefieldPermanent): number {
+  const effectivePower = (permanent as any).effectivePower;
+  if (typeof effectivePower === 'number') {
+    return effectivePower;
+  }
+
+  return parseInt((permanent.card as any)?.power || '0', 10);
+}
+
+function getCombatToughness(permanent: BattlefieldPermanent): number {
+  const effectiveToughness = (permanent as any).effectiveToughness;
+  if (typeof effectiveToughness === 'number') {
+    return effectiveToughness;
+  }
+
+  return parseInt((permanent.card as any)?.toughness || '1', 10);
 }
 
 /**
