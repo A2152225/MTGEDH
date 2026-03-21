@@ -23,6 +23,7 @@ import {
   detectWinEffect, 
   playerHasCantLoseEffect,
   checkEmptyLibraryDrawWin,
+  opponentsHaveCantWinEffect,
 } from './winEffectCards';
 import { parseTriggeredAbilitiesFromText, TriggerEvent } from './triggeredAbilities';
 
@@ -374,6 +375,9 @@ export class GameSimulator {
     
     const endTime = Date.now();
     
+    // Build final state for rules engine compatibility
+    const finalState = this.rulesEngine['gameStates'].get(config.gameId) || initialState;
+
     // Determine winner
     const alivePlayers = Object.values(simState.players).filter(p => !p.hasLost);
     let winner: PlayerID | null = null;
@@ -392,14 +396,24 @@ export class GameSimulator {
         reason = `Highest life total (${sorted[0].life}) at turn limit`;
       }
     }
+
+    if (winner) {
+      const cantWin = opponentsHaveCantWinEffect(
+        winner,
+        ((finalState as any)?.battlefield || []) as any,
+        ((finalState as any)?.players || []) as any,
+        ((finalState as any)?.winLossEffects || []) as any,
+      );
+      if (cantWin.hasCantWin) {
+        winner = null;
+        reason = `${reason}, but win blocked by ${cantWin.source}`;
+      }
+    }
     
     if (config.verbose) {
       console.log(`[Simulator] Game ${config.gameId} ended: ${reason}`);
       console.log(`[Simulator] Total turns: ${turnCount}, actions: ${actionCount}`);
     }
-    
-    // Build final state for rules engine compatibility
-    const finalState = this.rulesEngine['gameStates'].get(config.gameId) || initialState;
     
     // Calculate final statistics
     const playerStatsMap = this.calculatePlayerStats(simState);

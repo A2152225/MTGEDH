@@ -14,7 +14,111 @@
  * Reference: MagicCompRules 20251114.txt, Rule 104
  */
 
-import type { BattlefieldPermanent, PlayerID, KnownCardRef } from '../../shared/src';
+import type { BattlefieldPermanent, GameState, PlayerID, KnownCardRef } from '../../shared/src';
+
+type WinEffectPlayer = {
+  readonly id?: PlayerID;
+  readonly emblems?: readonly unknown[];
+};
+
+function getPlayerEmblems(players: readonly WinEffectPlayer[] | undefined, playerId: PlayerID): readonly any[] {
+  const player = players?.find(entry => entry?.id === playerId) as any;
+  return Array.isArray(player?.emblems) ? player.emblems : [];
+}
+
+function getEmblemAbilities(emblem: any): string[] {
+  if (Array.isArray(emblem?.abilities)) {
+    return emblem.abilities.map((ability: unknown) => String(ability || ''));
+  }
+
+  if (typeof emblem?.ability === 'string') {
+    return [emblem.ability];
+  }
+
+  return [];
+}
+
+function permanentIsGideonPlaneswalker(perm: BattlefieldPermanent, controllerId: PlayerID): boolean {
+  if (perm.controller !== controllerId) {
+    return false;
+  }
+
+  const typeLine = String((perm.card as KnownCardRef)?.type_line || (perm as any)?.type_line || '').toLowerCase();
+  const effectiveTypes = Array.isArray((perm as any)?.effectiveTypes)
+    ? (perm as any).effectiveTypes.map((entry: unknown) => String(entry).toLowerCase())
+    : [];
+  const isPlaneswalker = typeLine.includes('planeswalker') || effectiveTypes.includes('planeswalker');
+  if (!isPlaneswalker) {
+    return false;
+  }
+
+  const name = String((perm.card as KnownCardRef)?.name || '').toLowerCase();
+  return name.includes('gideon') || typeLine.includes('gideon');
+}
+
+function emblemRequiresGideonPlaneswalker(abilityText: string, emblem: any): boolean {
+  const lowerAbility = abilityText.toLowerCase();
+  return lowerAbility.includes('as long as you control a gideon planeswalker') ||
+    String(emblem?.createdBy || '').toLowerCase() === 'gideon of the trials';
+}
+
+function emblemConditionIsActive(
+  emblem: any,
+  abilityText: string,
+  playerId: PlayerID,
+  battlefield: readonly BattlefieldPermanent[]
+): boolean {
+  if (!emblemRequiresGideonPlaneswalker(abilityText, emblem)) {
+    return true;
+  }
+
+  return battlefield.some(perm => permanentIsGideonPlaneswalker(perm, playerId));
+}
+
+function getTemporaryWinLossEffects(effects: readonly TemporaryWinLossEffect[] | undefined): readonly TemporaryWinLossEffect[] {
+  return Array.isArray(effects) ? effects : [];
+}
+
+function setPermanentCounter(
+  battlefield: readonly BattlefieldPermanent[],
+  permanentId: string,
+  counterName: string,
+  nextValue: number
+): BattlefieldPermanent[] {
+  return battlefield.map(perm => {
+    if (perm.id !== permanentId) {
+      return perm;
+    }
+
+    return {
+      ...perm,
+      counters: {
+        ...(perm.counters || {}),
+        [counterName]: Math.max(0, nextValue),
+      },
+    } as BattlefieldPermanent;
+  });
+}
+
+function finishGameAsDraw(state: GameState, reason: string): GameState {
+  const nextState: any = {
+    ...state,
+    status: 'finished',
+    winReason: reason,
+    isDraw: true,
+  };
+  delete nextState.winner;
+  return nextState as GameState;
+}
+
+function finishGameWithWinner(state: GameState, winnerId: PlayerID, reason: string): GameState {
+  return {
+    ...state,
+    winner: winnerId,
+    status: 'finished' as any,
+    winReason: reason as any,
+  } as GameState;
+}
 
 /**
  * Types of win effects
@@ -70,6 +174,23 @@ export interface WinEffectCheckResult {
   /** Is this win blocked by an effect like Platinum Angel? */
   readonly blockedBy?: string;
   /** Log messages */
+  readonly log: readonly string[];
+}
+
+export interface TemporaryWinLossEffect {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly sourceName: string;
+  readonly sourceControllerId: PlayerID;
+  readonly affectedPlayerId: PlayerID;
+  readonly grantsCantLose: boolean;
+  readonly grantsOpponentsCantWin: boolean;
+  readonly expiresAtEndOfTurn: boolean;
+  readonly timestamp: number;
+}
+
+export interface UpkeepOutcomeResult {
+  readonly state: GameState;
   readonly log: readonly string[];
 }
 
@@ -266,7 +387,9 @@ export function collectWinEffects(
  */
 export function playerHasCantLoseEffect(
   playerId: PlayerID,
-  battlefield: readonly BattlefieldPermanent[]
+  battlefield: readonly BattlefieldPermanent[],
+  players?: readonly WinEffectPlayer[],
+  temporaryEffects?: readonly TemporaryWinLossEffect[]
 ): { hasCantLose: boolean; source?: string } {
   for (const perm of battlefield) {
     if (perm.controller !== playerId) continue;
@@ -278,6 +401,29 @@ export function playerHasCantLoseEffect(
       return { hasCantLose: true, source: card?.name };
     }
   }
+
+  for (const emblem of getPlayerEmblems(players, playerId)) {
+    for (const ability of getEmblemAbilities(emblem)) {
+      const lowerAbility = ability.toLowerCase();
+      if (!lowerAbility.includes("you can't lose the game")) {
+        continue;
+      }
+
+      if (!emblemConditionIsActive(emblem, ability, playerId, battlefield)) {
+        continue;
+      }
+
+      return { hasCantLose: true, source: emblem?.name || 'Emblem' };
+    }
+  }
+
+  for (const effect of getTemporaryWinLossEffects(temporaryEffects)) {
+    if (!effect.grantsCantLose || effect.affectedPlayerId !== playerId) {
+      continue;
+    }
+
+    return { hasCantLose: true, source: effect.sourceName };
+  }
   
   return { hasCantLose: false };
 }
@@ -287,7 +433,9 @@ export function playerHasCantLoseEffect(
  */
 export function opponentsHaveCantWinEffect(
   winningPlayerId: PlayerID,
-  battlefield: readonly BattlefieldPermanent[]
+  battlefield: readonly BattlefieldPermanent[],
+  players?: readonly WinEffectPlayer[],
+  temporaryEffects?: readonly TemporaryWinLossEffect[]
 ): { hasCantWin: boolean; source?: string } {
   for (const perm of battlefield) {
     // Only check permanents controlled by opponents
@@ -301,6 +449,35 @@ export function opponentsHaveCantWinEffect(
       return { hasCantWin: true, source: card?.name };
     }
   }
+
+  for (const player of players || []) {
+    if (!player?.id || player.id === winningPlayerId) {
+      continue;
+    }
+
+    for (const emblem of getPlayerEmblems(players, player.id)) {
+      for (const ability of getEmblemAbilities(emblem)) {
+        const lowerAbility = ability.toLowerCase();
+        if (!lowerAbility.includes("opponents can't win the game")) {
+          continue;
+        }
+
+        if (!emblemConditionIsActive(emblem, ability, player.id, battlefield)) {
+          continue;
+        }
+
+        return { hasCantWin: true, source: emblem?.name || 'Emblem' };
+      }
+    }
+  }
+
+  for (const effect of getTemporaryWinLossEffects(temporaryEffects)) {
+    if (!effect.grantsOpponentsCantWin || effect.affectedPlayerId === winningPlayerId) {
+      continue;
+    }
+
+    return { hasCantWin: true, source: effect.sourceName };
+  }
   
   return { hasCantWin: false };
 }
@@ -312,7 +489,9 @@ export function opponentsHaveCantWinEffect(
 export function checkEmptyLibraryDrawWin(
   playerId: PlayerID,
   librarySize: number,
-  battlefield: readonly BattlefieldPermanent[]
+  battlefield: readonly BattlefieldPermanent[],
+  players?: readonly WinEffectPlayer[],
+  temporaryEffects?: readonly TemporaryWinLossEffect[]
 ): WinEffectCheckResult {
   const logs: string[] = [];
   
@@ -332,7 +511,7 @@ export function checkEmptyLibraryDrawWin(
       logs.push(`${card.name} replaces empty library draw with win!`);
       
       // Check if blocked
-      const cantWin = opponentsHaveCantWinEffect(playerId, battlefield);
+      const cantWin = opponentsHaveCantWinEffect(playerId, battlefield, players, temporaryEffects);
       if (cantWin.hasCantWin) {
         logs.push(`Win blocked by ${cantWin.source}`);
         return {
@@ -434,7 +613,9 @@ export function calculateDevotion(
 export function checkThassasOracleWin(
   playerId: PlayerID,
   librarySize: number,
-  battlefield: readonly BattlefieldPermanent[]
+  battlefield: readonly BattlefieldPermanent[],
+  players?: readonly WinEffectPlayer[],
+  temporaryEffects?: readonly TemporaryWinLossEffect[]
 ): WinEffectCheckResult {
   const logs: string[] = [];
   
@@ -447,7 +628,7 @@ export function checkThassasOracleWin(
     logs.push(`Thassa's Oracle condition met! (${devotion} >= ${librarySize})`);
     
     // Check if blocked
-    const cantWin = opponentsHaveCantWinEffect(playerId, battlefield);
+    const cantWin = opponentsHaveCantWinEffect(playerId, battlefield, players, temporaryEffects);
     if (cantWin.hasCantWin) {
       logs.push(`Win blocked by ${cantWin.source}`);
       return {
@@ -479,7 +660,9 @@ export function checkUpkeepWinConditions(
   librarySize: number,
   handSize: number,
   graveyardCreatureCount: number,
-  battlefield: readonly BattlefieldPermanent[]
+  battlefield: readonly BattlefieldPermanent[],
+  players?: readonly WinEffectPlayer[],
+  temporaryEffects?: readonly TemporaryWinLossEffect[]
 ): WinEffectCheckResult {
   const logs: string[] = [];
   
@@ -495,7 +678,7 @@ export function checkUpkeepWinConditions(
       if (librarySize >= 200) {
         logs.push(`Battle of Wits: ${librarySize} cards in library (>= 200)`);
         
-        const cantWin = opponentsHaveCantWinEffect(playerId, battlefield);
+        const cantWin = opponentsHaveCantWinEffect(playerId, battlefield, players, temporaryEffects);
         if (cantWin.hasCantWin) {
           return {
             playerWins: false,
@@ -522,7 +705,7 @@ export function checkUpkeepWinConditions(
       if (handSize === 13) {
         logs.push(`Triskaidekaphile: exactly 13 cards in hand`);
         
-        const cantWin = opponentsHaveCantWinEffect(playerId, battlefield);
+        const cantWin = opponentsHaveCantWinEffect(playerId, battlefield, players, temporaryEffects);
         if (cantWin.hasCantWin) {
           return {
             playerWins: false,
@@ -549,7 +732,7 @@ export function checkUpkeepWinConditions(
       if (graveyardCreatureCount >= 20) {
         logs.push(`Mortal Combat: ${graveyardCreatureCount} creatures in graveyard (>= 20)`);
         
-        const cantWin = opponentsHaveCantWinEffect(playerId, battlefield);
+        const cantWin = opponentsHaveCantWinEffect(playerId, battlefield, players, temporaryEffects);
         if (cantWin.hasCantWin) {
           return {
             playerWins: false,
@@ -573,6 +756,132 @@ export function checkUpkeepWinConditions(
   }
   
   return { playerWins: false, log: logs };
+}
+
+export function resolveSpecialUpkeepOutcomes(
+  state: GameState,
+  activePlayerId: PlayerID
+): UpkeepOutcomeResult {
+  const logs: string[] = [];
+  let updatedState = state;
+  let battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const players = state.players || [];
+  const temporaryEffects = ((state as any).winLossEffects || []) as TemporaryWinLossEffect[];
+
+  for (const perm of battlefield) {
+    if (perm.controller !== activePlayerId) {
+      continue;
+    }
+
+    const card = perm.card as KnownCardRef;
+    const cardName = String(card?.name || '').toLowerCase();
+
+    if (cardName.includes('divine intervention')) {
+      const currentCounters = Math.max(0, Number((perm.counters as any)?.intervention ?? 0) || 0);
+      if (currentCounters > 0) {
+        const nextCounters = currentCounters - 1;
+        battlefield = setPermanentCounter(battlefield, perm.id, 'intervention', nextCounters);
+        updatedState = { ...updatedState, battlefield } as GameState;
+        logs.push(`Removed an intervention counter from ${card.name}`);
+
+        if (nextCounters === 0) {
+          logs.push(`${card.name} causes the game to be a draw`);
+          updatedState = finishGameAsDraw(updatedState, 'Divine Intervention');
+          return { state: updatedState, log: logs };
+        }
+      }
+    }
+
+    if (cardName.includes('celestial convergence')) {
+      const currentCounters = Math.max(0, Number((perm.counters as any)?.omen ?? 0) || 0);
+      if (currentCounters > 0) {
+        const nextCounters = currentCounters - 1;
+        battlefield = setPermanentCounter(battlefield, perm.id, 'omen', nextCounters);
+        updatedState = { ...updatedState, battlefield } as GameState;
+        logs.push(`Removed an omen counter from ${card.name}`);
+      }
+
+      const currentPermanent = ((updatedState.battlefield || []) as BattlefieldPermanent[]).find(entry => entry.id === perm.id);
+      const nextCounters = Math.max(0, Number((currentPermanent?.counters as any)?.omen ?? 0) || 0);
+      if (nextCounters === 0) {
+        const activePlayers = players.filter(player => !(player as any).hasLost);
+        const highestLife = Math.max(...activePlayers.map(player => Number((player as any).life || 0)));
+        const highestLifePlayers = activePlayers.filter(player => Number((player as any).life || 0) === highestLife);
+
+        if (highestLifePlayers.length !== 1) {
+          logs.push(`${card.name} causes the game to be a draw due to tied life totals`);
+          updatedState = finishGameAsDraw(updatedState, 'Celestial Convergence');
+          return { state: updatedState, log: logs };
+        }
+
+        const winner = highestLifePlayers[0];
+        const cantWin = opponentsHaveCantWinEffect(
+          winner.id,
+          battlefield,
+          players as any,
+          temporaryEffects,
+        );
+        if (cantWin.hasCantWin) {
+          logs.push(`${card.name} would make ${winner.id} win, but ${cantWin.source} prevents it`);
+          continue;
+        }
+
+        logs.push(`${winner.id} wins the game due to ${card.name}`);
+        updatedState = finishGameWithWinner(updatedState, winner.id, 'Celestial Convergence');
+        return { state: updatedState, log: logs };
+      }
+    }
+  }
+
+  return { state: updatedState, log: logs };
+}
+
+export function applyTemporaryCantLoseAndOpponentsCantWinEffect(
+  state: GameState,
+  sourceId: string,
+  sourceName: string,
+  sourceControllerId: PlayerID,
+  affectedPlayerId: PlayerID = sourceControllerId,
+  oracleText?: string
+): { state: GameState; applied: boolean; log: readonly string[] } {
+  const lowerText = String(oracleText || '').toLowerCase();
+  const grantsCantLose = lowerText.includes("can't lose the game this turn");
+  const grantsOpponentsCantWin = lowerText.includes("opponents can't win the game this turn") || lowerText.includes("your opponents can't win the game this turn");
+
+  if (!grantsCantLose && !grantsOpponentsCantWin) {
+    return { state, applied: false, log: [] };
+  }
+
+  const effect: TemporaryWinLossEffect = {
+    id: `win-loss-${sourceId}-${affectedPlayerId}-${Date.now()}`,
+    sourceId,
+    sourceName,
+    sourceControllerId,
+    affectedPlayerId,
+    grantsCantLose,
+    grantsOpponentsCantWin,
+    expiresAtEndOfTurn: true,
+    timestamp: Date.now(),
+  };
+
+  const existingEffects = getTemporaryWinLossEffects((state as any).winLossEffects);
+  return {
+    state: {
+      ...state,
+      winLossEffects: [...existingEffects, effect],
+    } as GameState,
+    applied: true,
+    log: [`${sourceName} creates a win/loss prevention effect until end of turn`],
+  };
+}
+
+export function clearEndOfTurnWinLossEffects(state: GameState): GameState {
+  const effects = getTemporaryWinLossEffects((state as any).winLossEffects);
+  const remaining = effects.filter(effect => !effect.expiresAtEndOfTurn);
+  return {
+    ...state,
+    winLossEffects: remaining,
+  } as GameState;
 }
 
 /**
@@ -621,5 +930,8 @@ export default {
   calculateDevotion,
   checkThassasOracleWin,
   checkUpkeepWinConditions,
+  resolveSpecialUpkeepOutcomes,
+  applyTemporaryCantLoseAndOpponentsCantWinEffect,
+  clearEndOfTurnWinLossEffects,
   createWinEffectChoiceEvent,
 };

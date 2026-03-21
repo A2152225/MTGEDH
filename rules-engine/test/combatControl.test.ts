@@ -398,6 +398,41 @@ describe('Controllable Creatures', () => {
       const attackers = getControllableAttackers(gameState, combatControl);
       expect(attackers.find(a => a.id === 'c1')?.canAttack).toBe(true);
     });
+
+    it('should include effective creatures that are not printed as creatures', () => {
+      const animatedLand = {
+        id: 'animated-land',
+        controller: 'player1',
+        owner: 'player1',
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        effectiveTypes: ['Land', 'Creature'],
+        effectivePower: 3,
+        effectiveToughness: 3,
+        card: {
+          id: 'animated-land',
+          name: 'Awakened Land',
+          type_line: 'Land',
+          power: '3',
+          toughness: '3',
+          oracle_text: '',
+          colors: [],
+        } as KnownCardRef,
+      } as BattlefieldPermanent;
+
+      const gameState = createTestGameState([animatedLand]);
+      const combatControl: CombatControlEffect = {
+        controllerId: 'player1',
+        sourceId: 'mw1',
+        sourceName: 'Master Warcraft',
+        controlsAttackers: true,
+        controlsBlockers: true,
+      };
+
+      const attackers = getControllableAttackers(gameState, combatControl);
+      expect(attackers.map(a => a.id)).toContain('animated-land');
+    });
   });
 
   describe('getControllableBlockers', () => {
@@ -459,6 +494,43 @@ describe('Controllable Creatures', () => {
       const blockers = getControllableBlockers(gameState, attackers, combatControl);
       expect(blockers.find(b => b.id === 'b1')?.canBlock).toBe(true);
       expect(blockers.find(b => b.id === 'b1')?.keywords).toContain('flying');
+    });
+
+    it('should include effective creatures as controllable blockers', () => {
+      const attacker = createTestPermanent('a1', 'Grizzly Bears', 2, 2, '', 'player1');
+      const animatedRelic = {
+        id: 'animated-relic',
+        controller: 'player2',
+        owner: 'player2',
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        effectiveTypes: ['Artifact', 'Creature'],
+        effectivePower: 2,
+        effectiveToughness: 2,
+        card: {
+          id: 'animated-relic',
+          name: 'Animated Relic',
+          type_line: 'Artifact',
+          power: '2',
+          toughness: '2',
+          oracle_text: '',
+          colors: [],
+        } as KnownCardRef,
+      } as BattlefieldPermanent;
+
+      const gameState = createTestGameState([attacker, animatedRelic]);
+      const combatControl: CombatControlEffect = {
+        controllerId: 'player1',
+        sourceId: 'mw1',
+        sourceName: 'Master Warcraft',
+        controlsAttackers: true,
+        controlsBlockers: true,
+      };
+
+      const attackers = [{ creatureId: 'a1', targetPlayerId: 'player2' }];
+      const blockers = getControllableBlockers(gameState, attackers, combatControl);
+      expect(blockers.map(b => b.id)).toContain('animated-relic');
     });
   });
 });

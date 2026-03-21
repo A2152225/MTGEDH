@@ -11,6 +11,8 @@ import { RulesEngineEvent } from '../core/events';
 import { GamePhase, GameStep, getNextGameStep, doesStepReceivePriority } from './gamePhases';
 import { executeTurnBasedAction } from './turnActions';
 import { performStateBasedActions, checkWinConditions } from './stateBasedActionsHandler';
+import { processETBTriggers } from './etbHandler';
+import { applyTemporaryCantLoseAndOpponentsCantWinEffect } from '../winEffectCards';
 
 function snapshotBattlefieldForTurnStart(state: GameState): readonly BattlefieldPermanent[] {
   return Array.isArray(state.battlefield)
@@ -122,6 +124,12 @@ export function advanceGame(
   // Check win conditions
   const winCheck = checkWinConditions(updatedState);
   if (winCheck.winner) {
+    updatedState = {
+      ...updatedState,
+      winner: winCheck.winner,
+      status: 'finished' as any,
+      winReason: winCheck.reason as any,
+    } as GameState;
     logs.push(`${winCheck.winner} wins! ${winCheck.reason}`);
     context.emit({
       type: RulesEngineEvent.PLAYER_WON,
@@ -340,6 +348,19 @@ function resolveTopOfStack(
         // Permanent spell - enters the battlefield
         updatedState = enterBattlefield(updatedState, topObject, controllerId);
         logs.push(`${getCardName(topObject)} enters the battlefield`);
+
+        // ETB handling runs immediately after the permanent enters.
+        context.setState(gameId, updatedState);
+        const enteredPermanentId = topObject.id || `perm-${Date.now()}`;
+        const etbResult = processETBTriggers(
+          gameId,
+          enteredPermanentId,
+          getCardName(topObject),
+          controllerId,
+          context,
+        );
+        updatedState = etbResult.next;
+        logs.push(...(etbResult.log || []));
         
         context.emit({
           type: RulesEngineEvent.SPELL_RESOLVED, // Use existing event type
@@ -410,6 +431,19 @@ function resolveTopOfStack(
               source: getCardName(topObject)
             },
           });
+        }
+
+        const temporaryWinLossResult = applyTemporaryCantLoseAndOpponentsCantWinEffect(
+          updatedState,
+          String(topObject.id || card?.id || `spell-${Date.now()}`),
+          getCardName(topObject),
+          controllerId,
+          controllerId,
+          oracleText,
+        );
+        if (temporaryWinLossResult.applied) {
+          updatedState = temporaryWinLossResult.state;
+          logs.push(...temporaryWinLossResult.log);
         }
         
         // Move to graveyard

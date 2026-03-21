@@ -12,6 +12,7 @@ import { isETBTokenCreator, getETBTokenConfig } from '../cards/etbTokenCreators'
 import { COMMON_TOKENS, createTokenPermanent, type TokenCharacteristics } from '../tokenCreation';
 import { hasEcho, getEchoConfig } from '../cards/echoCards';
 import { TriggerEvent } from '../triggeredAbilities';
+import { checkThassasOracleWin } from '../winEffectCards';
 
 export interface ETBAction extends BaseAction {
   readonly type: 'processETB';
@@ -61,6 +62,23 @@ export function processETBTriggers(
     logs.push(`${permanentName} has Echo - payment required on next upkeep`);
     // Mark the permanent as needing echo payment
     updatedState = markForEcho(updatedState, permanentId);
+  }
+
+  // Check ETB alternate wins like Thassa's Oracle after the permanent is on the battlefield.
+  if (permanentName.toLowerCase().includes("thassa's oracle")) {
+    const controller = updatedState.players.find(player => player.id === controllerId);
+    const librarySize = (controller?.library || []).length;
+    const winCheck = checkThassasOracleWin(controllerId as any, librarySize, (updatedState.battlefield || []) as any, updatedState.players as any, ((updatedState as any).winLossEffects || []) as any);
+    logs.push(...(winCheck.log || []));
+    if (winCheck.playerWins) {
+      updatedState = {
+        ...updatedState,
+        winner: controllerId,
+        status: 'finished' as any,
+        winReason: winCheck.winReason as any,
+      } as GameState;
+      logs.push(`${controllerId} wins the game`);
+    }
   }
   
   // Emit ETB event for other triggers

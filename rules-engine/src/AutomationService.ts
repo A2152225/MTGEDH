@@ -19,6 +19,28 @@
 
 import type { GameState, BattlefieldPermanent, StackItem, PlayerRef, ManaPool } from '../../shared/src';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
+import { clearEndOfTurnWinLossEffects } from './winEffectCards';
+
+function hasPermanentType(perm: any, type: string): boolean {
+  const targetType = type.toLowerCase();
+  const effectiveTypes = Array.isArray(perm?.effectiveTypes) ? perm.effectiveTypes : [];
+  if (effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
+    return true;
+  }
+
+  const grantedTypes = Array.isArray(perm?.grantedTypes) ? perm.grantedTypes : [];
+  if (grantedTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
+    return true;
+  }
+
+  const cardType = String(perm?.cardType || '').toLowerCase();
+  if (cardType.includes(targetType)) {
+    return true;
+  }
+
+  const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+  return typeLine.includes(targetType);
+}
 
 /** Type for mana color keys (subset of ManaPool that are numeric) */
 type ManaColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
@@ -1141,16 +1163,18 @@ function checkStateBasedActions(state: GameState): {
   let actionsPerformed = 0;
   
   // Check for creatures with lethal damage
-  const battlefield = updatedState.battlefield || [];
+  const battlefield = applyStaticAbilitiesToBattlefield((updatedState.battlefield || []) as BattlefieldPermanent[]);
   for (const perm of battlefield) {
     const card = (perm as BattlefieldPermanent).card as any;
-    const typeLine = (card?.type_line || '').toLowerCase();
     
-    if (typeLine.includes('creature')) {
+    if (hasPermanentType(perm, 'creature')) {
       const toughness = parseInt(card?.toughness || '1', 10);
+      const effectiveToughness = typeof (perm as any).effectiveToughness === 'number'
+        ? (perm as any).effectiveToughness
+        : toughness;
       const damage = (perm as any).damage || 0;
       
-      if (damage >= toughness) {
+      if (damage >= effectiveToughness) {
         // Creature dies
         updatedState = moveCreatureToGraveyard(updatedState, (perm as BattlefieldPermanent));
         log.push(`${card?.name} dies from lethal damage`);
@@ -1159,7 +1183,7 @@ function checkStateBasedActions(state: GameState): {
     }
     
     // Check planeswalkers with 0 loyalty
-    if (typeLine.includes('planeswalker')) {
+    if (hasPermanentType(perm, 'planeswalker')) {
       const loyalty = (perm as BattlefieldPermanent).loyalty || 0;
       if (loyalty <= 0) {
         updatedState = moveCreatureToGraveyard(updatedState, (perm as BattlefieldPermanent));
@@ -1334,9 +1358,11 @@ function autoCleanup(state: GameState): {
   }));
   
   log.push('Cleanup step completed');
+
+  const clearedState = clearEndOfTurnWinLossEffects({ ...state, battlefield: clearedCombat } as GameState);
   
   return {
-    state: { ...state, battlefield: clearedCombat },
+    state: clearedState,
     log,
     requiresDiscard: false,
     pendingDecisions: [],

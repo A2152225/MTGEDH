@@ -101,6 +101,12 @@ export function isCurrentlyCreature(permanent: any): boolean {
   if (permanent.isCreature === true) {
     return true;
   }
+
+  // Processed battlefield snapshots may expose the final type set directly.
+  // If present, treat this as authoritative current-state typing.
+  if (Array.isArray(permanent.effectiveTypes) && permanent.effectiveTypes.length > 0) {
+    return permanent.effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === 'creature');
+  }
   
   // Check for animation modifiers (Tezzeret, Karn, Ensoul Artifact, etc.)
   // These effects turn non-creature permanents into creatures
@@ -541,8 +547,7 @@ function hasAbility(permanent: any, abilityName: string, battlefield?: any[]): b
   // Check for abilities granted by other battlefield permanents
   // This is for effects like Eldrazi Monument ("creatures you control have flying and indestructible")
   if (battlefield && Array.isArray(battlefield)) {
-    const permTypeLine = (permanent.card?.type_line || permanent.type_line || '').toLowerCase();
-    const isCreature = permTypeLine.includes('creature');
+    const isCreature = isCurrentlyCreature(permanent);
     
     for (const source of battlefield) {
       if (!source || !source.card) continue;

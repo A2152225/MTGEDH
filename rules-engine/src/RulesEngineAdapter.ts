@@ -39,6 +39,32 @@ import {
 } from './types/gameFlow';
 import { ManaType, type ManaPool as RulesEngineManaPool, type ManaCost } from './types/mana';
 import { emptyManaPool } from './manaAbilities';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
+import {
+  opponentsHaveCantWinEffect,
+  applyTemporaryCantLoseAndOpponentsCantWinEffect,
+} from './winEffectCards';
+
+function hasPermanentType(perm: any, type: string): boolean {
+  const targetType = type.toLowerCase();
+  const effectiveTypes = Array.isArray(perm?.effectiveTypes) ? perm.effectiveTypes : [];
+  if (effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
+    return true;
+  }
+
+  const grantedTypes = Array.isArray(perm?.grantedTypes) ? perm.grantedTypes : [];
+  if (grantedTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
+    return true;
+  }
+
+  const cardType = String(perm?.cardType || '').toLowerCase();
+  if (cardType.includes(targetType)) {
+    return true;
+  }
+
+  const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+  return typeLine.includes(targetType);
+}
 
 /** Simple mana pool interface for checking mana availability (doesn't need restricted mana info) */
 interface SimpleManaPool {
@@ -1292,6 +1318,22 @@ export class RulesEngineAdapter {
     let nextState = state;
     const oracleLogs: string[] = [];
     if (!resolveResult.countered) {
+      if (popResult.object.type === 'spell') {
+        const spellOracleText = String((popResult.object.card as any)?.oracle_text || '');
+        const temporaryWinLossResult = applyTemporaryCantLoseAndOpponentsCantWinEffect(
+          nextState,
+          String(popResult.object.id || popResult.object.spellId || (popResult.object.card as any)?.id || `spell-${Date.now()}`),
+          String(popResult.object.cardName || (popResult.object.card as any)?.name || 'Spell'),
+          popResult.object.controllerId,
+          popResult.object.controllerId,
+          spellOracleText,
+        );
+        if (temporaryWinLossResult.applied) {
+          nextState = temporaryWinLossResult.state;
+          oracleLogs.push(...temporaryWinLossResult.log);
+        }
+      }
+
       const triggerMeta = popResult.object.triggerMeta;
       const effectText = triggerMeta?.effectText;
 
@@ -1523,6 +1565,14 @@ export class RulesEngineAdapter {
     
     if (activePlayers.length === 1) {
       const winner = activePlayers[0];
+      const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+      const cantWin = opponentsHaveCantWinEffect(winner.id as any, battlefield as any, state.players as any, ((state as any).winLossEffects || []) as any);
+      if (cantWin.hasCantWin) {
+        return {
+          next: state,
+          log: [`${winner.id} cannot win because of ${cantWin.source}`],
+        };
+      }
       
       const nextState = { ...state, status: 'finished' as any, winner: winner.id };
       this.gameStates.set(gameId, nextState);
@@ -1656,9 +1706,10 @@ export class RulesEngineAdapter {
       allPermanents.push(...(state.battlefield as any[]));
     }
     
-    for (const perm of allPermanents) {
-      const typeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
-      if (!typeLine.includes('creature')) continue;
+    const processedPermanents = applyStaticAbilitiesToBattlefield(allPermanents as any[]);
+
+    for (const perm of processedPermanents) {
+      if (!hasPermanentType(perm, 'creature')) continue;
       
       // Calculate effective toughness
       let toughness = parseInt(perm.card?.toughness || perm.toughness || '0', 10);
@@ -1727,9 +1778,10 @@ export class RulesEngineAdapter {
       allPermanents.push(...(state.battlefield as any[]));
     }
     
-    for (const perm of allPermanents) {
-      const typeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
-      if (!typeLine.includes('planeswalker')) continue;
+    const processedPermanents = applyStaticAbilitiesToBattlefield(allPermanents as any[]);
+
+    for (const perm of processedPermanents) {
+      if (!hasPermanentType(perm, 'planeswalker')) continue;
       
       const loyalty = perm.counters?.loyalty || perm.loyalty || 0;
       

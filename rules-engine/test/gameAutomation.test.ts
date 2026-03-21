@@ -20,6 +20,7 @@ import {
   executeUntapStep,
   executeDrawStep,
   executeCleanupStep,
+  executeTurnBasedAction,
 } from '../src/actions/turnActions';
 import {
   initializeGame,
@@ -30,6 +31,8 @@ import {
   advanceGame,
   passPriority,
 } from '../src/actions/gameAdvance';
+import { createEmblemFromPlaneswalker } from '../src/emblemSupport';
+import { applyTemporaryCantLoseAndOpponentsCantWinEffect } from '../src/winEffectCards';
 
 // Helper to create mock context
 function createMockContext(gameStates: Map<string, GameState>) {
@@ -122,6 +125,76 @@ describe('State-Based Actions', () => {
     expect(result.playerLost).toBe('player1');
   });
 
+  it('should prevent state-based loss when player has a cannot-lose effect', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 0, battlefield: [], hand: [], library: [], graveyard: [] },
+      ],
+      battlefield: [
+        {
+          id: 'angel1',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            name: 'Platinum Angel',
+            type_line: 'Artifact Creature — Angel',
+            oracle_text: "You can't lose the game and your opponents can't win the game.",
+          },
+        },
+      ],
+    } as any;
+
+    const result = performStateBasedActions(state);
+    expect(result.playerLost).toBeUndefined();
+    expect(result.actions.some(action => action.includes('would lose'))).toBe(true);
+  });
+
+  it("should prevent state-based loss when player has Gideon's emblem and controls a Gideon planeswalker", () => {
+    const emblem = createEmblemFromPlaneswalker('player1', 'Gideon of the Trials')!.emblem;
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 0, emblems: [emblem], battlefield: [], hand: [], library: [], graveyard: [] },
+      ],
+      battlefield: [
+        {
+          id: 'gideon1',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { loyalty: 3 },
+          card: {
+            name: 'Gideon of the Trials',
+            type_line: 'Legendary Planeswalker — Gideon',
+            oracle_text: '',
+          },
+        },
+      ],
+    } as any;
+
+    const result = performStateBasedActions(state);
+    expect(result.playerLost).toBeUndefined();
+    expect(result.actions.some(action => action.includes("Gideon's Emblem"))).toBe(true);
+  });
+
+  it("should prevent state-based loss when player has a temporary can't-lose effect this turn", () => {
+    const protectedState = applyTemporaryCantLoseAndOpponentsCantWinEffect(
+      {
+        players: [
+          { id: 'player1', life: 0, battlefield: [], hand: [], library: [], graveyard: [] },
+        ],
+        battlefield: [],
+      } as any,
+      'angel-grace',
+      "Angel's Grace",
+      'player1',
+      'player1',
+      "You can't lose the game this turn and your opponents can't win the game this turn."
+    ).state;
+
+    const result = performStateBasedActions(protectedState as any);
+    expect(result.playerLost).toBeUndefined();
+    expect(result.actions.some(action => action.includes("Angel's Grace"))).toBe(true);
+  });
+
   it('should keep creatures alive when an attached aura raises toughness above marked damage', () => {
     const state: GameState = {
       players: [
@@ -160,6 +233,61 @@ describe('State-Based Actions', () => {
     expect(result.actions).not.toContain('Grizzly Bears dies (lethal damage)');
   });
 
+  it('should treat effective creatures as creatures for state-based lethal damage', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 40, battlefield: [], hand: [], library: [], graveyard: [] },
+      ],
+      battlefield: [
+        {
+          id: 'animated-relic',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { damage: 3 },
+          effectiveTypes: ['Artifact', 'Creature'],
+          effectiveToughness: 3,
+          card: {
+            name: 'Animated Relic',
+            type_line: 'Artifact',
+            power: '3',
+            toughness: '3',
+            oracle_text: '',
+          },
+        },
+      ],
+    } as any;
+
+    const result = performStateBasedActions(state);
+    expect(result.state.battlefield.some((perm: any) => perm.id === 'animated-relic')).toBe(false);
+    expect(result.actions).toContain('Animated Relic dies (lethal damage)');
+  });
+
+  it('should treat effective planeswalkers as planeswalkers for zero-loyalty checks', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 40, battlefield: [], hand: [], library: [], graveyard: [] },
+      ],
+      battlefield: [
+        {
+          id: 'awakened-walker',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { loyalty: 0 },
+          effectiveTypes: ['Artifact', 'Planeswalker'],
+          card: {
+            name: 'Awakened Walker',
+            type_line: 'Artifact',
+            oracle_text: '',
+          },
+        },
+      ],
+    } as any;
+
+    const result = performStateBasedActions(state);
+    expect(result.state.battlefield.some((perm: any) => perm.id === 'awakened-walker')).toBe(false);
+    expect(result.actions).toContain('Awakened Walker dies (0 loyalty)');
+  });
+
   it('should detect last player standing', () => {
     const state: GameState = {
       players: [
@@ -169,6 +297,58 @@ describe('State-Based Actions', () => {
 
     const result = checkWinConditions(state);
     expect(result.winner).toBe('player1');
+  });
+
+  it("should block last-player-standing wins when an opponent says opponents can't win", () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 40 },
+        { id: 'player2', life: 0, hasLost: true },
+      ],
+      battlefield: [
+        {
+          id: 'angel1',
+          controller: 'player2',
+          owner: 'player2',
+          card: {
+            name: 'Platinum Angel',
+            type_line: 'Artifact Creature — Angel',
+            oracle_text: "You can't lose the game and your opponents can't win the game.",
+          },
+        },
+      ],
+    } as any;
+
+    const result = checkWinConditions(state);
+    expect(result.winner).toBeUndefined();
+    expect(result.reason).toContain('Platinum Angel');
+  });
+
+  it("should block last-player-standing wins when an opponent has Gideon's emblem and controls a Gideon planeswalker", () => {
+    const emblem = createEmblemFromPlaneswalker('player2', 'Gideon of the Trials')!.emblem;
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 40 },
+        { id: 'player2', life: 0, hasLost: true, emblems: [emblem] },
+      ],
+      battlefield: [
+        {
+          id: 'gideon2',
+          controller: 'player2',
+          owner: 'player2',
+          counters: { loyalty: 3 },
+          card: {
+            name: 'Gideon of the Trials',
+            type_line: 'Legendary Planeswalker — Gideon',
+            oracle_text: '',
+          },
+        },
+      ],
+    } as any;
+
+    const result = checkWinConditions(state);
+    expect(result.winner).toBeUndefined();
+    expect(result.reason).toContain("Gideon's Emblem");
   });
 });
 
@@ -213,6 +393,38 @@ describe('Turn Actions', () => {
     expect(player?.library?.length).toBe(1);
   });
 
+  it('should turn an empty-library draw into a win with Laboratory Maniac', () => {
+    const gameStates = new Map<string, GameState>();
+    const context = createMockContext(gameStates);
+
+    const state: GameState = {
+      players: [
+        {
+          id: 'player1',
+          library: [],
+          hand: [],
+        },
+      ],
+      battlefield: [
+        {
+          id: 'labman1',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            name: 'Laboratory Maniac',
+            type_line: 'Creature — Human Wizard',
+            oracle_text: 'If you would draw a card while your library has no cards in it, you win the game instead.',
+          },
+        },
+      ],
+    } as any;
+
+    const result = executeDrawStep(state, 'player1', context, 'test-game');
+    expect((result.state as any).winner).toBe('player1');
+    expect((result.state as any).status).toBe('finished');
+    expect(result.logs.some(log => log.includes('wins the game'))).toBe(true);
+  });
+
   it('should remove damage in cleanup', () => {
     const state: GameState = {
       players: [
@@ -231,6 +443,121 @@ describe('Turn Actions', () => {
     // Check centralized battlefield
     const perm = result.state.battlefield?.find((p: any) => p.id === 'perm1');
     expect(perm?.counters?.damage).toBe(0);
+  });
+
+  it('should clear temporary win/loss effects in cleanup', () => {
+    const state = applyTemporaryCantLoseAndOpponentsCantWinEffect(
+      {
+        players: [
+          { id: 'player1', hand: [] },
+        ],
+        battlefield: [],
+      } as any,
+      'angel-grace',
+      "Angel's Grace",
+      'player1',
+      'player1',
+      "You can't lose the game this turn and your opponents can't win the game this turn."
+    ).state;
+
+    const result = executeCleanupStep(state as any, 'player1');
+    expect(((result.state as any).winLossEffects || []).length).toBe(0);
+  });
+
+  it('should make Divine Intervention draw the game when the last counter is removed', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 40, hand: [], library: [], graveyard: [] },
+        { id: 'player2', life: 40, hand: [], library: [], graveyard: [] },
+      ],
+      activePlayerIndex: 0,
+      step: GameStep.UPKEEP,
+      phase: GamePhase.BEGINNING,
+      battlefield: [
+        {
+          id: 'divine1',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { intervention: 1 },
+          card: {
+            name: 'Divine Intervention',
+            type_line: 'Enchantment',
+            oracle_text: 'At the beginning of your upkeep, remove an intervention counter from Divine Intervention. When you remove the last intervention counter from Divine Intervention, the game is a draw.',
+          },
+        },
+      ],
+    } as any;
+    const context = createMockContext(new Map());
+
+    const result = executeTurnBasedAction('test-game', state, context);
+    expect((result.next as any).status).toBe('finished');
+    expect((result.next as any).isDraw).toBe(true);
+    expect((result.next as any).winReason).toBe('Divine Intervention');
+  });
+
+  it('should make the highest-life player win when Celestial Convergence reaches zero omen counters', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 28, hand: [], library: [], graveyard: [] },
+        { id: 'player2', life: 35, hand: [], library: [], graveyard: [] },
+      ],
+      activePlayerIndex: 0,
+      step: GameStep.UPKEEP,
+      phase: GamePhase.BEGINNING,
+      battlefield: [
+        {
+          id: 'celestial1',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { omen: 1 },
+          card: {
+            name: 'Celestial Convergence',
+            type_line: 'Enchantment',
+            oracle_text: 'At the beginning of your upkeep, remove an omen counter from Celestial Convergence. If there are no omen counters on Celestial Convergence, the player with the highest life total wins the game. If two or more players are tied for highest life total, the game is a draw.',
+          },
+        },
+      ],
+    } as any;
+    const context = createMockContext(new Map());
+
+    const result = executeTurnBasedAction('test-game', state, context);
+    expect((result.next as any).winner).toBe('player2');
+    expect((result.next as any).winReason).toBe('Celestial Convergence');
+  });
+
+  it('should apply a temporary win/loss prevention effect when Angel\'s Grace resolves from the stack', () => {
+    const gameStates = new Map<string, GameState>();
+    const context = createMockContext(gameStates);
+    const state: GameState = {
+      players: [
+        { id: 'player1', name: 'Player 1', life: 1, battlefield: [], hand: [], library: [], graveyard: [] },
+        { id: 'player2', name: 'Player 2', life: 40, battlefield: [], hand: [], library: [], graveyard: [] },
+      ],
+      phase: GamePhase.MAIN1,
+      step: GameStep.MAIN1,
+      activePlayerIndex: 0,
+      priorityPlayerIndex: 1,
+      priorityPasses: 1,
+      stack: [
+        {
+          id: 'angel-grace-spell',
+          type: 'spell',
+          controller: 'player1',
+          card: {
+            id: 'angel-grace-card',
+            name: "Angel's Grace",
+            type_line: 'Instant',
+            oracle_text: "You can't lose the game this turn and your opponents can't win the game this turn.",
+          },
+        } as any,
+      ],
+      battlefield: [],
+    } as any;
+    gameStates.set('test-game', state);
+
+    const result = passPriority('test-game', 'player2', context);
+    expect(((result.next as any).winLossEffects || []).length).toBeGreaterThan(0);
+    expect(result.log.some(log => log.includes('win/loss prevention effect'))).toBe(true);
   });
 });
 
@@ -316,6 +643,119 @@ describe('Game Advancement', () => {
     const result = advanceGame('test-game', context);
     
     expect(result.next.step).toBe(GameStep.DRAW);
+  });
+
+  it('should award upkeep alternate wins during game advancement', () => {
+    const gameStates = new Map<string, GameState>();
+    const context = createMockContext(gameStates);
+    const state: GameState = {
+      players: [
+        {
+          id: 'player1',
+          life: 40,
+          battlefield: [],
+          library: Array(200).fill(null).map((_, i) => ({ id: `card${i}`, type_line: 'Instant' })),
+          hand: [],
+          graveyard: [],
+        },
+        {
+          id: 'player2',
+          life: 40,
+          battlefield: [],
+          library: [],
+          hand: [],
+          graveyard: [],
+        },
+      ],
+      activePlayerIndex: 0,
+      priorityPlayerIndex: 0,
+      phase: GamePhase.BEGINNING,
+      step: GameStep.UNTAP,
+      battlefield: [
+        {
+          id: 'wits1',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            name: 'Battle of Wits',
+            type_line: 'Enchantment',
+            oracle_text: 'At the beginning of your upkeep, if you have 200 or more cards in your library, you win the game.',
+          },
+        },
+      ],
+    } as any;
+    gameStates.set('test-game', state);
+
+    const result = advanceGame('test-game', context);
+    expect(result.next.step).toBe(GameStep.UPKEEP);
+    expect((result.next as any).winner).toBe('player1');
+    expect(result.log.some(log => log.includes('wins the game'))).toBe(true);
+  });
+
+  it("should resolve Thassa's Oracle ETB win through the stack", () => {
+    const gameStates = new Map<string, GameState>();
+    const context = createMockContext(gameStates);
+    const state: GameState = {
+      players: [
+        {
+          id: 'player1',
+          name: 'Player 1',
+          life: 40,
+          battlefield: [],
+          library: Array(5).fill(null).map((_, i) => ({ id: `card${i}`, type_line: 'Instant' })),
+          hand: [],
+          graveyard: [],
+        },
+        {
+          id: 'player2',
+          name: 'Player 2',
+          life: 40,
+          battlefield: [],
+          library: [],
+          hand: [],
+          graveyard: [],
+        },
+      ],
+      phase: GamePhase.MAIN1,
+      step: GameStep.MAIN1,
+      activePlayerIndex: 0,
+      priorityPlayerIndex: 1,
+      priorityPasses: 1,
+      stack: [
+        {
+          id: 'oracle-spell',
+          type: 'spell',
+          controller: 'player1',
+          card: {
+            id: 'oracle-card',
+            name: "Thassa's Oracle",
+            type_line: 'Creature — Merfolk Wizard',
+            mana_cost: '{U}{U}',
+            oracle_text: 'When Thassa\'s Oracle enters the battlefield, look at the top X cards of your library, where X is your devotion to blue. Put up to one of them on top of your library and the rest on the bottom of your library in a random order. If X is greater than or equal to the number of cards in your library, you win the game.',
+          },
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'blue-perm',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            id: 'blue-perm-card',
+            name: 'Blue Permanent',
+            type_line: 'Enchantment',
+            mana_cost: '{U}{U}{U}',
+            oracle_text: '',
+          },
+        },
+      ],
+    } as any;
+    gameStates.set('test-game', state);
+
+    const result = passPriority('test-game', 'player2', context);
+    expect((result.next as any).winner).toBe('player1');
+    expect((result.next as any).status).toBe('finished');
+    expect(result.log.some(log => log.includes("Thassa's Oracle condition met"))).toBe(true);
   });
 
   it('should pass priority', () => {

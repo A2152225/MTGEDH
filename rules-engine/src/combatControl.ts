@@ -28,7 +28,7 @@ import type {
   GameState, 
   CombatControlEffect 
 } from '../../shared/src';
-import { canPermanentAttack, canPermanentBlock } from './actions/combat';
+import { canPermanentAttack, canPermanentBlock, isCurrentlyCreature } from './actions/combat';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 function getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
@@ -233,10 +233,8 @@ export function getControllableAttackers(
       toughness?: string | number;
     } | undefined;
     
-    const typeLine = (card?.type_line || '').toLowerCase();
-    
     // Only include creatures
-    if (!typeLine.includes('creature')) continue;
+    if (!isCurrentlyCreature(perm)) continue;
     
     const oracleText = `${(card?.oracle_text || '').toLowerCase()} ${(((perm as any).grantedAbilities) || []).join(' ').toLowerCase()}`;
     const { canAttack } = canCreatureBeControlledToAttack(perm, perm.controller, combatControl, battlefield);
@@ -309,10 +307,8 @@ export function getControllableBlockers(
       toughness?: string | number;
     } | undefined;
     
-    const typeLine = (card?.type_line || '').toLowerCase();
-    
     // Only include creatures
-    if (!typeLine.includes('creature')) continue;
+    if (!isCurrentlyCreature(perm)) continue;
     
     const oracleText = `${(card?.oracle_text || '').toLowerCase()} ${(((perm as any).grantedAbilities) || []).join(' ').toLowerCase()}`;
     

@@ -494,6 +494,24 @@ describe('Combat Validation Helpers', () => {
       expect(isCurrentlyCreature(animated)).toBe(true);
     });
 
+    it('should return true for permanents with Creature in effectiveTypes', () => {
+      const animated = {
+        id: 'a1',
+        effectiveTypes: ['Artifact', 'Creature'],
+        card: { type_line: 'Artifact' },
+      };
+      expect(isCurrentlyCreature(animated)).toBe(true);
+    });
+
+    it('should return false when effectiveTypes remove creature status', () => {
+      const noLongerCreature = {
+        id: 'a1',
+        effectiveTypes: ['Artifact'],
+        card: { type_line: 'Artifact Creature — Golem' },
+      };
+      expect(isCurrentlyCreature(noLongerCreature)).toBe(false);
+    });
+
     it('should return false when type removal modifier removes creature type', () => {
       const transformed = {
         id: 't1',
@@ -900,6 +918,46 @@ describe('Combat Validation Helpers', () => {
 
       const blockers = getLegalBlockers(gameState, 'player1', 'attacker1');
       expect(blockers).toEqual(['blocker1']);
+    });
+
+    it('should allow battlefield-granted flying for effective creature blockers', () => {
+      const gameState = {
+        players: [
+          { id: 'player1' },
+          { id: 'player2' },
+        ],
+        battlefield: [
+          {
+            id: 'attacker1',
+            controller: 'player2',
+            owner: 'player2',
+            tapped: false,
+            card: { type_line: 'Creature — Drake', name: 'Wind Drake', power: '2', toughness: '2', oracle_text: 'Flying' },
+          },
+          {
+            id: 'animated-relic',
+            controller: 'player1',
+            owner: 'player1',
+            tapped: false,
+            effectiveTypes: ['Artifact', 'Creature'],
+            card: { type_line: 'Artifact', name: 'Animated Relic', power: '2', toughness: '2', oracle_text: '' },
+          },
+          {
+            id: 'monument1',
+            controller: 'player1',
+            owner: 'player1',
+            tapped: false,
+            card: {
+              type_line: 'Artifact',
+              name: 'Eldrazi Monument',
+              oracle_text: 'Creatures you control get +1/+1 and have flying and indestructible.',
+            },
+          },
+        ],
+      } as unknown as GameState;
+
+      const blockers = getLegalBlockers(gameState, 'player1', 'attacker1');
+      expect(blockers).toEqual(['animated-relic']);
     });
   });
 });

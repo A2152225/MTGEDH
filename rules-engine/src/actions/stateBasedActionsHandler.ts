@@ -16,6 +16,32 @@ import {
   checkLegendRule,
 } from '../stateBasedActions';
 import { applyStaticAbilitiesToBattlefield } from '../staticAbilities';
+import {
+  playerHasCantLoseEffect,
+  opponentsHaveCantWinEffect,
+  checkUpkeepWinConditions,
+} from '../winEffectCards';
+
+function hasPermanentType(perm: any, type: string): boolean {
+  const targetType = type.toLowerCase();
+  const effectiveTypes = Array.isArray(perm?.effectiveTypes) ? perm.effectiveTypes : [];
+  if (effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
+    return true;
+  }
+
+  const grantedTypes = Array.isArray(perm?.grantedTypes) ? perm.grantedTypes : [];
+  if (grantedTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
+    return true;
+  }
+
+  const cardType = String(perm?.cardType || '').toLowerCase();
+  if (cardType.includes(targetType)) {
+    return true;
+  }
+
+  const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+  return typeLine.includes(targetType);
+}
 
 export interface SBAResult {
   state: GameState;
@@ -32,23 +58,35 @@ export function performStateBasedActions(state: GameState): SBAResult {
   let currentState = { ...state };
   let playerLost: string | undefined;
   let checkAgain = false;
+  const cantLoseBattlefield = (currentState.battlefield || []) as any;
   
   // Check each player
   for (const player of currentState.players) {
+    const temporaryWinLossEffects = ((currentState as any).winLossEffects || []) as any;
+    const cantLose = playerHasCantLoseEffect(player.id, cantLoseBattlefield, currentState.players as any, temporaryWinLossEffects);
+
     // Rule 704.5a: Zero or less life
     const lifeCheck = checkPlayerLife(player.id, player.life || 0);
     if (lifeCheck) {
-      actions.push(`${player.id} loses (0 life)`);
-      playerLost = player.id;
-      checkAgain = true;
+      if (cantLose.hasCantLose) {
+        actions.push(`${player.id} would lose (0 life) but is protected by ${cantLose.source}`);
+      } else {
+        actions.push(`${player.id} loses (0 life)`);
+        playerLost = player.id;
+        checkAgain = true;
+      }
     }
     
     // Rule 704.5c: Poison counters
     const poisonCheck = checkPoisonCounters(player.id, player.counters?.poison || 0);
     if (poisonCheck) {
-      actions.push(`${player.id} loses (10+ poison)`);
-      playerLost = player.id;
-      checkAgain = true;
+      if (cantLose.hasCantLose) {
+        actions.push(`${player.id} would lose (10+ poison) but is protected by ${cantLose.source}`);
+      } else {
+        actions.push(`${player.id} loses (10+ poison)`);
+        playerLost = player.id;
+        checkAgain = true;
+      }
     }
     
     // Rule 704.6c: Commander damage (21+)
@@ -56,9 +94,13 @@ export function performStateBasedActions(state: GameState): SBAResult {
       const cmdDmg = new Map(Object.entries(player.commanderDamage));
       const commanderCheck = checkCommanderDamage(player.id, cmdDmg);
       if (commanderCheck) {
-        actions.push(`${player.id} loses (21+ commander damage)`);
-        playerLost = player.id;
-        checkAgain = true;
+        if (cantLose.hasCantLose) {
+          actions.push(`${player.id} would lose (21+ commander damage) but is protected by ${cantLose.source}`);
+        } else {
+          actions.push(`${player.id} loses (21+ commander damage)`);
+          playerLost = player.id;
+          checkAgain = true;
+        }
       }
     }
   }
@@ -103,7 +145,7 @@ function checkCreatureDeaths(state: GameState): {
   const actions: string[] = [];
   
   for (const perm of processedBattlefield) {
-    if (!perm.card?.type_line?.toLowerCase().includes('creature')) continue;
+    if (!hasPermanentType(perm, 'creature')) continue;
     
     const baseToughness = parseInt(String(perm.card.toughness || '0'), 10);
     const toughness = typeof (perm as any).effectiveToughness === 'number'
@@ -160,11 +202,12 @@ function checkPlaneswalkerDeaths(state: GameState): {
   actions: string[];
 } {
   const allPermanents = state.battlefield || [];
+  const processedBattlefield = applyStaticAbilitiesToBattlefield(allPermanents as any[]);
   const deaths: string[] = [];
   const actions: string[] = [];
   
-  for (const perm of allPermanents) {
-    if (!perm.card?.type_line?.toLowerCase().includes('planeswalker')) continue;
+  for (const perm of processedBattlefield) {
+    if (!hasPermanentType(perm, 'planeswalker')) continue;
     
     const loyalty = perm.counters?.loyalty || 0;
     const loyaltyCheck = checkPlaneswalkerLoyalty(perm.id, loyalty);
@@ -173,8 +216,27 @@ function checkPlaneswalkerDeaths(state: GameState): {
       actions.push(`${perm.card.name} dies (0 loyalty)`);
     }
   }
+
+  if (deaths.length === 0) {
+    return { state, deaths, actions };
+  }
+
+  const updatedState = {
+    ...state,
+    battlefield: allPermanents.filter((p: any) => !deaths.includes(p.id)),
+    players: state.players.map(player => ({
+      ...player,
+      graveyard: [
+        ...(player.graveyard || []),
+        ...allPermanents.filter((p: any) =>
+          deaths.includes(p.id) &&
+          (p.owner === player.id || p.controller === player.id)
+        ),
+      ],
+    })),
+  };
   
-  return { state, deaths, actions };
+  return { state: updatedState, deaths, actions };
 }
 
 /**
@@ -203,10 +265,41 @@ export function checkWinConditions(state: GameState): {
   winner?: string;
   reason?: string;
 } {
+  if ((state as any).winner) {
+    return { winner: (state as any).winner, reason: String((state as any).winReason || 'Game effect') };
+  }
+
+  const activePlayer = state.players[(state.activePlayerIndex || 0)] as any;
+  if (String(state.step || '').toLowerCase() === 'upkeep' && activePlayer?.id) {
+    const librarySize = (activePlayer.library || []).length;
+    const handSize = (activePlayer.hand || []).length;
+    const graveyardCreatureCount = (activePlayer.graveyard || []).filter((card: any) =>
+      String(card?.type_line || '').toLowerCase().includes('creature')
+    ).length;
+    const upkeepWinCheck = checkUpkeepWinConditions(
+      activePlayer.id,
+      librarySize,
+      handSize,
+      graveyardCreatureCount,
+      (state.battlefield || []) as any,
+      state.players as any,
+      ((state as any).winLossEffects || []) as any,
+    );
+    if (upkeepWinCheck.playerWins && upkeepWinCheck.winningPlayerId) {
+      return { winner: upkeepWinCheck.winningPlayerId, reason: upkeepWinCheck.winReason };
+    }
+  }
+
   const activePlayers = state.players.filter(p => !(p as any).hasLost);
   
   if (activePlayers.length === 1) {
-    return { winner: activePlayers[0].id, reason: 'Last player standing' };
+    const winnerId = activePlayers[0].id;
+    const cantWin = opponentsHaveCantWinEffect(winnerId as any, (state.battlefield || []) as any, state.players as any, ((state as any).winLossEffects || []) as any);
+    if (cantWin.hasCantWin) {
+      return { reason: `${winnerId} cannot win because of ${cantWin.source}` };
+    }
+
+    return { winner: winnerId, reason: 'Last player standing' };
   }
   
   if (activePlayers.length === 0) {

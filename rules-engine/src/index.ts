@@ -807,9 +807,14 @@ export {
   calculateDevotion,
   checkThassasOracleWin,
   checkUpkeepWinConditions,
+  resolveSpecialUpkeepOutcomes,
+  applyTemporaryCantLoseAndOpponentsCantWinEffect,
+  clearEndOfTurnWinLossEffects,
   createWinEffectChoiceEvent,
   type WinEffect,
   type WinEffectCheckResult,
+  type TemporaryWinLossEffect,
+  type UpkeepOutcomeResult,
   type WinEffectChoiceEvent,
 } from './winEffectCards';
 

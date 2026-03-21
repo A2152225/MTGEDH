@@ -9,6 +9,12 @@ import type { GameState } from '../../../shared/src';
 import type { EngineResult, ActionContext } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
 import { GameStep } from './gamePhases';
+import {
+  checkEmptyLibraryDrawWin,
+  checkUpkeepWinConditions,
+  resolveSpecialUpkeepOutcomes,
+  clearEndOfTurnWinLossEffects,
+} from '../winEffectCards';
 
 /**
  * Execute turn-based action for untap step
@@ -65,7 +71,25 @@ export function executeDrawStep(
   
   const library = [...(player.library || [])];
   if (library.length === 0) {
+    const winCheck = checkEmptyLibraryDrawWin(activePlayerId, 0, (state.battlefield || []) as any, state.players as any, ((state as any).winLossEffects || []) as any);
+    if (winCheck.playerWins) {
+      logs.push(...winCheck.log);
+      logs.push(`${activePlayerId} wins the game`);
+      return {
+        state: {
+          ...state,
+          winner: activePlayerId,
+          status: 'finished' as any,
+          winReason: winCheck.winReason as any,
+        } as GameState,
+        logs,
+      };
+    }
+
     logs.push(`${activePlayerId} cannot draw (empty library)`);
+    if (winCheck.blockedBy) {
+      logs.push(...winCheck.log);
+    }
     return { state, logs };
   }
   
@@ -128,8 +152,10 @@ export function executeCleanupStep(
   
   logs.push('Damage removed from all permanents');
   
+  const clearedState = clearEndOfTurnWinLossEffects({ ...state, battlefield: updatedBattlefield } as GameState);
+
   return {
-    state: { ...state, battlefield: updatedBattlefield },
+    state: clearedState,
     logs,
     discardRequired,
   };
@@ -163,6 +189,38 @@ export function executeTurnBasedAction(
     allLogs.push(...result.logs);
   } else if (step === GameStep.UPKEEP) {
     allLogs.push('Upkeep step begins');
+    const specialOutcome = resolveSpecialUpkeepOutcomes(currentState, activePlayer.id);
+    currentState = specialOutcome.state;
+    allLogs.push(...specialOutcome.log);
+    if ((currentState as any).status === 'finished') {
+      return { next: currentState, log: allLogs };
+    }
+
+    const player = currentState.players.find(p => p.id === activePlayer.id);
+    const librarySize = (player?.library || []).length;
+    const handSize = (player?.hand || []).length;
+    const graveyardCreatureCount = (player?.graveyard || []).filter((card: any) =>
+      String(card?.type_line || '').toLowerCase().includes('creature')
+    ).length;
+    const upkeepWinCheck = checkUpkeepWinConditions(
+      activePlayer.id,
+      librarySize,
+      handSize,
+      graveyardCreatureCount,
+      (currentState.battlefield || []) as any,
+      currentState.players as any,
+      ((currentState as any).winLossEffects || []) as any,
+    );
+    allLogs.push(...(upkeepWinCheck.log || []));
+    if (upkeepWinCheck.playerWins) {
+      currentState = {
+        ...currentState,
+        winner: activePlayer.id,
+        status: 'finished' as any,
+        winReason: upkeepWinCheck.winReason as any,
+      } as GameState;
+      allLogs.push(`${activePlayer.id} wins the game`);
+    }
   } else if (step === GameStep.MAIN1 || step === GameStep.MAIN2) {
     allLogs.push('Main phase');
   } else if (step === GameStep.BEGIN_COMBAT) {

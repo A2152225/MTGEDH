@@ -15,8 +15,10 @@ import {
   calculateDevotion,
   checkThassasOracleWin,
   checkUpkeepWinConditions,
+  applyTemporaryCantLoseAndOpponentsCantWinEffect,
   createWinEffectChoiceEvent,
 } from '../src/winEffectCards';
+import { createEmblemFromPlaneswalker } from '../src/emblemSupport';
 import type { BattlefieldPermanent, KnownCardRef } from '../../shared/src';
 
 // Helper to create a test permanent
@@ -184,6 +186,52 @@ describe('Win Effect Cards', () => {
       
       expect(result.hasCantLose).toBe(false);
     });
+
+    it("should return true when player has Gideon's emblem and controls a Gideon planeswalker", () => {
+      const emblem = createEmblemFromPlaneswalker('player-1', 'Gideon of the Trials')!.emblem;
+      const battlefield: BattlefieldPermanent[] = [
+        createTestPermanent(
+          'gideon',
+          'Gideon of the Trials',
+          '',
+          'player-1'
+        ),
+      ];
+      (battlefield[0].card as KnownCardRef).type_line = 'Legendary Planeswalker — Gideon';
+
+      const result = playerHasCantLoseEffect('player-1', battlefield, [
+        { id: 'player-1', emblems: [emblem] },
+      ] as any);
+
+      expect(result.hasCantLose).toBe(true);
+      expect(result.source).toBe("Gideon's Emblem");
+    });
+
+    it("should return false when player has Gideon's emblem but controls no Gideon planeswalker", () => {
+      const emblem = createEmblemFromPlaneswalker('player-1', 'Gideon of the Trials')!.emblem;
+
+      const result = playerHasCantLoseEffect('player-1', [], [
+        { id: 'player-1', emblems: [emblem] },
+      ] as any);
+
+      expect(result.hasCantLose).toBe(false);
+    });
+
+    it('should return true when player has a temporary cant-lose effect this turn', () => {
+      const state = applyTemporaryCantLoseAndOpponentsCantWinEffect(
+        { players: [], battlefield: [] } as any,
+        'angel-grace',
+        "Angel's Grace",
+        'player-1',
+        'player-1',
+        "You can't lose the game this turn and your opponents can't win the game this turn."
+      ).state;
+
+      const result = playerHasCantLoseEffect('player-1', [], [], (state as any).winLossEffects);
+
+      expect(result.hasCantLose).toBe(true);
+      expect(result.source).toBe("Angel's Grace");
+    });
   });
   
   describe('opponentsHaveCantWinEffect', () => {
@@ -217,6 +265,42 @@ describe('Win Effect Cards', () => {
       const result = opponentsHaveCantWinEffect('player-1', battlefield);
       
       expect(result.hasCantWin).toBe(false);
+    });
+
+    it("should return true when an opponent has Gideon's emblem and controls a Gideon planeswalker", () => {
+      const emblem = createEmblemFromPlaneswalker('player-2', 'Gideon of the Trials')!.emblem;
+      const battlefield: BattlefieldPermanent[] = [
+        createTestPermanent(
+          'gideon',
+          'Gideon of the Trials',
+          '',
+          'player-2'
+        ),
+      ];
+      (battlefield[0].card as KnownCardRef).type_line = 'Legendary Planeswalker — Gideon';
+
+      const result = opponentsHaveCantWinEffect('player-1', battlefield, [
+        { id: 'player-2', emblems: [emblem] },
+      ] as any);
+
+      expect(result.hasCantWin).toBe(true);
+      expect(result.source).toBe("Gideon's Emblem");
+    });
+
+    it('should return true when an opponent has a temporary opponents-cant-win effect this turn', () => {
+      const state = applyTemporaryCantLoseAndOpponentsCantWinEffect(
+        { players: [], battlefield: [] } as any,
+        'angel-grace',
+        "Angel's Grace",
+        'player-2',
+        'player-2',
+        "You can't lose the game this turn and your opponents can't win the game this turn."
+      ).state;
+
+      const result = opponentsHaveCantWinEffect('player-1', [], [], (state as any).winLossEffects);
+
+      expect(result.hasCantWin).toBe(true);
+      expect(result.source).toBe("Angel's Grace");
     });
   });
   

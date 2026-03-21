@@ -1650,6 +1650,84 @@ describe('RulesEngineAdapter', () => {
       expect(result.next.winner).toBe('player2');
       expect(result.log).toContain('player2 wins the game!');
     });
+
+    it("should block last-player-standing wins when an opponent says opponents can't win", () => {
+      testGameState.players[0].hasLost = true;
+      testGameState.battlefield = [
+        {
+          id: 'angel1',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            name: 'Platinum Angel',
+            type_line: 'Artifact Creature — Angel',
+            power: '4',
+            toughness: '4',
+            oracle_text: "You can't lose the game and your opponents can't win the game.",
+          },
+        } as any,
+      ];
+      adapter.initializeGame('test-game', testGameState);
+
+      let playerWonEmitted = false;
+      adapter.on(RulesEngineEvent.PLAYER_WON, () => {
+        playerWonEmitted = true;
+      });
+
+      const result = adapter.checkStateBasedActions('test-game', testGameState);
+
+      expect(playerWonEmitted).toBe(false);
+      expect(result.next.winner).toBeUndefined();
+      expect(result.log?.some(msg => msg.includes('cannot win because of Platinum Angel'))).toBe(true);
+    });
+
+    it('should detect lethal damage on effective creatures', () => {
+      testGameState.battlefield = [
+        {
+          id: 'animated-relic',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { damage: 3 },
+          effectiveTypes: ['Artifact', 'Creature'],
+          card: {
+            name: 'Animated Relic',
+            type_line: 'Artifact',
+            power: '3',
+            toughness: '3',
+            oracle_text: '',
+          },
+        } as any,
+      ];
+      adapter.initializeGame('test-game', testGameState);
+
+      const result = adapter.checkStateBasedActions('test-game', testGameState);
+
+      expect(result.next.battlefield.some((perm: any) => perm.id === 'animated-relic')).toBe(false);
+      expect(result.log.some(msg => msg.includes('Animated Relic dies (lethal damage)'))).toBe(true);
+    });
+
+    it('should detect zero loyalty on effective planeswalkers', () => {
+      testGameState.battlefield = [
+        {
+          id: 'awakened-walker',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { loyalty: 0 },
+          effectiveTypes: ['Artifact', 'Planeswalker'],
+          card: {
+            name: 'Awakened Walker',
+            type_line: 'Artifact',
+            oracle_text: '',
+          },
+        } as any,
+      ];
+      adapter.initializeGame('test-game', testGameState);
+
+      const result = adapter.checkStateBasedActions('test-game', testGameState);
+
+      expect(result.next.battlefield.some((perm: any) => perm.id === 'awakened-walker')).toBe(false);
+      expect(result.log.some(msg => msg.includes('Awakened Walker dies (0 loyalty)'))).toBe(true);
+    });
   });
   
   describe('processMulligan', () => {
