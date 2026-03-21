@@ -164,6 +164,10 @@ describe('Card-Specific Effects', () => {
       expect(hasSpecialTriggeredAbility('Deeproot Waters')).toBe(true);
     });
 
+    it('should identify Merrow Reejerey', () => {
+      expect(hasSpecialTriggeredAbility('Merrow Reejerey')).toBe(true);
+    });
+
     it('should identify Aetherflux Reservoir', () => {
       expect(hasSpecialTriggeredAbility('Aetherflux Reservoir')).toBe(true);
     });
@@ -184,6 +188,14 @@ describe('Card-Specific Effects', () => {
       const config = getTriggeredAbilityConfig('Deeproot Waters');
       expect(config).toBeDefined();
       expect(config!.creatureTypeFilter).toBe('Merfolk');
+    });
+
+    it('should return correct config for Merrow Reejerey with optional tap-or-untap effect', () => {
+      const config = getTriggeredAbilityConfig('Merrow Reejerey');
+      expect(config).toBeDefined();
+      expect(config!.creatureTypeFilter).toBe('Merfolk');
+      expect(config!.requiresChoice).toBe(true);
+      expect(config!.effect).toBe('You may tap or untap target permanent.');
     });
   });
 

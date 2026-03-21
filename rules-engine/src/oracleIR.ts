@@ -190,6 +190,13 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'tap_or_untap';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'create_token';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;

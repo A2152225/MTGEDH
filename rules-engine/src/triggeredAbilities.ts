@@ -11,6 +11,12 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { StackObject } from './spellCasting';
 import type { OracleIRExecutionEventHint } from './oracleIRExecutor';
 import type { OracleIRExecutionOptions, OracleIRExecutionResult } from './oracleIRExecutor';
+import {
+  createMayAbilityEvent,
+  createOptionChoiceEvent,
+  createTargetSelectionEvent,
+  type ChoiceEvent,
+} from './choiceEvents';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from './oracleIRExecutor';
 import { parseOracleTextToIR } from './oracleIRParser';
 
@@ -382,10 +388,13 @@ export interface TriggerEventData {
   readonly sourceControllerId?: string;
   readonly targetId?: string;
   readonly targetControllerId?: string;
+  readonly targetPermanentId?: string;
   /** Explicit player-target binding when known at trigger resolution time. */
   readonly targetPlayerId?: string;
   /** Explicit opponent-target binding when known at trigger resolution time. */
   readonly targetOpponentId?: string;
+  /** Explicit choice for optional "tap or untap" triggered effects. */
+  readonly tapOrUntapChoice?: 'tap' | 'untap';
   readonly permanentTypes?: readonly string[];
   readonly creatureCount?: number;
   readonly landCount?: number;
@@ -539,6 +548,7 @@ export function buildTriggerEventDataFromPayloads(
   const targetIds = collectIds(
     'target',
     'targetId',
+    'targetPermanentId',
     'targetPlayerId',
     'targetOpponentId',
     'targets',
@@ -595,17 +605,24 @@ export function buildTriggerEventDataFromPayloads(
   const opponentsDealtDamageIdsSanitized = opponentsDealtDamageIdsRaw.filter(id => isOpponentId(id));
 
   const sourceId = scalarString('sourceId');
+  const targetPermanentId =
+    scalarString('targetPermanentId') ??
+    (targetPlayerId || targetOpponentId ? undefined : singleton(targetIds));
   const targetId = scalarString('targetId') ?? targetPlayerId ?? targetOpponentId;
   const hand = collectIds('hand');
   const handAtBeginningOfTurn = collectIds('handAtBeginningOfTurn');
+  const rawTapOrUntapChoice = scalarString('tapOrUntapChoice');
+  const tapOrUntapChoice = rawTapOrUntapChoice === 'tap' || rawTapOrUntapChoice === 'untap' ? rawTapOrUntapChoice : undefined;
 
   return {
     sourceId,
     sourceControllerId: normalizedSourceControllerId,
     targetId,
     targetControllerId: scalarString('targetControllerId'),
+    targetPermanentId,
     targetPlayerId,
     targetOpponentId,
+    tapOrUntapChoice,
     lifeTotal: scalarNumber('lifeTotal'),
     lifeLost: scalarNumber('lifeLost'),
     lifeGained: scalarNumber('lifeGained'),
@@ -639,8 +656,10 @@ export function buildStackTriggerMetaFromEventData(
     sourceControllerId?: string;
     targetId?: string;
     targetControllerId?: string;
+    targetPermanentId?: string;
     targetPlayerId?: string;
     targetOpponentId?: string;
+    tapOrUntapChoice?: 'tap' | 'untap';
     affectedPlayerIds?: readonly string[];
     affectedOpponentIds?: readonly string[];
     opponentsDealtDamageIds?: readonly string[];
@@ -652,8 +671,8 @@ export function buildStackTriggerMetaFromEventData(
     spellType?: string;
     isYourTurn?: boolean;
     isOpponentsTurn?: boolean;
-      hand?: readonly string[];
-      handAtBeginningOfTurn?: readonly string[];
+    hand?: readonly string[];
+    handAtBeginningOfTurn?: readonly string[];
     battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
   };
 } {
@@ -670,8 +689,10 @@ export function buildStackTriggerMetaFromEventData(
       sourceControllerId: normalized.sourceControllerId,
       targetId: normalized.targetId,
       targetControllerId: normalized.targetControllerId,
+      targetPermanentId: normalized.targetPermanentId,
       targetPlayerId: normalized.targetPlayerId,
       targetOpponentId: normalized.targetOpponentId,
+      tapOrUntapChoice: normalized.tapOrUntapChoice,
       affectedPlayerIds: normalized.affectedPlayerIds,
       affectedOpponentIds: normalized.affectedOpponentIds,
       opponentsDealtDamageIds: normalized.opponentsDealtDamageIds,
@@ -711,6 +732,7 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
   const normalizedSourceControllerId = String(eventData.sourceControllerId || '').trim() || undefined;
   const normalizedTargetPlayerId = normalizeId(eventData.targetPlayerId);
   const normalizedRawTargetOpponentId = normalizeId(eventData.targetOpponentId);
+  const normalizedTargetPermanentId = normalizeId(eventData.targetPermanentId);
 
   const isOpponentId = (id: string | undefined): boolean => {
     if (!id) return false;
@@ -747,6 +769,8 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
   const hint: OracleIRExecutionEventHint = {
     targetPlayerId: normalizedTargetPlayerId,
     targetOpponentId,
+    targetPermanentId: normalizedTargetPermanentId,
+    tapOrUntapChoice: eventData.tapOrUntapChoice,
     affectedPlayerIds: dedupe(eventData.affectedPlayerIds),
     affectedOpponentIds: dedupedAffectedOpponents,
     opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
@@ -756,6 +780,8 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
   if (
     !hint.targetPlayerId &&
     !hint.targetOpponentId &&
+    !hint.targetPermanentId &&
+    !hint.tapOrUntapChoice &&
     !hint.affectedPlayerIds &&
     !hint.affectedOpponentIds &&
     !hint.opponentsDealtDamageIds &&
@@ -840,6 +866,167 @@ export function buildResolutionEventDataFromGameState(
   };
 }
 
+function normalizeTriggerContextId(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const normalized = String(value).trim();
+  return normalized || undefined;
+}
+
+function buildEnrichedTriggerExecutionEventData(
+  state: GameState,
+  ability: Pick<TriggeredAbility, 'controllerId' | 'sourceId' | 'sourceName' | 'effect'>,
+  eventData?: TriggerEventData,
+  options: { inferTapOrUntapChoice?: boolean } = {}
+): TriggerEventData | undefined {
+  const normalizedEventData = buildTriggerEventDataFromPayloads(
+    ability.controllerId,
+    eventData,
+    {
+      sourceId: ability.sourceId,
+      sourceControllerId: ability.controllerId,
+    }
+  );
+
+  const playerIds = new Set(
+    (state.players || [])
+      .map((player: any) => normalizeTriggerContextId(player?.id))
+      .filter((id: string | undefined): id is string => Boolean(id))
+  );
+
+  const inferredTargetPermanentId = (() => {
+    const explicit = normalizeTriggerContextId(normalizedEventData.targetPermanentId ?? eventData?.targetPermanentId);
+    if (explicit) return explicit;
+    const fallbackTargetId = normalizeTriggerContextId(normalizedEventData.targetId ?? eventData?.targetId);
+    if (fallbackTargetId && !playerIds.has(fallbackTargetId)) return fallbackTargetId;
+    return undefined;
+  })();
+
+  const inferredTapOrUntapChoice = (() => {
+    if (!options.inferTapOrUntapChoice) return undefined;
+    const explicit = normalizedEventData.tapOrUntapChoice ?? eventData?.tapOrUntapChoice;
+    if (explicit === 'tap' || explicit === 'untap') return explicit;
+    if (!inferredTargetPermanentId) return undefined;
+    const permanent = ((state.battlefield || []) as any[]).find(
+      perm => normalizeTriggerContextId(perm?.id) === inferredTargetPermanentId
+    );
+    if (!permanent) return undefined;
+    return Boolean((permanent as any)?.tapped) ? 'untap' : 'tap';
+  })();
+
+  const hasBaseEventData = Boolean(eventData) || Object.keys(normalizedEventData).length > 0;
+  if (!hasBaseEventData && !inferredTargetPermanentId && !inferredTapOrUntapChoice) {
+    return undefined;
+  }
+
+  return {
+    ...((eventData as Record<string, unknown> | undefined) || {}),
+    ...normalizedEventData,
+    ...(inferredTargetPermanentId ? { targetPermanentId: inferredTargetPermanentId } : {}),
+    ...(inferredTapOrUntapChoice ? { tapOrUntapChoice: inferredTapOrUntapChoice } : {}),
+  } as TriggerEventData;
+}
+
+function getTriggerSourceImage(state: GameState, sourceId: string | undefined): string | undefined {
+  const normalizedSourceId = normalizeTriggerContextId(sourceId);
+  if (!normalizedSourceId) return undefined;
+  const permanent = ((state.battlefield || []) as any[]).find(
+    perm => normalizeTriggerContextId(perm?.id) === normalizedSourceId
+  ) as any;
+  const images = permanent?.card?.image_uris;
+  return images?.small || images?.normal || undefined;
+}
+
+function buildPermanentTargetChoiceOptions(state: GameState): readonly { id: string; name: string; imageUrl?: string }[] {
+  return ((state.battlefield || []) as any[])
+    .map((perm: any) => {
+      const id = normalizeTriggerContextId(perm?.id);
+      if (!id) return undefined;
+      const card = perm?.card || {};
+      const name = String(card?.name || perm?.name || id).trim() || id;
+      const imageUrl = card?.image_uris?.small || card?.image_uris?.normal || undefined;
+      return { id, name, imageUrl };
+    })
+    .filter((option): option is { id: string; name: string; imageUrl?: string } => Boolean(option));
+}
+
+export function buildTriggeredAbilityChoiceEvents(
+  state: GameState,
+  ability: Pick<TriggeredAbility, 'controllerId' | 'sourceId' | 'sourceName' | 'effect' | 'optional'>,
+  eventData?: TriggerEventData
+): readonly ChoiceEvent[] {
+  const ir = parseOracleTextToIR(ability.effect, ability.sourceName);
+  const steps = ir.abilities.flatMap(a => a.steps);
+  const enrichedEventData = buildEnrichedTriggerExecutionEventData(state, ability, eventData, {
+    inferTapOrUntapChoice: false,
+  });
+  const sourceImage = getTriggerSourceImage(state, ability.sourceId);
+  const choiceEvents: ChoiceEvent[] = [];
+
+  if (ability.optional || steps.some(step => Boolean((step as any).optional))) {
+    choiceEvents.push(
+      createMayAbilityEvent(
+        ability.controllerId as PlayerID,
+        ability.sourceId,
+        ability.sourceName,
+        ability.effect,
+        undefined,
+        sourceImage
+      )
+    );
+  }
+
+  for (const step of steps) {
+    if (step.kind !== 'tap_or_untap') continue;
+
+    if (!enrichedEventData?.targetPermanentId) {
+      const validTargets = buildPermanentTargetChoiceOptions(state);
+      if (validTargets.length > 0) {
+        choiceEvents.push(
+          createTargetSelectionEvent(
+            ability.controllerId as PlayerID,
+            ability.sourceId,
+            ability.sourceName,
+            validTargets,
+            ['permanent'],
+            1,
+            1,
+            true,
+            sourceImage
+          )
+        );
+      }
+    }
+
+    if (!enrichedEventData?.tapOrUntapChoice) {
+      const targetPermanentName = (() => {
+        const targetPermanentId = normalizeTriggerContextId(enrichedEventData?.targetPermanentId);
+        if (!targetPermanentId) return 'the target permanent';
+        const permanent = ((state.battlefield || []) as any[]).find(
+          perm => normalizeTriggerContextId(perm?.id) === targetPermanentId
+        ) as any;
+        return String(permanent?.card?.name || permanent?.name || 'the target permanent').trim() || 'the target permanent';
+      })();
+
+      choiceEvents.push(
+        createOptionChoiceEvent(
+          ability.controllerId as PlayerID,
+          ability.sourceId,
+          ability.sourceName,
+          `Choose whether ${ability.sourceName} taps or untaps ${targetPermanentName}`,
+          [
+            { id: 'tap', label: 'Tap', description: `Tap ${targetPermanentName}` },
+            { id: 'untap', label: 'Untap', description: `Untap ${targetPermanentName}` },
+          ],
+          1,
+          1
+        )
+      );
+    }
+  }
+
+  return choiceEvents;
+}
+
 /**
  * Execute a triggered ability's effect text through the Oracle IR parser/executor.
  *
@@ -855,18 +1042,31 @@ export function executeTriggeredAbilityEffectWithOracleIR(
 ): OracleIRExecutionResult {
   const ir = parseOracleTextToIR(ability.effect, ability.sourceName);
   const steps = ir.abilities.flatMap(a => a.steps);
+  const normalizedEventData = buildEnrichedTriggerExecutionEventData(state, ability, eventData, {
+    inferTapOrUntapChoice: true,
+  });
 
-  const hint = buildOracleIRExecutionEventHintFromTriggerData(eventData);
+  const canAutoAllowOptional =
+    Boolean(normalizedEventData?.targetPermanentId && normalizedEventData?.tapOrUntapChoice) &&
+    steps.some(step => step.kind === 'tap_or_untap' && Boolean((step as any).optional)) &&
+    steps.every(step => !Boolean((step as any).optional) || step.kind === 'tap_or_untap');
+
+  const executionOptions =
+    canAutoAllowOptional && !options.allowOptional
+      ? { ...options, allowOptional: true }
+      : options;
+
+  const hint = buildOracleIRExecutionEventHintFromTriggerData(normalizedEventData);
   const ctx = buildOracleIRExecutionContext(
     {
-      controllerId: ability.controllerId as PlayerID,
+      controllerId: (normalizeTriggerContextId(ability.controllerId) ?? ability.controllerId) as PlayerID,
       sourceId: ability.sourceId,
       sourceName: ability.sourceName,
     },
     hint
   );
 
-  return applyOracleIRStepsToGameState(state, steps, ctx, options);
+  return applyOracleIRStepsToGameState(state, steps, ctx, executionOptions);
 }
 
 export interface ProcessEventOracleExecutionResult {
@@ -909,7 +1109,10 @@ export function processEventAndExecuteTriggeredOracle(
 
   for (let idx = 0; idx < triggeredAbilities.length; idx++) {
     const ability = triggeredAbilities[idx];
-    const trigger = createTriggerInstance(ability, timestamp + idx, eventData);
+    const executionEventData = buildEnrichedTriggerExecutionEventData(state, ability, eventData, {
+      inferTapOrUntapChoice: false,
+    });
+    const trigger = createTriggerInstance(ability, timestamp + idx, executionEventData);
     triggers.push(trigger);
 
     const resolvedInterveningIfClause = resolveInterveningIfClause(ability);
@@ -921,7 +1124,7 @@ export function processEventAndExecuteTriggeredOracle(
 
     if (resolvedInterveningIfClause) {
       const resolutionData =
-        options.resolutionEventData ?? buildResolutionEventDataFromGameState(nextState, ability.controllerId, eventData);
+        options.resolutionEventData ?? buildResolutionEventDataFromGameState(nextState, ability.controllerId, executionEventData);
       const stillTrue = evaluateTriggerCondition(resolvedInterveningIfClause, ability.controllerId, resolutionData);
       if (!stillTrue) {
         log.push(`${ability.sourceName} trigger skipped at resolution (intervening-if false)`);
@@ -929,7 +1132,7 @@ export function processEventAndExecuteTriggeredOracle(
       }
     }
 
-    const execution = executeTriggeredAbilityEffectWithOracleIR(nextState, ability, eventData, options);
+    const execution = executeTriggeredAbilityEffectWithOracleIR(nextState, ability, executionEventData, options);
     executions.push(execution);
     nextState = execution.state;
 

@@ -30,6 +30,13 @@ export const TRIGGERED_ABILITY_CARDS: Record<string, TriggeredAbilityConfig> = {
     creatureTypeFilter: 'Merfolk',
     effect: 'Create a 1/1 blue Merfolk creature token with hexproof.',
   },
+  'merrow reejerey': {
+    cardName: 'Merrow Reejerey',
+    triggerEvent: TriggerEvent.CREATURE_SPELL_CAST,
+    creatureTypeFilter: 'Merfolk',
+    effect: 'You may tap or untap target permanent.',
+    requiresChoice: true,
+  },
   'aetherflux reservoir': {
     cardName: 'Aetherflux Reservoir',
     triggerEvent: TriggerEvent.SPELL_CAST,

@@ -63,6 +63,17 @@ describe('Oracle IR Parser', () => {
     expect(tokenStep.token.toLowerCase()).toContain('soldier');
   });
 
+  it('parses optional tap-or-untap target permanent clauses', () => {
+    const text = 'You may tap or untap target permanent.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+    const tapOrUntap = steps.find(s => s.kind === 'tap_or_untap') as any;
+
+    expect(tapOrUntap).toBeTruthy();
+    expect(tapOrUntap.optional).toBe(true);
+    expect(tapOrUntap.target).toEqual({ kind: 'raw', text: 'target permanent' });
+  });
+
   it('parses multi-token creation in a single clause into multiple steps', () => {
     const text = 'Create two Treasure tokens and a Clue token.';
     const ir = parseOracleTextToIR(text);

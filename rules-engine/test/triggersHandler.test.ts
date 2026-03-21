@@ -319,6 +319,46 @@ describe('triggersHandler Oracle automation', () => {
     expect(p3.life).toBe(40);
   });
 
+  it('processTriggers auto-executes Merrow Reejerey untap when trigger context provides target permanent and choice', () => {
+    const start = makeMerfolkIterationState({
+      battlefield: makeMerfolkIterationState().battlefield.map((perm: any) =>
+        perm.id === 'nykthos-shrine-to-nyx' ? { ...perm, tapped: true } : perm
+      ),
+    });
+    const abilities = [
+      {
+        id: 'reejerey-trigger',
+        sourceId: 'merrow-reejerey',
+        sourceName: 'Merrow Reejerey',
+        controllerId: 'p1',
+        keyword: 'whenever',
+        event: TriggerEvent.CREATURE_SPELL_CAST,
+        effect: 'You may tap or untap target permanent.',
+      } as any,
+    ];
+
+    const result = processTriggers(
+      start,
+      TriggerEvent.CREATURE_SPELL_CAST,
+      abilities,
+      {
+        sourceControllerId: 'p1',
+        targetPermanentId: 'nykthos-shrine-to-nyx',
+        tapOrUntapChoice: 'untap',
+      },
+      {
+        autoExecuteOracle: true,
+        allowOptional: true,
+      }
+    );
+
+    const nykthos = result.state.battlefield.find((perm: any) => perm.id === 'nykthos-shrine-to-nyx') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(nykthos.tapped).toBe(false);
+  });
+
   it('checkTribalCastTriggers uses the merfolk iteration fixture to stack Deeproot Waters token doublers', () => {
     const start = makeMerfolkIterationState();
     const startingTokenCount = ((start.battlefield || []) as any[]).filter((perm: any) => perm?.isToken).length;
@@ -336,9 +376,11 @@ describe('triggersHandler Oracle automation', () => {
 
     const createdTokens = ((result.state as any).battlefield || []).filter((perm: any) => perm?.isToken);
 
-    expect(result.triggersAdded).toBe(1);
+    expect(result.triggersAdded).toBe(2);
     expect(createdTokens.length - startingTokenCount).toBe(4);
     expect(createdTokens).toHaveLength(4);
     expect(result.logs.some(x => x.includes('Deeproot Waters triggered from casting Summon the School'))).toBe(true);
+    expect(result.logs.some(x => x.includes('Merrow Reejerey triggered from casting Summon the School'))).toBe(true);
+    expect((result.oracleStepsSkipped || 0) > 0).toBe(true);
   });
 });

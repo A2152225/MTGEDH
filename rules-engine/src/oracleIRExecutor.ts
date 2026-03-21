@@ -31,6 +31,10 @@ export interface OracleIRExecutionEventHint {
   readonly targetPlayerId?: PlayerID;
   /** Best-effort single target opponent from trigger/ability resolution context. */
   readonly targetOpponentId?: PlayerID;
+  /** Best-effort single target permanent from trigger/ability resolution context. */
+  readonly targetPermanentId?: string;
+  /** Explicit choice for "tap or untap" style effects when known. */
+  readonly tapOrUntapChoice?: 'tap' | 'untap';
   /** Generic affected players for this event (may include non-opponents). */
   readonly affectedPlayerIds?: readonly PlayerID[];
   /** Affected opponents for this event (preferred for relational opponent selectors). */
@@ -47,6 +51,10 @@ export interface OracleIRExecutionContext {
   readonly sourceName?: string;
   /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
   readonly targetCreatureId?: string;
+  /** Optional direct target permanent binding used by targeted effects like Merrow Reejerey. */
+  readonly targetPermanentId?: string;
+  /** Choice for effects worded as "tap or untap target permanent." */
+  readonly tapOrUntapChoice?: 'tap' | 'untap';
   /** Normalized reference spell types used by some deterministic unknown-amount loops. */
   readonly referenceSpellTypes?: readonly string[];
   /**
@@ -100,6 +108,7 @@ export function buildOracleIRExecutionContext(
 
   const hintTargetOpponentId = normalizeId(hint?.targetOpponentId);
   const hintTargetPlayerId = normalizeId(hint?.targetPlayerId);
+  const hintTargetPermanentId = normalizeId(hint?.targetPermanentId);
   const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
   const baseTargetPlayerId = normalizeId(baseSel?.targetPlayerId);
 
@@ -171,10 +180,19 @@ export function buildOracleIRExecutionContext(
       : undefined);
 
   if (!selectorContext.targetPlayerId && !selectorContext.targetOpponentId && !selectorContext.eachOfThoseOpponents) {
-    if (normalizedControllerId === base.controllerId && !referenceSpellTypes) return base;
+    if (
+      normalizedControllerId === base.controllerId &&
+      !referenceSpellTypes &&
+      !hintTargetPermanentId &&
+      !hint?.tapOrUntapChoice
+    ) {
+      return base;
+    }
     return {
       ...base,
       controllerId: normalizedControllerId,
+      ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
+      ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
       ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
     };
   }
@@ -183,6 +201,8 @@ export function buildOracleIRExecutionContext(
     ...base,
     controllerId: normalizedControllerId,
     selectorContext,
+    ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
+    ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
     ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
   };
 }
@@ -5532,6 +5552,59 @@ function parseSimpleBattlefieldSelector(
   return { kind: 'battlefield_selector', types, controllerFilter };
 }
 
+function resolveTapOrUntapTargetIds(state: GameState, target: OracleObjectSelector | any, ctx: OracleIRExecutionContext): string[] {
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const explicitPermanentId = String(ctx.targetPermanentId || '').trim();
+  if (explicitPermanentId) {
+    const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitPermanentId);
+    return matched ? [explicitPermanentId] : [];
+  }
+
+  const explicitCreatureId = String(ctx.targetCreatureId || '').trim();
+  if (explicitCreatureId) {
+    const matched = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === explicitCreatureId);
+    return matched ? [explicitCreatureId] : [];
+  }
+
+  if (target?.kind !== 'raw') return [];
+  const text = String(target?.text || '').trim().toLowerCase();
+  if (!text) return [];
+
+  if (text === 'target permanent' && battlefield.length === 1) {
+    return [String((battlefield[0] as any)?.id || '').trim()].filter(Boolean);
+  }
+
+  if (text === 'target creature') {
+    const creatures = battlefield.filter(perm => hasExecutorClass(perm, 'creature'));
+    if (creatures.length === 1) {
+      return [String((creatures[0] as any)?.id || '').trim()].filter(Boolean);
+    }
+  }
+
+  return [];
+}
+
+function applyTapOrUntapToBattlefield(
+  state: GameState,
+  targetIds: readonly string[],
+  choice: 'tap' | 'untap'
+): GameState {
+  const wanted = new Set(targetIds.map(id => String(id || '').trim()).filter(Boolean));
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+
+  for (let idx = 0; idx < battlefield.length; idx += 1) {
+    const perm = battlefield[idx] as any;
+    const permanentId = String(perm?.id || '').trim();
+    if (!wanted.has(permanentId)) continue;
+    battlefield[idx] = {
+      ...perm,
+      tapped: choice === 'tap',
+    } as any;
+  }
+
+  return { ...(state as any), battlefield } as any;
+}
+
 function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlefieldSelector, ctx: OracleIRExecutionContext): boolean {
   const normalizeId = (value: unknown): PlayerID | undefined => {
     if (typeof value !== 'string' && typeof value !== 'number') return undefined;
@@ -7197,6 +7270,26 @@ export function applyOracleIRStepsToGameState(
 
         skippedSteps.push(step);
         log.push(`Skipped deal damage (unsupported target): ${step.raw}`);
+        break;
+      }
+
+      case 'tap_or_untap': {
+        const targetIds = resolveTapOrUntapTargetIds(nextState, step.target as any, ctx);
+        if (targetIds.length === 0) {
+          skippedSteps.push(step);
+          log.push(`Skipped tap/untap (no deterministic target): ${step.raw}`);
+          break;
+        }
+
+        const currentTargets = ((nextState.battlefield || []) as any[]).filter((perm: any) =>
+          targetIds.includes(String(perm?.id || '').trim())
+        );
+        const choice: 'tap' | 'untap' =
+          ctx.tapOrUntapChoice ?? (currentTargets.some((perm: any) => Boolean(perm?.tapped)) ? 'untap' : 'tap');
+
+        nextState = applyTapOrUntapToBattlefield(nextState, targetIds, choice);
+        log.push(`${choice === 'tap' ? 'Tapped' : 'Untapped'} ${targetIds.length} permanent(s)`);
+        appliedSteps.push(step);
         break;
       }
 

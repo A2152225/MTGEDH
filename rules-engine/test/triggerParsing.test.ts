@@ -3,6 +3,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { GameState } from '../../shared/src';
+import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
+import { ChoiceEventType } from '../src/choiceEvents';
 import {
   TriggerEvent,
   TriggerKeyword,
@@ -22,6 +24,7 @@ import {
   buildTriggerEventDataFromPayloads,
   buildStackTriggerMetaFromEventData,
   buildOracleIRExecutionEventHintFromTriggerData,
+  buildTriggeredAbilityChoiceEvents,
   executeTriggeredAbilityEffectWithOracleIR,
   processEventAndExecuteTriggeredOracle,
   evaluateTriggerCondition,
@@ -384,6 +387,16 @@ describe('Trigger Parsing', () => {
       expect(eventData.targetOpponentId).toBeUndefined();
     });
 
+    it('infers targetPermanentId from a singleton generic target when no player target exists', () => {
+      const eventData = buildTriggerEventDataFromPayloads('p1', {
+        targets: ['perm-99'],
+      });
+
+      expect(eventData.targetPermanentId).toBe('perm-99');
+      expect(eventData.targetPlayerId).toBeUndefined();
+      expect(eventData.targetOpponentId).toBeUndefined();
+    });
+
     it('does not infer affectedPlayerIds from generic targetIds when player-scoped target fields are absent', () => {
       const eventData = buildTriggerEventDataFromPayloads('p1', {
         targetIds: ['perm-1', 'perm-2'],
@@ -683,6 +696,87 @@ describe('Trigger Parsing', () => {
       expect(p2.life).toBe(39);
       expect(p3.life).toBe(40);
       expect(result.triggers[0]?.triggerEventDataSnapshot?.targetOpponentId).toBe('p2');
+    });
+
+    it('processEventAndExecuteTriggeredOracle auto-processes optional tap-or-untap effects from singleton permanent targets', () => {
+      const start = makeMerfolkIterationState({
+        battlefield: makeMerfolkIterationState().battlefield.map((perm: any) =>
+          perm.id === 'nykthos-shrine-to-nyx' ? { ...perm, tapped: true } : perm
+        ),
+      });
+      const abilities = [
+        {
+          id: 'reejerey-trigger',
+          sourceId: 'merrow-reejerey',
+          sourceName: 'Merrow Reejerey',
+          controllerId: 'p1',
+          keyword: TriggerKeyword.WHENEVER,
+          event: TriggerEvent.CREATURE_SPELL_CAST,
+          effect: 'You may tap or untap target permanent.',
+          optional: true,
+        } as any,
+      ];
+
+      const result = processEventAndExecuteTriggeredOracle(
+        start,
+        TriggerEvent.CREATURE_SPELL_CAST,
+        abilities,
+        { targets: ['nykthos-shrine-to-nyx'] } as any
+      );
+
+      const nykthos = result.state.battlefield.find((perm: any) => perm.id === 'nykthos-shrine-to-nyx') as any;
+
+      expect(result.executions).toHaveLength(1);
+      expect(result.executions[0].appliedSteps.some(step => step.kind === 'tap_or_untap')).toBe(true);
+      expect(nykthos.tapped).toBe(false);
+      expect(result.triggers[0]?.triggerEventDataSnapshot?.targetPermanentId).toBe('nykthos-shrine-to-nyx');
+    });
+
+    it('buildTriggeredAbilityChoiceEvents returns ordered Merrow choice prompts when target and tap state are unresolved', () => {
+      const start = makeMerfolkIterationState();
+      const ability = {
+        id: 'reejerey-choice-trigger',
+        sourceId: 'merrow-reejerey',
+        sourceName: 'Merrow Reejerey',
+        controllerId: 'p1',
+        keyword: TriggerKeyword.WHENEVER,
+        event: TriggerEvent.CREATURE_SPELL_CAST,
+        effect: 'You may tap or untap target permanent.',
+        optional: true,
+      } as any;
+
+      const events = buildTriggeredAbilityChoiceEvents(start, ability);
+      const targetEvent = events.find(event => event.type === ChoiceEventType.TARGET_SELECTION) as any;
+      const optionEvent = events.find(event => event.type === ChoiceEventType.OPTION_CHOICE) as any;
+
+      expect(events.map(event => event.type)).toEqual([
+        ChoiceEventType.MAY_ABILITY,
+        ChoiceEventType.TARGET_SELECTION,
+        ChoiceEventType.OPTION_CHOICE,
+      ]);
+      expect(targetEvent.validTargets.some((target: any) => target.id === 'nykthos-shrine-to-nyx')).toBe(true);
+      expect(optionEvent.options.map((option: any) => option.id)).toEqual(['tap', 'untap']);
+    });
+
+    it('buildTriggeredAbilityChoiceEvents suppresses resolved trigger choices already supplied by event context', () => {
+      const start = makeMerfolkIterationState();
+      const ability = {
+        id: 'reejerey-choice-trigger-resolved',
+        sourceId: 'merrow-reejerey',
+        sourceName: 'Merrow Reejerey',
+        controllerId: 'p1',
+        keyword: TriggerKeyword.WHENEVER,
+        event: TriggerEvent.CREATURE_SPELL_CAST,
+        effect: 'You may tap or untap target permanent.',
+        optional: true,
+      } as any;
+
+      const events = buildTriggeredAbilityChoiceEvents(start, ability, {
+        targets: ['nykthos-shrine-to-nyx'],
+        tapOrUntapChoice: 'untap',
+      } as any);
+
+      expect(events.map(event => event.type)).toEqual([ChoiceEventType.MAY_ABILITY]);
     });
 
     it('processEventAndExecuteTriggeredOracle rechecks intervening-if against resolutionEventData when provided', () => {

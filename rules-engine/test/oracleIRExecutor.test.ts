@@ -26094,6 +26094,34 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('uses the merfolk iteration fixture to untap Nykthos via Merrow Reejerey text', () => {
+    const ir = parseOracleTextToIR('You may tap or untap target permanent.', 'Merrow Reejerey');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeMerfolkIterationState({
+      battlefield: makeMerfolkIterationState().battlefield.map((perm: any) =>
+        perm.id === 'nykthos-shrine-to-nyx' ? { ...perm, tapped: true } : perm
+      ),
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Merrow Reejerey',
+        targetPermanentId: 'nykthos-shrine-to-nyx',
+        tapOrUntapChoice: 'untap',
+      },
+      { allowOptional: true }
+    );
+
+    const nykthos = ((result.state as any).battlefield || []).find((p: any) => p.id === 'nykthos-shrine-to-nyx') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'tap_or_untap')).toBe(true);
+    expect(nykthos.tapped).toBe(false);
+  });
+
   it('buildOracleIRExecutionContext maps spellType hint into referenceSpellTypes', () => {
     const ctx = buildOracleIRExecutionContext(
       { controllerId: 'p1' as any },

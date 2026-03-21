@@ -501,6 +501,19 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     }
   }
 
+  // Tap / Untap target permanent
+  {
+    const m = clause.match(/^(?:(?:you|its controller)\s+may\s+)?tap\s+or\s+untap\s+(.+)$/i);
+    if (m) {
+      return withMeta({
+        kind: 'tap_or_untap',
+        target: parseObjectSelector(m[1]),
+        optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+  }
+
   // Create token(s)
   {
     const m = clause.match(

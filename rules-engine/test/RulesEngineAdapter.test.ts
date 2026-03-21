@@ -8,6 +8,7 @@ import type { GameState } from '../../shared/src';
 import { GameStep } from '../../shared/src';
 import { createEmblemFromPlaneswalker } from '../src/emblemSupport';
 import { applyTemporaryCantLoseAndOpponentsCantWinEffect } from '../src/winEffectCards';
+import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
 
 describe('RulesEngineAdapter', () => {
   let adapter: RulesEngineAdapter;
@@ -882,6 +883,47 @@ describe('RulesEngineAdapter', () => {
 
       const player2 = result.next.players.find(p => p.id === 'player2');
       expect(player2?.life).toBe(39);
+    });
+
+    it('should resolve optional tap-or-untap trigger from singleton permanent stack target', () => {
+      const start = makeMerfolkIterationState({
+        id: 'test-game',
+        battlefield: makeMerfolkIterationState().battlefield.map((perm: any) =>
+          perm.id === 'nykthos-shrine-to-nyx' ? { ...perm, tapped: true } : perm
+        ),
+      } as any);
+
+      adapter.initializeGame('test-game', start as any);
+
+      const adapterAny = adapter as any;
+      const stacks = adapterAny.stacks as Map<string, any>;
+      stacks.set('test-game', {
+        objects: [
+          {
+            id: 'stack-trigger-reejerey',
+            spellId: 'merrow-reejerey',
+            cardName: 'Merrow Reejerey',
+            controllerId: 'p1',
+            targets: ['nykthos-shrine-to-nyx'],
+            timestamp: Date.now(),
+            type: 'ability',
+            triggerMeta: {
+              effectText: 'You may tap or untap target permanent.',
+              triggerEventDataSnapshot: {
+                sourceId: 'merrow-reejerey',
+                sourceControllerId: 'p1',
+              },
+            },
+          },
+        ],
+      });
+
+      const result = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const nykthos = result.next.battlefield.find((perm: any) => perm.id === 'nykthos-shrine-to-nyx') as any;
+      expect(nykthos?.tapped).toBe(false);
     });
 
     it('should resolve legacy stack object target_opponent effect from singleton targets without snapshot bindings', () => {

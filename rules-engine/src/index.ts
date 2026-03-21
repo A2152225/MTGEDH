@@ -218,6 +218,7 @@ export {
   buildStackTriggerMetaFromEventData,
   buildOracleIRExecutionEventHintFromTriggerData,
   buildResolutionEventDataFromGameState,
+  buildTriggeredAbilityChoiceEvents,
   executeTriggeredAbilityEffectWithOracleIR,
   createEndStepTrigger,
   createLandfallTrigger,

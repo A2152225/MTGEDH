@@ -1345,7 +1345,10 @@ export class RulesEngineAdapter {
               .filter((id: string) => id.length > 0)
           : [];
         const dedupedStackTargets = Array.from(new Set(normalizedStackTargets));
-        const dedupedStackOpponentTargets = dedupedStackTargets.filter(id => id !== popResult.object.controllerId);
+        const playerIdSet = new Set((nextState.players || []).map((player: any) => String(player?.id || '').trim()).filter(Boolean));
+        const dedupedStackPlayerTargets = dedupedStackTargets.filter(id => playerIdSet.has(id));
+        const dedupedStackOpponentTargets = dedupedStackPlayerTargets.filter(id => id !== popResult.object.controllerId);
+        const dedupedStackPermanentTargets = dedupedStackTargets.filter(id => !playerIdSet.has(id));
         const normalizedEventData = buildTriggerEventDataFromPayloads(
           popResult.object.controllerId,
           triggerMeta.triggerEventDataSnapshot,
@@ -1353,8 +1356,11 @@ export class RulesEngineAdapter {
             sourceId: popResult.object.spellId,
             sourceControllerId: popResult.object.controllerId,
             targets: popResult.object.targets,
-            affectedPlayerIds: dedupedStackTargets,
+            affectedPlayerIds: dedupedStackPlayerTargets,
             affectedOpponentIds: dedupedStackOpponentTargets,
+            ...(dedupedStackPermanentTargets.length === 1
+              ? { targetPermanentId: dedupedStackPermanentTargets[0] }
+              : {}),
           }
         );
 
