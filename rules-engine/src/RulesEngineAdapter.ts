@@ -42,6 +42,7 @@ import { emptyManaPool } from './manaAbilities';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import {
   opponentsHaveCantWinEffect,
+  playerHasCantLoseEffect,
   applyTemporaryCantLoseAndOpponentsCantWinEffect,
 } from './winEffectCards';
 
@@ -1482,6 +1483,13 @@ export class RulesEngineAdapter {
     
     // Check for player losses
     for (const player of state.players) {
+      const cantLose = playerHasCantLoseEffect(
+        player.id,
+        ((currentState as any).battlefield || []) as any,
+        currentState.players as any,
+        ((currentState as any).winLossEffects || []) as any,
+      );
+
       // Convert Record to Map for commanderDamage if it exists
       const commanderDamageMap = player.commanderDamage 
         ? new Map(Object.entries(player.commanderDamage))
@@ -1497,6 +1505,11 @@ export class RulesEngineAdapter {
       
       const lossCondition = checkPlayerLoss(lossCheck);
       if (lossCondition) {
+        if (cantLose.hasCantLose) {
+          logs.push(`${player.id} would lose the game (${lossCondition}) but is protected by ${cantLose.source}`);
+          continue;
+        }
+
         logs.push(`${player.id} lost the game: ${lossCondition}`);
         this.emit({
           type: RulesEngineEvent.PLAYER_LOST,

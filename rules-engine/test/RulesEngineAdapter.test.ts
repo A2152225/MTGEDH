@@ -6,6 +6,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { RulesEngineAdapter, RulesEngineEvent } from '../src/RulesEngineAdapter';
 import type { GameState } from '../../shared/src';
 import { GameStep } from '../../shared/src';
+import { createEmblemFromPlaneswalker } from '../src/emblemSupport';
+import { applyTemporaryCantLoseAndOpponentsCantWinEffect } from '../src/winEffectCards';
 
 describe('RulesEngineAdapter', () => {
   let adapter: RulesEngineAdapter;
@@ -1632,6 +1634,88 @@ describe('RulesEngineAdapter', () => {
       expect(playerLostEmitted).toBe(true);
       expect(result.log).toBeDefined();
       expect(result.log?.some(msg => msg.includes('lost the game'))).toBe(true);
+    });
+
+    it('should not emit player loss when Platinum Angel protects the player', () => {
+      testGameState.players[0].life = 0;
+      testGameState.battlefield = [
+        {
+          id: 'angel1',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            name: 'Platinum Angel',
+            type_line: 'Artifact Creature — Angel',
+            power: '4',
+            toughness: '4',
+            oracle_text: "You can't lose the game and your opponents can't win the game.",
+          },
+        } as any,
+      ];
+      adapter.initializeGame('test-game', testGameState);
+
+      let playerLostEmitted = false;
+      adapter.on(RulesEngineEvent.PLAYER_LOST, () => {
+        playerLostEmitted = true;
+      });
+
+      const result = adapter.checkStateBasedActions('test-game', testGameState);
+
+      expect(playerLostEmitted).toBe(false);
+      expect(result.log?.some(msg => msg.includes('is protected by Platinum Angel'))).toBe(true);
+    });
+
+    it("should not emit player loss when Gideon's emblem protects the player", () => {
+      const emblem = createEmblemFromPlaneswalker('player1', 'Gideon of the Trials')!.emblem;
+      testGameState.players[0].life = 0;
+      (testGameState.players[0] as any).emblems = [emblem];
+      testGameState.battlefield = [
+        {
+          id: 'gideon1',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { loyalty: 3 },
+          card: {
+            name: 'Gideon of the Trials',
+            type_line: 'Legendary Planeswalker — Gideon',
+            oracle_text: '',
+          },
+        } as any,
+      ];
+      adapter.initializeGame('test-game', testGameState);
+
+      let playerLostEmitted = false;
+      adapter.on(RulesEngineEvent.PLAYER_LOST, () => {
+        playerLostEmitted = true;
+      });
+
+      const result = adapter.checkStateBasedActions('test-game', testGameState);
+
+      expect(playerLostEmitted).toBe(false);
+      expect(result.log?.some(msg => msg.includes("Gideon's Emblem"))).toBe(true);
+    });
+
+    it("should not emit player loss when a temporary can't-lose effect protects the player", () => {
+      testGameState.players[0].life = 0;
+      const protectedState = applyTemporaryCantLoseAndOpponentsCantWinEffect(
+        testGameState,
+        'angel-grace',
+        "Angel's Grace",
+        'player1',
+        'player1',
+        "You can't lose the game this turn and your opponents can't win the game this turn."
+      ).state;
+      adapter.initializeGame('test-game', protectedState as any);
+
+      let playerLostEmitted = false;
+      adapter.on(RulesEngineEvent.PLAYER_LOST, () => {
+        playerLostEmitted = true;
+      });
+
+      const result = adapter.checkStateBasedActions('test-game', protectedState as any);
+
+      expect(playerLostEmitted).toBe(false);
+      expect(result.log?.some(msg => msg.includes("Angel's Grace"))).toBe(true);
     });
     
     it('should detect win condition when only one player remains', () => {
