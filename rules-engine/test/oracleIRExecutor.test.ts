@@ -8172,6 +8172,35 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
   });
 
+  it('applies deal_damage to effective creatures in deterministic battlefield group resolution', () => {
+    const ir = parseOracleTextToIR('It deals 2 damage to each creature.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'printedDamageCreature', controller: 'p1', owner: 'p1', card: { id: 'printed_damage_creature_card', name: 'Grizzly Bears', type_line: 'Creature - Bear' } } as any,
+        { id: 'effectiveDamageCreature', controller: 'p2', owner: 'p2', cardType: 'Artifact', type_line: 'Artifact', effectiveTypes: ['Artifact', 'Creature'], power: 3, toughness: 3, card: { id: 'effective_damage_creature_card', name: 'Animated Relic', type_line: 'Artifact' } } as any,
+        { id: 'plainArtifactDamage', controller: 'p2', owner: 'p2', card: { id: 'plain_artifact_damage_card', name: 'Relic', type_line: 'Artifact' } } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const printed = (result.state.battlefield || []).find((p: any) => p.id === 'printedDamageCreature') as any;
+    const effective = (result.state.battlefield || []).find((p: any) => p.id === 'effectiveDamageCreature') as any;
+    const plainArtifact = (result.state.battlefield || []).find((p: any) => p.id === 'plainArtifactDamage') as any;
+
+    expect(printed?.counters?.damage ?? printed?.markedDamage ?? printed?.damage).toBe(2);
+    expect(effective?.counters?.damage ?? effective?.markedDamage ?? effective?.damage).toBe(2);
+    expect(plainArtifact?.counters?.damage ?? plainArtifact?.markedDamage ?? plainArtifact?.damage ?? 0).toBe(0);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
   it('applies deal_damage to each battle (deterministic battlefield group)', () => {
     const ir = parseOracleTextToIR('It deals 2 damage to each battle.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -9219,6 +9248,61 @@ describe('Oracle IR Executor', () => {
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
     expect(p1.graveyard).toHaveLength(1);
     expect(p2.graveyard).toHaveLength(1);
+    expect(result.appliedSteps.some(s => s.kind === 'destroy')).toBe(true);
+  });
+
+  it('applies destroy for "all creatures" to effective creatures', () => {
+    const ir = parseOracleTextToIR('Destroy all creatures.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'printedDestroyCreature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'printed_destroy_creature_card', name: 'Grizzly Bears', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'effectiveDestroyCreature',
+          controller: 'p1',
+          owner: 'p1',
+          cardType: 'Artifact',
+          type_line: 'Artifact',
+          effectiveTypes: ['Artifact', 'Creature'],
+          card: { id: 'effective_destroy_creature_card', name: 'Animated Relic', type_line: 'Artifact' },
+        },
+        {
+          id: 'plainDestroyArtifact',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'plain_destroy_artifact_card', name: 'Relic', type_line: 'Artifact' },
+        },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect((result.state.battlefield || []).map((p: any) => p.id)).toEqual(['plainDestroyArtifact']);
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual([
+      'printed_destroy_creature_card',
+      'effective_destroy_creature_card',
+    ]);
     expect(result.appliedSteps.some(s => s.kind === 'destroy')).toBe(true);
   });
 
@@ -16130,6 +16214,40 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('counts effective creatures in greatest-power battlefield where-X evaluation', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest power among creatures on the battlefield.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqEffectiveGlobalPower', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', type_line: 'Artifact', attachedTo: 'targetEffectiveGlobalPower', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetEffectiveGlobalPower', ownerId: 'p1', controller: 'p1', name: 'Target Creature', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'printedGlobalPower', ownerId: 'p2', controller: 'p2', name: 'Printed Creature', cardType: 'Creature', type_line: 'Creature', power: 6, toughness: 6, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'effectiveGlobalPower', ownerId: 'p2', controller: 'p2', name: 'Animated Colossus', cardType: 'Artifact', type_line: 'Artifact', effectiveTypes: ['Artifact', 'Creature'], power: 13, toughness: 13, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqEffectiveGlobalPower',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetEffectiveGlobalPower') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(13);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies X-based modify_pt where X is the greatest toughness among other creatures on the battlefield', () => {
     const ir = parseOracleTextToIR(
       'The creature gets +X/+0 until end of turn where X is the greatest toughness among other creatures on the battlefield.',
@@ -22101,6 +22219,39 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('counts effective artifacts in greatest-mana artifact where-X evaluation', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the greatest mana value among artifacts you control.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqEffectiveArtifactMv', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', manaValue: 1, attachedTo: 'targetEffectiveArtifactMv', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetEffectiveArtifactMv', ownerId: 'p1', controller: 'p1', name: 'Target Creature', cardType: 'Creature', type_line: 'Creature', manaValue: 2, power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'printedArtifactMv', ownerId: 'p1', controller: 'p1', name: 'Printed Relic', cardType: 'Artifact', type_line: 'Artifact', manaValue: 5, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'effectiveArtifactMv', ownerId: 'p1', controller: 'p1', name: 'Transmuted Mage', cardType: 'Creature', type_line: 'Creature', effectiveTypes: ['Creature', 'Artifact'], manaValue: 9, power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'eqEffectiveArtifactMv',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetEffectiveArtifactMv') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(9);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies X-based modify_pt for exiled/revealed/discarded card power/toughness aliases', () => {
     const whereCases = [
       "X is the power of the exiled card",
@@ -23798,6 +23949,38 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'deal_damage')).toBe(false);
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
     expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('counts excess damage from effective creatures in executor resolution', () => {
+    const ir = parseOracleTextToIR(
+      'It deals 3 damage to each creature. Target creature you control gets +X/+0 until end of turn where X is the amount of excess damage dealt this way.',
+      'Test'
+    );
+    const steps = ir.abilities.flatMap(ability => ability.steps ?? []);
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'targetEffectiveExcessDamage', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 5, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'effectiveExcessDamageVictim', ownerId: 'p2', controller: 'p2', name: 'Animated Idol', cardType: 'Artifact', type_line: 'Artifact', effectiveTypes: ['Artifact', 'Creature'], power: 2, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'printedExcessDamageVictim', ownerId: 'p2', controller: 'p2', name: 'Opponent Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetEffectiveExcessDamage') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
     expect(ptMod).toBeTruthy();
     expect(ptMod.power).toBe(3);
     expect(ptMod.toughness).toBe(0);

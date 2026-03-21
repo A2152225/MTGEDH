@@ -432,6 +432,204 @@ describe('AIEngine', () => {
       expect(attackerIds).toContain('bear2');
       expect(attackerIds).not.toContain('combo1');
     });
+
+    it('should count effective creatures when evaluating opponent threats', () => {
+      testGameState.battlefield = [
+        {
+          id: 'animated-land',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          effectiveTypes: ['Artifact', 'Creature'],
+          card: {
+            id: 'animated-land-card',
+            name: 'Animated Relic',
+            type_line: 'Artifact',
+            power: '3',
+            toughness: '3',
+            oracle_text: 'Flying',
+          },
+          power: 3,
+          toughness: 3,
+        } as any,
+      ];
+
+      expect((aiEngine as any).countOpponentThreats(testGameState, 'ai1')).toBeGreaterThan(0);
+    });
+
+    it('should count effective lands when evaluating symmetric sacrifice effects', () => {
+      testGameState.battlefield = [
+        {
+          id: 'land-1',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          counters: {},
+          card: { id: 'land-1-card', name: 'Forest', type_line: 'Basic Land - Forest' },
+        } as any,
+        {
+          id: 'land-2',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          counters: {},
+          card: { id: 'land-2-card', name: 'Forest', type_line: 'Basic Land - Forest' },
+        } as any,
+        {
+          id: 'land-3',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          counters: {},
+          card: { id: 'land-3-card', name: 'Forest', type_line: 'Basic Land - Forest' },
+        } as any,
+        {
+          id: 'land-4',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          counters: {},
+          card: { id: 'land-4-card', name: 'Forest', type_line: 'Basic Land - Forest' },
+        } as any,
+        {
+          id: 'effective-land',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          counters: {},
+          effectiveTypes: ['Artifact', 'Land'],
+          card: { id: 'effective-land-card', name: 'Treasure That Became a Land', type_line: 'Artifact' },
+        } as any,
+        {
+          id: 'opp-land-1',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          counters: {},
+          card: { id: 'opp-land-1-card', name: 'Plains', type_line: 'Basic Land - Plains' },
+        } as any,
+        {
+          id: 'opp-land-2',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          counters: {},
+          card: { id: 'opp-land-2-card', name: 'Plains', type_line: 'Basic Land - Plains' },
+        } as any,
+        {
+          id: 'opp-land-3',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          counters: {},
+          card: { id: 'opp-land-3-card', name: 'Plains', type_line: 'Basic Land - Plains' },
+        } as any,
+        {
+          id: 'opp-land-4',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          counters: {},
+          card: { id: 'opp-land-4-card', name: 'Plains', type_line: 'Basic Land - Plains' },
+        } as any,
+        {
+          id: 'opp-land-5',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          counters: {},
+          card: { id: 'opp-land-5-card', name: 'Plains', type_line: 'Basic Land - Plains' },
+        } as any,
+        {
+          id: 'opp-threat-1',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'opp-threat-1-card',
+            name: 'Ancient Horror',
+            type_line: 'Creature - Horror',
+            power: '8',
+            toughness: '8',
+            oracle_text: 'Flying',
+          },
+        } as any,
+        {
+          id: 'opp-threat-2',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'opp-threat-2-card',
+            name: 'Ancient Horror Two',
+            type_line: 'Creature - Horror',
+            power: '8',
+            toughness: '8',
+            oracle_text: 'Trample',
+          },
+        } as any,
+        {
+          id: 'opp-threat-3',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'opp-threat-3-card',
+            name: 'Ancient Horror Three',
+            type_line: 'Creature - Horror',
+            power: '8',
+            toughness: '8',
+            oracle_text: 'Flying, trample',
+          },
+        } as any,
+        {
+          id: 'opp-threat-4',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'opp-threat-4-card',
+            name: 'Ancient Horror Four',
+            type_line: 'Creature - Horror',
+            power: '8',
+            toughness: '8',
+            oracle_text: 'Flying, indestructible',
+          },
+        } as any,
+        {
+          id: 'opp-walker',
+          controller: 'ai2',
+          owner: 'ai2',
+          tapped: false,
+          counters: {},
+          card: {
+            id: 'opp-walker-card',
+            name: 'Overwhelming Planswalker',
+            type_line: 'Legendary Planeswalker - Test',
+            oracle_text: '+1: Draw a card.',
+          },
+        } as any,
+      ];
+
+      const result = aiEngine.evaluateSymmetricEffect(
+        { id: 'veteran-explorer', name: 'Veteran Explorer', type_line: 'Creature - Human Soldier' } as any,
+        testGameState,
+        'ai1'
+      );
+
+      expect(result.worthUsing).toBe(false);
+      expect(result.reason).toContain('Opponents have high threats');
+    });
   });
   
   describe('Decision History', () => {
@@ -530,6 +728,56 @@ describe('AIEngine', () => {
       expect(decision.action.sacrificed.length).toBe(1);
       // Should prefer sacrificing the token (lower value)
       expect(decision.action.sacrificed[0]).toBe('token1');
+    });
+
+    it('should treat effective creatures as valid creature sacrifices', async () => {
+      testGameState.battlefield = [
+        {
+          id: 'animated-relic',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          effectiveTypes: ['Artifact', 'Creature'],
+          power: 2,
+          toughness: 2,
+          card: {
+            id: 'animated-relic-card',
+            name: 'Animated Relic',
+            type_line: 'Artifact',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        } as any,
+        {
+          id: 'mana-rock',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          counters: {},
+          card: {
+            id: 'mana-rock-card',
+            name: 'Mind Stone',
+            type_line: 'Artifact',
+            oracle_text: '{T}: Add {C}.',
+          },
+        } as any,
+      ];
+
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.SACRIFICE,
+        options: [],
+        constraints: { count: 1, type: 'creature' },
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+
+      expect(decision.type).toBe(AIDecisionType.SACRIFICE);
+      expect(decision.action.sacrificed).toEqual(['animated-relic']);
     });
     
     it('should make target selection decisions', async () => {

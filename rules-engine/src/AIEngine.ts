@@ -210,6 +210,36 @@ export class AIEngine {
   private getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
     return applyStaticAbilitiesToBattlefield((gameState.battlefield || []) as BattlefieldPermanent[]);
   }
+
+  private hasPermanentType(perm: BattlefieldPermanent, type: string): boolean {
+    const targetType = type.toLowerCase();
+
+    if (targetType === 'creature' && isCurrentlyCreature(perm)) {
+      return true;
+    }
+
+    const effectiveTypes = Array.isArray((perm as any).effectiveTypes)
+      ? (perm as any).effectiveTypes
+      : [];
+    if (effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
+      return true;
+    }
+
+    const grantedTypes = Array.isArray((perm as any).grantedTypes)
+      ? (perm as any).grantedTypes
+      : [];
+    if (grantedTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
+      return true;
+    }
+
+    const cardType = String((perm as any).cardType || '').toLowerCase();
+    if (cardType.includes(targetType)) {
+      return true;
+    }
+
+    const typeLine = String((perm.card as KnownCardRef | undefined)?.type_line || (perm as any).type_line || '').toLowerCase();
+    return typeLine.includes(targetType);
+  }
   
   /**
    * Register an AI player
@@ -588,10 +618,10 @@ export class AIEngine {
     if (!player) return { worthUsing: false, reason: 'Player not found' };
     
     // Count lands for each player
-    const battlefield = gameState.battlefield || [];
+    const battlefield = this.getProcessedBattlefield(gameState);
     const ownLandCount = battlefield.filter(p => 
       p.controller === playerId && 
-      (p.card as KnownCardRef)?.type_line?.toLowerCase().includes('land')
+      this.hasPermanentType(p, 'land')
     ).length;
     
     const opponentLandCounts: number[] = [];
@@ -602,7 +632,7 @@ export class AIEngine {
       
       const oppLands = battlefield.filter(p => 
         p.controller === opp.id && 
-        (p.card as KnownCardRef)?.type_line?.toLowerCase().includes('land')
+        this.hasPermanentType(p, 'land')
       ).length;
       opponentLandCounts.push(oppLands);
       
@@ -959,9 +989,9 @@ export class AIEngine {
       
       // Factor 3: Board presence
       // More creatures = higher threat in Commander
-      const battlefield = gameState.battlefield || [];
+      const battlefield = this.getProcessedBattlefield(gameState);
       const creatureCount = battlefield.filter((p: any) =>
-        p.controller === opp.id && p.card?.type_line?.toLowerCase().includes('creature')
+        p.controller === opp.id && this.hasPermanentType(p, 'creature')
       ).length;
       score += creatureCount * 10;
       
@@ -1568,10 +1598,8 @@ export class AIEngine {
     
     for (const perm of battlefield) {
       if (perm.controller !== playerId) {
-        const typeLine = (perm.card?.type_line || '').toLowerCase();
-        
         // Creatures are threats
-        if (typeLine.includes('creature')) {
+        if (this.hasPermanentType(perm, 'creature')) {
           const power = getCreaturePower(perm);
           const toughness = getCreatureToughness(perm);
           
@@ -1590,12 +1618,12 @@ export class AIEngine {
         }
         
         // Planeswalkers are threats
-        if (typeLine.includes('planeswalker')) {
+        if (this.hasPermanentType(perm, 'planeswalker')) {
           threatCount += 2;
         }
         
         // Dangerous enchantments/artifacts
-        if (typeLine.includes('enchantment') || typeLine.includes('artifact')) {
+        if (this.hasPermanentType(perm, 'enchantment') || this.hasPermanentType(perm, 'artifact')) {
           const oracleText = (perm.card?.oracle_text || '').toLowerCase();
           if (oracleText.includes('each opponent') || oracleText.includes('damage')) {
             threatCount += 1;
@@ -1683,9 +1711,9 @@ export class AIEngine {
       // Auras need targets
       if (typeLine.includes('aura')) {
         // Check if we have valid targets
-        const battlefield = gameState.battlefield || [];
+        const battlefield = this.getProcessedBattlefield(gameState);
         const hasCreatures = battlefield.some((p: any) => 
-          p.controller === playerId && p.card?.type_line?.toLowerCase().includes('creature')
+          p.controller === playerId && this.hasPermanentType(p, 'creature')
         );
         if (!hasCreatures) {
           value += AIEngine.AURA_NO_TARGET_PENALTY; // No targets for aura
@@ -1700,9 +1728,9 @@ export class AIEngine {
     }
     
     // Board state awareness
-    const battlefield = gameState.battlefield || [];
+    const battlefield = this.getProcessedBattlefield(gameState);
     const creatureCount = battlefield.filter((p: any) =>
-      p.controller === playerId && p.card?.type_line?.toLowerCase().includes('creature')
+      p.controller === playerId && this.hasPermanentType(p, 'creature')
     ).length;
     
     // Buff spells more valuable with creatures
@@ -1810,14 +1838,14 @@ export class AIEngine {
         const opponents = gameState.players.filter(p => p.id !== playerId);
         
         // Check if we have board presence
-        const battlefield = gameState.battlefield || [];
+        const battlefield = this.getProcessedBattlefield(gameState);
         const myCreatureCount = battlefield.filter((p: any) =>
-          p.controller === playerId && p.card?.type_line?.toLowerCase().includes('creature')
+          p.controller === playerId && this.hasPermanentType(p, 'creature')
         ).length;
         
         const opponentCreatureCount = opponents.reduce((sum, opp) => 
           sum + battlefield.filter((p: any) =>
-            p.controller === opp.id && p.card?.type_line?.toLowerCase().includes('creature')
+            p.controller === opp.id && this.hasPermanentType(p, 'creature')
           ).length, 0);
         
         // Check if any opponent is low on life (potential kill)
@@ -1938,13 +1966,13 @@ export class AIEngine {
         
         // Attack if life is reasonably safe (>15) or if we have a significant creature advantage
         const opponents = gameState.players.filter(p => p.id !== playerId);
-        const battlefield = gameState.battlefield || [];
+        const battlefield = this.getProcessedBattlefield(gameState);
         const myCreatureCount = battlefield.filter((p: any) =>
-          p.controller === playerId && p.card?.type_line?.toLowerCase().includes('creature')
+          p.controller === playerId && this.hasPermanentType(p, 'creature')
         ).length;
         const maxOpponentCreatures = Math.max(...opponents.map(opp =>
           battlefield.filter((p: any) =>
-            p.controller === opp.id && p.card?.type_line?.toLowerCase().includes('creature')
+            p.controller === opp.id && this.hasPermanentType(p, 'creature')
           ).length
         ));
         
@@ -2056,7 +2084,7 @@ export class AIEngine {
       
       case AIDecisionType.SACRIFICE: {
         // Combo AI tries to avoid sacrificing combo pieces
-        const battlefield = gameState.battlefield || [];
+        const battlefield = this.getProcessedBattlefield(gameState);
         const playerPermanents = battlefield.filter((p: any) => p.controller === playerId);
         
         // Sort by combo value (sacrifice least valuable first)
@@ -2108,7 +2136,7 @@ export class AIEngine {
     const permanentType = constraints?.type || 'permanent';
     
     // Get permanents from global battlefield that can be sacrificed
-    const globalBattlefield = context.gameState.battlefield || [];
+    const globalBattlefield = this.getProcessedBattlefield(context.gameState);
     const playerPermanents = globalBattlefield.filter((p: any) => p.controller === playerId);
     
     if (playerPermanents.length === 0) {
@@ -2123,13 +2151,10 @@ export class AIEngine {
     
     // Filter to only valid sacrifice targets
     let validTargets = playerPermanents.filter((perm: BattlefieldPermanent) => {
-      const card = perm.card as KnownCardRef;
-      const typeLine = (card?.type_line || '').toLowerCase();
-      
-      if (permanentType === 'creature') return typeLine.includes('creature');
-      if (permanentType === 'artifact') return typeLine.includes('artifact');
-      if (permanentType === 'enchantment') return typeLine.includes('enchantment');
-      if (permanentType === 'land') return typeLine.includes('land');
+      if (permanentType === 'creature') return this.hasPermanentType(perm, 'creature');
+      if (permanentType === 'artifact') return this.hasPermanentType(perm, 'artifact');
+      if (permanentType === 'enchantment') return this.hasPermanentType(perm, 'enchantment');
+      if (permanentType === 'land') return this.hasPermanentType(perm, 'land');
       return true; // 'permanent' = any
     });
     
@@ -2249,7 +2274,7 @@ export class AIEngine {
     const oracleText = (card?.oracle_text || '').toLowerCase();
     
     // Creatures: value based on power + toughness
-    if (typeLine.includes('creature')) {
+    if (this.hasPermanentType(perm, 'creature')) {
       const power = getCreaturePower(perm);
       const toughness = getCreatureToughness(perm);
       value += (power + toughness) * 2;
@@ -3118,10 +3143,9 @@ export class AIEngine {
     
     // Check for summoning sickness on tap abilities
     if (perm.summoningSickness && oracleText.includes('{t}')) {
-      const typeLine = (card?.type_line || '').toLowerCase();
       // Creatures with summoning sickness can't use tap abilities
       // unless they have haste
-      if (typeLine.includes('creature') && !oracleText.includes('haste')) {
+      if (this.hasPermanentType(perm, 'creature') && !oracleText.includes('haste')) {
         return false;
       }
     }
@@ -3154,7 +3178,7 @@ export class AIEngine {
       playerId: PlayerID,
       config: AIPlayerConfig
   ): { permanent: BattlefieldPermanent; abilityText: string; value: number } | null {
-    const battlefield = gameState.battlefield || [];
+    const battlefield = this.getProcessedBattlefield(gameState);
     
     // Get all permanents controlled by this player
     const myPermanents = battlefield.filter((perm: BattlefieldPermanent) => 

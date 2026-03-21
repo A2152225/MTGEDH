@@ -779,6 +779,24 @@ function getExecutorTypeLineLower(permanent: BattlefieldPermanent | any): string
   return uniqueParts.join(' ').trim();
 }
 
+function hasExecutorClass(permanent: BattlefieldPermanent | any, klass: string): boolean {
+  const tl = getExecutorTypeLineLower(permanent);
+  if (!tl) return false;
+  if (klass === 'creature') return isExecutorCreature(permanent);
+  if (klass === 'permanent') {
+    return (
+      tl.includes('artifact') ||
+      tl.includes('battle') ||
+      tl.includes('creature') ||
+      tl.includes('enchantment') ||
+      tl.includes('land') ||
+      tl.includes('planeswalker')
+    );
+  }
+  if (klass === 'nonland permanent') return hasExecutorClass(permanent, 'permanent') && !tl.includes('land');
+  return tl.includes(klass);
+}
+
 function evaluateModifyPtCondition(
   state: GameState,
   controllerId: PlayerID,
@@ -2389,7 +2407,7 @@ function evaluateModifyPtWhereX(
 
       return battlefield.filter((p: any) => {
         if (String((p as any)?.controller || '').trim() !== targetPlayerId) return false;
-        if (!typeLineLower(p).includes('land')) return false;
+        if (!hasExecutorClass(p, 'land')) return false;
         return (p as any)?.tapped !== true;
       }).length;
     }
@@ -2415,7 +2433,7 @@ function evaluateModifyPtWhereX(
 
       return snapshot.filter((p: any) => {
         if (String((p as any)?.controller || '').trim() !== targetPlayerId) return false;
-        if (!typeLineLower(p).includes('land')) return false;
+        if (!hasExecutorClass(p, 'land')) return false;
         return (p as any)?.tapped !== true;
       }).length;
     }
@@ -3351,7 +3369,7 @@ function evaluateModifyPtWhereX(
       const targetObj = targetCreatureId ? findObjectById(targetCreatureId) : null;
 
       const isCreature = (obj: any): boolean => {
-        return Boolean(obj) && typeLineLower(obj).includes('creature');
+        return Boolean(obj) && hasExecutorClass(obj, 'creature');
       };
 
       const host =
@@ -3542,7 +3560,7 @@ function evaluateModifyPtWhereX(
       return battlefield.filter((p: any) => {
         const id = String((p as any)?.id || '').trim();
         if (!id || id === sourceId) return false;
-        return typeLineLower(p).includes('creature');
+        return hasExecutorClass(p, 'creature');
       }).length;
     }
   }
@@ -3621,9 +3639,9 @@ function evaluateModifyPtWhereX(
       const subject = String(m[1] || '').toLowerCase();
       const refCard = (ref as any)?.card || ref;
       const tl = typeLineLower(refCard);
-      if (subject === 'creature' && !tl.includes('creature')) return null;
+      if (subject === 'creature' && !hasExecutorClass(ref, 'creature')) return null;
       if (subject === 'permanent') {
-        const isPermanent = ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'].some(type => tl.includes(type));
+        const isPermanent = hasExecutorClass(ref, 'permanent');
         if (!isPermanent) return null;
       }
 
@@ -3881,8 +3899,7 @@ function evaluateModifyPtWhereX(
       const which = String(m[1] || '').toLowerCase();
       let greatest = 0;
       for (const p of battlefield as any[]) {
-        const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
       }
@@ -3899,8 +3916,7 @@ function evaluateModifyPtWhereX(
       for (const p of battlefield as any[]) {
         const id = String((p as any)?.id || '').trim();
         if (excludedId && id === excludedId) continue;
-        const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
       }
@@ -4027,7 +4043,7 @@ function evaluateModifyPtWhereX(
     if (m) {
       let greatest = 0;
       for (const p of controlled as any[]) {
-        if (!typeLineLower(p).includes('artifact')) continue;
+        if (!hasExecutorClass(p, 'artifact')) continue;
         const mv = getCardManaValue((p as any)?.card || p);
         if (mv !== null) greatest = Math.max(greatest, mv);
       }
@@ -4040,7 +4056,7 @@ function evaluateModifyPtWhereX(
     if (m) {
       const subtypeCounts = new Map<string, number>();
       for (const p of controlled as any[]) {
-        if (!typeLineLower(p).includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         const subtypeSet = new Set(getCreatureSubtypeKeys(p));
         for (const subtype of subtypeSet) {
           subtypeCounts.set(subtype, (subtypeCounts.get(subtype) || 0) + 1);
@@ -4258,7 +4274,7 @@ function evaluateModifyPtWhereX(
         const id = String((p as any)?.id || '').trim();
         if (excludedId && id === excludedId) continue;
         const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         if (excludedSubtype && tl.includes(excludedSubtype)) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
@@ -4279,7 +4295,7 @@ function evaluateModifyPtWhereX(
         const id = String((p as any)?.id || '').trim();
         if (excludedId && id === excludedId) continue;
         const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         if (excludedSubtype && tl.includes(excludedSubtype)) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
@@ -4300,7 +4316,7 @@ function evaluateModifyPtWhereX(
         const id = String((p as any)?.id || '').trim();
         if (excludedId && id === excludedId) continue;
         const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         if (excludedSubtype && tl.includes(excludedSubtype)) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
@@ -4318,8 +4334,7 @@ function evaluateModifyPtWhereX(
       for (const p of controlled as any[]) {
         const id = String((p as any)?.id || '').trim();
         if (excludedId && id === excludedId) continue;
-        const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
       }
@@ -4336,8 +4351,7 @@ function evaluateModifyPtWhereX(
       for (const p of opponentsControlled as any[]) {
         const id = String((p as any)?.id || '').trim();
         if (excludedId && id === excludedId) continue;
-        const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
       }
@@ -4351,8 +4365,7 @@ function evaluateModifyPtWhereX(
       const which = String(m[1] || '').toLowerCase();
       let greatest = 0;
       for (const p of controlled as any[]) {
-        const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
       }
@@ -4366,8 +4379,7 @@ function evaluateModifyPtWhereX(
       const which = String(m[1] || '').toLowerCase();
       let greatest = 0;
       for (const p of opponentsControlled as any[]) {
-        const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
       }
@@ -4414,7 +4426,7 @@ function evaluateModifyPtWhereX(
       let greatest = 0;
       for (const p of pool as any[]) {
         const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         const subtypes = getCreatureSubtypeKeys(p);
         if (!subtypes.some(s => s === subtypeRaw || subtypeRaw.startsWith(s) || s.startsWith(subtypeRaw.replace(/s$/, '')))) continue;
         const n = Number(which === 'power' ? p?.power : p?.toughness);
@@ -4434,8 +4446,7 @@ function evaluateModifyPtWhereX(
       for (const p of controlled as any[]) {
         const id = String((p as any)?.id || '').trim();
         if (excludedId && id === excludedId) continue;
-        const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         if (!isAttackingObject(p)) continue;
         const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
@@ -4451,8 +4462,7 @@ function evaluateModifyPtWhereX(
       const which = String(m[1] || '').toLowerCase();
       let greatest = 0;
       for (const p of opponentsControlled as any[]) {
-        const tl = typeLineLower(p);
-        if (!tl.includes('creature')) continue;
+        if (!hasExecutorClass(p, 'creature')) continue;
         if (!(p as any)?.tapped && !(p as any)?.isTapped) continue;
         const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
         if (Number.isFinite(n)) greatest = Math.max(greatest, n);
@@ -4572,7 +4582,7 @@ function evaluateModifyPtWhereX(
       for (const p of controlled as any[]) {
         const id = String((p as any)?.id || '').trim();
         if (excludedId && id === excludedId) continue;
-        if (!typeLineLower(p).includes('artifact')) continue;
+        if (!hasExecutorClass(p, 'artifact')) continue;
         const mv = getCardManaValue((p as any)?.card || p);
         if (mv !== null) greatest = Math.max(greatest, mv);
       }
@@ -4632,7 +4642,7 @@ function evaluateModifyPtWhereX(
       for (const opponentId of opponentIds) {
         const oppArts = battlefield.filter((p: any) =>
           String((p as any)?.controller || '').trim() === opponentId &&
-          typeLineLower(p).includes('artifact')
+          hasExecutorClass(p, 'artifact')
         );
         if (oppArts.length > greatest) greatest = oppArts.length;
       }
@@ -5057,8 +5067,7 @@ function getExcessDamageToPermanent(perm: BattlefieldPermanent, amount: number):
   const n = Math.max(0, amount | 0);
   if (n <= 0) return 0;
 
-  const typeLine = String((perm as any)?.card?.type_line || (perm as any)?.type_line || (perm as any)?.cardType || '').toLowerCase();
-  if (typeLine.includes('creature')) {
+  if (hasExecutorClass(perm, 'creature')) {
     const toughness = Number((perm as any)?.toughness ?? (perm as any)?.card?.toughness);
     if (!Number.isFinite(toughness)) return 0;
     const marked =
@@ -5067,13 +5076,13 @@ function getExcessDamageToPermanent(perm: BattlefieldPermanent, amount: number):
     return Math.max(0, n - remaining);
   }
 
-  if (typeLine.includes('planeswalker')) {
+  if (hasExecutorClass(perm, 'planeswalker')) {
     const loyalty = Number((perm as any).loyalty ?? (perm as any).counters?.loyalty ?? 0);
     if (!Number.isFinite(loyalty)) return 0;
     return Math.max(0, n - Math.max(0, loyalty));
   }
 
-  if (typeLine.includes('battle')) {
+  if (hasExecutorClass(perm, 'battle')) {
     const defense = Number((perm as any).counters?.defense ?? 0);
     if (!Number.isFinite(defense)) return 0;
     return Math.max(0, n - Math.max(0, defense));
@@ -5540,24 +5549,23 @@ function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlef
     if (!permanentControllerId || permanentControllerId === normalizedControllerId) return false;
   }
 
-  const typeLine = String((perm as any)?.card?.type_line || (perm as any)?.type_line || (perm as any)?.cardType || '').toLowerCase();
   if (sel.types.includes('permanent')) return true;
-  if (sel.types.includes('nonland_permanent')) return !typeLine.includes('land');
+  if (sel.types.includes('nonland_permanent')) return hasExecutorClass(perm, 'permanent') && !hasExecutorClass(perm, 'land');
 
   return sel.types.some(t => {
     switch (t) {
       case 'creature':
-        return typeLine.includes('creature');
+        return hasExecutorClass(perm, 'creature');
       case 'artifact':
-        return typeLine.includes('artifact');
+        return hasExecutorClass(perm, 'artifact');
       case 'enchantment':
-        return typeLine.includes('enchantment');
+        return hasExecutorClass(perm, 'enchantment');
       case 'land':
-        return typeLine.includes('land');
+        return hasExecutorClass(perm, 'land');
       case 'planeswalker':
-        return typeLine.includes('planeswalker');
+        return hasExecutorClass(perm, 'planeswalker');
       case 'battle':
-        return typeLine.includes('battle');
+        return hasExecutorClass(perm, 'battle');
       default:
         return false;
     }
@@ -5565,24 +5573,23 @@ function permanentMatchesSelector(perm: BattlefieldPermanent, sel: SimpleBattlef
 }
 
 function permanentMatchesType(perm: BattlefieldPermanent, type: SimplePermanentType): boolean {
-  const typeLine = String((perm as any)?.card?.type_line || (perm as any)?.type_line || (perm as any)?.cardType || '').toLowerCase();
   switch (type) {
     case 'permanent':
       return true;
     case 'nonland_permanent':
-      return !typeLine.includes('land');
+      return hasExecutorClass(perm, 'permanent') && !hasExecutorClass(perm, 'land');
     case 'creature':
-      return typeLine.includes('creature');
+      return hasExecutorClass(perm, 'creature');
     case 'artifact':
-      return typeLine.includes('artifact');
+      return hasExecutorClass(perm, 'artifact');
     case 'enchantment':
-      return typeLine.includes('enchantment');
+      return hasExecutorClass(perm, 'enchantment');
     case 'land':
-      return typeLine.includes('land');
+      return hasExecutorClass(perm, 'land');
     case 'planeswalker':
-      return typeLine.includes('planeswalker');
+      return hasExecutorClass(perm, 'planeswalker');
     case 'battle':
-      return typeLine.includes('battle');
+      return hasExecutorClass(perm, 'battle');
     default:
       return false;
   }
@@ -7140,10 +7147,9 @@ export function applyOracleIRStepsToGameState(
               updatedBattlefield = updatedBattlefield.map(p => {
                 if (!permanentMatchesSelector(p as any, selector, ctx)) return p as any;
                 excessDamageThisStep += getExcessDamageToPermanent(p as any, amount);
-                const tl = String((p as any)?.card?.type_line || '').toLowerCase();
-                if (tl.includes('battle')) return removeDefenseCountersFromBattle(p as any, amount);
-                if (tl.includes('creature')) return addDamageToPermanentLikeCreature(p as any, amount);
-                if (tl.includes('planeswalker')) return removeLoyaltyFromPlaneswalker(p as any, amount);
+                if (hasExecutorClass(p as any, 'battle')) return removeDefenseCountersFromBattle(p as any, amount);
+                if (hasExecutorClass(p as any, 'creature')) return addDamageToPermanentLikeCreature(p as any, amount);
+                if (hasExecutorClass(p as any, 'planeswalker')) return removeLoyaltyFromPlaneswalker(p as any, amount);
                 return p as any;
               });
             }
@@ -7175,10 +7181,9 @@ export function applyOracleIRStepsToGameState(
             const updatedBattlefield = (nextState.battlefield || []).map(p => {
               if (!permanentMatchesSelector(p as any, selector, ctx)) return p as any;
               excessDamageThisStep += getExcessDamageToPermanent(p as any, amount);
-              const tl = String((p as any)?.card?.type_line || '').toLowerCase();
-              if (tl.includes('battle')) return removeDefenseCountersFromBattle(p as any, amount);
-              if (tl.includes('creature')) return addDamageToPermanentLikeCreature(p as any, amount);
-              if (tl.includes('planeswalker')) return removeLoyaltyFromPlaneswalker(p as any, amount);
+              if (hasExecutorClass(p as any, 'battle')) return removeDefenseCountersFromBattle(p as any, amount);
+              if (hasExecutorClass(p as any, 'creature')) return addDamageToPermanentLikeCreature(p as any, amount);
+              if (hasExecutorClass(p as any, 'planeswalker')) return removeLoyaltyFromPlaneswalker(p as any, amount);
               return p as any;
             }) as any;
 
@@ -7656,8 +7661,7 @@ export function applyOracleIRStepsToGameState(
         };
 
         const isCreaturePermanent = (perm: any): boolean => {
-          const typeLine = String((perm as any)?.cardType || (perm as any)?.type_line || (perm as any)?.card?.type_line || '').toLowerCase();
-          return typeLine.includes('creature');
+          return hasExecutorClass(perm, 'creature');
         };
 
         const sacrificedCreaturesPowerTotal = toRemove.reduce((sum, permanent) => {
