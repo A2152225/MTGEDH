@@ -211,11 +211,22 @@ export function extractCreatureTypes(
   // Get the subtypes portion and split by spaces
   const subtypesPortion = typeLine.slice(dashIndex + 1).trim();
   const words = subtypesPortion.split(/\s+/);
-  
-  // Filter to only valid creature types
-  return words.filter(word => 
+
+  // Filter to only valid creature types.
+  const directMatches = words.filter(word =>
     CREATURE_TYPES.some(ct => ct.toLowerCase() === word.toLowerCase())
   );
+
+  if (directMatches.length > 0) {
+    return directMatches;
+  }
+
+  // Fallback for subtype-bearing noncreature type lines where punctuation or
+  // unusual separators survive splitting poorly in upstream data.
+  return CREATURE_TYPES.filter(creatureType => {
+    const lowerType = creatureType.toLowerCase();
+    return new RegExp(`(^|[^a-z])${lowerType.toLowerCase()}([^a-z]|$)`, 'i').test(typeLineLower);
+  });
 }
 
 /**

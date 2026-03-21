@@ -5363,6 +5363,11 @@ function buildRulesChoiceExecutionOverrides(
       if (selectedId === 'tap' || selectedId === 'untap') {
         overrides.tapOrUntapChoice = selectedId;
       }
+      continue;
+    }
+
+    if (completed?.type === ResolutionStepType.MODE_SELECTION) {
+      overrides.selectedModeIds = extractResolutionSelectionIds(completed?.response?.selections);
     }
   }
 

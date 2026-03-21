@@ -157,6 +157,7 @@ export interface StackObject {
   readonly xValue?: number;
   readonly triggerMeta?: {
     readonly effectText?: string;
+    readonly sourceName?: string;
     readonly triggerFilter?: string;
     readonly interveningIfClause?: string;
     readonly hasInterveningIf?: boolean;

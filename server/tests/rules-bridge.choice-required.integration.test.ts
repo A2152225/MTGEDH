@@ -98,12 +98,65 @@ function seedTargetOpponentChoiceStack(gameId: string) {
   });
 }
 
+function seedTargetPlayerChoiceStack(gameId: string) {
+  const rulesEngineAny = rulesEngine as any;
+  const stacks = rulesEngineAny.stacks as Map<string, any>;
+  stacks.set(gameId, {
+    objects: [
+      {
+        id: 'stack-trigger-target-player-choice',
+        spellId: 'benevolent-seer',
+        cardName: 'Benevolent Seer',
+        controllerId: 'p1',
+        targets: [],
+        timestamp: Date.now(),
+        type: 'ability',
+        triggerMeta: {
+          effectText: 'Target player gains 2 life.',
+          triggerEventDataSnapshot: {
+            sourceId: 'benevolent-seer',
+            sourceControllerId: 'p1',
+          },
+        },
+      },
+    ],
+  });
+}
+
+function seedChooseModeChoiceStack(gameId: string) {
+  const rulesEngineAny = rulesEngine as any;
+  const stacks = rulesEngineAny.stacks as Map<string, any>;
+  stacks.set(gameId, {
+    objects: [
+      {
+        id: 'stack-trigger-choose-mode-choice',
+        spellId: 'black-market-connections',
+        cardName: 'Black Market Connections',
+        controllerId: 'p1',
+        targets: [],
+        timestamp: Date.now(),
+        type: 'ability',
+        triggerMeta: {
+          effectText: 'Choose up to three -\n\u2022 Sell Contraband - You lose 1 life. Create a Treasure token.\n\u2022 Buy Information - You lose 2 life. Draw a card.\n\u2022 Hire a Mercenary - You lose 3 life. Create a 3/2 colorless Shapeshifter creature token with changeling.',
+          triggerEventDataSnapshot: {
+            sourceId: 'black-market-connections',
+            sourceControllerId: 'p1',
+          },
+        },
+      },
+    ],
+  });
+}
+
 describe('RulesBridge choice-required integration', () => {
   const queueGameId = 'test_rules_bridge_choice_required_queue';
   const executeGameId = 'test_rules_bridge_choice_required_execute';
   const declineGameId = 'test_rules_bridge_choice_required_decline';
   const cancelGameId = 'test_rules_bridge_choice_required_cancel';
   const opponentGameId = 'test_rules_bridge_choice_required_opponent';
+  const playerGameId = 'test_rules_bridge_choice_required_player';
+  const modeGameId = 'test_rules_bridge_choice_required_mode';
+  const castDrivenGameId = 'test_rules_bridge_choice_required_cast_driven';
 
   beforeAll(async () => {
     await initDb();
@@ -117,11 +170,17 @@ describe('RulesBridge choice-required integration', () => {
     ResolutionQueueManager.removeQueue(declineGameId);
     ResolutionQueueManager.removeQueue(cancelGameId);
     ResolutionQueueManager.removeQueue(opponentGameId);
+    ResolutionQueueManager.removeQueue(playerGameId);
+    ResolutionQueueManager.removeQueue(modeGameId);
+    ResolutionQueueManager.removeQueue(castDrivenGameId);
     games.delete(queueGameId as any);
     games.delete(executeGameId as any);
     games.delete(declineGameId as any);
     games.delete(cancelGameId as any);
     games.delete(opponentGameId as any);
+    games.delete(playerGameId as any);
+    games.delete(modeGameId as any);
+    games.delete(castDrivenGameId as any);
   });
 
   it('enqueues resolution queue steps for unresolved triggered ability choices', () => {
@@ -361,5 +420,172 @@ describe('RulesBridge choice-required integration', () => {
     const player3 = ((game as any).state.players || []).find((player: any) => player.id === 'p3');
     expect(player2?.life).toBe(39);
     expect(player3?.life).toBe(40);
+  });
+
+  it('executes grouped target-player trigger choices on the authoritative game state', async () => {
+    const gameId = playerGameId;
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game as any).state = makeMerfolkIterationState({
+      id: gameId,
+      players: [
+        ...makeMerfolkIterationState().players,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const bridge = createRulesBridge(gameId, io);
+    bridge.initialize((game as any).state);
+    seedTargetPlayerChoiceStack(gameId);
+
+    const resolveResult = bridge.executeAction({ type: 'resolveStack' });
+    expect(resolveResult.success).toBe(true);
+
+    let queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect((queue.steps[0] as any).targetTypes).toEqual(['player']);
+    expect((queue.steps[0] as any).validTargets.map((target: any) => target.id)).toEqual(['p1', 'p2', 'p3']);
+
+    const beforeP1 = ((game as any).state.players || []).find((player: any) => player.id === 'p1');
+    const beforeP2 = ((game as any).state.players || []).find((player: any) => player.id === 'p2');
+    const beforeP3 = ((game as any).state.players || []).find((player: any) => player.id === 'p3');
+    expect(beforeP1?.life).toBe(40);
+    expect(beforeP2?.life).toBe(40);
+    expect(beforeP3?.life).toBe(40);
+
+    await handlers['submitResolutionResponse']({ gameId, stepId: String((queue.steps[0] as any).id), selections: ['p1'] });
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const player1 = ((game as any).state.players || []).find((player: any) => player.id === 'p1');
+    const player2 = ((game as any).state.players || []).find((player: any) => player.id === 'p2');
+    const player3 = ((game as any).state.players || []).find((player: any) => player.id === 'p3');
+    expect(player1?.life).toBe(42);
+    expect(player2?.life).toBe(40);
+    expect(player3?.life).toBe(40);
+  });
+
+  it('executes grouped choose_mode trigger choices on the authoritative game state', async () => {
+    const gameId = modeGameId;
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game as any).state = makeMerfolkIterationState({ id: gameId } as any);
+
+    const beforePlayer = ((game as any).state.players || []).find((player: any) => player.id === 'p1');
+    const beforeLife = beforePlayer?.life;
+    const beforeHandSize = Array.isArray(beforePlayer?.hand) ? beforePlayer.hand.length : 0;
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket('p1', emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const bridge = createRulesBridge(gameId, io);
+    bridge.initialize((game as any).state);
+    seedChooseModeChoiceStack(gameId);
+
+    const resolveResult = bridge.executeAction({ type: 'resolveStack' });
+    expect(resolveResult.success).toBe(true);
+
+    let queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect((queue.steps[0] as any).type).toBe('mode_selection');
+    expect((queue.steps[0] as any).modes.map((mode: any) => mode.id)).toEqual([
+      'Sell Contraband',
+      'Buy Information',
+      'Hire a Mercenary',
+    ]);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((queue.steps[0] as any).id),
+      selections: ['Sell Contraband', 'Buy Information'],
+    });
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const player = ((game as any).state.players || []).find((entry: any) => entry.id === 'p1');
+    const treasure = ((game as any).state.battlefield || []).find((perm: any) => String(perm?.card?.name || '').includes('Treasure'));
+    expect(player?.life).toBe(beforeLife - 3);
+    expect((player?.hand || []).length).toBe(beforeHandSize + 1);
+    expect(treasure).toBeTruthy();
+  });
+
+  it('creates unresolved Merrow choice steps from a real Summon the School cast', () => {
+    const gameId = castDrivenGameId;
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const bridge = createRulesBridge(gameId, io);
+    const state = makeMerfolkIterationState({
+      id: gameId,
+      players: makeMerfolkIterationState().players.map((player: any) =>
+        player.id === 'p1'
+          ? {
+              ...player,
+              hand: [
+                {
+                  id: 'summon-the-school-cast',
+                  name: 'Summon the School',
+                  mana_cost: '{3}{W}',
+                  manaCost: '{3}{W}',
+                  type_line: 'Kindred Sorcery — Merfolk',
+                  oracle_text:
+                    'Create two 1/1 blue Merfolk Wizard creature tokens. Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.',
+                },
+              ],
+              graveyard: [],
+            }
+          : player
+      ),
+    } as any);
+
+    bridge.initialize(state as any);
+
+    const castResult = bridge.executeAction({
+      type: 'castSpell',
+      playerId: 'p1',
+      cardId: 'summon-the-school-cast',
+      targets: [],
+    });
+    expect(castResult.success).toBe(true);
+
+    const resolveResult = bridge.executeAction({ type: 'resolveStack' });
+    expect(resolveResult.success).toBe(true);
+
+    const secondResolveResult = bridge.executeAction({ type: 'resolveStack' });
+    expect(secondResolveResult.success).toBe(true);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.map((step: any) => step.type)).toEqual([
+      'option_choice',
+      'target_selection',
+      'option_choice',
+    ]);
+
+    const rulesChoiceEvents = emitted.filter((entry) => entry.event === 'rulesChoiceRequired');
+    expect(rulesChoiceEvents.some((entry) => entry.payload?.sourceName === 'Merrow Reejerey')).toBe(true);
+    expect(queue.steps[1] && (queue.steps[1] as any).validTargets.some((target: any) => target.id === 'nykthos-shrine-to-nyx')).toBe(true);
   });
 });

@@ -149,7 +149,11 @@ export function detectCastTribalTriggers(
 ): readonly TribalTriggerEvent[] {
   const triggers: TribalTriggerEvent[] = [];
   const spellCreatureTypes = getAllCreatureTypes(spellTypeLine, spellOracleText);
-  const spellIsCreature = (spellTypeLine || '').toLowerCase().includes('creature');
+  const spellTypeLineLower = (spellTypeLine || '').toLowerCase();
+  const spellIsCreature =
+    spellTypeLineLower.includes('creature') ||
+    spellTypeLineLower.includes('kindred') ||
+    spellTypeLineLower.includes('tribal');
   
   if (!spellIsCreature || spellCreatureTypes.length === 0) {
     return triggers;

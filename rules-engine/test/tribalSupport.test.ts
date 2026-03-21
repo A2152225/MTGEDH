@@ -84,6 +84,11 @@ describe('Tribal Support', () => {
       const types = getAllCreatureTypes('Enchantment', '');
       expect(types).toHaveLength(0);
     });
+
+    it('should return subtype creature types for Kindred spells', () => {
+      const types = getAllCreatureTypes('Kindred Sorcery — Merfolk', '');
+      expect(types).toContain('Merfolk');
+    });
   });
 
   describe('permanentQualifiesForTribal', () => {
@@ -204,6 +209,28 @@ describe('Tribal Support', () => {
       );
 
       expect(triggers.length).toBeGreaterThan(0);
+    });
+
+    it('should detect cast triggers for Kindred subtype-bearing spells', () => {
+      const battlefield = [
+        createMockPermanent(
+          '1',
+          'player1',
+          'Enchantment',
+          'Whenever you cast a Merfolk spell, create a 1/1 blue Merfolk creature token with hexproof.',
+          'Deeproot Waters'
+        ),
+      ];
+
+      const triggers = detectCastTribalTriggers(
+        ['sorcery'],
+        'Create two 1/1 blue Merfolk Wizard creature tokens.',
+        'Kindred Sorcery — Merfolk',
+        battlefield
+      );
+
+      expect(triggers.length).toBeGreaterThan(0);
+      expect(triggers[0].effect.creatureType).toBe('Merfolk');
     });
   });
 

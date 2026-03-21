@@ -144,6 +144,7 @@ import {
   checkWinConditions,
   executeTurnBasedAction,
   checkCombatDamageToPlayerTriggers,
+  checkTribalCastTriggers,
   GamePhase,
   GameStep,
 } from './actions';
@@ -394,8 +395,14 @@ export class RulesEngineAdapter {
       }
     }
     
+    // If a cardId is provided, enforce the card is in the declared origin zone.
+    // This prevents "cast from exile" from silently defaulting to hand casts.
+    const fromZone = String(action.fromZone || 'hand').toLowerCase();
+    const cardId = String(action.cardId || action.spellId || '');
+    const sourceCard = this.findSourceZoneCard(state, action.playerId, cardId, fromZone);
+
     // Check timing restrictions (main phase, stack empty for sorceries, etc.)
-    const cardTypes = this.getCardTypes(action.card || action.spell);
+    const cardTypes = this.getCardTypes(action.card || action.spell || sourceCard);
     const timingContext = this.buildTimingContext(state, action.playerId);
     const timingResult = validateSpellTiming(cardTypes, timingContext);
     
@@ -406,10 +413,6 @@ export class RulesEngineAdapter {
       };
     }
 
-    // If a cardId is provided, enforce the card is in the declared origin zone.
-    // This prevents "cast from exile" from silently defaulting to hand casts.
-    const fromZone = String(action.fromZone || 'hand').toLowerCase();
-    const cardId = String(action.cardId || action.spellId || '');
     if (cardId && fromZone === 'hand') {
       const player: any = state.players.find(p => p.id === action.playerId);
       if (!player) {
@@ -493,6 +496,20 @@ export class RulesEngineAdapter {
     }
     
     return types;
+  }
+
+  private findSourceZoneCard(state: GameState, playerId: string, cardId: string, fromZone: string): any | null {
+    if (!cardId) return null;
+
+    const player: any = state.players.find(p => p.id === playerId);
+    if (!player) return null;
+
+    const sourceZoneCards = (() => {
+      if (fromZone === 'exile') return Array.isArray(player.exile) ? player.exile : [];
+      return Array.isArray(player.hand) ? player.hand : [];
+    })();
+
+    return sourceZoneCards.find((card: any) => String(card?.id || card?.cardId || '') === cardId) || null;
   }
   
   /**
@@ -852,6 +869,10 @@ export class RulesEngineAdapter {
       return { next: state, log: ['Player not found'] };
     }
 
+    const fromZone = String(action.fromZone || 'hand').toLowerCase();
+    const cardId = String(action.cardId || '');
+    const sourceCard = this.findSourceZoneCard(state, action.playerId, cardId, fromZone);
+
     const spellTargetHints = buildTriggerEventDataFromPayloads(
       action.playerId,
       action.targets,
@@ -866,7 +887,7 @@ export class RulesEngineAdapter {
     const manaCost = action.manaCost ? this.parseManaCostString(action.manaCost) : {};
     const context: SpellCastingContext = {
       spellId: action.cardId,
-      cardName: action.cardName || 'Unknown Card',
+      cardName: String(action.cardName || action.card?.name || sourceCard?.name || 'Unknown Card'),
       controllerId: action.playerId,
       manaCost,
       targets: selectedSpellTargets,
@@ -875,19 +896,27 @@ export class RulesEngineAdapter {
     };
     
     // Prepare timing context
-    const activePlayer = state.players[state.activePlayerIndex];
+    const activePlayerIndex = state.activePlayerIndex ?? 0;
+    const priorityPlayerIndex = state.priorityPlayerIndex ?? activePlayerIndex;
+    const activePlayer = state.players[activePlayerIndex] || state.players[0];
+    const priorityPlayer = state.players[priorityPlayerIndex] || activePlayer;
     const timingContext = {
       isMainPhase: state.phase === 'precombatMain' || state.phase === 'postcombatMain',
-      isOwnTurn: activePlayer.id === action.playerId,
+      isOwnTurn: activePlayer?.id === action.playerId,
       stackEmpty: checkStackEmpty(this.stacks.get(gameId)!),
-      hasPriority: state.players[state.priorityPlayerIndex].id === action.playerId,
+      hasPriority: priorityPlayer?.id === action.playerId,
     };
     
+    const derivedCardTypes =
+      Array.isArray(action.cardTypes) && action.cardTypes.length > 0
+        ? action.cardTypes
+        : this.getCardTypes(action.card || action.spell || sourceCard);
+
     // Execute spell casting
     const castResult = castSpell(
       context,
-      player.manaPool,
-      action.cardTypes || ['instant'], // Default to instant for timing
+      player.manaPool || emptyManaPool(),
+      derivedCardTypes,
       timingContext
     );
     
@@ -896,9 +925,6 @@ export class RulesEngineAdapter {
     }
     
     // Update player's mana pool
-    const fromZone = String(action.fromZone || 'hand').toLowerCase();
-    const cardId = String(action.cardId || '');
-
     const updatedPlayers = state.players.map(p => {
       if (p.id !== action.playerId) return p;
       const next: any = { ...p, manaPool: castResult.manaPoolAfter! };
@@ -955,6 +981,7 @@ export class RulesEngineAdapter {
       spellEffectText,
       action.cardId,
       action.playerId,
+      action.cardName || 'Unknown Card',
       {
         ...spellTargetHints,
         spellType:
@@ -970,18 +997,40 @@ export class RulesEngineAdapter {
       }
     );
 
-    const stack = this.stacks.get(gameId)!;
-    const stackResult = pushToStack(stack, {
+    const spellStackObject: any = {
       id: castResult.stackObjectId!,
       spellId: action.cardId,
-      cardName: action.cardName || 'Unknown Card',
+      cardName: context.cardName,
       controllerId: action.playerId,
       targets: selectedSpellTargets,
       triggerMeta: spellTriggerMeta,
       timestamp: Date.now(),
-      type: 'spell',
+      type: 'spell' as const,
+    };
+
+    const stack = this.stacks.get(gameId)!;
+    let stackAfterSpell = pushToStack(stack, spellStackObject).stack;
+
+    const castCard = {
+      ...(sourceCard || {}),
+      ...(action.card || {}),
+      id: cardId || String(sourceCard?.id || action.card?.id || ''),
+      name: String(action.cardName || action.card?.name || sourceCard?.name || 'Unknown Card'),
+      type_line: String(action.card?.type_line || sourceCard?.type_line || ''),
+      oracle_text: String(action.oracleText || action.card?.oracle_text || sourceCard?.oracle_text || spellEffectText || ''),
+    } as any;
+
+    const triggerResult = checkTribalCastTriggers(nextState, castCard, action.playerId, {
+      autoExecuteOracle: false,
     });
-    this.stacks.set(gameId, stackResult.stack);
+    const triggerStackObjects = Array.isArray((triggerResult.state as any)?.stack)
+      ? ((triggerResult.state as any).stack as any[])
+      : [];
+
+    for (const triggerObject of triggerStackObjects) {
+      stackAfterSpell = pushToStack(stackAfterSpell, triggerObject).stack;
+    }
+    this.stacks.set(gameId, stackAfterSpell);
     
     // Emit event
     this.emit({
@@ -989,7 +1038,7 @@ export class RulesEngineAdapter {
       timestamp: Date.now(),
       gameId,
       data: { 
-        spell: { card: { name: action.cardName }, id: castResult.stackObjectId },
+        spell: { card: { name: context.cardName }, id: castResult.stackObjectId },
         caster: action.playerId 
       },
     });
@@ -1006,8 +1055,14 @@ export class RulesEngineAdapter {
     });
     
     return {
-      next: nextState,
-      log: castResult.log || [`${action.playerId} cast ${action.cardName}`],
+      next: {
+        ...triggerResult.state,
+        stack: nextState.stack,
+      },
+      log: [
+        ...(castResult.log || [`${action.playerId} cast ${context.cardName}`]),
+        ...(triggerResult.logs || []),
+      ],
     };
   }
 
@@ -1178,20 +1233,25 @@ export class RulesEngineAdapter {
     }
     
     const ability: ActivatedAbility = action.ability;
-    const activePlayer = state.players[state.activePlayerIndex];
+    const activePlayerIndex = state.activePlayerIndex ?? 0;
+    const priorityPlayerIndex = state.priorityPlayerIndex ?? activePlayerIndex;
+    const activePlayer = state.players[activePlayerIndex] || state.players[0];
+    const priorityPlayer = state.players[priorityPlayerIndex] || activePlayer;
     
     const activationContext: ActivationContext = {
-      hasPriority: state.players[state.priorityPlayerIndex].id === action.playerId,
+      hasPriority: priorityPlayer?.id === action.playerId,
       isMainPhase: state.phase === 'precombatMain' || state.phase === 'postcombatMain',
-      isOwnTurn: activePlayer.id === action.playerId,
+      isOwnTurn: activePlayer?.id === action.playerId,
       stackEmpty: checkStackEmpty(this.stacks.get(gameId)!),
       isCombat: state.phase === 'combat',
       activationsThisTurn: action.activationsThisTurn || 0,
       sourceTapped: action.sourceTapped || false,
     };
     
-    const result = activateAbility(ability, player.manaPool, activationContext);
-    
+    const manaPool = player.manaPool || emptyManaPool();
+
+    const result = activateAbility(ability, manaPool, activationContext);
+
     if (!result.success) {
       return { next: state, log: [result.error || 'Failed to activate ability'] };
     }
@@ -1235,6 +1295,7 @@ export class RulesEngineAdapter {
       ability.effect,
       ability.sourceId,
       action.playerId,
+      ability.sourceName,
       {
         ...abilityTargetHints,
         affectedPlayerIds: abilityTargetHints.affectedPlayerIds ?? dedupedSelectedAbilityTargets,
@@ -1414,7 +1475,7 @@ export class RulesEngineAdapter {
           {
             controllerId: popResult.object.controllerId,
             sourceId: popResult.object.spellId,
-            sourceName: popResult.object.cardName,
+            sourceName: triggerMeta?.sourceName || popResult.object.cardName,
             effect: effectText,
           },
           resolutionEventData,
@@ -1426,7 +1487,7 @@ export class RulesEngineAdapter {
           {
             controllerId: popResult.object.controllerId,
             sourceId: popResult.object.spellId,
-            sourceName: popResult.object.cardName,
+            sourceName: triggerMeta?.sourceName || popResult.object.cardName,
             effect: effectText,
             optional: Boolean((popResult.object as any)?.triggerMeta?.optional),
           },
@@ -1448,7 +1509,7 @@ export class RulesEngineAdapter {
             data: {
               stackObjectId: popResult.object.id,
               sourceId: popResult.object.spellId,
-              sourceName: popResult.object.cardName,
+              sourceName: triggerMeta?.sourceName || popResult.object.cardName,
               effectText,
               controllerId: popResult.object.controllerId,
               choiceEvents: triggerChoiceEvents,

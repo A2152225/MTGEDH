@@ -2877,6 +2877,24 @@ describe('Oracle IR Parser', () => {
     expect(impulse.permission).toBe('play');
   });
 
+  it('preserves choose_mode labels that include lowercase connector words', () => {
+    const text =
+      'Choose up to three -\n' +
+      '\u2022 Sell Contraband - You lose 1 life. Create a Treasure token.\n' +
+      '\u2022 Buy Information - You lose 2 life. Draw a card.\n' +
+      '\u2022 Hire a Mercenary - You lose 3 life. Create a 3/2 colorless Shapeshifter creature token with changeling.';
+
+    const ir = parseOracleTextToIR(text);
+    const chooseModeStep = ir.abilities.flatMap((a) => a.steps).find((s) => s.kind === 'choose_mode') as any;
+
+    expect(chooseModeStep).toBeTruthy();
+    expect(chooseModeStep.modes.map((mode: any) => mode.label)).toEqual([
+      'Sell Contraband',
+      'Buy Information',
+      'Hire a Mercenary',
+    ]);
+  });
+
   it('parses impulse exile-top with an ability-word prefix + at-beginning wrapper (Prosper-style)', () => {
     const text =
       'Deathtouch\n' +

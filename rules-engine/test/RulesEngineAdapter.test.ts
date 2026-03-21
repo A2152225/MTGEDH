@@ -259,6 +259,31 @@ describe('RulesEngineAdapter', () => {
       });
       expect(allowed.legal).toBe(true);
     });
+
+    it('should derive spell timing from the source-zone card when action card data is omitted', () => {
+      const stateWithSorceryInHand: any = {
+        ...testGameState,
+        phase: 'beginning' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'sorcery-1', name: 'Divination', type_line: 'Sorcery' }],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithSorceryInHand);
+      const validation = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'sorcery-1',
+      });
+
+      expect(validation.legal).toBe(false);
+      expect(validation.reason).toContain('main phase');
+    });
     
     it('should validate attacker declaration in correct step', () => {
       // Set game to declare attackers step
@@ -345,6 +370,35 @@ describe('RulesEngineAdapter', () => {
       // Should succeed
       expect(result.next).toBeDefined();
       expect(result.log).toBeDefined();
+    });
+
+    it('should derive cast metadata from the source-zone card when action fields are omitted', () => {
+      const stateWithHand: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'opt-derive', name: 'Opt', type_line: 'Instant', oracle_text: 'Draw a card.' }],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithHand);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'opt-derive',
+        manaCost: '{U}',
+        targets: [],
+      });
+
+      expect(result.log).toContain('player1 announces Opt');
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].cardName).toBe('Opt');
     });
 
     it('should execute spell oracle effect on stack resolution', () => {
@@ -1044,6 +1098,125 @@ describe('RulesEngineAdapter', () => {
         'target_selection',
       ]);
       expect(observedEvents[0].data.choiceEvents[0].targetTypes).toEqual(['opponent']);
+    });
+
+    it('should emit CHOICE_REQUIRED for unresolved target-player trigger choices during stack resolution', () => {
+      const multiplayerState: any = {
+        ...testGameState,
+        players: [
+          ...testGameState.players,
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3'],
+      };
+
+      adapter.initializeGame('test-game', multiplayerState);
+
+      const observedEvents: any[] = [];
+      adapter.on(RulesEngineEvent.CHOICE_REQUIRED, (event) => {
+        observedEvents.push(event);
+      });
+
+      const adapterAny = adapter as any;
+      const stacks = adapterAny.stacks as Map<string, any>;
+      stacks.set('test-game', {
+        objects: [
+          {
+            id: 'stack-trigger-target-player-choice',
+            spellId: 'benevolent-seer',
+            cardName: 'Benevolent Seer',
+            controllerId: 'player1',
+            targets: [],
+            timestamp: Date.now(),
+            type: 'ability',
+            triggerMeta: {
+              effectText: 'Target player gains 2 life.',
+              triggerEventDataSnapshot: {
+                sourceId: 'benevolent-seer',
+                sourceControllerId: 'player1',
+              },
+            },
+          },
+        ],
+      });
+
+      const result = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player1 = result.next.players.find(p => p.id === 'player1');
+      const player2 = result.next.players.find(p => p.id === 'player2');
+      const player3 = result.next.players.find(p => p.id === 'player3');
+      expect(player1?.life).toBe(40);
+      expect(player2?.life).toBe(40);
+      expect(player3?.life).toBe(40);
+      expect(observedEvents).toHaveLength(1);
+      expect(observedEvents[0].data.choiceEvents.map((choice: any) => choice.type)).toEqual([
+        'target_selection',
+      ]);
+      expect(observedEvents[0].data.choiceEvents[0].targetTypes).toEqual(['player']);
+    });
+
+    it('should emit CHOICE_REQUIRED for unresolved choose_mode trigger choices during stack resolution', () => {
+      adapter.initializeGame('test-game', testGameState);
+
+      const observedEvents: any[] = [];
+      adapter.on(RulesEngineEvent.CHOICE_REQUIRED, (event) => {
+        observedEvents.push(event);
+      });
+
+      const adapterAny = adapter as any;
+      const stacks = adapterAny.stacks as Map<string, any>;
+      stacks.set('test-game', {
+        objects: [
+          {
+            id: 'stack-trigger-choose-mode-choice',
+            spellId: 'black-market-connections',
+            cardName: 'Black Market Connections',
+            controllerId: 'player1',
+            targets: [],
+            timestamp: Date.now(),
+            type: 'ability',
+            triggerMeta: {
+              effectText: 'Choose up to three -\n\u2022 Sell Contraband - You lose 1 life. Create a Treasure token.\n\u2022 Buy Information - You lose 2 life. Draw a card.\n\u2022 Hire a Mercenary - You lose 3 life. Create a 3/2 colorless Shapeshifter creature token with changeling.',
+              triggerEventDataSnapshot: {
+                sourceId: 'black-market-connections',
+                sourceControllerId: 'player1',
+              },
+            },
+          },
+        ],
+      });
+
+      const result = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player1 = result.next.players.find(p => p.id === 'player1');
+      expect(player1?.life).toBe(40);
+      expect(observedEvents).toHaveLength(1);
+      expect(observedEvents[0].data.choiceEvents.map((choice: any) => choice.type)).toEqual([
+        'mode_selection',
+      ]);
+      expect(observedEvents[0].data.choiceEvents[0].modes.map((mode: any) => mode.id)).toEqual([
+        'Sell Contraband',
+        'Buy Information',
+        'Hire a Mercenary',
+      ]);
     });
 
     it('should resolve legacy stack object target_opponent effect from singleton targets without snapshot bindings', () => {

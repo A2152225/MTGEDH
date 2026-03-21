@@ -1142,9 +1142,11 @@ function tryParseChooseModeBlock(effectText: string): (OracleEffectStep & { kind
   else if (/any\s+number/.test(headerText)) { minModes = 0; maxModes = -1; }
   // "choose one" → defaults: minModes=1, maxModes=1
 
-  // Pattern for "Named Mode - Effect text" where all label words are Title Case.
-  // E.g. "Break Their Chains - Destroy target artifact."
-  const NAMED_LABEL_RE = /^((?:[A-Z][a-z]*(?:'[a-z]+)?(?:\s+[A-Z][a-z]*(?:'[a-z]+)?){0,5}))\s*-\s+(.+)$/;
+  // Pattern for "Named Mode - Effect text" where label words are mostly Title Case,
+  // but may include short lowercase connector words like "a" or "of".
+  // E.g. "Break Their Chains - Destroy target artifact." or
+  // "Hire a Mercenary - Create a 3/2 token."
+  const NAMED_LABEL_RE = /^((?:[A-Z][a-z]*(?:'[a-z]+)?|a|an|and|as|at|for|from|in|into|of|on|or|the|to|with)(?:\s+(?:[A-Z][a-z]*(?:'[a-z]+)?|a|an|and|as|at|for|from|in|into|of|on|or|the|to|with)){0,7})\s*-\s+(.+)$/;
 
   const modes = rawBullets.map((bulletText, idx) => {
     // Strip "Named Mode — " prefix if present (all-title-case label before " - ").

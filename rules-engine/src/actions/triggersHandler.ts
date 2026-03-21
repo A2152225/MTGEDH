@@ -273,7 +273,8 @@ export function checkStepTriggers(
 export function checkTribalCastTriggers(
   state: GameState,
   castCard: KnownCardRef,
-  casterId: string
+  casterId: string,
+  options: Omit<TriggerProcessingOptions, 'resolutionEventData'> & { resolutionEventData?: TriggerEventData } = {}
 ): TriggerResult {
   const logs: string[] = [];
   const triggeredAbilities: TriggeredAbility[] = [];
@@ -330,11 +331,16 @@ export function checkTribalCastTriggers(
     return { state, triggersAdded: 0, logs };
   }
 
-  const result = processTriggersAutoOracle(
+  const result = processTriggers(
     state,
     TriggerEvent.CREATURE_SPELL_CAST,
     triggeredAbilities,
-    buildTriggerEventDataFromPayloads(casterId, { affectedPlayerIds: [casterId] })
+    buildTriggerEventDataFromPayloads(casterId, { affectedPlayerIds: [casterId] }),
+    {
+      autoExecuteOracle: options.autoExecuteOracle ?? true,
+      allowOptional: options.allowOptional,
+      resolutionEventData: options.resolutionEventData,
+    }
   );
 
   return {

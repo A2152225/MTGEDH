@@ -13,6 +13,7 @@ import type { OracleIRExecutionEventHint } from './oracleIRExecutor';
 import type { OracleIRExecutionOptions, OracleIRExecutionResult } from './oracleIRExecutor';
 import {
   createMayAbilityEvent,
+  createModeSelectionEvent,
   createOptionChoiceEvent,
   createTargetSelectionEvent,
   type ChoiceEvent,
@@ -301,6 +302,7 @@ export function putTriggersOnStack(
       trigger.effect,
       trigger.sourceId,
       trigger.controllerId,
+      trigger.sourceName,
       trigger.triggerEventDataSnapshot
     );
     
@@ -395,6 +397,8 @@ export interface TriggerEventData {
   readonly targetOpponentId?: string;
   /** Explicit choice for optional "tap or untap" triggered effects. */
   readonly tapOrUntapChoice?: 'tap' | 'untap';
+  /** Explicit selected mode ids for triggered choose_mode effects. */
+  readonly selectedModeIds?: readonly string[];
   readonly permanentTypes?: readonly string[];
   readonly creatureCount?: number;
   readonly landCount?: number;
@@ -648,9 +652,11 @@ export function buildStackTriggerMetaFromEventData(
   effectText: string | undefined,
   sourceId: string,
   sourceControllerId: string,
+  sourceName?: string,
   eventData?: TriggerEventData
 ): {
   effectText?: string;
+  sourceName?: string;
   triggerEventDataSnapshot?: {
     sourceId?: string;
     sourceControllerId?: string;
@@ -684,6 +690,7 @@ export function buildStackTriggerMetaFromEventData(
 
   return {
     effectText,
+    sourceName,
     triggerEventDataSnapshot: {
       sourceId: normalized.sourceId,
       sourceControllerId: normalized.sourceControllerId,
@@ -984,6 +991,10 @@ function getUnresolvedPlayerTargetKinds(steps: readonly any[]): { needsPlayerTar
   return { needsPlayerTarget, needsOpponentTarget };
 }
 
+function getUnresolvedChooseModeSteps(steps: readonly any[]): readonly any[] {
+  return steps.filter((step: any) => step?.kind === 'choose_mode');
+}
+
 export function buildTriggeredAbilityChoiceEvents(
   state: GameState,
   ability: Pick<TriggeredAbility, 'controllerId' | 'sourceId' | 'sourceName' | 'effect' | 'optional'>,
@@ -997,6 +1008,7 @@ export function buildTriggeredAbilityChoiceEvents(
   const sourceImage = getTriggerSourceImage(state, ability.sourceId);
   const choiceEvents: ChoiceEvent[] = [];
   const unresolvedPlayerTargets = getUnresolvedPlayerTargetKinds(steps as any[]);
+  const unresolvedChooseModeSteps = getUnresolvedChooseModeSteps(steps as any[]);
 
   if (ability.optional || steps.some(step => Boolean((step as any).optional))) {
     choiceEvents.push(
@@ -1043,6 +1055,27 @@ export function buildTriggeredAbilityChoiceEvents(
           1,
           1,
           true,
+          sourceImage
+        )
+      );
+    }
+  }
+
+  if (!Array.isArray(enrichedEventData?.selectedModeIds)) {
+    for (const step of unresolvedChooseModeSteps) {
+      const modes = Array.isArray((step as any)?.modes) ? (step as any).modes : [];
+      if (modes.length === 0) continue;
+      choiceEvents.push(
+        createModeSelectionEvent(
+          ability.controllerId as PlayerID,
+          ability.sourceId,
+          ability.sourceName,
+          modes.map((mode: any) => ({
+            id: String(mode?.label || '').trim(),
+            text: String(mode?.raw || mode?.label || '').trim() || String(mode?.label || '').trim(),
+          })),
+          Math.max(0, Number((step as any)?.minModes ?? 0) || 0),
+          Number((step as any)?.maxModes ?? -1) || -1,
           sourceImage
         )
       );
@@ -1140,7 +1173,10 @@ export function executeTriggeredAbilityEffectWithOracleIR(
     hint
   );
 
-  return applyOracleIRStepsToGameState(state, steps, ctx, executionOptions);
+  return applyOracleIRStepsToGameState(state, steps, ctx, {
+    ...executionOptions,
+    selectedModeIds: normalizedEventData?.selectedModeIds,
+  });
 }
 
 export interface ProcessEventOracleExecutionResult {

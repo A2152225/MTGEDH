@@ -13,6 +13,10 @@ export interface OracleIRExecutionOptions {
    * If true, applies optional steps as if the player chose "yes".
    */
   readonly allowOptional?: boolean;
+  /**
+   * Explicit selected mode ids for a choose_mode step when already chosen by a player.
+   */
+  readonly selectedModeIds?: readonly string[];
 }
 
 export interface OracleIRSelectorContext {
@@ -7774,11 +7778,61 @@ export function applyOracleIRStepsToGameState(
       }
 
       case 'choose_mode':
-        // Requires player mode selection — cannot be resolved deterministically
-        // without knowing the chosen mode(s).  Surface via pendingOptionalSteps.
-        skippedSteps.push(step);
-        pendingOptionalSteps.push(step);
-        log.push(`Skipped choose_mode step (needs player selection): ${(step as any).raw ?? step.kind}`);
+        {
+          const rawSelectedModeIds = Array.isArray(options.selectedModeIds)
+            ? options.selectedModeIds
+            : null;
+          if (!rawSelectedModeIds) {
+            skippedSteps.push(step);
+            pendingOptionalSteps.push(step);
+            log.push(`Skipped choose_mode step (needs player selection): ${(step as any).raw ?? step.kind}`);
+            break;
+          }
+
+          const normalizedSelectedModeIds = rawSelectedModeIds
+            .map(id => (typeof id === 'string' ? id.trim() : ''))
+            .filter((id, index, ids) => Boolean(id) && ids.indexOf(id) === index);
+          const modeById = new Map(
+            ((step as any).modes || []).map((mode: any) => [String(mode?.label || '').trim(), mode] as const)
+          );
+          const selectedModes = normalizedSelectedModeIds
+            .map(id => modeById.get(id))
+            .filter((mode): mode is { label: string; steps: readonly OracleEffectStep[] } => Boolean(mode));
+          const minModes = Math.max(0, Number((step as any).minModes ?? 0) || 0);
+          const maxModesRaw = Number((step as any).maxModes ?? -1);
+          const maxModes = Number.isFinite(maxModesRaw) && maxModesRaw >= 0 ? maxModesRaw : Infinity;
+
+          if (
+            selectedModes.length !== normalizedSelectedModeIds.length ||
+            selectedModes.length < minModes ||
+            selectedModes.length > maxModes
+          ) {
+            skippedSteps.push(step);
+            pendingOptionalSteps.push(step);
+            log.push(`Skipped choose_mode step (invalid mode selection): ${(step as any).raw ?? step.kind}`);
+            break;
+          }
+
+          appliedSteps.push(step);
+          log.push(
+            `Resolved choose_mode step with ${selectedModes.length} selected mode(s): ${normalizedSelectedModeIds.join(', ') || 'none'}`
+          );
+
+          for (const mode of selectedModes) {
+            const modeResult = applyOracleIRStepsToGameState(
+              nextState,
+              mode.steps,
+              ctx,
+              { ...options, selectedModeIds: undefined }
+            );
+            nextState = modeResult.state;
+            log.push(`Resolved mode: ${mode.label}`);
+            log.push(...modeResult.log);
+            appliedSteps.push(...modeResult.appliedSteps);
+            skippedSteps.push(...modeResult.skippedSteps);
+            pendingOptionalSteps.push(...modeResult.pendingOptionalSteps);
+          }
+        }
         break;
 
       default:

@@ -456,6 +456,7 @@ describe('Trigger Parsing', () => {
         'Target opponent loses 1 life.',
         'src-1',
         'p1',
+        undefined,
         {
           targetOpponentId: 'p3',
           attackers: [
@@ -798,6 +799,82 @@ describe('Trigger Parsing', () => {
       expect(events.map(event => event.type)).toEqual([ChoiceEventType.TARGET_SELECTION]);
       expect(targetEvent.targetTypes).toEqual(['opponent']);
       expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['p2', 'p3']);
+    });
+
+    it('buildTriggeredAbilityChoiceEvents returns target-player prompt when target player is unresolved', () => {
+      const start = makeState();
+      const ability = {
+        id: 'target-player-choice-trigger',
+        sourceId: 'benevolent-seer',
+        sourceName: 'Benevolent Seer',
+        controllerId: 'p1',
+        keyword: TriggerKeyword.WHENEVER,
+        event: TriggerEvent.CREATURE_DIES,
+        effect: 'Target player gains 2 life.',
+        optional: false,
+      } as any;
+
+      const events = buildTriggeredAbilityChoiceEvents(start, ability);
+      const targetEvent = events[0] as any;
+
+      expect(events.map(event => event.type)).toEqual([ChoiceEventType.TARGET_SELECTION]);
+      expect(targetEvent.targetTypes).toEqual(['player']);
+      expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['p1', 'p2', 'p3']);
+    });
+
+    it('buildTriggeredAbilityChoiceEvents returns mode-selection prompt when choose_mode is unresolved', () => {
+      const start = makeState();
+      const ability = {
+        id: 'black-market-connections-choice-trigger',
+        sourceId: 'black-market-connections',
+        sourceName: 'Black Market Connections',
+        controllerId: 'p1',
+        keyword: TriggerKeyword.AT,
+        event: TriggerEvent.BEGINNING_OF_PRECOMBAT_MAIN,
+        effect: 'Choose up to three -\n\u2022 Sell Contraband - You lose 1 life. Create a Treasure token.\n\u2022 Buy Information - You lose 2 life. Draw a card.\n\u2022 Hire a Mercenary - You lose 3 life. Create a 3/2 colorless Shapeshifter creature token with changeling.',
+        optional: false,
+      } as any;
+
+      const events = buildTriggeredAbilityChoiceEvents(start, ability);
+      const modeEvent = events[0] as any;
+
+      expect(events.map(event => event.type)).toEqual([ChoiceEventType.MODE_SELECTION]);
+      expect(modeEvent.minModes).toBe(0);
+      expect(modeEvent.maxModes).toBe(3);
+      expect(modeEvent.modes.map((mode: any) => mode.id)).toEqual([
+        'Sell Contraband',
+        'Buy Information',
+        'Hire a Mercenary',
+      ]);
+    });
+
+    it('executes choose_mode trigger steps when selectedModeIds are supplied', () => {
+      const start = makeState();
+      const beforePlayer = start.players.find((entry: any) => entry.id === 'p1') as any;
+      const beforeLife = beforePlayer.life;
+      const beforeHandSize = Array.isArray(beforePlayer.hand) ? beforePlayer.hand.length : 0;
+
+      const result = executeTriggeredAbilityEffectWithOracleIR(
+        start,
+        {
+          controllerId: 'p1',
+          sourceId: 'black-market-connections',
+          sourceName: 'Black Market Connections',
+          effect: 'Choose up to three -\n\u2022 Sell Contraband - You lose 1 life. Create a Treasure token.\n\u2022 Buy Information - You lose 2 life. Draw a card.\n\u2022 Hire a Mercenary - You lose 3 life. Create a 3/2 colorless Shapeshifter creature token with changeling.',
+        },
+        {
+          selectedModeIds: ['Sell Contraband', 'Buy Information'],
+        } as any
+      );
+
+      const player = result.state.players.find((entry: any) => entry.id === 'p1') as any;
+      const treasure = result.state.battlefield.find((perm: any) => String(perm?.card?.name || '').includes('Treasure')) as any;
+
+      expect(player.life).toBe(beforeLife - 3);
+      expect((player.hand || []).length).toBe(beforeHandSize + 1);
+      expect(treasure).toBeTruthy();
+      expect(result.pendingOptionalSteps).toHaveLength(0);
+      expect(result.appliedSteps.some((step: any) => step.kind === 'choose_mode')).toBe(true);
     });
 
     it('processEventAndExecuteTriggeredOracle rechecks intervening-if against resolutionEventData when provided', () => {
