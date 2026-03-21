@@ -199,6 +199,7 @@ This allows you to control the amount of logging without modifying code, making 
 
 - [Architecture Overview](./docs/architecture.md)
 - [Rules Engine Integration](./docs/rules-engine-integration.md)
+- [Merfolk Iteration Audit Summary](./docs/merfolk-iteration-audit-summary.md)
 - [Oracle Automation Roadmap](./docs/oracle-automation-roadmap.md)
 - [Game Simulation Guide](./docs/simulation-guide.md)
 - [AI Strategy Development](./docs/ai-strategies.md)
