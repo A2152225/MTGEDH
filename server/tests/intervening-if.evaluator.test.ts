@@ -1280,6 +1280,30 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     ).toBe(true);
   });
 
+  it('counts kindred as a distinct graveyard card type for delirium checks', () => {
+    const g = createInitialGameState('t_intervening_if_eval_kindred_delirium');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    (g.state as any).zones = {
+      [p1]: {
+        graveyard: [
+          { id: 'a', name: 'A', type_line: 'Artifact' },
+          { id: 'c', name: 'C', type_line: 'Creature — Bear' },
+          { id: 'k', name: 'K', type_line: 'Kindred Instant — Merfolk' },
+        ],
+      },
+    };
+
+    expect(
+      isInterveningIfSatisfied(
+        g as any,
+        String(p1),
+        'If there are four or more card types among cards in your graveyard, draw a card.'
+      )
+    ).toBe(true);
+  });
+
   it('supports ferocious-style power threshold: "If you control a creature with power 4 or greater"', () => {
     const g = createInitialGameState('t_intervening_if_eval_ferocious');
     const p1 = 'p1' as PlayerID;

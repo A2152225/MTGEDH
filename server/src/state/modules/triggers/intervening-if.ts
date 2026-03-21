@@ -1020,10 +1020,11 @@ function countCardTypesInGraveyard(ctx: GameContext, playerId: string): number {
     if (tl.includes("enchantment")) types.add("enchantment");
     if (tl.includes("instant")) types.add("instant");
     if (tl.includes("sorcery")) types.add("sorcery");
+    if (tl.includes("kindred")) types.add("kindred");
     if (tl.includes("land")) types.add("land");
     if (tl.includes("planeswalker")) types.add("planeswalker");
     if (tl.includes("battle")) types.add("battle");
-    if (tl.includes("tribal")) types.add("tribal");
+    if (tl.includes("tribal")) types.add("kindred");
   }
   return types.size;
 }
@@ -10898,11 +10899,12 @@ function evaluateInterveningIfClauseInternal(
 
     const toCardTypeSet = (typeLineLower: string): Set<string> => {
       const base = String(typeLineLower.split('—')[0] || '').trim();
-      const types = ['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'instant', 'sorcery', 'tribal', 'battle'];
+      const types = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery'];
       const out = new Set<string>();
       for (const t of types) {
         if (base.includes(t)) out.add(t);
       }
+      if (base.includes('tribal')) out.add('kindred');
       return out;
     };
 

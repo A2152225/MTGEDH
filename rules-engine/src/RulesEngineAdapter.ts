@@ -81,6 +81,7 @@ import {
   castSpell,
   validateSpellTiming,
   type SpellCastingContext,
+  type StackObject,
 } from './spellCasting';
 import { consumePlayableFromExileForCard, stripPlayableFromExileTags } from './playableFromExile';
 import {
@@ -974,6 +975,7 @@ export class RulesEngineAdapter {
       (typeof action.oracleText === 'string' && action.oracleText.trim()) ||
       (typeof action.effectText === 'string' && action.effectText.trim()) ||
       (typeof action.card?.oracle_text === 'string' && action.card.oracle_text.trim()) ||
+      (typeof sourceCard?.oracle_text === 'string' && sourceCard.oracle_text.trim()) ||
       undefined;
     const selectedSpellTargetPlayerId = spellTargetHints.targetPlayerId;
     const selectedSpellTargetOpponentId = spellTargetHints.targetOpponentId;
@@ -992,7 +994,7 @@ export class RulesEngineAdapter {
       spellEffectText,
       action.cardId,
       action.playerId,
-      action.cardName || 'Unknown Card',
+      context.cardName,
       {
         ...spellTargetHints,
         spellType:
@@ -1000,6 +1002,7 @@ export class RulesEngineAdapter {
             ? action.cardTypes.join(' ')
             : undefined) ??
           (typeof action.card?.type_line === 'string' ? action.card.type_line : undefined) ??
+          (typeof sourceCard?.type_line === 'string' ? sourceCard.type_line : undefined) ??
           (typeof action.spellType === 'string' ? action.spellType : undefined),
         affectedPlayerIds: spellTargetHints.affectedPlayerIds ?? dedupedSelectedSpellTargets,
         affectedOpponentIds: spellTargetHints.affectedOpponentIds ?? selectedSpellOpponentTargets,

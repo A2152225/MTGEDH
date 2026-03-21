@@ -105,8 +105,9 @@ export function buildOracleIRExecutionContext(
   const normalizeSpellTypes = (value: unknown): readonly string[] | undefined => {
     if (typeof value !== 'string') return undefined;
     const lower = value.toLowerCase();
-    const known = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery', 'tribal'];
+    const known = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery'];
     const out = known.filter(type => lower.includes(type));
+    if (lower.includes('tribal') && !out.includes('kindred')) out.push('kindred');
     return out.length > 0 ? out : undefined;
   };
 
@@ -423,8 +424,9 @@ function countCardsExiledWithSource(
 function getCardTypesFromTypeLine(card: any): readonly string[] | null {
   const tl = getCardTypeLineLower(card);
   if (!tl) return null;
-  const known = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery', 'tribal'];
+  const known = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery'];
   const out = known.filter(type => tl.includes(type));
+  if (tl.includes('tribal') && !out.includes('kindred')) out.push('kindred');
   return out.length > 0 ? out : null;
 }
 
@@ -2558,7 +2560,6 @@ function evaluateModifyPtWhereX(
         const types = getCardTypesFromTypeLine(card);
         if (!types) continue;
         for (const type of types) {
-          if (type === 'tribal') continue;
           seen.add(type);
         }
       }

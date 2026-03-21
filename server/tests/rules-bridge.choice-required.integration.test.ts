@@ -588,4 +588,74 @@ describe('RulesBridge choice-required integration', () => {
     expect(rulesChoiceEvents.some((entry) => entry.payload?.sourceName === 'Merrow Reejerey')).toBe(true);
     expect(queue.steps[1] && (queue.steps[1] as any).validTargets.some((target: any) => target.id === 'nykthos-shrine-to-nyx')).toBe(true);
   });
+
+  it('applies stacked token doublers during a real Summon the School cast', () => {
+    const gameId = `${castDrivenGameId}_tokens`;
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const bridge = createRulesBridge(gameId, io);
+    const baseState = makeMerfolkIterationState();
+    const state = makeMerfolkIterationState({
+      id: gameId,
+      players: baseState.players.map((player: any) =>
+        player.id === 'p1'
+          ? {
+              ...player,
+              hand: [
+                {
+                  id: 'summon-the-school-cast',
+                  name: 'Summon the School',
+                  mana_cost: '{3}{W}',
+                  manaCost: '{3}{W}',
+                  type_line: 'Kindred Sorcery — Merfolk',
+                  oracle_text:
+                    'Create two 1/1 blue Merfolk Wizard creature tokens. Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.',
+                },
+              ],
+              graveyard: [],
+            }
+          : player
+      ),
+    } as any);
+
+    bridge.initialize(state as any);
+
+    const castResult = bridge.executeAction({
+      type: 'castSpell',
+      playerId: 'p1',
+      cardId: 'summon-the-school-cast',
+      targets: [],
+    });
+    expect(castResult.success).toBe(true);
+
+    expect(bridge.executeAction({ type: 'resolveStack' }).success).toBe(true);
+    expect(bridge.executeAction({ type: 'resolveStack' }).success).toBe(true);
+    expect(bridge.executeAction({ type: 'resolveStack' }).success).toBe(true);
+
+    const engineState = (rulesEngine as any).gameStates.get(gameId);
+    const battlefield = (engineState?.battlefield || []) as any[];
+    const createdMerfolkTokens = battlefield.filter((perm: any) => perm?.isToken && perm?.controller === 'p1');
+    const deeprootTokens = createdMerfolkTokens.filter((perm: any) => {
+      const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+      return typeLine.includes('merfolk') && !typeLine.includes('wizard');
+    });
+    const summonTokens = createdMerfolkTokens.filter((perm: any) => {
+      const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+      return typeLine.includes('merfolk') && typeLine.includes('wizard');
+    });
+
+    expect(deeprootTokens).toHaveLength(4);
+    expect(summonTokens).toHaveLength(8);
+    expect(createdMerfolkTokens).toHaveLength(12);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.map((step: any) => step.type)).toEqual([
+      'option_choice',
+      'target_selection',
+      'option_choice',
+    ]);
+
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+  });
 });

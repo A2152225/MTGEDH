@@ -18359,7 +18359,7 @@ describe('Oracle IR Executor', () => {
             { id: 'gType1', name: 'Shock', type_line: 'Instant' },
             { id: 'gType2', name: 'Bear', type_line: 'Creature � Bear' },
             { id: 'gType3', name: 'Signet', type_line: 'Artifact' },
-            { id: 'gType4', name: 'Forest', type_line: 'Basic Land � Forest' },
+            { id: 'gType4', name: 'Aquitect\'s Will', type_line: 'Kindred Sorcery — Merfolk' },
             { id: 'gType5', name: 'Another Artifact', type_line: 'Artifact' },
           ],
           exile: [],
@@ -18377,7 +18377,7 @@ describe('Oracle IR Executor', () => {
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(4);
+    expect(ptMod.power).toBe(5);
     expect(ptMod.toughness).toBe(0);
   });
 

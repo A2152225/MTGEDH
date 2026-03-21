@@ -730,44 +730,12 @@ export function calculateCostReduction(
         reduction.messages.push(`Stinkdrinker Daredevil: -{2}`);
       }
       
-      // Frogtosser Banneret: Goblin and Rogue spells cost {1} less
-      if (permName.includes("frogtosser banneret")) {
-        if (cardTypeLine.includes("goblin") || cardTypeLine.includes("rogue")) {
-          reduction.generic += 1;
-          reduction.messages.push(`Frogtosser Banneret: -{1}`);
-        }
-      }
-      
-      // Stonybrook Banneret: Merfolk and Wizard spells cost {1} less
-      if (permName.includes("stonybrook banneret")) {
-        if (cardTypeLine.includes("merfolk") || cardTypeLine.includes("wizard")) {
-          reduction.generic += 1;
-          reduction.messages.push(`Stonybrook Banneret: -{1}`);
-        }
-      }
-      
-      // Ballyrush Banneret: Kithkin and Soldier spells cost {1} less
-      if (permName.includes("ballyrush banneret")) {
-        if (cardTypeLine.includes("kithkin") || cardTypeLine.includes("soldier")) {
-          reduction.generic += 1;
-          reduction.messages.push(`Ballyrush Banneret: -{1}`);
-        }
-      }
-      
-      // Bosk Banneret: Treefolk and Shaman spells cost {1} less
-      if (permName.includes("bosk banneret")) {
-        if (cardTypeLine.includes("treefolk") || cardTypeLine.includes("shaman")) {
-          reduction.generic += 1;
-          reduction.messages.push(`Bosk Banneret: -{1}`);
-        }
-      }
-      
-      // Brighthearth Banneret: Elemental and Warrior spells cost {1} less
-      if (permName.includes("brighthearth banneret")) {
-        if (cardTypeLine.includes("elemental") || cardTypeLine.includes("warrior")) {
-          reduction.generic += 1;
-          reduction.messages.push(`Brighthearth Banneret: -{1}`);
-        }
+      const banneretReduction = permName.includes("banneret")
+        ? detectBanneretTypeReduction(permOracle)
+        : null;
+      if (banneretReduction && banneretReduction.types.some((type) => cardTypeLine.includes(type))) {
+        reduction.generic += banneretReduction.reduction;
+        reduction.messages.push(`${perm.card?.name || 'Banneret'}: -{${banneretReduction.reduction}}`);
       }
       
       // ============================================
@@ -1552,6 +1520,48 @@ export function applyCostReduction(
   }
   
   return result;
+}
+
+export function formatManaCostWithReduction(
+  manaCost: string,
+  reduction?: { generic?: number; colors?: Record<string, number> }
+): string {
+  if (!manaCost) return '';
+
+  const parsedCost = parseManaCost(manaCost);
+  const reducedCost = applyCostReduction(parsedCost, {
+    generic: Math.max(0, Number(reduction?.generic || 0)),
+    colors: { ...(reduction?.colors || {}) },
+  });
+
+  let reducedCostStr = '';
+
+  if (parsedCost.hasX) {
+    reducedCostStr += '{X}';
+  }
+  if (reducedCost.generic > 0) {
+    reducedCostStr += `{${reducedCost.generic}}`;
+  }
+  for (const [color, count] of Object.entries(reducedCost.colors)) {
+    for (let i = 0; i < count; i++) {
+      reducedCostStr += `{${color}}`;
+    }
+  }
+  for (const hybrid of parsedCost.hybrids) {
+    reducedCostStr += `{${hybrid.join('/')}}`;
+  }
+
+  return reducedCostStr || '{0}';
+}
+
+function detectBanneretTypeReduction(oracleText: string): { types: string[]; reduction: number } | null {
+  const match = oracleText.match(/(\w+)\s+spells\s+and\s+(\w+)\s+spells\s+you\s+cast\s+cost\s*\{(\d+)\}\s+less\s+to\s+cast/i);
+  if (!match) return null;
+
+  return {
+    types: [match[1].toLowerCase(), match[2].toLowerCase()],
+    reduction: Number.parseInt(match[3], 10) || 1,
+  };
 }
 
 /**
@@ -2548,6 +2558,7 @@ export async function requestCastSpellForSocket(
     // No targets needed — still need to handle additional costs before payment.
     const costReduction = calculateCostReduction(game, playerId, cardInHand);
     const convokeOptions = calculateConvokeOptions(game, playerId, cardInHand);
+    const paymentManaCost = formatManaCostWithReduction(manaCost, costReduction);
 
     (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
     (game.state as any).pendingSpellCasts[effectId] = {
@@ -2693,7 +2704,7 @@ export async function requestCastSpellForSocket(
         spellPaymentRequired: true,
         cardId,
         cardName,
-        manaCost,
+        manaCost: paymentManaCost,
         effectId,
         targets: undefined,
         imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
@@ -3793,6 +3804,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // No targets needed ΓÇö still need to handle additional costs before payment (CR 601.2b -> 601.2h).
         const costReduction = calculateCostReduction(game, playerId, cardInHand);
         const convokeOptions = calculateConvokeOptions(game, playerId, cardInHand);
+        const paymentManaCost = formatManaCostWithReduction(manaCost, costReduction);
 
         (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
         (game.state as any).pendingSpellCasts[effectId] = {
@@ -3940,7 +3952,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             spellPaymentRequired: true,
             cardId,
             cardName,
-            manaCost,
+            manaCost: paymentManaCost,
             effectId,
             targets: undefined,
             imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
@@ -10473,26 +10485,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         const reduction = calculateCostReduction(game, playerId, card, false);
         
         if (reduction.generic > 0 || Object.values(reduction.colors).some(v => v > 0)) {
-          // Calculate reduced mana cost string
-          const parsed = parseManaCost(cardManaCost);
-          const reducedGeneric = Math.max(0, parsed.generic - reduction.generic);
-          
-          // Build the reduced cost string
-          let reducedCostStr = "";
-          
-          // Add colored mana symbols
-          for (const [color, count] of Object.entries(parsed.colors)) {
-            const colorReduction = reduction.colors[color] || 0;
-            const remaining = Math.max(0, count - colorReduction);
-            for (let i = 0; i < remaining; i++) {
-              reducedCostStr += `{${color.charAt(0).toUpperCase()}}`;
-            }
-          }
-          
-          // Add generic mana if any
-          if (reducedGeneric > 0 || reducedCostStr === "") {
-            reducedCostStr = `{${reducedGeneric}}` + reducedCostStr;
-          }
+          const reducedCostStr = formatManaCostWithReduction(cardManaCost, reduction);
 
           costInfo[card.id] = {
             originalCost: cardManaCost,
@@ -10517,20 +10510,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           const reduction = calculateCostReduction(game, playerId, cmdCard, false);
           
           if (reduction.generic > 0 || Object.values(reduction.colors).some(v => v > 0)) {
-            const parsed = parseManaCost(cardManaCost);
-            const reducedGeneric = Math.max(0, parsed.generic - reduction.generic);
-            
-            let reducedCostStr = "";
-            for (const [color, count] of Object.entries(parsed.colors)) {
-              const colorReduction = reduction.colors[color] || 0;
-              const remaining = Math.max(0, count - colorReduction);
-              for (let i = 0; i < remaining; i++) {
-                reducedCostStr += `{${color.charAt(0).toUpperCase()}}`;
-              }
-            }
-            if (reducedGeneric > 0 || reducedCostStr === "") {
-              reducedCostStr = `{${reducedGeneric}}` + reducedCostStr;
-            }
+            const reducedCostStr = formatManaCostWithReduction(cardManaCost, reduction);
 
             costInfo[cmdCard.id] = {
               originalCost: cardManaCost,

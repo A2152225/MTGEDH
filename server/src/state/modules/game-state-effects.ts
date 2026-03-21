@@ -324,14 +324,14 @@ export function hasDelirium(ctx: GameContext, playerId: string): boolean {
 
 /**
  * Count unique card types in a player's graveyard
- * Card types: artifact, creature, enchantment, instant, land, planeswalker, sorcery, tribal
+ * Card types: artifact, battle, creature, enchantment, instant, kindred, land, planeswalker, sorcery
  */
 export function countCardTypesInGraveyard(ctx: GameContext, playerId: string): number {
   const zones = (ctx as any).state?.zones?.[playerId];
   if (!zones || !zones.graveyard) return 0;
   
   const cardTypes = new Set<string>();
-  const typeKeywords = ['artifact', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery', 'tribal'];
+  const typeKeywords = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery'];
   
   for (const card of zones.graveyard) {
     const typeLine = (card?.type_line || '').toLowerCase();
@@ -339,6 +339,9 @@ export function countCardTypesInGraveyard(ctx: GameContext, playerId: string): n
       if (typeLine.includes(type)) {
         cardTypes.add(type);
       }
+    }
+    if (typeLine.includes('tribal')) {
+      cardTypes.add('kindred');
     }
   }
   

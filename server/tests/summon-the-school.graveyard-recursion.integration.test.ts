@@ -75,6 +75,18 @@ describe('Summon the School graveyard recursion (integration)', () => {
     (game.state as any).stack = [];
     (game.state as any).battlefield = [
       {
+        id: 'judge_of_currents',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'judge_of_currents_card',
+          name: 'Judge of Currents',
+          type_line: 'Creature - Merfolk Wizard',
+          oracle_text: 'Whenever a Merfolk you control becomes tapped, you may gain 1 life.',
+        },
+      },
+      {
         id: 'merfolk_1',
         controller: p1,
         owner: p1,
@@ -168,6 +180,7 @@ describe('Summon the School graveyard recursion (integration)', () => {
     expect(step.creatureType).toBe('merfolk');
     expect(step.cardId).toBe('summon_1');
     expect(step.validTargets.map((target: any) => target.id).sort()).toEqual([
+      'judge_of_currents',
       'merfolk_1',
       'merfolk_2',
       'merfolk_3',
@@ -181,7 +194,10 @@ describe('Summon the School graveyard recursion (integration)', () => {
     });
 
     const queueAfter = ResolutionQueueManager.getQueue(gameId);
-    expect(queueAfter.steps).toHaveLength(0);
+    expect(queueAfter.steps).toHaveLength(4);
+    expect(queueAfter.steps.every((queuedStep: any) => queuedStep.type === 'option_choice')).toBe(true);
+    expect(queueAfter.steps.every((queuedStep: any) => queuedStep.sourceName === 'Judge of Currents')).toBe(true);
+    expect(queueAfter.steps.every((queuedStep: any) => queuedStep.mayAbilityPrompt === true)).toBe(true);
 
     const zones = (game.state as any).zones[p1];
     expect(zones.graveyardCount).toBe(0);

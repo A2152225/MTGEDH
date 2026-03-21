@@ -48,7 +48,7 @@ import { processDamageReceivedTriggers, resolveDamageTrigger, type DamageTrigger
 import { emitPendingDamageTriggers } from "./damage-triggers.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack.js";
-import { creatureHasHaste, requestCastSpellForSocket } from "./game-actions.js";
+import { creatureHasHaste, formatManaCostWithReduction, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
@@ -58,6 +58,7 @@ import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./pla
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
 import { buildResolutionEventDataFromGameState, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
+import { getTapTriggers } from "../state/modules/triggers/tap-untap.js";
 
 /**
  * Pending "you may" callbacks keyed by gameId → callbackId.
@@ -75,6 +76,107 @@ export function registerMayCallback(gameId: string, callback: () => Promise<void
   const id = `may_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   pendingMayCallbacks.get(gameId)!.set(id, callback);
   return id;
+}
+
+function pushTapTriggerOntoStack(
+  io: Server,
+  game: any,
+  gameId: string,
+  trigger: any,
+  tappedPermanentId: string
+): void {
+  game.state.stack = game.state.stack || [];
+  const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const stackItem: any = {
+    id: triggerId,
+    type: 'triggered_ability',
+    controller: trigger.controllerId,
+    source: trigger.permanentId,
+    sourceName: trigger.cardName,
+    description: trigger.description,
+    effect: trigger.effect,
+    triggerType: 'tap',
+    mandatory: trigger.mandatory,
+    triggeringPermanentId: tappedPermanentId,
+  };
+
+  if (trigger.createsToken) {
+    stackItem.effectData = {
+      createsToken: true,
+      tokenDetails: trigger.tokenDetails,
+    };
+  }
+
+  game.state.stack.push(stackItem);
+
+  io.to(gameId).emit('triggeredAbility', {
+    gameId,
+    triggerId,
+    playerId: trigger.controllerId,
+    sourcePermanentId: trigger.permanentId,
+    sourceName: trigger.cardName,
+    description: trigger.description,
+    triggerType: 'tap',
+  });
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${trigger.cardName} triggers: ${trigger.description}`,
+    ts: Date.now(),
+  });
+}
+
+function queueTapTriggersForTappedPermanents(
+  io: Server,
+  game: any,
+  gameId: string,
+  tappedPermanentIds: string[],
+  tappedByPlayerId: string
+): void {
+  const uniqueTappedIds = Array.from(new Set(tappedPermanentIds.map((id) => String(id).trim()).filter(Boolean)));
+  if (uniqueTappedIds.length === 0) return;
+
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const ctx = {
+    state: game.state,
+    bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+  } as any;
+
+  let addedStackTrigger = false;
+  for (const tappedPermanentId of uniqueTappedIds) {
+    const tappedPermanent = battlefield.find((perm: any) => perm && String(perm.id) === tappedPermanentId);
+    if (!tappedPermanent) continue;
+
+    const tapTriggers = getTapTriggers(ctx, tappedPermanent, tappedByPlayerId);
+    for (const trigger of tapTriggers) {
+      if (trigger.mandatory === false) {
+        queueMayAbilityStep(
+          io,
+          gameId,
+          game,
+          String(trigger.controllerId),
+          String(trigger.cardName || 'Triggered ability'),
+          String(trigger.effect || trigger.description || '').trim(),
+          String(trigger.description || trigger.effect || '').trim() || undefined,
+          async () => {
+            pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
+            if (typeof game.bumpSeq === 'function') game.bumpSeq();
+            broadcastGame(io, game, gameId);
+          }
+        );
+        continue;
+      }
+
+      pushTapTriggerOntoStack(io, game, gameId, trigger, tappedPermanentId);
+      addedStackTrigger = true;
+    }
+  }
+
+  if (addedStackTrigger && typeof game.bumpSeq === 'function') {
+    game.bumpSeq();
+  }
 }
 
 /** Remove all pending may callbacks for a game (call on game teardown). */
@@ -6625,11 +6727,13 @@ async function handleStepResponse(
       // persisted as part of activateBattlefieldAbility for deterministic replay.
       if (!isTapOtherAsActivationCost) {
         const affectedNames: string[] = [];
+        const newlyTappedIds: string[] = [];
         for (const target of targets) {
           if (action === 'tap') {
             if (!target.tapped) {
               target.tapped = true;
               affectedNames.push(String(target.card?.name || 'permanent'));
+              newlyTappedIds.push(String(target.id || ''));
             }
           } else {
             if (target.tapped) {
@@ -6662,6 +6766,10 @@ async function handleStepResponse(
           });
         } catch (e) {
           debugWarn(1, 'appendEvent(tap/untap) failed:', e);
+        }
+
+        if (action === 'tap' && newlyTappedIds.length > 0) {
+          queueTapTriggersForTappedPermanents(io, game, gameId, newlyTappedIds, String(pid));
         }
       }
 
@@ -6758,6 +6866,136 @@ async function handleStepResponse(
         }
         for (const id of tappedSet) tappedPermanentsForCost.push(id);
 
+        const targetReqs = parseTargetRequirements(abilityText);
+        if (targetReqs.needsTargets) {
+          let validTargets: Array<{ id: string; name: string; type: string; controller?: string; imageUrl?: string; life?: number; isOpponent?: boolean }> = [];
+          const stateBattlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+          const statePlayers = Array.isArray(game.state?.players) ? game.state.players : [];
+          const lifeDict = game.state?.life || {};
+          const startingLife = game.state?.startingLife || 40;
+
+          for (const rawTargetType of targetReqs.targetTypes || []) {
+            const targetType = String(rawTargetType || '').toLowerCase();
+            switch (targetType) {
+              case 'creature':
+                validTargets.push(...stateBattlefield
+                  .filter((perm: any) => String(perm?.card?.type_line || '').toLowerCase().includes('creature'))
+                  .map((perm: any) => ({
+                    id: String(perm.id),
+                    name: perm.card?.name || 'Creature',
+                    type: 'permanent',
+                    controller: perm.controller,
+                    imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+                  })));
+                break;
+              case 'permanent':
+              case 'nonland':
+                validTargets.push(...stateBattlefield
+                  .filter((perm: any) => {
+                    const typeLine = String(perm?.card?.type_line || '').toLowerCase();
+                    return targetType === 'nonland' ? !typeLine.includes('land') : true;
+                  })
+                  .map((perm: any) => ({
+                    id: String(perm.id),
+                    name: perm.card?.name || 'Permanent',
+                    type: 'permanent',
+                    controller: perm.controller,
+                    imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+                  })));
+                break;
+              case 'artifact':
+              case 'enchantment':
+              case 'planeswalker':
+              case 'land':
+                validTargets.push(...stateBattlefield
+                  .filter((perm: any) => String(perm?.card?.type_line || '').toLowerCase().includes(targetType))
+                  .map((perm: any) => ({
+                    id: String(perm.id),
+                    name: perm.card?.name || 'Permanent',
+                    type: 'permanent',
+                    controller: perm.controller,
+                    imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+                  })));
+                break;
+              case 'player':
+              case 'opponent':
+                validTargets.push(...statePlayers
+                  .filter((player: any) => {
+                    if (!player?.id) return false;
+                    return targetType === 'opponent' ? String(player.id) !== controllerId : true;
+                  })
+                  .map((player: any) => ({
+                    id: String(player.id),
+                    name: player.name || String(player.id),
+                    type: 'player',
+                    life: lifeDict[player.id] ?? player.life ?? startingLife,
+                    isOpponent: String(player.id) !== controllerId,
+                  })));
+                break;
+              case 'any':
+                validTargets.push(...stateBattlefield
+                  .filter((perm: any) => {
+                    const typeLine = String(perm?.card?.type_line || '').toLowerCase();
+                    return typeLine.includes('creature') || typeLine.includes('planeswalker');
+                  })
+                  .map((perm: any) => ({
+                    id: String(perm.id),
+                    name: perm.card?.name || 'Permanent',
+                    type: 'permanent',
+                    controller: perm.controller,
+                    imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+                  })));
+                validTargets.push(...statePlayers
+                  .filter((player: any) => player?.id)
+                  .map((player: any) => ({
+                    id: String(player.id),
+                    name: player.name || String(player.id),
+                    type: 'player',
+                    life: lifeDict[player.id] ?? player.life ?? startingLife,
+                    isOpponent: String(player.id) !== controllerId,
+                  })));
+                break;
+            }
+          }
+
+          validTargets = validTargets.filter((target, index, all) => all.findIndex((candidate) => candidate.id === target.id) === index);
+          const minTargets = Number(targetReqs.minTargets ?? 1);
+          const maxTargets = Number(targetReqs.maxTargets ?? minTargets);
+          if (validTargets.length < minTargets) {
+            emitToPlayer(io, controllerId, 'error', {
+              code: 'NO_VALID_TARGETS',
+              message: `${cardName}'s ability requires at least ${minTargets} target(s), but only ${validTargets.length} are available.`,
+            });
+            break;
+          }
+
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: controllerId as any,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: (sourcePerm as any)?.card?.image_uris?.small || (sourcePerm as any)?.card?.image_uris?.normal,
+            description: abilityText,
+            mandatory: minTargets > 0,
+            validTargets,
+            targetTypes: targetReqs.targetTypes,
+            minTargets,
+            maxTargets,
+            targetDescription: targetReqs.targetDescription || 'target',
+            battlefieldAbilityTargetSelection: true,
+            permanentId,
+            abilityId,
+            cardName,
+            abilityText,
+            activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+            tappedPermanentsForCost,
+          } as any);
+
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          broadcastGame(io, game, gameId);
+          break;
+        }
+
         // Put the ability on the stack.
         const stackItem = {
           id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -6766,6 +7004,7 @@ async function handleStepResponse(
           source: permanentId,
           sourceName: cardName,
           description: abilityText,
+          activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
         } as any;
 
         game.state.stack = game.state.stack || [];
@@ -10493,7 +10732,10 @@ async function handleTargetSelectionResponse(
     if (!pendingCast.noTargets) return;
     if (!pendingCast.pendingPaymentAfterAdditionalCost) return;
 
-    const baseManaCost = String(pendingCast.manaCost || '');
+    const baseManaCost = formatManaCostWithReduction(
+      String(pendingCast.manaCost || ''),
+      pendingCast.costReduction,
+    );
     const extraTax = String(pendingCast.additionalCostTax || '');
     const finalManaCost = baseManaCost + extraTax;
 
@@ -11585,6 +11827,108 @@ async function handleTargetSelectionResponse(
   }
 
   // ========================================================================
+  // TARGETED BATTLEFIELD ABILITY CONTINUATION AFTER INTERACTIVE COST PAYMENT
+  // ========================================================================
+  if (stepAny?.battlefieldAbilityTargetSelection === true) {
+    const controllerId = String(step.playerId || pid);
+    const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
+    const abilityId = String(stepAny?.abilityId || '').trim();
+    const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
+    const abilityText = String(stepAny?.abilityText || step.description || '').trim();
+    const activatedAbilityText = String(stepAny?.activatedAbilityText || '').trim();
+    const tappedPermanentsForCost = Array.isArray(stepAny?.tappedPermanentsForCost)
+      ? stepAny.tappedPermanentsForCost.map((id: any) => String(id)).filter(Boolean)
+      : [];
+
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const sourcePerm = battlefield.find((perm: any) => perm && String(perm.id) === permanentId);
+    if (!sourcePerm) {
+      emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+      return;
+    }
+    if (String(sourcePerm.controller || '') !== controllerId) {
+      emitToPlayer(io, controllerId, 'error', { code: 'NOT_CONTROLLER', message: 'You no longer control that permanent' });
+      return;
+    }
+
+    const selectedTargetIds = selections.map((value: any) => String(value)).filter(Boolean);
+    if (selectedTargetIds.length < minTargets || selectedTargetIds.length > maxTargets) {
+      emitToPlayer(io, controllerId, 'error', {
+        code: 'INVALID_TARGET_COUNT',
+        message: `Select ${minTargets === maxTargets ? minTargets : `${minTargets}-${maxTargets}`} target(s).`,
+      });
+      return;
+    }
+
+    const validIds = new Set(validTargets.map((target: any) => String(target?.id || '')).filter(Boolean));
+    for (const id of selectedTargetIds) {
+      if (!validIds.has(id)) {
+        emitToPlayer(io, controllerId, 'error', { code: 'INVALID_TARGET', message: 'Invalid target selection' });
+        return;
+      }
+    }
+
+    const stackItem = {
+      id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'ability' as const,
+      controller: controllerId,
+      source: permanentId,
+      sourceName: cardName,
+      description: abilityText,
+      activatedAbilityText: activatedAbilityText || undefined,
+      targets: selectedTargetIds,
+    } as any;
+
+    game.state.stack = game.state.stack || [];
+    game.state.stack.push(stackItem);
+
+    io.to(gameId).emit('stackUpdate', {
+      gameId,
+      stack: (game.state.stack || []).map((s: any) => ({
+        id: s.id,
+        type: s.type,
+        name: s.sourceName || s.card?.name || 'Ability',
+        controller: s.controller,
+        targets: s.targets,
+        source: s.source,
+        sourceName: s.sourceName,
+        description: s.description,
+      })),
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}'s ability: ${abilityText}`,
+      ts: Date.now(),
+    });
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+        playerId: controllerId,
+        permanentId,
+        abilityId: abilityId || undefined,
+        cardName,
+        abilityText,
+        activatedAbilityText: activatedAbilityText || undefined,
+        targets: selectedTargetIds,
+        tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
+      });
+    } catch {
+      // ignore persistence failures
+    }
+
+    if (tappedPermanentsForCost.length > 0) {
+      queueTapTriggersForTappedPermanents(io, game, gameId, tappedPermanentsForCost, controllerId);
+    }
+
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  // ========================================================================
   // DAMAGE-RECEIVED TRIGGER TARGETING (Brash Taunter, Boros Reckoner, etc.)
   // These triggers are enqueued as TARGET_SELECTION steps from pendingDamageTriggers.
   // ========================================================================
@@ -11813,6 +12157,8 @@ async function handleTargetSelectionResponse(
       message: `${getPlayerName(game, pid)} tapped ${tappedCreatureNames.join(', ')} to return ${cardName} from graveyard to hand.`,
       ts: Date.now(),
     });
+
+    queueTapTriggersForTappedPermanents(io, game, gameId, selections.map((id: any) => String(id)), String(pid));
 
     broadcastGame(io, game, gameId);
     return;
@@ -13637,7 +13983,7 @@ async function handleTargetSelectionResponse(
       pendingCast.targets = selections;
       
       // Calculate final mana cost, accounting for Strive and other target-based modifiers
-      let finalManaCost = manaCost;
+      let finalManaCost = formatManaCostWithReduction(String(manaCost || ''), pendingCast.costReduction);
       let striveCostMessage = '';
       
       // Check for Strive additional cost
@@ -19484,7 +19830,10 @@ async function handleOptionChoiceResponse(
       if (!pendingCast.noTargets) return;
       if (!pendingCast.pendingPaymentAfterAdditionalCost) return;
 
-      const baseManaCost = String(pendingCast.manaCost || '');
+      const baseManaCost = formatManaCostWithReduction(
+        String(pendingCast.manaCost || ''),
+        pendingCast.costReduction,
+      );
       const extraTax = String(pendingCast.additionalCostTax || '');
       const finalManaCost = baseManaCost + extraTax;
 
@@ -21386,7 +21735,10 @@ async function handleMutateTargetSelectionResponse(
       spellPaymentRequired: true,
       cardId,
       cardName,
-      manaCost: pendingCast.mutateCost || pendingCast.manaCost,
+      manaCost: formatManaCostWithReduction(
+        String(pendingCast.mutateCost || pendingCast.manaCost || ''),
+        pendingCast.costReduction,
+      ),
       effectId,
       targets: [targetPermanentId],
       imageUrl: stepData.imageUrl || step.sourceImage,
