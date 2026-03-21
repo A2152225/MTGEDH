@@ -27,6 +27,7 @@ import {
   requiresDecisionToResolve,
   processTriggeredAbilities,
 } from './AutomationService';
+import { DrawCondition, GameEndReason } from './types/gameFlow';
 import {
   DecisionManager,
   DecisionResponse,
@@ -121,11 +122,16 @@ export class GameAutomationController {
   private statuses: Map<string, GameAutomationStatus> = new Map();
   private eventQueues: Map<string, GameEvent[]> = new Map();
   private priorityPassCounts: Map<string, number> = new Map();
+  private loopSignatures: Map<string, Set<string>> = new Map();
+  private rulesEngine: RulesEngineAdapter;
+  private decisionMgr: DecisionManager;
   
   constructor(
-    private rulesEngine: RulesEngineAdapter = rulesEngine,
-    private decisionMgr: DecisionManager = decisionManager
+    rulesEngineOverride?: RulesEngineAdapter,
+    decisionManagerOverride?: DecisionManager
   ) {
+    this.rulesEngine = rulesEngineOverride ?? rulesEngine;
+    this.decisionMgr = decisionManagerOverride ?? decisionManager;
     // Listen for rules engine events
     this.setupEventListeners();
   }
@@ -142,6 +148,7 @@ export class GameAutomationController {
     this.statuses.set(gameId, GameAutomationStatus.RUNNING);
     this.eventQueues.set(gameId, []);
     this.priorityPassCounts.set(gameId, 0);
+    this.loopSignatures.set(gameId, new Set());
     this.decisionMgr.initGame(gameId);
   }
   
@@ -189,12 +196,24 @@ export class GameAutomationController {
     // Check for pending decisions
     const pendingDecisions = this.decisionMgr.getAllDecisions(gameId);
     if (pendingDecisions.length > 0) {
+      this.resetLoopDetection(gameId);
       return {
         state,
         status: GameAutomationStatus.WAITING_FOR_DECISION,
         pendingDecisions,
         log: ['Waiting for player decisions'],
       };
+    }
+
+    const currentPriorityPlayer = this.getPriorityPlayer(state);
+    const currentPlayerHasActions = hasAvailableActions(state, currentPriorityPlayer);
+    if (!currentPlayerHasActions) {
+      const repeatedSignature = this.recordLoopSignature(gameId, state);
+      if (repeatedSignature) {
+        return this.finishGameAsDraw(gameId, state, DrawCondition.MANDATORY_LOOP, 'Game is a draw - mandatory loop detected');
+      }
+    } else {
+      this.resetLoopDetection(gameId);
     }
     
     // Process event queue (triggers, etc.)
@@ -285,6 +304,7 @@ export class GameAutomationController {
     action: any
   ): AutomationStepResult {
     const log: string[] = [];
+    this.resetLoopDetection(gameId);
     
     // Validate action
     const validation = this.rulesEngine.validateAction(gameId, action);
@@ -318,6 +338,7 @@ export class GameAutomationController {
     response: DecisionResponse
   ): AutomationStepResult {
     const log: string[] = [];
+    this.resetLoopDetection(gameId);
     
     // Validate and process decision
     const result = this.decisionMgr.processResponse(gameId, response, state);
@@ -690,6 +711,92 @@ export class GameAutomationController {
     const activePlayers = state.players.filter(p => !p.hasLost && !p.eliminated);
     return activePlayers.length <= 1;
   }
+
+  private recordLoopSignature(gameId: string, state: GameState): boolean {
+    const seen = this.loopSignatures.get(gameId) || new Set<string>();
+    const signature = this.buildLoopSignature(gameId, state);
+    if (seen.has(signature)) {
+      return true;
+    }
+    seen.add(signature);
+    this.loopSignatures.set(gameId, seen);
+    return false;
+  }
+
+  private resetLoopDetection(gameId: string): void {
+    this.loopSignatures.set(gameId, new Set());
+  }
+
+  private buildLoopSignature(gameId: string, state: GameState): string {
+    const queuedEvents = this.eventQueues.get(gameId) || [];
+    const payload = {
+      state,
+      queuedEvents: queuedEvents.map(event => ({ type: event.type, data: event.data })),
+      priorityPassCount: this.priorityPassCounts.get(gameId) || 0,
+    };
+    return this.stableStringify(payload);
+  }
+
+  private stableStringify(value: unknown): string {
+    if (value === null || value === undefined) {
+      return String(value);
+    }
+
+    if (typeof value !== 'object') {
+      return JSON.stringify(value);
+    }
+
+    if (Array.isArray(value)) {
+      return `[${value.map(entry => this.stableStringify(entry)).join(',')}]`;
+    }
+
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== 'timestamp' && key !== 'seq')
+      .sort(([left], [right]) => left.localeCompare(right));
+
+    return `{${entries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${this.stableStringify(entryValue)}`)
+      .join(',')}}`;
+  }
+
+  private finishGameAsDraw(
+    gameId: string,
+    state: GameState,
+    drawCondition: DrawCondition,
+    message: string
+  ): AutomationStepResult {
+    const finishedState = {
+      ...state,
+      status: 'finished' as any,
+      endReason: GameEndReason.DRAW,
+      drawCondition,
+    } as GameState;
+
+    this.statuses.set(gameId, GameAutomationStatus.COMPLETED);
+    this.resetLoopDetection(gameId);
+
+    const gameStates = (this.rulesEngine as any).gameStates;
+    if (gameStates instanceof Map) {
+      gameStates.set(gameId, finishedState);
+    }
+
+    const emit = (this.rulesEngine as any).emit;
+    if (typeof emit === 'function') {
+      emit.call(this.rulesEngine, {
+        type: RulesEngineEvent.GAME_ENDED,
+        timestamp: Date.now(),
+        gameId,
+        data: { reason: GameEndReason.DRAW, drawCondition },
+      });
+    }
+
+    return {
+      state: finishedState,
+      status: GameAutomationStatus.COMPLETED,
+      pendingDecisions: [],
+      log: [message],
+    };
+  }
   
   /**
    * Setup event listeners for rules engine events
@@ -721,6 +828,7 @@ export class GameAutomationController {
     this.statuses.delete(gameId);
     this.eventQueues.delete(gameId);
     this.priorityPassCounts.delete(gameId);
+    this.loopSignatures.delete(gameId);
     this.decisionMgr.clearGame(gameId);
   }
   

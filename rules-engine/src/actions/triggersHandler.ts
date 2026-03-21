@@ -267,8 +267,8 @@ export function checkStepTriggers(
 }
 
 /**
- * Check for tribal creature cast triggers (e.g., Deeproot Waters for Merfolk)
- * Takes into account changeling creatures
+ * Check for tribal spell cast triggers (e.g., Deeproot Waters for Merfolk spells)
+ * Takes into account changeling and Kindred/tribal subtype-bearing spells.
  */
 export function checkTribalCastTriggers(
   state: GameState,
@@ -278,20 +278,19 @@ export function checkTribalCastTriggers(
   const logs: string[] = [];
   const triggeredAbilities: TriggeredAbility[] = [];
   
-  // Get the creature types of the cast card
+  // Get the relevant creature-type subtypes of the cast spell.
   const typeLine = castCard.type_line || '';
   const oracleText = castCard.oracle_text || '';
-  const isCreature = typeLine.toLowerCase().includes('creature');
-  
-  if (!isCreature) {
-    return { state, triggersAdded: 0, logs: [] };
-  }
-  
-  // Get all creature types including changeling check
+
+  // Handle noncreature subtype-bearing spells such as Kindred Sorceries.
   const isChangelingCard = hasChangeling(oracleText, typeLine);
   const creatureTypes = isChangelingCard 
     ? getAllCreatureTypes(typeLine, oracleText)
     : getAllCreatureTypes(typeLine, '');
+
+  if (creatureTypes.length === 0) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
   
   // Find all tribal triggers on battlefield (only for controller)
   for (const perm of state.battlefield || []) {
@@ -306,7 +305,7 @@ export function checkTribalCastTriggers(
     if (hasSpecialTriggeredAbility(cardName)) {
       const config = getTriggeredAbilityConfig(cardName);
       if (config?.triggerEvent === TriggerEvent.CREATURE_SPELL_CAST && config.creatureTypeFilter) {
-        // Check if the cast creature matches the required type
+        // Check if the cast spell matches the required creature type.
         const requiredType = config.creatureTypeFilter.toLowerCase();
         const matchesType = creatureTypes.some(t => t.toLowerCase() === requiredType);
         
@@ -330,13 +329,18 @@ export function checkTribalCastTriggers(
   if (triggeredAbilities.length === 0) {
     return { state, triggersAdded: 0, logs };
   }
-  
-  return processTriggersAutoOracle(
+
+  const result = processTriggersAutoOracle(
     state,
     TriggerEvent.CREATURE_SPELL_CAST,
     triggeredAbilities,
     buildTriggerEventDataFromPayloads(casterId, { affectedPlayerIds: [casterId] })
   );
+
+  return {
+    ...result,
+    logs: [...logs, ...(result.logs || [])],
+  };
 }
 
 /**

@@ -5,8 +5,10 @@ import {
   processTriggers,
   processTriggersAutoOracle,
   checkCombatDamageToPlayerTriggers,
+  checkTribalCastTriggers,
   checkDrawTriggers,
 } from '../src/actions/triggersHandler';
+import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
   return {
@@ -315,5 +317,28 @@ describe('triggersHandler Oracle automation', () => {
     expect(p1.life).toBe(40);
     expect(p2.life).toBe(39);
     expect(p3.life).toBe(40);
+  });
+
+  it('checkTribalCastTriggers uses the merfolk iteration fixture to stack Deeproot Waters token doublers', () => {
+    const start = makeMerfolkIterationState();
+    const startingTokenCount = ((start.battlefield || []) as any[]).filter((perm: any) => perm?.isToken).length;
+
+    const result = checkTribalCastTriggers(
+      start,
+      {
+        name: 'Summon the School',
+        type_line: 'Kindred Sorcery — Merfolk',
+        oracle_text:
+          'Create two 1/1 blue Merfolk Wizard creature tokens. Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.',
+      } as any,
+      'p1'
+    );
+
+    const createdTokens = ((result.state as any).battlefield || []).filter((perm: any) => perm?.isToken);
+
+    expect(result.triggersAdded).toBe(1);
+    expect(createdTokens.length - startingTokenCount).toBe(4);
+    expect(createdTokens).toHaveLength(4);
+    expect(result.logs.some(x => x.includes('Deeproot Waters triggered from casting Summon the School'))).toBe(true);
   });
 });

@@ -109,6 +109,42 @@ describe('Token Creation', () => {
       
       expect(result.otherTriggers.length).toBeGreaterThanOrEqual(0);
     });
+
+    it('should apply stacked token doublers from the battlefield', () => {
+      const battlefield: BattlefieldPermanent[] = [
+        {
+          id: 'perm-anointed',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          counters: {},
+          card: {
+            name: 'Anointed Procession',
+            oracle_text: 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.',
+          } as KnownCardRef,
+        } as BattlefieldPermanent,
+        {
+          id: 'perm-sunborn',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          counters: {},
+          card: {
+            name: 'Exalted Sunborn',
+            oracle_text: 'Flying, lifelink If one or more tokens would be created under your control, twice that many of those tokens are created instead.',
+          } as KnownCardRef,
+        } as BattlefieldPermanent,
+      ];
+
+      const result = createTokens({
+        characteristics: COMMON_TOKENS['Treasure'],
+        count: 1,
+        controllerId: 'player1',
+      }, battlefield);
+
+      expect(result.tokens).toHaveLength(4);
+      expect(result.log).toContain('Applied token multiplier x4');
+    });
   });
 
   describe('createTokensByName', () => {
@@ -157,6 +193,15 @@ describe('Token Creation', () => {
       expect(result!.count).toBe(3);
       expect(result!.characteristics.power).toBe(1);
       expect(result!.characteristics.toughness).toBe(1);
+    });
+
+    it('should parse word-number token quantities and Merfolk subtypes', () => {
+      const result = parseTokenCreationFromText('create two 1/1 blue Merfolk Wizard creature tokens');
+
+      expect(result).not.toBeNull();
+      expect(result!.count).toBe(2);
+      expect(result!.characteristics.subtypes).toContain('Merfolk');
+      expect(result!.characteristics.subtypes).toContain('Wizard');
     });
 
     it('should parse tokens with abilities', () => {

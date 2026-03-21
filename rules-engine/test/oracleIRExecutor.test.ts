@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { GameState } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
+import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
   return {
@@ -26052,6 +26053,45 @@ describe('Oracle IR Executor', () => {
     expect((p2.exile || []).map((c: any) => c.id)).toEqual(['p2c1']);
     expect(p3.library.map((c: any) => c.id)).toEqual(['p3c1', 'p3c2']);
     expect(p3.exile || []).toHaveLength(0);
+  });
+
+  it('uses the merfolk iteration fixture to create eight Merfolk Wizard tokens from Summon the School text', () => {
+    const ir = parseOracleTextToIR('Create two 1/1 blue Merfolk Wizard creature tokens.', 'Summon the School');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeMerfolkIterationState();
+    const startingBattlefieldCount = (start.battlefield || []).length;
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Summon the School',
+    });
+
+    const createdTokens = ((result.state as any).battlefield || []).filter((perm: any) => perm?.isToken);
+
+    expect(result.appliedSteps.some(s => s.kind === 'create_token')).toBe(true);
+    expect((result.state.battlefield || []).length - startingBattlefieldCount).toBe(8);
+    expect(createdTokens).toHaveLength(8);
+    expect(createdTokens.every((perm: any) => perm.controller === 'p1')).toBe(true);
+  });
+
+  it('uses the merfolk iteration fixture for devotion-to-blue where-X evaluation', () => {
+    const ir = parseOracleTextToIR(
+      'Target creature gets +X/+0 until end of turn where X is your devotion to blue.',
+      'Nykthos Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeMerfolkIterationState();
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'drowner-of-secrets',
+    });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'drowner-of-secrets') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(4);
+    expect(ptMod.toughness).toBe(0);
   });
 
   it('buildOracleIRExecutionContext maps spellType hint into referenceSpellTypes', () => {

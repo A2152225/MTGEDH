@@ -11,6 +11,7 @@
  */
 
 import type { BattlefieldPermanent, PlayerID, KnownCardRef } from '../../shared/src';
+import { getTokenMultiplier } from './cards/triggerCopying';
 
 /**
  * Simple UUID generator for token IDs
@@ -556,16 +557,41 @@ export function parseTokenCreationFromText(
   oracleText: string
 ): { characteristics: TokenCharacteristics; count: number } | null {
   const lowerText = oracleText.toLowerCase();
+  const wordCounts: Record<string, number> = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+    thirteen: 13,
+    fourteen: 14,
+    fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+    twenty: 20,
+  };
   
   // Common patterns for token creation
   // "create a/an X" or "create N X"
   const createMatch = lowerText.match(
-    /create\s+(?:a|an|(\d+))\s+(\d+\/\d+)?\s*([a-z,\s]+?)(?:\s+(artifact|creature|enchantment))?(?:\s+tokens?)?/i
+    /create\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+(\d+\/\d+)?\s*([a-z,\s]+?)(?:\s+(artifact|creature|enchantment))?(?:\s+tokens?)?/i
   );
   
   if (!createMatch) return null;
   
-  const count = createMatch[1] ? parseInt(createMatch[1], 10) : 1;
+  const countRaw = String(createMatch[1] || 'a').trim().toLowerCase();
+  const count = /^\d+$/.test(countRaw) ? parseInt(countRaw, 10) : (wordCounts[countRaw] || 1);
   const ptMatch = createMatch[2]?.match(/(\d+)\/(\d+)/);
   const power = ptMatch ? parseInt(ptMatch[1], 10) : undefined;
   const toughness = ptMatch ? parseInt(ptMatch[2], 10) : undefined;
@@ -597,11 +623,18 @@ export function parseTokenCreationFromText(
     'soldier', 'zombie', 'goblin', 'beast', 'spirit', 'angel', 'demon', 'dragon',
     'elf', 'human', 'vampire', 'wolf', 'bird', 'cat', 'rat', 'bat', 'elemental',
     'saproling', 'servo', 'thopter', 'clue', 'treasure', 'food', 'blood', 'warrior',
-    'knight', 'wizard', 'rogue', 'cleric', 'horror', 'insect', 'spider', 'snake',
+    'knight', 'wizard', 'rogue', 'cleric', 'horror', 'insect', 'spider', 'snake', 'merfolk',
   ];
+  const subtypeSource = lowerText
+    .replace(/^create\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+/, '')
+    .replace(/^\d+\/\d+\s+/, '')
+    .replace(/\b(?:white|blue|black|red|green|colorless)\b/g, ' ')
+    .replace(/\b(?:artifact|creature|enchantment|token|tokens)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   
   for (const type of knownCreatureTypes) {
-    if (descriptors.includes(type)) {
+    if (subtypeSource.includes(type)) {
       subtypes.push(type.charAt(0).toUpperCase() + type.slice(1));
     }
   }
@@ -755,8 +788,20 @@ export function createTokens(
   const etbTriggers: ETBTriggerInfo[] = [];
   const otherTriggers: TokenTriggerInfo[] = [];
   const log: string[] = [];
+  const tokenMultiplier = getTokenMultiplier(
+    request.controllerId,
+    battlefield.map(perm => ({
+      controller: perm.controller,
+      oracleText: (perm.card as KnownCardRef)?.oracle_text || (perm as any)?.oracle_text || '',
+    }))
+  );
+  const totalCount = Math.max(0, request.count * tokenMultiplier);
+
+  if (tokenMultiplier > 1) {
+    log.push(`Applied token multiplier x${tokenMultiplier}`);
+  }
   
-  for (let i = 0; i < request.count; i++) {
+  for (let i = 0; i < totalCount; i++) {
     // Create the token
     const token = createTokenPermanent(
       request.characteristics,
