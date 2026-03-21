@@ -16,6 +16,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef, CombatControlEffect } from '../../../shared/src';
 import { isCurrentlyCreature } from '../utils/creatureUtils';
+import { getBlockerCapacity } from '../utils/blockerCapacity';
 
 export interface CombatControlModalProps {
   open: boolean;
@@ -48,6 +49,18 @@ export interface AttackerControlDeclaration {
 export interface BlockerControlDeclaration {
   blockerId: string;
   attackerId: string;
+}
+
+function cloneSelectedBlockers(source: Map<string, Set<string>>): Map<string, Set<string>> {
+  return new Map(Array.from(source.entries()).map(([blockerId, attackerIds]) => [blockerId, new Set(attackerIds)]));
+}
+
+function getBlockerAssignments(selectedBlockers: Map<string, Set<string>>, blockerId: string): string[] {
+  return Array.from(selectedBlockers.get(blockerId) || []);
+}
+
+function countTotalBlockAssignments(selectedBlockers: Map<string, Set<string>>): number {
+  return Array.from(selectedBlockers.values()).reduce((total, attackerIds) => total + attackerIds.size, 0);
 }
 
 interface CreatureInfo {
@@ -217,8 +230,8 @@ export function CombatControlModal({
 }: CombatControlModalProps) {
   // Attackers: map creature ID to target player ID
   const [selectedAttackers, setSelectedAttackers] = useState<Map<string, PlayerID>>(new Map());
-  // Blockers: map blocker ID to attacker ID
-  const [selectedBlockers, setSelectedBlockers] = useState<Map<string, string>>(new Map());
+  // Blockers: map blocker ID to attacker IDs
+  const [selectedBlockers, setSelectedBlockers] = useState<Map<string, Set<string>>>(new Map());
   
   // Reset when modal opens
   useEffect(() => {
@@ -299,15 +312,23 @@ export function CombatControlModal({
   
   const handleSetBlocker = useCallback((blockerId: string, attackerId: string | null) => {
     setSelectedBlockers(prev => {
-      const next = new Map(prev);
+      const next = cloneSelectedBlockers(prev);
+      const blockerPermanent = allCreatures.find(c => c.id === blockerId);
+      const blockerCapacity = blockerPermanent ? getBlockerCapacity(blockerPermanent) : 1;
+      const assignments = next.get(blockerId) || new Set<string>();
       if (attackerId === null) {
         next.delete(blockerId);
-      } else {
-        next.set(blockerId, attackerId);
+      } else if (assignments.has(attackerId)) {
+        assignments.delete(attackerId);
+        if (assignments.size === 0) next.delete(blockerId);
+        else next.set(blockerId, assignments);
+      } else if (assignments.size < blockerCapacity) {
+        assignments.add(attackerId);
+        next.set(blockerId, assignments);
       }
       return next;
     });
-  }, []);
+  }, [allCreatures]);
   
   const handleConfirm = useCallback(() => {
     if (mode === 'attackers') {
@@ -318,8 +339,10 @@ export function CombatControlModal({
       onConfirm({ attackers: attackerDeclarations });
     } else {
       const blockerDeclarations: BlockerControlDeclaration[] = [];
-      selectedBlockers.forEach((attackerId, blockerId) => {
-        blockerDeclarations.push({ blockerId, attackerId });
+      selectedBlockers.forEach((attackerIds, blockerId) => {
+        attackerIds.forEach(attackerId => {
+          blockerDeclarations.push({ blockerId, attackerId });
+        });
       });
       onConfirm({ blockers: blockerDeclarations });
     }
@@ -566,7 +589,7 @@ export function CombatControlModal({
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                   {attackerInfos.map(attacker => {
                     const blockersForThis = Array.from(selectedBlockers.entries())
-                      .filter(([_, attackerId]) => attackerId === attacker.id)
+                      .filter(([_, attackerIds]) => attackerIds.has(attacker.id))
                       .map(([blockerId]) => {
                         const blocker = potentialBlockers.find(b => b.id === blockerId);
                         return blocker?.name || blockerId;
@@ -656,8 +679,11 @@ export function CombatControlModal({
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                   {potentialBlockers.map(blocker => {
-                    const blockedAttackerId = selectedBlockers.get(blocker.id);
-                    const isBlocking = !!blockedAttackerId;
+                    const blockedAttackerIds = getBlockerAssignments(selectedBlockers, blocker.id);
+                    const isBlocking = blockedAttackerIds.length > 0;
+                    const blockerPermanent = allCreatures.find(c => c.id === blocker.id);
+                    const blockerCapacity = blockerPermanent ? getBlockerCapacity(blockerPermanent) : 1;
+                    const capacityLabel = blockerCapacity === Number.POSITIVE_INFINITY ? 'any' : String(blockerCapacity);
                     
                     return (
                       <div
@@ -717,47 +743,62 @@ export function CombatControlModal({
                               {blocker.blockReason}
                             </div>
                           )}
+                          <div style={{ color: '#93c5fd', fontSize: 9, marginTop: 2 }}>
+                            Capacity: {blockedAttackerIds.length}/{capacityLabel}
+                          </div>
                         </div>
                         
                         {/* Attacker selector */}
                         {blocker.canBlock && (
-                          <select
-                            value={blockedAttackerId || ''}
-                            onChange={(e) => {
-                              const attackerId = e.target.value || null;
-                              handleSetBlocker(blocker.id, attackerId);
-                            }}
-                            style={{
-                              width: '100%',
-                              marginTop: 4,
-                              padding: '3px 4px',
-                              fontSize: 10,
-                              borderRadius: 4,
-                              border: '1px solid #555',
-                              background: '#222',
-                              color: '#fff',
-                            }}
-                          >
-                            <option value="">Don't block</option>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
                             {attackerInfos.map(attacker => {
-                              // Check if this blocker can legally block this attacker
                               const attackerPerm = currentAttackers.find(a => a.id === attacker.id);
                               const blockerPerm = allCreatures.find(c => c.id === blocker.id);
                               if (!attackerPerm || !blockerPerm) return null;
-                              
+
                               const { canBlock, reason } = canBlockAttacker(blockerPerm, attackerPerm);
-                              
+                              const isAssignedToAttacker = blockedAttackerIds.includes(attacker.id);
+                              const canAssignMore = isAssignedToAttacker || blockedAttackerIds.length < blockerCapacity;
+
                               return (
-                                <option 
-                                  key={attacker.id} 
-                                  value={attacker.id}
-                                  disabled={!canBlock}
+                                <button
+                                  key={attacker.id}
+                                  onClick={() => handleSetBlocker(blocker.id, attacker.id)}
+                                  disabled={!canBlock || !canAssignMore}
+                                  style={{
+                                    width: '100%',
+                                    padding: '4px 6px',
+                                    fontSize: 10,
+                                    borderRadius: 4,
+                                    border: isAssignedToAttacker ? '1px solid #10b981' : '1px solid #555',
+                                    background: isAssignedToAttacker ? 'rgba(16,185,129,0.25)' : '#222',
+                                    color: (!canBlock || !canAssignMore) ? '#777' : '#fff',
+                                    cursor: (!canBlock || !canAssignMore) ? 'not-allowed' : 'pointer',
+                                  }}
+                                  title={!canBlock ? reason : undefined}
                                 >
-                                  Block {attacker.name} {!canBlock ? `(${reason})` : ''}
-                                </option>
+                                  {isAssignedToAttacker ? 'Unblock' : 'Block'} {attacker.name} {!canBlock ? `(${reason})` : ''}
+                                </button>
                               );
                             })}
-                          </select>
+                            {isBlocking && (
+                              <button
+                                onClick={() => handleSetBlocker(blocker.id, null)}
+                                style={{
+                                  width: '100%',
+                                  padding: '4px 6px',
+                                  fontSize: 10,
+                                  borderRadius: 4,
+                                  border: '1px solid #666',
+                                  background: 'transparent',
+                                  color: '#aaa',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Clear All Blocks
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     );
@@ -810,7 +851,7 @@ export function CombatControlModal({
           >
             {mode === 'attackers' 
               ? `Confirm Attackers (${selectedAttackers.size})`
-              : `Confirm Blockers (${selectedBlockers.size})`}
+              : `Confirm Blockers (${countTotalBlockAssignments(selectedBlockers)})`}
           </button>
         </div>
       </div>

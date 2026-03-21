@@ -8,6 +8,7 @@
 
 import React, { useState, useMemo } from 'react';
 import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef } from '../../../shared/src';
+import { getBlockerCapacity } from '../utils/blockerCapacity';
 
 export interface CombatSelectionModalProps {
   open: boolean;
@@ -269,14 +270,14 @@ function DangerIndicatorBadges({ dangers }: { dangers: DangerIndicators }) {
 function checkMenaceBlocking(
   attackerId: string, 
   attackerDangers: DangerIndicators, 
-  selectedBlockers: Map<string, string>
+  selectedBlockers: Map<string, Set<string>>
 ): { isLegal: boolean; message?: string } {
   if (!attackerDangers.menace) {
     return { isLegal: true };
   }
   
   const blockersForAttacker = Array.from(selectedBlockers.entries())
-    .filter(([_, aid]) => aid === attackerId)
+    .filter(([_, attackerIds]) => attackerIds.has(attackerId))
     .length;
   
   if (blockersForAttacker === 0) {
@@ -288,6 +289,22 @@ function checkMenaceBlocking(
   }
   
   return { isLegal: true };
+}
+
+function cloneSelectedBlockers(source: Map<string, Set<string>>): Map<string, Set<string>> {
+  return new Map(Array.from(source.entries()).map(([blockerId, attackerIds]) => [blockerId, new Set(attackerIds)]));
+}
+
+function getBlockerAssignments(selectedBlockers: Map<string, Set<string>>, blockerId: string): string[] {
+  return Array.from(selectedBlockers.get(blockerId) || []);
+}
+
+function countBlockingCreatures(selectedBlockers: Map<string, Set<string>>): number {
+  return Array.from(selectedBlockers.values()).filter(attackerIds => attackerIds.size > 0).length;
+}
+
+function countTotalBlockAssignments(selectedBlockers: Map<string, Set<string>>): number {
+  return Array.from(selectedBlockers.values()).reduce((total, attackerIds) => total + attackerIds.size, 0);
 }
 
 /**
@@ -409,7 +426,7 @@ export function CombatSelectionModal({
   const [selectedAttackers, setSelectedAttackers] = useState<Map<string, string | undefined>>(new Map());
   
   // For blockers: which blockers block which attackers
-  const [selectedBlockers, setSelectedBlockers] = useState<Map<string, string>>(new Map());
+  const [selectedBlockers, setSelectedBlockers] = useState<Map<string, Set<string>>>(new Map());
   
   // Bulk attack target selection
   const [bulkAttackTarget, setBulkAttackTarget] = useState<string>('');
@@ -588,15 +605,17 @@ export function CombatSelectionModal({
       
       // Get blockers currently assigned to this attacker
       const blockersForThisAttacker = Array.from(selectedBlockers.entries())
-        .filter(([_, aid]) => aid === attacker.id)
+        .filter(([_, attackerIds]) => attackerIds.has(attacker.id))
         .map(([bid]) => bid);
       
       // Check if any available blocker is NOT blocking this attacker
       // (In a full implementation, we'd also check for "can't block" effects)
       const unassignedBlockers = availableForBlock.filter(b => {
-        // Blocker must not be assigned to another attacker
-        const currentAssignment = selectedBlockers.get(b.id);
-        return !currentAssignment || currentAssignment === attacker.id;
+        const currentAssignments = selectedBlockers.get(b.id);
+        if (!currentAssignments || currentAssignments.has(attacker.id)) {
+          return true;
+        }
+        return currentAssignments.size < getBlockerCapacity(b);
       });
       
       const notBlockingLure = unassignedBlockers.filter(b => !blockersForThisAttacker.includes(b.id));
@@ -622,14 +641,16 @@ export function CombatSelectionModal({
     if (attackersWithLure.length === 0) return;
     
     setSelectedBlockers(prev => {
-      const next = new Map(prev);
+      const next = cloneSelectedBlockers(prev);
       
       // For each Lure attacker, assign all able blockers
       for (const attacker of attackersWithLure) {
         for (const blocker of availableForBlock) {
-          // Only assign if not already blocking something else
-          if (!next.has(blocker.id)) {
-            next.set(blocker.id, attacker.id);
+          const currentAssignments = next.get(blocker.id) || new Set<string>();
+          if (currentAssignments.has(attacker.id)) continue;
+          if (currentAssignments.size < getBlockerCapacity(blocker)) {
+            currentAssignments.add(attacker.id);
+            next.set(blocker.id, currentAssignments);
           }
         }
       }
@@ -672,14 +693,22 @@ export function CombatSelectionModal({
     onSkip();
   };
 
-  const handleToggleBlocker = (blockerId: string, attackerId: string) => {
+  const handleToggleBlocker = (blocker: BattlefieldPermanent, attackerId: string) => {
     if (!isInteractive) return; // Don't allow interaction if read-only
     setSelectedBlockers(prev => {
-      const next = new Map(prev);
-      if (next.get(blockerId) === attackerId) {
-        next.delete(blockerId);
-      } else {
-        next.set(blockerId, attackerId);
+      const next = cloneSelectedBlockers(prev);
+      const blockerId = blocker.id;
+      const assignments = next.get(blockerId) || new Set<string>();
+      if (assignments.has(attackerId)) {
+        assignments.delete(attackerId);
+        if (assignments.size === 0) {
+          next.delete(blockerId);
+        } else {
+          next.set(blockerId, assignments);
+        }
+      } else if (assignments.size < getBlockerCapacity(blocker)) {
+        assignments.add(attackerId);
+        next.set(blockerId, assignments);
       }
       return next;
     });
@@ -700,10 +729,12 @@ export function CombatSelectionModal({
       }));
       onConfirm(selections);
     } else {
-      const selections: BlockerSelection[] = Array.from(selectedBlockers.entries()).map(([blockerId, attackerId]) => ({
-        blockerId,
-        attackerId,
-      }));
+      const selections: BlockerSelection[] = [];
+      selectedBlockers.forEach((attackerIds, blockerId) => {
+        attackerIds.forEach(attackerId => {
+          selections.push({ blockerId, attackerId });
+        });
+      });
       onConfirm(selections);
     }
   };
@@ -1272,7 +1303,7 @@ export function CombatSelectionModal({
                   {attackingCreatures.map(attacker => {
                     const { name, pt, effectivePower, imageUrl, dangers } = getCreatureInfo(attacker);
                     const blockersForThis = Array.from(selectedBlockers.entries())
-                      .filter(([_, attackerId]) => attackerId === attacker.id)
+                      .filter(([_, attackerIds]) => attackerIds.has(attacker.id))
                       .map(([blockerId]) => blockerId);
                     const menaceViolation = menaceViolations.get(attacker.id);
                     const lureViolation = lureViolations.get(attacker.id);
@@ -1360,7 +1391,7 @@ export function CombatSelectionModal({
             {/* Show available blockers */}
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: '#10b981' }}>
-                🛡️ Your Creatures ({availableForBlock.length} can block, {selectedBlockers.size} blocking)
+                🛡️ Your Creatures ({availableForBlock.length} can block, {countBlockingCreatures(selectedBlockers)} blocking, {countTotalBlockAssignments(selectedBlockers)} assignments)
               </div>
               
               {availableForBlock.length === 0 ? (
@@ -1372,13 +1403,16 @@ export function CombatSelectionModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {blockerGroups.map(group => {
                     // Count how many from this group are blocking
-                    const blockingInGroup = group.creatures.filter(c => selectedBlockers.has(c.id)).length;
-                    const availableInGroup = group.creatures.length - blockingInGroup;
+                    const blockingInGroup = group.creatures.filter(c => (selectedBlockers.get(c.id)?.size || 0) > 0).length;
+                    const availableInGroup = group.creatures.reduce((total, creature) => {
+                      const usedCapacity = selectedBlockers.get(creature.id)?.size || 0;
+                      return total + Math.max(0, getBlockerCapacity(creature) - usedCapacity);
+                    }, 0);
                     
                     // Get blocking assignments breakdown
                     const blockingBreakdown = attackingCreatures.map(attacker => {
                       const attackerInfo = getCreatureInfo(attacker);
-                      const count = group.creatures.filter(c => selectedBlockers.get(c.id) === attacker.id).length;
+                      const count = group.creatures.filter(c => selectedBlockers.get(c.id)?.has(attacker.id)).length;
                       return { attacker, attackerInfo, count };
                     }).filter(b => b.count > 0);
                     
@@ -1450,7 +1484,7 @@ export function CombatSelectionModal({
                               const dangerStr = dangerText.join('');
                               
                               // Count current blockers from this group for this attacker
-                              const currentCount = group.creatures.filter(c => selectedBlockers.get(c.id) === attacker.id).length;
+                              const currentCount = group.creatures.filter(c => selectedBlockers.get(c.id)?.has(attacker.id)).length;
                               
                               return (
                                 <div key={attacker.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1460,11 +1494,16 @@ export function CombatSelectionModal({
                                   <button
                                     onClick={() => {
                                       // Remove one blocker from this attacker
-                                      const blockerToRemove = group.creatures.find(c => selectedBlockers.get(c.id) === attacker.id);
+                                      const blockerToRemove = group.creatures.find(c => selectedBlockers.get(c.id)?.has(attacker.id));
                                       if (blockerToRemove) {
                                         setSelectedBlockers(prev => {
-                                          const next = new Map(prev);
-                                          next.delete(blockerToRemove.id);
+                                          const next = cloneSelectedBlockers(prev);
+                                          const assignments = next.get(blockerToRemove.id);
+                                          if (assignments) {
+                                            assignments.delete(attacker.id);
+                                            if (assignments.size === 0) next.delete(blockerToRemove.id);
+                                            else next.set(blockerToRemove.id, assignments);
+                                          }
                                           return next;
                                         });
                                       }
@@ -1488,14 +1527,11 @@ export function CombatSelectionModal({
                                   <button
                                     onClick={() => {
                                       // Add one blocker to this attacker
-                                      const unassignedBlocker = group.creatures.find(c => !selectedBlockers.has(c.id));
-                                      if (unassignedBlocker) {
-                                        setSelectedBlockers(prev => {
-                                          const next = new Map(prev);
-                                          next.set(unassignedBlocker.id, attacker.id);
-                                          return next;
-                                        });
-                                      }
+                                      const assignableBlocker = group.creatures.find(c => {
+                                        const assignments = selectedBlockers.get(c.id) || new Set<string>();
+                                        return !assignments.has(attacker.id) && assignments.size < getBlockerCapacity(c);
+                                      });
+                                      if (assignableBlocker) handleToggleBlocker(assignableBlocker, attacker.id);
                                     }}
                                     disabled={availableInGroup === 0}
                                     style={{
@@ -1519,7 +1555,7 @@ export function CombatSelectionModal({
                               <button
                                 onClick={() => {
                                   setSelectedBlockers(prev => {
-                                    const next = new Map(prev);
+                                    const next = cloneSelectedBlockers(prev);
                                     for (const c of group.creatures) {
                                       next.delete(c.id);
                                     }
@@ -1551,8 +1587,10 @@ export function CombatSelectionModal({
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                   {availableForBlock.map(blocker => {
                     const { name, pt, effectivePower, effectiveToughness, imageUrl, dangers } = getCreatureInfo(blocker);
-                    const blockedAttackerId = selectedBlockers.get(blocker.id);
-                    const isBlocking = !!blockedAttackerId;
+                    const blockerAssignments = getBlockerAssignments(selectedBlockers, blocker.id);
+                    const isBlocking = blockerAssignments.length > 0;
+                    const blockerCapacity = getBlockerCapacity(blocker);
+                    const capacityLabel = blockerCapacity === Number.POSITIVE_INFINITY ? 'any' : String(blockerCapacity);
                     
                     return (
                       <div
@@ -1616,53 +1654,69 @@ export function CombatSelectionModal({
                               ⚠️ Will die (0 toughness)
                             </div>
                           )}
+                          <div style={{ fontSize: 9, color: '#93c5fd', marginTop: 2 }}>
+                            Capacity: {blockerAssignments.length}/{capacityLabel}
+                          </div>
                         </div>
                         
                         {/* Blocker's own abilities */}
                         <DangerIndicatorBadges dangers={dangers} />
                         
-                        {/* Attacker selector */}
-                        <select
-                          value={blockedAttackerId || ''}
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              handleToggleBlocker(blocker.id, e.target.value);
-                            } else {
-                              // Remove the blocker assignment
-                              setSelectedBlockers(prev => {
-                                const next = new Map(prev);
-                                next.delete(blocker.id);
-                                return next;
-                              });
-                            }
-                          }}
-                          style={{
-                            width: '100%',
-                            marginTop: 4,
-                            padding: '2px 4px',
-                            fontSize: 10,
-                            borderRadius: 4,
-                            border: '1px solid #555',
-                            background: '#222',
-                            color: '#fff',
-                          }}
-                        >
-                          <option value="">Don't block</option>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
                           {attackingCreatures.map(attacker => {
                             const attackerInfo = getCreatureInfo(attacker);
+                            const isAssignedToAttacker = blockerAssignments.includes(attacker.id);
+                            const canAssignMore = isAssignedToAttacker || blockerAssignments.length < blockerCapacity;
                             const dangerText = [];
                             if (attackerInfo.dangers.deathtouch) dangerText.push('DT');
                             if (attackerInfo.dangers.infect) dangerText.push('INF');
                             if (attackerInfo.dangers.trample) dangerText.push('TRM');
                             if (attackerInfo.dangers.menace) dangerText.push('MEN');
-                            const dangerStr = dangerText.length > 0 ? ` ⚠️${dangerText.join('/')}` : '';
+                            const dangerStr = dangerText.length > 0 ? ` ${dangerText.join('/')}` : '';
                             return (
-                              <option key={attacker.id} value={attacker.id}>
-                                Block {attackerInfo.name} ({attackerInfo.pt}){dangerStr}
-                              </option>
+                              <button
+                                key={attacker.id}
+                                onClick={() => handleToggleBlocker(blocker, attacker.id)}
+                                disabled={!canAssignMore}
+                                style={{
+                                  width: '100%',
+                                  padding: '4px 6px',
+                                  fontSize: 10,
+                                  borderRadius: 4,
+                                  border: isAssignedToAttacker ? '1px solid #10b981' : '1px solid #555',
+                                  background: isAssignedToAttacker ? 'rgba(16,185,129,0.25)' : '#222',
+                                  color: canAssignMore ? '#fff' : '#777',
+                                  cursor: canAssignMore ? 'pointer' : 'not-allowed',
+                                }}
+                              >
+                                {isAssignedToAttacker ? 'Unblock' : 'Block'} {attackerInfo.name} ({attackerInfo.pt}){dangerStr}
+                              </button>
                             );
                           })}
-                        </select>
+                          {isBlocking && (
+                            <button
+                              onClick={() => {
+                                setSelectedBlockers(prev => {
+                                  const next = cloneSelectedBlockers(prev);
+                                  next.delete(blocker.id);
+                                  return next;
+                                });
+                              }}
+                              style={{
+                                width: '100%',
+                                padding: '4px 6px',
+                                fontSize: 10,
+                                borderRadius: 4,
+                                border: '1px solid #666',
+                                background: 'transparent',
+                                color: '#aaa',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Clear All Blocks
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1726,7 +1780,7 @@ export function CombatSelectionModal({
           >
             {mode === 'attackers' 
               ? `Attack with ${selectedAttackers.size} Creature${selectedAttackers.size !== 1 ? 's' : ''}`
-              : `Confirm Blockers (${selectedBlockers.size})`}
+              : `Confirm Blockers (${countTotalBlockAssignments(selectedBlockers)})`}
           </button>
         </div>
       </div>
