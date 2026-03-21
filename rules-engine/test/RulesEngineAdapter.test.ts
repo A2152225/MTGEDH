@@ -926,6 +926,126 @@ describe('RulesEngineAdapter', () => {
       expect(nykthos?.tapped).toBe(false);
     });
 
+    it('should emit CHOICE_REQUIRED for unresolved Merrow Reejerey trigger choices during stack resolution', () => {
+      const start = makeMerfolkIterationState({
+        id: 'test-game',
+      } as any);
+
+      adapter.initializeGame('test-game', start as any);
+
+      const observedEvents: any[] = [];
+      adapter.on(RulesEngineEvent.CHOICE_REQUIRED, (event) => {
+        observedEvents.push(event);
+      });
+
+      const adapterAny = adapter as any;
+      const stacks = adapterAny.stacks as Map<string, any>;
+      stacks.set('test-game', {
+        objects: [
+          {
+            id: 'stack-trigger-reejerey-choice',
+            spellId: 'merrow-reejerey',
+            cardName: 'Merrow Reejerey',
+            controllerId: 'p1',
+            targets: [],
+            timestamp: Date.now(),
+            type: 'ability',
+            triggerMeta: {
+              effectText: 'You may tap or untap target permanent.',
+              triggerEventDataSnapshot: {
+                sourceId: 'merrow-reejerey',
+                sourceControllerId: 'p1',
+              },
+            },
+          },
+        ],
+      });
+
+      const result = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const nykthos = result.next.battlefield.find((perm: any) => perm.id === 'nykthos-shrine-to-nyx') as any;
+      expect(nykthos?.tapped).toBe(false);
+      expect(observedEvents).toHaveLength(1);
+      expect(observedEvents[0].type).toBe(RulesEngineEvent.CHOICE_REQUIRED);
+      expect(observedEvents[0].data.sourceName).toBe('Merrow Reejerey');
+      expect(observedEvents[0].data.choiceEvents.map((choice: any) => choice.type)).toEqual([
+        'may_ability',
+        'target_selection',
+        'option_choice',
+      ]);
+    });
+
+    it('should emit CHOICE_REQUIRED for unresolved target-opponent trigger choices during stack resolution', () => {
+      const multiplayerState: any = {
+        ...testGameState,
+        players: [
+          ...testGameState.players,
+          {
+            id: 'player3',
+            name: 'Player 3',
+            seat: 2,
+            life: 40,
+            hand: [],
+            library: [],
+            graveyard: [],
+            battlefield: [],
+            exile: [],
+            commandZone: [],
+            counters: {},
+            hasLost: false,
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+        ],
+        turnOrder: ['player1', 'player2', 'player3'],
+      };
+
+      adapter.initializeGame('test-game', multiplayerState);
+
+      const observedEvents: any[] = [];
+      adapter.on(RulesEngineEvent.CHOICE_REQUIRED, (event) => {
+        observedEvents.push(event);
+      });
+
+      const adapterAny = adapter as any;
+      const stacks = adapterAny.stacks as Map<string, any>;
+      stacks.set('test-game', {
+        objects: [
+          {
+            id: 'stack-trigger-target-opponent-choice',
+            spellId: 'grim-harbinger',
+            cardName: 'Grim Harbinger',
+            controllerId: 'player1',
+            targets: [],
+            timestamp: Date.now(),
+            type: 'ability',
+            triggerMeta: {
+              effectText: 'Target opponent loses 1 life.',
+              triggerEventDataSnapshot: {
+                sourceId: 'grim-harbinger',
+                sourceControllerId: 'player1',
+              },
+            },
+          },
+        ],
+      });
+
+      const result = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      const player2 = result.next.players.find(p => p.id === 'player2');
+      const player3 = result.next.players.find(p => p.id === 'player3');
+      expect(player2?.life).toBe(40);
+      expect(player3?.life).toBe(40);
+      expect(observedEvents).toHaveLength(1);
+      expect(observedEvents[0].data.choiceEvents.map((choice: any) => choice.type)).toEqual([
+        'target_selection',
+      ]);
+      expect(observedEvents[0].data.choiceEvents[0].targetTypes).toEqual(['opponent']);
+    });
+
     it('should resolve legacy stack object target_opponent effect from singleton targets without snapshot bindings', () => {
       const multiplayerState: any = {
         ...testGameState,

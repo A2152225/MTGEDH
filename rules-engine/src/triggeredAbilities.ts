@@ -944,9 +944,44 @@ function buildPermanentTargetChoiceOptions(state: GameState): readonly { id: str
       const card = perm?.card || {};
       const name = String(card?.name || perm?.name || id).trim() || id;
       const imageUrl = card?.image_uris?.small || card?.image_uris?.normal || undefined;
-      return { id, name, imageUrl };
+      const option: { id: string; name: string; imageUrl?: string } = { id, name };
+      if (imageUrl) {
+        option.imageUrl = imageUrl;
+      }
+      return option;
     })
     .filter((option): option is { id: string; name: string; imageUrl?: string } => Boolean(option));
+}
+
+function buildPlayerTargetChoiceOptions(
+  state: GameState,
+  controllerId: string,
+  mode: 'player' | 'opponent'
+): readonly { id: string; name: string }[] {
+  return ((state.players || []) as any[])
+    .map((player: any) => {
+      const id = normalizeTriggerContextId(player?.id);
+      if (!id) return undefined;
+      if (mode === 'opponent' && id === controllerId) return undefined;
+      return {
+        id,
+        name: String(player?.name || id).trim() || id,
+      };
+    })
+    .filter((option): option is { id: string; name: string } => Boolean(option));
+}
+
+function getUnresolvedPlayerTargetKinds(steps: readonly any[]): { needsPlayerTarget: boolean; needsOpponentTarget: boolean } {
+  let needsPlayerTarget = false;
+  let needsOpponentTarget = false;
+
+  for (const step of steps) {
+    const whoKind = String((step as any)?.who?.kind || '').trim();
+    if (whoKind === 'target_player') needsPlayerTarget = true;
+    if (whoKind === 'target_opponent') needsOpponentTarget = true;
+  }
+
+  return { needsPlayerTarget, needsOpponentTarget };
 }
 
 export function buildTriggeredAbilityChoiceEvents(
@@ -961,6 +996,7 @@ export function buildTriggeredAbilityChoiceEvents(
   });
   const sourceImage = getTriggerSourceImage(state, ability.sourceId);
   const choiceEvents: ChoiceEvent[] = [];
+  const unresolvedPlayerTargets = getUnresolvedPlayerTargetKinds(steps as any[]);
 
   if (ability.optional || steps.some(step => Boolean((step as any).optional))) {
     choiceEvents.push(
@@ -973,6 +1009,44 @@ export function buildTriggeredAbilityChoiceEvents(
         sourceImage
       )
     );
+  }
+
+  if (unresolvedPlayerTargets.needsOpponentTarget && !enrichedEventData?.targetOpponentId) {
+    const validTargets = buildPlayerTargetChoiceOptions(state, ability.controllerId, 'opponent');
+    if (validTargets.length > 0) {
+      choiceEvents.push(
+        createTargetSelectionEvent(
+          ability.controllerId as PlayerID,
+          ability.sourceId,
+          ability.sourceName,
+          validTargets,
+          ['opponent'],
+          1,
+          1,
+          true,
+          sourceImage
+        )
+      );
+    }
+  }
+
+  if (unresolvedPlayerTargets.needsPlayerTarget && !enrichedEventData?.targetPlayerId) {
+    const validTargets = buildPlayerTargetChoiceOptions(state, ability.controllerId, 'player');
+    if (validTargets.length > 0) {
+      choiceEvents.push(
+        createTargetSelectionEvent(
+          ability.controllerId as PlayerID,
+          ability.sourceId,
+          ability.sourceName,
+          validTargets,
+          ['player'],
+          1,
+          1,
+          true,
+          sourceImage
+        )
+      );
+    }
   }
 
   for (const step of steps) {

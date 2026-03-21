@@ -779,6 +779,27 @@ describe('Trigger Parsing', () => {
       expect(events.map(event => event.type)).toEqual([ChoiceEventType.MAY_ABILITY]);
     });
 
+    it('buildTriggeredAbilityChoiceEvents returns target-opponent prompt when target opponent is unresolved', () => {
+      const start = makeState();
+      const ability = {
+        id: 'target-opponent-choice-trigger',
+        sourceId: 'grim-harbinger',
+        sourceName: 'Grim Harbinger',
+        controllerId: 'p1',
+        keyword: TriggerKeyword.WHENEVER,
+        event: TriggerEvent.CREATURE_DIES,
+        effect: 'Target opponent loses 1 life.',
+        optional: false,
+      } as any;
+
+      const events = buildTriggeredAbilityChoiceEvents(start, ability);
+      const targetEvent = events[0] as any;
+
+      expect(events.map(event => event.type)).toEqual([ChoiceEventType.TARGET_SELECTION]);
+      expect(targetEvent.targetTypes).toEqual(['opponent']);
+      expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['p2', 'p3']);
+    });
+
     it('processEventAndExecuteTriggeredOracle rechecks intervening-if against resolutionEventData when provided', () => {
       const start = makeState();
       const abilities = [

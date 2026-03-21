@@ -57,6 +57,7 @@ import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
+import { buildResolutionEventDataFromGameState, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
 
 /**
  * Pending "you may" callbacks keyed by gameId → callbackId.
@@ -4944,6 +4945,17 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       
       const game = ensureGame(gameId);
       if (game) {
+        const cancelledGroupId = String((cancelledStep as any)?.rulesChoiceGroupId || '').trim();
+        if (cancelledGroupId) {
+          const remainingGroupSteps = ResolutionQueueManager
+            .getQueue(gameId)
+            .steps
+            .filter((queuedStep: any) => queuedStep?.rulesChoiceGroupId === cancelledGroupId);
+          for (const remainingStep of remainingGroupSteps) {
+            ResolutionQueueManager.cancelStep(gameId, remainingStep.id);
+          }
+        }
+
         // Optional PLAYER_CHOICE: cancelling means "declined".
         if (cancelledStep.type === ResolutionStepType.PLAYER_CHOICE) {
           const effectData = (cancelledStep as any)?.effectData;
@@ -5235,6 +5247,201 @@ function getFilteredValidTargetsForStep(
   const filtered = (step.validTargets || []).filter((t: any) => !previouslyChosen.has(t.id));
   if (filtered.length < (step.minTargets ?? 0)) return step.validTargets;
   return filtered;
+}
+
+function extractResolutionSelectionId(selection: any): string | undefined {
+  if (typeof selection === 'string') {
+    const normalized = selection.trim();
+    return normalized || undefined;
+  }
+
+  if (Array.isArray(selection)) {
+    for (const entry of selection) {
+      const extracted = extractResolutionSelectionId(entry);
+      if (extracted) return extracted;
+    }
+    return undefined;
+  }
+
+  if (selection && typeof selection === 'object') {
+    const id = typeof (selection as any).id === 'string' ? (selection as any).id.trim() : '';
+    if (id) return id;
+    const value = typeof (selection as any).value === 'string' ? (selection as any).value.trim() : '';
+    if (value) return value;
+    const choiceId = typeof (selection as any).choiceId === 'string' ? (selection as any).choiceId.trim() : '';
+    if (choiceId) return choiceId;
+  }
+
+  return undefined;
+}
+
+function isRulesChoiceMayAccepted(step: ResolutionStep): boolean {
+  const stepAny = step as any;
+  const response = step.response as any;
+  if (!stepAny?.mayAbilityPrompt) return true;
+  if (response?.cancelled) return false;
+  return extractResolutionSelectionId(response?.selections) === 'yes';
+}
+
+function extractResolutionSelectionIds(selection: any): string[] {
+  if (typeof selection === 'string') {
+    const normalized = selection.trim();
+    return normalized ? [normalized] : [];
+  }
+
+  if (Array.isArray(selection)) {
+    return selection
+      .flatMap((entry: any) => extractResolutionSelectionIds(entry))
+      .filter((id: string, index: number, items: string[]) => items.indexOf(id) === index);
+  }
+
+  const extracted = extractResolutionSelectionId(selection);
+  return extracted ? [extracted] : [];
+}
+
+function buildRulesChoiceExecutionOverrides(
+  game: any,
+  controllerId: string,
+  completedGroupSteps: any[]
+): Record<string, any> {
+  const overrides: Record<string, any> = {};
+  const playerIds = new Set(
+    ((game?.state?.players || []) as any[])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter(Boolean)
+  );
+
+  for (const completed of completedGroupSteps) {
+    if (completed?.type === ResolutionStepType.TARGET_SELECTION) {
+      const selectedIds = extractResolutionSelectionIds(completed?.response?.selections);
+      if (selectedIds.length === 0) continue;
+
+      const normalizedTargetTypes = Array.isArray(completed?.targetTypes)
+        ? completed.targetTypes.map((entry: any) => String(entry || '').toLowerCase())
+        : [];
+
+      if (normalizedTargetTypes.includes('opponent')) {
+        if (selectedIds.length === 1) {
+          overrides.targetOpponentId = selectedIds[0];
+          overrides.targetPlayerId = selectedIds[0];
+        } else {
+          overrides.affectedOpponentIds = selectedIds;
+          overrides.affectedPlayerIds = selectedIds;
+        }
+        continue;
+      }
+
+      if (normalizedTargetTypes.includes('player')) {
+        if (selectedIds.length === 1) {
+          overrides.targetPlayerId = selectedIds[0];
+          if (selectedIds[0] !== controllerId) {
+            overrides.targetOpponentId = selectedIds[0];
+          }
+        } else {
+          overrides.affectedPlayerIds = selectedIds;
+          const opponentIds = selectedIds.filter((id: string) => id !== controllerId);
+          if (opponentIds.length > 0) {
+            overrides.affectedOpponentIds = opponentIds;
+          }
+        }
+        continue;
+      }
+
+      const nonPlayerIds = selectedIds.filter((id: string) => !playerIds.has(id));
+      if (nonPlayerIds.length === 1) {
+        overrides.targetPermanentId = nonPlayerIds[0];
+      }
+      continue;
+    }
+
+    if (completed?.mayAbilityPrompt === true) {
+      continue;
+    }
+
+    if (completed?.type === ResolutionStepType.OPTION_CHOICE) {
+      const selectedId = extractResolutionSelectionId(completed?.response?.selections);
+      if (selectedId === 'tap' || selectedId === 'untap') {
+        overrides.tapOrUntapChoice = selectedId;
+      }
+    }
+  }
+
+  return overrides;
+}
+
+async function handleRulesChoiceGroupResponse(
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): Promise<void> {
+  const stepAny = step as any;
+  const groupId = String(stepAny?.rulesChoiceGroupId || '').trim();
+  if (!groupId) return;
+
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  const pendingGroupSteps = queue.steps.filter((queuedStep: any) => queuedStep?.rulesChoiceGroupId === groupId);
+
+  if (stepAny?.mayAbilityPrompt && !isRulesChoiceMayAccepted(step)) {
+    for (const pendingStep of pendingGroupSteps) {
+      ResolutionQueueManager.cancelStep(gameId, pendingStep.id);
+    }
+    debug(2, `[Resolution] Declined grouped rules choice ${groupId} for ${String(stepAny?.rulesTriggerSourceName || step.sourceName || 'ability')}`);
+    return;
+  }
+
+  if (pendingGroupSteps.length > 0) {
+    return;
+  }
+
+  const completedGroupSteps = queue.completedSteps
+    .filter((completed: any) => completed?.status === ResolutionStepStatus.COMPLETED && completed?.rulesChoiceGroupId === groupId)
+    .sort((left: any, right: any) => Number(left?.rulesChoiceIndex ?? 0) - Number(right?.rulesChoiceIndex ?? 0));
+
+  if (completedGroupSteps.length === 0) {
+    return;
+  }
+
+  const firstStep = completedGroupSteps[0] as any;
+  const controllerId = String(firstStep?.rulesTriggerControllerId || response.playerId || '').trim();
+  const sourceId = String(firstStep?.rulesTriggerSourceId || firstStep?.sourceId || '').trim();
+  const sourceName = String(firstStep?.rulesTriggerSourceName || firstStep?.sourceName || 'Ability').trim() || 'Ability';
+  const effectText = String(firstStep?.rulesTriggerEffectText || firstStep?.fullAbilityText || firstStep?.effectText || '').trim();
+
+  if (!controllerId || !sourceId || !effectText) {
+    debugWarn(1, `[Resolution] Missing grouped rules choice metadata for ${groupId}`);
+    return;
+  }
+
+  const executionOverrides = buildRulesChoiceExecutionOverrides(game, controllerId, completedGroupSteps);
+
+  const executionEventData = buildResolutionEventDataFromGameState(
+    game.state as any,
+    controllerId,
+    {
+      ...(firstStep?.rulesTriggerEventData || {}),
+      ...executionOverrides,
+    } as any
+  );
+
+  const executeResult = executeTriggeredAbilityEffectWithOracleIR(
+    game.state as any,
+    {
+      controllerId: controllerId as any,
+      sourceId,
+      sourceName,
+      effect: effectText,
+    },
+    executionEventData,
+    { allowOptional: true }
+  );
+
+  game.state = executeResult.state as any;
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+
+  debug(2, `[Resolution] Executed grouped rules choice ${groupId} for ${sourceName}: ${(executeResult.log || []).join(' | ')}`);
 }
 
 /**
@@ -5708,6 +5915,11 @@ async function handleStepResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse
 ): Promise<void> {
+  if (String((step as any)?.rulesChoiceGroupId || '').trim()) {
+    await handleRulesChoiceGroupResponse(game, gameId, step, response);
+    return;
+  }
+
   if (response.cancelled) {
     // Most cancelled steps are a no-op. Some steps (e.g. Ward payments / optional costs)
     // need custom cancellation semantics handled in their normal handlers.

@@ -29,6 +29,7 @@ export enum RulesEngineEvent {
   ABILITY_ACTIVATED = 'abilityActivated',
   ABILITY_RESOLVED = 'abilityResolved',
   TRIGGERED_ABILITY = 'triggeredAbility',
+  CHOICE_REQUIRED = 'choiceRequired',
   
   // Mana
   MANA_ABILITY_ACTIVATED = 'manaAbilityActivated',

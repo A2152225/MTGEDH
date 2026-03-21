@@ -149,9 +149,16 @@ class ResolutionQueueManagerClass {
   /**
    * Add a resolution step from a rules-engine ChoiceEvent
    */
-  addStepFromChoiceEvent(gameId: string, choiceEvent: ChoiceEvent): ResolutionStep {
+  addStepFromChoiceEvent(
+    gameId: string,
+    choiceEvent: ChoiceEvent,
+    extraConfig?: Partial<CreateResolutionStepConfig> & Record<string, any>
+  ): ResolutionStep {
     const queue = this.getQueue(gameId);
-    const step = choiceEventToStep(choiceEvent);
+    const step = createResolutionStep({
+      ...(choiceEventToStep(choiceEvent) as any),
+      ...(extraConfig || {}),
+    });
     addStep(queue, step);
     this.emit(ResolutionQueueEvent.STEP_ADDED, gameId, step);
     this.emit(ResolutionQueueEvent.QUEUE_CHANGED, gameId);

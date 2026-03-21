@@ -13,6 +13,7 @@
 import type { Server } from 'socket.io';
 import { rulesEngine, RulesEngineEvent, type RulesEvent } from '../../rules-engine/src/RulesEngineAdapter.js';
 import type { GameState, PlayerID, CommanderInfo } from '../../shared/src/index.js';
+import { ResolutionQueueManager } from './state/resolution/index.js';
 
 /**
  * Bridge between existing game state and rules engine
@@ -178,6 +179,42 @@ export class RulesBridge {
     // });
     
     // Card events
+    rulesEngine.on(RulesEngineEvent.CHOICE_REQUIRED, (event) => {
+      if (event.gameId !== this.gameId) {
+        return;
+      }
+
+      const choiceEvents = Array.isArray(event.data?.choiceEvents) ? event.data.choiceEvents : [];
+      const choiceGroupId = String(
+        event.data?.stackObjectId || event.data?.sourceId || `rules-choice-${event.timestamp}`
+      );
+
+      choiceEvents.forEach((choiceEvent, index) => {
+        ResolutionQueueManager.addStepFromChoiceEvent(this.gameId, choiceEvent, {
+          rulesChoiceGroupId: choiceGroupId,
+          rulesChoiceIndex: index,
+          rulesChoiceCount: choiceEvents.length,
+          rulesChoiceStackObjectId: event.data?.stackObjectId,
+          rulesTriggerSourceId: event.data?.sourceId,
+          rulesTriggerSourceName: event.data?.sourceName,
+          rulesTriggerEffectText: event.data?.effectText,
+          rulesTriggerControllerId: event.data?.controllerId,
+          rulesTriggerEventData: event.data?.triggerEventData,
+        });
+      });
+
+      this.io.to(this.gameId).emit('rulesChoiceRequired', {
+        gameId: this.gameId,
+        choiceGroupId,
+        sourceId: event.data?.sourceId,
+        sourceName: event.data?.sourceName,
+        effectText: event.data?.effectText,
+        controllerId: event.data?.controllerId,
+        choiceCount: choiceEvents.length,
+        timestamp: event.timestamp,
+      });
+    });
+
     rulesEngine.on(RulesEngineEvent.CARD_DRAWN, (event) => {
       this.io.to(this.gameId).emit('cardDrawn', {
         gameId: this.gameId,

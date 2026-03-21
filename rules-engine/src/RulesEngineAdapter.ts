@@ -110,6 +110,7 @@ import {
   processEvent,
   buildTriggerEventDataFromPayloads,
   buildStackTriggerMetaFromEventData,
+  buildTriggeredAbilityChoiceEvents,
   executeTriggeredAbilityEffectWithOracleIR,
   buildResolutionEventDataFromGameState,
   evaluateTriggerCondition,
@@ -1320,11 +1321,12 @@ export class RulesEngineAdapter {
     const oracleLogs: string[] = [];
     if (!resolveResult.countered) {
       if (popResult.object.type === 'spell') {
-        const spellOracleText = String((popResult.object.card as any)?.oracle_text || '');
+        const stackObjectAny = popResult.object as any;
+        const spellOracleText = String(stackObjectAny.card?.oracle_text || '');
         const temporaryWinLossResult = applyTemporaryCantLoseAndOpponentsCantWinEffect(
           nextState,
-          String(popResult.object.id || popResult.object.spellId || (popResult.object.card as any)?.id || `spell-${Date.now()}`),
-          String(popResult.object.cardName || (popResult.object.card as any)?.name || 'Spell'),
+          String(popResult.object.id || popResult.object.spellId || stackObjectAny.card?.id || `spell-${Date.now()}`),
+          String(popResult.object.cardName || stackObjectAny.card?.name || 'Spell'),
           popResult.object.controllerId,
           popResult.object.controllerId,
           spellOracleText,
@@ -1418,8 +1420,43 @@ export class RulesEngineAdapter {
           resolutionEventData,
           { allowOptional: false }
         );
+
+        const triggerChoiceEvents = buildTriggeredAbilityChoiceEvents(
+          nextState,
+          {
+            controllerId: popResult.object.controllerId,
+            sourceId: popResult.object.spellId,
+            sourceName: popResult.object.cardName,
+            effect: effectText,
+            optional: Boolean((popResult.object as any)?.triggerMeta?.optional),
+          },
+          resolutionEventData
+        );
+
+        const needsChoicePrompt =
+          triggerChoiceEvents.length > 0 &&
+          (((executeResult.pendingOptionalSteps || []).length > 0) || ((executeResult.skippedSteps || []).length > 0));
+
         nextState = executeResult.state;
         oracleLogs.push(...(executeResult.log || []));
+
+        if (needsChoicePrompt) {
+          this.emit({
+            type: RulesEngineEvent.CHOICE_REQUIRED,
+            timestamp: Date.now(),
+            gameId,
+            data: {
+              stackObjectId: popResult.object.id,
+              sourceId: popResult.object.spellId,
+              sourceName: popResult.object.cardName,
+              effectText,
+              controllerId: popResult.object.controllerId,
+              choiceEvents: triggerChoiceEvents,
+              triggerEventData: resolutionEventData,
+            },
+          });
+          oracleLogs.push(`[oracle-ir] Trigger requires player choice: ${popResult.object.cardName}`);
+        }
       }
     }
     
@@ -1731,10 +1768,10 @@ export class RulesEngineAdapter {
       if (!hasPermanentType(perm, 'creature')) continue;
       
       // Calculate effective toughness
-      let toughness = parseInt(perm.card?.toughness || perm.toughness || '0', 10);
+      let toughness = parseInt(String(perm.effectiveToughness ?? perm.baseToughness ?? perm.card?.toughness ?? '0'), 10);
       const plusCounters = perm.counters?.['+1/+1'] || 0;
       const minusCounters = perm.counters?.['-1/-1'] || 0;
-      const damageMarked = perm.counters?.damage || perm.damage || 0;
+      const damageMarked = perm.counters?.damage || perm.damageMarked || 0;
       
       toughness += plusCounters - minusCounters;
       

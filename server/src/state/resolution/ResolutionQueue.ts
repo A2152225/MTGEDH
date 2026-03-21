@@ -297,6 +297,37 @@ export function orderByAPNAP(
  * Convert a rules-engine ChoiceEvent to a ResolutionStep
  */
 export function choiceEventToStep(choiceEvent: ChoiceEvent): ResolutionStep {
+  if (choiceEvent.type === 'may_ability') {
+    const mayChoice = choiceEvent as any;
+    const sourceName = String(choiceEvent.sourceName || 'Ability');
+    const effectText = String(mayChoice.abilityText || choiceEvent.description || 'effect');
+    const effectKey = `${sourceName.toLowerCase()}:${effectText.toLowerCase()}`;
+
+    return createResolutionStep({
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: choiceEvent.playerId,
+      description: choiceEvent.description,
+      mandatory: false,
+      sourceId: choiceEvent.sourceId,
+      sourceName: choiceEvent.sourceName,
+      sourceImage: choiceEvent.sourceImage,
+      timeoutMs: choiceEvent.timeoutMs,
+      choiceEvent,
+      options: [
+        { id: 'yes', label: 'Yes' },
+        { id: 'no', label: 'No' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      mayAbilityPrompt: true,
+      effectText,
+      fullAbilityText: effectText,
+      effectKey,
+      defaultChoice: mayChoice.defaultChoice,
+      cost: mayChoice.cost,
+    } as any);
+  }
+
   const baseConfig: CreateResolutionStepConfig = {
     type: mapChoiceEventType(choiceEvent.type),
     playerId: choiceEvent.playerId,
@@ -335,6 +366,7 @@ function mapChoiceEventType(choiceType: string): ResolutionStepType {
     x_value_selection: ResolutionStepType.X_VALUE_SELECTION,
     attacker_declaration: ResolutionStepType.ATTACKER_DECLARATION,
     blocker_declaration: ResolutionStepType.BLOCKER_DECLARATION,
+    may_ability: ResolutionStepType.OPTION_CHOICE,
     combat_damage_assignment: ResolutionStepType.COMBAT_DAMAGE_ASSIGNMENT,
     blocker_order: ResolutionStepType.BLOCKER_ORDER,
     damage_division: ResolutionStepType.DAMAGE_DIVISION,
