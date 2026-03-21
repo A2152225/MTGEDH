@@ -95,6 +95,7 @@ import type { GameState, PlayerID, BattlefieldPermanent, KnownCardRef } from '..
 import { 
   getLegalAttackers, 
   getLegalBlockers,
+  getBlockerCapacity,
   canPermanentAttack,
   canPermanentBlock,
   isCurrentlyCreature,
@@ -1325,7 +1326,7 @@ export class AIEngine {
     });
     
     const blockAssignments: { blockerId: string; attackerId: string }[] = [];
-    const usedBlockers = new Set<string>();
+    const blockerUsageCount = new Map<string, number>();
     let blockersWithDeathTriggers = 0;
     
     // STRATEGY: Block aggressively, especially with creatures that benefit from dying
@@ -1336,7 +1337,9 @@ export class AIEngine {
       
       // Evaluate each available blocker for this attacker
       for (const blockerEval of blockerEvaluations) {
-        if (usedBlockers.has(blockerEval.creature.id)) continue;
+        const currentAssignments = blockerUsageCount.get(blockerEval.creature.id) || 0;
+        const blockerCapacity = getBlockerCapacity(blockerEval.perm);
+        if (currentAssignments >= blockerCapacity) continue;
         
         // Check if blocker can legally block this attacker
         const validation = canCreatureBlock(blockerEval.creature, attacker, []);
@@ -1415,7 +1418,10 @@ export class AIEngine {
           blockerId: bestBlocker.creature.id,
           attackerId: attacker.id,
         });
-        usedBlockers.add(bestBlocker.creature.id);
+        blockerUsageCount.set(
+          bestBlocker.creature.id,
+          (blockerUsageCount.get(bestBlocker.creature.id) || 0) + 1
+        );
         
         if (bestBlocker.wantsToGetKilled) {
           blockersWithDeathTriggers++;

@@ -99,4 +99,65 @@ describe('AutomationService combat damage', () => {
     expect(attackerAssignment?.damage).toBe(3);
     expect(attackerAssignment?.isLethal).toBe(false);
   });
+
+  it('distributes blocker damage across multiple attackers when one blocker blocks several creatures', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', name: 'Player 1', life: 40 },
+        { id: 'player2', name: 'Player 2', life: 40 },
+      ],
+      battlefield: [
+        {
+          id: 'attacker1',
+          controller: 'player1',
+          owner: 'player1',
+          attacking: 'player2',
+          blockedBy: ['blocker1'],
+          card: {
+            name: 'Alpha',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'attacker2',
+          controller: 'player1',
+          owner: 'player1',
+          attacking: 'player2',
+          blockedBy: ['blocker1'],
+          card: {
+            name: 'Beta',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'blocker1',
+          controller: 'player2',
+          owner: 'player2',
+          blocking: ['attacker1', 'attacker2'],
+          card: {
+            name: 'Guardian',
+            type_line: 'Creature — Giant',
+            power: '3',
+            toughness: '5',
+            oracle_text: 'Guardian can block any number of creatures.',
+          },
+        },
+      ],
+    } as any;
+
+    const result = calculateCombatDamage(state);
+    const blockerAssignments = result.damageAssignments.filter(assignment => assignment.sourceId === 'blocker1');
+
+    expect(blockerAssignments).toHaveLength(2);
+    expect(blockerAssignments[0].targetId).toBe('attacker1');
+    expect(blockerAssignments[0].damage).toBe(2);
+    expect(blockerAssignments[1].targetId).toBe('attacker2');
+    expect(blockerAssignments[1].damage).toBe(1);
+  });
 });

@@ -34,6 +34,7 @@ export {
   hasLifelink,
   canPermanentAttack,
   canPermanentBlock,
+  getBlockerCapacity,
   checkEvasionAbilities,
   getCombatDamageValue,
   getLegalAttackers,

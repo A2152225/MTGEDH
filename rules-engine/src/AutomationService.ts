@@ -441,18 +441,39 @@ export function calculateCombatDamage(state: GameState): {
   for (const blocker of blockers) {
     const card = blocker.card as any;
     const power = getCombatPower(blocker);
+    const hasLifelink = hasCombatKeyword(blocker, 'lifelink');
+    const hasDeathtouch = hasCombatKeyword(blocker, 'deathtouch');
     
-    // Blockers can only deal damage to one attacker they're blocking
-    // (unless first strike/double strike is involved)
     if (blocker.blocking && blocker.blocking.length > 0) {
-      const attackerId = blocker.blocking[0];
-      assignments.push({
-        sourceId: blocker.id,
-        sourceName: card?.name,
-        targetId: attackerId,
-        targetType: 'creature',
-        damage: power,
-        isLethal: false, // Will be calculated when applied
+      let remainingDamage = power;
+
+      blocker.blocking.forEach((attackerId, index) => {
+        if (remainingDamage <= 0) {
+          return;
+        }
+
+        const attacker = battlefield.find((p: BattlefieldPermanent) => p.id === attackerId);
+        if (!attacker) {
+          return;
+        }
+
+        const lethalDamage = hasDeathtouch ? 1 : Math.max(1, getCombatToughness(attacker));
+        const damageToAssign = index === blocker.blocking.length - 1
+          ? remainingDamage
+          : Math.min(remainingDamage, lethalDamage);
+
+        assignments.push({
+          sourceId: blocker.id,
+          sourceName: card?.name,
+          targetId: attackerId,
+          targetType: 'creature',
+          damage: damageToAssign,
+          isLethal: damageToAssign >= lethalDamage,
+          hasLifelink,
+          hasDeathtouch,
+        });
+
+        remainingDamage -= damageToAssign;
       });
     }
   }
@@ -471,6 +492,19 @@ function getCombatPower(permanent: BattlefieldPermanent): number {
   }
 
   return parseInt((permanent.card as any)?.power || '0', 10);
+}
+
+function hasCombatKeyword(permanent: BattlefieldPermanent, keyword: string): boolean {
+  const lowerKeyword = keyword.toLowerCase();
+  const oracleText = String((permanent.card as any)?.oracle_text || (permanent as any).oracle_text || '').toLowerCase();
+  if (oracleText.includes(lowerKeyword)) {
+    return true;
+  }
+
+  const grantedAbilities = Array.isArray((permanent as any).grantedAbilities)
+    ? (permanent as any).grantedAbilities
+    : [];
+  return grantedAbilities.some((entry: unknown) => String(entry).toLowerCase().includes(lowerKeyword));
 }
 
 function getCombatToughness(permanent: BattlefieldPermanent): number {

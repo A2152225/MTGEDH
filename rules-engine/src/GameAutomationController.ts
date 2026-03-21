@@ -426,11 +426,12 @@ export class GameAutomationController {
         for (const { blockerId, attackerId } of blockers) {
           updatedBattlefield = updatedBattlefield.map((perm: BattlefieldPermanent) => {
             if (perm.id === blockerId) {
-              return { ...perm, blocking: [attackerId] };
+              const existingAssignments = Array.isArray((perm as any).blocking) ? (perm as any).blocking : [];
+              return { ...perm, blocking: Array.from(new Set([...existingAssignments, attackerId])) };
             }
             if (perm.id === attackerId) {
-              const existingBlockers = perm.blockedBy || [];
-              return { ...perm, blockedBy: [...existingBlockers, blockerId] };
+              const existingBlockers = Array.isArray(perm.blockedBy) ? perm.blockedBy : [];
+              return { ...perm, blockedBy: Array.from(new Set([...existingBlockers, blockerId])) };
             }
             return perm;
           });

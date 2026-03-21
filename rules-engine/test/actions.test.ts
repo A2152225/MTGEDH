@@ -25,6 +25,7 @@ import {
   hasHaste,
   canPermanentAttack,
   canPermanentBlock,
+  getBlockerCapacity,
   getLegalAttackers,
   getLegalBlockers,
 } from '../src/actions';
@@ -1091,5 +1092,186 @@ describe('Combat Validation in Actions', () => {
     const result = validateDeclareBlockers(gameState, action);
     expect(result.legal).toBe(false);
     expect(result.reason).toContain('Only creatures can block');
+  });
+
+  it('should reject assigning a normal blocker to multiple attackers', () => {
+    gameState.step = GameStep.DECLARE_BLOCKERS;
+    (gameState as any).combat = {
+      attackers: [
+        { permanentId: 'attacker1', defendingPlayerId: 'player2' },
+        { permanentId: 'attacker2', defendingPlayerId: 'player2' },
+      ],
+      blockers: [],
+    };
+
+    gameState.battlefield.push(
+      {
+        id: 'attacker1',
+        controller: 'player1',
+        owner: 'player1',
+        tapped: true,
+        card: { name: 'Alpha', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
+      },
+      {
+        id: 'attacker2',
+        controller: 'player1',
+        owner: 'player1',
+        tapped: true,
+        card: { name: 'Beta', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
+      },
+      {
+        id: 'blocker1',
+        controller: 'player2',
+        owner: 'player2',
+        tapped: false,
+        card: { name: 'Wall Pup', type_line: 'Creature — Dog', power: '1', toughness: '3', oracle_text: '' },
+      }
+    );
+
+    const action = {
+      type: 'declareBlockers' as const,
+      playerId: 'player2',
+      blockers: [
+        { blockerId: 'blocker1', attackerId: 'attacker1' },
+        { blockerId: 'blocker1', attackerId: 'attacker2' },
+      ],
+    };
+
+    const result = validateDeclareBlockers(gameState, action);
+    expect(result.legal).toBe(false);
+    expect(result.reason).toContain('cannot block more than one creature');
+  });
+
+  it('should allow a blocker with any-number text to block multiple attackers and merge combat state', () => {
+    gameState.step = GameStep.DECLARE_BLOCKERS;
+    (gameState as any).combat = {
+      attackers: [
+        { permanentId: 'attacker1', defendingPlayerId: 'player2' },
+        { permanentId: 'attacker2', defendingPlayerId: 'player2' },
+      ],
+      blockers: [],
+    };
+
+    gameState.battlefield.push(
+      {
+        id: 'attacker1',
+        controller: 'player1',
+        owner: 'player1',
+        tapped: true,
+        card: { name: 'Alpha', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
+      },
+      {
+        id: 'attacker2',
+        controller: 'player1',
+        owner: 'player1',
+        tapped: true,
+        card: { name: 'Beta', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
+      },
+      {
+        id: 'blocker1',
+        controller: 'player2',
+        owner: 'player2',
+        tapped: false,
+        card: {
+          name: 'Hundred-Handed One',
+          type_line: 'Creature — Giant',
+          power: '3',
+          toughness: '5',
+          oracle_text: 'Hundred-Handed One can block any number of creatures.',
+        },
+      }
+    );
+
+    const action = {
+      type: 'declareBlockers' as const,
+      playerId: 'player2',
+      blockers: [
+        { blockerId: 'blocker1', attackerId: 'attacker1' },
+        { blockerId: 'blocker1', attackerId: 'attacker2' },
+      ],
+    };
+
+    const validation = validateDeclareBlockers(gameState, action);
+    expect(validation.legal).toBe(true);
+
+    const context = {
+      getState: () => gameState,
+      setState: () => undefined,
+      emit: () => undefined,
+      gameId: 'test-game',
+    } as any;
+
+    const result = executeDeclareBlockers('test-game', action, context);
+    expect(result.next.combat?.blockers).toHaveLength(1);
+    expect(result.next.combat?.blockers[0].blocking).toEqual(['attacker1', 'attacker2']);
+    expect(result.next.combat?.attackers[0].blockedBy).toEqual(['blocker1']);
+    expect(result.next.combat?.attackers[1].blockedBy).toEqual(['blocker1']);
+  });
+
+  it('should parse singular additional-creature blocking text as capacity two', () => {
+    const blocker = {
+      id: 'blocker1',
+      controller: 'player2',
+      owner: 'player2',
+      card: {
+        name: 'Seasoned Shieldmate',
+        type_line: 'Creature — Soldier',
+        power: '2',
+        toughness: '3',
+        oracle_text: 'Seasoned Shieldmate can block an additional creature each combat.',
+      },
+    };
+
+    expect(getBlockerCapacity(blocker)).toBe(2);
+  });
+
+  it('should parse spelled-out additional blocker counts', () => {
+    const blocker = {
+      id: 'blocker1',
+      controller: 'player2',
+      owner: 'player2',
+      card: {
+        name: 'Wall of Seven Paths',
+        type_line: 'Creature — Wall',
+        power: '0',
+        toughness: '8',
+        oracle_text: 'Wall of Seven Paths can block an additional seven creatures each combat.',
+      },
+    };
+
+    expect(getBlockerCapacity(blocker)).toBe(8);
+  });
+
+  it('should parse temporary additional blocker text that lasts this turn', () => {
+    const blocker = {
+      id: 'blocker1',
+      controller: 'player2',
+      owner: 'player2',
+      card: {
+        name: 'Luminous Guardian',
+        type_line: 'Creature — Human Nomad',
+        power: '2',
+        toughness: '4',
+        oracle_text: '{W}: This creature gets +0/+1 until end of turn.\n\n{2}: This creature can block an additional creature this turn.',
+      },
+    };
+
+    expect(getBlockerCapacity(blocker)).toBe(2);
+  });
+
+  it('should parse temporary any-number blocking text that lasts this turn', () => {
+    const blocker = {
+      id: 'blocker1',
+      controller: 'player2',
+      owner: 'player2',
+      card: {
+        name: 'Give No Ground',
+        type_line: 'Instant',
+        oracle_text: 'Target creature gets +2/+6 until end of turn and can block any number of creatures this turn.',
+      },
+      oracle_text: 'Target creature gets +2/+6 until end of turn and can block any number of creatures this turn.',
+    };
+
+    expect(getBlockerCapacity(blocker)).toBe(Number.POSITIVE_INFINITY);
   });
 });

@@ -65,6 +65,111 @@ export interface CombatValidationResult {
   readonly reason?: string;
 }
 
+const BLOCKER_CAPACITY_WORDS: Record<string, number> = {
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90,
+};
+
+function getPermanentTextFragments(permanent: any): string[] {
+  const fragments: string[] = [];
+
+  const cardOracle = String(permanent?.card?.oracle_text || '').trim();
+  if (cardOracle) fragments.push(cardOracle);
+
+  const permanentOracle = String(permanent?.oracle_text || '').trim();
+  if (permanentOracle && permanentOracle !== cardOracle) {
+    fragments.push(permanentOracle);
+  }
+
+  if (Array.isArray(permanent?.grantedAbilities) && permanent.grantedAbilities.length > 0) {
+    fragments.push(permanent.grantedAbilities.join('\n'));
+  }
+
+  return fragments;
+}
+
+function parseBlockerCapacityValue(token?: string): number {
+  if (!token) return 1;
+
+  const normalized = token.trim().toLowerCase();
+  if (/^\d+$/.test(normalized)) {
+    return Math.max(0, parseInt(normalized, 10));
+  }
+
+  if (BLOCKER_CAPACITY_WORDS[normalized] !== undefined) {
+    return BLOCKER_CAPACITY_WORDS[normalized];
+  }
+
+  const parts = normalized.split(/[-\s]+/).filter(Boolean);
+  if (parts.length > 1) {
+    let total = 0;
+    for (const part of parts) {
+      const value = BLOCKER_CAPACITY_WORDS[part];
+      if (value === undefined) {
+        return 1;
+      }
+      total += value;
+    }
+    if (total > 0) {
+      return total;
+    }
+  }
+
+  return 1;
+}
+
+export function getBlockerCapacity(permanent: any): number {
+  const combinedText = getPermanentTextFragments(permanent).join('\n').toLowerCase();
+
+  if (!combinedText) {
+    return 1;
+  }
+
+  if (/can block any number of creatures(?: this turn)?/.test(combinedText)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (/can block an additional creature (?:each combat|this turn)/.test(combinedText)) {
+    return 2;
+  }
+
+  let additionalCreatures = 0;
+  const additionalCreaturePattern = /can block an additional ((?:\d+|[a-z]+(?:[ -][a-z]+)*)?) creatures (?:each combat|this turn)/g;
+
+  for (const match of combinedText.matchAll(additionalCreaturePattern)) {
+    additionalCreatures += parseBlockerCapacityValue(match[1] || '1');
+  }
+
+  return 1 + additionalCreatures;
+}
+
 /**
  * Check if a permanent is currently a creature (Rule 302)
  * This considers:
@@ -1179,6 +1284,8 @@ export function validateDeclareBlockers(
   action: DeclareBlockersAction
 ): { legal: boolean; reason?: string } {
   const battlefield = buildProcessedBattlefieldForGoad(state.battlefield as any[] | undefined);
+  const blockerAssignments = new Map<string, Set<string>>();
+  const blockerPermanents = new Map<string, any>();
   // Check if it's the declare blockers step
   if (state.step !== SharedGameStep.DECLARE_BLOCKERS) {
     return { legal: false, reason: 'Not in declare blockers step' };
@@ -1218,6 +1325,31 @@ export function validateDeclareBlockers(
     if (!validationResult.canParticipate) {
       return { legal: false, reason: validationResult.reason || 'Cannot block with this permanent' };
     }
+
+    blockerPermanents.set(blocker.blockerId, permanent);
+    const assignments = blockerAssignments.get(blocker.blockerId) || new Set<string>();
+    if (assignments.has(blocker.attackerId)) {
+      return { legal: false, reason: `Permanent ${blocker.blockerId} cannot block the same attacker multiple times` };
+    }
+    assignments.add(blocker.attackerId);
+    blockerAssignments.set(blocker.blockerId, assignments);
+  }
+
+  for (const [blockerId, attackerIds] of blockerAssignments.entries()) {
+    const permanent = blockerPermanents.get(blockerId);
+    const blockerCapacity = getBlockerCapacity(permanent);
+
+    if (attackerIds.size > blockerCapacity) {
+      const blockerName = permanent?.card?.name || blockerId;
+      if (blockerCapacity === 1) {
+        return { legal: false, reason: `${blockerName} cannot block more than one creature` };
+      }
+
+      return {
+        legal: false,
+        reason: `${blockerName} can block at most ${blockerCapacity} creatures each combat`,
+      };
+    }
   }
   
   return { legal: true };
@@ -1247,15 +1379,29 @@ export function executeDeclareBlockers(
     const blockersForAttacker = action.blockers.filter(b => b.attackerId === a.permanentId);
     return {
       ...a,
-      blockedBy: blockersForAttacker.map(b => b.blockerId),
+      blockedBy: Array.from(new Set(blockersForAttacker.map(b => b.blockerId))),
     };
   });
-  
-  const combatBlockers: CombatantInfo[] = action.blockers.map(b => ({
-    permanentId: b.blockerId,
-    blocking: [b.attackerId],
-    damage: b.damageOrder,
-  }));
+
+  const blockerMap = new Map<string, CombatantInfo>();
+  for (const blocker of action.blockers) {
+    const existing = blockerMap.get(blocker.blockerId);
+    if (existing) {
+      blockerMap.set(blocker.blockerId, {
+        ...existing,
+        blocking: Array.from(new Set([...(existing.blocking || []), blocker.attackerId])),
+      });
+      continue;
+    }
+
+    blockerMap.set(blocker.blockerId, {
+      permanentId: blocker.blockerId,
+      blocking: [blocker.attackerId],
+      damage: blocker.damageOrder,
+    });
+  }
+
+  const combatBlockers: CombatantInfo[] = Array.from(blockerMap.values());
   
   const combat: CombatInfo = {
     phase: 'declareBlockers',
