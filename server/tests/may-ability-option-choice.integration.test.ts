@@ -135,4 +135,58 @@ describe('May ability OPTION_CHOICE integration', () => {
     const queueAfter = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfter.steps.some((s: any) => String(s.id) === String((step as any).id))).toBe(false);
   });
+
+  it('auto-executes the callback when a saved always_yes trigger shortcut matches the source card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).triggerShortcuts = {
+      [p1]: [
+        { cardName: "soul's attendant", playerId: p1, preference: 'always_yes' },
+      ],
+    };
+
+    let callbackCount = 0;
+    queueMayAbilityStep(createNoopIo() as any, gameId, game, p1, "Soul's Attendant", 'gain 1 life', 'Whenever another creature enters the battlefield, you may gain 1 life.', async () => {
+      callbackCount += 1;
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(callbackCount).toBe(1);
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfter.steps.some((s: any) => (s as any).mayAbilityPrompt === true)).toBe(false);
+  });
+
+  it('auto-declines when a saved always_no trigger shortcut matches the source card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).triggerShortcuts = {
+      [p1]: [
+        { cardName: "soul's attendant", playerId: p1, preference: 'always_no' },
+      ],
+    };
+
+    let callbackCount = 0;
+    queueMayAbilityStep(createNoopIo() as any, gameId, game, p1, "Soul's Attendant", 'gain 1 life', 'Whenever another creature enters the battlefield, you may gain 1 life.', async () => {
+      callbackCount += 1;
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(callbackCount).toBe(0);
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfter.steps.some((s: any) => (s as any).mayAbilityPrompt === true)).toBe(false);
+  });
 });

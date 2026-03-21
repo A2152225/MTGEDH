@@ -2277,6 +2277,7 @@ function doAutoPass(
   try {
     const playerId = game.state.priority;
     if (!playerId) return;
+    const triggerAutoPassReason = getTopTriggeredAbilityAutoPassReason(game.state, playerId);
     
     // Check if priority player exists
     const players = (game.state as any)?.players || [];
@@ -2316,9 +2317,13 @@ function doAutoPass(
         ? (canAct(game as any, playerId) || canRespond(game as any, playerId))
         : canRespond(game as any, playerId);
       
-      if (hasActions) {
+      if (hasActions && !triggerAutoPassReason) {
         debug(2, `[doAutoPass] Skipping auto-pass for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - they have valid actions available`);
         return; // Player has options, don't auto-pass
+      }
+
+      if (hasActions && triggerAutoPassReason) {
+        debug(2, `[doAutoPass] Auto-passing for human player ${playerId} despite valid actions because top stack trigger shortcut (${triggerAutoPassReason}) applies`);
       }
       
       debug(2, `[doAutoPass] Auto-passing for human player ${playerId} (${isActivePlayer ? 'active' : 'non-active'}) - no valid actions available`);

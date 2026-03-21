@@ -1000,7 +1000,8 @@ export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[
         description: info.effect,
         effect: info.effect,
         millAmount: info.millAmount,
-        mandatory: true,
+        mandatory: !String(info.effect || '').toLowerCase().includes('you may'),
+        requiresChoice: String(info.effect || '').toLowerCase().includes('you may'),
       };
       
       // Add search filter info if present

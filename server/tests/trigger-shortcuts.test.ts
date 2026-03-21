@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getSavedMayAbilityTriggerDecision,
   getTopTriggeredAbilityAutoPassReason,
   getSavedTriggerShortcutPreference,
   shouldSuppressMandatoryTriggeredAbilityPrompt,
@@ -91,5 +92,24 @@ describe('trigger shortcut helpers', () => {
     };
 
     expect(getTopTriggeredAbilityAutoPassReason(state, 'p1')).toBe('saved_always_resolve');
+  });
+
+  it('returns saved yes/no decisions only for eligible may-ability shortcuts', () => {
+    const state = {
+      triggerShortcuts: {
+        p1: [
+          { cardName: "soul's attendant", playerId: 'p1', preference: 'always_yes' },
+          { cardName: 'soul warden', playerId: 'p1', preference: 'always_resolve' },
+        ],
+        p2: [
+          { cardName: "soul's attendant", playerId: 'p2', preference: 'always_no' },
+        ],
+      },
+    };
+
+    expect(getSavedMayAbilityTriggerDecision(state, 'p1', "Soul's Attendant")).toBe('yes');
+    expect(getSavedMayAbilityTriggerDecision(state, 'p2', "Soul's Attendant")).toBe('no');
+    expect(getSavedMayAbilityTriggerDecision(state, 'p1', 'Soul Warden')).toBeUndefined();
+    expect(getSavedMayAbilityTriggerDecision(state, 'p1', 'Rhystic Study')).toBeUndefined();
   });
 });

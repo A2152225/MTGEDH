@@ -5,6 +5,7 @@ import {
 } from '../../../shared/src/index.js';
 
 export type TriggerAutoPassReason = 'yielded_source' | 'saved_always_resolve';
+export type SavedMayAbilityTriggerDecision = 'yes' | 'no';
 
 function normalizeTriggerCardName(value: unknown): string {
   return String(value || '').trim().toLowerCase();
@@ -86,6 +87,32 @@ export function getTopTriggeredAbilityAutoPassReason(
     )
   ) {
     return 'saved_always_resolve';
+  }
+
+  return undefined;
+}
+
+export function getSavedMayAbilityTriggerDecision(
+  gameState: any,
+  playerId: unknown,
+  cardName: unknown
+): SavedMayAbilityTriggerDecision | undefined {
+  const normalizedCardName = normalizeTriggerCardName(cardName);
+  if (!normalizedCardName) {
+    return undefined;
+  }
+
+  const eligible = SHORTCUT_ELIGIBLE_TRIGGERS[normalizedCardName];
+  if (!eligible || eligible.type !== 'may_ability') {
+    return undefined;
+  }
+
+  const preference = getSavedTriggerShortcutPreference(gameState, playerId, normalizedCardName);
+  if (preference === 'always_yes') {
+    return 'yes';
+  }
+  if (preference === 'always_no') {
+    return 'no';
   }
 
   return undefined;

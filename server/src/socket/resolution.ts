@@ -59,7 +59,7 @@ import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
 import { buildResolutionEventDataFromGameState, buildTriggeredAbilityEventDataFromChoices, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
 import { getTapTriggers } from "../state/modules/triggers/tap-untap.js";
-import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
+import { getSavedMayAbilityTriggerDecision, shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 
 /**
  * Pending "you may" callbacks keyed by gameId → callbackId.
@@ -234,6 +234,17 @@ export function queueMayAbilityStep(
     }
     debug(2, `[May] Auto-yes countdown for ${effectKey} (player ${playerId}), ${remaining} remaining`);
     callback().catch(err => debugError(1, `[May] Auto-yes callback error:`, err));
+    return;
+  }
+
+  const savedTriggerDecision = getSavedMayAbilityTriggerDecision((game as any)?.state, playerId, sourceName);
+  if (savedTriggerDecision === 'yes') {
+    debug(2, `[May] Trigger shortcut auto-yes for ${sourceName} (player ${playerId})`);
+    callback().catch(err => debugError(1, `[May] Trigger shortcut auto-yes callback error:`, err));
+    return;
+  }
+  if (savedTriggerDecision === 'no') {
+    debug(2, `[May] Trigger shortcut auto-no for ${sourceName} (player ${playerId})`);
     return;
   }
 
