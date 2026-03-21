@@ -21,6 +21,7 @@ import {
   putTriggersOnStack,
   processEvent,
   buildResolutionEventDataFromGameState,
+  buildTriggeredAbilityEventDataFromChoices,
   buildTriggerEventDataFromPayloads,
   buildStackTriggerMetaFromEventData,
   buildOracleIRExecutionEventHintFromTriggerData,
@@ -836,6 +837,75 @@ describe('Trigger Parsing', () => {
       expect(events.map(event => event.type)).toEqual([ChoiceEventType.MAY_ABILITY]);
     });
 
+    it('buildTriggeredAbilityEventDataFromChoices maps Merrow grouped responses into execution overrides', () => {
+      const start = makeMerfolkIterationState();
+
+      const overrides = buildTriggeredAbilityEventDataFromChoices(start, 'p1', [
+        {
+          type: 'option_choice',
+          mayAbilityPrompt: true,
+          selections: 'yes',
+        },
+        {
+          type: 'target_selection',
+          targetTypes: ['permanent'],
+          selections: ['nykthos-shrine-to-nyx'],
+        },
+        {
+          type: 'option_choice',
+          selections: 'untap',
+        },
+      ] as any);
+
+      expect(overrides).toMatchObject({
+        targetPermanentId: 'nykthos-shrine-to-nyx',
+        tapOrUntapChoice: 'untap',
+      });
+    });
+
+    it('executes Merrow Reejerey from grouped choice-derived execution data', () => {
+      const start = makeMerfolkIterationState({
+        battlefield: makeMerfolkIterationState().battlefield.map((perm: any) =>
+          perm.id === 'nykthos-shrine-to-nyx' ? { ...perm, tapped: true } : perm
+        ),
+      });
+
+      const overrides = buildTriggeredAbilityEventDataFromChoices(start, 'p1', [
+        {
+          type: 'option_choice',
+          mayAbilityPrompt: true,
+          selections: 'yes',
+        },
+        {
+          type: 'target_selection',
+          targetTypes: ['permanent'],
+          selections: ['nykthos-shrine-to-nyx'],
+        },
+        {
+          type: 'option_choice',
+          selections: 'untap',
+        },
+      ] as any);
+
+      const executionEventData = buildResolutionEventDataFromGameState(start, 'p1', overrides);
+      const result = executeTriggeredAbilityEffectWithOracleIR(
+        start,
+        {
+          controllerId: 'p1',
+          sourceId: 'merrow-reejerey',
+          sourceName: 'Merrow Reejerey',
+          effect: 'You may tap or untap target permanent.',
+        },
+        executionEventData,
+        { allowOptional: true }
+      );
+
+      const nykthos = result.state.battlefield.find((perm: any) => perm.id === 'nykthos-shrine-to-nyx') as any;
+      expect(nykthos?.tapped).toBe(false);
+      expect(result.appliedSteps.some((step: any) => step.kind === 'tap_or_untap')).toBe(true);
+      expect(result.pendingOptionalSteps).toHaveLength(0);
+    });
+
     it('buildTriggeredAbilityChoiceEvents returns target-opponent prompt when target opponent is unresolved', () => {
       const start = makeState();
       const ability = {
@@ -857,6 +927,55 @@ describe('Trigger Parsing', () => {
       expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['p2', 'p3']);
     });
 
+    it('buildTriggeredAbilityEventDataFromChoices maps grouped opponent target responses', () => {
+      const start = makeState();
+
+      const overrides = buildTriggeredAbilityEventDataFromChoices(start, 'p1', [
+        {
+          type: 'target_selection',
+          targetTypes: ['opponent'],
+          selections: ['p2'],
+        },
+      ] as any);
+
+      expect(overrides).toMatchObject({
+        targetOpponentId: 'p2',
+        targetPlayerId: 'p2',
+      });
+    });
+
+    it('executes target-opponent trigger steps from grouped choice-derived execution data', () => {
+      const start = makeState();
+
+      const overrides = buildTriggeredAbilityEventDataFromChoices(start, 'p1', [
+        {
+          type: 'target_selection',
+          targetTypes: ['opponent'],
+          selections: ['p2'],
+        },
+      ] as any);
+
+      const executionEventData = buildResolutionEventDataFromGameState(start, 'p1', overrides);
+      const result = executeTriggeredAbilityEffectWithOracleIR(
+        start,
+        {
+          controllerId: 'p1',
+          sourceId: 'grim-harbinger',
+          sourceName: 'Grim Harbinger',
+          effect: 'Target opponent loses 1 life.',
+        },
+        executionEventData,
+        { allowOptional: true }
+      );
+
+      const p2 = result.state.players.find((entry: any) => entry.id === 'p2') as any;
+      const p3 = result.state.players.find((entry: any) => entry.id === 'p3') as any;
+
+      expect(p2.life).toBe(39);
+      expect(p3.life).toBe(40);
+      expect(result.appliedSteps.some((step: any) => step.kind === 'lose_life')).toBe(true);
+    });
+
     it('buildTriggeredAbilityChoiceEvents returns target-player prompt when target player is unresolved', () => {
       const start = makeState();
       const ability = {
@@ -876,6 +995,55 @@ describe('Trigger Parsing', () => {
       expect(events.map(event => event.type)).toEqual([ChoiceEventType.TARGET_SELECTION]);
       expect(targetEvent.targetTypes).toEqual(['player']);
       expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['p1', 'p2', 'p3']);
+    });
+
+    it('buildTriggeredAbilityEventDataFromChoices maps grouped player target responses', () => {
+      const start = makeState();
+
+      const overrides = buildTriggeredAbilityEventDataFromChoices(start, 'p1', [
+        {
+          type: 'target_selection',
+          targetTypes: ['player'],
+          selections: ['p2'],
+        },
+      ] as any);
+
+      expect(overrides).toMatchObject({
+        targetPlayerId: 'p2',
+        targetOpponentId: 'p2',
+      });
+    });
+
+    it('executes target-player trigger steps from grouped choice-derived execution data', () => {
+      const start = makeState();
+
+      const overrides = buildTriggeredAbilityEventDataFromChoices(start, 'p1', [
+        {
+          type: 'target_selection',
+          targetTypes: ['player'],
+          selections: ['p2'],
+        },
+      ] as any);
+
+      const executionEventData = buildResolutionEventDataFromGameState(start, 'p1', overrides);
+      const result = executeTriggeredAbilityEffectWithOracleIR(
+        start,
+        {
+          controllerId: 'p1',
+          sourceId: 'benevolent-spark',
+          sourceName: 'Benevolent Spark',
+          effect: 'Target player gains 2 life.',
+        },
+        executionEventData,
+        { allowOptional: true }
+      );
+
+      const p1 = result.state.players.find((entry: any) => entry.id === 'p1') as any;
+      const p2 = result.state.players.find((entry: any) => entry.id === 'p2') as any;
+
+      expect(p1.life).toBe(40);
+      expect(p2.life).toBe(42);
+      expect(result.appliedSteps.some((step: any) => step.kind === 'gain_life')).toBe(true);
     });
 
     it('buildTriggeredAbilityChoiceEvents returns mode-selection prompt when choose_mode is unresolved', () => {
@@ -902,6 +1070,19 @@ describe('Trigger Parsing', () => {
         'Buy Information',
         'Hire a Mercenary',
       ]);
+    });
+
+    it('buildTriggeredAbilityEventDataFromChoices collects selected mode ids from grouped mode responses', () => {
+      const start = makeState();
+
+      const overrides = buildTriggeredAbilityEventDataFromChoices(start, 'p1', [
+        {
+          type: 'mode_selection',
+          selections: ['Sell Contraband', 'Buy Information'],
+        },
+      ] as any);
+
+      expect(overrides.selectedModeIds).toEqual(['Sell Contraband', 'Buy Information']);
     });
 
     it('executes choose_mode trigger steps when selectedModeIds are supplied', () => {

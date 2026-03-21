@@ -5,6 +5,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionQueueEvent } from "../resolution/ResolutionQueueManager.js";
 import type { ResolutionStep } from "../resolution/types.js";
 import { getPendingInteractions } from "./turn.js";
+import { getTopTriggeredAbilityAutoPassReason } from "../../socket/trigger-shortcuts.js";
 
 /**
  * Normalize phase and step strings for comparison.
@@ -238,8 +239,9 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
   // before auto-passing anyone. This prevents the auto-pass loop from cycling infinitely
   // when the active player (attacker) passes but defenders haven't declared yet.
   const pendingInteractions = getPendingInteractions(ctx);
-  if (pendingInteractions.hasPending) {
-    const pendingTypes = pendingInteractions.pendingTypes.join(', ');
+  const blockingPendingTypes = pendingInteractions.pendingTypes.filter(type => type !== 'stack_not_empty');
+  if (blockingPendingTypes.length > 0) {
+    const pendingTypes = blockingPendingTypes.join(', ');
     debug(2, `[priority] autoPassLoop - blocking due to pending interactions: ${pendingTypes}`);
     return { allPassed: false, resolved: false };
   }
@@ -318,6 +320,8 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
       state.priority = advancePriorityClockwise(ctx, currentPlayer);
       continue;
     }
+
+    const triggerAutoPassReason = getTopTriggeredAbilityAutoPassReason(state, currentPlayer);
     
     // Check if player can take any action
     // Use different checks for active vs non-active players:
@@ -356,6 +360,13 @@ function autoPassLoop(ctx: GameContext, active: PlayerRef[]): { allPassed: boole
         // Not at target yet - allow auto-pass to continue moving toward target
         debug(2, `[priority] autoPassLoop - continuing auto-pass for ${currentPlayer}: moving toward phase navigator target (currently at ${currentStep})`);
       }
+    }
+
+    if (triggerAutoPassReason) {
+      debug(2, `[priority] Auto-passing for ${currentPlayer} - top stack trigger shortcut (${triggerAutoPassReason}) applies`);
+      stateAny.priorityPassedBy.add(currentPlayer);
+      state.priority = advancePriorityClockwise(ctx, currentPlayer);
+      continue;
     }
     
     // For the active player during their own turn:

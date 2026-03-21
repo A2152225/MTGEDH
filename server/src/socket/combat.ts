@@ -16,6 +16,7 @@ import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
 import { getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
+import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 
 export type PendingAttackTriggerManaPayment = {
   permanentId: string;
@@ -332,16 +333,18 @@ function processTapTriggersForAttackers(
         game.state.stack.push(stackItem);
         
         // Notify players about the trigger
-        io.to(gameId).emit("triggeredAbility", {
-          gameId,
-          triggerId,
-          playerId: triggerControllerId,
-          sourcePermanentId: trigger.permanentId,
-          sourceName: trigger.cardName,
-          triggerType: 'tap',
-          description: trigger.description,
-          mandatory: trigger.mandatory,
-        });
+        if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, triggerControllerId, trigger.cardName, trigger.mandatory)) {
+          io.to(gameId).emit("triggeredAbility", {
+            gameId,
+            triggerId,
+            playerId: triggerControllerId,
+            sourcePermanentId: trigger.permanentId,
+            sourceName: trigger.cardName,
+            triggerType: 'tap',
+            description: trigger.description,
+            mandatory: trigger.mandatory,
+          });
+        }
         
         debug(2, `[combat] Tap trigger: ${trigger.cardName} - ${trigger.description}`);
       }
@@ -2059,16 +2062,18 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 game.state.stack.push(stackItem);
                 
                 // Notify players about the trigger
-                io.to(gameId).emit("triggeredAbility", {
-                  gameId,
-                  triggerId,
-                  playerId: triggerControllerId,
-                  sourcePermanentId: trigger.permanentId,
-                  sourceName: trigger.cardName,
-                  triggerType: trigger.triggerType,
-                  description: trigger.description,
-                  mandatory: trigger.mandatory,
-                });
+                if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, triggerControllerId, trigger.cardName, trigger.mandatory)) {
+                  io.to(gameId).emit("triggeredAbility", {
+                    gameId,
+                    triggerId,
+                    playerId: triggerControllerId,
+                    sourcePermanentId: trigger.permanentId,
+                    sourceName: trigger.cardName,
+                    triggerType: trigger.triggerType,
+                    description: trigger.description,
+                    mandatory: trigger.mandatory,
+                  });
+                }
                 
                 io.to(gameId).emit("chat", {
                   id: `m_${Date.now()}`,
@@ -2571,16 +2576,18 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               game.state.stack.push(stackItem);
               
               // Notify players about the trigger
-              io.to(gameId).emit("triggeredAbility", {
-                gameId,
-                triggerId,
-                playerId: triggerControllerId,
-                sourcePermanentId: trigger.permanentId,
-                sourceName: trigger.cardName,
-                triggerType: 'blocks',
-                description: trigger.description,
-                mandatory: trigger.mandatory,
-              });
+              if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, triggerControllerId, trigger.cardName, trigger.mandatory)) {
+                io.to(gameId).emit("triggeredAbility", {
+                  gameId,
+                  triggerId,
+                  playerId: triggerControllerId,
+                  sourcePermanentId: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  triggerType: 'blocks',
+                  description: trigger.description,
+                  mandatory: trigger.mandatory,
+                });
+              }
               
               io.to(gameId).emit("chat", {
                 id: `m_${Date.now()}`,

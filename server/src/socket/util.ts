@@ -30,6 +30,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { BOOT_ID } from "../utils/bootId.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
+import { getTopTriggeredAbilityAutoPassReason } from "./trigger-shortcuts.js";
 
 // ============================================================================
 // Constants
@@ -1889,7 +1890,8 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     
     // CRITICAL: If autoPassForTurn is enabled, skip the canAct check and auto-pass immediately
     // This fixes the bug where "Auto-Pass Rest of Turn" didn't work properly
-    if (!autoPassForTurn) {
+    let triggerAutoPassReason = autoPassForTurn ? undefined : getTopTriggeredAbilityAutoPassReason(game.state, priority);
+    if (!autoPassForTurn && !triggerAutoPassReason) {
       // Only check if player can act when autoPassForTurn is NOT enabled
       // Use the imported canAct and canRespond functions
       // Create a minimal GameContext with required properties
@@ -1948,6 +1950,8 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       }
       
       debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} CANNOT ACT - proceeding with auto-pass (ID: ${debugCallId})`);
+    } else if (triggerAutoPassReason) {
+      debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} will auto-pass due to top stack trigger shortcut (${triggerAutoPassReason}) (ID: ${debugCallId})`);
     } else {
       debug(2, `[checkAndTriggerAutoPass] Auto-pass for rest of turn is enabled for ${priority} - bypassing canAct check`);
     }
@@ -1980,7 +1984,8 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       // CRITICAL FIX: Re-check if player can act before auto-passing
       // This prevents auto-pass from advancing when a player gains the ability to act
       // (e.g., after step advancement gives them priority in their main phase)
-      if (!autoPassForTurn) {
+      triggerAutoPassReason = autoPassForTurn ? undefined : getTopTriggeredAbilityAutoPassReason(game.state, priority);
+      if (!autoPassForTurn && !triggerAutoPassReason) {
         // Recreate context for re-check
         // CRITICAL: Use actual game data (libraries, mana pool) for accurate checks
         const recheckCtx: any = {
@@ -2033,6 +2038,8 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
           // On error, don't auto-pass to be safe
           return;
         }
+      } else if (triggerAutoPassReason) {
+        debug(2, `${ts()} [executeAutoPass] Re-check confirms top stack trigger shortcut (${triggerAutoPassReason}) for ${priority} (ID: ${debugCallId})`);
       }
       
       // Player cannot act and has auto-pass enabled - auto-pass their priority
@@ -2098,7 +2105,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     
     // For human players without autoPassForTurn, add a small delay
     // This allows them to evaluate and claim priority if needed
-    if (isHumanPlayer && !autoPassForTurn) {
+    if (isHumanPlayer && !autoPassForTurn && !triggerAutoPassReason) {
       debug(2, `${ts()} [checkAndTriggerAutoPass] Scheduling auto-pass for ${priority} with ${AUTO_PASS_DELAY_MS}ms delay (ID: ${debugCallId})`);
       setTimeout(executeAutoPass, AUTO_PASS_DELAY_MS);
     } else {

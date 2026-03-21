@@ -428,6 +428,13 @@ export interface TriggerEventData {
   readonly battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
 }
 
+export interface ResolvedTriggeredAbilityChoice {
+  readonly type: 'target_selection' | 'option_choice' | 'mode_selection';
+  readonly selections?: unknown;
+  readonly targetTypes?: readonly string[];
+  readonly mayAbilityPrompt?: boolean;
+}
+
 /**
  * Build normalized trigger event data from one or more heterogeneous payloads.
  *
@@ -871,6 +878,125 @@ export function buildResolutionEventDataFromGameState(
     handAtBeginningOfTurn: resolvedHandAtBeginningOfTurn,
     battlefield,
   };
+}
+
+function extractTriggeredChoiceSelectionId(selection: unknown): string | undefined {
+  if (typeof selection === 'string') {
+    const normalized = selection.trim();
+    return normalized || undefined;
+  }
+
+  if (Array.isArray(selection)) {
+    for (const entry of selection) {
+      const extracted = extractTriggeredChoiceSelectionId(entry);
+      if (extracted) return extracted;
+    }
+    return undefined;
+  }
+
+  if (selection && typeof selection === 'object') {
+    const id = typeof (selection as any).id === 'string' ? (selection as any).id.trim() : '';
+    if (id) return id;
+
+    const value = typeof (selection as any).value === 'string' ? (selection as any).value.trim() : '';
+    if (value) return value;
+
+    const choiceId = typeof (selection as any).choiceId === 'string' ? (selection as any).choiceId.trim() : '';
+    if (choiceId) return choiceId;
+  }
+
+  return undefined;
+}
+
+function extractTriggeredChoiceSelectionIds(selection: unknown): string[] {
+  if (typeof selection === 'string') {
+    const normalized = selection.trim();
+    return normalized ? [normalized] : [];
+  }
+
+  if (Array.isArray(selection)) {
+    return selection
+      .flatMap((entry: unknown) => extractTriggeredChoiceSelectionIds(entry))
+      .filter((id: string, index: number, items: string[]) => items.indexOf(id) === index);
+  }
+
+  const extracted = extractTriggeredChoiceSelectionId(selection);
+  return extracted ? [extracted] : [];
+}
+
+export function buildTriggeredAbilityEventDataFromChoices(
+  state: GameState,
+  controllerId: string,
+  choices: readonly ResolvedTriggeredAbilityChoice[]
+): TriggerEventData {
+  const overrides: Record<string, unknown> = {};
+  const playerIds = new Set(
+    ((state.players || []) as any[])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter(Boolean)
+  );
+
+  for (const choice of choices) {
+    if (choice?.mayAbilityPrompt) {
+      continue;
+    }
+
+    if (choice?.type === 'target_selection') {
+      const selectedIds = extractTriggeredChoiceSelectionIds(choice?.selections);
+      if (selectedIds.length === 0) continue;
+
+      const normalizedTargetTypes = Array.isArray(choice?.targetTypes)
+        ? choice.targetTypes.map((entry: any) => String(entry || '').toLowerCase())
+        : [];
+
+      if (normalizedTargetTypes.includes('opponent')) {
+        if (selectedIds.length === 1) {
+          overrides.targetOpponentId = selectedIds[0];
+          overrides.targetPlayerId = selectedIds[0];
+        } else {
+          overrides.affectedOpponentIds = selectedIds;
+          overrides.affectedPlayerIds = selectedIds;
+        }
+        continue;
+      }
+
+      if (normalizedTargetTypes.includes('player')) {
+        if (selectedIds.length === 1) {
+          overrides.targetPlayerId = selectedIds[0];
+          if (selectedIds[0] !== controllerId) {
+            overrides.targetOpponentId = selectedIds[0];
+          }
+        } else {
+          overrides.affectedPlayerIds = selectedIds;
+          const opponentIds = selectedIds.filter((id: string) => id !== controllerId);
+          if (opponentIds.length > 0) {
+            overrides.affectedOpponentIds = opponentIds;
+          }
+        }
+        continue;
+      }
+
+      const nonPlayerIds = selectedIds.filter((id: string) => !playerIds.has(id));
+      if (nonPlayerIds.length === 1) {
+        overrides.targetPermanentId = nonPlayerIds[0];
+      }
+      continue;
+    }
+
+    if (choice?.type === 'option_choice') {
+      const selectedId = extractTriggeredChoiceSelectionId(choice?.selections);
+      if (selectedId === 'tap' || selectedId === 'untap') {
+        overrides.tapOrUntapChoice = selectedId;
+      }
+      continue;
+    }
+
+    if (choice?.type === 'mode_selection') {
+      overrides.selectedModeIds = extractTriggeredChoiceSelectionIds(choice?.selections);
+    }
+  }
+
+  return overrides as TriggerEventData;
 }
 
 function normalizeTriggerContextId(value: unknown): string | undefined {

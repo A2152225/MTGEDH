@@ -1,6 +1,11 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import type { TriggerShortcut, TriggerShortcutType } from '../../../shared/src/types';
-import { SHORTCUT_ELIGIBLE_TRIGGERS } from '../../../shared/src/types';
+import {
+  SHORTCUT_ELIGIBLE_TRIGGERS,
+  TRIGGER_SHORTCUT_PREFERENCE_LABELS,
+  getTriggerShortcutOptionsForType,
+  isTriggerShortcutPreferenceAllowed,
+} from '../../../shared/src/types';
 
 interface TriggerShortcutsPanelProps {
   isOpen: boolean;
@@ -69,7 +74,11 @@ export const TriggerShortcutsPanel: React.FC<TriggerShortcutsPanelProps> = ({
   );
 
   const renderTriggerRow = ([cardName, info]: [string, typeof SHORTCUT_ELIGIBLE_TRIGGERS[string]]) => {
-    const currentValue = localShortcuts[cardName] || 'ask_each_time';
+    const allowedOptions = getTriggerShortcutOptionsForType(info.type);
+    const rawCurrentValue = localShortcuts[cardName] || 'ask_each_time';
+    const currentValue = isTriggerShortcutPreferenceAllowed(info.type, rawCurrentValue)
+      ? rawCurrentValue
+      : 'ask_each_time';
     const isActive = activeCards.some(c => c.toLowerCase() === cardName);
 
     return (
@@ -115,18 +124,11 @@ export const TriggerShortcutsPanel: React.FC<TriggerShortcutsPanelProps> = ({
             cursor: 'pointer',
           }}
         >
-          <option value="ask_each_time">Ask Each Time</option>
-          {info.type === 'opponent_pays' ? (
-            <>
-              <option value="always_pay">Always Pay</option>
-              <option value="never_pay">Never Pay</option>
-            </>
-          ) : (
-            <>
-              <option value="always_yes">Always Yes</option>
-              <option value="always_no">Always No</option>
-            </>
-          )}
+          {allowedOptions.map((option) => (
+            <option key={option} value={option}>
+              {TRIGGER_SHORTCUT_PREFERENCE_LABELS[option]}
+            </option>
+          ))}
         </select>
       </div>
     );

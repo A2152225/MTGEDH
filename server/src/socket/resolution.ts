@@ -57,8 +57,9 @@ import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
-import { buildResolutionEventDataFromGameState, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
+import { buildResolutionEventDataFromGameState, buildTriggeredAbilityEventDataFromChoices, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
 import { getTapTriggers } from "../state/modules/triggers/tap-untap.js";
+import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 
 /**
  * Pending "you may" callbacks keyed by gameId → callbackId.
@@ -109,15 +110,17 @@ function pushTapTriggerOntoStack(
 
   game.state.stack.push(stackItem);
 
-  io.to(gameId).emit('triggeredAbility', {
-    gameId,
-    triggerId,
-    playerId: trigger.controllerId,
-    sourcePermanentId: trigger.permanentId,
-    sourceName: trigger.cardName,
-    description: trigger.description,
-    triggerType: 'tap',
-  });
+  if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, trigger.controllerId, trigger.cardName, trigger.mandatory)) {
+    io.to(gameId).emit('triggeredAbility', {
+      gameId,
+      triggerId,
+      playerId: trigger.controllerId,
+      sourcePermanentId: trigger.permanentId,
+      sourceName: trigger.cardName,
+      description: trigger.description,
+      triggerType: 'tap',
+    });
+  }
 
   io.to(gameId).emit('chat', {
     id: `m_${Date.now()}`,
@@ -5401,81 +5404,6 @@ function extractResolutionSelectionIds(selection: any): string[] {
   return extracted ? [extracted] : [];
 }
 
-function buildRulesChoiceExecutionOverrides(
-  game: any,
-  controllerId: string,
-  completedGroupSteps: any[]
-): Record<string, any> {
-  const overrides: Record<string, any> = {};
-  const playerIds = new Set(
-    ((game?.state?.players || []) as any[])
-      .map((player: any) => String(player?.id || '').trim())
-      .filter(Boolean)
-  );
-
-  for (const completed of completedGroupSteps) {
-    if (completed?.type === ResolutionStepType.TARGET_SELECTION) {
-      const selectedIds = extractResolutionSelectionIds(completed?.response?.selections);
-      if (selectedIds.length === 0) continue;
-
-      const normalizedTargetTypes = Array.isArray(completed?.targetTypes)
-        ? completed.targetTypes.map((entry: any) => String(entry || '').toLowerCase())
-        : [];
-
-      if (normalizedTargetTypes.includes('opponent')) {
-        if (selectedIds.length === 1) {
-          overrides.targetOpponentId = selectedIds[0];
-          overrides.targetPlayerId = selectedIds[0];
-        } else {
-          overrides.affectedOpponentIds = selectedIds;
-          overrides.affectedPlayerIds = selectedIds;
-        }
-        continue;
-      }
-
-      if (normalizedTargetTypes.includes('player')) {
-        if (selectedIds.length === 1) {
-          overrides.targetPlayerId = selectedIds[0];
-          if (selectedIds[0] !== controllerId) {
-            overrides.targetOpponentId = selectedIds[0];
-          }
-        } else {
-          overrides.affectedPlayerIds = selectedIds;
-          const opponentIds = selectedIds.filter((id: string) => id !== controllerId);
-          if (opponentIds.length > 0) {
-            overrides.affectedOpponentIds = opponentIds;
-          }
-        }
-        continue;
-      }
-
-      const nonPlayerIds = selectedIds.filter((id: string) => !playerIds.has(id));
-      if (nonPlayerIds.length === 1) {
-        overrides.targetPermanentId = nonPlayerIds[0];
-      }
-      continue;
-    }
-
-    if (completed?.mayAbilityPrompt === true) {
-      continue;
-    }
-
-    if (completed?.type === ResolutionStepType.OPTION_CHOICE) {
-      const selectedId = extractResolutionSelectionId(completed?.response?.selections);
-      if (selectedId === 'tap' || selectedId === 'untap') {
-        overrides.tapOrUntapChoice = selectedId;
-      }
-      continue;
-    }
-
-    if (completed?.type === ResolutionStepType.MODE_SELECTION) {
-      overrides.selectedModeIds = extractResolutionSelectionIds(completed?.response?.selections);
-    }
-  }
-
-  return overrides;
-}
-
 async function handleRulesChoiceGroupResponse(
   game: any,
   gameId: string,
@@ -5520,7 +5448,16 @@ async function handleRulesChoiceGroupResponse(
     return;
   }
 
-  const executionOverrides = buildRulesChoiceExecutionOverrides(game, controllerId, completedGroupSteps);
+  const executionOverrides = buildTriggeredAbilityEventDataFromChoices(
+    game.state as any,
+    controllerId,
+    completedGroupSteps.map((completed: any) => ({
+      type: completed?.type,
+      selections: completed?.response?.selections,
+      targetTypes: completed?.targetTypes,
+      mayAbilityPrompt: completed?.mayAbilityPrompt,
+    }))
+  );
 
   const executionEventData = buildResolutionEventDataFromGameState(
     game.state as any,

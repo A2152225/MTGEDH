@@ -4,7 +4,14 @@ import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColor
 import { processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
-import type { PaymentItem, TriggerShortcut, PlayerID } from "../../../shared/src";
+import {
+  type PaymentItem,
+  type TriggerShortcut,
+  type PlayerID,
+  SHORTCUT_ELIGIBLE_TRIGGERS,
+  isTriggerShortcutType,
+  isTriggerShortcutPreferenceAllowed,
+} from "../../../shared/src";
 import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
 import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
@@ -21,6 +28,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/
 import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
+import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
@@ -7215,16 +7223,18 @@ export function registerGameActions(io: Server, socket: Socket) {
           game.state.stack.push(stackItem);
           
           // Emit trigger notification
-          io.to(gameId).emit("triggeredAbility", {
-            gameId,
-            triggerId,
-            playerId: trigger.controllerId,
-            sourcePermanentId: trigger.permanentId,
-            sourceName: trigger.cardName,
-            triggerType: trigger.triggerType,
-            description: trigger.description,
-            mandatory: trigger.mandatory,
-          });
+          if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, trigger.controllerId, trigger.cardName, trigger.mandatory)) {
+            io.to(gameId).emit("triggeredAbility", {
+              gameId,
+              triggerId,
+              playerId: trigger.controllerId,
+              sourcePermanentId: trigger.permanentId,
+              sourceName: trigger.cardName,
+              triggerType: trigger.triggerType,
+              description: trigger.description,
+              mandatory: trigger.mandatory,
+            });
+          }
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -11648,7 +11658,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardName || typeof cardName !== 'string') return;
-    if (!(preference === 'always_pay' || preference === 'never_pay' || preference === 'always_yes' || preference === 'always_no' || preference === 'ask_each_time')) return;
+    if (!isTriggerShortcutType(preference)) return;
     if (!(triggerDescription === undefined || typeof triggerDescription === 'string')) return;
 
     try {
@@ -11671,6 +11681,22 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Normalize card name for matching
       const normalizedCardName = cardName.toLowerCase().trim();
+      const eligibleTrigger = SHORTCUT_ELIGIBLE_TRIGGERS[normalizedCardName];
+      if (!eligibleTrigger) {
+        socket.emit("error", {
+          code: "SET_TRIGGER_SHORTCUT_ERROR",
+          message: `Unknown trigger shortcut source: ${cardName}`,
+        });
+        return;
+      }
+
+      if (!isTriggerShortcutPreferenceAllowed(eligibleTrigger.type, preference)) {
+        socket.emit("error", {
+          code: "SET_TRIGGER_SHORTCUT_ERROR",
+          message: `Preference ${String(preference)} is not valid for ${cardName}`,
+        });
+        return;
+      }
 
       // Find existing shortcut for this card
       const existingIndex = game.state.triggerShortcuts[playerId].findIndex(
@@ -11685,7 +11711,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       } else {
         // Add or update the shortcut
-        const normalizedPreference = preference as 'always_pay' | 'never_pay' | 'always_yes' | 'always_no' | 'ask_each_time';
+        const normalizedPreference = preference;
         const normalizedTriggerDescription = triggerDescription as string | undefined;
         const shortcut = {
           cardName: normalizedCardName,

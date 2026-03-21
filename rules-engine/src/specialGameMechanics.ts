@@ -390,14 +390,126 @@ export function checkDayNightChange(state: DayNightState, activePlayerSpells: nu
 /**
  * Rule 731.1: Players can propose shortcuts for repetitive actions.
  */
+export const SHORTCUT_ITERABLE_ACTION_TYPES = [
+  'pass_priority',
+  'pass_until_step',
+  'yield_until_event',
+  'activate_mana_ability',
+  'activate_ability',
+  'cast_spell',
+  'attack_with',
+  'block_with',
+  'repeat_loop',
+] as const;
+
+export type ShortcutActionType = typeof SHORTCUT_ITERABLE_ACTION_TYPES[number];
+
+export interface PassPriorityShortcutAction {
+  readonly type: 'pass_priority';
+}
+
+export interface PassUntilStepShortcutAction {
+  readonly type: 'pass_until_step';
+  readonly step: string;
+}
+
+export interface YieldUntilEventShortcutAction {
+  readonly type: 'yield_until_event';
+  readonly event: string;
+}
+
+export interface ActivateManaAbilityShortcutAction {
+  readonly type: 'activate_mana_ability';
+  readonly sourceId: string;
+  readonly abilityId?: string;
+}
+
+export interface ActivateAbilityShortcutAction {
+  readonly type: 'activate_ability';
+  readonly sourceId: string;
+  readonly abilityId: string;
+}
+
+export interface CastSpellShortcutAction {
+  readonly type: 'cast_spell';
+  readonly cardId: string;
+  readonly spellName?: string;
+}
+
+export interface AttackWithShortcutAction {
+  readonly type: 'attack_with';
+  readonly attackerIds: readonly string[];
+}
+
+export interface BlockWithShortcutAction {
+  readonly type: 'block_with';
+  readonly blockerId: string;
+  readonly attackerIds: readonly string[];
+}
+
+export interface RepeatLoopShortcutAction {
+  readonly type: 'repeat_loop';
+  readonly loopId: string;
+  readonly description: string;
+}
+
+export type ShortcutAction =
+  | PassPriorityShortcutAction
+  | PassUntilStepShortcutAction
+  | YieldUntilEventShortcutAction
+  | ActivateManaAbilityShortcutAction
+  | ActivateAbilityShortcutAction
+  | CastSpellShortcutAction
+  | AttackWithShortcutAction
+  | BlockWithShortcutAction
+  | RepeatLoopShortcutAction;
+
 export interface Shortcut {
   readonly proposer: string;
-  readonly action: string;
+  readonly action: ShortcutAction;
   readonly iterations: number;
   readonly accepted: readonly string[];
 }
 
-export function proposeShortcut(proposer: string, action: string, iterations: number): Shortcut {
+export function isShortcutActionType(value: string): value is ShortcutActionType {
+  return (SHORTCUT_ITERABLE_ACTION_TYPES as readonly string[]).includes(value);
+}
+
+export function isIterableShortcutAction(action: ShortcutAction): boolean {
+  switch (action.type) {
+    case 'pass_priority':
+      return true;
+    case 'pass_until_step':
+      return action.step.trim().length > 0;
+    case 'yield_until_event':
+      return action.event.trim().length > 0;
+    case 'activate_mana_ability':
+      return action.sourceId.trim().length > 0;
+    case 'activate_ability':
+      return action.sourceId.trim().length > 0 && action.abilityId.trim().length > 0;
+    case 'cast_spell':
+      return action.cardId.trim().length > 0;
+    case 'attack_with':
+      return action.attackerIds.length > 0 && action.attackerIds.every(id => id.trim().length > 0);
+    case 'block_with':
+      return action.blockerId.trim().length > 0
+        && action.attackerIds.length > 0
+        && action.attackerIds.every(id => id.trim().length > 0);
+    case 'repeat_loop':
+      return action.loopId.trim().length > 0 && action.description.trim().length > 0;
+    default:
+      return false;
+  }
+}
+
+export function validateShortcut(shortcut: Shortcut): boolean {
+  if (shortcut.proposer.trim().length === 0) return false;
+  if (!Number.isInteger(shortcut.iterations) || shortcut.iterations <= 0) return false;
+  if (!isIterableShortcutAction(shortcut.action)) return false;
+  return shortcut.accepted.every(player => player.trim().length > 0);
+}
+
+export function proposeShortcut(proposer: string, action: ShortcutAction, iterations: number): Shortcut {
   return {
     proposer,
     action,
@@ -410,14 +522,33 @@ export function proposeShortcut(proposer: string, action: string, iterations: nu
  * Rule 731.2: All players must agree or shortcut is not taken.
  */
 export function acceptShortcut(shortcut: Shortcut, player: string): Shortcut {
+  if (player === shortcut.proposer || shortcut.accepted.includes(player)) {
+    return shortcut;
+  }
+
   return {
     ...shortcut,
     accepted: [...shortcut.accepted, player]
   };
 }
 
-export function objectToShortcut(shortcut: Shortcut): null {
+export function canPlayerAcceptShortcut(shortcut: Shortcut, player: string): boolean {
+  return player.trim().length > 0
+    && player !== shortcut.proposer
+    && !shortcut.accepted.includes(player);
+}
+
+export function isShortcutFullyAccepted(shortcut: Shortcut, players: readonly string[]): boolean {
+  const requiredAcceptances = players.filter(player => player !== shortcut.proposer);
+  return requiredAcceptances.every(player => shortcut.accepted.includes(player));
+}
+
+export function rejectShortcut(shortcut: Shortcut): null {
   return null; // Shortcut rejected
+}
+
+export function objectToShortcut(shortcut: Shortcut): null {
+  return rejectShortcut(shortcut);
 }
 
 // ============================================================================

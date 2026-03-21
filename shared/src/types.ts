@@ -888,6 +888,48 @@ export type TriggerShortcutType =
   | 'always_resolve'  // Always auto-resolve mandatory triggers without prompting (Soul Warden, etc.)
   | 'ask_each_time';  // Default: prompt each time
 
+export type TriggerShortcutEligibilityType = 'opponent_pays' | 'may_ability' | 'mandatory';
+
+export const TRIGGER_SHORTCUT_PREFERENCES: readonly TriggerShortcutType[] = [
+  'always_pay',
+  'never_pay',
+  'always_yes',
+  'always_no',
+  'always_resolve',
+  'ask_each_time',
+] as const;
+
+export const TRIGGER_SHORTCUT_PREFERENCE_LABELS: Record<TriggerShortcutType, string> = {
+  always_pay: 'Always Pay',
+  never_pay: 'Never Pay',
+  always_yes: 'Always Yes',
+  always_no: 'Always No',
+  always_resolve: 'Always Resolve',
+  ask_each_time: 'Ask Each Time',
+};
+
+export const TRIGGER_SHORTCUT_OPTIONS_BY_TYPE: Record<TriggerShortcutEligibilityType, readonly TriggerShortcutType[]> = {
+  opponent_pays: ['ask_each_time', 'always_pay', 'never_pay'],
+  may_ability: ['ask_each_time', 'always_yes', 'always_no'],
+  mandatory: ['ask_each_time', 'always_resolve'],
+} as const;
+
+export function isTriggerShortcutType(value: unknown): value is TriggerShortcutType {
+  return typeof value === 'string' && (TRIGGER_SHORTCUT_PREFERENCES as readonly string[]).includes(value);
+}
+
+export function getTriggerShortcutOptionsForType(type: TriggerShortcutEligibilityType): readonly TriggerShortcutType[] {
+  return TRIGGER_SHORTCUT_OPTIONS_BY_TYPE[type] || ['ask_each_time'];
+}
+
+export function isTriggerShortcutPreferenceAllowed(
+  type: TriggerShortcutEligibilityType,
+  preference: unknown
+): preference is TriggerShortcutType {
+  return isTriggerShortcutType(preference)
+    && getTriggerShortcutOptionsForType(type).includes(preference);
+}
+
 /**
  * A saved trigger shortcut preference for a specific card/effect.
  */
@@ -908,7 +950,7 @@ export interface TriggerShortcut {
  */
 export const SHORTCUT_ELIGIBLE_TRIGGERS: Record<string, {
   description: string;
-  type: 'opponent_pays' | 'may_ability' | 'mandatory';
+  type: TriggerShortcutEligibilityType;
   defaultPreference: TriggerShortcutType;
 }> = {
   'smothering tithe': {
