@@ -7436,7 +7436,7 @@ async function handleStepResponse(
           break;
         }
 
-        const amount = Number(stepData.amount || 1);
+        let amount = Number(stepData.amount || 1);
         const allowedCodes: string[] | undefined = Array.isArray(stepData.allowedColors) ? stepData.allowedColors : undefined;
 
         const poolKey = String(chosen);
@@ -7456,6 +7456,13 @@ async function handleStepResponse(
           break;
         }
 
+        if (String(stepData.dynamicAmountSource || '') === 'devotion') {
+          const { calculateDevotion } = await import('../state/modules/mana-abilities.js');
+          const controllerId = String(stepData.playerId || pid);
+          const multiplier = Math.max(1, Number(stepData.manaMultiplier || 1));
+          amount = calculateDevotion(game.state, controllerId, chosenCode as 'W' | 'U' | 'B' | 'R' | 'G') * multiplier;
+        }
+
         manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
         if (isTreasureSource) {
           try {
@@ -7467,7 +7474,9 @@ async function handleStepResponse(
           id: `m_${Date.now()}`,
           gameId,
           from: 'system',
-          message: `${getPlayerName(game, pid)} added {${chosenCode.repeat(Math.max(1, amount))}} to their mana pool from ${cardName || 'an ability'}.`,
+          message: amount > 0
+            ? `${getPlayerName(game, pid)} added {${chosenCode.repeat(amount)}} to their mana pool from ${cardName || 'an ability'}.`
+            : `${getPlayerName(game, pid)} added no mana from ${cardName || 'an ability'} (devotion was 0).`,
           ts: Date.now(),
         });
       }

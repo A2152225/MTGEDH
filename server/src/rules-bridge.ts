@@ -410,8 +410,51 @@ export class RulesBridge {
   }
   
   private mapStep(step: any): any {
-    if (!step) return 'untap';
-    return String(step).toLowerCase();
+    if (!step) return 'UNTAP';
+
+    const normalized = String(step)
+      .trim()
+      .replace(/([a-z])([A-Z])/g, '$1_$2')
+      .replace(/[\s-]+/g, '_')
+      .toUpperCase();
+
+    switch (normalized) {
+      case 'UNTAP':
+        return 'UNTAP';
+      case 'UPKEEP':
+        return 'UPKEEP';
+      case 'DRAW':
+        return 'DRAW';
+      case 'MAIN1':
+      case 'PRECOMBAT_MAIN':
+      case 'FIRST_MAIN':
+        return 'MAIN1';
+      case 'BEGIN_COMBAT':
+      case 'BEGINNING_OF_COMBAT':
+      case 'COMBAT_BEGIN':
+        return 'BEGIN_COMBAT';
+      case 'DECLARE_ATTACKERS':
+        return 'DECLARE_ATTACKERS';
+      case 'DECLARE_BLOCKERS':
+        return 'DECLARE_BLOCKERS';
+      case 'DAMAGE':
+      case 'COMBAT_DAMAGE':
+        return 'DAMAGE';
+      case 'END_COMBAT':
+      case 'END_OF_COMBAT':
+        return 'END_COMBAT';
+      case 'MAIN2':
+      case 'POSTCOMBAT_MAIN':
+      case 'SECOND_MAIN':
+        return 'MAIN2';
+      case 'END':
+      case 'END_STEP':
+        return 'END';
+      case 'CLEANUP':
+        return 'CLEANUP';
+      default:
+        return 'UNTAP';
+    }
   }
   
   private mapStatus(phase: any): any {

@@ -4869,7 +4869,7 @@ const KNOWN_EQUIPMENT_EFFECTS: Record<string, Omit<EquipmentEffect, 'permanentId
   },
   "helm of the host": {
     equipCost: "{5}",
-    triggers: ["At the beginning of combat on your turn, create a token copy of equipped creature, except it's not legendary"],
+    triggers: ["At the beginning of combat on your turn, create a token copy of equipped creature, except it's not legendary and gains haste"],
   },
 };
 

@@ -260,6 +260,11 @@ describe('Card-Specific Effects', () => {
       expect(hasSpecialActivatedAbility('Lullmage Mentor')).toBe(true);
     });
 
+    it('should not identify Judge of Currents as an activated ability', () => {
+      expect(hasSpecialActivatedAbility('Judge of Currents')).toBe(false);
+      expect(getActivatedAbilityConfig('Judge of Currents')).toBeUndefined();
+    });
+
     it('should return correct config for Squirrel Nest', () => {
       const config = getActivatedAbilityConfig('Squirrel Nest');
       expect(config).toBeDefined();

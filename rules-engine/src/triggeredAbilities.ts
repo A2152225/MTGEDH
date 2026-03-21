@@ -308,7 +308,7 @@ export function putTriggersOnStack(
     
     return {
       id: trigger.id,
-      spellId: trigger.abilityId,
+      spellId: trigger.sourceId,
       cardName: `${trigger.sourceName} trigger`,
       controllerId: trigger.controllerId,
       targets: trigger.targets || [],
@@ -1299,6 +1299,14 @@ export function evaluateTriggerCondition(
   }
   
   const conditionLower = condition.toLowerCase().trim();
+
+  if (conditionLower.includes('becomes tapped') || conditionLower.includes(' become tapped')) {
+    return evaluateTapStateTriggerCondition(conditionLower, controllerId, eventData, 'tapped');
+  }
+
+  if (conditionLower.includes('becomes untapped') || conditionLower.includes(' become untapped')) {
+    return evaluateTapStateTriggerCondition(conditionLower, controllerId, eventData, 'untapped');
+  }
   
   // Controller filter checks
   if (conditionLower === 'you' || conditionLower === 'your') {
@@ -1351,6 +1359,65 @@ export function evaluateTriggerCondition(
   // Unknown condition pattern - be conservative and don't trigger
   // This prevents false positives for unrecognized conditions
   return false;
+}
+
+function evaluateTapStateTriggerCondition(
+  condition: string,
+  controllerId: string,
+  eventData: TriggerEventData,
+  expectedState: 'tapped' | 'untapped'
+): boolean {
+  const statePhrase = expectedState === 'tapped' ? 'becomes tapped' : 'becomes untapped';
+  if (!condition.includes(statePhrase) && !condition.includes(` become ${expectedState}`)) {
+    return false;
+  }
+
+  const subjectControllerId = String(eventData.sourceControllerId || '').trim();
+  const permanentTypes = new Set((eventData.permanentTypes || []).map(type => String(type).toLowerCase()));
+  const creatureTypes = new Set((eventData.creatureTypes || []).map(type => String(type).toLowerCase()));
+
+  if (condition.includes('you control') && subjectControllerId !== controllerId) {
+    return false;
+  }
+
+  if ((condition.includes('an opponent controls') || condition.includes('opponent controls')) &&
+      (!subjectControllerId || subjectControllerId === controllerId)) {
+    return false;
+  }
+
+  const typedSubjectMatch = condition.match(
+    /(?:a|an|another|one or more)\s+(.+?)\s+(?:you control|an opponent controls|opponent controls)\s+become?s?\s+(?:tapped|untapped)/
+  );
+
+  if (typedSubjectMatch) {
+    const subjectDescriptor = String(typedSubjectMatch[1] || '').trim();
+    if (!subjectDescriptor) return false;
+
+    if (subjectDescriptor.includes('creature')) {
+      return permanentTypes.has('creature');
+    }
+
+    const relevantSubtypeTokens = subjectDescriptor
+      .split(/[^a-z]+/)
+      .map(token => token.trim())
+      .filter(token => token.length > 0 && !['a', 'an', 'another', 'one', 'or', 'more'].includes(token));
+
+    if (relevantSubtypeTokens.length === 0) {
+      return false;
+    }
+
+    return relevantSubtypeTokens.every(token => creatureTypes.has(token));
+  }
+
+  if (condition.includes('this creature')) {
+    return permanentTypes.has('creature');
+  }
+
+  if (condition.includes('this permanent')) {
+    return permanentTypes.size > 0;
+  }
+
+  return true;
 }
 
 /**
@@ -1994,7 +2061,7 @@ function detectEventFromCondition(condition: string): { event: TriggerEvent; fil
     return { event: TriggerEvent.BEGINNING_OF_UPKEEP, filter: 'your' };
   }
   
-  if (text.includes('beginning of each upkeep') || text.includes('each player\'s upkeep')) {
+  if (text.includes('beginning of each upkeep') || text.includes('each upkeep') || text.includes('each player\'s upkeep')) {
     return { event: TriggerEvent.BEGINNING_OF_UPKEEP, filter: 'each' };
   }
   
@@ -2002,11 +2069,27 @@ function detectEventFromCondition(condition: string): { event: TriggerEvent; fil
     return { event: TriggerEvent.BEGINNING_OF_UPKEEP };
   }
   
-  if (text.includes('beginning of combat') || text.includes('combat on your turn')) {
+  if (text.includes('beginning of combat on your turn') || text.includes('combat on your turn')) {
+    return { event: TriggerEvent.BEGINNING_OF_COMBAT, filter: 'your' };
+  }
+
+  if (text.includes('beginning of each combat') || text.includes('each combat')) {
+    return { event: TriggerEvent.BEGINNING_OF_COMBAT, filter: 'each' };
+  }
+
+  if (text.includes('beginning of combat') || text === 'combat') {
     return { event: TriggerEvent.BEGINNING_OF_COMBAT };
   }
   
-  if (text.includes('end step') || text.includes('end of turn') || text.includes('your end step')) {
+  if (text.includes('beginning of your end step') || text.includes('your end step')) {
+    return { event: TriggerEvent.BEGINNING_OF_END_STEP, filter: 'your' };
+  }
+
+  if (text.includes('beginning of each end step') || text.includes('each end step')) {
+    return { event: TriggerEvent.BEGINNING_OF_END_STEP, filter: 'each' };
+  }
+
+  if (text.includes('end step') || text.includes('end of turn')) {
     return { event: TriggerEvent.BEGINNING_OF_END_STEP };
   }
   
@@ -2060,11 +2143,17 @@ function detectEventFromCondition(condition: string): { event: TriggerEvent; fil
   
   // Tapped/untapped triggers
   if (text.includes('becomes tapped') || text.includes('taps')) {
-    return { event: TriggerEvent.BECOMES_TAPPED };
+    const needsFilter = !text.includes('this creature') && !text.includes('this permanent');
+    return needsFilter
+      ? { event: TriggerEvent.BECOMES_TAPPED, filter: text }
+      : { event: TriggerEvent.BECOMES_TAPPED };
   }
   
   if (text.includes('becomes untapped') || text.includes('untaps')) {
-    return { event: TriggerEvent.BECOMES_UNTAPPED };
+    const needsFilter = !text.includes('this creature') && !text.includes('this permanent');
+    return needsFilter
+      ? { event: TriggerEvent.BECOMES_UNTAPPED, filter: text }
+      : { event: TriggerEvent.BECOMES_UNTAPPED };
   }
   
   // Counter triggers

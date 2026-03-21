@@ -116,6 +116,15 @@ describe('Trigger Parsing', () => {
       expect(abilities[0].event).toBe(TriggerEvent.BEGINNING_OF_UPKEEP);
       expect(abilities[0].optional).toBe(true);
     });
+
+    it('should preserve each filter on upkeep triggers', () => {
+      const oracleText = 'At the beginning of each upkeep, draw a card.';
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Shared Upkeep Source');
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0].event).toBe(TriggerEvent.BEGINNING_OF_UPKEEP);
+      expect(abilities[0].triggerFilter).toBe('each');
+    });
     
     it('should parse landfall trigger', () => {
       const oracleText = 'Whenever a land enters the battlefield under your control, put a +1/+1 counter on this creature.';
@@ -181,6 +190,16 @@ describe('Trigger Parsing', () => {
       expect(abilities.length).toBeGreaterThan(0);
       expect(abilities[0].event).toBe(TriggerEvent.GAINED_LIFE);
     });
+
+    it('should parse Judge of Currents as a Merfolk tap trigger', () => {
+      const oracleText = 'Whenever a Merfolk you control becomes tapped, you may gain 1 life.';
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Judge of Currents');
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0].event).toBe(TriggerEvent.BECOMES_TAPPED);
+      expect(abilities[0].triggerFilter).toBe('a merfolk you control becomes tapped');
+      expect(abilities[0].optional).toBe(true);
+    });
     
     it('should detect optional triggers with "you may"', () => {
       const oracleText = 'Whenever this creature attacks, you may draw a card.';
@@ -196,6 +215,43 @@ describe('Trigger Parsing', () => {
       
       expect(abilities.length).toBeGreaterThan(0);
       expect(abilities[0].event).toBe(TriggerEvent.BEGINNING_OF_END_STEP);
+      expect(abilities[0].triggerFilter).toBe('your');
+    });
+
+    it('should preserve each filter on end-step triggers', () => {
+      const oracleText = 'At the beginning of each end step, draw a card.';
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Shared End Source');
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0].event).toBe(TriggerEvent.BEGINNING_OF_END_STEP);
+      expect(abilities[0].triggerFilter).toBe('each');
+    });
+
+    it('should preserve your-turn filter on beginning of combat triggers', () => {
+      const oracleText = 'At the beginning of combat on your turn, create a token that\'s a copy of equipped creature.';
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Combat Source');
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0].event).toBe(TriggerEvent.BEGINNING_OF_COMBAT);
+      expect(abilities[0].triggerFilter).toBe('your');
+    });
+
+    it('should preserve each filter on beginning of combat triggers', () => {
+      const oracleText = 'At the beginning of each combat, draw a card.';
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Shared Combat Source');
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0].event).toBe(TriggerEvent.BEGINNING_OF_COMBAT);
+      expect(abilities[0].triggerFilter).toBe('each');
+    });
+
+    it('should parse generic beginning of combat triggers', () => {
+      const oracleText = 'At the beginning of combat, draw a card.';
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Combat Source');
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0].event).toBe(TriggerEvent.BEGINNING_OF_COMBAT);
+      expect(abilities[0].triggerFilter).toBeUndefined();
     });
     
     it('should parse sacrifice trigger', () => {
@@ -1053,6 +1109,7 @@ describe('Trigger Parsing', () => {
       const { stackObjects } = putTriggersOnStack(queue, 'p1');
 
       expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0]?.spellId).toBe('meta-source');
       expect((stackObjects[0] as any).triggerMeta?.hasInterveningIf).toBe(true);
       expect((stackObjects[0] as any).triggerMeta?.interveningIfClause).toBe('you control an artifact');
       expect((stackObjects[0] as any).triggerMeta?.interveningIfWasTrueAtTrigger).toBe(true);
@@ -1186,6 +1243,76 @@ describe('Trigger Parsing', () => {
   });
 
   describe('Intervening-if condition classes', () => {
+    it('evaluateTriggerCondition supports tribal tap filters for creatures you control', () => {
+      const merfolkYouControl = evaluateTriggerCondition(
+        'a merfolk you control becomes tapped',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          permanentTypes: ['Creature'],
+          creatureTypes: ['Merfolk', 'Wizard'],
+        } as any
+      );
+
+      const nonMerfolk = evaluateTriggerCondition(
+        'a merfolk you control becomes tapped',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          permanentTypes: ['Creature'],
+          creatureTypes: ['Wizard'],
+        } as any
+      );
+
+      const opposingMerfolk = evaluateTriggerCondition(
+        'a merfolk you control becomes tapped',
+        'p1',
+        {
+          sourceControllerId: 'p2',
+          permanentTypes: ['Creature'],
+          creatureTypes: ['Merfolk'],
+        } as any
+      );
+
+      expect(merfolkYouControl).toBe(true);
+      expect(nonMerfolk).toBe(false);
+      expect(opposingMerfolk).toBe(false);
+    });
+
+    it('processEvent only triggers Judge of Currents for your tapped Merfolk', () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        'Whenever a Merfolk you control becomes tapped, you may gain 1 life.',
+        'judge-1',
+        'p1',
+        'Judge of Currents'
+      );
+
+      const controlledMerfolk = processEvent(TriggerEvent.BECOMES_TAPPED, abilities, {
+        sourceId: 'merfolk-1',
+        sourceControllerId: 'p1',
+        permanentTypes: ['Creature'],
+        creatureTypes: ['Merfolk'],
+      } as any);
+
+      const opposingMerfolk = processEvent(TriggerEvent.BECOMES_TAPPED, abilities, {
+        sourceId: 'merfolk-2',
+        sourceControllerId: 'p2',
+        permanentTypes: ['Creature'],
+        creatureTypes: ['Merfolk'],
+      } as any);
+
+      const controlledNonMerfolk = processEvent(TriggerEvent.BECOMES_TAPPED, abilities, {
+        sourceId: 'wizard-1',
+        sourceControllerId: 'p1',
+        permanentTypes: ['Creature'],
+        creatureTypes: ['Wizard'],
+      } as any);
+
+      expect(controlledMerfolk).toHaveLength(1);
+      expect(opposingMerfolk).toHaveLength(0);
+      expect(controlledNonMerfolk).toHaveLength(0);
+    });
+
     it('evaluateTriggerCondition supports opponent control count thresholds for creatures', () => {
       const ok = evaluateTriggerCondition(
         'if an opponent controls 2 or more creatures',

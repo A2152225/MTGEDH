@@ -1145,10 +1145,6 @@ const KNOWN_DEVOTION_MANA_CARDS: Record<string, {
   minDevotion?: number;
 }> = {
   "karametra's acolyte": { color: 'G', producedColor: 'G' },
-  // Note: Nykthos and Nyx Lotus require color choice - the 'color' field here is a placeholder
-  // In practice, these cards need UI interaction to choose which color devotion to count
-  "nykthos, shrine to nyx": { color: 'G', producedColor: 'any' }, // Placeholder - needs color choice
-  "nyx lotus": { color: 'G', producedColor: 'any', minDevotion: 0 }, // Placeholder - needs color choice
   "altar of the pantheon": { color: 'G', producedColor: 'any', minDevotion: 0 }, // Add one of any color, +1 devotion
   // Note: Crypt Ghast is NOT a devotion card - it doubles swamp mana via extort-style effect
   // It's already handled in the extra mana section, not here
@@ -1285,9 +1281,23 @@ export function getCreatureCountManaAmount(
   gameState: any,
   permanent: any,
   playerId: string
-): { color: string; amount: number } | null {
+): { color: string; amount: number; activationCost?: string; requiresColorChoice?: boolean; dynamicAmountSource?: 'devotion' } | null {
   const cardName = (permanent?.card?.name || "").toLowerCase();
   const oracleText = (permanent?.card?.oracle_text || "").toLowerCase();
+
+  if (
+    cardName.includes('nykthos, shrine to nyx') ||
+    cardName.includes('nyx lotus') ||
+    (oracleText.includes('choose a color') && oracleText.includes('devotion to that color'))
+  ) {
+    return {
+      color: 'any_combination',
+      amount: 0,
+      activationCost: cardName.includes('nykthos') ? '{2}' : undefined,
+      requiresColorChoice: true,
+      dynamicAmountSource: 'devotion',
+    };
+  }
   
   // Priest of Titania: "Add {G} for each Elf on the battlefield"
   if (cardName.includes("priest of titania")) {
@@ -1630,9 +1640,13 @@ export function getCreatureCountManaAmount(
     }
     // "your devotion to that color" (Nykthos, Nyx Lotus)
     else if (condition.includes('devotion')) {
-      // This requires color choice - return a marker for the UI
-      // The actual devotion will be calculated when the player chooses a color
-      amount = 0; // Will be calculated dynamically
+      return {
+        color: 'any_combination',
+        amount: 0,
+        activationCost: cardName.includes('nykthos') ? '{2}' : undefined,
+        requiresColorChoice: true,
+        dynamicAmountSource: 'devotion',
+      };
     }
     // "the number of creatures you control" 
     else if (condition.includes('creature') && condition.includes('control')) {

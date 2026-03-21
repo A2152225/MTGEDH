@@ -71,6 +71,8 @@ export type ActionHandler = (
 export interface ActionContext {
   readonly getState: (gameId: string) => GameState | undefined;
   readonly setState: (gameId: string, state: GameState) => void;
+  readonly getStack?: (gameId: string) => any;
+  readonly setStack?: (gameId: string, stack: any) => void;
   readonly emit: (event: import('./events').RulesEvent) => void;
   readonly gameId: string;
 }

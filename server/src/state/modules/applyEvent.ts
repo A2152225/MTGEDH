@@ -2445,7 +2445,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // The specific effect depends on the ability, but typically moves the card
         const cardId = (e as any).cardId;
         const pid = (e as any).playerId;
-        const abilityType = (e as any).abilityType;
+        const abilityType = (e as any).abilityType ?? (e as any).abilityId;
         try {
           // Most graveyard abilities exile the card after use
           if (cardId && pid && abilityType === 'flashback') {

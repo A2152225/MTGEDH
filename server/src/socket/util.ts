@@ -3756,8 +3756,17 @@ export function calculateManaProduction(
   // Devotion = count of mana symbols of that color in mana costs of permanents you control
   if (cardName.includes('nykthos') || 
       (oracleText.includes('devotion') && oracleText.includes('add'))) {
+    if (!chosenColor || !['W', 'U', 'B', 'R', 'G'].includes(chosenColor)) {
+      result.isDynamic = true;
+      result.baseAmount = 0;
+      result.dynamicDescription = 'Choose a color. Add mana equal to your devotion to that color';
+      result.colors = ['any'];
+      result.requiresColorChoice = true;
+      return result;
+    }
+
     // Calculate devotion for the chosen color
-    const devotionColor = chosenColor || 'W'; // Default to white if no color chosen
+    const devotionColor = chosenColor as 'W' | 'U' | 'B' | 'R' | 'G';
     let devotion = 0;
     
     for (const perm of battlefield) {
@@ -3783,8 +3792,7 @@ export function calculateManaProduction(
     result.isDynamic = true;
     result.baseAmount = devotion;
     result.dynamicDescription = `{${devotionColor}} for devotion (${devotion})`;
-    result.colors = ['W', 'U', 'B', 'R', 'G'];
-    if (chosenColor) result.colors = [chosenColor];
+    result.colors = [devotionColor];
   }
   
   // Cabal Coffers - "Add {B} for each Swamp you control"
@@ -3815,7 +3823,16 @@ export function calculateManaProduction(
   
   // Nyx Lotus - "Add X mana of any one color, where X is your devotion to that color"
   if (cardName.includes('nyx lotus')) {
-    const devotionColor = chosenColor || 'W';
+    if (!chosenColor || !['W', 'U', 'B', 'R', 'G'].includes(chosenColor)) {
+      result.isDynamic = true;
+      result.baseAmount = 0;
+      result.dynamicDescription = 'Choose a color. Add mana equal to your devotion to that color';
+      result.colors = ['any'];
+      result.requiresColorChoice = true;
+      return result;
+    }
+
+    const devotionColor = chosenColor as 'W' | 'U' | 'B' | 'R' | 'G';
     let devotion = 0;
     
     for (const perm of battlefield) {
@@ -3840,8 +3857,7 @@ export function calculateManaProduction(
     result.isDynamic = true;
     result.baseAmount = devotion;
     result.dynamicDescription = `{${devotionColor}} for devotion (${devotion})`;
-    result.colors = ['W', 'U', 'B', 'R', 'G'];
-    if (chosenColor) result.colors = [chosenColor];
+    result.colors = [devotionColor];
   }
   
   // ===== POWER-BASED MANA ABILITIES =====

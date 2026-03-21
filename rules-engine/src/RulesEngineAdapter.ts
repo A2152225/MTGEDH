@@ -739,6 +739,8 @@ export class RulesEngineAdapter {
     const actionContext = {
       getState: (gid: string) => this.gameStates.get(gid),
       setState: (gid: string, state: GameState) => this.gameStates.set(gid, state),
+      getStack: (gid: string) => this.stacks.get(gid),
+      setStack: (gid: string, stack: any) => this.stacks.set(gid, stack),
       emit: (event: RulesEvent) => this.emit(event),
       gameId,
     };
@@ -819,15 +821,24 @@ export class RulesEngineAdapter {
         result = { next: currentState, log: ['Unknown action type'] };
     }
     
+    const syncedResultState: GameState = {
+      ...result.next,
+      stack: [...(((this.stacks.get(gameId)?.objects as any[]) || ((result.next as any).stack as any[]) || []))] as any,
+    };
+
     // Update stored state
-    this.gameStates.set(gameId, result.next);
+    this.gameStates.set(gameId, syncedResultState);
     
     // Check state-based actions after each action
-    const sbaResult = this.checkStateBasedActions(gameId, result.next);
-    this.gameStates.set(gameId, sbaResult.next);
+    const sbaResult = this.checkStateBasedActions(gameId, syncedResultState);
+    const syncedSbaState: GameState = {
+      ...sbaResult.next,
+      stack: [...(((this.stacks.get(gameId)?.objects as any[]) || ((sbaResult.next as any).stack as any[]) || []))] as any,
+    };
+    this.gameStates.set(gameId, syncedSbaState);
     
     return {
-      next: sbaResult.next,
+      next: syncedSbaState,
       log: [...(result.log || []), ...(sbaResult.log || [])],
     };
   }
@@ -1337,6 +1348,91 @@ export class RulesEngineAdapter {
   /**
    * Resolve top object on stack
    */
+  private resolveHelmOfTheHostTrigger(
+    state: GameState,
+    stackObject: StackObject,
+    effectText: string,
+    triggerMeta: StackObject['triggerMeta']
+  ): { handled: boolean; state: GameState; log: string[] } {
+    const normalizedEffect = String(effectText || '').toLowerCase();
+    const normalizedSourceName = String(triggerMeta?.sourceName || '').toLowerCase();
+    if (!normalizedEffect.includes('copy of equipped creature') || !normalizedEffect.includes("isn't legendary")) {
+      return { handled: false, state, log: [] };
+    }
+
+    if (normalizedSourceName && normalizedSourceName !== 'helm of the host') {
+      return { handled: false, state, log: [] };
+    }
+
+    const battlefield = [...((state.battlefield || []) as any[])];
+    const sourceId = String(triggerMeta?.triggerEventDataSnapshot?.sourceId || stackObject.spellId || '').trim();
+    const sourcePerm = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId) as any;
+    if (!sourcePerm) {
+      return { handled: true, state, log: ['[oracle-ir] Helm of the Host trigger fizzles (source not found)'] };
+    }
+
+    const attachedTo = String(sourcePerm?.attachedTo || '').trim();
+    if (!attachedTo) {
+      return { handled: true, state, log: ['[oracle-ir] Helm of the Host trigger fizzles (not attached)'] };
+    }
+
+    const equippedCreature = battlefield.find((perm: any) => String(perm?.id || '').trim() === attachedTo) as any;
+    if (!equippedCreature) {
+      return { handled: true, state, log: ['[oracle-ir] Helm of the Host trigger fizzles (equipped creature missing)'] };
+    }
+
+    const originalCard = { ...(equippedCreature.card || {}) } as any;
+    const tokenId = `token-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+    const originalTypeLine = String(originalCard.type_line || equippedCreature.type_line || equippedCreature.cardType || 'Token');
+    const tokenTypeLine = originalTypeLine.replace(/\bLegendary\s+/gi, '').trim();
+    const originalOracleText = String(originalCard.oracle_text || equippedCreature.oracle_text || '');
+    const originalKeywords = Array.isArray(originalCard.keywords) ? [...originalCard.keywords] : [];
+    const hasPrintedHaste = /\bhaste\b/i.test(originalOracleText) || originalKeywords.some((keyword: string) => /\bhaste\b/i.test(String(keyword)));
+
+    const tokenCard = {
+      ...originalCard,
+      id: tokenId,
+      type_line: tokenTypeLine,
+      oracle_text: hasPrintedHaste ? originalOracleText : `${originalOracleText}${originalOracleText ? '\n' : ''}Haste`,
+      keywords: hasPrintedHaste ? originalKeywords : [...originalKeywords, 'Haste'],
+    };
+
+    const tokenPermanent = {
+      id: tokenId,
+      controller: stackObject.controllerId,
+      owner: stackObject.controllerId,
+      ownerId: stackObject.controllerId,
+      tapped: false,
+      summoningSickness: false,
+      counters: {},
+      attachedTo: undefined,
+      attachments: [],
+      attachedEquipment: [],
+      isEquipped: false,
+      modifiers: [],
+      cardType: tokenTypeLine,
+      type_line: tokenTypeLine,
+      name: tokenCard.name,
+      manaCost: originalCard.mana_cost ?? originalCard.manaCost,
+      power: equippedCreature.power ?? originalCard.power,
+      toughness: equippedCreature.toughness ?? originalCard.toughness,
+      basePower: equippedCreature.basePower ?? equippedCreature.power ?? originalCard.power,
+      baseToughness: equippedCreature.baseToughness ?? equippedCreature.toughness ?? originalCard.toughness,
+      oracle_text: tokenCard.oracle_text,
+      card: tokenCard,
+      isToken: true,
+    } as any;
+
+    return {
+      handled: true,
+      state: {
+        ...state,
+        battlefield: [...battlefield, tokenPermanent],
+      },
+      log: [`[oracle-ir] Helm of the Host created token copy of ${tokenCard.name || equippedCreature.id}`],
+    };
+  }
+
   private resolveStackTop(gameId: string): EngineResult<GameState> {
     const state = this.gameStates.get(gameId)!;
     const stack = this.stacks.get(gameId)!;
@@ -1470,17 +1566,32 @@ export class RulesEngineAdapter {
           }
         }
 
-        const executeResult = executeTriggeredAbilityEffectWithOracleIR(
+        const knownTriggerResult = this.resolveHelmOfTheHostTrigger(
           nextState,
-          {
-            controllerId: popResult.object.controllerId,
-            sourceId: popResult.object.spellId,
-            sourceName: triggerMeta?.sourceName || popResult.object.cardName,
-            effect: effectText,
-          },
-          resolutionEventData,
-          { allowOptional: false }
+          popResult.object,
+          effectText,
+          triggerMeta,
         );
+
+        const executeResult = knownTriggerResult.handled
+          ? {
+              state: knownTriggerResult.state,
+              log: knownTriggerResult.log,
+              appliedSteps: [],
+              skippedSteps: [],
+              pendingOptionalSteps: [],
+            }
+          : executeTriggeredAbilityEffectWithOracleIR(
+              nextState,
+              {
+                controllerId: popResult.object.controllerId,
+                sourceId: popResult.object.spellId,
+                sourceName: triggerMeta?.sourceName || popResult.object.cardName,
+                effect: effectText,
+              },
+              resolutionEventData,
+              { allowOptional: false }
+            );
 
         const triggerChoiceEvents = buildTriggeredAbilityChoiceEvents(
           nextState,

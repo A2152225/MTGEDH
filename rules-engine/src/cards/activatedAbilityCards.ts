@@ -83,16 +83,6 @@ export const ACTIVATED_ABILITY_CARDS: Record<string, ActivatedAbilityConfig> = {
       requiresCount: 3,
     },
   },
-  'judge of currents': {
-    cardName: 'Judge of Currents',
-    tapAbility: {
-      cost: 'Tap an untapped Merfolk you control',
-      effect: 'You gain 1 life.',
-      targetType: 'self',
-      requiresType: 'Merfolk',
-      requiresCount: 1,
-    },
-  },
   'fallowsage': {
     cardName: 'Fallowsage',
     tapAbility: {

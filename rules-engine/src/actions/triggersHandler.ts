@@ -258,12 +258,20 @@ export function checkDiesTriggers(
  */
 export function checkStepTriggers(
   state: GameState,
-  event: TriggerEvent
+  event: TriggerEvent,
+  activePlayerId?: string
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const stepAbilities = abilities.filter(a => a.event === event);
-  
-  return processTriggers(state, event, stepAbilities);
+
+  const eventData = activePlayerId
+    ? {
+        sourceControllerId: activePlayerId,
+        isYourTurn: true,
+      }
+    : undefined;
+
+  return processTriggers(state, event, stepAbilities, eventData);
 }
 
 /**

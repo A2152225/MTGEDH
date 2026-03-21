@@ -13,6 +13,8 @@ import { executeTurnBasedAction } from './turnActions';
 import { performStateBasedActions, checkWinConditions } from './stateBasedActionsHandler';
 import { processETBTriggers } from './etbHandler';
 import { applyTemporaryCantLoseAndOpponentsCantWinEffect } from '../winEffectCards';
+import { TriggerEvent } from '../triggeredAbilities';
+import { checkStepTriggers } from './triggersHandler';
 
 function snapshotBattlefieldForTurnStart(state: GameState): readonly BattlefieldPermanent[] {
   return Array.isArray(state.battlefield)
@@ -31,6 +33,33 @@ function snapshotHandsForTurnStart(state: GameState): Record<string, string[]> {
       .filter((id: string) => id.length > 0);
   }
   return snapshot;
+}
+
+function getStepTriggerEvent(step: GameStep): TriggerEvent | null {
+  switch (step) {
+    case GameStep.UPKEEP:
+      return TriggerEvent.BEGINNING_OF_UPKEEP;
+    case GameStep.DRAW:
+      return TriggerEvent.BEGINNING_OF_DRAW_STEP;
+    case GameStep.MAIN1:
+      return TriggerEvent.BEGINNING_OF_PRECOMBAT_MAIN;
+    case GameStep.BEGIN_COMBAT:
+      return TriggerEvent.BEGINNING_OF_COMBAT;
+    case GameStep.DECLARE_ATTACKERS:
+      return TriggerEvent.BEGINNING_OF_DECLARE_ATTACKERS;
+    case GameStep.DECLARE_BLOCKERS:
+      return TriggerEvent.BEGINNING_OF_DECLARE_BLOCKERS;
+    case GameStep.END_COMBAT:
+      return TriggerEvent.END_OF_COMBAT;
+    case GameStep.MAIN2:
+      return TriggerEvent.BEGINNING_OF_POSTCOMBAT_MAIN;
+    case GameStep.END:
+      return TriggerEvent.BEGINNING_OF_END_STEP;
+    case GameStep.CLEANUP:
+      return TriggerEvent.CLEANUP_STEP;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -115,6 +144,18 @@ export function advanceGame(
   const tbaResult = executeTurnBasedAction(gameId, updatedState, context);
   updatedState = tbaResult.next;
   logs.push(...(tbaResult.log || []));
+
+  const activePlayerId = String(updatedState.players[activePlayerIndex]?.id || '').trim();
+  const stepTriggerEvent = getStepTriggerEvent(nextStep);
+  if (stepTriggerEvent && activePlayerId) {
+    const triggerResult = checkStepTriggers(updatedState, stepTriggerEvent, activePlayerId);
+    updatedState = triggerResult.state;
+    logs.push(...(triggerResult.logs || []));
+  }
+
+  context.setStack?.(gameId, {
+    objects: Array.isArray((updatedState as any).stack) ? [...((updatedState as any).stack as any[])] : [],
+  });
   
   // Check state-based actions
   const sbaResult = performStateBasedActions(updatedState);

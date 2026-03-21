@@ -2141,7 +2141,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // ========================================================================
       // Handle creature-count-based mana abilities (Priest of Titania, Elvish Archdruid, etc.)
       // ========================================================================
-      else if (creatureCountMana && creatureCountMana.amount > 0) {
+      else if (creatureCountMana && (creatureCountMana.amount > 0 || (creatureCountMana as any).requiresColorChoice === true)) {
         const baseAmount = creatureCountMana.amount;
         const totalAmount = baseAmount * effectiveMultiplier;
         
@@ -2155,6 +2155,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           // Validate mana payment
           const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
           if (validationError) {
+            (permanent as any).tapped = false;
+            if (battlefieldIndex >= 0) {
+              battlefield[battlefieldIndex].tapped = false;
+            }
             socket.emit("error", {
               code: "INSUFFICIENT_MANA",
               message: `Cannot pay activation cost ${activationCost}: ${validationError}`,
@@ -2194,13 +2198,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             amount: totalAmount,
             allowedColors: ['W', 'U', 'B', 'R', 'G'],
             singleColor: true,
+            dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
+            manaMultiplier: effectiveMultiplier,
           } as any);
           
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose a color).`,
+            message: (creatureCountMana as any).dynamicAmountSource === 'devotion'
+              ? `${getPlayerName(game, pid)} activated ${cardName} and must choose a color for devotion mana.`
+              : `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose a color).`,
             ts: Date.now(),
           });
           
@@ -5419,6 +5427,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         sacrificeType = sacrificeInfo.sacrificeType;
         sacrificeSubtype = sacrificeInfo.creatureSubtype;
       }
+
+      if (
+        /^choose a color\.?$/i.test(String(abilityText || '').trim()) &&
+        /add\s+an\s+amount\s+of\s+mana\s+of\s+that\s+color/i.test(oracleText)
+      ) {
+        const fullChooseColorManaMatch = oracleText.match(
+          /choose a color\.\s*add\s+an\s+amount\s+of\s+mana\s+of\s+that\s+color[^.]*\./i
+        );
+        if (fullChooseColorManaMatch) {
+          abilityText = fullChooseColorManaMatch[0].trim();
+        }
+      }
     } else {
       // FALLBACK: If parsing failed or abilityIndex is out of range, try to extract ability text from oracle
       // For cards with a single activated ability or when the client sends an unrecognized abilityId,
@@ -8297,7 +8317,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Tapped ${cardName}`, game);
       }
       // Handle creature-count-based mana
-      else if (creatureCountMana && creatureCountMana.amount > 0) {
+      else if (creatureCountMana && (creatureCountMana.amount > 0 || (creatureCountMana as any).requiresColorChoice === true)) {
         const totalAmount = creatureCountMana.amount * effectiveMultiplier;
         
         if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
@@ -8315,6 +8335,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             abilityId,
             cardName,
             amount: totalAmount,
+            allowedColors: ['W', 'U', 'B', 'R', 'G'],
+            dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
+            manaMultiplier: effectiveMultiplier,
             // Activation-cost evidence (for deterministic replay) and deferred costs
             lifeToPayForCost: pendingLifePaymentForCost || undefined,
             tappedPermanentsForCost: tappedPermanentsForCost,
@@ -8325,7 +8348,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose colors).`,
+            message: (creatureCountMana as any).dynamicAmountSource === 'devotion'
+              ? `${getPlayerName(game, pid)} activated ${cardName} and must choose a color for devotion mana.`
+              : `${getPlayerName(game, pid)} tapped ${cardName} for ${totalAmount} mana (choose colors).`,
             ts: Date.now(),
           });
           
