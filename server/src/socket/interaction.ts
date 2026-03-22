@@ -2,7 +2,7 @@ import { enqueueEdictCreatureSacrificeStep } from './sacrifice-resolution.js';
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, validateAndConsumeManaCostFromPool } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket.js";
 import { 
@@ -2860,6 +2860,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const cardName = card?.name || "Unknown";
     const oracleText = (card?.oracle_text || "").toLowerCase();
     const typeLine = (card?.type_line || "").toLowerCase();
+    const scopedActivatedAbility = getActivatedAbilityScopeText(oracleText, abilityId);
+    const scopedAbilityText = String(scopedActivatedAbility.abilityText || '').trim();
+    const scopedAbilityFullText = String(scopedActivatedAbility.fullAbilityText || scopedAbilityText || oracleText || '').trim();
+    const isGenericActivatedAbilityId = /-ability-(\d+)$/i.test(abilityId);
 
     const { isAbilityActivationProhibitedByChosenName } = await import('../state/modules/chosen-name-restrictions.js');
     
@@ -2867,12 +2871,37 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Handle Special Land Activated Abilities
     // ========================================================================
     const specialLandConfig = SPECIAL_LAND_ABILITIES[cardName.toLowerCase()];
+    const lowerScopedAbilityFullText = scopedAbilityFullText.toLowerCase();
+    const storageCounterType = String(specialLandConfig?.counterType || '').toLowerCase();
+    const isGenericHybridManaSpecialLandAbility = specialLandConfig?.type === 'hybrid_mana_production' &&
+      isGenericActivatedAbilityId &&
+      Boolean(specialLandConfig.cost) &&
+      lowerScopedAbilityFullText.includes(String(specialLandConfig.cost || '').toLowerCase()) &&
+      lowerScopedAbilityFullText.includes('add');
+    const isGenericStorageAddCounterAbility = specialLandConfig?.type === 'storage_counter' &&
+      isGenericActivatedAbilityId &&
+      storageCounterType.length > 0 &&
+      lowerScopedAbilityFullText.includes(`put a ${storageCounterType} counter on`);
+    const isGenericStorageRemoveCountersAbility = specialLandConfig?.type === 'storage_counter' &&
+      isGenericActivatedAbilityId &&
+      storageCounterType.length > 0 &&
+      lowerScopedAbilityFullText.includes('remove') &&
+      lowerScopedAbilityFullText.includes(storageCounterType) &&
+      lowerScopedAbilityFullText.includes('add');
+    const isGenericAnimateSpecialLandAbility = specialLandConfig?.type === 'animate' &&
+      isGenericActivatedAbilityId &&
+      /\bbecomes\s+a\b/i.test(scopedAbilityFullText) &&
+      /until end of turn/i.test(scopedAbilityFullText);
+    const isGenericHideawayPlayAbility = specialLandConfig?.type === 'hideaway' &&
+      isGenericActivatedAbilityId &&
+      /you may play/i.test(scopedAbilityFullText) &&
+      /exiled/i.test(scopedAbilityFullText);
 
     // If a special land ability will return early, we still need to enforce chosen-name activation lockouts.
     // Best-effort mapping for our special ability IDs.
     const isSpecialLandManaAbility =
-      (specialLandConfig?.type === 'hybrid_mana_production' && abilityId.includes('hybrid-mana')) ||
-      (specialLandConfig?.type === 'storage_counter' && abilityId.includes('remove-counters'));
+      (specialLandConfig?.type === 'hybrid_mana_production' && (abilityId.includes('hybrid-mana') || isGenericHybridManaSpecialLandAbility)) ||
+      (specialLandConfig?.type === 'storage_counter' && (abilityId.includes('remove-counters') || isGenericStorageRemoveCountersAbility));
 
     const earlyRestriction = isAbilityActivationProhibitedByChosenName(game.state, pid as any, cardName, isSpecialLandManaAbility);
     if (earlyRestriction.prohibited) {
@@ -2885,7 +2914,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // 1. GRAVEN CAIRNS - Hybrid Mana Production Lands
-    if (specialLandConfig?.type === 'hybrid_mana_production' && abilityId.includes('hybrid-mana')) {
+    if (specialLandConfig?.type === 'hybrid_mana_production' && (abilityId.includes('hybrid-mana') || isGenericHybridManaSpecialLandAbility)) {
       // Validate: permanent must not be tapped
       if ((permanent as any).tapped) {
         socket.emit("error", {
@@ -2989,7 +3018,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // 2. CALCIFORM POOLS - Storage Counter Lands
     if (specialLandConfig?.type === 'storage_counter') {
       // Handle storage counter abilities
-      if (abilityId.includes('add-counter')) {
+      if (abilityId.includes('add-counter') || isGenericStorageAddCounterAbility) {
         // {1}, {T}: Put a storage counter on ~
         // Validate: permanent must not be tapped
         if ((permanent as any).tapped) {
@@ -3036,7 +3065,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
         broadcastGame(io, game, gameId);
         return;
-      } else if (abilityId.includes('remove-counters')) {
+      } else if (abilityId.includes('remove-counters') || isGenericStorageRemoveCountersAbility) {
         // {T}, Remove X storage counters from ~: Add X mana in any combination of colors
         // This requires X selection UI - for now, we'll implement basic version
         // Future: Add X-cost selection modal
@@ -3094,7 +3123,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // 3. MUTAVAULT - Land Animation
-    if (specialLandConfig?.type === 'animate' && abilityId.includes('animate')) {
+    if (specialLandConfig?.type === 'animate' && (abilityId.includes('animate') || isGenericAnimateSpecialLandAbility)) {
       // {1}: ~ becomes a 2/2 creature with all creature types until end of turn
       // Validate: permanent must not be tapped for activation
       
@@ -3163,7 +3192,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // 4. HIDEAWAY - Face-down Exile Implementation
     // Hideaway is handled during ETB (Enter the Battlefield), not as activated ability
     // The activated ability is just playing the exiled card
-    if (specialLandConfig?.type === 'hideaway' && abilityId.includes('play-hideaway')) {
+    if (specialLandConfig?.type === 'hideaway' && (abilityId.includes('play-hideaway') || isGenericHideawayPlayAbility)) {
       // Split Second: playing/casting is not allowed.
       if (splitSecondLockActive) {
         socket.emit('error', {
@@ -3437,10 +3466,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    const scopedActivatedAbility = getActivatedAbilityScopeText(oracleText, abilityId);
-    const scopedAbilityText = String(scopedActivatedAbility.abilityText || '').trim();
-    const scopedAbilityFullText = String(scopedActivatedAbility.fullAbilityText || scopedAbilityText || oracleText || '').trim();
-
     // Handle sacrifice-to-draw abilities (Sunbaked Canyon, Horizon Canopy, etc.)
     // Pattern: "{cost}, {T}, Sacrifice ~: Draw a card"
     // Examples: "{1}, {T}, Sacrifice ~" (Sunbaked Canyon), "{G}{W}, {T}, Sacrifice ~" (Horizon Canopy)
@@ -3671,7 +3696,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // during spell resolution via the targeting system
     const grantAbilityMatch = scopedAbilityFullText.match(/\{([^}]+(?:\}\s*,\s*\{[^}]+)*)\}:\s*target\s+creature\s+(you control|an opponent controls)?.*?(gains?|gets?)\s+([^.]+)/i);
     const hasExplicitGrantAbilityId = /-grant-ability-(\d+)$/i.test(abilityId) || abilityId === 'grant-ability';
-    const isGenericActivatedAbilityId = /-ability-(\d+)$/i.test(abilityId);
 
     if (grantAbilityMatch && (hasExplicitGrantAbilityId || isGenericActivatedAbilityId)) {
       const costStr = `{${grantAbilityMatch[1]}}`;
@@ -4653,10 +4677,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Handle creature upgrade abilities (Figure of Destiny, Warden of the First Tree, etc.)
     // These are activated abilities that transform or upgrade a creature
-    if (abilityId.startsWith("upgrade-") || abilityId.includes("-becomes-")) {
+    const upgradeAbilities = parseCreatureUpgradeAbilities(oracleText, cardName);
+    const hasExplicitUpgradeAbilityId = abilityId.startsWith("upgrade-") || abilityId.includes("-becomes-");
+    const normalizedScopedUpgradeText = String(scopedAbilityFullText || scopedAbilityText || '')
+      .replace(new RegExp(String(cardName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '~')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const matchedUpgradeIndex = upgradeAbilities.findIndex((candidate) =>
+      String(candidate?.fullText || '').replace(/\s+/g, ' ').trim() === normalizedScopedUpgradeText
+    );
+    const isGenericUpgradeAbility = isGenericActivatedAbilityId && matchedUpgradeIndex >= 0;
+    if (hasExplicitUpgradeAbilityId || isGenericUpgradeAbility) {
       // Parse the upgrade ability from oracle text
-      const upgradeAbilities = parseCreatureUpgradeAbilities(oracleText, cardName);
-      
       if (upgradeAbilities.length === 0) {
         socket.emit("error", {
           code: "NO_UPGRADE_ABILITY",
@@ -4666,7 +4698,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Determine which upgrade ability to activate based on abilityId
-      const upgradeIndex = parseInt(abilityId.replace(/^upgrade-|\-becomes-.*$/g, ''), 10) || 0;
+      const upgradeIndex = hasExplicitUpgradeAbilityId
+        ? (parseInt(abilityId.replace(/^upgrade-|\-becomes-.*$/g, ''), 10) || 0)
+        : matchedUpgradeIndex;
       const upgrade = upgradeAbilities[upgradeIndex < upgradeAbilities.length ? upgradeIndex : 0];
       
       if (!upgrade) {
@@ -4692,6 +4726,27 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           return;
         }
       }
+
+      if (splitSecondLockActive) {
+        socket.emit('error', {
+          code: 'SPLIT_SECOND_LOCK',
+          message: "Can't activate abilities while a spell with split second is on the stack.",
+        });
+        return;
+      }
+
+      const pool = getOrInitManaPool(game.state, pid);
+      const paid = validateAndConsumeManaCostFromPool(pool as any, String(upgrade.cost || '').trim(), {
+        logPrefix: '[activateBattlefieldAbility:upgrade]',
+      });
+      if (!paid.ok) {
+        const paymentError = 'error' in paid ? (paid.error || 'Insufficient mana.') : 'Insufficient mana.';
+        socket.emit('error', {
+          code: 'INSUFFICIENT_MANA',
+          message: paymentError,
+        });
+        return;
+      }
       
       // Put the upgrade ability on the stack
       const stackItem = {
@@ -4700,7 +4755,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         controller: pid,
         source: permanentId,
         sourceName: cardName,
-        description: upgrade.fullText,
+        description: normalizedScopedUpgradeText || upgrade.fullText,
         abilityType: 'creature-upgrade',
         upgradeData: {
           newTypes: upgrade.newTypes,
@@ -4722,7 +4777,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           activatedBy: pid as any,
           sourcePermanentId: permanentId as any,
           isManaAbility: false,
-          abilityText: upgrade.fullText,
+          abilityText: normalizedScopedUpgradeText || upgrade.fullText,
           stackItemId: stackItem.id,
         });
       } catch {}
@@ -4758,7 +4813,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s upgrade ability. (${upgrade.fullText.slice(0, 80)}...)`,
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s upgrade ability. (${String(normalizedScopedUpgradeText || upgrade.fullText).slice(0, 80)}...)`,
         ts: Date.now(),
       });
       
