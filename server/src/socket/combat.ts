@@ -1681,6 +1681,22 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
           }
         }
 
+        const forcedAttackPlayerId = String((creature as any).encoreAttackPlayerId || '').trim();
+        if (forcedAttackPlayerId) {
+          const players = Array.isArray((game.state as any).players) ? (game.state as any).players : [];
+          const forcedOpponentStillActive = players.some((player: any) => String(player?.id || '') === forcedAttackPlayerId && !player?.hasLost);
+          if (forcedOpponentStillActive) {
+            const declaredTargetPlayerId = String(attacker.targetPlayerId || '').trim();
+            if (declaredTargetPlayerId !== forcedAttackPlayerId) {
+              socket.emit("error", {
+                code: "ATTACK_REQUIREMENT",
+                message: `${(creature as any).card?.name || "Creature"} must attack ${getPlayerName(game, forcedAttackPlayerId)} this turn if able.`,
+              });
+              return;
+            }
+          }
+        }
+
         attackerIds.push(attacker.creatureId);
         
         // Mark creature as attacking

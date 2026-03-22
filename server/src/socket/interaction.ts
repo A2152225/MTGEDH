@@ -759,6 +759,60 @@ function getKeywordGraveyardActivationManaCost(card: any, abilityId: string): st
   return keywordMatch?.[1]?.trim() || undefined;
 }
 
+function getNextEndStepFireTurnNumber(state: any): number {
+  const currentTurn = Number(state?.turnNumber ?? state?.turn ?? 0) || 0;
+  const currentPhase = String(state?.phase ?? '').toLowerCase();
+  const currentStepUpper = String(state?.step ?? '').toUpperCase();
+  const inEnding = currentPhase === 'ending' && (currentStepUpper === 'END' || currentStepUpper === 'CLEANUP');
+  return inEnding ? currentTurn + 1 : currentTurn;
+}
+
+function getEncoreTargetPlayerIds(state: any, controllerId: string): string[] {
+  const players = Array.isArray(state?.players) ? state.players : [];
+  return players
+    .filter((player: any) => player?.id && String(player.id) !== String(controllerId) && !player.hasLost)
+    .map((player: any) => String(player.id));
+}
+
+function createEncoreToken(state: any, controllerId: string, card: any, tokenId: string, targetPlayerId: string): any {
+  const grantedAbilities = Array.isArray(card?.keywords)
+    ? [...card.keywords]
+    : [];
+  if (!grantedAbilities.some((ability: string) => String(ability).toLowerCase() === 'haste')) {
+    grantedAbilities.push('Haste');
+  }
+
+  const power = Number.parseInt(String(card?.power ?? ''), 10);
+  const toughness = Number.parseInt(String(card?.toughness ?? ''), 10);
+  const oracleText = String(card?.oracle_text || '');
+  const oracleWithHaste = /(^|\n)haste(\n|$)/i.test(oracleText)
+    ? oracleText
+    : `${oracleText}${oracleText ? '\n' : ''}Haste`;
+
+  return {
+    id: tokenId,
+    controller: controllerId,
+    owner: controllerId,
+    tapped: false,
+    counters: {},
+    summoningSickness: false,
+    isToken: true,
+    mustAttack: true,
+    encoreAttackPlayerId: targetPlayerId,
+    copiedFromCardId: String(card?.id || ''),
+    ...(Number.isFinite(power) ? { basePower: power } : {}),
+    ...(Number.isFinite(toughness) ? { baseToughness: toughness } : {}),
+    grantedAbilities,
+    card: {
+      ...card,
+      id: tokenId,
+      zone: 'battlefield',
+      oracle_text: oracleWithHaste,
+      keywords: grantedAbilities,
+    },
+  } as any;
+}
+
 /**
  * Check if a spell's oracle text indicates it's a tutor (search library) effect
  * and parse the intended destination for the searched card.
@@ -1971,6 +2025,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       zones.exile = zones.exile || [];
       zones.exile.push({ ...card, zone: "exile" });
       zones.exileCount = zones.exile.length;
+
+      const encoreTargetPlayerIds = getEncoreTargetPlayerIds(game.state, pid);
+      const fireAtTurnNumber = getNextEndStepFireTurnNumber(game.state);
+      game.state.battlefield = game.state.battlefield || [];
+      (game.state as any).pendingSacrificeAtNextEndStep = Array.isArray((game.state as any).pendingSacrificeAtNextEndStep)
+        ? (game.state as any).pendingSacrificeAtNextEndStep
+        : [];
+      for (const targetPlayerId of encoreTargetPlayerIds) {
+        const tokenId = generateId("token");
+        game.state.battlefield.push(createEncoreToken(game.state, pid, card, tokenId, targetPlayerId));
+        (game.state as any).pendingSacrificeAtNextEndStep.push({
+          permanentId: tokenId,
+          fireAtTurnNumber,
+          maxManaValue: 0,
+          sourceName: cardName,
+          createdBy: pid,
+        });
+      }
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
@@ -1981,6 +2053,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         cardId,
         abilityId,
         manaCost: recordedManaCost || undefined,
+        encoreTargetPlayerIds,
       });
       
       io.to(gameId).emit("chat", {

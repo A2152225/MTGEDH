@@ -2761,6 +2761,70 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 z.exile = z.exile || [];
                 (z.exile as any[]).push({ ...card, zone: 'exile' });
                 z.exileCount = (z.exile as any[]).length;
+
+                if (abilityType === 'encore') {
+                  const stateAny = ctx.state as any;
+                  const players = Array.isArray(stateAny?.players) ? stateAny.players : [];
+                  const encoreTargetPlayerIds = Array.isArray((e as any).encoreTargetPlayerIds)
+                    ? (e as any).encoreTargetPlayerIds.map((value: any) => String(value))
+                    : players
+                        .filter((player: any) => player?.id && String(player.id) !== String(pid) && !player.hasLost)
+                        .map((player: any) => String(player.id));
+                  const currentTurn = Number(stateAny?.turnNumber ?? stateAny?.turn ?? 0) || 0;
+                  const currentPhase = String(stateAny?.phase ?? '').toLowerCase();
+                  const currentStepUpper = String(stateAny?.step ?? '').toUpperCase();
+                  const inEnding = currentPhase === 'ending' && (currentStepUpper === 'END' || currentStepUpper === 'CLEANUP');
+                  const fireAtTurnNumber = inEnding ? currentTurn + 1 : currentTurn;
+
+                  ctx.state.battlefield = ctx.state.battlefield || [];
+                  stateAny.pendingSacrificeAtNextEndStep = Array.isArray(stateAny.pendingSacrificeAtNextEndStep)
+                    ? stateAny.pendingSacrificeAtNextEndStep
+                    : [];
+
+                  const existingKeywords = Array.isArray(card?.keywords) ? [...card.keywords] : [];
+                  if (!existingKeywords.some((ability: string) => String(ability).toLowerCase() === 'haste')) {
+                    existingKeywords.push('Haste');
+                  }
+                  const power = Number.parseInt(String(card?.power ?? ''), 10);
+                  const toughness = Number.parseInt(String(card?.toughness ?? ''), 10);
+                  const oracleText = String(card?.oracle_text || '');
+                  const oracleWithHaste = /(^|\n)haste(\n|$)/i.test(oracleText)
+                    ? oracleText
+                    : `${oracleText}${oracleText ? '\n' : ''}Haste`;
+
+                  for (const targetPlayerId of encoreTargetPlayerIds) {
+                    const tokenId = generateDeterministicId(ctx, 'token_encore', `${String(cardId)}:${String(targetPlayerId)}`);
+                    (ctx.state.battlefield as any[]).push({
+                      id: tokenId,
+                      controller: pid,
+                      owner: pid,
+                      tapped: false,
+                      counters: {},
+                      summoningSickness: false,
+                      isToken: true,
+                      mustAttack: true,
+                      encoreAttackPlayerId: String(targetPlayerId),
+                      copiedFromCardId: String(card?.id || ''),
+                      ...(Number.isFinite(power) ? { basePower: power } : {}),
+                      ...(Number.isFinite(toughness) ? { baseToughness: toughness } : {}),
+                      grantedAbilities: existingKeywords,
+                      card: {
+                        ...card,
+                        id: tokenId,
+                        zone: 'battlefield',
+                        oracle_text: oracleWithHaste,
+                        keywords: existingKeywords,
+                      },
+                    });
+                    stateAny.pendingSacrificeAtNextEndStep.push({
+                      permanentId: tokenId,
+                      fireAtTurnNumber,
+                      maxManaValue: 0,
+                      sourceName: String(card?.name || 'Encore'),
+                      createdBy: pid,
+                    });
+                  }
+                }
               }
             }
           } else if (cardId && pid && abilityType === 'exile-to-add-counters') {
