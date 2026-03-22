@@ -59,6 +59,7 @@ import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
 import { buildResolutionEventDataFromGameState, buildTriggeredAbilityEventDataFromChoices, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
 import { getTapTriggers } from "../state/modules/triggers/tap-untap.js";
+import { triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
@@ -164,6 +165,22 @@ function queueTapTriggersForTappedPermanents(
   if (addedStackTrigger && typeof game.bumpSeq === 'function') {
     game.bumpSeq();
   }
+}
+
+function fireBattlefieldAbilityActivatedTriggers(
+  game: any,
+  controllerId: string,
+  permanentId: string,
+  abilityText: string,
+  stackItemId?: string,
+): void {
+  triggerAbilityActivatedTriggers(game as any, {
+    activatedBy: controllerId as any,
+    sourcePermanentId: permanentId as any,
+    isManaAbility: false,
+    abilityText,
+    ...(stackItemId ? { stackItemId } : null),
+  });
 }
 
 /** Remove all pending may callbacks for a game (call on game teardown). */
@@ -6852,6 +6869,7 @@ async function handleStepResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
+        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
 
         io.to(gameId).emit('stackUpdate', {
           gameId,
@@ -10794,6 +10812,17 @@ async function handleTargetSelectionResponse(
     }
 
     copiedItem.targets = selections.map((value: any) => String(value)).filter(Boolean);
+    if (String((copiedItem as any).abilityType || '') === 'equip' && (copiedItem as any).equipParams) {
+      const nextTargetId = String(copiedItem.targets[0] || '').trim();
+      const validTarget = Array.isArray((copiedItem as any).copyRetargetValidTargets)
+        ? (copiedItem as any).copyRetargetValidTargets.find((target: any) => String(target?.id || '') === nextTargetId)
+        : null;
+      (copiedItem as any).equipParams = {
+        ...((copiedItem as any).equipParams || {}),
+        targetCreatureId: nextTargetId,
+        targetCreatureName: String(validTarget?.name || (copiedItem as any).equipParams?.targetCreatureName || 'Creature'),
+      };
+    }
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
@@ -11248,6 +11277,7 @@ async function handleTargetSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
 
     io.to(gameId).emit('stackUpdate', {
       gameId,
@@ -11431,6 +11461,7 @@ async function handleTargetSelectionResponse(
     } as any;
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, stackItem.id);
 
     io.to(gameId).emit('stackUpdate', {
       gameId,
@@ -11650,6 +11681,7 @@ async function handleTargetSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
+  fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, stackItem.id);
 
     io.to(gameId).emit('stackUpdate', {
       gameId,
@@ -11756,6 +11788,7 @@ async function handleTargetSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
 
     io.to(gameId).emit('stackUpdate', {
       gameId,

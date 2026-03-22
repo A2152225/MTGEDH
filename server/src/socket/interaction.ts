@@ -3608,6 +3608,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const costStr = `{${grantAbilityMatch[1]}}`;
       const targetRestriction = grantAbilityMatch[2]?.toLowerCase() || "you control";
       const grantVerb = grantAbilityMatch[3];
+      const resolvedAbilityText = String(oracleText).replace(/^[^:]+:\s*/, '').trim();
       let abilityGranted = grantAbilityMatch[4].trim();
       
       // Clean up the ability text
@@ -3643,7 +3644,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Unified Resolution Queue prompt
       const existing = ResolutionQueueManager
         .getStepsForPlayer(gameId, pid as any)
-        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.grantAbility === true && String(s?.sourceId) === String(permanentId));
+        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityId || '') === String(abilityId) && String(s?.sourceId) === String(permanentId));
 
       if (!existing) {
         ResolutionQueueManager.addStep(gameId, {
@@ -3665,11 +3666,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           maxTargets: 1,
           targetDescription: targetsOpponentCreatures ? "creature an opponent controls" : "creature you control",
 
-          // Custom payload consumed by socket/resolution.ts
-          grantAbility: true,
-          grantAbilityCost: costStr,
-          abilityGranted,
-          targetsOpponentCreatures,
+          battlefieldAbilityTargetSelection: true,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText: resolvedAbilityText,
+          activatedAbilityText: resolvedAbilityText ? `${costStr}: ${resolvedAbilityText}` : costStr,
         } as any);
       }
 

@@ -34,6 +34,7 @@ import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
+import { triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
 
 // Import land-related helpers from modularized module
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -10801,48 +10802,102 @@ export function registerGameActions(io: Server, socket: Socket) {
         debug(2, `[equipAbility] ${playerId} paid ${equipCost} to equip ${equipment.card?.name} to ${targetCreature.card?.name}`);
       }
 
-      // Proceed with equipping
-      // Detach from previous creature if attached
-      if (equipment.attachedTo) {
-        const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
-        if (prevCreature) {
-          (prevCreature as any).attachedEquipment = ((prevCreature as any).attachedEquipment || []).filter((id: string) => id !== equipmentId);
-        }
-      }
+      const equipTargetDescription = targetsOpponentCreatures ? 'creature an opponent controls' : 'creature you control';
+      const validRetargetTargets = battlefield
+        .filter((p: any) => {
+          const pTypeLine = (p.card?.type_line || '').toLowerCase();
+          if (!pTypeLine.includes('creature')) return false;
+          return targetsOpponentCreatures ? p.controller !== playerId : p.controller === playerId;
+        })
+        .map((p: any) => ({
+          id: String(p.id),
+          name: p.card?.name || 'Creature',
+          type: 'permanent' as const,
+          controller: p.controller,
+          imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+        }));
 
-      // Attach to new creature
-      equipment.attachedTo = targetCreatureIdStr;
-      (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
-      if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
-        (targetCreature as any).attachedEquipment.push(equipmentId);
-      }
-
-      debug(2, `[equipAbility] ${equipment.card?.name} equipped to ${targetCreature.card?.name} by ${playerId}`);
-
-      // Persist event for replay
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "equipPermanent", {
-          playerId,
+      const activatedAbilityText = `Equip ${equipCost}`;
+      const stackItem = {
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability' as const,
+        controller: playerId,
+        source: equipmentId,
+        sourceName: equipment.card?.name || 'Equipment',
+        description: activatedAbilityText,
+        activatedAbilityText,
+        abilityType: 'equip',
+        targets: [targetCreatureIdStr],
+        equipParams: {
           equipmentId,
           targetCreatureId: targetCreatureIdStr,
           equipmentName: equipment.card?.name,
           targetCreatureName: targetCreature.card?.name,
-          previouslyAttachedTo: equipment.attachedTo, // for proper undo tracking
+        },
+        copyRetargetValidTargets: validRetargetTargets.map((target: any) => ({ ...target })),
+        copyRetargetTargetTypes: ['creature'],
+        copyRetargetMinTargets: 1,
+        copyRetargetMaxTargets: 1,
+        copyRetargetTargetDescription: equipTargetDescription,
+      } as any;
+
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+
+      try {
+        triggerAbilityActivatedTriggers(game as any, {
+          activatedBy: playerId as any,
+          sourcePermanentId: equipmentId as any,
+          isManaAbility: false,
+          abilityText: activatedAbilityText,
+          stackItemId: stackItem.id,
+        });
+      } catch {}
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          playerId,
+          permanentId: equipmentId,
+          abilityId: 'equip',
+          cardName: equipment.card?.name || 'Equipment',
+          abilityText: activatedAbilityText,
+          activatedAbilityText,
+          targets: [targetCreatureIdStr],
+          copyRetargetValidTargets: validRetargetTargets.map((target: any) => ({ ...target })),
+          copyRetargetTargetTypes: ['creature'],
+          copyRetargetMinTargets: 1,
+          copyRetargetMaxTargets: 1,
+          copyRetargetTargetDescription: equipTargetDescription,
         });
       } catch (e) {
-        debugWarn(1, 'appendEvent(equipPermanent) failed:', e);
+        debugWarn(1, 'appendEvent(activateBattlefieldAbility equip) failed:', e);
       }
+
+      io.to(gameId).emit('stackUpdate', {
+        gameId,
+        stack: (game.state.stack || []).map((s: any) => ({
+          id: s.id,
+          type: s.type,
+          name: s.sourceName || s.card?.name || 'Ability',
+          controller: s.controller,
+          targets: s.targets,
+          source: s.source,
+          sourceName: s.sourceName,
+          description: s.description,
+        })),
+      });
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: totalManaCost > 0 
-          ? `ΓÜö∩╕Å ${getPlayerName(game, playerId)} pays ${equipCost} and equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`
-          : `ΓÜö∩╕Å ${getPlayerName(game, playerId)} equips ${equipment.card?.name || "Equipment"} to ${targetCreature.card?.name || "Creature"}`,
+        message: totalManaCost > 0
+          ? `${getPlayerName(game, playerId)} paid ${equipCost} and activated ${equipment.card?.name || "Equipment"}'s equip ability targeting ${targetCreature.card?.name || "Creature"}.`
+          : `${getPlayerName(game, playerId)} activated ${equipment.card?.name || "Equipment"}'s equip ability targeting ${targetCreature.card?.name || "Creature"}.`,
         ts: Date.now(),
       });
 
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
       broadcastGame(io, game, gameId);
     } catch (err: any) {
       debugError(1, `equipAbility error for game ${gameId}:`, err);

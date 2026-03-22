@@ -3,6 +3,8 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb, createGameIfNotExists } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
+import { registerGameActions } from '../src/socket/game-actions.js';
+import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
@@ -191,6 +193,151 @@ describe('ability-activated copy triggers (integration)', () => {
     expect(copiedAbility.description).toBe('Draw a card.');
     expect(copiedAbility.targets).toEqual([{ id: 'player_2', type: 'player' }]);
     expect(Number((game.state as any).manaPool[playerId].colorless || 0)).toBe(0);
+  });
+
+  it('routes targeted grant-ability activations through shared targeting and offers Rings copy retargeting', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'player_2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, player_2: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 3 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'rings_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'rings_card_1',
+          name: 'Rings of Brighthearth',
+          oracle_text: 'Whenever you activate an ability, if it is not a mana ability, you may pay {2}. If you do, copy that ability. You may choose new targets for the copy.',
+          type_line: 'Legendary Artifact',
+        },
+      },
+      {
+        id: 'banner_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'banner_card_1',
+          name: 'Sky Banner',
+          oracle_text: '{1}{R}, {T}: Target creature you control gets +1/+1 and gains flying until end of turn.',
+          type_line: 'Artifact',
+        },
+      },
+      {
+        id: 'creature_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'creature_card_1',
+          name: 'Silvercoat Lion',
+          type_line: 'Creature — Cat',
+        },
+      },
+      {
+        id: 'creature_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'creature_card_2',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature — Bear',
+        },
+      },
+    ];
+    (game.state as any).stack = [];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'banner_1',
+      abilityId: 'banner_1-grant-ability-0',
+    });
+
+    const targetStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).battlefieldAbilityTargetSelection === true);
+    expect(targetStep).toBeDefined();
+    expect((targetStep as any).validTargets.map((target: any) => target.id)).toEqual(['creature_1', 'creature_2']);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((targetStep as any).id),
+      selections: ['creature_1'],
+      cancelled: false,
+    });
+
+    expect((game.state as any).stack).toHaveLength(2);
+    const originalAbility = (game.state as any).stack[0];
+    expect(originalAbility.targets).toEqual(['creature_1']);
+    expect(originalAbility.copyRetargetValidTargets.map((target: any) => target.id)).toEqual(['creature_1', 'creature_2']);
+
+    game.resolveTopOfStack();
+
+    const payStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).optionalPaymentPrompt === true);
+    expect(payStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((payStep as any).id),
+      selections: ['pay'],
+      cancelled: false,
+    });
+
+    const retargetChoiceStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopy === true);
+    expect(retargetChoiceStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((retargetChoiceStep as any).id),
+      selections: ['retarget'],
+      cancelled: false,
+    });
+
+    const retargetTargetStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopyTargetSelection === true);
+    expect(retargetTargetStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((retargetTargetStep as any).id),
+      selections: ['creature_2'],
+      cancelled: false,
+    });
+
+    expect((game.state as any).stack).toHaveLength(2);
+    const copiedAbility = (game.state as any).stack[1];
+    expect(copiedAbility.copiedFromStackItemId).toBe(originalAbility.id);
+    expect(copiedAbility.targets).toEqual(['creature_2']);
   });
 
   it('consumes colored mana and copies the ability for Kurkesh', async () => {
@@ -493,5 +640,148 @@ describe('ability-activated copy triggers (integration)', () => {
     const copiedAbility = (game.state as any).stack[1];
     expect(copiedAbility.copiedFromStackItemId).toBe('ability_1');
     expect(copiedAbility.targets).toEqual(['player_3']);
+  });
+
+  it('copies an equip activation and retargets the copied equip ability', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'player_2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, player_2: 40 };
+    (game.state as any).manaPool = {
+      [playerId]: {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 2,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'rings_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'rings_card_1',
+          name: 'Rings of Brighthearth',
+          oracle_text: 'Whenever you activate an ability, if it is not a mana ability, you may pay {2}. If you do, copy that ability. You may choose new targets for the copy.',
+          type_line: 'Legendary Artifact',
+        },
+      },
+      {
+        id: 'sword_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'sword_card_1',
+          name: 'Test Sword',
+          oracle_text: 'Equip {0}',
+          type_line: 'Artifact — Equipment',
+        },
+      },
+      {
+        id: 'creature_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'creature_card_1',
+          name: 'Silvercoat Lion',
+          type_line: 'Creature — Cat',
+        },
+      },
+      {
+        id: 'creature_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'creature_card_2',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature — Bear',
+        },
+      },
+    ];
+    (game.state as any).stack = [];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    handlers['equipAbility']({
+      gameId,
+      equipmentId: 'sword_1',
+      targetCreatureId: 'creature_1',
+    });
+
+    expect((game.state as any).stack).toHaveLength(2);
+    const originalEquipAbility = (game.state as any).stack[0];
+    expect(originalEquipAbility.abilityType).toBe('equip');
+    expect(originalEquipAbility.targets).toEqual(['creature_1']);
+    expect(originalEquipAbility.equipParams.targetCreatureId).toBe('creature_1');
+    expect(originalEquipAbility.copyRetargetValidTargets.map((target: any) => target.id)).toEqual(['creature_1', 'creature_2']);
+
+    game.resolveTopOfStack();
+
+    const payStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).optionalPaymentPrompt === true);
+    expect(payStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((payStep as any).id),
+      selections: ['pay'],
+      cancelled: false,
+    });
+
+    const retargetChoiceStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopy === true);
+    expect(retargetChoiceStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((retargetChoiceStep as any).id),
+      selections: ['retarget'],
+      cancelled: false,
+    });
+
+    const retargetTargetStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopyTargetSelection === true);
+    expect(retargetTargetStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((retargetTargetStep as any).id),
+      selections: ['creature_2'],
+      cancelled: false,
+    });
+
+    expect((game.state as any).stack).toHaveLength(2);
+    const copiedEquipAbility = (game.state as any).stack[1];
+    expect(copiedEquipAbility.copiedFromStackItemId).toBe(originalEquipAbility.id);
+    expect(copiedEquipAbility.targets).toEqual(['creature_2']);
+    expect(copiedEquipAbility.equipParams.targetCreatureId).toBe('creature_2');
+    expect(copiedEquipAbility.equipParams.targetCreatureName).toBe('Runeclaw Bear');
+
+    game.resolveTopOfStack();
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'sword_1')?.attachedTo).toBe('creature_2');
+
+    game.resolveTopOfStack();
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'sword_1')?.attachedTo).toBe('creature_1');
   });
 });

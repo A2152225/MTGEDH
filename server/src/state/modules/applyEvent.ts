@@ -2378,6 +2378,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const retargetMaxTargets = Number((e as any).copyRetargetMaxTargets ?? NaN);
             const retargetTargetDescription = String((e as any).copyRetargetTargetDescription || '');
             const persistedTargets = Array.isArray((e as any).targets) ? (e as any).targets : null;
+            const isEquipActivation = String((e as any).abilityId || '').trim().toLowerCase() === 'equip';
             if (retargetValidTargets || persistedTargets) {
               const stack = Array.isArray((stateAny as any).stack) ? (stateAny as any).stack : (Array.isArray(ctx.state.stack) ? ctx.state.stack : []);
               if (Array.isArray(stack) && stack.length > 0) {
@@ -2396,6 +2397,19 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     if (Number.isFinite(retargetMinTargets)) (item as any).copyRetargetMinTargets = retargetMinTargets;
                     if (Number.isFinite(retargetMaxTargets)) (item as any).copyRetargetMaxTargets = retargetMaxTargets;
                     if (retargetTargetDescription) (item as any).copyRetargetTargetDescription = retargetTargetDescription;
+                  }
+                  if (isEquipActivation) {
+                    const targetCreatureId = String(persistedTargets?.[0] || '');
+                    const validTarget = retargetValidTargets
+                      ? retargetValidTargets.find((target: any) => String(target?.id || '') === targetCreatureId)
+                      : null;
+                    (item as any).abilityType = 'equip';
+                    (item as any).equipParams = {
+                      equipmentId: String(permId || ''),
+                      targetCreatureId,
+                      equipmentName: String((e as any).cardName || item.sourceName || 'Equipment'),
+                      targetCreatureName: String(validTarget?.name || ''),
+                    };
                   }
                   break;
                 }
