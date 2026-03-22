@@ -1499,8 +1499,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         controller: pid,
         owner: pid,
         tapped: false,
+        wasUnearthed: true,
+        unearthed: true,
         counters: {},
-        card: { ...card, zone: "battlefield", unearth: true },
+        card: { ...card, zone: "battlefield", unearth: true, wasUnearthed: true },
       } as any);
       
       if (typeof game.bumpSeq === "function") {
@@ -1529,6 +1531,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Move to exile
       zones.exile = zones.exile || [];
       zones.exile.push({ ...card, zone: "exile" });
+      zones.exileCount = zones.exile.length;
       
       // Create token on battlefield
       const tokenName = abilityId === "eternalize" ? `${cardName} (4/4 Zombie)` : `${cardName} (Zombie)`;
@@ -1778,6 +1781,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Move to exile
       zones.exile = zones.exile || [];
       zones.exile.push({ ...card, zone: "exile" });
+      zones.exileCount = zones.exile.length;
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
@@ -1807,6 +1811,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Move to exile
       zones.exile = zones.exile || [];
       zones.exile.push({ ...card, zone: "exile" });
+      zones.exileCount = zones.exile.length;
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();

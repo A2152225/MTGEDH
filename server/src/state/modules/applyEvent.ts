@@ -2611,6 +2611,149 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 stateAny.castFromGraveyardThisTurn[String(pid)] = true;
               }
             }
+          } else if (cardId && pid && abilityType === 'unearth') {
+            const zones = ctx.state.zones || {};
+            const z = zones[pid];
+            if (z && Array.isArray(z.graveyard)) {
+              const graveyard = z.graveyard as any[];
+              const idx = graveyard.findIndex((c: any) => c.id === cardId);
+              if (idx !== -1) {
+                const [card] = graveyard.splice(idx, 1);
+                z.graveyardCount = graveyard.length;
+
+                recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
+
+                ctx.state.battlefield = ctx.state.battlefield || [];
+                (ctx.state.battlefield as any[]).push({
+                  id: generateDeterministicId(ctx, 'perm', String(cardId)),
+                  controller: pid,
+                  owner: pid,
+                  tapped: false,
+                  wasUnearthed: true,
+                  unearthed: true,
+                  counters: {},
+                  card: { ...card, zone: 'battlefield', unearth: true, wasUnearthed: true },
+                });
+              }
+            }
+          } else if (cardId && pid && (abilityType === 'embalm' || abilityType === 'eternalize')) {
+            const zones = ctx.state.zones || {};
+            const z = zones[pid];
+            if (z && Array.isArray(z.graveyard)) {
+              const graveyard = z.graveyard as any[];
+              const idx = graveyard.findIndex((c: any) => c.id === cardId);
+              if (idx !== -1) {
+                const [card] = graveyard.splice(idx, 1);
+                z.graveyardCount = graveyard.length;
+
+                recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
+
+                z.exile = z.exile || [];
+                (z.exile as any[]).push({ ...card, zone: 'exile' });
+                z.exileCount = (z.exile as any[]).length;
+
+                const cardName = String(card?.name || 'Unknown');
+                const tokenName = abilityType === 'eternalize' ? `${cardName} (4/4 Zombie)` : `${cardName} (Zombie)`;
+                ctx.state.battlefield = ctx.state.battlefield || [];
+                (ctx.state.battlefield as any[]).push({
+                  id: generateDeterministicId(ctx, abilityType === 'eternalize' ? 'token_eternalize' : 'token_embalm', String(cardId)),
+                  controller: pid,
+                  owner: pid,
+                  tapped: false,
+                  counters: {},
+                  isToken: true,
+                  card: {
+                    ...card,
+                    name: tokenName,
+                    zone: 'battlefield',
+                    type_line: String(card?.type_line || '').includes('Zombie')
+                      ? card.type_line
+                      : `Zombie ${String(card?.type_line || '').trim()}`.trim(),
+                  },
+                  basePower: abilityType === 'eternalize' ? 4 : undefined,
+                  baseToughness: abilityType === 'eternalize' ? 4 : undefined,
+                });
+              }
+            }
+          } else if (cardId && pid && abilityType === 'disturb') {
+            const zones = ctx.state.zones || {};
+            const z = zones[pid];
+            if (z && Array.isArray(z.graveyard)) {
+              const graveyard = z.graveyard as any[];
+              const idx = graveyard.findIndex((c: any) => c.id === cardId);
+              if (idx !== -1) {
+                const [card] = graveyard.splice(idx, 1);
+                z.graveyardCount = graveyard.length;
+
+                recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
+
+                const stateAny = ctx.state as any;
+                stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
+                stateAny.castFromGraveyardThisTurn[String(pid)] = true;
+
+                ctx.state.stack = ctx.state.stack || [];
+                (ctx.state.stack as any[]).push({
+                  id: generateDeterministicId(ctx, 'stack', String(cardId)),
+                  controller: pid,
+                  card: { ...card, zone: 'stack', castWithAbility: 'disturb', transformed: true },
+                  targets: [],
+                });
+              }
+            }
+          } else if (cardId && pid && (abilityType === 'scavenge' || abilityType === 'encore')) {
+            const zones = ctx.state.zones || {};
+            const z = zones[pid];
+            if (z && Array.isArray(z.graveyard)) {
+              const graveyard = z.graveyard as any[];
+              const idx = graveyard.findIndex((c: any) => c.id === cardId);
+              if (idx !== -1) {
+                const [card] = graveyard.splice(idx, 1);
+                z.graveyardCount = graveyard.length;
+
+                recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
+
+                z.exile = z.exile || [];
+                (z.exile as any[]).push({ ...card, zone: 'exile' });
+                z.exileCount = (z.exile as any[]).length;
+              }
+            }
+          } else if (
+            cardId &&
+            pid &&
+            (abilityType === 'return-from-graveyard' || abilityType === 'graveyard-activated' || String(abilityType || '').includes('-return-')) &&
+            (e as any).isTutor !== true
+          ) {
+            const destination = String((e as any).destination || '');
+            if (destination === 'hand' || destination === 'battlefield') {
+              const zones = ctx.state.zones || {};
+              const z = zones[pid];
+              if (z && Array.isArray(z.graveyard)) {
+                const graveyard = z.graveyard as any[];
+                const idx = graveyard.findIndex((c: any) => c.id === cardId);
+                if (idx !== -1) {
+                  const [card] = graveyard.splice(idx, 1);
+                  z.graveyardCount = graveyard.length;
+
+                  recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
+
+                  if (destination === 'battlefield') {
+                    ctx.state.battlefield = ctx.state.battlefield || [];
+                    (ctx.state.battlefield as any[]).push({
+                      id: generateDeterministicId(ctx, 'perm', String(cardId)),
+                      controller: pid,
+                      owner: pid,
+                      tapped: false,
+                      counters: {},
+                      card: { ...card, zone: 'battlefield' },
+                    });
+                  } else {
+                    z.hand = z.hand || [];
+                    (z.hand as any[]).push({ ...card, zone: 'hand' });
+                    z.handCount = (z.hand as any[]).length;
+                  }
+                }
+              }
+            }
           }
           ctx.bumpSeq();
         } catch (err) {
