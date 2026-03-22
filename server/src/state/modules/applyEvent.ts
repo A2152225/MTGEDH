@@ -107,6 +107,10 @@ function consumeRecordedManaCostFromPool(pool: Record<string, number>, manaCost?
   }
 }
 
+function cloneLibraryCards(cards: any[]): any[] {
+  return Array.isArray(cards) ? cards.map((card: any) => ({ ...card, zone: 'library' })) : [];
+}
+
 /**
  * reset(ctx, preservePlayers)
  * Conservative fallback reset used when no specialized engine reset is available.
@@ -2588,8 +2592,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const pid = (e as any).playerId;
         const abilityType = (e as any).abilityType ?? (e as any).abilityId;
         try {
-          // Most graveyard abilities exile the card after use
-          if (cardId && pid && abilityType === 'flashback') {
+          if (cardId && pid && ['flashback', 'jump-start', 'retrace', 'escape'].includes(String(abilityType))) {
             const zones = ctx.state.zones || {};
             const z = zones[pid];
             if (z && Array.isArray(z.graveyard)) {
@@ -2598,14 +2601,33 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               if (idx !== -1) {
                 const [card] = graveyard.splice(idx, 1);
                 z.graveyardCount = graveyard.length;
-                z.exile = z.exile || [];
-                (z.exile as any[]).push({ ...card, zone: "exile" });
 
                 // Turn-tracking for intervening-if: a card left your graveyard this turn.
                 recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
 
-                // Turn-tracking for intervening-if: you cast a spell from your graveyard this turn.
-                // Flashback is a cast-from-graveyard pattern.
+                const manaCost = String((e as any).manaCost || '').trim();
+                const manaPool = (ctx.state as any).manaPool?.[pid];
+                if (manaPool && manaCost) {
+                  consumeRecordedManaCostFromPool(manaPool, manaCost);
+                }
+
+                const paidLife = Number((e as any).lifePaidForCost || 0);
+                if (Number.isFinite(paidLife) && paidLife > 0) {
+                  (ctx.state as any).life = (ctx.state as any).life || {};
+                  const currentLife = Number((ctx.state as any).life?.[pid] ?? 40);
+                  (ctx.state as any).life[pid] = Math.max(0, currentLife - paidLife);
+                  (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+                  (ctx.state as any).lifeLostThisTurn[String(pid)] = ((ctx.state as any).lifeLostThisTurn[String(pid)] || 0) + paidLife;
+                }
+
+                ctx.state.stack = ctx.state.stack || [];
+                (ctx.state.stack as any[]).push({
+                  id: generateDeterministicId(ctx, 'stack', String(cardId)),
+                  controller: pid,
+                  card: { ...card, zone: 'stack', castWithAbility: String(abilityType) },
+                  targets: [],
+                });
+
                 const stateAny = ctx.state as any;
                 stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
                 stateAny.castFromGraveyardThisTurn[String(pid)] = true;
@@ -2717,6 +2739,104 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 z.exileCount = (z.exile as any[]).length;
               }
             }
+          } else if (cardId && pid && abilityType === 'exile-to-add-counters') {
+            const zones = ctx.state.zones || {};
+            const z = zones[pid];
+            if (z && Array.isArray(z.graveyard)) {
+              const graveyard = z.graveyard as any[];
+              const idx = graveyard.findIndex((c: any) => c.id === cardId);
+              if (idx !== -1) {
+                const [card] = graveyard.splice(idx, 1);
+                z.graveyardCount = graveyard.length;
+
+                recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
+
+                const manaCost = String((e as any).manaCost || '').trim();
+                const manaPool = (ctx.state as any).manaPool?.[pid];
+                if (manaPool && manaCost) {
+                  consumeRecordedManaCostFromPool(manaPool, manaCost);
+                }
+
+                z.exile = z.exile || [];
+                (z.exile as any[]).push({ ...card, zone: 'exile' });
+                z.exileCount = (z.exile as any[]).length;
+
+                const creatureType = String((e as any).creatureType || '').trim().toLowerCase();
+                if (creatureType) {
+                  const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+                  const creatureTypePattern = new RegExp(`\\b${creatureType}s?\\b`, 'i');
+                  for (const perm of battlefield as any[]) {
+                    if (!perm || String(perm.controller) !== String(pid)) continue;
+                    const typeLine = String(perm.card?.type_line || '').toLowerCase();
+                    if (!typeLine.includes('creature') || !creatureTypePattern.test(typeLine)) continue;
+                    const counters = ((perm as any).counters || {}) as Record<string, number>;
+                    counters['+1/+1'] = (counters['+1/+1'] || 0) + 1;
+                    (perm as any).counters = counters;
+                  }
+                }
+              }
+            }
+          } else if (cardId && pid && (e as any).isTutor === true) {
+            const zones = ctx.state.zones || {};
+            const z = zones[pid];
+            const gameId = (ctx as any).gameId;
+            if (z && Array.isArray(z.graveyard) && gameId) {
+              const graveyard = z.graveyard as any[];
+              const card = graveyard.find((c: any) => c && String(c.id) === String(cardId));
+              if (card) {
+                const manaCost = String((e as any).manaCost || '').trim();
+                const manaPool = (ctx.state as any).manaPool?.[pid];
+                if (manaPool && manaCost) {
+                  consumeRecordedManaCostFromPool(manaPool, manaCost);
+                }
+
+                const destination = String((e as any).destination || 'hand');
+                const searchCriteria = String((e as any).searchCriteria || 'any card');
+                const maxSelectionsRaw = Number((e as any).maxSelections);
+                const maxSelections = Number.isFinite(maxSelectionsRaw) ? maxSelectionsRaw : 1;
+                const filter = ((e as any).filter && typeof (e as any).filter === 'object') ? { ...((e as any).filter as any) } : {};
+                const availableCards = (ctx.libraries.get(pid) || []).map((libraryCard: any) => ({
+                  id: libraryCard.id,
+                  name: libraryCard.name,
+                  type_line: libraryCard.type_line,
+                  oracle_text: libraryCard.oracle_text,
+                  image_uris: libraryCard.image_uris,
+                  card_faces: libraryCard.card_faces,
+                  layout: libraryCard.layout,
+                  mana_cost: libraryCard.mana_cost,
+                  cmc: libraryCard.cmc,
+                  colors: libraryCard.colors,
+                  power: libraryCard.power,
+                  toughness: libraryCard.toughness,
+                  loyalty: libraryCard.loyalty,
+                  color_identity: libraryCard.color_identity,
+                }));
+
+                ResolutionQueueManager.addStep(gameId, {
+                  type: 'library_search' as any,
+                  playerId: pid,
+                  sourceId: String(cardId),
+                  sourceName: String(card?.name || 'Card'),
+                  description: searchCriteria ? `Search for: ${searchCriteria}` : 'Search your library',
+                  searchCriteria,
+                  minSelections: 0,
+                  maxSelections,
+                  mandatory: false,
+                  destination,
+                  reveal: false,
+                  shuffleAfter: true,
+                  availableCards,
+                  filter,
+                  splitDestination: (e as any).splitDestination === true,
+                  toBattlefield: Number((e as any).toBattlefield || 1),
+                  toHand: Number((e as any).toHand || 1),
+                  entersTapped: (e as any).entersTapped === true,
+                  persistLibrarySearchResolve: true,
+                  persistLibrarySearchResolveReason: 'graveyard_ability',
+                  persistLibrarySearchResolveAbilityId: String(abilityType || ''),
+                } as any);
+              }
+            }
           } else if (
             cardId &&
             pid &&
@@ -2724,6 +2844,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (e as any).isTutor !== true
           ) {
             const destination = String((e as any).destination || '');
+            const manaCost = String((e as any).manaCost || '').trim();
+            const tappedCreatureIds = Array.isArray((e as any).tappedCreatureIds)
+              ? ((e as any).tappedCreatureIds as any[]).map((id: any) => String(id)).filter(Boolean)
+              : [];
             if (destination === 'hand' || destination === 'battlefield') {
               const zones = ctx.state.zones || {};
               const z = zones[pid];
@@ -2735,6 +2859,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   z.graveyardCount = graveyard.length;
 
                   recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
+
+                  const manaPool = (ctx.state as any).manaPool?.[pid];
+                  if (manaPool && manaCost) {
+                    consumeRecordedManaCostFromPool(manaPool, manaCost);
+                  }
+
+                  if (tappedCreatureIds.length > 0) {
+                    const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+                    for (const permanentId of tappedCreatureIds) {
+                      const permanent = battlefield.find((entry: any) => entry && String(entry.id) === String(permanentId));
+                      if (permanent) {
+                        (permanent as any).tapped = true;
+                      }
+                    }
+
+                    const stateAny = ctx.state as any;
+                    stateAny.tappedNonlandPermanentThisTurnByPlayer = stateAny.tappedNonlandPermanentThisTurnByPlayer || {};
+                    stateAny.tappedNonlandPermanentThisTurnByPlayer[String(pid)] = true;
+                  }
 
                   if (destination === 'battlefield') {
                     ctx.state.battlefield = ctx.state.battlefield || [];
@@ -2987,6 +3130,131 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(librarySearchSelect): failed", err);
+        }
+        break;
+      }
+
+      case "librarySearchResolve": {
+        const pid = String((e as any).playerId || '').trim();
+        const destination = String((e as any).destination || 'hand');
+        const entersTapped = (e as any).entersTapped === true;
+        const splitAssignments = (e as any).splitAssignments as { toBattlefield?: string[]; toHand?: string[] } | undefined;
+        const destinationFaceDown = (e as any).destinationFaceDown === true;
+        const grantPlayableFromExileToController = (e as any).grantPlayableFromExileToController === true;
+        const playableFromExileTypeKey = String((e as any).playableFromExileTypeKey || '').toLowerCase();
+        const selectedCards = Array.isArray((e as any).selectedCards) ? (e as any).selectedCards as any[] : [];
+        const selectedCardMap = new Map(selectedCards.map((card: any) => [String(card?.id || ''), card]));
+        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const selectedIds = Array.isArray((e as any).selectedCardIds)
+          ? ((e as any).selectedCardIds as any[]).map((id: any) => String(id)).filter(Boolean)
+          : selectedCards.map((card: any) => String(card?.id || '')).filter(Boolean);
+
+        try {
+          if (!pid) break;
+
+          const zones = ctx.state.zones || {};
+          const z = zones[pid] || {
+            hand: [],
+            handCount: 0,
+            library: [],
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          };
+          zones[pid] = z;
+
+          (z as any).library = libraryAfter;
+          z.libraryCount = libraryAfter.length;
+          if (ctx.libraries?.set) {
+            ctx.libraries.set(pid, cloneLibraryCards(libraryAfter));
+          }
+
+          const moveToBattlefield = (card: any) => {
+            if (!card) return;
+            const typeLine = String(card?.type_line || '').toLowerCase();
+            const isCreature = typeLine.includes('creature');
+            ctx.state.battlefield = ctx.state.battlefield || [];
+            (ctx.state.battlefield as any[]).push({
+              id: generateDeterministicId(ctx, 'perm', String(card?.id || 'library_search')),
+              controller: pid,
+              owner: pid,
+              tapped: entersTapped,
+              counters: {},
+              basePower: isCreature ? parseInt(card?.power || '0', 10) : undefined,
+              baseToughness: isCreature ? parseInt(card?.toughness || '0', 10) : undefined,
+              summoningSickness: isCreature,
+              card: { ...card, zone: 'battlefield' },
+            } as any);
+          };
+
+          const moveToHand = (card: any) => {
+            if (!card) return;
+            z.hand = Array.isArray(z.hand) ? z.hand : [];
+            (z.hand as any[]).push({ ...card, zone: 'hand' });
+            z.handCount = (z.hand as any[]).length;
+          };
+
+          const moveToGraveyardZone = (card: any) => {
+            if (!card) return;
+            z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+            (z.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+            z.graveyardCount = (z.graveyard as any[]).length;
+          };
+
+          const moveToExileZone = (card: any) => {
+            if (!card) return;
+            z.exile = Array.isArray(z.exile) ? z.exile : [];
+            const exiledCard = { ...card, zone: 'exile', ...(destinationFaceDown ? { faceDown: true } : {}) };
+            (z.exile as any[]).push(exiledCard);
+            z.exileCount = (z.exile as any[]).length;
+
+            if (grantPlayableFromExileToController) {
+              const typeLine = String(exiledCard?.type_line || '').toLowerCase();
+              const passesTypeGate = !playableFromExileTypeKey || typeLine.includes(playableFromExileTypeKey);
+              if (passesTypeGate) {
+                const stateAny = ctx.state as any;
+                stateAny.playableFromExile = stateAny.playableFromExile || {};
+                const entry = (stateAny.playableFromExile[pid] = stateAny.playableFromExile[pid] || {});
+                entry[String(exiledCard.id)] = true;
+              }
+            }
+          };
+
+          if (splitAssignments) {
+            for (const cardId of splitAssignments.toBattlefield || []) {
+              moveToBattlefield(selectedCardMap.get(String(cardId)));
+            }
+            for (const cardId of splitAssignments.toHand || []) {
+              moveToHand(selectedCardMap.get(String(cardId)));
+            }
+          } else {
+            for (const cardId of selectedIds) {
+              const card = selectedCardMap.get(cardId);
+              if (!card) continue;
+              if (destination === 'battlefield') {
+                moveToBattlefield(card);
+              } else if (destination === 'hand') {
+                moveToHand(card);
+              } else if (destination === 'graveyard') {
+                moveToGraveyardZone(card);
+              } else if (destination === 'exile') {
+                moveToExileZone(card);
+              }
+            }
+          }
+
+          const lifeLoss = Number((e as any).lifeLoss || 0);
+          if (Number.isFinite(lifeLoss) && lifeLoss > 0) {
+            (ctx.state as any).life = (ctx.state as any).life || {};
+            const currentLife = Number((ctx.state as any).life?.[pid] ?? 40);
+            (ctx.state as any).life[pid] = currentLife - lifeLoss;
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(librarySearchResolve): failed', err);
         }
         break;
       }

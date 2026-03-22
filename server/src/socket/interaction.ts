@@ -719,6 +719,36 @@ export interface TutorInfo {
   entersTapped?: boolean;
 }
 
+function getCastFromGraveyardActivationCost(card: any, abilityId: string): { manaCost?: string; lifeCost?: number } {
+  const oracleText = String(card?.oracle_text || '');
+  const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
+
+  if (normalizedAbilityId === 'retrace') {
+    const manaCost = String(card?.mana_cost || '').trim();
+    return manaCost ? { manaCost } : {};
+  }
+
+  const keywordPatterns: Record<string, RegExp> = {
+    flashback: /flashback\s*[—-]?\s*(\{[^}]+\}(?:\{[^}]+\})*)/i,
+    'jump-start': /jump-start\s*[—-]?\s*(\{[^}]+\}(?:\{[^}]+\})*)/i,
+    escape: /escape\s*[—-]?\s*(\{[^}]+\}(?:\{[^}]+\})*)/i,
+  };
+
+  const manaMatch = keywordPatterns[normalizedAbilityId]?.exec(oracleText);
+  const manaCost = manaMatch?.[1]?.trim();
+
+  const keywordLine = oracleText
+    .split(/\r?\n/)
+    .find((line) => line.toLowerCase().includes(normalizedAbilityId.replace('-', '')) || line.toLowerCase().includes(normalizedAbilityId));
+  const lifeMatch = keywordLine?.match(/pay\s+(\d+)\s+life/i);
+  const lifeCost = lifeMatch ? parseInt(lifeMatch[1], 10) : undefined;
+
+  return {
+    ...(manaCost ? { manaCost } : {}),
+    ...(Number.isFinite(lifeCost) ? { lifeCost } : {}),
+  };
+}
+
 /**
  * Check if a spell's oracle text indicates it's a tutor (search library) effect
  * and parse the intended destination for the searched card.
@@ -1454,6 +1484,42 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Handle different graveyard abilities
     if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape") {
+      const activationCost = getCastFromGraveyardActivationCost(card, abilityId);
+      const recordedManaCost = String(activationCost.manaCost || '').trim();
+      const recordedLifeCost = Number(activationCost.lifeCost || 0);
+
+      if (recordedManaCost) {
+        const parsedCost = parseManaCost(recordedManaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: `Cannot pay ${recordedManaCost}: ${validationError}`,
+          });
+          return;
+        }
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+      }
+
+      if (recordedLifeCost > 0) {
+        const currentLife = Number(game.state.life?.[pid] ?? game.state.startingLife ?? 40);
+        if (!Number.isFinite(currentLife) || currentLife <= recordedLifeCost) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_LIFE",
+            message: `Cannot pay ${recordedLifeCost} life (you have ${Number.isFinite(currentLife) ? currentLife : 0} life)`,
+          });
+          return;
+        }
+        game.state.life = game.state.life || {};
+        game.state.life[pid] = currentLife - recordedLifeCost;
+        try {
+          (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+          (game.state as any).lifeLostThisTurn[String(pid)] = ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + recordedLifeCost;
+        } catch {}
+      }
+
       // Cast from graveyard - move to stack
       // Remove from graveyard
       zones.graveyard.splice(cardIndex, 1);
@@ -1478,6 +1544,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         cardId,
         abilityId,
+        manaCost: recordedManaCost || undefined,
+        lifePaidForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
       });
       
       io.to(gameId).emit("chat", {
@@ -1574,6 +1642,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Generic return from graveyard ability (like Magma Phoenix, Summon the School)
       // Parse the oracle text to determine the destination and mana cost
       const oracleText = (card.oracle_text || "").toLowerCase();
+      let recordedManaCost: string | undefined;
       
       // Check for creature tap costs (Summon the School style: "Tap four untapped Merfolk you control:")
       // Pattern: "Tap X untapped [Type] you control: Return this card from your graveyard to your hand"
@@ -1640,6 +1709,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       if (graveyardAbilityMatch) {
         const manaCost = graveyardAbilityMatch[1];
+        recordedManaCost = manaCost;
         const parsedCost = parseManaCost(manaCost);
         const pool = getOrInitManaPool(game.state, pid);
         const totalAvailable = calculateTotalAvailableMana(pool, []);
@@ -1664,6 +1734,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (tutorInfo.isTutor) {
         // This ability involves searching the library
         // Don't remove from graveyard yet - the search needs to resolve first
+        const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
+        const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
+        const isSplit = tutorInfo.splitDestination === true;
+        const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
+          : (tutorInfo.destination === 'exile') ? 'exile'
+          : 'hand';
         
         if (typeof game.bumpSeq === "function") {
           game.bumpSeq();
@@ -1674,6 +1750,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           cardId,
           abilityId,
           isTutor: true,
+          manaCost: recordedManaCost,
+          searchCriteria: tutorInfo.searchCriteria || 'any card',
+          destination,
+          maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
+          splitDestination: isSplit,
+          toBattlefield: tutorInfo.toBattlefield || 1,
+          toHand: tutorInfo.toHand || 1,
+          entersTapped: tutorInfo.entersTapped || false,
+          filter,
         });
         
         io.to(gameId).emit("chat", {
@@ -1683,19 +1768,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           message: `${getPlayerName(game, pid)} activated ${cardName}'s ability from graveyard.`,
           ts: Date.now(),
         });
-        
-        // Parse search criteria and send library search request
-        const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
-        const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
-        
+
         // Queue library search via Resolution Queue
-        const isSplit = tutorInfo.splitDestination === true;
-        const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
-          : (tutorInfo.destination === 'exile') ? 'exile'
-          : 'hand';
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.LIBRARY_SEARCH,
           playerId: pid as PlayerID,
+            sourceId: cardId,
           sourceName: `${cardName}`,
           description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
           searchCriteria: tutorInfo.searchCriteria || 'any card',
@@ -1711,6 +1789,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           toBattlefield: tutorInfo.toBattlefield || 1,
           toHand: tutorInfo.toHand || 1,
           entersTapped: tutorInfo.entersTapped || false,
+          persistLibrarySearchResolve: true,
+          persistLibrarySearchResolveReason: 'graveyard_ability',
+          persistLibrarySearchResolveAbilityId: abilityId,
         } as any);
         
         broadcastGame(io, game, gameId);
@@ -1772,6 +1853,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         cardId,
         abilityId,
         destination,
+        manaCost: recordedManaCost,
       });
     } else if (abilityId === "scavenge") {
       // Scavenge - exile from graveyard (player needs to manually target creature for counters)
@@ -1871,9 +1953,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Parse mana cost from oracle text - simplified pattern to avoid regex backtracking
       const costMatch = oracleText.match(/(\{[^}]+\}(?:[,\s]*\{[^}]+\})*)[,\s]*exile this card from your graveyard/i);
+      let recordedManaCost: string | undefined;
       
       if (costMatch) {
         const manaCost = costMatch[1];
+        recordedManaCost = manaCost;
         const parsedCost = parseManaCost(manaCost);
         const pool = getOrInitManaPool(game.state, pid);
         const totalAvailable = calculateTotalAvailableMana(pool, []);
@@ -1899,6 +1983,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Move to exile
       zones.exile = zones.exile || [];
       zones.exile.push({ ...card, zone: "exile" });
+      zones.exileCount = zones.exile.length;
       
       // If we have a creature type, add +1/+1 counters to those creatures
       let countersAdded = 0;
@@ -1929,6 +2014,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         abilityId: "exile-to-add-counters",
         creatureType,
         countersAdded,
+        manaCost: recordedManaCost,
       });
       
       io.to(gameId).emit("chat", {
@@ -1945,6 +2031,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       if (tutorInfo.isTutor) {
         // This ability involves searching the library
+        const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
+        const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
+        const isSplit = tutorInfo.splitDestination === true;
+        const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
+          : (tutorInfo.destination === 'exile') ? 'exile'
+          : 'hand';
         if (typeof game.bumpSeq === "function") {
           game.bumpSeq();
         }
@@ -1954,6 +2046,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           cardId,
           abilityId,
           isTutor: true,
+          searchCriteria: tutorInfo.searchCriteria || 'any card',
+          destination,
+          maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
+          splitDestination: isSplit,
+          toBattlefield: tutorInfo.toBattlefield || 1,
+          toHand: tutorInfo.toHand || 1,
+          entersTapped: tutorInfo.entersTapped || false,
+          filter,
         });
         
         io.to(gameId).emit("chat", {
@@ -1963,19 +2063,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           message: `${getPlayerName(game, pid)} activated ${cardName}'s ability from graveyard.`,
           ts: Date.now(),
         });
-        
-        // Parse search criteria and send library search request
-        const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
-        const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
-        
+
         // Queue library search via Resolution Queue
-        const isSplit = tutorInfo.splitDestination === true;
-        const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
-          : (tutorInfo.destination === 'exile') ? 'exile'
-          : 'hand';
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.LIBRARY_SEARCH,
           playerId: pid as PlayerID,
+          sourceId: cardId,
           sourceName: `${cardName}`,
           description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
           searchCriteria: tutorInfo.searchCriteria || 'any card',
@@ -1991,6 +2084,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           toBattlefield: tutorInfo.toBattlefield || 1,
           toHand: tutorInfo.toHand || 1,
           entersTapped: tutorInfo.entersTapped || false,
+          persistLibrarySearchResolve: true,
+          persistLibrarySearchResolveReason: 'graveyard_ability',
+          persistLibrarySearchResolveAbilityId: abilityId,
         } as any);
         
         broadcastGame(io, game, gameId);

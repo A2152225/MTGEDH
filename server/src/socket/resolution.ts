@@ -16330,6 +16330,30 @@ async function handleLibrarySearchResponse(
   // Update library count
   z.libraryCount = lib.length;
 
+  if ((searchStep as any).persistLibrarySearchResolve === true) {
+    try {
+      appendEvent(gameId, game.seq ?? 0, 'librarySearchResolve', {
+        playerId: pid,
+        sourceId: String((step as any).sourceId || ''),
+        sourceName,
+        reason: String((searchStep as any).persistLibrarySearchResolveReason || ''),
+        abilityId: String((searchStep as any).persistLibrarySearchResolveAbilityId || ''),
+        selectedCardIds: selectedCards.map((card: any) => String(card?.id || '')).filter(Boolean),
+        selectedCards: selectedCards.map((card: any) => ({ ...card })),
+        destination,
+        splitAssignments: splitAssignments || undefined,
+        entersTapped,
+        destinationFaceDown,
+        grantPlayableFromExileToController,
+        playableFromExileTypeKey,
+        libraryAfter: lib.map((card: any) => ({ ...card, zone: 'library' })),
+        lifeLoss: Number(lifeLoss || 0),
+      });
+    } catch {
+      // Ignore persistence failures.
+    }
+  }
+
   // Optional follow-up: after exiling a selected card, offer to cast it for free.
   // Used by some planeswalker templates (e.g., Kasmina, Enigma Sage).
   const followUpMayCast = (searchStep as any).followUpMayCastSelectedFromExileWithoutPayingManaCost === true;

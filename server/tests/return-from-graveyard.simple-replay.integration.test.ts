@@ -88,6 +88,7 @@ describe('simple return-from-graveyard replay semantics (integration)', () => {
     expect(zones?.graveyardCount).toBe(0);
     expect(zones?.handCount).toBe(1);
     expect((zones?.hand || [])[0]?.id).toBe('phoenix_card_1');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
   it('replays return-from-graveyard to battlefield for the simple destination path', () => {
@@ -120,6 +121,9 @@ describe('simple return-from-graveyard replay semantics (integration)', () => {
       },
     };
     (game.state as any).battlefield = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 2, red: 0, green: 0, colorless: 2 },
+    };
 
     game.applyEvent({
       type: 'activateGraveyardAbility',
@@ -127,6 +131,7 @@ describe('simple return-from-graveyard replay semantics (integration)', () => {
       cardId: 'bloodghast_card_1',
       abilityId: 'return-from-graveyard',
       destination: 'battlefield',
+      manaCost: '{2}{B}{B}',
     });
 
     const zones = (game.state as any).zones?.[playerId];
@@ -135,5 +140,6 @@ describe('simple return-from-graveyard replay semantics (integration)', () => {
     const battlefield = (game.state as any).battlefield || [];
     expect(battlefield).toHaveLength(1);
     expect(battlefield[0]?.card?.id).toBe('bloodghast_card_1');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 });

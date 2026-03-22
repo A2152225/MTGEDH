@@ -212,4 +212,124 @@ describe('Summon the School graveyard recursion (integration)', () => {
       'merfolk_4',
     ]);
   });
+
+  it('replays the tap-four-Merfolk return path by tapping the chosen creatures and moving the card to hand', () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'judge_of_currents',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'judge_of_currents_card',
+          name: 'Judge of Currents',
+          type_line: 'Creature - Merfolk Wizard',
+          oracle_text: 'Whenever a Merfolk you control becomes tapped, you may gain 1 life.',
+        },
+      },
+      {
+        id: 'merfolk_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'merfolk_card_1',
+          name: 'Silvergill Adept',
+          type_line: 'Creature - Merfolk Wizard',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'merfolk_2',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'merfolk_card_2',
+          name: 'Merfolk Trickster',
+          type_line: 'Creature - Merfolk Wizard',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'merfolk_3',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'merfolk_card_3',
+          name: 'Vodalian Hexcatcher',
+          type_line: 'Creature - Merfolk Wizard',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'merfolk_4',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'merfolk_card_4',
+          name: 'Lord of Atlantis',
+          type_line: 'Creature - Merfolk',
+          oracle_text: '',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'summon_1',
+            name: 'Summon the School',
+            mana_cost: '{3}{U}',
+            type_line: 'Tribal Sorcery - Merfolk',
+            oracle_text:
+              'Create two 1/1 blue Merfolk Wizard creature tokens. Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId: p1,
+      cardId: 'summon_1',
+      abilityId: 'return-from-graveyard',
+      tappedCreatureIds: ['merfolk_1', 'merfolk_2', 'merfolk_3', 'merfolk_4'],
+      creatureType: 'merfolk',
+      requiredCount: 4,
+      destination: 'hand',
+    });
+
+    const zones = (game.state as any).zones[p1];
+    expect(zones.graveyardCount).toBe(0);
+    expect(zones.handCount).toBe(1);
+    expect(zones.hand.map((card: any) => card.id)).toContain('summon_1');
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield.filter((perm: any) => perm.tapped).map((perm: any) => perm.id).sort()).toEqual([
+      'merfolk_1',
+      'merfolk_2',
+      'merfolk_3',
+      'merfolk_4',
+    ]);
+  });
 });
