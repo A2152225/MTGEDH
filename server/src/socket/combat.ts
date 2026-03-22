@@ -16,6 +16,7 @@ import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
 import { getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
+import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 
 export type PendingAttackTriggerManaPayment = {
@@ -1915,37 +1916,65 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 const cardImageUrl =
                   permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal;
 
-                ResolutionQueueManager.addStep(gameId, {
-                  type: ResolutionStepType.OPTION_CHOICE,
+                queueOptionalPaymentStep(gameId, {
                   playerId: triggerControllerId,
-                  description: trigger.description || `${trigger.cardName}: You may pay ${trigger.manaCost}.`,
-                  mandatory: false,
                   sourceId: String(trigger.permanentId || ''),
                   sourceName: trigger.cardName,
                   sourceImage: cardImageUrl,
-                  options: [
-                    {
-                      id: 'pay_mana',
-                      label: `Pay ${trigger.manaCost}`,
-                      description: `If you do: ${trigger.effect || 'resolve effect'}`,
-                    },
-                    {
-                      id: 'decline',
-                      label: `Decline`,
-                      description: 'Do not pay the optional cost.',
-                    },
-                  ],
+                  description: trigger.description || `${trigger.cardName}: You may pay ${trigger.manaCost}.`,
+                  mandatory: false,
                   minSelections: 0,
                   maxSelections: 1,
                   priority: -1,
-
-                  attackTriggerManaPaymentChoice: true,
-                  permanentId: trigger.permanentId,
-                  cardName: trigger.cardName,
+                  payChoiceId: 'pay_mana',
+                  payLabel: `Pay ${trigger.manaCost}`,
+                  payDescription: `If you do: ${trigger.effect || 'resolve effect'}`,
+                  declineChoiceId: 'decline',
+                  declineLabel: 'Decline',
+                  declineDescription: 'Do not pay the optional cost.',
+                  validationKind: 'mana',
                   manaCost: trigger.manaCost,
-                  effect: trigger.effect,
-                  triggerDescription: trigger.description,
-                } as any);
+                  stepData: {
+                    attackTriggerManaPaymentChoice: true,
+                    permanentId: trigger.permanentId,
+                    cardName: trigger.cardName,
+                    manaCost: trigger.manaCost,
+                    effect: trigger.effect,
+                    triggerDescription: trigger.description,
+                  },
+                  onPay: async () => {
+                    resolveAttackTriggerManaPaymentChoice(
+                      io,
+                      game,
+                      gameId,
+                      triggerControllerId as any,
+                      {
+                        permanentId: String(trigger.permanentId || ''),
+                        cardName: String(trigger.cardName || ''),
+                        effect: String(trigger.effect || ''),
+                        manaCost: String(trigger.manaCost || ''),
+                        description: String(trigger.description || ''),
+                      },
+                      true
+                    );
+                  },
+                  onDecline: async () => {
+                    resolveAttackTriggerManaPaymentChoice(
+                      io,
+                      game,
+                      gameId,
+                      triggerControllerId as any,
+                      {
+                        permanentId: String(trigger.permanentId || ''),
+                        cardName: String(trigger.cardName || ''),
+                        effect: String(trigger.effect || ''),
+                        manaCost: String(trigger.manaCost || ''),
+                        description: String(trigger.description || ''),
+                      },
+                      false
+                    );
+                  },
+                });
 
                 debug(
                   2,

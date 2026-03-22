@@ -99,16 +99,28 @@ describe('trigger shortcut helpers', () => {
       triggerShortcuts: {
         p1: [
           { cardName: "soul's attendant", playerId: 'p1', preference: 'always_yes' },
+          { cardName: 'Judge of Currents', playerId: 'p1', preference: 'always_yes' },
+          { cardName: 'Curiosity', playerId: 'p1', preference: 'always_yes' },
+          { cardName: 'Curious Obsession', playerId: 'p1', preference: 'always_yes' },
           { cardName: 'soul warden', playerId: 'p1', preference: 'always_resolve' },
         ],
         p2: [
           { cardName: "soul's attendant", playerId: 'p2', preference: 'always_no' },
+          { cardName: 'Fallowsage', playerId: 'p2', preference: 'always_no' },
+          { cardName: 'Snake Umbra', playerId: 'p2', preference: 'always_no' },
+          { cardName: 'Ophidian Eye', playerId: 'p2', preference: 'always_no' },
         ],
       },
     };
 
     expect(getSavedMayAbilityTriggerDecision(state, 'p1', "Soul's Attendant")).toBe('yes');
+    expect(getSavedMayAbilityTriggerDecision(state, 'p1', 'Judge of Currents')).toBe('yes');
+    expect(getSavedMayAbilityTriggerDecision(state, 'p1', 'Curiosity')).toBe('yes');
+    expect(getSavedMayAbilityTriggerDecision(state, 'p1', 'Curious Obsession')).toBe('yes');
     expect(getSavedMayAbilityTriggerDecision(state, 'p2', "Soul's Attendant")).toBe('no');
+    expect(getSavedMayAbilityTriggerDecision(state, 'p2', 'Fallowsage')).toBe('no');
+    expect(getSavedMayAbilityTriggerDecision(state, 'p2', 'Snake Umbra')).toBe('no');
+    expect(getSavedMayAbilityTriggerDecision(state, 'p2', 'Ophidian Eye')).toBe('no');
     expect(getSavedMayAbilityTriggerDecision(state, 'p1', 'Soul Warden')).toBeUndefined();
     expect(getSavedMayAbilityTriggerDecision(state, 'p1', 'Rhystic Study')).toBeUndefined();
   });

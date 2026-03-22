@@ -28,6 +28,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/
 import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
+import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
@@ -3069,25 +3070,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             .getStepsForPlayer(gameId, playerId as any)
             .find((s: any) => (s as any)?.shockLandChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
           if (!existing) {
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.OPTION_CHOICE,
-              playerId: playerId as any,
-              sourceName: cardName,
-              sourceId: permanent.id,
-              sourceImage: cardImageUrl,
-              description: `${cardName}: You may pay 2 life. If you don't, it enters tapped. (Life: ${currentLife})`,
-              mandatory: true,
-              options: [
-                { id: 'enter_tapped', label: 'Have it enter tapped' },
-                { id: 'pay_2_life', label: 'Pay 2 life (enter untapped)' },
-              ],
-              minSelections: 1,
-              maxSelections: 1,
-              shockLandChoice: true,
-              permanentId: permanent.id,
-              payLifeAmount: 2,
-              cardName,
-            } as any);
+            queueShockLandPaymentStep(io, game, gameId, String(playerId), permanent, cardName, cardImageUrl);
           }
         }
       }
@@ -3279,25 +3262,126 @@ export function registerGameActions(io: Server, socket: Socket) {
             .find((s: any) => (s as any)?.sacrificeUnlessPayChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
 
           if (!existing) {
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.OPTION_CHOICE,
+            queueOptionalPaymentStep(gameId, {
               playerId: playerId as any,
               sourceName: cardName,
               sourceId: permanent.id,
               sourceImage: cardImageUrl,
               description: `${cardName}: Sacrifice it unless you pay ${sacrificeCost}. (Float mana first, then choose Pay.)`,
               mandatory: true,
-              options: [
-                { id: 'pay_cost', label: `Pay ${sacrificeCost}` },
-                { id: 'sacrifice', label: `Don't pay (sacrifice ${cardName})` },
-              ],
-              minSelections: 1,
-              maxSelections: 1,
-              sacrificeUnlessPayChoice: true,
-              permanentId: permanent.id,
-              cardName,
+              payChoiceId: 'pay_cost',
+              payLabel: `Pay ${sacrificeCost}`,
+              declineChoiceId: 'sacrifice',
+              declineLabel: `Don't pay (sacrifice ${cardName})`,
+              validationKind: 'mana',
               manaCost: sacrificeCost,
-            } as any);
+              stepData: {
+                sacrificeUnlessPayChoice: true,
+                permanentId: permanent.id,
+                cardName,
+                manaCost: sacrificeCost,
+              },
+              onPay: async () => {
+                const gameState = (game.state || {}) as any;
+                gameState.battlefield = gameState.battlefield || [];
+                const battlefieldState = gameState.battlefield as any[];
+                const permanentIndex = battlefieldState.findIndex((p: any) => p && p.id === permanent.id);
+                if (permanentIndex === -1) {
+                  return;
+                }
+
+                const permanentOnBattlefield = battlefieldState[permanentIndex];
+                const cardLabel = String(cardName || permanentOnBattlefield?.card?.name || 'Permanent');
+
+                try {
+                  const parsed = parseManaCost(sacrificeCost);
+                  const pool = getOrInitManaPool(game.state, playerId) as any;
+                  const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+                  const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
+
+                  if (validationError) {
+                    emitToPlayer(io, playerId, 'error', {
+                      code: 'INSUFFICIENT_MANA',
+                      message: validationError,
+                    });
+                    return;
+                  }
+
+                  consumeManaFromPool(pool, parsed.colors, parsed.generic);
+                  io.to(gameId).emit('chat', {
+                    id: `m_${Date.now()}`,
+                    gameId,
+                    from: 'system',
+                    message: `${getPlayerName(game, playerId)} pays ${sacrificeCost} for ${cardLabel}.`,
+                    ts: Date.now(),
+                  });
+
+                  try {
+                    await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
+                      playerId,
+                      permanentId: permanent.id,
+                      payMana: true,
+                      cardName: cardLabel,
+                    });
+                  } catch (e) {
+                    debugWarn(1, '[playLand] Failed to persist sacrificeUnlessPayChoice event:', e);
+                  }
+
+                  if (typeof (game as any).bumpSeq === 'function') {
+                    (game as any).bumpSeq();
+                  }
+                  broadcastGame(io, game, gameId);
+                } catch (err) {
+                  debugError(1, `[playLand] Failed to process payment (${sacrificeCost || 'unknown'}) for ${cardLabel}.`, err);
+                  emitToPlayer(io, playerId, 'error', {
+                    code: 'UNSUPPORTED_COST',
+                    message: `Failed to process payment (${sacrificeCost || 'unknown'}) for ${cardLabel}.`,
+                  });
+                }
+              },
+              onDecline: async () => {
+                const gameState = (game.state || {}) as any;
+                gameState.battlefield = gameState.battlefield || [];
+                const battlefieldState = gameState.battlefield as any[];
+                const permanentIndex = battlefieldState.findIndex((p: any) => p && p.id === permanent.id);
+                if (permanentIndex === -1) {
+                  return;
+                }
+
+                const [permanentOnBattlefield] = battlefieldState.splice(permanentIndex, 1);
+                const cardLabel = String(cardName || permanentOnBattlefield?.card?.name || 'Permanent');
+                const zones = game.state?.zones?.[playerId];
+                if (zones) {
+                  (zones as any).graveyard = (zones as any).graveyard || [];
+                  ((zones as any).graveyard as any[]).push({ ...(permanentOnBattlefield as any).card, zone: 'graveyard' });
+                  (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
+                }
+
+                io.to(gameId).emit('chat', {
+                  id: `m_${Date.now()}`,
+                  gameId,
+                  from: 'system',
+                  message: `${getPlayerName(game, playerId)} sacrifices ${cardLabel} (didn't pay ${sacrificeCost}).`,
+                  ts: Date.now(),
+                });
+
+                try {
+                  await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
+                    playerId,
+                    permanentId: permanent.id,
+                    payMana: false,
+                    cardName: cardLabel,
+                  });
+                } catch (e) {
+                  debugWarn(1, '[playLand] Failed to persist sacrificeUnlessPayChoice event:', e);
+                }
+
+                if (typeof (game as any).bumpSeq === 'function') {
+                  (game as any).bumpSeq();
+                }
+                broadcastGame(io, game, gameId);
+              },
+            });
           }
           debug(2, `[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
         }

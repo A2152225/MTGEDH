@@ -47,6 +47,10 @@ import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { applyGoadToCreature } from "./goad-effects.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
+import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
+import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
+import { broadcastGame, consumeManaFromPool, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
+import { getSavedMayAbilityTriggerDecision } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
 import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser.js";
@@ -79,6 +83,117 @@ function resolveOracleWhoToPlayerIds(who: OraclePlayerSelector, caster: PlayerID
     default:
       return [];
   }
+}
+
+const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
+const DIRECT_COPY_ABILITY_PATTERN = /^copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
+
+function cloneStackItemForAbilityCopy(
+  ctx: GameContext,
+  sourceName: string,
+  controller: PlayerID,
+  triggeringStackItemId: unknown
+): any | null {
+  const state: any = (ctx as any).state;
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  const targetStackItemId = String(triggeringStackItemId || '').trim();
+  if (!targetStackItemId) {
+    debugWarn(2, `[resolveTopOfStack] ${sourceName}: missing triggering stack item for copy effect`);
+    return null;
+  }
+
+  const original = stack.find((entry: any) => entry && String(entry.id || '') === targetStackItemId);
+  if (!original) {
+    debugWarn(2, `[resolveTopOfStack] ${sourceName}: triggering stack item ${targetStackItemId} no longer exists`);
+    return null;
+  }
+
+  if ((original as any).type === 'mana_ability') {
+    debugWarn(2, `[resolveTopOfStack] ${sourceName}: refusing to copy mana ability ${targetStackItemId}`);
+    return null;
+  }
+
+  const copiedItem: any = {
+    ...original,
+    id: uid('copied_ability'),
+    controller: String((original as any).controller || controller),
+    targets: Array.isArray((original as any).targets)
+      ? (original as any).targets.map((target: any) => ({ ...target }))
+      : (original as any).targets,
+    card: (original as any).card ? { ...(original as any).card } : (original as any).card,
+    ability: (original as any).ability ? { ...(original as any).ability } : (original as any).ability,
+    searchParams: (original as any).searchParams ? { ...(original as any).searchParams } : (original as any).searchParams,
+    upgradeData: (original as any).upgradeData ? { ...(original as any).upgradeData } : (original as any).upgradeData,
+    equipParams: (original as any).equipParams ? { ...(original as any).equipParams } : (original as any).equipParams,
+    copiedFromStackItemId: targetStackItemId,
+    copiedBySourceName: sourceName,
+    isCopy: true,
+  };
+
+  stack.push(copiedItem);
+
+  const gameId = (ctx as any).gameId || 'unknown';
+  const io = (ctx as any).io;
+  const copiedName = String((original as any).sourceName || (original as any).card?.name || 'an ability');
+  io?.to?.(gameId)?.emit?.('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${sourceName} copies ${copiedName}.`,
+    ts: Date.now(),
+  });
+
+  if (typeof (ctx as any).bumpSeq === 'function') {
+    (ctx as any).bumpSeq();
+  }
+  if (io) {
+    broadcastGame(io as any, ctx as any, gameId);
+  }
+  return copiedItem;
+}
+
+function queueAbilityCopyRetargetPrompt(
+  ctx: GameContext,
+  sourceName: string,
+  controller: PlayerID,
+  copiedItem: any
+): void {
+  const validTargets = Array.isArray((copiedItem as any)?.copyRetargetValidTargets)
+    ? (copiedItem as any).copyRetargetValidTargets
+    : [];
+  const currentTargets = Array.isArray((copiedItem as any)?.targets) ? (copiedItem as any).targets : [];
+  if (validTargets.length === 0 || currentTargets.length === 0) {
+    return;
+  }
+
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId) {
+    return;
+  }
+
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: controller,
+    description: `${sourceName}: You may choose new targets for the copy.`,
+    mandatory: false,
+    sourceId: String((copiedItem as any).id || '').trim() || undefined,
+    sourceName,
+    options: [
+      { id: 'keep', label: 'Keep current targets' },
+      { id: 'retarget', label: 'Choose new targets' },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    retargetAbilityCopy: true,
+    retargetAbilityCopyStackItemId: String((copiedItem as any).id || '').trim(),
+    retargetAbilityCopyValidTargets: validTargets,
+    retargetAbilityCopyTargetTypes: Array.isArray((copiedItem as any)?.copyRetargetTargetTypes)
+      ? (copiedItem as any).copyRetargetTargetTypes
+      : [],
+    retargetAbilityCopyMinTargets: Number((copiedItem as any)?.copyRetargetMinTargets || currentTargets.length || 1),
+    retargetAbilityCopyMaxTargets: Number((copiedItem as any)?.copyRetargetMaxTargets || currentTargets.length || 1),
+    retargetAbilityCopyTargetDescription: String((copiedItem as any)?.copyRetargetTargetDescription || 'target'),
+  } as any);
 }
 
 function parseCommonArtifactTokenOptions(tokenText: string):
@@ -3168,7 +3283,6 @@ function executeTriggerEffect(
   const triggerTypeFromTrigger = (triggerItem as any).triggerType;
   if (triggerTypeFromTrigger === 'rebound') {
     const reboundCardId = (triggerItem as any).reboundCardId;
-    const reboundCard = (triggerItem as any).card;
     const gameId = (ctx as any).gameId || 'unknown';
     const isReplaying = !!(ctx as any).isReplaying;
     
@@ -3176,29 +3290,87 @@ function executeTriggerEffect(
       debug(2, `[executeTriggerEffect] Rebound: skipping resolution steps during replay`);
       return;
     }
-    
-    // Create a resolution step for the player to choose whether to cast
-    const stepConfig = {
-      type: ResolutionStepType.OPTION_CHOICE,
-      playerId: controller,
-      description: `Rebound: You may cast ${sourceName} from exile without paying its mana cost.`,
-      mandatory: false,
-      sourceId: reboundCardId,
-      sourceName: sourceName,
-      sourceImage: reboundCard?.image_uris?.small || reboundCard?.image_uris?.normal,
-      reboundCard: reboundCard,
-      reboundCardId: reboundCardId,
-      options: [
-        { id: 'cast', label: `Cast ${sourceName}` },
-        { id: 'decline', label: 'Decline (goes to graveyard)' },
-      ],
-      minSelections: 1,
-      maxSelections: 1,
+
+    const io = (ctx as any).io;
+    const playerName = String(
+      ((state as any)?.players || []).find((p: any) => String(p?.id || '') === String(controller))?.name || controller
+    );
+
+    const resolveReboundChoice = async (castFromExile: boolean) => {
+      const zones = state?.zones?.[controller as any];
+      if (!zones || !Array.isArray((zones as any).exile)) {
+        debugWarn(2, `[executeTriggerEffect] Rebound: No exile zone found for player ${controller}`);
+        return;
+      }
+
+      const exile = (zones as any).exile as any[];
+      const cardIndex = exile.findIndex((c: any) => c?.id === reboundCardId);
+      if (cardIndex === -1) {
+        debugWarn(2, `[executeTriggerEffect] Rebound: Card ${reboundCardId} not found in exile`);
+        return;
+      }
+
+      const exiledCard = exile[cardIndex];
+      exile.splice(cardIndex, 1);
+      (zones as any).exileCount = exile.length;
+      cleanupCardLeavingExile(state as any, exiledCard);
+
+      if (castFromExile) {
+        state.stack = state.stack || [];
+        state.stack.push({
+          id: uid('rebound_spell'),
+          type: 'spell',
+          card: { ...exiledCard, zone: 'stack', reboundPending: false, reboundTriggered: false },
+          controller,
+          targets: [],
+          castFromRebound: true,
+          castFromHand: false,
+        });
+
+        io?.to?.(gameId)?.emit?.('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `🔄 ${playerName} cast ${exiledCard.name} from rebound!`,
+          ts: Date.now(),
+        });
+
+        debug(2, `[executeTriggerEffect] Rebound: ${controller} cast ${exiledCard.name} from exile`);
+        return;
+      }
+
+      (zones as any).graveyard = Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : [];
+      (zones as any).graveyard.push({ ...exiledCard, zone: 'graveyard', reboundPending: false, reboundTriggered: false });
+      (zones as any).graveyardCount = (zones as any).graveyard.length;
+
+      io?.to?.(gameId)?.emit?.('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${playerName} declined to cast ${exiledCard.name} from rebound - moved to graveyard.`,
+        ts: Date.now(),
+      });
+
+      debug(2, `[executeTriggerEffect] Rebound: ${controller} declined to cast ${exiledCard.name}, moved to graveyard`);
     };
-    
-    ResolutionQueueManager.addStep(gameId, stepConfig);
-    
-    debug(2, `[executeTriggerEffect] Rebound: Created choice step for ${sourceName}`);
+
+    queueMayAbilityStep(
+      (io || ({} as any)) as any,
+      gameId,
+      { state },
+      String(controller),
+      sourceName,
+      `cast ${sourceName} from exile without paying its mana cost`,
+      `At the beginning of your next upkeep, you may cast ${sourceName} from exile without paying its mana cost.`,
+      async () => {
+        await resolveReboundChoice(true);
+      },
+      async () => {
+        await resolveReboundChoice(false);
+      }
+    );
+
+    debug(2, `[executeTriggerEffect] Rebound: queued may prompt for ${sourceName}`);
     return;
   }
   
@@ -6869,6 +7041,8 @@ export function resolveTopOfStack(ctx: GameContext) {
     const triggerController = (item as any).controller || controller;
     const triggerType = (item as any).triggerType;
     const sourceId = (item as any).id;
+    const effectText = String((item as any).effect || description || '').trim();
+    const optionalTriggeredAbilityDecisionApplied = (item as any).optionalTriggeredAbilityDecisionApplied === true;
     
     debug(2, `[resolveTopOfStack] Triggered ability from ${sourceName} resolved: ${description}`);
 
@@ -6984,6 +7158,103 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
     } catch {
       // If evaluation fails, be conservative and continue.
+    }
+
+    const trimmedDescription = String(description || '').trim();
+    const optionalCopyAbilityMatch = triggerType === 'ability_activated'
+      ? trimmedDescription.match(OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN)
+      : null;
+    const isDirectAbilityCopy = triggerType === 'ability_activated' && DIRECT_COPY_ABILITY_PATTERN.test(trimmedDescription);
+    const allowsRetargetingCopy = /choose new targets for the copy\./i.test(trimmedDescription);
+
+    if (optionalCopyAbilityMatch && !(ctx as any).isReplaying) {
+      const manaCost = String(optionalCopyAbilityMatch[1] || '').trim();
+      const gameId = (ctx as any).gameId || 'unknown';
+      queueOptionalPaymentStep(gameId, {
+        playerId: triggerController as PlayerID,
+        sourceName,
+        sourceId: String((item as any).source || sourceId || '').trim() || undefined,
+        description: `${sourceName}: ${trimmedDescription}`,
+        mandatory: false,
+        payChoiceId: 'pay',
+        payLabel: `Pay ${manaCost}`,
+        payDescription: 'Copy that ability.',
+        declineChoiceId: 'decline',
+        declineLabel: 'Decline',
+        declineDescription: 'Do not copy that ability.',
+        validationKind: 'mana',
+        manaCost,
+        stepData: {
+          triggeringStackItemId: String((item as any).triggeringStackItemId || '').trim(),
+          copyTriggeredAbilityChoice: true,
+          cardName: sourceName,
+        },
+        onPay: async () => {
+          const parsedCost = parseManaCost(manaCost);
+          const pool = getOrInitManaPool(state as any, triggerController as PlayerID);
+          consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[copyAbilityTrigger:${sourceName}]`);
+          const copiedItem = cloneStackItemForAbilityCopy(ctx, sourceName, triggerController as PlayerID, (item as any).triggeringStackItemId);
+          if (copiedItem && allowsRetargetingCopy) {
+            queueAbilityCopyRetargetPrompt(ctx, sourceName, triggerController as PlayerID, copiedItem);
+          }
+        },
+        onDecline: async () => {
+          if (typeof (ctx as any).bumpSeq === 'function') {
+            (ctx as any).bumpSeq();
+          }
+          const io = (ctx as any).io;
+          if (io) {
+            broadcastGame(io as any, ctx as any, gameId);
+          }
+        },
+      });
+      debug(2, `[resolveTopOfStack] Deferred optional payment copy trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
+    if (isDirectAbilityCopy) {
+      const copiedItem = cloneStackItemForAbilityCopy(ctx, sourceName, triggerController as PlayerID, (item as any).triggeringStackItemId);
+      if (copiedItem && allowsRetargetingCopy) {
+        queueAbilityCopyRetargetPrompt(ctx, sourceName, triggerController as PlayerID, copiedItem);
+      }
+      return;
+    }
+
+    if ((item as any).mandatory === false && !optionalTriggeredAbilityDecisionApplied) {
+      const savedTriggerDecision = getSavedMayAbilityTriggerDecision(state as any, triggerController, sourceName);
+      if (savedTriggerDecision === 'yes') {
+        (item as any).optionalTriggeredAbilityDecisionApplied = true;
+        debug(2, `[resolveTopOfStack] Optional trigger shortcut auto-yes for ${sourceName} (${triggerController})`);
+      } else if (savedTriggerDecision === 'no') {
+        debug(2, `[resolveTopOfStack] Optional trigger shortcut auto-no for ${sourceName} (${triggerController})`);
+        bumpSeq();
+        return;
+      } else if (!(ctx as any).isReplaying) {
+        const gameId = (ctx as any).gameId || 'unknown';
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: triggerController as PlayerID,
+          description: `You may: ${effectText || sourceName}`,
+          mandatory: false,
+          sourceId: String((item as any).source || sourceId || '').trim() || undefined,
+          sourceName,
+          options: [
+            { id: 'yes', label: 'Yes' },
+            { id: 'no', label: 'No' },
+          ],
+          minSelections: 1,
+          maxSelections: 1,
+          optionalTriggeredAbilityPrompt: true,
+          effectText,
+          fullAbilityText: description,
+          deferredTriggeredAbilityItem: {
+            ...(item as any),
+            optionalTriggeredAbilityDecisionApplied: true,
+          },
+        } as any);
+        debug(2, `[resolveTopOfStack] Deferred optional triggered ability prompt for ${sourceName} (${triggerController})`);
+        return;
+      }
     }
     
     // ========================================================================

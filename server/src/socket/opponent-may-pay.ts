@@ -11,7 +11,7 @@ import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, getOrInitManaPool, resolveManaCostForPoolPayment } from "./util.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
-import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
+import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 
 /**
  * Register opponent may pay socket handlers
@@ -119,38 +119,72 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
     // Get the deciding player's mana pool
     const manaPool = game.state?.manaPool?.[decidingPlayer] || {};
 
-    // Enqueue as a Resolution Queue step
-    ResolutionQueueManager.addStep(gameId, {
-      type: ResolutionStepType.OPTION_CHOICE,
+    queueOptionalPaymentStep(gameId, {
       playerId: decidingPlayer,
+      sourceName,
       description: triggerTextValue || `${sourceName} triggers: ${getPlayerName(game, decidingPlayer)} may pay ${manaCost}.`,
       mandatory: true,
-
-      // Custom metadata for resolution handler + client UI
-      opponentMayPayChoice: true,
-      promptId,
-      sourceName,
-      sourceController,
-      decidingPlayer,
+      payChoiceId: 'pay',
+      payLabel: `Pay ${manaCost}`,
+      payDescription: `Pay ${manaCost}`,
+      declineChoiceId: 'decline',
+      declineLabel: 'Decline',
+      declineDescription: declineEffectText || 'Decline to pay',
+      validationKind: 'mana',
       manaCost,
-      declineEffect: declineEffectText,
-      triggerText: triggerTextValue,
-      availableMana: manaPool,
+      stepData: {
+        opponentMayPayChoice: true,
+        promptId,
+        sourceName,
+        sourceController,
+        decidingPlayer,
+        manaCost,
+        declineEffect: declineEffectText,
+        triggerText: triggerTextValue,
+        availableMana: manaPool,
+      },
+      onPay: async () => {
+        game.applyEvent({
+          type: 'opponentMayPayResolve',
+          playerId: decidingPlayer,
+          promptId,
+          willPay: true,
+        });
 
-      options: [
-        {
-          id: 'pay',
-          label: `Pay ${manaCost}`,
-          description: `Pay ${manaCost}`,
-        },
-        {
-          id: 'decline',
-          label: 'Decline',
-          description: declineEffectText || 'Decline to pay',
-        },
-      ],
-      minSelections: 1,
-      maxSelections: 1,
+        try {
+          appendEvent(gameId, game.seq ?? 0, 'opponentMayPayResolve', {
+            playerId: decidingPlayer,
+            promptId,
+            willPay: true,
+            sourceName,
+          });
+        } catch (e) {
+          /* best-effort */
+        }
+
+        broadcastGame(io, game, gameId);
+      },
+      onDecline: async () => {
+        game.applyEvent({
+          type: 'opponentMayPayResolve',
+          playerId: decidingPlayer,
+          promptId,
+          willPay: false,
+        });
+
+        try {
+          appendEvent(gameId, game.seq ?? 0, 'opponentMayPayResolve', {
+            playerId: decidingPlayer,
+            promptId,
+            willPay: false,
+            sourceName,
+          });
+        } catch (e) {
+          /* best-effort */
+        }
+
+        broadcastGame(io, game, gameId);
+      },
     });
 
     // Announce to all players

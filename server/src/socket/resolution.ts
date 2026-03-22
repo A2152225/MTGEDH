@@ -32,7 +32,7 @@ import {
   broadcastManaPoolUpdate,
 } from "./util.js";
 import { checkAndPromptOpeningHandActions } from "./opening-hand.js";
-import { executeDeclareAttackers, resolveAttackTriggerManaPaymentChoice } from "./combat.js";
+import { executeDeclareAttackers } from "./combat.js";
 import { parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { handleBounceLandETB, chooseAILibrarySearchCards, chooseAIGraveyardSelectionIds } from "./ai.js";
@@ -59,25 +59,9 @@ import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
 import { buildResolutionEventDataFromGameState, buildTriggeredAbilityEventDataFromChoices, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
 import { getTapTriggers } from "../state/modules/triggers/tap-untap.js";
-import { getSavedMayAbilityTriggerDecision, shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
-
-/**
- * Pending "you may" callbacks keyed by gameId → callbackId.
- * When a may-ability prompt resolves "yes", the registered callback is invoked
- * to execute the deferred oracle IR steps.  Entries are cleaned up on step
- * completion or game teardown.
- */
-const pendingMayCallbacks = new Map<string, Map<string, () => Promise<void>>>();
-
-/** Register a may-ability callback for a game. Returns the generated callbackId. */
-export function registerMayCallback(gameId: string, callback: () => Promise<void>): string {
-  if (!pendingMayCallbacks.has(gameId)) {
-    pendingMayCallbacks.set(gameId, new Map());
-  }
-  const id = `may_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  pendingMayCallbacks.get(gameId)!.set(id, callback);
-  return id;
-}
+import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
+import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
+import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 
 function pushTapTriggerOntoStack(
   io: Server,
@@ -183,93 +167,7 @@ function queueTapTriggersForTappedPermanents(
 }
 
 /** Remove all pending may callbacks for a game (call on game teardown). */
-export function clearMayCallbacks(gameId: string): void {
-  pendingMayCallbacks.delete(gameId);
-}
-
-/**
- * Queue an optional may-ability prompt, respecting per-player auto-preferences.
- *
- * @param io       Socket.IO server
- * @param gameId   Game to target
- * @param game     In-memory game object
- * @param playerId Player who must decide
- * @param sourceName  Display name of the source card/ability
- * @param effectText  Short description of the optional effect ("draw a card")
- * @param fullAbilityText Full oracle sentence, if available
- * @param callback Function to call when the player says "yes"
- */
-export function queueMayAbilityStep(
-  io: Server,
-  gameId: string,
-  game: any,
-  playerId: string,
-  sourceName: string,
-  effectText: string,
-  fullAbilityText: string | undefined,
-  callback: () => Promise<void>
-): void {
-  const effectKey = `${sourceName.toLowerCase()}:${effectText.toLowerCase()}`;
-  const prefs = (game.state as any)?.mayAutoPreferences ?? {};
-  const playerPrefs = prefs[playerId] ?? {};
-  const autoPref: 'yes' | 'no' | number | undefined = playerPrefs[effectKey];
-
-  if (autoPref === 'yes') {
-    debug(2, `[May] Auto-yes for ${effectKey} (player ${playerId})`);
-    callback().catch(err => debugError(1, `[May] Auto-yes callback error:`, err));
-    return;
-  }
-  if (autoPref === 'no') {
-    debug(2, `[May] Auto-no for ${effectKey} (player ${playerId})`);
-    return;
-  }
-  if (typeof autoPref === 'number' && autoPref > 0) {
-    // Countdown: decrement and auto-yes
-    const st = (game as any).state;
-    const remaining = autoPref - 1;
-    if (remaining <= 0) {
-      delete st.mayAutoPreferences[playerId][effectKey];
-    } else {
-      st.mayAutoPreferences[playerId][effectKey] = remaining;
-    }
-    debug(2, `[May] Auto-yes countdown for ${effectKey} (player ${playerId}), ${remaining} remaining`);
-    callback().catch(err => debugError(1, `[May] Auto-yes callback error:`, err));
-    return;
-  }
-
-  const savedTriggerDecision = getSavedMayAbilityTriggerDecision((game as any)?.state, playerId, sourceName);
-  if (savedTriggerDecision === 'yes') {
-    debug(2, `[May] Trigger shortcut auto-yes for ${sourceName} (player ${playerId})`);
-    callback().catch(err => debugError(1, `[May] Trigger shortcut auto-yes callback error:`, err));
-    return;
-  }
-  if (savedTriggerDecision === 'no') {
-    debug(2, `[May] Trigger shortcut auto-no for ${sourceName} (player ${playerId})`);
-    return;
-  }
-
-  const callbackId = registerMayCallback(gameId, callback);
-  ResolutionQueueManager.addStep(gameId, {
-    type: ResolutionStepType.OPTION_CHOICE,
-    playerId: playerId as import('../../../shared/src/types.js').PlayerID,
-    description: `You may: ${effectText}`,
-    mandatory: false,
-    sourceId: undefined,
-    sourceName,
-    options: [
-      { id: 'yes', label: 'Yes' },
-      { id: 'no', label: 'No' },
-    ],
-    minSelections: 1,
-    maxSelections: 1,
-    mayAbilityPrompt: true,
-    effectText,
-    fullAbilityText,
-    effectKey,
-    pendingCallbackId: callbackId,
-  } as any);
-  debug(2, `[May] Queued option_choice MAY_ABILITY prompt for ${effectKey} (player ${playerId})`);
-}
+export { clearMayCallbacks, queueMayAbilityStep };
 
 /**
  * Handle AI player resolution steps automatically
@@ -2823,13 +2721,10 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
 
       const choiceId = extractChoiceId(response.selections);
 
-      // Optional attack-trigger "you may pay {..}" prompts
-      if (stepAny?.attackTriggerManaPaymentChoice === true && choiceId === 'pay_mana') {
-        const controllerId = String(pid);
-        const manaCost = String(stepAny?.manaCost || '').trim();
-        const validationError = await validateManaCostPayable(controllerId, manaCost);
-        if (validationError) {
-          socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+      if (isOptionalPaymentPromptStep(stepAny) && isOptionalPaymentPayChoice(stepAny, choiceId)) {
+        const validationFailure = getOptionalPaymentValidationFailure(game, String(pid), stepAny, choiceId);
+        if (validationFailure) {
+          socket.emit('error', validationFailure);
           return;
         }
       }
@@ -10885,6 +10780,33 @@ async function handleTargetSelectionResponse(
   // These are enqueued as TARGET_SELECTION steps with crewAbility metadata.
   // ========================================================================
   const stepAny = step as any;
+  if (stepAny?.retargetAbilityCopyTargetSelection === true) {
+    const copyStackItemId = String(stepAny?.retargetAbilityCopyStackItemId || step.sourceId || '').trim();
+    if (!copyStackItemId) {
+      return;
+    }
+
+    const stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
+    const copiedItem = stack.find((item: any) => item && String(item.id || '') === copyStackItemId);
+    if (!copiedItem) {
+      emitToPlayer(io, pid as any, 'error', { code: 'STACK_ITEM_NOT_FOUND', message: 'Copied ability is no longer on the stack.' });
+      return;
+    }
+
+    copiedItem.targets = selections.map((value: any) => String(value)).filter(Boolean);
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${String(step.sourceName || 'Copied ability')} gets new target${copiedItem.targets.length === 1 ? '' : 's'}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (stepAny?.crewAbility === true) {
     const vehicleId = String(stepAny?.vehicleId || step.sourceId || '').trim();
     const crewPower = Number(stepAny?.crewPower || 0);
@@ -11825,6 +11747,11 @@ async function handleTargetSelectionResponse(
       description: abilityText,
       activatedAbilityText: activatedAbilityText || undefined,
       targets: selectedTargetIds,
+      copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
+      copyRetargetTargetTypes: Array.isArray(targetStepData.targetTypes) ? [...targetStepData.targetTypes] : [],
+      copyRetargetMinTargets: minTargets,
+      copyRetargetMaxTargets: maxTargets,
+      copyRetargetTargetDescription: String(targetStepData.targetDescription || 'target'),
     } as any;
 
     game.state.stack = game.state.stack || [];
@@ -11861,6 +11788,11 @@ async function handleTargetSelectionResponse(
         abilityText,
         activatedAbilityText: activatedAbilityText || undefined,
         targets: selectedTargetIds,
+        copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
+        copyRetargetTargetTypes: Array.isArray(targetStepData.targetTypes) ? [...targetStepData.targetTypes] : [],
+        copyRetargetMinTargets: minTargets,
+        copyRetargetMaxTargets: maxTargets,
+        copyRetargetTargetDescription: String(targetStepData.targetDescription || 'target'),
         tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
       });
     } catch {
@@ -13789,6 +13721,13 @@ async function handleTargetSelectionResponse(
       sourceName: cardName,
       description: abilityText,
       targets: selections,  // Include selected targets
+      copyRetargetValidTargets: Array.isArray((step as any).validTargets)
+        ? (step as any).validTargets.map((target: any) => ({ ...target }))
+        : [],
+      copyRetargetTargetTypes: Array.isArray((step as any).targetTypes) ? [...(step as any).targetTypes] : [],
+      copyRetargetMinTargets: Number((step as any).minTargets || 0),
+      copyRetargetMaxTargets: Number((step as any).maxTargets || 0),
+      copyRetargetTargetDescription: String((step as any).targetDescription || 'target'),
       planeswalker: {
         oracleId: (permanent as any)?.card?.oracle_id,
         abilityIndex,
@@ -13822,6 +13761,13 @@ async function handleTargetSelectionResponse(
       loyaltyCost,
       newLoyalty,
       targets: selections,
+      copyRetargetValidTargets: Array.isArray((step as any).validTargets)
+        ? (step as any).validTargets.map((target: any) => ({ ...target }))
+        : [],
+      copyRetargetTargetTypes: Array.isArray((step as any).targetTypes) ? [...(step as any).targetTypes] : [],
+      copyRetargetMinTargets: Number((step as any).minTargets || 0),
+      copyRetargetMaxTargets: Number((step as any).maxTargets || 0),
+      copyRetargetTargetDescription: String((step as any).targetDescription || 'target'),
     });
     
     const costSign = loyaltyCost >= 0 ? "+" : "";
@@ -16868,25 +16814,7 @@ async function putCardOntoBattlefield(
       .getStepsForPlayer(gameId, controller as any)
       .find((s: any) => (s as any)?.shockLandChoice === true && String((s as any)?.permanentId || '') === String(newPermanent.id));
     if (!existing) {
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.OPTION_CHOICE,
-        playerId: controller as any,
-        sourceName: cardName,
-        sourceId: newPermanent.id,
-        sourceImage: imageUrl,
-        description: `${cardName}: You may pay 2 life. If you don't, it enters tapped. (Life: ${currentLife})`,
-        mandatory: true,
-        options: [
-          { id: 'enter_tapped', label: 'Have it enter tapped' },
-          { id: 'pay_2_life', label: 'Pay 2 life (enter untapped)' },
-        ],
-        minSelections: 1,
-        maxSelections: 1,
-        shockLandChoice: true,
-        permanentId: newPermanent.id,
-        payLifeAmount: 2,
-        cardName,
-      } as any);
+      queueShockLandPaymentStep(io, game, gameId, String(controller), newPermanent, cardName, imageUrl);
     }
 
     debug(2, `[putCardOntoBattlefield] Shock land ${cardName} entering - queued choice for ${controller}`);
@@ -18678,6 +18606,37 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  if (stepData?.optionalTriggeredAbilityPrompt === true) {
+    const choiceId = extractId(selectedOption) || (response.cancelled ? 'no' : null) || 'no';
+    const shouldResolve = !response.cancelled && choiceId === 'yes';
+    const deferredTriggeredAbilityItem = stepData?.deferredTriggeredAbilityItem;
+    const sourceName = String(stepData?.sourceName || step.sourceName || 'Ability');
+
+    if (!shouldResolve) {
+      debug(2, `[Resolution] Declined deferred optional triggered ability for ${sourceName}`);
+      return;
+    }
+
+    if (!deferredTriggeredAbilityItem || typeof deferredTriggeredAbilityItem !== 'object') {
+      debugWarn(1, `[Resolution] Missing deferred trigger payload for ${sourceName}`);
+      return;
+    }
+
+    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+    game.state.stack.push({
+      ...(deferredTriggeredAbilityItem as any),
+      optionalTriggeredAbilityDecisionApplied: true,
+    });
+
+    if (typeof (game as any).resolveTopOfStack === 'function') {
+      (game as any).resolveTopOfStack();
+      debug(2, `[Resolution] Resolved deferred optional triggered ability for ${sourceName}`);
+    } else {
+      debugWarn(1, `[Resolution] Game missing resolveTopOfStack while handling ${sourceName}`);
+    }
+    return;
+  }
+
   if (stepData?.mayAbilityPrompt === true) {
     await handleMayAbilityResponse(io, game, gameId, step, response);
     return;
@@ -18853,34 +18812,126 @@ async function handleOptionChoiceResponse(
 
   // ===== COMBAT: OPTIONAL ATTACK TRIGGER MANA PAYMENT (Casal, etc.) =====
   // This is queued from server/socket/combat.ts when an attack trigger has "you may pay {..}. If you do, ...".
-  if (stepData?.attackTriggerManaPaymentChoice === true) {
-    const choiceId = extractId(selectedOption) || 'decline';
-    const controllerId = String(response.playerId);
-
-    const permanentId = String(stepData?.permanentId || step.sourceId || '').trim();
-    const cardName = String(stepData?.cardName || step.sourceName || '').trim();
-    const manaCost = String(stepData?.manaCost || '').trim();
-    const effect = String(stepData?.effect || '').trim();
-    const description = String(stepData?.triggerDescription || step.description || '').trim();
-
-    const willPay = !response.cancelled && choiceId === 'pay_mana';
-
-    if (!permanentId || !cardName || !manaCost) {
-      debugWarn(
-        1,
-        `[Resolution] attackTriggerManaPaymentChoice: missing context (permanentId='${permanentId}', cardName='${cardName}', manaCost='${manaCost}')`
-      );
+  if (isOptionalPaymentPromptStep(stepData)) {
+    const choiceId = extractId(selectedOption);
+    const callbackId = String(stepData?.pendingOptionalPaymentCallbackId || '').trim();
+    const callback = consumeOptionalPaymentCallback(gameId, callbackId);
+    if (!callback) {
+      debugWarn(1, `[Resolution] optionalPaymentPrompt: missing callback (${callbackId || 'none'})`);
       return;
     }
 
-    resolveAttackTriggerManaPaymentChoice(
-      io,
-      game,
-      gameId,
-      controllerId as any,
-      { permanentId, cardName, effect, manaCost, description },
-      willPay
-    );
+    if (!response.cancelled && isOptionalPaymentPayChoice(stepData, choiceId)) {
+      await callback.onPay();
+      return;
+    }
+
+    await callback.onDecline?.();
+    return;
+  }
+
+  // ===== SACRIFICE UNLESS YOU PAY (legacy raw step compatibility) =====
+  if (stepData?.sacrificeUnlessPayChoice === true) {
+    const choiceId = extractId(selectedOption);
+    const permanentId = String(stepData?.permanentId || '').trim();
+    const manaCost = String(stepData?.manaCost || '{1}').trim();
+    if (!permanentId) {
+      debugWarn(1, `[Resolution] sacrificeUnlessPayChoice: missing permanentId`);
+      return;
+    }
+
+    const normalized = String(choiceId || '').toLowerCase();
+    const shouldPay = !response.cancelled && normalized === 'pay_cost';
+
+    game.state = (game.state || {}) as any;
+    game.state.battlefield = game.state.battlefield || [];
+
+    const battlefield = game.state.battlefield as any[];
+    const permIndex = battlefield.findIndex((p: any) => p && p.id === permanentId);
+    if (permIndex === -1) {
+      debugWarn(1, `[Resolution] sacrificeUnlessPayChoice: permanent not found (${permanentId})`);
+      return;
+    }
+
+    const permanent = battlefield[permIndex];
+    const cardName = String(stepData?.cardName || permanent?.card?.name || 'Permanent');
+
+    let paid = false;
+    if (shouldPay) {
+      if (!/\{[^}]+\}/.test(manaCost)) {
+        emitToPlayer(io, playerId, 'error', {
+          code: 'UNSUPPORTED_COST',
+          message: `Unsupported cost (${manaCost || 'unknown'}) for ${cardName}.`,
+        });
+      } else {
+        try {
+          const parsed = parseManaCost(manaCost);
+          const pool = getOrInitManaPool(game.state, playerId) as any;
+          const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+          const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
+
+          if (validationError) {
+            emitToPlayer(io, playerId, 'error', {
+              code: 'INSUFFICIENT_MANA',
+              message: validationError,
+            });
+          } else {
+            consumeManaFromPool(pool, parsed.colors, parsed.generic);
+            paid = true;
+            io.to(gameId).emit('chat', {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: 'system',
+              message: `${getPlayerName(game, playerId)} pays ${manaCost} for ${cardName}.`,
+              ts: Date.now(),
+            });
+          }
+        } catch (err) {
+          debugError(1, `[Resolution] sacrificeUnlessPayChoice: failed to process mana payment`, err);
+          emitToPlayer(io, playerId, 'error', {
+            code: 'UNSUPPORTED_COST',
+            message: `Failed to process payment (${manaCost || 'unknown'}) for ${cardName}.`,
+          });
+        }
+      }
+    }
+
+    if (!paid) {
+      const card = (permanent as any).card;
+      battlefield.splice(permIndex, 1);
+
+      const zones = game.state?.zones?.[playerId];
+      if (zones) {
+        (zones as any).graveyard = (zones as any).graveyard || [];
+        ((zones as any).graveyard as any[]).push({ ...card, zone: 'graveyard' });
+        (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} sacrifices ${cardName} (didn't pay ${manaCost}).`,
+        ts: Date.now(),
+      });
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
+        playerId,
+        permanentId,
+        payMana: paid,
+        cardName,
+      });
+    } catch (e) {
+      debugWarn(1, '[Resolution] Failed to persist sacrificeUnlessPayChoice event:', e);
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+
+    broadcastGame(io, game, gameId);
     return;
   }
 
@@ -19174,114 +19225,6 @@ async function handleOptionChoiceResponse(
       });
     } catch (e) {
       debugWarn(1, '[Resolution] Failed to persist revealLandChoice event:', e);
-    }
-
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-
-    broadcastGame(io, game, gameId);
-    return;
-  }
-
-  // ===== SACRIFICE UNLESS YOU PAY (Transguild Promenade style) =====
-  if (stepData?.sacrificeUnlessPayChoice === true) {
-    const choiceId = extractId(selectedOption);
-    const permanentId = String(stepData?.permanentId || '').trim();
-    const manaCost = String(stepData?.manaCost || '{1}').trim();
-    if (!permanentId) {
-      debugWarn(1, `[Resolution] sacrificeUnlessPayChoice: missing permanentId`);
-      return;
-    }
-
-    // Default to sacrificing unless the player explicitly pays.
-    const normalized = String(choiceId || '').toLowerCase();
-    const shouldPay = !response.cancelled && normalized === 'pay_cost';
-
-    game.state = (game.state || {}) as any;
-    game.state.battlefield = game.state.battlefield || [];
-
-    const battlefield = game.state.battlefield as any[];
-    const permIndex = battlefield.findIndex((p: any) => p && p.id === permanentId);
-    if (permIndex === -1) {
-      debugWarn(1, `[Resolution] sacrificeUnlessPayChoice: permanent not found (${permanentId})`);
-      return;
-    }
-
-    const permanent = battlefield[permIndex];
-    const cardName = String(stepData?.cardName || permanent?.card?.name || 'Permanent');
-
-    let paid = false;
-    if (shouldPay) {
-      if (!/\{[^}]+\}/.test(manaCost)) {
-        emitToPlayer(io, playerId, 'error', {
-          code: 'UNSUPPORTED_COST',
-          message: `Unsupported cost (${manaCost || 'unknown'}) for ${cardName}.`,
-        });
-      } else {
-        try {
-          const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool } = await import('./util.js');
-          const parsed = parseManaCost(manaCost);
-          const pool = getOrInitManaPool(game.state, playerId) as any;
-          const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-          const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
-
-          if (validationError) {
-            emitToPlayer(io, playerId, 'error', {
-              code: 'INSUFFICIENT_MANA',
-              message: validationError,
-            });
-          } else {
-            consumeManaFromPool(pool, parsed.colors, parsed.generic);
-            paid = true;
-            io.to(gameId).emit('chat', {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: 'system',
-              message: `${getPlayerName(game, playerId)} pays ${manaCost} for ${cardName}.`,
-              ts: Date.now(),
-            });
-          }
-        } catch (err) {
-          debugError(1, `[Resolution] sacrificeUnlessPayChoice: failed to process mana payment`, err);
-          emitToPlayer(io, playerId, 'error', {
-            code: 'UNSUPPORTED_COST',
-            message: `Failed to process payment (${manaCost || 'unknown'}) for ${cardName}.`,
-          });
-        }
-      }
-    }
-
-    if (!paid) {
-      // Sacrifice the permanent.
-      const card = (permanent as any).card;
-      battlefield.splice(permIndex, 1);
-
-      const zones = game.state?.zones?.[playerId];
-      if (zones) {
-        (zones as any).graveyard = (zones as any).graveyard || [];
-        ((zones as any).graveyard as any[]).push({ ...card, zone: 'graveyard' });
-        (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
-      }
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${getPlayerName(game, playerId)} sacrifices ${cardName} (didn't pay ${manaCost}).`,
-        ts: Date.now(),
-      });
-    }
-
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
-        playerId,
-        permanentId,
-        payMana: paid,
-        cardName,
-      });
-    } catch (e) {
-      debugWarn(1, '[Resolution] Failed to persist sacrificeUnlessPayChoice event:', e);
     }
 
     if (typeof (game as any).bumpSeq === 'function') {
@@ -20719,6 +20662,45 @@ async function handleOptionChoiceResponse(
       minTargets,
       maxTargets,
       targetDescription,
+    } as any);
+
+    return;
+  }
+
+  if (stepData?.retargetAbilityCopy === true) {
+    const choiceId = extractId(selectedOption);
+    const copyStackItemId = stepData.retargetAbilityCopyStackItemId as string | undefined;
+    if (!copyStackItemId) return;
+    if (!choiceId || choiceId === 'keep') {
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    const validTargets = Array.isArray(stepData.retargetAbilityCopyValidTargets) ? stepData.retargetAbilityCopyValidTargets : [];
+    const minTargets = Number(stepData.retargetAbilityCopyMinTargets || 1);
+    const maxTargets = Number(stepData.retargetAbilityCopyMaxTargets || 1);
+    const targetDescription = String(stepData.retargetAbilityCopyTargetDescription || 'target');
+    const targetTypes = Array.isArray(stepData.retargetAbilityCopyTargetTypes) ? stepData.retargetAbilityCopyTargetTypes : ['ability_target'];
+
+    if (validTargets.length === 0) {
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TARGET_SELECTION,
+      playerId: playerId as PlayerID,
+      description: `Choose ${targetDescription} for the copied ability`,
+      mandatory: true,
+      sourceId: copyStackItemId,
+      sourceName: step.sourceName,
+      validTargets,
+      targetTypes,
+      minTargets,
+      maxTargets,
+      targetDescription,
+      retargetAbilityCopyTargetSelection: true,
+      retargetAbilityCopyStackItemId: copyStackItemId,
     } as any);
 
     return;
@@ -22609,24 +22591,31 @@ async function handleMayAbilityResponse(
   const callbackId: string = stepAny.pendingCallbackId ?? '';
   const effectText: string = stepAny.effectText || 'effect';
   const sourceName: string = step.sourceName || 'Ability';
-
-  const gameCallbacks = pendingMayCallbacks.get(gameId);
-  const callback = gameCallbacks?.get(callbackId);
+  const callbackEntry = consumeMayCallback(gameId, callbackId);
 
   // If cancelled == true the player said "No"
   if (response.cancelled) {
-    if (callbackId && gameCallbacks) {
-      gameCallbacks.delete(callbackId);
+    if (callbackEntry?.onDecline) {
+      try {
+        await callbackEntry.onDecline();
+      } catch (err) {
+        debugError(1, `[May] Decline callback error for "${effectText}":`, err);
+      }
+    } else if (callbackId) {
+      clearMayCallback(gameId, callbackId);
     }
     debug(2, `[May] ${pid} declined "${effectText}" for ${sourceName}`);
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
     return;
   }
 
   // Player said "Yes" — execute the callback
-  if (callback) {
-    gameCallbacks!.delete(callbackId);
+  if (callbackEntry?.onAccept) {
     try {
-      await callback();
+      await callbackEntry.onAccept();
       debug(2, `[May] ${pid} accepted "${effectText}" for ${sourceName} — executed`);
     } catch (err) {
       debugError(1, `[May] Callback error for "${effectText}":`, err);

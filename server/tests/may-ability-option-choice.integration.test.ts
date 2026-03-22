@@ -109,8 +109,11 @@ describe('May ability OPTION_CHOICE integration', () => {
     (game.state as any).life = { [p1]: 40 };
 
     let callbackCount = 0;
+    let declineCount = 0;
     queueMayAbilityStep(createNoopIo() as any, gameId, game, p1, 'Test Source', 'draw a card', 'When this happens, you may draw a card.', async () => {
       callbackCount += 1;
+    }, async () => {
+      declineCount += 1;
     });
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -132,6 +135,7 @@ describe('May ability OPTION_CHOICE integration', () => {
     });
 
     expect(callbackCount).toBe(0);
+    expect(declineCount).toBe(1);
     const queueAfter = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfter.steps.some((s: any) => String(s.id) === String((step as any).id))).toBe(false);
   });
@@ -179,13 +183,53 @@ describe('May ability OPTION_CHOICE integration', () => {
     };
 
     let callbackCount = 0;
+    let declineCount = 0;
     queueMayAbilityStep(createNoopIo() as any, gameId, game, p1, "Soul's Attendant", 'gain 1 life', 'Whenever another creature enters the battlefield, you may gain 1 life.', async () => {
       callbackCount += 1;
+    }, async () => {
+      declineCount += 1;
     });
 
     await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(callbackCount).toBe(0);
+    expect(declineCount).toBe(1);
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfter.steps.some((s: any) => (s as any).mayAbilityPrompt === true)).toBe(false);
+  });
+
+  it('auto-executes for Judge of Currents now that it is eligible as a may-trigger shortcut', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).triggerShortcuts = {
+      [p1]: [
+        { cardName: 'Judge of Currents', playerId: p1, preference: 'always_yes' },
+      ],
+    };
+
+    let callbackCount = 0;
+    queueMayAbilityStep(
+      createNoopIo() as any,
+      gameId,
+      game,
+      p1,
+      'Judge of Currents',
+      'gain 1 life',
+      'Whenever a Merfolk you control becomes tapped, you may gain 1 life.',
+      async () => {
+        callbackCount += 1;
+      }
+    );
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(callbackCount).toBe(1);
     const queueAfter = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfter.steps.some((s: any) => (s as any).mayAbilityPrompt === true)).toBe(false);
   });

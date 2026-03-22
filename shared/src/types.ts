@@ -998,6 +998,46 @@ export const SHORTCUT_ELIGIBLE_TRIGGERS: Record<string, {
     type: 'may_ability',
     defaultPreference: 'always_yes'
   },
+  'judge of currents': {
+    description: 'You may gain 1 life when a Merfolk you control becomes tapped',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
+  'fallowsage': {
+    description: 'You may draw a card when it becomes tapped',
+    type: 'may_ability',
+    defaultPreference: 'ask_each_time'
+  },
+  'curiosity': {
+    description: 'You may draw a card when enchanted creature deals damage to a player',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
+  'keen sense': {
+    description: 'You may draw a card when enchanted creature deals damage to a player',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
+  'snake umbra': {
+    description: 'You may draw a card when enchanted creature deals damage to a player',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
+  'sixth sense': {
+    description: 'You may draw a card when enchanted creature deals combat damage to a player',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
+  'curious obsession': {
+    description: 'You may draw a card when enchanted creature deals damage to an opponent',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
+  'ophidian eye': {
+    description: 'You may draw a card when enchanted creature deals damage to an opponent',
+    type: 'may_ability',
+    defaultPreference: 'always_yes'
+  },
   'essence warden': {
     description: 'Gain 1 life when another creature enters',
     type: 'mandatory',

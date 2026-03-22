@@ -2371,6 +2371,40 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // best-effort only
           }
 
+          try {
+            const retargetValidTargets = Array.isArray((e as any).copyRetargetValidTargets) ? (e as any).copyRetargetValidTargets : null;
+            const retargetTargetTypes = Array.isArray((e as any).copyRetargetTargetTypes) ? (e as any).copyRetargetTargetTypes : null;
+            const retargetMinTargets = Number((e as any).copyRetargetMinTargets ?? NaN);
+            const retargetMaxTargets = Number((e as any).copyRetargetMaxTargets ?? NaN);
+            const retargetTargetDescription = String((e as any).copyRetargetTargetDescription || '');
+            const persistedTargets = Array.isArray((e as any).targets) ? (e as any).targets : null;
+            if (retargetValidTargets || persistedTargets) {
+              const stack = Array.isArray((stateAny as any).stack) ? (stateAny as any).stack : (Array.isArray(ctx.state.stack) ? ctx.state.stack : []);
+              if (Array.isArray(stack) && stack.length > 0) {
+                for (let i = stack.length - 1; i >= 0; i--) {
+                  const item = stack[i];
+                  if (!item || String(item.type || '') !== 'ability') continue;
+                  if (playerId != null && String(item.controller) !== String(playerId)) continue;
+                  if (permId != null && String(item.source) !== String(permId)) continue;
+                  if (abilityText && String(item.description || '') !== abilityText) continue;
+                  if (persistedTargets) {
+                    (item as any).targets = persistedTargets.map((id: any) => String(id));
+                  }
+                  if (retargetValidTargets) {
+                    (item as any).copyRetargetValidTargets = retargetValidTargets.map((target: any) => ({ ...target }));
+                    (item as any).copyRetargetTargetTypes = retargetTargetTypes ? [...retargetTargetTypes] : [];
+                    if (Number.isFinite(retargetMinTargets)) (item as any).copyRetargetMinTargets = retargetMinTargets;
+                    if (Number.isFinite(retargetMaxTargets)) (item as any).copyRetargetMaxTargets = retargetMaxTargets;
+                    if (retargetTargetDescription) (item as any).copyRetargetTargetDescription = retargetTargetDescription;
+                  }
+                  break;
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
           // Intervening-if support: if we persisted deterministic Treasure spend metadata for this activation,
           // attach it to the matching ability stack item when present.
           try {
@@ -2424,6 +2458,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Planeswalker ability: adjust loyalty counters
         const permId = (e as any).permanentId;
         const loyaltyCost = (e as any).loyaltyCost || 0;
+        const abilityIndex = (e as any).abilityIndex;
         try {
           if (permId) {
             const battlefield = ctx.state.battlefield || [];
@@ -2433,6 +2468,38 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               (perm as any).counters.loyalty = ((perm as any).counters.loyalty || 0) + loyaltyCost;
             }
           }
+
+          try {
+            const persistedTargets = Array.isArray((e as any).targets) ? (e as any).targets : null;
+            const retargetValidTargets = Array.isArray((e as any).copyRetargetValidTargets) ? (e as any).copyRetargetValidTargets : null;
+            const retargetTargetTypes = Array.isArray((e as any).copyRetargetTargetTypes) ? (e as any).copyRetargetTargetTypes : null;
+            const retargetMinTargets = Number((e as any).copyRetargetMinTargets ?? NaN);
+            const retargetMaxTargets = Number((e as any).copyRetargetMaxTargets ?? NaN);
+            const retargetTargetDescription = String((e as any).copyRetargetTargetDescription || '');
+            const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : [];
+            if (Array.isArray(stack) && stack.length > 0) {
+              for (let i = stack.length - 1; i >= 0; i--) {
+                const item = stack[i];
+                if (!item || String(item.type || '') !== 'ability') continue;
+                if (permId != null && String((item as any).source || '') !== String(permId)) continue;
+                if (abilityIndex != null && Number((item as any)?.planeswalker?.abilityIndex ?? -1) !== Number(abilityIndex)) continue;
+                if (persistedTargets) {
+                  (item as any).targets = persistedTargets.map((id: any) => String(id));
+                }
+                if (retargetValidTargets) {
+                  (item as any).copyRetargetValidTargets = retargetValidTargets.map((target: any) => ({ ...target }));
+                  (item as any).copyRetargetTargetTypes = retargetTargetTypes ? [...retargetTargetTypes] : [];
+                  if (Number.isFinite(retargetMinTargets)) (item as any).copyRetargetMinTargets = retargetMinTargets;
+                  if (Number.isFinite(retargetMaxTargets)) (item as any).copyRetargetMaxTargets = retargetMaxTargets;
+                  if (retargetTargetDescription) (item as any).copyRetargetTargetDescription = retargetTargetDescription;
+                }
+                break;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(activatePlaneswalkerAbility): failed", err);
