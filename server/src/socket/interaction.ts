@@ -749,6 +749,16 @@ function getCastFromGraveyardActivationCost(card: any, abilityId: string): { man
   };
 }
 
+function getKeywordGraveyardActivationManaCost(card: any, abilityId: string): string | undefined {
+  const oracleText = String(card?.oracle_text || '');
+  const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
+  if (!normalizedAbilityId) return undefined;
+
+  const escapedAbilityId = normalizedAbilityId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const keywordMatch = oracleText.match(new RegExp(`${escapedAbilityId}\\s*[—-]?\\s*(\\{[^}]+\\}(?:\\{[^}]+\\})*)`, 'i'));
+  return keywordMatch?.[1]?.trim() || undefined;
+}
+
 /**
  * Check if a spell's oracle text indicates it's a tutor (search library) effect
  * and parse the intended destination for the searched card.
@@ -1556,6 +1566,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
     } else if (abilityId === "unearth") {
+      const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+      if (recordedManaCost) {
+        const parsedCost = parseManaCost(recordedManaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: `Cannot pay ${recordedManaCost}: ${validationError}`,
+          });
+          return;
+        }
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+      }
+
       // Return to battlefield
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
@@ -1581,6 +1607,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         cardId,
         abilityId,
+        manaCost: recordedManaCost || undefined,
       });
       
       io.to(gameId).emit("chat", {
@@ -1591,6 +1618,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
     } else if (abilityId === "embalm" || abilityId === "eternalize") {
+      const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+      if (recordedManaCost) {
+        const parsedCost = parseManaCost(recordedManaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: `Cannot pay ${recordedManaCost}: ${validationError}`,
+          });
+          return;
+        }
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+      }
+
       // Create token copy (simplified - doesn't track token properties properly)
       // Exile original from graveyard
       zones.graveyard.splice(cardIndex, 1);
@@ -1629,6 +1672,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         cardId,
         abilityId,
+        manaCost: recordedManaCost || undefined,
       });
       
       io.to(gameId).emit("chat", {
@@ -1856,6 +1900,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         manaCost: recordedManaCost,
       });
     } else if (abilityId === "scavenge") {
+      const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+      if (recordedManaCost) {
+        const parsedCost = parseManaCost(recordedManaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: `Cannot pay ${recordedManaCost}: ${validationError}`,
+          });
+          return;
+        }
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+      }
+
       // Scavenge - exile from graveyard (player needs to manually target creature for counters)
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
@@ -1873,6 +1933,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         cardId,
         abilityId,
+        manaCost: recordedManaCost || undefined,
       });
       
       // Calculate P/T for +1/+1 counters
@@ -1886,6 +1947,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
     } else if (abilityId === "encore") {
+      const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+      if (recordedManaCost) {
+        const parsedCost = parseManaCost(recordedManaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: `Cannot pay ${recordedManaCost}: ${validationError}`,
+          });
+          return;
+        }
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+      }
+
       // Encore - exile from graveyard (creates tokens)
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
@@ -1903,6 +1980,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         cardId,
         abilityId,
+        manaCost: recordedManaCost || undefined,
       });
       
       io.to(gameId).emit("chat", {
@@ -1913,6 +1991,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
     } else if (abilityId === "disturb") {
+      const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+      if (recordedManaCost) {
+        const parsedCost = parseManaCost(recordedManaCost);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: `Cannot pay ${recordedManaCost}: ${validationError}`,
+          });
+          return;
+        }
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+      }
+
       // Disturb - cast transformed from graveyard
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
@@ -1936,6 +2030,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         cardId,
         abilityId,
+        manaCost: recordedManaCost || undefined,
       });
       
       io.to(gameId).emit("chat", {

@@ -2645,6 +2645,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
                 recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
 
+                const manaCost = String((e as any).manaCost || '').trim();
+                const manaPool = (ctx.state as any).manaPool?.[pid];
+                if (manaPool && manaCost) {
+                  consumeRecordedManaCostFromPool(manaPool, manaCost);
+                }
+
                 ctx.state.battlefield = ctx.state.battlefield || [];
                 (ctx.state.battlefield as any[]).push({
                   id: generateDeterministicId(ctx, 'perm', String(cardId)),
@@ -2669,6 +2675,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 z.graveyardCount = graveyard.length;
 
                 recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
+
+                const manaCost = String((e as any).manaCost || '').trim();
+                const manaPool = (ctx.state as any).manaPool?.[pid];
+                if (manaPool && manaCost) {
+                  consumeRecordedManaCostFromPool(manaPool, manaCost);
+                }
 
                 z.exile = z.exile || [];
                 (z.exile as any[]).push({ ...card, zone: 'exile' });
@@ -2709,6 +2721,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
                 recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
 
+                const manaCost = String((e as any).manaCost || '').trim();
+                const manaPool = (ctx.state as any).manaPool?.[pid];
+                if (manaPool && manaCost) {
+                  consumeRecordedManaCostFromPool(manaPool, manaCost);
+                }
+
                 const stateAny = ctx.state as any;
                 stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
                 stateAny.castFromGraveyardThisTurn[String(pid)] = true;
@@ -2733,6 +2751,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 z.graveyardCount = graveyard.length;
 
                 recordCardLeftGraveyardThisTurn(ctx as any, String(pid), card);
+
+                const manaCost = String((e as any).manaCost || '').trim();
+                const manaPool = (ctx.state as any).manaPool?.[pid];
+                if (manaPool && manaCost) {
+                  consumeRecordedManaCostFromPool(manaPool, manaCost);
+                }
 
                 z.exile = z.exile || [];
                 (z.exile as any[]).push({ ...card, zone: 'exile' });

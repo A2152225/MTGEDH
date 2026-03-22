@@ -68,6 +68,9 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
         exileCount: 0,
       },
     };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
     (game.state as any).battlefield = [];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -92,6 +95,7 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
     expect(Boolean(battlefield[0]?.isToken)).toBe(true);
     expect(String(battlefield[0]?.card?.name || '')).toContain('(Zombie)');
     expect(String(battlefield[0]?.card?.type_line || '')).toContain('Zombie');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
   it('replays eternalize by exiling the original card and rebuilding the 4/4 token copy', () => {
@@ -123,6 +127,9 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
         exileCount: 0,
       },
     };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 5 },
+    };
     (game.state as any).battlefield = [];
 
     game.applyEvent({
@@ -130,6 +137,7 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
       playerId,
       cardId: 'eternalize_card_1',
       abilityId: 'eternalize',
+      manaCost: '{5}{U}{U}',
     });
 
     const zones = (game.state as any).zones?.[playerId];
@@ -144,5 +152,6 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
     expect(String(battlefield[0]?.card?.type_line || '')).toContain('Zombie');
     expect(battlefield[0]?.basePower).toBe(4);
     expect(battlefield[0]?.baseToughness).toBe(4);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 });

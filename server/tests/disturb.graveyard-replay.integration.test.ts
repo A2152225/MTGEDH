@@ -68,6 +68,9 @@ describe('disturb graveyard replay semantics (integration)', () => {
         exileCount: 0,
       },
     };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+    };
     (game.state as any).stack = [];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -90,6 +93,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
     expect(stack[0]?.card?.id).toBe('disturb_card_1');
     expect(stack[0]?.card?.castWithAbility).toBe('disturb');
     expect(Boolean(stack[0]?.card?.transformed)).toBe(true);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
   it('replays disturb by rebuilding the transformed stack item and graveyard-cast tracking', () => {
@@ -121,6 +125,9 @@ describe('disturb graveyard replay semantics (integration)', () => {
         exileCount: 0,
       },
     };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+    };
     (game.state as any).stack = [];
 
     game.applyEvent({
@@ -128,6 +135,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
       playerId,
       cardId: 'disturb_card_1',
       abilityId: 'disturb',
+      manaCost: '{2}{U}',
     });
 
     const zones = (game.state as any).zones?.[playerId];
@@ -139,5 +147,6 @@ describe('disturb graveyard replay semantics (integration)', () => {
     expect(stack[0]?.card?.id).toBe('disturb_card_1');
     expect(stack[0]?.card?.castWithAbility).toBe('disturb');
     expect(Boolean(stack[0]?.card?.transformed)).toBe(true);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 });

@@ -68,6 +68,9 @@ describe('unearth graveyard replay semantics (integration)', () => {
         exileCount: 0,
       },
     };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+    };
     (game.state as any).battlefield = [];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -91,6 +94,7 @@ describe('unearth graveyard replay semantics (integration)', () => {
     expect(Boolean(battlefield[0]?.wasUnearthed)).toBe(true);
     expect(Boolean(battlefield[0]?.unearthed)).toBe(true);
     expect(Boolean(battlefield[0]?.card?.wasUnearthed)).toBe(true);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
   it('replays unearth by rebuilding the battlefield permanent with unearthed markers', () => {
@@ -122,6 +126,9 @@ describe('unearth graveyard replay semantics (integration)', () => {
         exileCount: 0,
       },
     };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+    };
     (game.state as any).battlefield = [];
 
     game.applyEvent({
@@ -129,6 +136,7 @@ describe('unearth graveyard replay semantics (integration)', () => {
       playerId,
       cardId: 'unearth_card_1',
       abilityId: 'unearth',
+      manaCost: '{1}{R}',
     });
 
     const zones = (game.state as any).zones?.[playerId];
@@ -140,5 +148,6 @@ describe('unearth graveyard replay semantics (integration)', () => {
     expect(Boolean(battlefield[0]?.wasUnearthed)).toBe(true);
     expect(Boolean(battlefield[0]?.unearthed)).toBe(true);
     expect(Boolean(battlefield[0]?.card?.wasUnearthed)).toBe(true);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 });

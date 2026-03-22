@@ -68,6 +68,9 @@ describe('scavenge and encore graveyard replay semantics (integration)', () => {
         exileCount: 0,
       },
     };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 },
+    };
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);
@@ -85,6 +88,7 @@ describe('scavenge and encore graveyard replay semantics (integration)', () => {
     expect(zones?.graveyardCount).toBe(0);
     expect(zones?.exileCount).toBe(1);
     expect((zones?.exile || [])[0]?.id).toBe('scavenge_card_1');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 });
   });
 
   it('replays encore by moving the card from graveyard to exile', () => {
@@ -116,17 +120,22 @@ describe('scavenge and encore graveyard replay semantics (integration)', () => {
         exileCount: 0,
       },
     };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 3 },
+    };
 
     game.applyEvent({
       type: 'activateGraveyardAbility',
       playerId,
       cardId: 'encore_card_1',
       abilityId: 'encore',
+      manaCost: '{3}{R}{R}',
     });
 
     const zones = (game.state as any).zones?.[playerId];
     expect(zones?.graveyardCount).toBe(0);
     expect(zones?.exileCount).toBe(1);
     expect((zones?.exile || [])[0]?.id).toBe('encore_card_1');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 });
