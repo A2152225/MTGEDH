@@ -529,4 +529,369 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     const equipment = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'equipment_1');
     expect(Boolean(equipment?.tapped)).toBe(true);
   });
+
+  it('does not let a later grant-ability ability hijack an earlier generic ability activation', async () => {
+    const grantAbilityGameId = `${gameId}_grant_ability`;
+    ResolutionQueueManager.removeQueue(grantAbilityGameId);
+    games.delete(grantAbilityGameId as any);
+
+    createGameIfNotExists(grantAbilityGameId, 'commander', 40);
+    const game = ensureGame(grantAbilityGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [{ id: 'drawn_grant_1', name: 'Drawn Card', type_line: 'Artifact', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'grant_source_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'grant_source_card_1',
+          name: 'Battlefield Tutor',
+          type_line: 'Artifact',
+          oracle_text: '{T}: Draw a card.\n{1}: Target creature you control gains flying until end of turn.',
+        },
+      },
+      {
+        id: 'grant_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'grant_target_card_1',
+          name: 'Test Falcon',
+          type_line: 'Creature — Bird',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(grantAbilityGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: grantAbilityGameId, permanentId: 'grant_source_1', abilityId: 'grant_source_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(grantAbilityGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('draw a card');
+    expect(String(stack[0]?.description || '').toLowerCase()).not.toContain('gains flying');
+  });
+
+  it('does not let a later graveyard-exile ability hijack an earlier generic ability activation', async () => {
+    const exileGameId = `${gameId}_graveyard_exile`;
+    ResolutionQueueManager.removeQueue(exileGameId);
+    games.delete(exileGameId as any);
+
+    createGameIfNotExists(exileGameId, 'commander', 40);
+    const game = ensureGame(exileGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [{ id: 'gy_1', name: 'Own Card', type_line: 'Instant', zone: 'graveyard' }],
+        graveyardCount: 1,
+        library: [{ id: 'drawn_exile_1', name: 'Drawn Card', type_line: 'Artifact', zone: 'library' }],
+        libraryCount: 1,
+      },
+      player_2: {
+        hand: [],
+        handCount: 0,
+        graveyard: [{ id: 'gy_2', name: 'Opp Card', type_line: 'Sorcery', zone: 'graveyard' }],
+        graveyardCount: 1,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'exile_source_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'exile_source_card_1',
+          name: 'Tomb Archivist',
+          type_line: 'Artifact Creature',
+          oracle_text: '{T}: Draw a card.\n{1}: Exile target card from a graveyard.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(exileGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: exileGameId, permanentId: 'exile_source_1', abilityId: 'exile_source_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(exileGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('draw a card');
+    expect(String(stack[0]?.description || '').toLowerCase()).not.toContain('exile target card');
+  });
+
+  it('does not let a later fight ability hijack an earlier generic ability activation', async () => {
+    const fightGameId = `${gameId}_fight`;
+    ResolutionQueueManager.removeQueue(fightGameId);
+    games.delete(fightGameId as any);
+
+    createGameIfNotExists(fightGameId, 'commander', 40);
+    const game = ensureGame(fightGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [{ id: 'drawn_fight_1', name: 'Drawn Card', type_line: 'Artifact', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'fight_source_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'fight_source_card_1',
+          name: 'Arena Prototype',
+          type_line: 'Creature — Construct',
+          oracle_text: '{T}: Draw a card.\n{1}: This creature fights target creature you don\'t control.',
+        },
+      },
+      {
+        id: 'opp_creature_1',
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'opp_creature_card_1',
+          name: 'Enemy Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(fightGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: fightGameId, permanentId: 'fight_source_1', abilityId: 'fight_source_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(fightGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('draw a card');
+    expect(String(stack[0]?.description || '').toLowerCase()).not.toContain('fights');
+  });
+
+  it('does not let a later tap-untap ability hijack an earlier generic ability activation', async () => {
+    const tapUntapGameId = `${gameId}_tap_untap`;
+    ResolutionQueueManager.removeQueue(tapUntapGameId);
+    games.delete(tapUntapGameId as any);
+
+    createGameIfNotExists(tapUntapGameId, 'commander', 40);
+    const game = ensureGame(tapUntapGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [{ id: 'drawn_tap_untap_1', name: 'Drawn Card', type_line: 'Artifact', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'tap_source_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'tap_source_card_1',
+          name: 'Tinker Relay',
+          type_line: 'Artifact Creature',
+          oracle_text: '{T}: Draw a card.\n{1}: Tap target artifact.',
+        },
+      },
+      {
+        id: 'artifact_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'artifact_target_card_1',
+          name: 'Test Relic',
+          type_line: 'Artifact',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(tapUntapGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: tapUntapGameId, permanentId: 'tap_source_1', abilityId: 'tap_source_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(tapUntapGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('draw a card');
+    expect(String(stack[0]?.description || '').toLowerCase()).not.toContain('tap target artifact');
+  });
+
+  it('does not let control-change routing hijack an unrelated generic activation just because the permanent id contains control', async () => {
+    const controlGameId = `${gameId}_control_change`;
+    ResolutionQueueManager.removeQueue(controlGameId);
+    games.delete(controlGameId as any);
+
+    createGameIfNotExists(controlGameId, 'commander', 40);
+    const game = ensureGame(controlGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [{ id: 'drawn_control_1', name: 'Drawn Card', type_line: 'Artifact', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'control_device_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'control_device_card_1',
+          name: 'Control Device',
+          type_line: 'Artifact',
+          oracle_text: '{T}: Draw a card.\n{T}: Draw two cards. Target opponent gains control of Control Device.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(controlGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: controlGameId, permanentId: 'control_device_1', abilityId: 'control_device_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(controlGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('draw a card');
+
+    const source = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'control_device_1');
+    expect(source?.controller).toBe(playerId);
+    expect(Boolean(source?.tapped)).toBe(true);
+  });
 });

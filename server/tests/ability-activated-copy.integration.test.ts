@@ -275,7 +275,7 @@ describe('ability-activated copy triggers (integration)', () => {
     await handlers['activateBattlefieldAbility']({
       gameId,
       permanentId: 'banner_1',
-      abilityId: 'banner_1-grant-ability-0',
+      abilityId: 'banner_1-ability-0',
     });
 
     const targetStep = ResolutionQueueManager
@@ -1180,7 +1180,7 @@ describe('ability-activated copy triggers (integration)', () => {
     await handlers['activateBattlefieldAbility']({
       gameId,
       permanentId: 'curator_1',
-      abilityId: 'curator_1-exile-graveyard-0',
+      abilityId: 'curator_1-ability-0',
     });
 
     const targetStep = ResolutionQueueManager

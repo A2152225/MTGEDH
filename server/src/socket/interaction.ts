@@ -3669,13 +3669,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     //           Various lords and pump effects
     // Note: This also applies to instants/sorceries that grant abilities, but those are handled
     // during spell resolution via the targeting system
-    const grantAbilityMatch = oracleText.match(/\{([^}]+(?:\}\s*,\s*\{[^}]+)*)\}:\s*target\s+creature\s+(you control|an opponent controls)?.*?(gains?|gets?)\s+([^.]+)/i);
-    
-    if (grantAbilityMatch && abilityId.includes("grant-ability")) {
+    const grantAbilityMatch = scopedAbilityFullText.match(/\{([^}]+(?:\}\s*,\s*\{[^}]+)*)\}:\s*target\s+creature\s+(you control|an opponent controls)?.*?(gains?|gets?)\s+([^.]+)/i);
+    const hasExplicitGrantAbilityId = /-grant-ability-(\d+)$/i.test(abilityId) || abilityId === 'grant-ability';
+    const isGenericActivatedAbilityId = /-ability-(\d+)$/i.test(abilityId);
+
+    if (grantAbilityMatch && (hasExplicitGrantAbilityId || isGenericActivatedAbilityId)) {
       const costStr = `{${grantAbilityMatch[1]}}`;
       const targetRestriction = grantAbilityMatch[2]?.toLowerCase() || "you control";
-      const grantVerb = grantAbilityMatch[3];
-      const resolvedAbilityText = String(oracleText).replace(/^[^:]+:\s*/, '').trim();
+      const resolvedAbilityText = String(scopedAbilityFullText).replace(/^[^:]+:\s*/, '').trim();
       let abilityGranted = grantAbilityMatch[4].trim();
       
       // Clean up the ability text
@@ -3749,11 +3750,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Handle graveyard exile abilities (Keen-Eyed Curator, etc.)
     // Pattern: "{1}: Exile target card from a graveyard"
-    const hasGraveyardExileAbility = oracleText.includes("exile target card from a graveyard") ||
-      oracleText.includes("exile target card from any graveyard");
-    if (hasGraveyardExileAbility && abilityId.includes("exile-graveyard")) {
+    const lowerScopedAbilityText = scopedAbilityFullText.toLowerCase();
+    const hasGraveyardExileAbility = lowerScopedAbilityText.includes("exile target card from a graveyard") ||
+      lowerScopedAbilityText.includes("exile target card from any graveyard");
+    const hasExplicitExileGraveyardAbilityId = /-exile-graveyard-(\d+)$/i.test(abilityId) || abilityId === 'exile-graveyard';
+    if (hasGraveyardExileAbility && (hasExplicitExileGraveyardAbilityId || isGenericActivatedAbilityId)) {
       // Parse the cost
-      const costMatch = oracleText.match(/\{([^}]+)\}:\s*exile target card from (?:a|any) graveyard/i);
+      const costMatch = scopedAbilityFullText.match(/\{([^}]+)\}:\s*exile target card from (?:a|any) graveyard/i);
       const cost = costMatch ? `{${costMatch[1]}}` : "{1}";
 
       // Build a flat list of all cards currently in all graveyards.
@@ -3803,9 +3806,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Tap the permanent if it has a tap symbol in the cost
       // Pattern: {T}: or {1}{T}: etc.
-      if (oracleText.match(/\{[^}]*\bT\b[^}]*\}:/)) {
+      if (scopedAbilityFullText.match(/\{[^}]*\bT\b[^}]*\}:/)) {
         (permanent as any).tapped = true;
       }
+
+      const resolvedAbilityText = String(scopedAbilityText || 'Exile target card from a graveyard.').trim();
+      const resolvedActivatedAbilityText = String(scopedAbilityFullText || `${cost}: ${resolvedAbilityText}`).trim();
 
       // Route through the shared battlefield target-selection continuation so the
       // activation becomes a real stack item and copied abilities can retarget honestly.
@@ -3826,9 +3832,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         permanentId,
         abilityId,
         cardName,
-        abilityText: 'Exile target card from a graveyard.',
-        activatedAbilityText: `${cost}: Exile target card from a graveyard.`,
-        tappedPermanentsForCost: (oracleText.match(/\{[^}]*\bT\b[^}]*\}:/) ? [String(permanentId)] : []),
+        abilityText: resolvedAbilityText,
+        activatedAbilityText: resolvedActivatedAbilityText,
+        tappedPermanentsForCost: (scopedAbilityFullText.match(/\{[^}]*\bT\b[^}]*\}:/) ? [String(permanentId)] : []),
       } as any);
 
       if (typeof game.bumpSeq === 'function') {
@@ -3842,10 +3848,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Handle Control Change abilities (Humble Defector, etc.)
     // Check registry first, then fall back to pattern matching for unregistered cards
     const abilityConfig = getActivatedAbilityConfig(cardName);
-    const hasControlChangeAbility = 
-      (abilityConfig?.tapAbility?.controlChange === true) ||
-      ((oracleText.includes("opponent gains control") || oracleText.includes("target opponent gains control")) &&
-       abilityId.includes("control"));
+    const controlChangeAbilityText = String(
+      scopedAbilityFullText || abilityConfig?.tapAbility?.effect || oracleText || ''
+    ).trim();
+    const hasControlChangeAbility = /(?:target\s+opponent\s+gains\s+control|opponent\s+gains\s+control)/i.test(controlChangeAbilityText);
     
     if (hasControlChangeAbility) {
       // Get effect details from registry first, then fall back to oracle text parsing
@@ -3853,7 +3859,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Fallback: Parse draw count directly from oracle text if not found in registry
       if (!drawCards) {
-        const oracleDrawMatch = oracleText.match(/draw (\w+) card/i);
+        const oracleDrawMatch = controlChangeAbilityText.match(/draw (\w+) card/i);
         if (oracleDrawMatch) {
           drawCards = oracleDrawMatch[1].toLowerCase();
         }
@@ -3865,7 +3871,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       debug(2, `[activateBattlefieldAbility] Control change ability on ${cardName}: drawCards=${drawCards}, drawCount=${drawCount}`);
       
       // Parse the cost
-      const { requiresTap, manaCost } = parseActivationCost(oracleText, /(?:draw|opponent gains control)/i);
+      const { requiresTap, manaCost } = parseActivationCost(controlChangeAbilityText, /(?:draw|opponent gains control)/i);
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -3912,7 +3918,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         gameId,
         pid as any,
         cardName,
-        oracleText,
+        controlChangeAbilityText,
         {
           type: 'control_change',
           permanentId,
@@ -3931,7 +3937,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Pattern: "{Cost}: This creature fights target creature you don't control"
     // Pattern: "{Cost}: This creature fights another target creature" (can target any creature)
     const hasFightAbility = scopedAbilityFullText.includes("fights") || scopedAbilityFullText.includes("fight");
-    const isFightAbility = hasFightAbility && (abilityId.includes("fight") || scopedAbilityFullText.match(/\{[^}]+\}[^:]*:\s*[^.]*fights?/i));
+    const isFightAbility = hasFightAbility && /\{[^}]+\}[^:]*:\s*[^.]*fights?/i.test(scopedAbilityFullText);
     
     if (isFightAbility) {
       // Parse the cost
@@ -4010,7 +4016,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // - Immaculate Magistrate: "{T}: Put a +1/+1 counter on target creature for each Elf you control."
     // Works on: creatures, permanents, lands, artifacts, enchantments, planeswalkers, etc.
     const counterMatch = scopedAbilityFullText.match(/put (?:a|an|one|two|three) ([^\s]+) counters? on target ([^.]+?)(?:\s+you\s+(don't\s+control|control|don't own|own))?(?:\s+for each ([^.]+?))?(?:\.|,|$)/i);
-    const isCounterAbility = counterMatch && (abilityId.includes("counter") || abilityId.includes("ability"));
+    const isCounterAbility = Boolean(counterMatch);
     
     if (isCounterAbility && counterMatch) {
       const counterType = counterMatch[1].toLowerCase().replace(/[^a-z0-9+\-]/g, ''); // e.g., "bribery", "+1/+1", "loyalty"
@@ -4112,7 +4118,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Pattern: "{Cost}: Move a counter from target permanent you control onto a second target permanent"
     // Example: Nesting Grounds: "{1}, {T}: Move a counter from target permanent you control onto a second target permanent. Activate only as a sorcery."
     const moveCounterMatch = scopedAbilityFullText.match(/move (?:a|one) counter from target permanent(?:\s+you\s+control)?/i);
-    const isMoveCounterAbility = moveCounterMatch && (abilityId.includes("move") || abilityId.includes("counter") || abilityId.includes("ability"));
+    const isMoveCounterAbility = Boolean(moveCounterMatch);
     
     if (isMoveCounterAbility) {
       // Parse the cost
@@ -4174,11 +4180,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Handle Tap/Untap abilities (Saryth, Merrow Reejerey, Argothian Elder, etc.)
     // Parse ability text to detect tap/untap abilities
     const tapUntapParams = parseTapUntapAbilityText(scopedAbilityFullText);
-    const isTapUntapAbility = tapUntapParams && (
-      abilityId.includes("tap") || 
-      abilityId.includes("untap") || 
-      abilityId.includes("tap-untap")
-    );
+    const isTapUntapAbility = Boolean(tapUntapParams);
     
     if (isTapUntapAbility && tapUntapParams) {
       // Parse the cost
