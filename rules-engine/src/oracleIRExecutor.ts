@@ -1,73 +1,61 @@
-import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
+import type { GameState, PlayerID, BattlefieldPermanent, OracleAutomationGap } from '../../shared/src';
 import { createTokens, createTokensByName, parseTokenCreationFromText, COMMON_TOKENS } from './tokenCreation';
-import type { OracleEffectStep, OracleObjectSelector, OraclePlayerSelector, OracleQuantity } from './oracleIR';
-import { parseManaSymbols } from './types/numbers';
-import { addMana, createEmptyManaPool, ManaType } from './types/mana';
+import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
+import type {
+  OracleIRExecutionContext,
+  OracleIRExecutionEventHint,
+  OracleIRExecutionOptions,
+  OracleIRExecutionResult,
+  OracleIRSelectorContext,
+} from './oracleIRExecutionTypes';
+import {
+  appendOracleAutomationGapRecords,
+  createOracleAutomationGapRecord,
+} from './oracleIRAutomationGaps';
+import {
+  normalizeRepeatedEachAllInList,
+  parseDeterministicMixedDamageTarget,
+  parseSimpleBattlefieldSelector,
+  parseSimplePermanentTypeFromText,
+} from './oracleIRExecutorBattlefieldParser';
+import type { SimpleBattlefieldSelector, SimplePermanentType } from './oracleIRExecutorBattlefieldParser';
+import {
+  adjustLife,
+  addManaToPoolForPlayer,
+  applyImpulsePermissionMarkers,
+  countCardsExiledWithSource,
+  discardCardsForPlayer,
+  drawCardsForPlayer,
+  exileTopCardsForPlayer,
+  getCardTypeLineLower,
+  getCardManaValue,
+  getCardTypesFromTypeLine,
+  getPlayableUntilTurnForImpulseDuration,
+  millCardsForPlayer,
+  normalizeOracleText,
+  putSpecificExiledCardsOnLibraryBottom,
+  quantityToNumber,
+  resolvePlayers,
+  resolvePlayersFromDamageTarget,
+  resolveUnknownExileUntilAmountForPlayer,
+  resolveUnknownMillUntilAmountForPlayer,
+  shouldReturnUncastExiledToBottom,
+  shouldShuffleRestIntoLibrary,
+  splitExiledForShuffleRest,
+} from './oracleIRExecutorPlayerUtils';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { isCurrentlyCreature } from './actions/combat';
 
-export interface OracleIRExecutionOptions {
-  /**
-   * If false (default), skips "may" steps because they require a player choice.
-   * If true, applies optional steps as if the player chose "yes".
-   */
-  readonly allowOptional?: boolean;
-  /**
-   * Explicit selected mode ids for a choose_mode step when already chosen by a player.
-   */
-  readonly selectedModeIds?: readonly string[];
-}
+export type {
+  OracleIRExecutionContext,
+  OracleIRExecutionEventHint,
+  OracleIRExecutionOptions,
+  OracleIRExecutionResult,
+  OracleIRSelectorContext,
+} from './oracleIRExecutionTypes';
 
-export interface OracleIRSelectorContext {
-  /** Bound target for selectors parsed as target player. */
-  readonly targetPlayerId?: PlayerID;
-  /** Bound target for selectors parsed as target opponent. */
-  readonly targetOpponentId?: PlayerID;
-  /** Bound antecedent set for selectors parsed as "each of those opponents". */
-  readonly eachOfThoseOpponents?: readonly PlayerID[];
-  /** Bound chosen objects for multi-selection antecedents such as "the chosen creatures". */
-  readonly chosenObjectIds?: readonly string[];
-}
-
-export interface OracleIRExecutionEventHint {
-  /** Best-effort single target player from trigger/ability resolution context. */
-  readonly targetPlayerId?: PlayerID;
-  /** Best-effort single target opponent from trigger/ability resolution context. */
-  readonly targetOpponentId?: PlayerID;
-  /** Best-effort single target permanent from trigger/ability resolution context. */
-  readonly targetPermanentId?: string;
-  /** Explicit choice for "tap or untap" style effects when known. */
-  readonly tapOrUntapChoice?: 'tap' | 'untap';
-  /** Generic affected players for this event (may include non-opponents). */
-  readonly affectedPlayerIds?: readonly PlayerID[];
-  /** Affected opponents for this event (preferred for relational opponent selectors). */
-  readonly affectedOpponentIds?: readonly PlayerID[];
-  /** Opponents dealt damage by the triggering event/source (Breeches-style antecedent). */
-  readonly opponentsDealtDamageIds?: readonly PlayerID[];
-  /** Spell type context used by some exile-until templates (for example, Possibility Storm). */
-  readonly spellType?: string;
-}
-
-export interface OracleIRExecutionContext {
-  readonly controllerId: PlayerID;
-  readonly sourceId?: string;
-  readonly sourceName?: string;
-  /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
-  readonly targetCreatureId?: string;
-  /** Optional direct target permanent binding used by targeted effects like Merrow Reejerey. */
-  readonly targetPermanentId?: string;
-  /** Choice for effects worded as "tap or untap target permanent." */
-  readonly tapOrUntapChoice?: 'tap' | 'untap';
-  /** Normalized reference spell types used by some deterministic unknown-amount loops. */
-  readonly referenceSpellTypes?: readonly string[];
-  /**
-   * Optional selector bindings supplied by the caller from trigger/target resolution context.
-   * This allows relational selectors such as "each of those opponents" to execute
-   * deterministically in multiplayer when the antecedent set is known.
-   */
-  readonly selectorContext?: OracleIRSelectorContext;
-}
+const stripImpulsePermissionMarkers = stripPlayableFromExileTags;
 
 /**
  * Build/augment an execution context from trigger/target event hints.
@@ -210,347 +198,6 @@ export function buildOracleIRExecutionContext(
     ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
     ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
   };
-}
-
-export interface OracleIRExecutionResult {
-  readonly state: GameState;
-  readonly log: readonly string[];
-  readonly appliedSteps: readonly OracleEffectStep[];
-  readonly skippedSteps: readonly OracleEffectStep[];
-  /**
-   * Steps that have `optional: true` ("you may") OR are `choose_mode` steps
-   * that were NOT auto-applied because they require player interaction.
-   * When `allowOptional` is false (the default), every such step is placed
-   * here so callers can queue the appropriate player prompts.
-   */
-  readonly pendingOptionalSteps: readonly OracleEffectStep[];
-}
-
-function getPlayableUntilTurnForImpulseDuration(state: GameState, duration: any): number | null {
-  const turnNumber = Number((state as any).turnNumber ?? 0) || 0;
-  const d = String(duration || '').trim();
-  if (!d) return null;
-
-  if (d === 'this_turn' || d === 'during_resolution') return turnNumber;
-
-  // Best-effort: treat all "next turn" / "until next <step>" windows as lasting through the next turn.
-  if (
-    d === 'during_next_turn' ||
-    d === 'until_end_of_next_turn' ||
-    d === 'until_end_of_combat_on_next_turn' ||
-    d === 'until_next_turn' ||
-    d === 'until_next_upkeep' ||
-    d === 'until_next_end_step'
-  ) {
-    return turnNumber + 1;
-  }
-
-  // Longer / open-ended windows: keep the permission present without an expiry.
-  if (d === 'as_long_as_remains_exiled' || d === 'as_long_as_control_source' || d === 'until_exile_another') {
-    return Number.MAX_SAFE_INTEGER;
-  }
-
-  return null;
-}
-
-function applyImpulsePermissionMarkers(
-  state: GameState,
-  playerId: PlayerID,
-  exiledCards: readonly any[],
-  meta: {
-    readonly permission: 'play' | 'cast';
-    readonly playableUntilTurn: number | null;
-    readonly condition?: any;
-    readonly exiledBy?: string;
-  }
-): { state: GameState; granted: number } {
-  const player = state.players.find(p => p.id === playerId) as any;
-  if (!player) return { state, granted: 0 };
-
-  const exileArr: any[] = Array.isArray(player.exile) ? [...player.exile] : [];
-  if (exileArr.length === 0 || exiledCards.length === 0) return { state, granted: 0 };
-
-  const stateAny: any = state as any;
-  stateAny.playableFromExile = stateAny.playableFromExile || {};
-  stateAny.playableFromExile[playerId] = stateAny.playableFromExile[playerId] || {};
-
-  const playableUntilTurn = meta.playableUntilTurn;
-  const condition = meta.condition as any;
-
-  let granted = 0;
-
-  const exiledIds = new Set(exiledCards.map(c => String((c as any)?.id ?? (c as any)?.cardId ?? '')));
-
-  const shouldGrant = (card: any): boolean => {
-    const typeLineLower = String(card?.type_line || '').toLowerCase();
-    const isLand = typeLineLower.includes('land');
-    const colors = Array.isArray(card?.colors) ? card.colors.map((x: any) => String(x || '').toUpperCase()) : [];
-
-    const passesPermissionGate = meta.permission === 'play' ? true : !isLand;
-    let passesConditionGate = true;
-    if (condition) {
-      if (condition.kind === 'type') {
-        passesConditionGate = condition.type === 'land' ? isLand : !isLand;
-      } else if (condition.kind === 'color') {
-        passesConditionGate = colors.includes(condition.color);
-      }
-    }
-    return passesPermissionGate && passesConditionGate;
-  };
-
-  for (let i = 0; i < exileArr.length; i++) {
-    const card = exileArr[i];
-    const id = String(card?.id ?? card?.cardId ?? '');
-    if (!id || !exiledIds.has(id)) continue;
-
-    const grant = shouldGrant(card);
-    const next = {
-      ...card,
-      zone: 'exile',
-      ...(meta.exiledBy ? { exiledBy: meta.exiledBy } : {}),
-      ...(grant ? { canBePlayedBy: playerId, playableUntilTurn } : {}),
-    };
-    exileArr[i] = next;
-
-    if (grant) {
-      // Gate play/cast permissions (impulse draw) by turn number.
-      stateAny.playableFromExile[playerId][id] = playableUntilTurn ?? Number.MAX_SAFE_INTEGER;
-      granted++;
-    }
-  }
-
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? ({ ...(p as any), exile: exileArr } as any) : p));
-  return { state: { ...(stateAny as any), players: updatedPlayers as any }, granted };
-}
-
-const stripImpulsePermissionMarkers = stripPlayableFromExileTags;
-
-type SimpleBattlefieldSelector = {
-  readonly kind: 'battlefield_selector';
-  readonly types: readonly SimplePermanentType[];
-  readonly controllerFilter: 'any' | 'you' | 'opponents';
-};
-
-type SimplePermanentType =
-  | 'permanent'
-  | 'nonland_permanent'
-  | 'creature'
-  | 'artifact'
-  | 'enchantment'
-  | 'land'
-  | 'planeswalker'
-  | 'battle';
-
-function quantityToNumber(qty: OracleQuantity): number | null {
-  if (qty.kind === 'number') return qty.value;
-  return null;
-}
-
-function normalizeOracleText(value: string): string {
-  return String(value || '')
-    .replace(/\u2019/g, "'")
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[.;:,]+$/g, '')
-    .trim();
-}
-
-function getCardTypeLineLower(card: any): string {
-  return String(card?.cardType || card?.type_line || card?.card?.type_line || '')
-    .toLowerCase()
-    .trim();
-}
-
-function isPermanentTypeQualifier(typeQualifier: string): boolean {
-  return typeQualifier === 'permanent' || typeQualifier === 'nonland permanent';
-}
-
-function matchesCardTypeQualifier(card: any, rawTypeQualifier?: string): boolean {
-  const typeQualifier = normalizeOracleText(String(rawTypeQualifier || ''));
-  if (!typeQualifier) return true;
-
-  const typeLine = getCardTypeLineLower(card);
-  if (!typeLine) return false;
-
-  if (typeQualifier === 'permanent') {
-    return !typeLine.includes('instant') && !typeLine.includes('sorcery');
-  }
-
-  if (typeQualifier === 'nonland permanent') {
-    return !typeLine.includes('land') && !typeLine.includes('instant') && !typeLine.includes('sorcery');
-  }
-
-  return typeLine.includes(typeQualifier);
-}
-
-function isCardExiledWithSource(card: any, sourceId: string): boolean {
-  if (!sourceId) return false;
-
-  const linkedIds = [
-    card?.exiledBy,
-    card?.exiledWith,
-    card?.exiledWithSourceId,
-    card?.card?.exiledBy,
-    card?.card?.exiledWith,
-    card?.card?.exiledWithSourceId,
-  ]
-    .map(value => String(value || '').trim())
-    .filter(Boolean);
-
-  return linkedIds.includes(sourceId);
-}
-
-function countCardsExiledWithSource(
-  state: GameState,
-  sourceId: string,
-  rawTypeQualifier?: string
-): number {
-  if (!sourceId) return 0;
-
-  let count = 0;
-  for (const player of state.players as any[]) {
-    const exile = Array.isArray(player?.exile) ? player.exile : [];
-    for (const card of exile) {
-      if (!isCardExiledWithSource(card, sourceId)) continue;
-      if (!matchesCardTypeQualifier(card, rawTypeQualifier)) continue;
-      count++;
-    }
-  }
-
-  return count;
-}
-
-function getCardTypesFromTypeLine(card: any): readonly string[] | null {
-  const tl = getCardTypeLineLower(card);
-  if (!tl) return null;
-  const known = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery'];
-  const out = known.filter(type => tl.includes(type));
-  if (tl.includes('tribal') && !out.includes('kindred')) out.push('kindred');
-  return out.length > 0 ? out : null;
-}
-
-function getCardManaValue(card: any): number | null {
-  const raw =
-    card?.manaValue ??
-    card?.mana_value ??
-    card?.cmc ??
-    card?.card?.manaValue ??
-    card?.card?.mana_value ??
-    card?.card?.cmc;
-
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
-}
-
-function resolveUnknownExileUntilAmountForPlayer(
-  state: GameState,
-  playerId: PlayerID,
-  qty: OracleQuantity,
-  ctx?: OracleIRExecutionContext
-): number | null {
-  if (qty.kind !== 'unknown') return null;
-
-  const raw = normalizeOracleText(String((qty as any).raw || ''));
-  if (!raw.startsWith('until ')) return null;
-
-  const player = state.players.find(p => p.id === playerId) as any;
-  if (!player) return null;
-  const library: any[] = Array.isArray(player.library) ? player.library : [];
-
-  if (raw === 'until they exile a nonland card' || raw === 'until you exile a nonland card') {
-    for (let i = 0; i < library.length; i++) {
-      const typeLine = getCardTypeLineLower(library[i]);
-      if (!typeLine) return null;
-      const isLand = typeLine.includes('land');
-      if (!isLand) return i + 1;
-    }
-    return library.length;
-  }
-
-  if (
-    raw === 'until they exile an instant or sorcery card' ||
-    raw === 'until you exile an instant or sorcery card'
-  ) {
-    for (let i = 0; i < library.length; i++) {
-      const typeLine = getCardTypeLineLower(library[i]);
-      if (!typeLine) return null;
-      const isInstantOrSorcery = typeLine.includes('instant') || typeLine.includes('sorcery');
-      if (isInstantOrSorcery) return i + 1;
-    }
-    return library.length;
-  }
-
-  if (raw === 'until you exile a legendary card' || raw === 'until they exile a legendary card') {
-    for (let i = 0; i < library.length; i++) {
-      const typeLine = getCardTypeLineLower(library[i]);
-      if (!typeLine) return null;
-      if (typeLine.includes('legendary')) return i + 1;
-    }
-    return library.length;
-  }
-
-  const totalMvMatch = raw.match(
-    /^until (?:they|you) have exiled cards with total mana value (\d+) or greater(?: this way)?$/
-  );
-  if (totalMvMatch) {
-    const threshold = Number(totalMvMatch[1]);
-    if (!Number.isFinite(threshold) || threshold <= 0) return null;
-
-    let total = 0;
-    for (let i = 0; i < library.length; i++) {
-      const manaValue = getCardManaValue(library[i]);
-      if (manaValue === null) return null;
-      total += manaValue;
-      if (total >= threshold) return i + 1;
-    }
-    return library.length;
-  }
-
-  if (
-    raw === 'until they exile a card that shares a card type with it' ||
-    raw === 'until you exile a card that shares a card type with it'
-  ) {
-    const refTypes = Array.isArray(ctx?.referenceSpellTypes)
-      ? new Set(ctx!.referenceSpellTypes.map(t => String(t || '').toLowerCase()).filter(Boolean))
-      : null;
-    if (!refTypes || refTypes.size === 0) return null;
-
-    for (let i = 0; i < library.length; i++) {
-      const cardTypes = getCardTypesFromTypeLine(library[i]);
-      if (!cardTypes) return null;
-      const sharesType = cardTypes.some(type => refTypes.has(type));
-      if (sharesType) return i + 1;
-    }
-    return library.length;
-  }
-
-  return null;
-}
-
-function resolveUnknownMillUntilAmountForPlayer(
-  state: GameState,
-  playerId: PlayerID,
-  qty: OracleQuantity
-): number | null {
-  if (qty.kind !== 'unknown') return null;
-
-  const raw = normalizeOracleText(String((qty as any).raw || ''));
-  if (raw !== 'until they reveal a land card' && raw !== 'until you reveal a land card') {
-    return null;
-  }
-
-  const player = state.players.find(p => p.id === playerId) as any;
-  if (!player) return null;
-  const library: any[] = Array.isArray(player.library) ? player.library : [];
-
-  for (let i = 0; i < library.length; i++) {
-    const typeLine = getCardTypeLineLower(library[i]);
-    if (!typeLine) return null;
-    if (typeLine.includes('land')) return i + 1;
-  }
-
-  return library.length;
 }
 
 function resolveTrepanationBoostTargetCreatureId(
@@ -4836,247 +4483,6 @@ function evaluateModifyPtWhereX(
   return null;
 }
 
-function resolvePlayers(
-  state: GameState,
-  selector: OraclePlayerSelector,
-  ctx: OracleIRExecutionContext
-): readonly PlayerID[] {
-  const normalizeId = (value: unknown): PlayerID | undefined => {
-    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
-    const normalized = String(value).trim();
-    return normalized ? (normalized as PlayerID) : undefined;
-  };
-
-  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
-  const allPlayerIds = new Set(state.players.map(p => p.id));
-  const hasValidController = allPlayerIds.has(controllerId);
-  const opponents = hasValidController
-    ? state.players.filter(p => p.id !== controllerId).map(p => p.id)
-    : [];
-  const opponentIdSet = new Set(opponents);
-
-  const dedupe = (ids: readonly PlayerID[]): readonly PlayerID[] => {
-    const out: PlayerID[] = [];
-    const seen = new Set<PlayerID>();
-    for (const id of ids) {
-      const normalized = normalizeId(id);
-      if (!normalized || !allPlayerIds.has(normalized)) continue;
-      if (seen.has(normalized)) continue;
-      seen.add(normalized);
-      out.push(normalized);
-    }
-    return out;
-  };
-
-  const dedupeOpponents = (ids: readonly PlayerID[]): readonly PlayerID[] =>
-    dedupe(ids).filter(id => opponentIdSet.has(id));
-
-  switch (selector.kind) {
-    case 'you':
-      return hasValidController ? [controllerId] : [];
-    case 'each_player':
-      return state.players.map(p => p.id);
-    case 'each_opponent':
-      return opponents;
-    // Contextual subset ("each of those opponents").
-    // Without trigger-context threading this is ambiguous in multiplayer,
-    // but in 1v1 the subset can only be that opponent when present.
-    case 'each_of_those_opponents': {
-      const contextual = ctx.selectorContext?.eachOfThoseOpponents;
-      if (Array.isArray(contextual) && contextual.length > 0) {
-        return dedupeOpponents(contextual as PlayerID[]);
-      }
-      return opponents.length === 1 ? [opponents[0]] : [];
-    }
-    // Deterministic target support:
-    // - target_opponent resolves from selector context when available,
-    //   otherwise only when there is a single legal opponent.
-    // - target_player resolves from selector context when available,
-    //   otherwise remains unresolved because it can include multiple legal choices.
-    case 'target_opponent': {
-      const bound = normalizeId(ctx.selectorContext?.targetOpponentId);
-      if (bound && opponentIdSet.has(bound)) return [bound];
-      return opponents.length === 1 ? [opponents[0]] : [];
-    }
-    case 'target_player': {
-      const bound = normalizeId(ctx.selectorContext?.targetPlayerId);
-      if (bound && allPlayerIds.has(bound)) return [bound];
-      return [];
-    }
-    case 'unknown':
-    default:
-      return [];
-  }
-}
-
-function resolvePlayersFromDamageTarget(
-  state: GameState,
-  target: { readonly kind: 'raw'; readonly text: string } | { readonly kind: 'unknown'; readonly raw: string },
-  ctx: OracleIRExecutionContext
-): readonly PlayerID[] {
-  if (target.kind !== 'raw') return [];
-
-  const t = String(target.text || '')
-    .replace(/\u2019/g, "'")
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[\.!]$/, '');
-  if (!t) return [];
-
-  // Only support exact, non-targeting player group targets.
-  if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
-  if (
-    t === 'that player' ||
-    t === 'he or she' ||
-    t === 'him or her' ||
-    t === 'they' ||
-    t === 'its controller' ||
-    t === 'its owner' ||
-    isThatOwnerOrControllerSelector(t)
-  ) return resolvePlayers(state, { kind: 'target_player' }, ctx);
-  if (t === 'defending player' || t === 'the defending player') {
-    return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
-  }
-  if (t === 'that opponent') return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
-  if (isThoseOpponentsSelector(t)) {
-    return resolvePlayers(state, { kind: 'each_of_those_opponents' }, ctx);
-  }
-  if (t === 'each player') return resolvePlayers(state, { kind: 'each_player' }, ctx);
-  if (t === 'each of your opponents' || t === 'each of the opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
-  if (t === 'each opponent') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
-  if (t === 'your opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
-  if (t === 'all opponents' || t === 'all of your opponents' || t === 'all of the opponents') {
-    return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
-  }
-  if (t === 'all your opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
-
-  return [];
-}
-
-function isThatOwnerOrControllerSelector(raw: string | undefined): boolean {
-  const s = String(raw || '')
-    .replace(/[’]/g, "'")
-    .trim()
-    .toLowerCase();
-  return /^that [a-z0-9][a-z0-9 -]*'s (?:controller|owner)$/i.test(s);
-}
-
-function isThoseOpponentsSelector(raw: string | undefined): boolean {
-  const s = String(raw || '')
-    .replace(/[’]/g, "'")
-    .trim()
-    .toLowerCase();
-  return s === 'each of those opponents' || s === 'those opponents' || s === 'all of those opponents' || s === 'all those opponents';
-}
-
-function parseDeterministicMixedDamageTarget(
-  rawText: string
-): { readonly players: ReadonlySet<'you' | 'each_player' | 'each_opponent' | 'each_of_those_opponents' | 'target_player' | 'target_opponent'>; readonly selectors: readonly SimpleBattlefieldSelector[] } | null {
-  const lower = String(rawText || '')
-    .replace(/\u2019/g, "'")
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[\.!]$/, '');
-
-  if (!lower) return null;
-  if (/\band\/or\b/i.test(lower)) return null;
-
-  const parts = lower.split(/\s*(?:,|and)\s*/i).map(p => p.trim()).filter(Boolean);
-  if (parts.length <= 1) return null;
-
-  const players = new Set<'you' | 'each_player' | 'each_opponent' | 'each_of_those_opponents' | 'target_player' | 'target_opponent'>();
-  const selectors: SimpleBattlefieldSelector[] = [];
-
-  for (const part of parts) {
-    if (part === 'you') {
-      players.add('you');
-      continue;
-    }
-    if (part === 'each player' || part === 'all players') {
-      players.add('each_player');
-      continue;
-    }
-    if (
-      part === 'each opponent' ||
-      part === 'all opponents' ||
-      part === 'each of your opponents' ||
-      part === 'all of your opponents' ||
-      part === 'each of the opponents' ||
-      part === 'all of the opponents' ||
-      part === 'your opponents' ||
-      part === 'all your opponents'
-    ) {
-      players.add('each_opponent');
-      continue;
-    }
-    if (isThoseOpponentsSelector(part)) {
-      players.add('each_of_those_opponents');
-      continue;
-    }
-    if (
-      part === 'that player' ||
-      part === 'he or she' ||
-      part === 'him or her' ||
-      part === 'they' ||
-      part === 'its controller' ||
-      part === 'its owner' ||
-      isThatOwnerOrControllerSelector(part)
-    ) {
-      players.add('target_player');
-      continue;
-    }
-    if (
-      part === 'that opponent' ||
-      part === 'defending player' ||
-      part === 'the defending player'
-    ) {
-      players.add('target_opponent');
-      continue;
-    }
-
-    // Allow "or" inside battlefield selector unions (e.g. "each creature or planeswalker"),
-    // but reject "or" in non-selector parts to avoid ambiguous/choice-y text.
-    if (
-      /\bor\b/i.test(part) &&
-      !/^(?:each|all)\b/i.test(part) &&
-      !/^(?:your\b|opponent\b|opponents\b)/i.test(part)
-    ) {
-      return null;
-    }
-
-    // Allow shorthand list elements like "planeswalker" after normalization.
-    let candidate = part;
-    if (!/^(?:each|all)\b/i.test(candidate) && /^(?:creature|creatures|planeswalker|planeswalkers|battle|battles)\b/i.test(candidate)) {
-      candidate = `each ${candidate}`;
-    }
-
-    const selector = parseSimpleBattlefieldSelector({ kind: 'raw', text: candidate } as any);
-    if (!selector) return null;
-
-    const disallowed = selector.types.some(
-      t => t === 'land' || t === 'artifact' || t === 'enchantment' || t === 'permanent' || t === 'nonland_permanent'
-    );
-    if (disallowed) return null;
-
-    selectors.push(selector);
-  }
-
-  if (players.size === 0 || selectors.length === 0) return null;
-  return { players, selectors };
-}
-
-function normalizeRepeatedEachAllInList(text: string): string {
-  // Turns e.g. "each creature and each planeswalker" into "each creature and planeswalker"
-  // so it can be parsed as a single battlefield selector list.
-  return String(text || '')
-    .replace(/\b(and|or)\s+(?:each|all)\s+/gi, '$1 ')
-    .replace(/,\s*(?:each|all)\s+/gi, ', ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function addDamageToPermanentLikeCreature(perm: BattlefieldPermanent, amount: number): BattlefieldPermanent {
   const n = Math.max(0, amount | 0);
   if (n <= 0) return perm;
@@ -5136,425 +4542,6 @@ function removeDefenseCountersFromBattle(perm: BattlefieldPermanent, amount: num
   const next = Math.max(0, current - n);
   const counters = { ...(((perm as any).counters || {}) as any), defense: next };
   return { ...(perm as any), counters } as any;
-}
-
-function drawCardsForPlayer(state: GameState, playerId: PlayerID, count: number): { state: GameState; log: string[] } {
-  const log: string[] = [];
-  const player = state.players.find(p => p.id === playerId);
-  if (!player) return { state, log: [`Player not found: ${playerId}`] };
-
-  const library = [...((player as any).library || [])];
-  const hand = [...((player as any).hand || [])];
-
-  let drawn = 0;
-  for (let i = 0; i < Math.max(0, count | 0); i++) {
-    if (library.length === 0) {
-      log.push(`${playerId} cannot draw (empty library)`);
-      break;
-    }
-    const [card] = library.splice(0, 1);
-    hand.push(card);
-    drawn++;
-  }
-
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, library, hand } : p));
-  return {
-    state: { ...state, players: updatedPlayers as any },
-    log: drawn > 0 ? [`${playerId} draws ${drawn} card(s)`] : log,
-  };
-}
-
-function exileTopCardsForPlayer(
-  state: GameState,
-  playerId: PlayerID,
-  count: number
-): { state: GameState; log: string[]; exiled: any[] } {
-  const log: string[] = [];
-  const player = state.players.find(p => p.id === playerId);
-  if (!player) return { state, log: [`Player not found: ${playerId}`], exiled: [] };
-
-  const library = [...((player as any).library || [])];
-  const exile = [...((player as any).exile || [])];
-
-  const exiled: any[] = [];
-  for (let i = 0; i < Math.max(0, count | 0); i++) {
-    if (library.length === 0) {
-      log.push(`${playerId} cannot exile from library (empty library)`);
-      break;
-    }
-    const [card] = library.splice(0, 1);
-    exile.push(card);
-    exiled.push(card);
-  }
-
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? ({ ...p, library, exile } as any) : p));
-  return {
-    state: { ...state, players: updatedPlayers as any },
-    log: exiled.length > 0 ? [`${playerId} exiles ${exiled.length} card(s) from the top of their library`] : log,
-    exiled,
-  };
-}
-
-function shouldReturnUncastExiledToBottom(step: any): boolean {
-  const t = normalizeOracleText(String(step?.raw || ''));
-  if (
-    (/\bput\s+the\s+exiled\s+cards\b/.test(t) && /\bon\s+the\s+bottom\s+of\s+that\s+library\b/.test(t)) ||
-    (/\bput\s+all\s+cards\s+exiled\b/.test(t) && /\bon\s+the\s+bottom\s+of\s+their\s+library\b/.test(t))
-  ) {
-    return true;
-  }
-
-  // Parser can split trailing bottom-of-library rider into a separate sentence,
-  // so infer known deterministic templates by their parsed impulse shape.
-  const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
-  const who = String(step?.who?.kind || '');
-  return (
-    step?.kind === 'impulse_exile_top' &&
-    step?.duration === 'during_resolution' &&
-    step?.permission === 'cast' &&
-    step?.amount?.kind === 'unknown' &&
-    (who === 'target_opponent' || who === 'target_player') &&
-    (amountRaw === 'until they exile an instant or sorcery card' ||
-      amountRaw === 'until you exile an instant or sorcery card' ||
-      amountRaw === 'until they exile a card that shares a card type with it' ||
-      amountRaw === 'until you exile a card that shares a card type with it')
-  );
-}
-
-function shouldShuffleRestIntoLibrary(step: any): boolean {
-  const t = normalizeOracleText(String(step?.raw || ''));
-  if (/\bthen\s+shuffles\s+the\s+rest\s+into\s+(?:their|his\s+or\s+her|your)\s+library\b/.test(t)) {
-    return true;
-  }
-
-  const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
-  const who = String(step?.who?.kind || '');
-  return (
-    step?.kind === 'impulse_exile_top' &&
-    step?.duration === 'during_resolution' &&
-    step?.permission === 'cast' &&
-    step?.amount?.kind === 'unknown' &&
-    who === 'each_opponent' &&
-    (amountRaw === 'until they exile an instant or sorcery card' ||
-      amountRaw === 'until you exile an instant or sorcery card')
-  );
-}
-
-function splitExiledForShuffleRest(step: any, exiled: readonly any[]): { keepExiled: readonly any[]; returnToLibrary: readonly any[] } {
-  const all = Array.isArray(exiled) ? exiled : [];
-  if (all.length === 0) return { keepExiled: [], returnToLibrary: [] };
-
-  const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
-
-  if (
-    amountRaw === 'until they exile an instant or sorcery card' ||
-    amountRaw === 'until you exile an instant or sorcery card'
-  ) {
-    const last = all[all.length - 1];
-    const typeLine = getCardTypeLineLower(last);
-    const hit = typeLine.includes('instant') || typeLine.includes('sorcery');
-    if (!hit) return { keepExiled: [], returnToLibrary: all };
-    return { keepExiled: [last], returnToLibrary: all.slice(0, -1) };
-  }
-
-  // Unsupported shuffle-rest criteria remain conservative: do not mutate zones.
-  return { keepExiled: all, returnToLibrary: [] };
-}
-
-function putSpecificExiledCardsOnLibraryBottom(
-  state: GameState,
-  playerId: PlayerID,
-  cards: readonly any[]
-): { state: GameState; moved: number; log: string[] } {
-  if (!Array.isArray(cards) || cards.length === 0) return { state, moved: 0, log: [] };
-  const player = state.players.find(p => p.id === playerId) as any;
-  if (!player) return { state, moved: 0, log: [] };
-
-  const exile = Array.isArray(player.exile) ? [...player.exile] : [];
-  const library = Array.isArray(player.library) ? [...player.library] : [];
-
-  const wantedIds = new Set(
-    cards
-      .map(c => String((c as any)?.id ?? (c as any)?.cardId ?? '').trim())
-      .filter(Boolean)
-  );
-  if (wantedIds.size === 0) return { state, moved: 0, log: [] };
-
-  const kept: any[] = [];
-  const moved: any[] = [];
-  for (const card of exile) {
-    const id = String((card as any)?.id ?? (card as any)?.cardId ?? '').trim();
-    if (id && wantedIds.has(id)) moved.push(card);
-    else kept.push(card);
-  }
-
-  if (moved.length === 0) return { state, moved: 0, log: [] };
-
-  const nextState = clearPlayableFromExileForCards(state, playerId, moved);
-  const movedClean = moved.map(stripImpulsePermissionMarkers);
-  const nextPlayer: any = { ...(player as any), exile: kept, library: [...library, ...movedClean] };
-  const updatedPlayers = nextState.players.map(p => (p.id === playerId ? nextPlayer : p));
-  return {
-    state: { ...nextState, players: updatedPlayers as any } as any,
-    moved: moved.length,
-    log: [`${playerId} puts ${moved.length} exiled card(s) on the bottom of their library`],
-  };
-}
-
-function adjustLife(state: GameState, playerId: PlayerID, delta: number): { state: GameState; log: string[] } {
-  const log: string[] = [];
-  const player = state.players.find(p => p.id === playerId);
-  if (!player) return { state, log: [`Player not found: ${playerId}`] };
-
-  const currentLife = typeof (player as any).life === 'number' ? (player as any).life : 0;
-  const nextLife = currentLife + delta;
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, life: nextLife } : p));
-
-  const verb = delta >= 0 ? 'gains' : 'loses';
-  log.push(`${playerId} ${verb} ${Math.abs(delta)} life`);
-
-  return { state: { ...state, players: updatedPlayers as any }, log };
-}
-
-function discardCardsForPlayer(
-  state: GameState,
-  playerId: PlayerID,
-  count: number
-): { state: GameState; log: string[]; applied: boolean; needsChoice: boolean; discardedCount: number } {
-  const log: string[] = [];
-  const player = state.players.find(p => p.id === playerId);
-  if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false, needsChoice: false, discardedCount: 0 };
-
-  const hand = [...((player as any).hand || [])];
-  const graveyard = [...((player as any).graveyard || [])];
-
-  const n = Math.max(0, count | 0);
-  if (n === 0) return { state, log, applied: true, needsChoice: false, discardedCount: 0 };
-
-  // Deterministic only when the player has <= N cards, in which case all cards are discarded.
-  if (hand.length > n) {
-    return { state, log, applied: false, needsChoice: true, discardedCount: 0 };
-  }
-
-  const discarded = hand.splice(0, hand.length);
-  graveyard.push(...discarded);
-
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, hand, graveyard } : p));
-  log.push(`${playerId} discards ${discarded.length} card(s)`);
-  return { state: { ...state, players: updatedPlayers as any }, log, applied: true, needsChoice: false, discardedCount: discarded.length };
-}
-
-function millCardsForPlayer(
-  state: GameState,
-  playerId: PlayerID,
-  count: number
-): { state: GameState; log: string[] } {
-  const log: string[] = [];
-  const player = state.players.find(p => p.id === playerId);
-  if (!player) return { state, log: [`Player not found: ${playerId}`] };
-
-  const library = [...((player as any).library || [])];
-  const graveyard = [...((player as any).graveyard || [])];
-
-  const n = Math.max(0, count | 0);
-  if (n === 0) return { state, log };
-
-  const actual = Math.min(n, library.length);
-  const milled = library.splice(0, actual);
-  graveyard.push(...milled);
-
-  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, library, graveyard } : p));
-  log.push(`${playerId} mills ${actual} card(s)`);
-  return { state: { ...state, players: updatedPlayers as any }, log };
-}
-
-function addManaToPoolForPlayer(
-  state: GameState,
-  playerId: PlayerID,
-  mana: string
-): { state: GameState; log: string[]; applied: boolean } {
-  const log: string[] = [];
-
-  const playerExists = state.players.some(p => p.id === playerId);
-  if (!playerExists) return { state, log: [`Player not found: ${playerId}`], applied: false };
-
-  const symbols = parseManaSymbols(mana);
-  if (symbols.length === 0) return { state, log: [`Skipped add mana (no symbols): ${mana}`], applied: false };
-
-  // Deterministic only: basic + numeric + {C}. Anything else implies choice/unknown.
-  for (const sym of symbols) {
-    const upper = String(sym).toUpperCase();
-    const isBasic = ['{W}', '{U}', '{B}', '{R}', '{G}', '{C}'].includes(upper);
-    const isNumeric = /^\{\d+\}$/.test(upper);
-    if (!isBasic && !isNumeric) {
-      return { state, log: [`Skipped add mana (unsupported symbol ${sym}): ${mana}`], applied: false };
-    }
-  }
-
-  const manaPoolRecord: Record<PlayerID, any> = { ...(((state as any).manaPool || {}) as any) };
-  let pool = manaPoolRecord[playerId] || createEmptyManaPool();
-
-  for (const sym of symbols) {
-    const upper = String(sym).toUpperCase();
-    switch (upper) {
-      case '{W}':
-        pool = addMana(pool, ManaType.WHITE, 1);
-        break;
-      case '{U}':
-        pool = addMana(pool, ManaType.BLUE, 1);
-        break;
-      case '{B}':
-        pool = addMana(pool, ManaType.BLACK, 1);
-        break;
-      case '{R}':
-        pool = addMana(pool, ManaType.RED, 1);
-        break;
-      case '{G}':
-        pool = addMana(pool, ManaType.GREEN, 1);
-        break;
-      case '{C}':
-        pool = addMana(pool, ManaType.COLORLESS, 1);
-        break;
-      default: {
-        // Treat numeric symbols like {2} as adding that much colorless mana.
-        const m = upper.match(/^\{(\d+)\}$/);
-        const n = m ? parseInt(m[1], 10) : 0;
-        if (n > 0) pool = addMana(pool, ManaType.COLORLESS, n);
-        break;
-      }
-    }
-  }
-
-  manaPoolRecord[playerId] = pool;
-  log.push(`${playerId} adds ${mana.replace(/\s+/g, '')} to their mana pool`);
-  return { state: { ...(state as any), manaPool: manaPoolRecord } as any, log, applied: true };
-}
-
-function parseSimpleBattlefieldSelector(
-  target: { readonly kind: string; readonly text?: string; readonly raw?: string }
-): SimpleBattlefieldSelector | null {
-  if (target.kind !== 'raw') return null;
-  const text = String((target as any).text || '').trim();
-  if (!text) return null;
-
-  const lower = text.replace(/\u2019/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
-
-  // Very conservative: support
-  // - "all/each <type(s)>" optionally followed by a controller filter
-  // - shorthand possessives like "your creatures" / "your opponents' creatures" / "opponent's planeswalkers"
-  const m = lower.match(/^(?:all|each)\s+(.+)$/i);
-
-  let remainder = '';
-  let controllerFilter: SimpleBattlefieldSelector['controllerFilter'] = 'any';
-
-  if (m) {
-    remainder = String(m[1] || '').trim();
-    if (!remainder) return null;
-
-    // Common Oracle phrasing: "each of your opponents' creatures", "each of the creatures you control".
-    remainder = remainder.replace(/^of\s+/i, '').replace(/^the\s+/i, '').trim();
-  } else {
-    // Shorthand forms (no each/all)
-    // - "your <types>"
-    // - "your opponents' <types>" / "your opponents's <types>"
-    // - "opponent's <types>"
-    const oppPlural = remainder || lower;
-    if (/^(?:your\s+)?opponents?'s\s+/i.test(oppPlural) || /^(?:your\s+)?opponents?'\s+/i.test(oppPlural)) {
-      controllerFilter = 'opponents';
-      remainder = oppPlural
-        .replace(/^(?:your\s+)?opponents?'s\s+/i, '')
-        .replace(/^(?:your\s+)?opponents?'\s+/i, '')
-        .trim();
-    } else if (/^opponent's\s+/i.test(oppPlural) || /^opponent'\s+/i.test(oppPlural)) {
-      controllerFilter = 'opponents';
-      remainder = oppPlural.replace(/^opponent's\s+/i, '').replace(/^opponent'\s+/i, '').trim();
-    } else if (/^your\s+/i.test(oppPlural)) {
-      controllerFilter = 'you';
-      remainder = oppPlural.replace(/^your\s+/i, '').trim();
-    } else {
-      // Also accept controller-suffix forms like:
-      // - "creatures you control"
-      // - "creatures your opponents control"
-      // - "creatures an opponent controls"
-      // - "creatures you don't control"
-      // Let the shared controller-filter stripping below handle these.
-      if (
-        /\byou control\b/i.test(oppPlural) ||
-        /\b(?:your opponents|opponents)\s+control\b/i.test(oppPlural) ||
-        /\b(?:each opponent|an opponent)\s+controls\b/i.test(oppPlural) ||
-        /\byou\s+(?:don'?t|do not)\s+control\b/i.test(oppPlural)
-      ) {
-        remainder = oppPlural.trim();
-      } else {
-        return null;
-      }
-    }
-
-    if (!remainder) return null;
-  }
-
-  // Possessive shorthand: "each opponent's creatures" / "each opponents' creatures" / "each opponents’s creatures"
-  // Treat as opponents control.
-  if (/^(?:your\s+)?opponents?'s\s+/i.test(remainder) || /^(?:your\s+)?opponents?'\s+/i.test(remainder)) {
-    controllerFilter = 'opponents';
-    remainder = remainder
-      .replace(/^(?:your\s+)?opponents?'s\s+/i, '')
-      .replace(/^(?:your\s+)?opponents?'\s+/i, '')
-      .trim();
-  }
-
-  if (/^opponent's\s+/i.test(remainder) || /^opponent'\s+/i.test(remainder)) {
-    controllerFilter = 'opponents';
-    remainder = remainder.replace(/^opponent's\s+/i, '').replace(/^opponent'\s+/i, '').trim();
-  }
-
-  if (/\byou control\b/i.test(remainder)) controllerFilter = 'you';
-  if (/\b(?:your opponents|opponents)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
-  if (/\b(?:each opponent|an opponent)\s+controls\b/i.test(remainder)) controllerFilter = 'opponents';
-  if (/\byou\s+(?:don'?t|do not)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
-
-  remainder = remainder
-    .replace(/\byou control\b/i, '')
-    .replace(/\b(?:your opponents|opponents)\s+control\b/i, '')
-    .replace(/\b(?:each opponent|an opponent)\s+controls\b/i, '')
-    .replace(/\byou\s+(?:don'?t|do not)\s+control\b/i, '')
-    .trim();
-
-  if (!remainder) return null;
-
-  if (/\bnonland\b/.test(remainder) && !/^nonland\s+permanents?\b/.test(remainder)) return null;
-
-  if (/^nonland\s+permanents?\b/.test(remainder)) {
-    return { kind: 'battlefield_selector', types: ['nonland_permanent'], controllerFilter };
-  }
-
-  if (/^permanents?\b/.test(remainder)) {
-    return { kind: 'battlefield_selector', types: ['permanent'], controllerFilter };
-  }
-
-  const cleaned = remainder.replace(/\bpermanents?\b/g, '').trim();
-  if (!cleaned) return null;
-
-  const parts = cleaned.split(/\s*(?:,|and\/or|and|or)\s*/i).filter(Boolean);
-  if (parts.length === 0) return null;
-
-  const allowed = new Set<SimplePermanentType>([
-    'creature',
-    'artifact',
-    'enchantment',
-    'land',
-    'planeswalker',
-    'battle',
-  ]);
-  const types: SimplePermanentType[] = [];
-  for (const part of parts) {
-    let t = part.trim().toLowerCase();
-    if (t.endsWith('s')) t = t.slice(0, -1);
-    if (!allowed.has(t as SimplePermanentType)) return null;
-    types.push(t as SimplePermanentType);
-  }
-
-  return { kind: 'battlefield_selector', types, controllerFilter };
 }
 
 function resolveTapOrUntapTargetIds(state: GameState, target: OracleObjectSelector | any, ctx: OracleIRExecutionContext): string[] {
@@ -5793,25 +4780,6 @@ function bounceMatchingBattlefieldPermanentsToOwnersHands(
 
   const log = [`returned ${removed.length} permanent(s) to owners' hands`];
   return { state: { ...state, battlefield: cleanedKept as any, players: players as any } as any, log };
-}
-
-function parseSimplePermanentTypeFromText(text: string): SimplePermanentType | null {
-  const lower = String(text || '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[.\s]+$/g, '')
-    .trim();
-
-  if (!lower) return null;
-
-  // Prefer specific -> generic.
-  if (/\bnonland\s+permanent(s)?\b/i.test(lower)) return 'nonland_permanent';
-  if (/\bcreature(s)?\b/i.test(lower)) return 'creature';
-  if (/\bartifact(s)?\b/i.test(lower)) return 'artifact';
-  if (/\benchantment(s)?\b/i.test(lower)) return 'enchantment';
-  if (/\bland(s)?\b/i.test(lower)) return 'land';
-  if (/\bpermanent(s)?\b/i.test(lower)) return 'permanent';
-  return null;
 }
 
 type SimpleCardType = 'any' | 'creature' | 'artifact' | 'enchantment' | 'land' | 'instant' | 'sorcery' | 'planeswalker';
@@ -6595,6 +5563,8 @@ export function applyOracleIRStepsToGameState(
   const log: string[] = [];
   const appliedSteps: OracleEffectStep[] = [];
   const skippedSteps: OracleEffectStep[] = [];
+  const localAutomationGaps: OracleAutomationGap[] = [];
+  const automationGaps: OracleAutomationGap[] = [];
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
   let lastRevealedCardCount = 0;
   let lastDiscardedCardCount = 0;
@@ -6607,13 +5577,55 @@ export function applyOracleIRStepsToGameState(
 
   let nextState = state;
   const pendingOptionalSteps: OracleEffectStep[] = [];
+  let automationGapSequence = 0;
+
+  const recordSkippedStep = (
+    step: OracleEffectStep,
+    message: string,
+    reasonCode: string,
+    options: {
+      readonly pending?: boolean;
+      readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
+      readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
+      readonly persist?: boolean;
+    } = {}
+  ): void => {
+    skippedSteps.push(step);
+    if (options.pending) {
+      pendingOptionalSteps.push(step);
+    }
+    log.push(message);
+
+    if (options.persist === false) {
+      return;
+    }
+
+    const gap = createOracleAutomationGapRecord({
+      state: nextState,
+      ctx,
+      step,
+      reasonCode,
+      message,
+      sequence: ++automationGapSequence,
+      classification: options.classification,
+      metadata: options.metadata,
+    });
+    localAutomationGaps.push(gap);
+    automationGaps.push(gap);
+  };
 
   for (const step of steps) {
     const isOptional = Boolean((step as any).optional);
     if (isOptional && !options.allowOptional) {
-      skippedSteps.push(step);
-      pendingOptionalSteps.push(step);
-      log.push(`Skipped optional step (needs player choice): ${(step as any).raw ?? step.kind}`);
+      recordSkippedStep(
+        step,
+        `Skipped optional step (needs player choice): ${(step as any).raw ?? step.kind}`,
+        'optional_step_requires_player_choice',
+        {
+          pending: true,
+          classification: 'player_choice',
+        }
+      );
       continue;
     }
 
@@ -6621,8 +5633,7 @@ export function applyOracleIRStepsToGameState(
       case 'exile_top': {
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped exile top (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped exile top (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -6632,8 +5643,9 @@ export function applyOracleIRStepsToGameState(
             quantityToNumber(step.amount) ??
             resolveUnknownExileUntilAmountForPlayer(nextState, playerId, step.amount, ctx);
           if (resolvedCount === null) {
-            skippedSteps.push(step);
-            log.push(`Skipped exile top (unknown amount): ${step.raw}`);
+            recordSkippedStep(step, `Skipped exile top (unknown amount): ${step.raw}`, 'unknown_amount', {
+              classification: 'ambiguous',
+            });
             exileCountByPlayer.clear();
             break;
           }
@@ -6665,8 +5677,7 @@ export function applyOracleIRStepsToGameState(
       case 'impulse_exile_top': {
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped impulse exile top (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped impulse exile top (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -6676,8 +5687,9 @@ export function applyOracleIRStepsToGameState(
             quantityToNumber(step.amount) ??
             resolveUnknownExileUntilAmountForPlayer(nextState, playerId, step.amount, ctx);
           if (resolvedCount === null) {
-            skippedSteps.push(step);
-            log.push(`Skipped impulse exile top (unknown amount): ${step.raw}`);
+            recordSkippedStep(step, `Skipped impulse exile top (unknown amount): ${step.raw}`, 'unknown_amount', {
+              classification: 'ambiguous',
+            });
             exileCountByPlayer.clear();
             break;
           }
@@ -6690,8 +5702,7 @@ export function applyOracleIRStepsToGameState(
 
         const permission = (step as any).permission as 'play' | 'cast' | undefined;
         if (!permission) {
-          skippedSteps.push(step);
-          log.push(`Skipped impulse exile top (missing permission): ${step.raw}`);
+          recordSkippedStep(step, `Skipped impulse exile top (missing permission): ${step.raw}`, 'missing_permission');
           break;
         }
 
@@ -6748,15 +5759,13 @@ export function applyOracleIRStepsToGameState(
       case 'goad': {
         const targetCreatureIds = resolveGoadTargetCreatureIds(nextState, step.target, ctx);
         if (targetCreatureIds.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped goad (no deterministic creature targets): ${step.raw}`);
+          recordSkippedStep(step, `Skipped goad (no deterministic creature targets): ${step.raw}`, 'no_deterministic_target');
           break;
         }
 
         const next = applyGoadToCreatures(nextState, targetCreatureIds, controllerId);
         if (!next) {
-          skippedSteps.push(step);
-          log.push(`Skipped goad (failed to apply): ${step.raw}`);
+          recordSkippedStep(step, `Skipped goad (failed to apply): ${step.raw}`, 'failed_to_apply');
           break;
         }
 
@@ -6772,15 +5781,15 @@ export function applyOracleIRStepsToGameState(
       case 'draw': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped draw (unknown amount): ${step.raw}`);
+          recordSkippedStep(step, `Skipped draw (unknown amount): ${step.raw}`, 'unknown_amount', {
+            classification: 'ambiguous',
+          });
           break;
         }
 
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped draw (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped draw (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -6797,8 +5806,7 @@ export function applyOracleIRStepsToGameState(
       case 'add_mana': {
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped add mana (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped add mana (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -6816,8 +5824,9 @@ export function applyOracleIRStepsToGameState(
           tempState = r.state;
         }
         if (failed) {
-          skippedSteps.push(step);
-          log.push(...tempLog);
+          recordSkippedStep(step, tempLog.join('\n') || `Skipped add mana (failed to apply): ${step.raw}`, 'failed_to_apply', {
+            metadata: tempLog.length > 0 ? { log: tempLog } : undefined,
+          });
           break;
         }
 
@@ -6832,15 +5841,15 @@ export function applyOracleIRStepsToGameState(
         lastScryLookedAtCount = 0;
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped scry (unknown amount): ${step.raw}`);
+          recordSkippedStep(step, `Skipped scry (unknown amount): ${step.raw}`, 'unknown_amount', {
+            classification: 'ambiguous',
+          });
           break;
         }
 
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped scry (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped scry (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -6859,8 +5868,9 @@ export function applyOracleIRStepsToGameState(
         });
 
         if (wouldNeedChoice) {
-          skippedSteps.push(step);
-          log.push(`Skipped scry (requires player choice): ${step.raw}`);
+          recordSkippedStep(step, `Skipped scry (requires player choice): ${step.raw}`, 'player_choice_required', {
+            classification: 'player_choice',
+          });
           break;
         }
 
@@ -6873,15 +5883,15 @@ export function applyOracleIRStepsToGameState(
       case 'surveil': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped surveil (unknown amount): ${step.raw}`);
+          recordSkippedStep(step, `Skipped surveil (unknown amount): ${step.raw}`, 'unknown_amount', {
+            classification: 'ambiguous',
+          });
           break;
         }
 
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped surveil (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped surveil (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -6899,8 +5909,9 @@ export function applyOracleIRStepsToGameState(
         });
 
         if (wouldNeedChoice) {
-          skippedSteps.push(step);
-          log.push(`Skipped surveil (requires player choice): ${step.raw}`);
+          recordSkippedStep(step, `Skipped surveil (requires player choice): ${step.raw}`, 'player_choice_required', {
+            classification: 'player_choice',
+          });
           break;
         }
 
@@ -6912,8 +5923,7 @@ export function applyOracleIRStepsToGameState(
       case 'mill': {
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped mill (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped mill (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -6923,8 +5933,9 @@ export function applyOracleIRStepsToGameState(
             quantityToNumber(step.amount) ??
             resolveUnknownMillUntilAmountForPlayer(nextState, playerId, step.amount);
           if (resolvedCount === null) {
-            skippedSteps.push(step);
-            log.push(`Skipped mill (unknown amount): ${step.raw}`);
+            recordSkippedStep(step, `Skipped mill (unknown amount): ${step.raw}`, 'unknown_amount', {
+              classification: 'ambiguous',
+            });
             millCountByPlayer.clear();
             break;
           }
@@ -6955,8 +5966,7 @@ export function applyOracleIRStepsToGameState(
       case 'modify_pt': {
         const targetCreatureId = resolveSingleCreatureTargetId(nextState, step.target, ctx);
         if (!targetCreatureId) {
-          skippedSteps.push(step);
-          log.push(`Skipped P/T modifier (no deterministic creature target): ${step.raw}`);
+          recordSkippedStep(step, `Skipped P/T modifier (no deterministic creature target): ${step.raw}`, 'no_deterministic_target');
           break;
         }
 
@@ -6982,15 +5992,13 @@ export function applyOracleIRStepsToGameState(
               },
             );
             if (whereXValue === null) {
-              skippedSteps.push(step);
-              log.push(`Skipped P/T modifier (unsupported where-clause): ${step.raw}`);
+              recordSkippedStep(step, `Skipped P/T modifier (unsupported where-clause): ${step.raw}`, 'unsupported_where_clause');
               break;
             }
           } else {
             const cond = evaluateModifyPtCondition(nextState, controllerId, step.condition.raw);
             if (cond === null) {
-              skippedSteps.push(step);
-              log.push(`Skipped P/T modifier (unsupported condition clause): ${step.raw}`);
+              recordSkippedStep(step, `Skipped P/T modifier (unsupported condition clause): ${step.raw}`, 'unsupported_condition_clause');
               break;
             }
             if (!cond) {
@@ -7002,8 +6010,7 @@ export function applyOracleIRStepsToGameState(
         }
 
         if (step.scaler?.kind === 'unknown') {
-          skippedSteps.push(step);
-          log.push(`Skipped P/T modifier (unsupported scaler): ${step.raw}`);
+          recordSkippedStep(step, `Skipped P/T modifier (unsupported scaler): ${step.raw}`, 'unsupported_scaler');
           break;
         }
 
@@ -7012,8 +6019,7 @@ export function applyOracleIRStepsToGameState(
           : 1;
 
         if ((step.powerUsesX || step.toughnessUsesX) && whereXValue === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped P/T modifier (X used without supported where-clause): ${step.raw}`);
+          recordSkippedStep(step, `Skipped P/T modifier (X used without supported where-clause): ${step.raw}`, 'unsupported_where_clause');
           break;
         }
 
@@ -7031,8 +6037,7 @@ export function applyOracleIRStepsToGameState(
         );
 
         if (!next) {
-          skippedSteps.push(step);
-          log.push(`Skipped P/T modifier (target not on battlefield): ${step.raw}`);
+          recordSkippedStep(step, `Skipped P/T modifier (target not on battlefield): ${step.raw}`, 'target_not_on_battlefield');
           break;
         }
 
@@ -7045,8 +6050,7 @@ export function applyOracleIRStepsToGameState(
       case 'modify_pt_per_revealed': {
         const targetCreatureId = resolveTrepanationBoostTargetCreatureId(nextState, ctx);
         if (!targetCreatureId) {
-          skippedSteps.push(step);
-          log.push(`Skipped P/T modifier (no deterministic creature target): ${step.raw}`);
+          recordSkippedStep(step, `Skipped P/T modifier (no deterministic creature target): ${step.raw}`, 'no_deterministic_target');
           break;
         }
 
@@ -7063,8 +6067,7 @@ export function applyOracleIRStepsToGameState(
           true
         );
         if (!next) {
-          skippedSteps.push(step);
-          log.push(`Skipped P/T modifier (target not on battlefield): ${step.raw}`);
+          recordSkippedStep(step, `Skipped P/T modifier (target not on battlefield): ${step.raw}`, 'target_not_on_battlefield');
           break;
         }
 
@@ -7077,15 +6080,15 @@ export function applyOracleIRStepsToGameState(
       case 'discard': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped discard (unknown amount): ${step.raw}`);
+          recordSkippedStep(step, `Skipped discard (unknown amount): ${step.raw}`, 'unknown_amount', {
+            classification: 'ambiguous',
+          });
           break;
         }
 
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped discard (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped discard (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -7097,8 +6100,9 @@ export function applyOracleIRStepsToGameState(
         });
 
         if (wouldNeedChoice) {
-          skippedSteps.push(step);
-          log.push(`Skipped discard (requires player choice): ${step.raw}`);
+          recordSkippedStep(step, `Skipped discard (requires player choice): ${step.raw}`, 'player_choice_required', {
+            classification: 'player_choice',
+          });
           break;
         }
 
@@ -7119,15 +6123,15 @@ export function applyOracleIRStepsToGameState(
       case 'gain_life': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped life gain (unknown amount): ${step.raw}`);
+          recordSkippedStep(step, `Skipped life gain (unknown amount): ${step.raw}`, 'unknown_amount', {
+            classification: 'ambiguous',
+          });
           break;
         }
 
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped life gain (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped life gain (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -7144,15 +6148,15 @@ export function applyOracleIRStepsToGameState(
       case 'lose_life': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped life loss (unknown amount): ${step.raw}`);
+          recordSkippedStep(step, `Skipped life loss (unknown amount): ${step.raw}`, 'unknown_amount', {
+            classification: 'ambiguous',
+          });
           break;
         }
 
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped life loss (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped life loss (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -7169,8 +6173,9 @@ export function applyOracleIRStepsToGameState(
       case 'deal_damage': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped deal damage (unknown amount): ${step.raw}`);
+          recordSkippedStep(step, `Skipped deal damage (unknown amount): ${step.raw}`, 'unknown_amount', {
+            classification: 'ambiguous',
+          });
           break;
         }
 
@@ -7251,8 +6256,7 @@ export function applyOracleIRStepsToGameState(
               t => t === 'land' || t === 'artifact' || t === 'enchantment' || t === 'permanent' || t === 'nonland_permanent'
             );
             if (disallowed) {
-              skippedSteps.push(step);
-              log.push(`Skipped deal damage (unsupported permanent types): ${step.raw}`);
+              recordSkippedStep(step, `Skipped deal damage (unsupported permanent types): ${step.raw}`, 'unsupported_permanent_types');
               break;
             }
 
@@ -7273,16 +6277,14 @@ export function applyOracleIRStepsToGameState(
           }
         }
 
-        skippedSteps.push(step);
-        log.push(`Skipped deal damage (unsupported target): ${step.raw}`);
+        recordSkippedStep(step, `Skipped deal damage (unsupported target): ${step.raw}`, 'unsupported_target');
         break;
       }
 
       case 'tap_or_untap': {
         const targetIds = resolveTapOrUntapTargetIds(nextState, step.target as any, ctx);
         if (targetIds.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped tap/untap (no deterministic target): ${step.raw}`);
+          recordSkippedStep(step, `Skipped tap/untap (no deterministic target): ${step.raw}`, 'no_deterministic_target');
           break;
         }
 
@@ -7301,8 +6303,7 @@ export function applyOracleIRStepsToGameState(
       case 'move_zone': {
         // Deterministic only for moving "all ... cards" from a known zone (hand/graveyard) for the controller.
         if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'graveyard' && step.to !== 'battlefield') {
-          skippedSteps.push(step);
-          log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+          recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
           break;
         }
 
@@ -7343,15 +6344,13 @@ export function applyOracleIRStepsToGameState(
           !parsedEachOpponentsHand &&
           !parsedEachOpponentsExile
         ) {
-          skippedSteps.push(step);
-          log.push(`Skipped move zone (unsupported selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped move zone (unsupported selector): ${step.raw}`, 'unsupported_selector');
           break;
         }
 
         if (parsedEachOpponentsExile) {
           if (step.to !== 'hand' && step.to !== 'graveyard' && step.to !== 'battlefield') {
-            skippedSteps.push(step);
-            log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+            recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
             break;
           }
 
@@ -7360,8 +6359,11 @@ export function applyOracleIRStepsToGameState(
             (step as any).battlefieldController?.kind !== 'you' &&
             (step as any).battlefieldController?.kind !== 'owner_of_moved_cards'
           ) {
-            skippedSteps.push(step);
-            log.push(`Skipped move zone (battlefield requires explicit control override): ${step.raw}`);
+            recordSkippedStep(
+              step,
+              `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+              'battlefield_requires_explicit_control_override'
+            );
             break;
           }
 
@@ -7393,8 +6395,7 @@ export function applyOracleIRStepsToGameState(
 
         if (parsedEachOpponentsGy) {
           if (step.to !== 'exile' && step.to !== 'hand' && step.to !== 'battlefield') {
-            skippedSteps.push(step);
-            log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+            recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
             break;
           }
 
@@ -7403,8 +6404,11 @@ export function applyOracleIRStepsToGameState(
             (step as any).battlefieldController?.kind !== 'you' &&
             (step as any).battlefieldController?.kind !== 'owner_of_moved_cards'
           ) {
-            skippedSteps.push(step);
-            log.push(`Skipped move zone (battlefield requires explicit control override): ${step.raw}`);
+            recordSkippedStep(
+              step,
+              `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+              'battlefield_requires_explicit_control_override'
+            );
             break;
           }
 
@@ -7436,8 +6440,7 @@ export function applyOracleIRStepsToGameState(
 
         if (parsedEachOpponentsHand) {
           if (step.to !== 'exile' && step.to !== 'graveyard' && step.to !== 'battlefield') {
-            skippedSteps.push(step);
-            log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+            recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
             break;
           }
 
@@ -7446,8 +6449,11 @@ export function applyOracleIRStepsToGameState(
             (step as any).battlefieldController?.kind !== 'you' &&
             (step as any).battlefieldController?.kind !== 'owner_of_moved_cards'
           ) {
-            skippedSteps.push(step);
-            log.push(`Skipped move zone (battlefield requires explicit control override): ${step.raw}`);
+            recordSkippedStep(
+              step,
+              `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+              'battlefield_requires_explicit_control_override'
+            );
             break;
           }
 
@@ -7477,8 +6483,7 @@ export function applyOracleIRStepsToGameState(
 
         if (parsedEachPlayersGy) {
           if (step.to !== 'exile' && step.to !== 'hand' && step.to !== 'battlefield') {
-            skippedSteps.push(step);
-            log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+            recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
             break;
           }
 
@@ -7506,8 +6511,7 @@ export function applyOracleIRStepsToGameState(
 
         if (parsedEachPlayersExile) {
           if (step.to !== 'hand' && step.to !== 'graveyard' && step.to !== 'battlefield') {
-            skippedSteps.push(step);
-            log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+            recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
             break;
           }
 
@@ -7535,8 +6539,7 @@ export function applyOracleIRStepsToGameState(
 
         if (parsedEachPlayersHand) {
           if (step.to !== 'exile' && step.to !== 'graveyard' && step.to !== 'battlefield') {
-            skippedSteps.push(step);
-            log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+            recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
             break;
           }
 
@@ -7587,8 +6590,7 @@ export function applyOracleIRStepsToGameState(
             appliedSteps.push(step);
             break;
           }
-          skippedSteps.push(step);
-          log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+          recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
           break;
         }
 
@@ -7625,15 +6627,13 @@ export function applyOracleIRStepsToGameState(
             break;
           }
 
-          skippedSteps.push(step);
-          log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+          recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
           break;
         }
 
         // From hand
         if (step.to !== 'graveyard' && step.to !== 'exile' && step.to !== 'battlefield') {
-          skippedSteps.push(step);
-          log.push(`Skipped move zone (unsupported destination): ${step.raw}`);
+          recordSkippedStep(step, `Skipped move zone (unsupported destination): ${step.raw}`, 'unsupported_destination');
           break;
         }
 
@@ -7650,15 +6650,15 @@ export function applyOracleIRStepsToGameState(
       case 'create_token': {
         const amount = quantityToNumber(step.amount);
         if (amount === null) {
-          skippedSteps.push(step);
-          log.push(`Skipped token creation (unknown amount): ${step.raw}`);
+          recordSkippedStep(step, `Skipped token creation (unknown amount): ${step.raw}`, 'unknown_amount', {
+            classification: 'ambiguous',
+          });
           break;
         }
 
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped token creation (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped token creation (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
@@ -7683,8 +6683,7 @@ export function applyOracleIRStepsToGameState(
       case 'destroy': {
         const selector = parseSimpleBattlefieldSelector(step.target as any);
         if (!selector) {
-          skippedSteps.push(step);
-          log.push(`Skipped destroy (unsupported target): ${step.raw}`);
+          recordSkippedStep(step, `Skipped destroy (unsupported target): ${step.raw}`, 'unsupported_target');
           break;
         }
 
@@ -7698,8 +6697,7 @@ export function applyOracleIRStepsToGameState(
       case 'exile': {
         const selector = parseSimpleBattlefieldSelector(step.target as any);
         if (!selector) {
-          skippedSteps.push(step);
-          log.push(`Skipped exile (unsupported target): ${step.raw}`);
+          recordSkippedStep(step, `Skipped exile (unsupported target): ${step.raw}`, 'unsupported_target');
           break;
         }
 
@@ -7713,15 +6711,13 @@ export function applyOracleIRStepsToGameState(
       case 'sacrifice': {
         const players = resolvePlayers(nextState, step.who, ctx);
         if (players.length === 0) {
-          skippedSteps.push(step);
-          log.push(`Skipped sacrifice (unsupported player selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped sacrifice (unsupported player selector): ${step.raw}`, 'unsupported_player_selector');
           break;
         }
 
         const parsed = parseSacrificeWhat(step.what as any);
         if (!parsed) {
-          skippedSteps.push(step);
-          log.push(`Skipped sacrifice (unsupported object selector): ${step.raw}`);
+          recordSkippedStep(step, `Skipped sacrifice (unsupported object selector): ${step.raw}`, 'unsupported_object_selector');
           break;
         }
 
@@ -7747,8 +6743,9 @@ export function applyOracleIRStepsToGameState(
         }
 
         if (needsChoice) {
-          skippedSteps.push(step);
-          log.push(`Skipped sacrifice (requires player choice): ${step.raw}`);
+          recordSkippedStep(step, `Skipped sacrifice (requires player choice): ${step.raw}`, 'player_choice_required', {
+            classification: 'player_choice',
+          });
           break;
         }
 
@@ -7784,9 +6781,15 @@ export function applyOracleIRStepsToGameState(
             ? options.selectedModeIds
             : null;
           if (!rawSelectedModeIds) {
-            skippedSteps.push(step);
-            pendingOptionalSteps.push(step);
-            log.push(`Skipped choose_mode step (needs player selection): ${(step as any).raw ?? step.kind}`);
+            recordSkippedStep(
+              step,
+              `Skipped choose_mode step (needs player selection): ${(step as any).raw ?? step.kind}`,
+              'player_choice_required',
+              {
+                pending: true,
+                classification: 'player_choice',
+              }
+            );
             break;
           }
 
@@ -7808,9 +6811,15 @@ export function applyOracleIRStepsToGameState(
             selectedModes.length < minModes ||
             selectedModes.length > maxModes
           ) {
-            skippedSteps.push(step);
-            pendingOptionalSteps.push(step);
-            log.push(`Skipped choose_mode step (invalid mode selection): ${(step as any).raw ?? step.kind}`);
+            recordSkippedStep(
+              step,
+              `Skipped choose_mode step (invalid mode selection): ${(step as any).raw ?? step.kind}`,
+              'invalid_mode_selection',
+              {
+                pending: true,
+                classification: 'invalid_input',
+              }
+            );
             break;
           }
 
@@ -7831,17 +6840,21 @@ export function applyOracleIRStepsToGameState(
             log.push(...modeResult.log);
             appliedSteps.push(...modeResult.appliedSteps);
             skippedSteps.push(...modeResult.skippedSteps);
+            automationGaps.push(...modeResult.automationGaps);
             pendingOptionalSteps.push(...modeResult.pendingOptionalSteps);
           }
         }
         break;
 
       default:
-        skippedSteps.push(step);
-        log.push(`Skipped unsupported step: ${step.raw}`);
+        recordSkippedStep(step, `Skipped unsupported step: ${step.raw}`, 'unsupported_step');
         break;
     }
   }
 
-  return { state: nextState, log, appliedSteps, skippedSteps, pendingOptionalSteps };
+  nextState = appendOracleAutomationGapRecords(nextState, localAutomationGaps);
+
+  return { state: nextState, log, appliedSteps, skippedSteps, automationGaps, pendingOptionalSteps };
 }
+
+

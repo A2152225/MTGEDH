@@ -31,6 +31,7 @@ export interface TriggerResult {
   oracleStepsApplied?: number;
   oracleStepsSkipped?: number;
   oracleExecutions?: number;
+  oracleAutomationGaps?: number;
   logs: string[];
 }
 
@@ -75,6 +76,7 @@ export function processTriggers(
   let oracleStepsApplied = 0;
   let oracleStepsSkipped = 0;
   let oracleExecutions = 0;
+  let oracleAutomationGaps = 0;
 
   if (autoExecuteOracle) {
     const execution = processEventAndExecuteTriggeredOracle(
@@ -91,15 +93,16 @@ export function processTriggers(
     triggerInstances = [...execution.triggers];
     oracleStepsApplied = execution.executions.reduce((sum, r) => sum + (r.appliedSteps?.length || 0), 0);
     oracleStepsSkipped = execution.executions.reduce((sum, r) => sum + (r.skippedSteps?.length || 0), 0);
+    oracleAutomationGaps = execution.executions.reduce((sum, r) => sum + (r.automationGaps?.length || 0), 0);
     oracleExecutions = execution.executions.length;
     logs.push(
-      `[triggers] Oracle auto-execution: executions=${oracleExecutions}, applied=${oracleStepsApplied}, skipped=${oracleStepsSkipped}`
+      `[triggers] Oracle auto-execution: executions=${oracleExecutions}, applied=${oracleStepsApplied}, skipped=${oracleStepsSkipped}, gaps=${oracleAutomationGaps}`
     );
     logs.push(...execution.log);
   }
   
   if (triggerInstances.length === 0) {
-    return { state: nextState, triggersAdded: 0, oracleStepsApplied, oracleStepsSkipped, oracleExecutions, logs };
+    return { state: nextState, triggersAdded: 0, oracleStepsApplied, oracleStepsSkipped, oracleExecutions, oracleAutomationGaps, logs };
   }
   
   // Queue triggers
@@ -130,6 +133,7 @@ export function processTriggers(
     oracleStepsApplied,
     oracleStepsSkipped,
     oracleExecutions,
+    oracleAutomationGaps,
     logs,
   };
 }

@@ -1582,6 +1582,7 @@ export class RulesEngineAdapter {
               log: knownTriggerResult.log,
               appliedSteps: [],
               skippedSteps: [],
+              automationGaps: [],
               pendingOptionalSteps: [],
             }
           : executeTriggeredAbilityEffectWithOracleIR(
@@ -1614,6 +1615,22 @@ export class RulesEngineAdapter {
 
         nextState = executeResult.state;
         oracleLogs.push(...(executeResult.log || []));
+
+        if ((executeResult.automationGaps || []).length > 0) {
+          this.emit({
+            type: RulesEngineEvent.ORACLE_AUTOMATION_GAP_RECORDED,
+            timestamp: Date.now(),
+            gameId,
+            data: {
+              stackObjectId: popResult.object.id,
+              sourceId: popResult.object.spellId,
+              sourceName: triggerMeta?.sourceName || popResult.object.cardName,
+              controllerId: popResult.object.controllerId,
+              count: executeResult.automationGaps.length,
+              records: executeResult.automationGaps,
+            },
+          });
+        }
 
         if (needsChoicePrompt) {
           this.emit({

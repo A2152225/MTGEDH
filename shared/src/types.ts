@@ -424,6 +424,31 @@ export interface HouseRules {
   customRuleSuggestions?: string[];
 }
 
+export type OracleAutomationGapClassification =
+  | 'unsupported'
+  | 'ambiguous'
+  | 'player_choice'
+  | 'invalid_input';
+
+export interface OracleAutomationGap {
+  id: string;
+  timestamp: number;
+  gameId: GameID;
+  source: 'oracle_ir';
+  classification: OracleAutomationGapClassification;
+  reasonCode: string;
+  message: string;
+  stepKind: string;
+  raw: string;
+  controllerId?: PlayerID;
+  sourceId?: string;
+  sourceName?: string;
+  turnNumber?: number;
+  phase?: string;
+  step?: string;
+  metadata?: Record<string, string | number | boolean | null | readonly string[]>;
+}
+
 /* Game state authoritative snapshot */
 export interface GameState {
   id: GameID;
@@ -579,6 +604,12 @@ export interface GameState {
    * number>0 → countdown: auto-execute that many more times, then delete
    */
   mayAutoPreferences?: Record<PlayerID, Record<string, 'yes' | 'no' | number>>;
+  /**
+   * Recent structured Oracle automation gaps saved for debugging and follow-up
+   * parser/executor improvements. This is capped by the rules engine to avoid
+   * unbounded growth in long-running games.
+   */
+  oracleAutomationGaps?: readonly OracleAutomationGap[];
 }
 
 /* Player protection state for effects like Teferi's Protection */

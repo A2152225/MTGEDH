@@ -215,6 +215,22 @@ export class RulesBridge {
       });
     });
 
+    rulesEngine.on(RulesEngineEvent.ORACLE_AUTOMATION_GAP_RECORDED, (event) => {
+      if (event.gameId !== this.gameId) {
+        return;
+      }
+
+      this.io.to(this.gameId).emit('oracleAutomationGapRecorded', {
+        gameId: this.gameId,
+        sourceId: event.data?.sourceId,
+        sourceName: event.data?.sourceName,
+        controllerId: event.data?.controllerId,
+        count: event.data?.count || 0,
+        records: event.data?.records || [],
+        timestamp: event.timestamp,
+      });
+    });
+
     rulesEngine.on(RulesEngineEvent.CARD_DRAWN, (event) => {
       this.io.to(this.gameId).emit('cardDrawn', {
         gameId: this.gameId,

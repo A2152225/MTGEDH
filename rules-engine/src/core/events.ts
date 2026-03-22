@@ -30,6 +30,7 @@ export enum RulesEngineEvent {
   ABILITY_RESOLVED = 'abilityResolved',
   TRIGGERED_ABILITY = 'triggeredAbility',
   CHOICE_REQUIRED = 'choiceRequired',
+  ORACLE_AUTOMATION_GAP_RECORDED = 'oracleAutomationGapRecorded',
   
   // Mana
   MANA_ABILITY_ACTIVATED = 'manaAbilityActivated',

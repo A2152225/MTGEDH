@@ -147,9 +147,11 @@ describe('triggersHandler Oracle automation', () => {
     expect(result.oracleExecutions).toBe(1);
     expect(result.oracleStepsApplied).toBe(0);
     expect((result.oracleStepsSkipped || 0) > 0).toBe(true);
+    expect((result.oracleAutomationGaps || 0) > 0).toBe(true);
     expect(p1.life).toBe(40);
     expect(p2.life).toBe(40);
     expect(p3.life).toBe(40);
+    expect(((result.state as any).oracleAutomationGaps || []).length > 0).toBe(true);
     expect(result.logs.some(x => x.includes('[triggers] Oracle auto-execution: executions=1'))).toBe(true);
   });
 

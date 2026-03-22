@@ -33,6 +33,29 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
 }
 
 describe('Oracle IR Executor', () => {
+  it('records structured automation gaps for unsupported executor skips and saves them on state', () => {
+    const start = makeState();
+    const steps = [
+      {
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'unknown', raw: 'that many' },
+        raw: 'Draw that many cards.',
+      } as any,
+    ];
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceName: 'Gap Source' });
+    const savedGaps = (result.state as any).oracleAutomationGaps || [];
+
+    expect(result.skippedSteps).toHaveLength(1);
+    expect(result.automationGaps).toHaveLength(1);
+    expect(result.automationGaps[0]?.reasonCode).toBe('unknown_amount');
+    expect(result.automationGaps[0]?.stepKind).toBe('draw');
+    expect(result.automationGaps[0]?.sourceName).toBe('Gap Source');
+    expect(savedGaps).toHaveLength(1);
+    expect(savedGaps[0]?.raw).toBe('Draw that many cards.');
+  });
+
   it('applies draw steps for "you"', () => {
     const ir = parseOracleTextToIR('Draw two cards.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -28181,4 +28204,3 @@ describe('Oracle IR Executor', () => {
   });
 
 });
-
