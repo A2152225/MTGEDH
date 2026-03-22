@@ -283,6 +283,13 @@ export function parseTapUntapAbilityText(text: string): {
   controller?: 'you' | 'opponent' | 'any';
 } | null {
   const lowerText = text.toLowerCase();
+
+  const hasTapUntapTargetPattern =
+    /(?:tap or untap|untap or tap)\b[^.:]*\btarget\b/i.test(lowerText) ||
+    /\b(?:tap|untap)\b[^.:]*\btarget\b/i.test(lowerText);
+  if (!hasTapUntapTargetPattern) {
+    return null;
+  }
   
   // Check for tap/untap action
   let action: 'tap' | 'untap' | 'both' = 'untap';
@@ -376,6 +383,54 @@ function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
   
   return { requiresTap, manaCost };
 }
+
+  function getActivatedAbilityScopeText(oracleText: string, abilityId: string): {
+    abilityText: string;
+    fullAbilityText: string;
+  } {
+    let abilityIndex = 0;
+    const abilityMatch = abilityId.match(/-(\d+)$/);
+    if (abilityMatch) {
+      abilityIndex = parseInt(abilityMatch[1], 10);
+      if (isNaN(abilityIndex)) abilityIndex = 0;
+    }
+
+    const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
+    const abilities: Array<{ cost: string; effect: string }> = [];
+    let match;
+    while ((match = abilityPattern.exec(oracleText)) !== null) {
+      const cost = match[1].trim();
+      const effect = match[2].trim();
+      const costLower = cost.toLowerCase();
+      if (
+        cost.includes('{') ||
+        costLower.includes('tap') ||
+        costLower.includes('sacrifice') ||
+        costLower.includes('discard') ||
+        (costLower.includes('remove') && costLower.includes('counter')) ||
+        (costLower.includes('pay') && costLower.includes('life')) ||
+        costLower.includes('exile') ||
+        costLower.includes('return')
+      ) {
+        abilities.push({ cost, effect });
+      }
+    }
+
+    const selectedAbility = abilities[abilityIndex] || (abilities.length === 1 ? abilities[0] : null);
+    if (!selectedAbility) {
+      return { abilityText: '', fullAbilityText: '' };
+    }
+
+    const escapedCost = selectedAbility.cost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const fullAbilityRegex = new RegExp(`${escapedCost}[^\\n]+`, 'i');
+    const fullAbilityMatch = oracleText.match(fullAbilityRegex);
+    const fullAbilityText = (fullAbilityMatch ? fullAbilityMatch[0] : `${selectedAbility.cost}: ${selectedAbility.effect}`).trim();
+
+    return {
+      abilityText: selectedAbility.effect,
+      fullAbilityText,
+    };
+  }
 
 // ============================================================================
 // Pre-compiled RegExp patterns for creature type matching
@@ -3382,17 +3437,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    const scopedActivatedAbility = getActivatedAbilityScopeText(oracleText, abilityId);
+    const scopedAbilityText = String(scopedActivatedAbility.abilityText || '').trim();
+    const scopedAbilityFullText = String(scopedActivatedAbility.fullAbilityText || scopedAbilityText || oracleText || '').trim();
+
     // Handle sacrifice-to-draw abilities (Sunbaked Canyon, Horizon Canopy, etc.)
     // Pattern: "{cost}, {T}, Sacrifice ~: Draw a card"
     // Examples: "{1}, {T}, Sacrifice ~" (Sunbaked Canyon), "{G}{W}, {T}, Sacrifice ~" (Horizon Canopy)
     // The client generates abilityId like "{cardId}-ability-{index}" for general activated abilities
     // Only process if oracle text actually has the sacrifice-to-draw pattern
-    const hasSacrificeDrawPattern = oracleText.includes("sacrifice") && oracleText.includes("draw a card");
+    const hasSacrificeDrawPattern = scopedAbilityFullText.includes("sacrifice") && scopedAbilityFullText.includes("draw a card");
     const isSacrificeDrawAbility = (abilityId.includes("sacrifice-draw") || abilityId.includes("-ability-")) && hasSacrificeDrawPattern;
     if (isSacrificeDrawAbility) {
       // Parse the mana cost from oracle text
       // Pattern: "{cost}, {T}, Sacrifice: Draw a card" (case-insensitive for {T})
-      const sacrificeCostMatch = oracleText.match(/(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*\{T\}\s*,\s*sacrifice[^:]*:\s*draw a card/i);
+      const sacrificeCostMatch = scopedAbilityFullText.match(/(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*\{T\}\s*,\s*sacrifice[^:]*:\s*draw a card/i);
       
       if (sacrificeCostMatch) {
         const manaCostStr = sacrificeCostMatch[1];
@@ -3556,10 +3615,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
 
+      const activatedAbilityText = `Equip ${equipCost}`;
+
       // Unified Resolution Queue prompt
       const existing = ResolutionQueueManager
         .getStepsForPlayer(gameId, pid as any)
-        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.equipAbility === true && String((s as any)?.equipmentId || s?.sourceId) === String(permanentId));
+        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityType || (s as any)?.abilityId || '') === 'equip' && String((s as any)?.equipmentId || (s as any)?.permanentId || s?.sourceId) === String(permanentId));
 
       if (!existing) {
         ResolutionQueueManager.addStep(gameId, {
@@ -3576,15 +3637,19 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             description: c.card?.type_line || 'Creature',
             imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
           })),
-          targetTypes: ['equip_target'],
+          targetTypes: ['creature'],
           minTargets: 1,
           maxTargets: 1,
           targetDescription: equipType ? `${equipType} creature you control` : 'creature you control',
-
-          // Custom payload consumed by socket/resolution.ts
-          equipAbility: true,
+          battlefieldAbilityTargetSelection: true,
           equipmentId: permanentId,
+          permanentId,
           equipmentName: cardName,
+          cardName,
+          abilityId: 'equip',
+          abilityText: activatedAbilityText,
+          activatedAbilityText,
+          abilityType: 'equip',
           equipCost,
           equipType,
           targetsOpponentCreatures: false,
@@ -3740,7 +3805,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         (permanent as any).tapped = true;
       }
 
-      // Prompt via Resolution Queue (single unified UI).
+      // Route through the shared battlefield target-selection continuation so the
+      // activation becomes a real stack item and copied abilities can retarget honestly.
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: pid as any,
@@ -3754,12 +3820,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         minTargets: 1,
         maxTargets: 1,
         targetDescription: 'card in a graveyard',
-
-        // Custom payload consumed by socket/resolution.ts
-        graveyardExileAbility: true,
+        battlefieldAbilityTargetSelection: true,
         permanentId,
+        abilityId,
         cardName,
-        cost,
+        abilityText: 'Exile target card from a graveyard.',
+        activatedAbilityText: `${cost}: Exile target card from a graveyard.`,
+        tappedPermanentsForCost: (oracleText.match(/\{[^}]*\bT\b[^}]*\}:/) ? [String(permanentId)] : []),
       } as any);
 
       if (typeof game.bumpSeq === 'function') {
@@ -3857,16 +3924,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       broadcastGame(io, game, gameId);
       return;
     }
-    
+
     // Handle Fight abilities (Brash Taunter, etc.)
     // Pattern: "{Cost}: This creature fights target creature you don't control"
     // Pattern: "{Cost}: This creature fights another target creature" (can target any creature)
-    const hasFightAbility = oracleText.includes("fights") || oracleText.includes("fight");
-    const isFightAbility = hasFightAbility && (abilityId.includes("fight") || oracleText.match(/\{[^}]+\}[^:]*:\s*[^.]*fights?/i));
+    const hasFightAbility = scopedAbilityFullText.includes("fights") || scopedAbilityFullText.includes("fight");
+    const isFightAbility = hasFightAbility && (abilityId.includes("fight") || scopedAbilityFullText.match(/\{[^}]+\}[^:]*:\s*[^.]*fights?/i));
     
     if (isFightAbility) {
       // Parse the cost
-      const { requiresTap, manaCost } = parseActivationCost(oracleText, /fights?/i);
+      const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /fights?/i);
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -3901,11 +3968,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // "target creature you don't control" = opponent's creatures only
       // "target creature" = typically opponent's creatures unless specified otherwise
       let fightController: 'opponent' | 'any' | 'you' = 'any';
-      if (oracleText.includes("you don't control") || oracleText.includes("you do not control")) {
+      if (scopedAbilityFullText.includes("you don't control") || scopedAbilityFullText.includes("you do not control")) {
         fightController = 'opponent';
-      } else if (oracleText.includes("another target creature") || oracleText.includes("fights another target")) {
+      } else if (scopedAbilityFullText.includes("another target creature") || scopedAbilityFullText.includes("fights another target")) {
         fightController = 'any'; // Can fight any creature including your own
-      } else if (oracleText.includes("target creature you control")) {
+      } else if (scopedAbilityFullText.includes("target creature you control")) {
         fightController = 'you';
       }
       
@@ -3916,7 +3983,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         sourceId: permanentId,
         sourceName: cardName,
         sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-        description: oracleText,
+        description: scopedAbilityFullText,
         mandatory: true,
         targetFilter: {
           types: ['creature'],
@@ -3940,7 +4007,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // - Ozolith, the Shattered Spire: "{1}, {T}: Put a +1/+1 counter on target creature you control. Activate only as a sorcery."
     // - Immaculate Magistrate: "{T}: Put a +1/+1 counter on target creature for each Elf you control."
     // Works on: creatures, permanents, lands, artifacts, enchantments, planeswalkers, etc.
-    const counterMatch = oracleText.match(/put (?:a|an|one|two|three) ([^\s]+) counters? on target ([^.]+?)(?:\s+you\s+(don't\s+control|control|don't own|own))?(?:\s+for each ([^.]+?))?(?:\.|,|$)/i);
+    const counterMatch = scopedAbilityFullText.match(/put (?:a|an|one|two|three) ([^\s]+) counters? on target ([^.]+?)(?:\s+you\s+(don't\s+control|control|don't own|own))?(?:\s+for each ([^.]+?))?(?:\.|,|$)/i);
     const isCounterAbility = counterMatch && (abilityId.includes("counter") || abilityId.includes("ability"));
     
     if (isCounterAbility && counterMatch) {
@@ -3950,7 +4017,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const scalingText = counterMatch[4] ? counterMatch[4].trim() : null; // e.g., "Elf you control"
       
       // Parse the cost
-      const { requiresTap, manaCost } = parseActivationCost(oracleText, /put (?:a|an|one) [^\s]+ counter/i);
+      const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /put (?:a|an|one) [^\s]+ counter/i);
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -4020,11 +4087,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         sourceId: permanentId,
         sourceName: cardName,
         sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-        description: oracleText,
+        description: scopedAbilityFullText,
         mandatory: true,
         counterType,
         targetController,
-        oracleText,
+        oracleText: scopedAbilityFullText,
         scalingText,
         validTargets,
         targetTypes: wantsCreature ? ['creature'] : ['permanent'],
@@ -4042,12 +4109,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Handle Counter-moving abilities (Nesting Grounds, Resourceful Defense, etc.)
     // Pattern: "{Cost}: Move a counter from target permanent you control onto a second target permanent"
     // Example: Nesting Grounds: "{1}, {T}: Move a counter from target permanent you control onto a second target permanent. Activate only as a sorcery."
-    const moveCounterMatch = oracleText.match(/move (?:a|one) counter from target permanent(?:\s+you\s+control)?/i);
+    const moveCounterMatch = scopedAbilityFullText.match(/move (?:a|one) counter from target permanent(?:\s+you\s+control)?/i);
     const isMoveCounterAbility = moveCounterMatch && (abilityId.includes("move") || abilityId.includes("counter") || abilityId.includes("ability"));
     
     if (isMoveCounterAbility) {
       // Parse the cost
-      const { requiresTap, manaCost } = parseActivationCost(oracleText, /move (?:a|one) counter/i);
+      const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /move (?:a|one) counter/i);
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -4084,7 +4151,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         sourceId: permanentId,
         sourceName: cardName,
         sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-        description: oracleText,
+        description: scopedAbilityFullText,
         mandatory: true,
         sourceFilter: {
           controller: 'you',
@@ -4104,7 +4171,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Handle Tap/Untap abilities (Saryth, Merrow Reejerey, Argothian Elder, etc.)
     // Parse ability text to detect tap/untap abilities
-    const tapUntapParams = parseTapUntapAbilityText(oracleText);
+    const tapUntapParams = parseTapUntapAbilityText(scopedAbilityFullText);
     const isTapUntapAbility = tapUntapParams && (
       abilityId.includes("tap") || 
       abilityId.includes("untap") || 
@@ -4113,7 +4180,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     if (isTapUntapAbility && tapUntapParams) {
       // Parse the cost
-      const { requiresTap, manaCost } = parseActivationCost(oracleText, /(?:tap|untap)/i);
+      const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /(?:tap|untap)/i);
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -4150,7 +4217,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         sourceId: permanentId,
         sourceName: cardName,
         sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-        description: oracleText,
+        description: scopedAbilityFullText,
         mandatory: true,
         action: tapUntapParams.action,
         targetFilter: {
@@ -4241,72 +4308,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
 
       debug(2, `[activateBattlefieldAbility] Crew ability on ${cardName}: queued TARGET_SELECTION (need power ${crewPower})`);
-      broadcastGame(io, game, gameId);
-      return;
-    }
-    
-    // Handle Counter Movement abilities (Nesting Grounds, etc.)
-    // Pattern: "Move a counter from target permanent you control onto another target permanent"
-    const hasCounterMovementAbility = oracleText.includes("move a counter") || 
-      oracleText.includes("move") && oracleText.includes("counter");
-    const isCounterMovementAbility = hasCounterMovementAbility && (
-      abilityId.includes("counter-move") || 
-      abilityId.includes("move-counter") ||
-      cardName.toLowerCase().includes("nesting grounds")
-    );
-    
-    if (isCounterMovementAbility) {
-      // Parse the cost
-      const { requiresTap, manaCost } = parseActivationCost(oracleText, /move (?:a|one) counter/i);
-      
-      if (requiresTap && (permanent as any).tapped) {
-        socket.emit("error", {
-          code: "ALREADY_TAPPED",
-          message: `${cardName} is already tapped`,
-        });
-        return;
-      }
-      
-      if (manaCost) {
-        // Validate and consume mana
-        const parsedCost = parseManaCost(manaCost);
-        const pool = getOrInitManaPool(game.state, pid);
-        const totalAvailable = calculateTotalAvailableMana(pool, []);
-        
-        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-        if (validationError) {
-          socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
-          return;
-        }
-        
-        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:counter-move]');
-      }
-      
-      // Tap the permanent if required
-      if (requiresTap) {
-        (permanent as any).tapped = true;
-      }
-
-      // Queue counter movement selection via Resolution Queue
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.COUNTER_MOVEMENT,
-        playerId: pid as PlayerID,
-        sourceId: permanentId,
-        sourceName: cardName,
-        sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-        description: oracleText,
-        mandatory: true,
-        sourceFilter: {
-          controller: 'you', // Nesting Grounds: "...permanent you control"
-        },
-        targetFilter: {
-          controller: 'any',
-          excludeSource: true, // "...onto another target permanent"
-        },
-        title: cardName,
-      });
-
-      debug(2, `[activateBattlefieldAbility] Counter movement ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}queued counter movement step`);
       broadcastGame(io, game, gameId);
       return;
     }
@@ -5331,6 +5332,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
+      try {
+        triggerAbilityActivatedTriggers(game as any, {
+          activatedBy: pid as any,
+          sourcePermanentId: permanentId as any,
+          isManaAbility: false,
+          abilityText: ability.text,
+          stackItemId: stackItem.id,
+        });
+      } catch {}
       
       // Emit stack update
       io.to(gameId).emit("stackUpdate", {
@@ -5533,61 +5543,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (abilityHasCondition || (utilityLandAbility?.activationCondition === 'attacked_with_two_or_more')) {
       const creaturesAttacked = (game.state as any).creaturesAttackedThisTurn?.[pid] || 0;
       debug(2, `[activateBattlefieldAbility] ${cardName} activation condition met: attacked with ${creaturesAttacked} creatures this turn`);
-    }
-
-    // ========================================================================
-    // Catapult Master
-    // "Tap five untapped Soldiers you control: Exile target creature."
-    // Implemented as: TAP_UNTAP_TARGET (tap 5 Soldiers) -> TARGET_SELECTION (choose creature to exile)
-    // ========================================================================
-    {
-      const abilityLower = String(abilityConditionText || abilityText || '').toLowerCase();
-      if (
-        String(cardName || '').toLowerCase().includes('catapult master') &&
-        /tap\s+five\s+untapped\s+soldiers?\s+you\s+control\s*:/i.test(abilityLower) &&
-        /exile\s+target\s+creature/i.test(abilityLower)
-      ) {
-        const availableSoldiers = (game.state.battlefield || []).filter((p: any) => {
-          if (!p || String(p.controller) !== String(pid)) return false;
-          if ((p as any).tapped) return false;
-          const tl = String(p.card?.type_line || '').toLowerCase();
-          return tl.includes('creature') && tl.includes('soldier');
-        });
-
-        if (availableSoldiers.length < 5) {
-          socket.emit('error', {
-            code: 'INSUFFICIENT_CREATURES',
-            message: `Need 5 untapped Soldiers, but you only have ${availableSoldiers.length}.`,
-          });
-          return;
-        }
-
-        ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.TAP_UNTAP_TARGET,
-          playerId: pid as PlayerID,
-          sourceId: permanentId,
-          sourceName: cardName,
-          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-          description: `Tap five untapped Soldiers you control to activate ${cardName}.`,
-          mandatory: true,
-          action: 'tap',
-          targetFilter: {
-            controller: 'you',
-            tapStatus: 'untapped',
-            types: ['soldier', 'creature'],
-          },
-          targetCount: 5,
-
-          // Custom payload consumed by socket/resolution.ts
-          catapultMasterTapCost: true,
-          permanentId,
-          abilityId,
-          cardName,
-        } as any);
-
-        broadcastGame(io, game, gameId);
-        return;
-      }
     }
 
     // ========================================================================

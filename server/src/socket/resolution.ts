@@ -6913,41 +6913,6 @@ async function handleStepResponse(
         break;
       }
 
-      // Catapult Master: after tapping 5 Soldiers, prompt to choose the exile target creature.
-      if ((stepData as any)?.catapultMasterTapCost === true) {
-        const sourcePermanentId = String((stepData as any)?.permanentId || step.sourceId || '').trim();
-        const sourceName = String((stepData as any)?.cardName || step.sourceName || 'Catapult Master');
-        const battlefieldNow = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-        const creatureTargets = battlefieldNow
-          .filter((p: any) => p && String(p.card?.type_line || '').toLowerCase().includes('creature'))
-          .map((p: any) => ({
-            id: String(p.id),
-            label: String(p.card?.name || 'Creature'),
-            description: String(p.card?.type_line || 'Creature'),
-            imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-            controller: p.controller,
-          }));
-
-        ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.TARGET_SELECTION,
-          playerId: pid as PlayerID,
-          sourceId: sourcePermanentId,
-          sourceName,
-          description: `${sourceName}: Choose target creature to exile.`,
-          mandatory: true,
-          validTargets: creatureTargets,
-          targetTypes: ['creature'],
-          minTargets: 1,
-          maxTargets: 1,
-          targetDescription: 'target creature',
-
-          // Custom payload consumed by the handler above
-          catapultMasterExileTarget: true,
-          permanentId: sourcePermanentId,
-          cardName: sourceName,
-        } as any);
-      }
-
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
@@ -7916,6 +7881,7 @@ async function handleStepResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
+        fireBattlefieldAbilityActivatedTriggers(game, pid, permanentId, abilityText, stackItem.id);
 
         io.to(gameId).emit('stackUpdate', {
           gameId,
@@ -10098,6 +10064,7 @@ async function handleDiscardResponse(
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
+      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
 
       io.to(gameId).emit('stackUpdate', {
         gameId,
@@ -10237,6 +10204,7 @@ async function handleDiscardResponse(
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
+      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
 
       io.to(gameId).emit('stackUpdate', {
         gameId,
@@ -11786,6 +11754,18 @@ async function handleTargetSelectionResponse(
       copyRetargetTargetDescription: String(targetStepData.targetDescription || 'target'),
     } as any;
 
+    if (String(stepAny?.abilityType || abilityId || '') === 'equip') {
+      const targetCreatureId = String(selectedTargetIds[0] || '');
+      const targetCreature = battlefield.find((perm: any) => perm && String(perm.id) === targetCreatureId);
+      stackItem.abilityType = 'equip';
+      stackItem.equipParams = {
+        equipmentId: permanentId,
+        targetCreatureId,
+        equipmentName: cardName,
+        targetCreatureName: String(targetCreature?.card?.name || 'Creature'),
+      };
+    }
+
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
     fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
@@ -11826,6 +11806,8 @@ async function handleTargetSelectionResponse(
         copyRetargetMinTargets: minTargets,
         copyRetargetMaxTargets: maxTargets,
         copyRetargetTargetDescription: String(targetStepData.targetDescription || 'target'),
+        abilityType: stackItem.abilityType || undefined,
+        equipParams: stackItem.equipParams || undefined,
         tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
       });
     } catch {
@@ -11908,80 +11890,6 @@ async function handleTargetSelectionResponse(
     }
 
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
-    broadcastGame(io, game, gameId);
-    return;
-  }
-
-  // ========================================================================
-  // GRAVEYARD EXILE ABILITY ("Exile target card from a graveyard")
-  // Activated on a battlefield permanent (e.g., Keen-Eyed Curator style).
-  // Costs are already paid at activation time; this step selects the target card.
-  // ========================================================================
-  if (stepAny?.graveyardExileAbility === true) {
-    const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
-    const sourceName = String(stepAny?.cardName || step.sourceName || 'Ability');
-    const targetCardId = String(selections[0] || '').trim();
-
-    if (!targetCardId) {
-      debugWarn(1, `[Resolution] graveyardExileAbility missing selected card id`);
-      return;
-    }
-
-    const zonesAll = (game.state as any)?.zones || {};
-    let targetPlayerId: string | null = null;
-    let removedCard: any = null;
-
-    for (const [pId, z] of Object.entries(zonesAll)) {
-      const zones = z as any;
-      const graveyard = zones && Array.isArray(zones.graveyard) ? (zones.graveyard as any[]) : [];
-      const idx = graveyard.findIndex((c: any) => c && String(c.id) === targetCardId);
-      if (idx !== -1) {
-        removedCard = graveyard[idx];
-        graveyard.splice(idx, 1);
-        zones.graveyardCount = graveyard.length;
-        targetPlayerId = String(pId);
-        break;
-      }
-    }
-
-    if (!removedCard || !targetPlayerId) {
-      debugWarn(1, `[Resolution] graveyardExileAbility could not locate target card ${targetCardId} in any graveyard`);
-      return;
-    }
-
-    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-    const permanent = permanentId ? battlefield.find((p: any) => p && String(p.id) === permanentId) : null;
-
-    if (permanent) {
-      (permanent as any).exiledCards = (permanent as any).exiledCards || [];
-      cleanupCardLeavingExile(game.state as any, removedCard);
-      (permanent as any).exiledCards.push({ ...(removedCard as any), zone: 'exile', exiledWith: permanentId });
-    }
-
-    const exiledName = String((removedCard as any)?.name || 'a card');
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `🚫 ${getPlayerName(game, pid)} exiled ${exiledName} from ${getPlayerName(game, targetPlayerId)}'s graveyard with ${sourceName}.`,
-      ts: Date.now(),
-    });
-
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'confirmGraveyardExile', {
-        playerId: pid,
-        targetPlayerId,
-        targetCardId,
-        sourceName,
-        permanentId: permanentId || undefined,
-      });
-    } catch (e) {
-      debugWarn(1, '[Resolution] appendEvent(confirmGraveyardExile) failed:', e);
-    }
-
-    if (typeof game.bumpSeq === 'function') {
-      game.bumpSeq();
-    }
     broadcastGame(io, game, gameId);
     return;
   }
@@ -12073,79 +11981,6 @@ async function handleTargetSelectionResponse(
 
     queueTapTriggersForTappedPermanents(io, game, gameId, selections.map((id: any) => String(id)), String(pid));
 
-    broadcastGame(io, game, gameId);
-    return;
-  }
-
-  // ========================================================================
-  // Catapult Master follow-up targeting
-  // After paying the tap-5-Soldiers cost, exile the chosen target creature.
-  // ========================================================================
-  if (stepAny?.catapultMasterExileTarget === true) {
-    const sourcePermanentId = String(stepAny?.permanentId || stepAny?.catapultMasterPermanentId || step.sourceId || '').trim();
-    const sourceName = String(stepAny?.cardName || stepAny?.sourceName || step.sourceName || 'Catapult Master');
-    const targetPermanentId = String(selections[0] || '').trim();
-
-    if (!targetPermanentId) {
-      debugWarn(1, '[Resolution] catapultMasterExileTarget missing targetPermanentId');
-      return;
-    }
-
-    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-    const targetPerm = battlefield.find((p: any) => p && String(p.id) === String(targetPermanentId));
-    if (!targetPerm) {
-      debugWarn(1, `[Resolution] catapultMasterExileTarget target not found: ${targetPermanentId}`);
-      return;
-    }
-
-    const targetTypeLine = String(targetPerm.card?.type_line || '').toLowerCase();
-    if (!targetTypeLine.includes('creature')) {
-      debugWarn(1, `[Resolution] catapultMasterExileTarget target is not a creature: ${targetPermanentId}`);
-      return;
-    }
-
-    const ctx = {
-      state: game.state,
-      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-      zones: (game.state as any)?.zones,
-      commandZone: (game.state as any)?.commandZone,
-      gameId,
-    } as unknown as GameContext;
-
-    const targetName = String(targetPerm.card?.name || 'creature');
-
-    try {
-      movePermanentToExile(ctx as any, targetPermanentId, {
-        exiledWithSourceId: sourcePermanentId || undefined,
-        exiledWithSourceName: sourceName || undefined,
-      });
-    } catch (e) {
-      debugWarn(1, '[Resolution] catapultMasterExileTarget movePermanentToExile failed:', e);
-      return;
-    }
-
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'exilePermanent', {
-        playerId: pid,
-        permanentId: targetPermanentId,
-        sourcePermanentId: sourcePermanentId || undefined,
-        sourceName,
-      });
-    } catch (e) {
-      debugWarn(1, '[Resolution] appendEvent(exilePermanent) failed:', e);
-    }
-
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `🚫 ${getPlayerName(game, pid)} activated ${sourceName}: Exiled ${targetName}.`,
-      ts: Date.now(),
-    });
-
-    if (typeof game.bumpSeq === 'function') {
-      game.bumpSeq();
-    }
     broadcastGame(io, game, gameId);
     return;
   }
@@ -12542,6 +12377,7 @@ async function handleTargetSelectionResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
+        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
 
         io.to(gameId).emit('stackUpdate', {
           gameId,
@@ -13770,6 +13606,7 @@ async function handleTargetSelectionResponse(
     
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
+    fireBattlefieldAbilityActivatedTriggers(game, String(pid), String(permanentId), abilityText, stackItem.id);
     
     // Emit stack update
     io.to(gameId).emit("stackUpdate", {
@@ -22125,6 +21962,7 @@ async function handleGraveyardSelectionResponse(
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
+      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
 
       io.to(gameId).emit('stackUpdate', {
         gameId,

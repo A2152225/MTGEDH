@@ -5702,6 +5702,63 @@ function executeTriggerEffect(
     }
     return;
   }
+
+  // Pattern: "exile target card from a graveyard" or "exile target card from any graveyard"
+  if (/exile target card from (?:a|any) graveyard/i.test(desc)) {
+    const targets = Array.isArray((triggerItem as any).targets) ? (triggerItem as any).targets : [];
+    const targetCardId = String(targets[0] || '').trim();
+    if (!targetCardId) {
+      return;
+    }
+
+    const zonesAll = (state as any).zones || {};
+    let targetOwnerId: string | null = null;
+    let removedCard: any = null;
+
+    for (const [playerId, playerZonesAny] of Object.entries(zonesAll)) {
+      const playerZones = playerZonesAny as any;
+      const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+      const graveyardIndex = graveyard.findIndex((card: any) => card && String(card.id || '') === targetCardId);
+      if (graveyardIndex === -1) continue;
+
+      removedCard = graveyard[graveyardIndex];
+      graveyard.splice(graveyardIndex, 1);
+      playerZones.graveyardCount = graveyard.length;
+      targetOwnerId = String(playerId);
+      break;
+    }
+
+    if (!removedCard || !targetOwnerId) {
+      return;
+    }
+
+    const taggedCard = {
+      ...(removedCard as any),
+      zone: 'exile',
+      ...(triggerItem.source ? { exiledWithSourceId: String(triggerItem.source) } : {}),
+      ...(sourceName ? { exiledWithSourceName: sourceName } : {}),
+      ...(triggerItem.card?.oracle_id ? { exiledWithOracleId: String(triggerItem.card.oracle_id) } : {}),
+    };
+
+    const ownerZones = (state as any).zones?.[targetOwnerId];
+    if (ownerZones) {
+      ownerZones.exile = Array.isArray(ownerZones.exile) ? ownerZones.exile : [];
+      ownerZones.exile.push(taggedCard);
+      ownerZones.exileCount = ownerZones.exile.length;
+    }
+
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const sourcePermanent = battlefield.find((perm: any) => perm && String(perm.id || '') === String(triggerItem.source || ''));
+    if (sourcePermanent) {
+      (sourcePermanent as any).exiledCards = Array.isArray((sourcePermanent as any).exiledCards)
+        ? (sourcePermanent as any).exiledCards
+        : [];
+      (sourcePermanent as any).exiledCards.push({ ...taggedCard, exiledWith: String(triggerItem.source || '') || undefined });
+    }
+
+    debug(2, `[executeTriggerEffect] ${sourceName} exiled ${removedCard?.name || targetCardId} from ${targetOwnerId}'s graveyard`);
+    return;
+  }
   
   // Pattern: "exile target creature/permanent ... until ~ leaves the battlefield" (Oblivion Ring-style)
   // This is a LINKED exile - the exiled card returns when the source permanent leaves

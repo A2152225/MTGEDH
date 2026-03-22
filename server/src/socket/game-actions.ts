@@ -10727,20 +10727,34 @@ export function registerGameActions(io: Server, socket: Socket) {
           return pTypeLine.includes("creature");
         });
 
+        const activatedAbilityText = `Equip ${equipCost}`;
+
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId,
           prompt: `Choose a creature to equip with ${equipment.card?.name || 'Equipment'}.`,
+          description: `Choose a creature to equip ${equipment.card?.name || 'Equipment'} to (${targetsOpponentCreatures ? 'attach to target creature an opponent controls ' : 'equip '}${equipCost}).`,
+          sourceId: equipmentId,
+          sourceName: equipment.card?.name || 'Equipment',
           validTargets: validTargets.map((c: any) => ({
             id: c.id,
             type: 'permanent' as const,
             name: c.card?.name || 'Creature',
             imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
             typeLine: c.card?.type_line,
+            controller: c.controller,
           })),
           minTargets: 1,
           maxTargets: 1,
-          equipAbility: true,
+          targetTypes: ['creature'],
+          targetDescription: targetsOpponentCreatures ? 'creature an opponent controls' : 'creature you control',
+          battlefieldAbilityTargetSelection: true,
+          permanentId: equipmentId,
+          cardName: equipment.card?.name || 'Equipment',
+          abilityId: 'equip',
+          abilityText: activatedAbilityText,
+          activatedAbilityText,
+          abilityType: 'equip',
           equipmentId,
           equipCost,
           equipType: targetsOpponentCreatures ? 'opponent' : 'standard',
