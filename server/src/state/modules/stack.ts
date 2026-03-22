@@ -4396,6 +4396,28 @@ function executeTriggerEffect(
     }
     return;
   }
+
+  // Pattern: "put an indestructible counter on [this permanent|it|~|CARDNAME]" (Phyrexian Dominus cycle)
+  if (/put an? indestructible counter on/i.test(desc)) {
+    const sourcePermId = triggerItem?.source || triggerItem?.permanentId;
+    const battlefield = state.battlefield || [];
+    const sourcePerm = battlefield.find((p: any) => p.id === sourcePermId);
+    const normalizedDesc = String(desc || '').toLowerCase();
+    const normalizedSourceName = String(sourceName || sourcePerm?.card?.name || '').toLowerCase();
+    const targetsSelf =
+      normalizedDesc.includes('on this creature') ||
+      normalizedDesc.includes('on this permanent') ||
+      normalizedDesc.includes('on it') ||
+      normalizedDesc.includes('on ~') ||
+      (normalizedSourceName.length > 0 && normalizedDesc.includes(`on ${normalizedSourceName}`));
+
+    if (sourcePerm && targetsSelf) {
+      sourcePerm.counters = sourcePerm.counters || {};
+      sourcePerm.counters.indestructible = (sourcePerm.counters.indestructible || 0) + 1;
+      debug(2, `[executeTriggerEffect] Added indestructible counter to ${sourcePerm.card?.name || sourcePerm.id}`);
+      return;
+    }
+  }
   
   // Pattern: "double the number of +1/+1 counters on [this creature|it|~]" (Mossborn Hydra landfall)
   // Matches: "double the number of +1/+1 counters on this creature", "double the number of +1/+1 counters on Mossborn Hydra"

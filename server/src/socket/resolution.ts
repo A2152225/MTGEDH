@@ -7859,6 +7859,93 @@ async function handleStepResponse(
         ts: Date.now(),
       });
 
+      const sacrificeType = String(stepData.sacrificeType || '').trim();
+      if (sacrificeType) {
+        const sacrificeCount = Math.max(1, Number(stepData.sacrificeCount || 1));
+        const mustBeOther = Boolean(stepData.mustBeOther);
+        const sacrificeSubtype = stepData.sacrificeSubtype ? String(stepData.sacrificeSubtype) : undefined;
+        const eligiblePermanents = (game.state.battlefield || []).filter((entry: any) => {
+          if (!entry || String(entry.controller || '') !== String(pid)) return false;
+          if (mustBeOther && String(entry.id) === permanentId) return false;
+          const typeLine = String(entry.card?.type_line || '').toLowerCase();
+          let matchesType = false;
+          switch (sacrificeType) {
+            case 'creature':
+              matchesType = typeLine.includes('creature');
+              break;
+            case 'artifact':
+              matchesType = typeLine.includes('artifact');
+              break;
+            case 'enchantment':
+              matchesType = typeLine.includes('enchantment');
+              break;
+            case 'land':
+              matchesType = typeLine.includes('land');
+              break;
+            case 'permanent':
+              matchesType = true;
+              break;
+            case 'artifact_or_creature':
+              matchesType = typeLine.includes('artifact') || typeLine.includes('creature');
+              break;
+            default:
+              matchesType = false;
+          }
+          if (!matchesType) return false;
+          if (!sacrificeSubtype) return true;
+          return typeLine.includes(String(sacrificeSubtype).toLowerCase());
+        });
+
+        let sacrificeLabel = sacrificeSubtype ? sacrificeSubtype : sacrificeType;
+        let sacrificeLabelPlural = `${sacrificeLabel}s`;
+        if (sacrificeType === 'artifact_or_creature') {
+          sacrificeLabel = 'artifact or creature';
+          sacrificeLabelPlural = 'artifacts and/or creatures';
+        }
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (perm.card as any)?.image_uris?.small || (perm.card as any)?.image_uris?.normal,
+          description: `${cardName}: Sacrifice ${sacrificeCount} ${sacrificeLabelPlural} to activate: ${abilityText}`,
+          mandatory: true,
+          validTargets: eligiblePermanents.map((entry: any) => ({
+            id: entry.id,
+            label: entry.card?.name || 'Unknown',
+            description: entry.card?.type_line || 'Permanent',
+            imageUrl: entry.card?.image_uris?.small || entry.card?.image_uris?.normal,
+          })),
+          minTargets: sacrificeCount,
+          maxTargets: sacrificeCount,
+          targetType: 'permanent',
+          sacrificeAbilityAsCost: true,
+          permanentId,
+          abilityId: stepData.abilityId,
+          cardName,
+          abilityText,
+          manaCost: '',
+          requiresTap: false,
+          sacrificeType,
+          sacrificeSubtype,
+          sacrificeCount,
+          mustBeOther,
+          prePaidLifeForCost: totalLifeToPay > 0 ? totalLifeToPay : 0,
+          prePaidTappedPermanentsForCost: requiresTap ? [String(permanentId)] : [],
+          ...(treasureMeta.manaFromTreasureSpentKnown === true && typeof treasureMeta.manaFromTreasureSpent === 'boolean'
+            ? {
+                manaFromTreasureSpentKnown: true,
+                manaFromTreasureSpent: treasureMeta.manaFromTreasureSpent,
+              }
+            : {}),
+        } as any);
+
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        break;
+      }
+
       // Put the ability on the stack unless it's a mana ability.
       const isManaAbility =
         /add\s+(\{[wubrgc]\}|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) &&
@@ -10783,10 +10870,14 @@ async function handleTargetSelectionResponse(
     const manaCost = String(stepAny?.manaCost || '');
     const requiresTap = Boolean(stepAny?.requiresTap);
     const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
+    const prePaidLifeForCost = Number(stepAny?.prePaidLifeForCost || 0);
     const sacrificeType = String(stepAny?.sacrificeType || '').trim();
     const sacrificeSubtype = stepAny?.sacrificeSubtype ? String(stepAny?.sacrificeSubtype) : undefined;
     const sacrificeCount = Number(stepAny?.sacrificeCount || selections.length || 1);
     const mustBeOther = Boolean(stepAny?.mustBeOther);
+    const prePaidTappedPermanentsForCost = Array.isArray(stepAny?.prePaidTappedPermanentsForCost)
+      ? (stepAny.prePaidTappedPermanentsForCost as any[]).map((entry: any) => String(entry)).filter(Boolean)
+      : [];
 
     const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
     const sourcePerm = battlefield.find((p: any) => p && String(p.id) === String(permanentId));
@@ -10992,6 +11083,7 @@ async function handleTargetSelectionResponse(
       (sourcePerm as any).tapped = true;
       tappedPermanentsForCost.push(String(permanentId));
     }
+    const allTappedPermanentsForCost = [...prePaidTappedPermanentsForCost, ...tappedPermanentsForCost];
 
     // Put the ability on the stack.
     const stackItem = {
@@ -11038,12 +11130,20 @@ async function handleTargetSelectionResponse(
         abilityId: abilityId || undefined,
         cardName,
         abilityText,
-        tappedPermanents: tappedPermanentsForCost,
+        tappedPermanents: allTappedPermanentsForCost,
         sacrificedPermanents: sacrificedIds,
         discardedCardIds: Array.isArray((stepAny as any)?.discardedCardIdsForCost)
           ? ((stepAny as any).discardedCardIdsForCost as any[]).map((x: any) => String(x)).filter(Boolean)
           : undefined,
-        lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+        lifePaidForCost: Number.isFinite(lifeToPayForCost + prePaidLifeForCost) && (lifeToPayForCost + prePaidLifeForCost) > 0
+          ? (lifeToPayForCost + prePaidLifeForCost)
+          : undefined,
+        ...(stepAny?.manaFromTreasureSpentKnown === true && typeof stepAny?.manaFromTreasureSpent === 'boolean'
+          ? {
+              manaFromTreasureSpentKnown: true,
+              manaFromTreasureSpent: stepAny.manaFromTreasureSpent,
+            }
+          : {}),
       });
     } catch {
       // ignore persistence failures

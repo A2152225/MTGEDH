@@ -103,6 +103,7 @@ function hasIndestructible(perm: BattlefieldPermanent): boolean {
   const oracleText = ((perm.card as any)?.oracle_text || '').toLowerCase();
   const grantedAbilities = (perm as any).grantedAbilities || [];
   const keywords = (perm.card as any)?.keywords || [];
+  const counters = (perm as any)?.counters || {};
   
   // Check oracle text
   if (oracleText.includes('indestructible')) {
@@ -119,6 +120,12 @@ function hasIndestructible(perm: BattlefieldPermanent): boolean {
   // Check Scryfall keywords
   for (const keyword of keywords) {
     if (typeof keyword === 'string' && keyword.toLowerCase() === 'indestructible') {
+      return true;
+    }
+  }
+
+  for (const [counterName, counterValue] of Object.entries(counters)) {
+    if (String(counterName).toLowerCase() === 'indestructible' && Number(counterValue || 0) > 0) {
       return true;
     }
   }

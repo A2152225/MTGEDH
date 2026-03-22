@@ -55,6 +55,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { checkGraveyardTrigger } from "./triggered-abilities.js";
 import { processLifeChange } from "./game-state-effects";
 import { ResolutionQueueManager } from "../resolution/index.js";
+import { parseManaCost } from "./mana-check.js";
 
 /* -------- Helpers ---------- */
 
@@ -72,6 +73,38 @@ function generateDeterministicId(ctx: any, prefix: string, cardId: string): stri
   // Fallback: use card ID with a counter (incremented on ctx)
   ctx._idCounter = (ctx._idCounter || 0) + 1;
   return `${prefix}_${cardId}_${ctx._idCounter}`;
+}
+
+function consumeRecordedManaCostFromPool(pool: Record<string, number>, manaCost?: string): void {
+  if (!pool || !manaCost) return;
+
+  const parsedCost = parseManaCost(manaCost);
+  const colorMap: Record<string, keyof typeof pool> = {
+    W: 'white',
+    U: 'blue',
+    B: 'black',
+    R: 'red',
+    G: 'green',
+    C: 'colorless',
+  };
+
+  for (const [symbol, amount] of Object.entries(parsedCost.colors || {})) {
+    const poolKey = colorMap[String(symbol).toUpperCase()];
+    if (!poolKey) continue;
+    const current = Number(pool[poolKey] || 0);
+    pool[poolKey] = Math.max(0, current - Number(amount || 0));
+  }
+
+  let remainingGeneric = Number(parsedCost.generic || 0);
+  const spendOrder: Array<keyof typeof pool> = ['colorless', 'white', 'blue', 'black', 'red', 'green'];
+  for (const poolKey of spendOrder) {
+    if (remainingGeneric <= 0) break;
+    const available = Number(pool[poolKey] || 0);
+    if (available <= 0) continue;
+    const spent = Math.min(available, remainingGeneric);
+    pool[poolKey] = available - spent;
+    remainingGeneric -= spent;
+  }
 }
 
 /**
@@ -2582,6 +2615,58 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(activateGraveyardAbility): failed", err);
+        }
+        break;
+      }
+
+      case "activateCycling": {
+        const cardId = (e as any).cardId;
+        const pid = (e as any).playerId;
+        const cardName = String((e as any).cardName || 'Unknown');
+        const cyclingCost = String((e as any).cyclingCost || '');
+        const stackId = String((e as any).stackId || generateDeterministicId(ctx, 'ability_cycling', String(cardId || cardName || 'card')));
+        const abilityId = String((e as any).abilityId || 'cycling');
+        try {
+          const zones = (ctx.state as any)?.zones?.[pid];
+          if (zones && Array.isArray(zones.hand) && cardId) {
+            const hand = zones.hand as any[];
+            const handIndex = hand.findIndex((card: any) => String(card?.id) === String(cardId));
+            if (handIndex !== -1) {
+              const [card] = hand.splice(handIndex, 1);
+              zones.graveyard = zones.graveyard || [];
+              (zones.graveyard as any[]).push({ ...card, zone: 'graveyard' });
+              zones.handCount = hand.length;
+              zones.graveyardCount = (zones.graveyard as any[]).length;
+              recordCardPutIntoGraveyardThisTurn(ctx as any, String(pid), card, { fromBattlefield: false });
+            }
+          }
+
+          const manaPool = (ctx.state as any)?.manaPool?.[pid];
+          if (manaPool && cyclingCost) {
+            consumeRecordedManaCostFromPool(manaPool as Record<string, number>, cyclingCost);
+          }
+
+          const stateAny = ctx.state as any;
+          stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+          const stackAlreadyPresent = stateAny.stack.some((item: any) => item && String(item.id) === stackId);
+          if (!stackAlreadyPresent) {
+            stateAny.stack.push({
+              id: stackId,
+              type: 'ability',
+              controller: pid,
+              source: cardId,
+              sourceName: cardName,
+              description: 'Draw a card',
+              abilityType: 'cycling',
+              abilityId,
+              cardId,
+              cardName,
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(activateCycling): failed', err);
         }
         break;
       }

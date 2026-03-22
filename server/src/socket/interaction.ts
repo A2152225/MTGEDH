@@ -385,56 +385,81 @@ function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
   return { requiresTap, manaCost };
 }
 
-  function getActivatedAbilityScopeText(oracleText: string, abilityId: string): {
-    abilityText: string;
-    fullAbilityText: string;
-  } {
-    let abilityIndex = 0;
-    const abilityMatch = abilityId.match(/-(\d+)$/);
-    if (abilityMatch) {
-      abilityIndex = parseInt(abilityMatch[1], 10);
-      if (isNaN(abilityIndex)) abilityIndex = 0;
-    }
-    const isBoastAbility = /-boast-\d+$/i.test(String(abilityId || ''));
+function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; effect: string; fullText: string }> {
+  const extracted: Array<{ cost: string; effect: string; fullText: string }> = [];
+  const seen = new Set<string>();
 
-    const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
-    const abilities: Array<{ cost: string; effect: string }> = [];
-    let match;
-    while ((match = abilityPattern.exec(oracleText)) !== null) {
-      const cost = match[1].trim();
-      const effect = match[2].trim();
-      const costLower = cost.toLowerCase();
-      if (
-        cost.includes('{') ||
-        costLower.includes('tap') ||
-        costLower.includes('sacrifice') ||
-        costLower.includes('discard') ||
-        (costLower.includes('remove') && costLower.includes('counter')) ||
-        (costLower.includes('pay') && costLower.includes('life')) ||
-        costLower.includes('exile') ||
-        costLower.includes('return')
-      ) {
-        abilities.push({ cost, effect });
-      }
+  const pushAbility = (costRaw: string, effectRaw: string) => {
+    const cost = String(costRaw || '').trim();
+    const effect = String(effectRaw || '').trim();
+    if (!cost || !effect) return;
+
+    const costLower = cost.toLowerCase();
+    if (
+      !cost.includes('{') &&
+      !costLower.includes('tap') &&
+      !costLower.includes('sacrifice') &&
+      !costLower.includes('discard') &&
+      !(costLower.includes('remove') && costLower.includes('counter')) &&
+      !(costLower.includes('pay') && costLower.includes('life')) &&
+      !costLower.includes('exile') &&
+      !costLower.includes('return')
+    ) {
+      return;
     }
 
-    const selectedAbility = abilities[abilityIndex] || (abilities.length === 1 ? abilities[0] : null);
-    if (!selectedAbility) {
-      return { abilityText: '', fullAbilityText: '' };
+    const fullText = `${cost}: ${effect}`.trim();
+    const dedupeKey = `${cost}::${effect}`.toLowerCase();
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    extracted.push({ cost, effect, fullText });
+  };
+
+  for (const rawLine of String(text || '').split(/\r?\n+/)) {
+    const line = rawLine.trim();
+    if (!line.includes(':')) continue;
+    const lineMatch = line.match(/^([^:]+):\s*(.+)$/);
+    if (lineMatch) {
+      pushAbility(lineMatch[1], lineMatch[2]);
     }
-
-    const escapedCost = selectedAbility.cost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const fullAbilityRegex = new RegExp(`${escapedCost}[^\\n]+`, 'i');
-    const fullAbilityMatch = oracleText.match(fullAbilityRegex);
-    const fullAbilityText = (fullAbilityMatch ? fullAbilityMatch[0] : `${selectedAbility.cost}: ${selectedAbility.effect}`).trim();
-
-    return {
-      abilityText: selectedAbility.effect,
-      fullAbilityText,
-    };
   }
 
-// ============================================================================
+  if (extracted.length > 0) {
+    return extracted;
+  }
+
+  const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
+  let match;
+  while ((match = abilityPattern.exec(text)) !== null) {
+    pushAbility(match[1], match[2]);
+  }
+
+  return extracted;
+}
+
+function getActivatedAbilityScopeText(oracleText: string, abilityId: string): {
+  abilityText: string;
+  fullAbilityText: string;
+} {
+  let abilityIndex = 0;
+  const abilityMatch = abilityId.match(/-(\d+)$/);
+  if (abilityMatch) {
+    abilityIndex = parseInt(abilityMatch[1], 10);
+    if (isNaN(abilityIndex)) abilityIndex = 0;
+  }
+
+  const abilities = extractActivatedAbilitiesFromText(oracleText);
+  const selectedAbility = abilities[abilityIndex] || (abilities.length === 1 ? abilities[0] : null);
+  if (!selectedAbility) {
+    return { abilityText: '', fullAbilityText: '' };
+  }
+
+  return {
+    abilityText: selectedAbility.effect,
+    fullAbilityText: selectedAbility.fullText,
+  };
+}
+
 // Pre-compiled RegExp patterns for creature type matching
 // Optimization: Created once at module load instead of inside loops
 // ============================================================================
@@ -448,7 +473,6 @@ const CREATURE_TYPES = [
   'elemental', 'construct', 'golem', 'myr', 'thopter', 'servo',
   'wizard', 'cleric', 'rogue', 'warrior', 'knight', 'soldier', 'berserker',
   'shaman', 'druid', 'monk', 'samurai', 'ninja', 'assassin', 'archer', 'scout',
-  'artificer', 'pilot', 'pirate', 'rebel', 'advisor', 'noble', 'citizen',
   // Animals and beasts
   'beast', 'cat', 'dog', 'wolf', 'bear', 'bird', 'snake', 'spider', 'insect',
   'rat', 'bat', 'ape', 'elephant', 'dinosaur', 'lizard', 'crocodile',
@@ -5750,12 +5774,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let manaCost = "";
     let sacrificeType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'self' | 'artifact_or_creature' | null = null;
     let sacrificeSubtype: string | undefined = undefined; // For creature subtypes like Soldier, Goblin, etc.
+    let sacrificeCount = 1;
+    let mustBeOther = false;
+    const abilityOracleText = String(scopedAbilityFullText || oracleText || '').trim();
     
     // Parse activated abilities: look for "cost: effect" patterns
     const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
     const abilities: { cost: string; effect: string }[] = [];
     let match;
-    while ((match = abilityPattern.exec(oracleText)) !== null) {
+    while ((match = abilityPattern.exec(abilityOracleText)) !== null) {
       const cost = match[1].trim();
       const effect = match[2].trim();
       // Filter out keyword abilities and keep only activated abilities
@@ -5787,6 +5814,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
         sacrificeType = sacrificeInfo.sacrificeType;
         sacrificeSubtype = sacrificeInfo.creatureSubtype;
+        sacrificeCount = sacrificeInfo.sacrificeCount || 1;
+        mustBeOther = Boolean(sacrificeInfo.mustBeOther);
       }
 
       if (
@@ -5818,12 +5847,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
           sacrificeType = sacrificeInfo.sacrificeType;
           sacrificeSubtype = sacrificeInfo.creatureSubtype;
+          sacrificeCount = sacrificeInfo.sacrificeCount || 1;
+          mustBeOther = Boolean(sacrificeInfo.mustBeOther);
         }
       } else {
         // Use the full oracle text to check if this is a mana ability
         // This handles simple cases like basic lands: "{T}: Add {G}"
-        abilityText = oracleText;
-        requiresTap = oracleText.includes('{T}:') || oracleText.toLowerCase().includes('tap:');
+        abilityText = abilityOracleText;
+        requiresTap = abilityOracleText.includes('{T}:') || abilityOracleText.toLowerCase().includes('tap:');
       }
     }
     
@@ -6879,6 +6910,103 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           message: `You don't control enough ${sacrificeLabelPlural} to sacrifice. (Need ${sacrificeCount}, have ${eligiblePermanents.length})`,
         });
         return;
+      }
+
+      if (manaCost) {
+        const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi);
+        if (manaSymbols) {
+          const manaOnly = manaSymbols
+            .filter(symbol => symbol.toUpperCase() !== '{T}' && symbol.toUpperCase() !== '{Q}')
+            .join('');
+
+          if (manaOnly) {
+            const parsedCost = parseManaCost(manaOnly);
+            const manaPool = getOrInitManaPool(game.state, pid);
+            const playerLife = game.state.life?.[pid] || 40;
+            const costForCheck = {
+              colors: parsedCost.colors,
+              generic: parsedCost.generic,
+              hasX: parsedCost.hasX,
+              hybrid: parsedCost.hybrids,
+            };
+            const availableForCheck = getAvailableMana(game.state, pid as any);
+            if (!canPayManaCost(availableForCheck as unknown as Record<string, number>, costForCheck, playerLife)) {
+              socket.emit('error', {
+                code: 'INSUFFICIENT_MANA',
+                message: `Cannot pay ${manaOnly} - insufficient mana or life`,
+              });
+              return;
+            }
+
+            const phyrexianCosts = (parsedCost.hybrids || []).filter((options: string[]) =>
+              options.some(option => option.startsWith('LIFE:'))
+            );
+
+            if (phyrexianCosts.length > 0) {
+              const existingPhyrexianPrompt = ResolutionQueueManager
+                .getStepsForPlayer(gameId, pid as any)
+                .find((step: any) => step?.type === ResolutionStepType.MANA_PAYMENT_CHOICE && step?.phyrexianManaChoice === true && String(step?.permanentId || step?.sourceId) === String(permanentId));
+
+              if (!existingPhyrexianPrompt) {
+                const phyrexianChoices = phyrexianCosts.map((options: string[], index: number) => {
+                  const colorOption = options.find((option: string) => !option.startsWith('LIFE:') && !option.startsWith('GENERIC:'));
+                  const lifeOption = options.find((option: string) => option.startsWith('LIFE:'));
+                  const lifeAmount = lifeOption ? parseInt(lifeOption.split(':')[1], 10) : 2;
+                  const colorMap: Record<string, string> = {
+                    W: 'white',
+                    U: 'blue',
+                    B: 'black',
+                    R: 'red',
+                    G: 'green',
+                  };
+                  const colorName = colorOption ? colorMap[colorOption] || colorOption : 'colored';
+                  const hasColorMana = colorOption ? (manaPool[colorName] || 0) >= 1 : false;
+
+                  return {
+                    index,
+                    colorOption,
+                    colorName,
+                    lifeAmount,
+                    hasColorMana,
+                    symbol: colorOption ? `{${colorOption}/P}` : '{P}',
+                  };
+                });
+
+                ResolutionQueueManager.addStep(gameId, {
+                  type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+                  playerId: pid as PlayerID,
+                  sourceId: permanentId,
+                  sourceName: cardName,
+                  sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+                  description: `Choose how to pay Phyrexian mana for ${cardName}.`,
+                  mandatory: true,
+                  phyrexianManaChoice: true,
+                  pendingId: `phyrexian_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                  permanentId,
+                  abilityId,
+                  cardName,
+                  abilityText,
+                  manaCost: manaOnly,
+                  totalManaCost: manaOnly,
+                  genericCost: parsedCost.generic,
+                  phyrexianChoices,
+                  playerLife,
+                  parsedCost,
+                  phyrexianCosts,
+                  requiresTap,
+                  sacrificeType,
+                  sacrificeSubtype,
+                  sacrificeCount,
+                  mustBeOther,
+                } as any);
+              }
+
+              debug(2, `[activateBattlefieldAbility] ${cardName} has Phyrexian mana in a sacrifice cost. Prompting ${pid} for payment choice before sacrifice selection.`);
+              broadcastGame(io, game, gameId);
+              return;
+            }
+          }
+        }
       }
 
       const sacrificeTargets = eligiblePermanents.map((p: any) => ({
@@ -8112,6 +8240,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               requiresTap,
               sacrificeType,
               sacrificeSubtype,
+              sacrificeCount,
+              mustBeOther,
             } as any);
             
             debug(2, `[activateBattlefieldAbility] ${cardName} has Phyrexian mana costs. Prompting ${pid} for payment choice.`);
@@ -9170,9 +9300,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Properly uses the stack per MTG rules (Rule 702.29)
   socket.on(
     "activateCycling",
-    (payload?: { gameId?: unknown; cardId?: unknown }) => {
+    (payload?: { gameId?: unknown; cardId?: unknown; abilityId?: unknown }) => {
       const gameId = payload?.gameId;
       const cardId = payload?.cardId;
+      const abilityId = payload?.abilityId;
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!(
       (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
@@ -9181,6 +9312,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardId || typeof cardId !== 'string') return;
+    if (abilityId != null && typeof abilityId !== 'string') return;
     if (((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
       socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
       return;
@@ -9229,6 +9361,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const card = zones.hand[handIndex];
     const cardName = card.name || "Unknown";
     const oracleText = (card.oracle_text || "").toLowerCase();
+    const normalizedAbilityId = typeof abilityId === 'string' && abilityId.trim().length > 0 ? abilityId.trim() : 'cycling';
+    const isParserCyclingAbilityId = new RegExp(`^${String(cardId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-cycling-\\d+$`, 'i').test(normalizedAbilityId);
+    if (normalizedAbilityId !== 'cycling' && !isParserCyclingAbilityId) {
+      socket.emit('error', {
+        code: 'INVALID_ABILITY_ID',
+        message: `${normalizedAbilityId} is not a cycling ability for ${cardName}`,
+      });
+      return;
+    }
 
     // Parse cycling cost
     const cyclingMatch = oracleText.match(/cycling\s*(\{[^}]+\})/i);
@@ -9291,6 +9432,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       sourceName: cardName,
       description: `Draw a card`,
       abilityType: 'cycling',
+      abilityId: normalizedAbilityId,
       cardId: cardId,
       cardName: cardName,
     } as any);
@@ -9311,6 +9453,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       playerId: pid,
       cardId,
       cardName,
+      abilityId: normalizedAbilityId,
       cyclingCost: cyclingCostStr,
       stackId: abilityStackId,
     });

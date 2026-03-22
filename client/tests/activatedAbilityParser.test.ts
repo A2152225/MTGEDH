@@ -104,4 +104,55 @@ describe('parseActivatedAbilities station parsing', () => {
     expect(abilities[0]?.otherCosts).toContain('Discard a card');
     expect(abilities[0]?.isManaAbility).toBe(false);
   });
+
+  it('parses cycling abilities with parser-emitted cycling ids', () => {
+    const card: KnownCardRef = {
+      id: 'cycler-card-1',
+      name: 'Test Cycler',
+      type_line: 'Creature - Beast',
+      oracle_text: 'Cycling {2}',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.id).toBe('cycler-card-1-cycling-0');
+    expect(abilities[0]?.manaCost).toBe('{2}');
+    expect(abilities[0]?.effect).toBe('Discard this card, then draw a card');
+  });
+
+  it('keeps ordinary braced battlefield activations on generic -ability- ids', () => {
+    const cards: KnownCardRef[] = [
+      {
+        id: 'draw-card-1',
+        name: 'Draw Device',
+        type_line: 'Artifact',
+        oracle_text: '{2}, {T}: Draw a card.',
+      },
+      {
+        id: 'damage-card-1',
+        name: 'Damage Device',
+        type_line: 'Artifact',
+        oracle_text: '{2}, {T}: Deal 1 damage to any target.',
+      },
+      {
+        id: 'search-card-1',
+        name: 'Search Device',
+        type_line: 'Artifact',
+        oracle_text: '{2}, {T}: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.',
+      },
+      {
+        id: 'counter-card-1',
+        name: 'Counter Device',
+        type_line: 'Artifact',
+        oracle_text: '{2}, {T}: Put a +1/+1 counter on target creature.',
+      },
+    ];
+
+    for (const card of cards) {
+      const abilities = parseActivatedAbilities(card);
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0]?.id).toBe(`${card.id}-ability-0`);
+    }
+  });
 });

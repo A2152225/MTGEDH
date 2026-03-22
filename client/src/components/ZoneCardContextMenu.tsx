@@ -13,6 +13,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
+import { parseActivatedAbilities } from '../utils/activatedAbilityParser';
 
 export type ZoneType = 'hand' | 'graveyard' | 'exile' | 'commander' | 'library' | 'battlefield';
 
@@ -55,6 +56,9 @@ export interface ZoneCardContextMenuProps {
 function parseZoneAbilities(card: KnownCardRef, zone: ZoneType): Array<{ id: string; label: string; description: string; cost?: string }> {
   const abilities: Array<{ id: string; label: string; description: string; cost?: string }> = [];
   const oracleText = (card.oracle_text || '').toLowerCase();
+  const parsedCyclingAbility = zone === 'hand'
+    ? parseActivatedAbilities(card).find((ability) => /-cycling-\d+$/i.test(String(ability?.id || '')))
+    : undefined;
 
   if (zone === 'graveyard') {
     // Flashback
@@ -186,13 +190,12 @@ function parseZoneAbilities(card: KnownCardRef, zone: ZoneType): Array<{ id: str
 
   if (zone === 'hand') {
     // Cycling
-    const cyclingMatch = card.oracle_text?.match(/cycling\s*(\{[^}]+\})/i);
-    if (cyclingMatch) {
+    if (parsedCyclingAbility) {
       abilities.push({
-        id: 'cycling',
+        id: parsedCyclingAbility.id,
         label: 'Cycle',
         description: `Discard and draw a card`,
-        cost: cyclingMatch[1],
+        cost: parsedCyclingAbility.cost,
       });
     }
     // Foretell (pay {2} to exile face-down)

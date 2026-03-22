@@ -2045,8 +2045,8 @@ export function TableLayout(props: {
           }}
           onActivateAbility={(cardId, abilityId) => {
             if (gameId && zoneContextMenu.zone === 'hand') {
-              if (abilityId === 'cycling') {
-                socket.emit('activateCycling', { gameId, cardId });
+              if (abilityId === 'cycling' || /-cycling-\d+$/i.test(String(abilityId || ''))) {
+                socket.emit('activateCycling', { gameId, cardId, abilityId });
               } else if (abilityId === 'foretell') {
                 // Handle foretell
                 socket.emit('foretell', { gameId, cardId });
