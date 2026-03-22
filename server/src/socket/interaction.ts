@@ -32,6 +32,7 @@ import { registerManaHandlers } from "./mana-handlers.js";
 import { parseTargetRequirements } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
 import { triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
+import { isCreatureNow } from "../state/creatureTypeNow.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -394,6 +395,7 @@ function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
       abilityIndex = parseInt(abilityMatch[1], 10);
       if (isNaN(abilityIndex)) abilityIndex = 0;
     }
+    const isBoastAbility = /-boast-\d+$/i.test(String(abilityId || ''));
 
     const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
     const abilities: Array<{ cost: string; effect: string }> = [];
@@ -2678,23 +2680,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       oracleText.includes("search your library") &&
       searchesForLand;
     
-    // Cleanup equipment attachments if this is equipment leaving battlefield
+    // Cleanup Equipment/Fortification attachments if this attachment is leaving battlefield
     const isEquipment = typeLine.includes("equipment");
-    if (isEquipment && permanent.attachedTo) {
-      const attachedCreature = battlefield.find((p: any) => p?.id === permanent.attachedTo);
-      if (attachedCreature && attachedCreature.attachedEquipment) {
-        attachedCreature.attachedEquipment = (attachedCreature.attachedEquipment as string[]).filter(
+    const isFortification = typeLine.includes("fortification");
+    const isAttachmentPermanent = isEquipment || isFortification;
+    if (isAttachmentPermanent && permanent.attachedTo) {
+      const attachedPermanent = battlefield.find((p: any) => p?.id === permanent.attachedTo);
+      if (attachedPermanent && attachedPermanent.attachedEquipment) {
+        attachedPermanent.attachedEquipment = (attachedPermanent.attachedEquipment as string[]).filter(
           (id: string) => id !== permanentId
         );
-        // Remove equipped badge if no equipment remains
-        if (attachedCreature.attachedEquipment.length === 0) {
-          attachedCreature.isEquipped = false;
+        if (attachedPermanent.attachedEquipment.length === 0) {
+          attachedPermanent.isEquipped = false;
         }
       }
     }
     
-    // Cleanup attached equipment if this is a creature leaving battlefield
-    if (isCreature && permanent.attachedEquipment && permanent.attachedEquipment.length > 0) {
+    // Cleanup attached equipment/fortifications if this permanent is leaving battlefield
+    if (permanent.attachedEquipment && permanent.attachedEquipment.length > 0) {
       for (const equipId of permanent.attachedEquipment as string[]) {
         const equipment = battlefield.find((p: any) => p?.id === equipId);
         if (equipment) {
@@ -3466,61 +3469,67 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Handle sacrifice-to-draw abilities (Sunbaked Canyon, Horizon Canopy, etc.)
-    // Pattern: "{cost}, {T}, Sacrifice ~: Draw a card"
-    // Examples: "{1}, {T}, Sacrifice ~" (Sunbaked Canyon), "{G}{W}, {T}, Sacrifice ~" (Horizon Canopy)
+    // Handle sacrifice-to-draw abilities (Sunbaked Canyon, Horizon Canopy, Commander's Sphere, etc.)
+    // Patterns:
+    // - "{cost}, {T}, Sacrifice ~: Draw a card"
+    // - "Sacrifice ~: Draw a card"
     // The client generates abilityId like "{cardId}-ability-{index}" for general activated abilities
     // Only process if oracle text actually has the sacrifice-to-draw pattern
     const hasSacrificeDrawPattern = scopedAbilityFullText.includes("sacrifice") && scopedAbilityFullText.includes("draw a card");
     const isSacrificeDrawAbility = (abilityId.includes("sacrifice-draw") || abilityId.includes("-ability-")) && hasSacrificeDrawPattern;
     if (isSacrificeDrawAbility) {
-      // Parse the mana cost from oracle text
-      // Pattern: "{cost}, {T}, Sacrifice: Draw a card" (case-insensitive for {T})
-      const sacrificeCostMatch = scopedAbilityFullText.match(/(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*\{T\}\s*,\s*sacrifice[^:]*:\s*draw a card/i);
+      // Parse optional mana/tap costs from oracle text.
+      const sacrificeCostMatch = scopedAbilityFullText.match(/^(?:(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*)?(?:(\{T\})\s*,\s*)?sacrifice[^:]*:\s*draw a card\.?$/i);
       
       if (sacrificeCostMatch) {
         const manaCostStr = sacrificeCostMatch[1];
-        const parsedCost = parseManaCost(manaCostStr);
+        const requiresTap = Boolean(sacrificeCostMatch[2]);
         const manaPool = getOrInitManaPool(game.state, pid);
-        
-        // Check if player can pay the mana cost
-        const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
-        const validationError = validateManaPayment(
-          totalAvailable,
-          parsedCost.colors,
-          parsedCost.generic
-        );
-        
-        if (validationError) {
-          socket.emit("error", {
-            code: "INSUFFICIENT_MANA",
-            message: validationError,
+
+        if (manaCostStr) {
+          const parsedCost = parseManaCost(manaCostStr);
+
+          // Check if player can pay the mana cost
+          const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+          const validationError = validateManaPayment(
+            totalAvailable,
+            parsedCost.colors,
+            parsedCost.generic
+          );
+
+          if (validationError) {
+            socket.emit("error", {
+              code: "INSUFFICIENT_MANA",
+              message: validationError,
+            });
+            return;
+          }
+
+          // Consume the mana from the pool
+          consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
+
+          io.to(gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: "system",
+            message: `${getPlayerName(game, pid)} paid ${manaCostStr}.`,
+            ts: Date.now(),
           });
-          return;
         }
-        
-        // Validate: permanent must not already be tapped
-        if ((permanent as any).tapped) {
+
+        // Validate: permanent must not already be tapped if tapping is part of the cost
+        if (requiresTap && (permanent as any).tapped) {
           socket.emit("error", {
             code: "ALREADY_TAPPED",
             message: `${cardName} is already tapped`,
           });
           return;
         }
-        
-        // Consume the mana from the pool
-        consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} paid ${manaCostStr}.`,
-          ts: Date.now(),
-        });
-        
-        // Tap the permanent (part of cost - paid immediately)
-        (permanent as any).tapped = true;
+
+        // Tap the permanent if required (part of cost - paid immediately)
+        if (requiresTap) {
+          (permanent as any).tapped = true;
+        }
         
         // Remove from battlefield (sacrifice - part of cost, paid immediately)
         battlefield.splice(permIndex, 1);
@@ -3571,6 +3580,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           abilityId, 
           cardName,
           manaCost: manaCostStr,
+          requiresTap,
         });
         
         broadcastGame(io, game, gameId);
@@ -3684,6 +3694,211 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
 
       debug(2, `[activateBattlefieldAbility] Equip ability on ${cardName}: queued TARGET_SELECTION (cost=${equipCost}, type=${equipType || 'any'})`);
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    // Handle fortify abilities (Fortification cards)
+    const hasExplicitFortifyAbilityId = /-fortify-(\d+)$/i.test(abilityId) || abilityId === 'fortify';
+    const fortifyMatch = oracleText.match(/fortify\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+    const isFortifyAbility = hasExplicitFortifyAbilityId && typeLine.includes('fortification') && fortifyMatch;
+
+    if (isFortifyAbility && fortifyMatch) {
+      const fortifyCost = fortifyMatch[1];
+      const validTargets = battlefield.filter((p: any) => {
+        if (p.controller !== pid) return false;
+        const pTypeLine = (p.card?.type_line || '').toLowerCase();
+        return pTypeLine.includes('land');
+      });
+
+      if (validTargets.length === 0) {
+        socket.emit('error', {
+          code: 'NO_VALID_TARGETS',
+          message: 'You have no lands to fortify',
+        });
+        return;
+      }
+
+      const activatedAbilityText = `Fortify ${fortifyCost}`;
+
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityType || (s as any)?.abilityId || '') === 'fortify' && String((s as any)?.fortificationId || (s as any)?.permanentId || s?.sourceId) === String(permanentId));
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: `Choose a land to fortify ${cardName} to (${fortifyCost}).`,
+          mandatory: false,
+          validTargets: validTargets.map((land: any) => ({
+            id: land.id,
+            label: land.card?.name || 'Land',
+            description: land.card?.type_line || 'Land',
+            imageUrl: land.card?.image_uris?.small || land.card?.image_uris?.normal,
+          })),
+          targetTypes: ['land'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'land you control',
+          battlefieldAbilityTargetSelection: true,
+          fortificationId: permanentId,
+          permanentId,
+          fortificationName: cardName,
+          cardName,
+          abilityId: 'fortify',
+          abilityText: activatedAbilityText,
+          activatedAbilityText,
+          abilityType: 'fortify',
+          fortifyCost,
+        } as any);
+      }
+
+      debug(2, `[activateBattlefieldAbility] Fortify ability on ${cardName}: queued TARGET_SELECTION (cost=${fortifyCost})`);
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    const hasExplicitReconfigureAttachAbilityId = /-reconfigure-attach-(\d+)$/i.test(abilityId);
+    const hasExplicitReconfigureUnattachAbilityId = /-reconfigure-unattach-(\d+)$/i.test(abilityId);
+    const reconfigureMatch = oracleText.match(/reconfigure\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+    const isReconfigureEquipment = typeLine.includes('equipment') && /\breconfigure\b/i.test(oracleText);
+
+    if (hasExplicitReconfigureAttachAbilityId && isReconfigureEquipment && reconfigureMatch) {
+      const reconfigureCost = reconfigureMatch[1];
+      const validTargets = battlefield.filter((p: any) => {
+        if (!p || p.controller !== pid) return false;
+        if (String(p.id) === String(permanentId)) return false;
+        return isCreatureNow(p);
+      });
+
+      if (validTargets.length === 0) {
+        socket.emit('error', {
+          code: 'NO_VALID_TARGETS',
+          message: 'You have no other creatures to attach this reconfigure permanent to',
+        });
+        return;
+      }
+
+      const activatedAbilityText = `Reconfigure ${reconfigureCost}`;
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityType || '') === 'reconfigure_attach' && String((s as any)?.reconfigureId || (s as any)?.permanentId || s?.sourceId) === String(permanentId));
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: `Choose a creature to attach ${cardName} to (Reconfigure ${reconfigureCost}).`,
+          mandatory: false,
+          validTargets: validTargets.map((c: any) => ({
+            id: c.id,
+            label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+            description: c.card?.type_line || 'Creature',
+            imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+          })),
+          targetTypes: ['creature'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'another creature you control',
+          battlefieldAbilityTargetSelection: true,
+          reconfigureId: permanentId,
+          permanentId,
+          reconfigureName: cardName,
+          cardName,
+          abilityId,
+          abilityText: 'Attach to target creature you control',
+          activatedAbilityText,
+          abilityType: 'reconfigure_attach',
+          reconfigureCost,
+          targetsOpponentCreatures: false,
+        } as any);
+      }
+
+      debug(2, `[activateBattlefieldAbility] Reconfigure attach ability on ${cardName}: queued TARGET_SELECTION (cost=${reconfigureCost})`);
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    if (hasExplicitReconfigureUnattachAbilityId && isReconfigureEquipment && reconfigureMatch) {
+      const reconfigureCost = reconfigureMatch[1];
+
+      if (!(permanent as any).attachedTo) {
+        socket.emit('error', {
+          code: 'INVALID_ACTIVATION',
+          message: `${cardName} is not attached to anything.`,
+        });
+        return;
+      }
+
+      const pool = getOrInitManaPool(game.state, pid);
+      const paid = validateAndConsumeManaCostFromPool(pool as any, reconfigureCost, { logPrefix: '[activateBattlefieldAbility:reconfigure-unattach]' });
+      if (!paid.ok) {
+        socket.emit('error', {
+          code: 'INSUFFICIENT_MANA',
+          message: (paid as any).error || `Cannot pay ${reconfigureCost}.`,
+        });
+        return;
+      }
+
+      broadcastManaPoolUpdate(io, gameId, pid, pool as any, `Activated ${cardName}`, game);
+
+      const stackItem = {
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability' as const,
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: 'Unattach this Equipment',
+        activatedAbilityText: `Reconfigure ${reconfigureCost}`,
+        abilityType: 'reconfigure_unattach',
+      } as any;
+
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(stackItem);
+
+      io.to(gameId).emit('stackUpdate', {
+        gameId,
+        stack: (game.state.stack || []).map((s: any) => ({
+          id: s.id,
+          type: s.type,
+          name: s.sourceName || s.card?.name || 'Ability',
+          controller: s.controller,
+          targets: s.targets,
+          source: s.source,
+          sourceName: s.sourceName,
+          description: s.description,
+        })),
+      });
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s ability: Unattach this Equipment`,
+        ts: Date.now(),
+      });
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+
+      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+        playerId: pid,
+        permanentId,
+        abilityId,
+        cardName,
+        abilityText: 'Unattach this Equipment',
+        activatedAbilityText: `Reconfigure ${reconfigureCost}`,
+        abilityType: 'reconfigure_unattach',
+      });
+
       broadcastGame(io, game, gameId);
       return;
     }
@@ -4342,53 +4557,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Handle Multi-Mode abilities (Staff of Domination, Trading Post, etc.)
-    // Import the multi-mode ability detection from triggered-abilities
-    const { detectMultiModeAbility } = await import("../state/modules/triggered-abilities.js");
-    const multiModeAbility = detectMultiModeAbility(card, permanent);
-    // Only treat as multi-mode if the ability ID explicitly indicates it (not just by card name)
-    // This allows individual abilities to be activated directly from the parsed ability list
-    const isMultiModeAbility = multiModeAbility && (
-      abilityId.includes("multi-mode") || 
-      abilityId === "multi-mode" ||
-      abilityId === "staff-multi-mode"
-    );
-    
-    if (isMultiModeAbility && multiModeAbility) {
-      // Unified Resolution Queue prompt
-      const existing = ResolutionQueueManager
-        .getStepsForPlayer(gameId, pid as any)
-        .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && (s as any)?.multiModeActivation === true && String(s?.sourceId) === String(permanentId));
-
-      if (!existing) {
-        const modes = (multiModeAbility.modes || []).map((m: any, idx: number) => ({
-          id: String(idx),
-          label: `${String(m?.name || 'Mode')} (${String(m?.cost || '').trim() || 'no cost'})`,
-          description: String(m?.effect || ''),
-        }));
-
-        ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.MODE_SELECTION,
-          playerId: pid as PlayerID,
-          sourceId: permanentId,
-          sourceName: cardName,
-          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-          description: `Choose a mode to activate for ${cardName}.`,
-          mandatory: false,
-          modes,
-          minModes: 1,
-          maxModes: 1,
-          allowDuplicates: false,
-          multiModeActivation: true,
-          multiModeAbilityId: abilityId,
-        } as any);
-      }
-
-      debug(2, `[activateBattlefieldAbility] Multi-mode ability on ${cardName}: queued mode selection step`);
-      broadcastGame(io, game, gameId);
-      return;
-    }
-    
     // Handle Station abilities (Spacecraft cards)
     // Station N (Rule 702.184a): "Tap another untapped creature you control: Put a number of 
     // charge counters on this permanent equal to the tapped creature's power."
@@ -4671,6 +4839,125 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    // Handle Monstrosity abilities (Rule 702.94)
+    // "{cost}: Monstrosity N" means "If this permanent isn't monstrous, put N +1/+1 counters on it and it becomes monstrous."
+    const monstrosityMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*monstrosity\s+(\d+)/i);
+    const isMonstrosityAbility = /-monstrosity-(\d+)$/i.test(abilityId);
+
+    if (isMonstrosityAbility && monstrosityMatch) {
+      const monstrosityCost = monstrosityMatch[1];
+      const monstrosityN = parseInt(monstrosityMatch[2], 10);
+      const isAlreadyMonstrous = (permanent as any).isMonstrous === true || (permanent as any).monstrous === true;
+
+      if (isAlreadyMonstrous) {
+        socket.emit("error", {
+          code: "ALREADY_MONSTROUS",
+          message: `${cardName} is already monstrous`,
+        });
+        return;
+      }
+
+      const parsedCost = parseManaCost(monstrosityCost);
+      const pool = getOrInitManaPool(game.state, pid);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+        return;
+      }
+
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:monstrosity]');
+
+      (permanent as any).counters = (permanent as any).counters || {};
+      const currentCounters = (permanent as any).counters['+1/+1'] || 0;
+      (permanent as any).counters['+1/+1'] = currentCounters + monstrosityN;
+      (permanent as any).isMonstrous = true;
+      (permanent as any).monstrous = true;
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `💪 ${getPlayerName(game, pid)} paid ${monstrosityCost} to make ${cardName} monstrous! (${monstrosityN} +1/+1 counter${monstrosityN !== 1 ? 's' : ''})`,
+        ts: Date.now(),
+      });
+
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      appendGameEvent(game, gameId, 'monstrosity', {
+        playerId: pid,
+        permanentId,
+        cardName,
+        cost: monstrosityCost,
+        countersAdded: monstrosityN,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    // Handle Adapt abilities (Rule 702.140)
+    // "{cost}: Adapt N" means "If this permanent has no +1/+1 counters on it, put N +1/+1 counters on it."
+    const adaptMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*adapt\s+(\d+)/i);
+    const isAdaptAbility = /-adapt-(\d+)$/i.test(abilityId);
+
+    if (isAdaptAbility && adaptMatch) {
+      const adaptCost = adaptMatch[1];
+      const adaptN = parseInt(adaptMatch[2], 10);
+      const currentCounters = Number((permanent as any)?.counters?.['+1/+1'] || 0);
+
+      if (currentCounters > 0) {
+        socket.emit("error", {
+          code: "ALREADY_HAS_COUNTERS",
+          message: `${cardName} already has +1/+1 counters`,
+        });
+        return;
+      }
+
+      const parsedCost = parseManaCost(adaptCost);
+      const pool = getOrInitManaPool(game.state, pid);
+      const totalAvailable = calculateTotalAvailableMana(pool, []);
+
+      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+      if (validationError) {
+        socket.emit("error", { code: "INSUFFICIENT_MANA", message: validationError });
+        return;
+      }
+
+      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:adapt]');
+
+      (permanent as any).counters = (permanent as any).counters || {};
+      (permanent as any).counters['+1/+1'] = currentCounters + adaptN;
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `💪 ${getPlayerName(game, pid)} paid ${adaptCost} to adapt ${cardName}! (${adaptN} +1/+1 counter${adaptN !== 1 ? 's' : ''})`,
+        ts: Date.now(),
+      });
+
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      appendGameEvent(game, gameId, 'adapt', {
+        playerId: pid,
+        permanentId,
+        cardName,
+        cost: adaptCost,
+        countersAdded: adaptN,
+        ts: Date.now(),
+      });
+
       broadcastGame(io, game, gameId);
       return;
     }
@@ -5455,6 +5742,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       abilityIndex = parseInt(abilityMatch[1], 10);
       if (isNaN(abilityIndex)) abilityIndex = 0;
     }
+    const isBoastAbility = /-boast-\d+$/i.test(String(abilityId || ''));
     
     // Extract ability text by parsing oracle text for activated abilities
     let abilityText = "";
@@ -5604,6 +5892,25 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (abilityHasCondition || (utilityLandAbility?.activationCondition === 'attacked_with_two_or_more')) {
       const creaturesAttacked = (game.state as any).creaturesAttackedThisTurn?.[pid] || 0;
       debug(2, `[activateBattlefieldAbility] ${cardName} activation condition met: attacked with ${creaturesAttacked} creatures this turn`);
+    }
+
+    if (isBoastAbility) {
+      const attackedThisTurn = (permanent as any)?.attackedThisTurn === true || !!(permanent as any)?.attacking || (permanent as any)?.isAttacking === true;
+      if (!attackedThisTurn) {
+        socket.emit('error', {
+          code: 'ACTIVATION_CONDITION_NOT_MET',
+          message: `${cardName}'s boast ability can only be activated if it attacked this turn.`,
+        });
+        return;
+      }
+
+      if ((permanent as any)?.activatedThisTurn === true) {
+        socket.emit('error', {
+          code: 'ABILITY_ALREADY_USED',
+          message: `${cardName}'s boast ability has already been activated this turn.`,
+        });
+        return;
+      }
     }
 
     // ========================================================================
@@ -8030,6 +8337,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const tutorInfo = detectTutorEffect(abilityText);
 
       const activatedAbilityTextForStack = String(abilityConditionText || '').trim() || (manaCost ? `${manaCost}: ${abilityText}` : abilityText);
+
+      if (isBoastAbility) {
+        (permanent as any).activatedThisTurn = true;
+      }
       
       if (tutorInfo.isTutor) {
         // This is a tutor effect - handle library search
@@ -8849,9 +9160,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Legacy confirmCounterMovement handler removed - now using resolution queue system
 
   // Station creature selection is handled via Resolution Queue (see socket/resolution.ts)
-
-  // Multi-mode activation and any follow-up targeting are handled via Resolution Queue
-  // (ResolutionStepType.MODE_SELECTION + ResolutionStepType.TARGET_SELECTION).
 
   // Forbidden Orchard opponent selection is handled via Resolution Queue (see socket/resolution.ts)
 

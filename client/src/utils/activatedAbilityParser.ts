@@ -679,6 +679,64 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       });
     }
   }
+
+  // Parse activated abilities with non-braced text-only costs such as
+  // "Sacrifice Commander's Sphere: Draw a card."
+  const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
+  for (const sentence of sentences) {
+    const abilityMatch = sentence.match(textOnlyActivatedAbilityPattern);
+    if (!abilityMatch) continue;
+
+    const costPart = abilityMatch[1].trim();
+    const effectPart = abilityMatch[2].trim();
+    if (!costPart || !effectPart) continue;
+    if (triggeredAbilityPattern.test(effectPart)) continue;
+
+    const effectPrefix = effectPart.toLowerCase().slice(0, Math.min(30, effectPart.length));
+    const alreadyParsed = abilities.some(a =>
+      a.cost.toLowerCase() === costPart.toLowerCase() ||
+      a.effect.toLowerCase().startsWith(effectPrefix)
+    );
+    if (alreadyParsed) continue;
+
+    const costComponents = parseCostComponents(costPart);
+    const requiresTarget = /\btarget\b/i.test(effectPart);
+    let targetDescription: string | undefined;
+    if (requiresTarget) {
+      const targetMatch = effectPart.match(/target\s+([^.]+)/i);
+      if (targetMatch) {
+        targetDescription = targetMatch[1].trim();
+      }
+    }
+
+    let label: string;
+    const shortEffect = effectPart.split('.')[0];
+    if (shortEffect.length <= 30) {
+      label = shortEffect;
+    } else if (costComponents.requiresSacrifice) {
+      label = 'Sacrifice: ' + shortEffect.split(' ').slice(0, 2).join(' ') + '...';
+    } else if (requiresTarget) {
+      label = targetDescription
+        ? `Target ${targetDescription.split(' ').slice(0, 2).join(' ')}...`
+        : 'Target';
+    } else {
+      label = effectPart.split(' ').slice(0, 4).join(' ') + '...';
+    }
+
+    abilities.push({
+      id: `${card.id}-ability-${abilityIndex++}`,
+      label,
+      description: effectPart.length > 100 ? effectPart.slice(0, 97) + '...' : effectPart,
+      cost: costPart,
+      effect: effectPart,
+      ...costComponents,
+      isManaAbility: false,
+      isLoyaltyAbility: false,
+      isFetchAbility: false,
+      requiresTarget,
+      targetDescription,
+    });
+  }
   
   // ======== "TAP: ADD" PATTERN (simpler mana abilities) ========
   // For artifacts and creatures with simple mana abilities not caught above

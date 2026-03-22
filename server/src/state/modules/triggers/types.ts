@@ -525,20 +525,6 @@ export interface ConditionalETBTapped {
 }
 
 /**
- * Multi-mode activated ability
- */
-export interface MultiModeActivatedAbility {
-  permanentId: string;
-  cardName: string;
-  controllerId: string;
-  modes: Array<{
-    cost: string;
-    effect: string;
-    description: string;
-  }>;
-}
-
-/**
  * Library reveal/play effect
  */
 export interface LibraryRevealPlayEffect {

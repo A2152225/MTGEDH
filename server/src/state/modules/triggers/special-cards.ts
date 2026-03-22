@@ -55,9 +55,6 @@ export {
   detectConditionalETBTapped,
   checkConditionalETBMet,
   
-  // Multi-mode abilities
-  detectMultiModeAbility,
-  
   // Hideaway
   detectHideawayAbility,
   

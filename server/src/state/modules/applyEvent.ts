@@ -2378,7 +2378,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const retargetMaxTargets = Number((e as any).copyRetargetMaxTargets ?? NaN);
             const retargetTargetDescription = String((e as any).copyRetargetTargetDescription || '');
             const persistedTargets = Array.isArray((e as any).targets) ? (e as any).targets : null;
-            const isEquipActivation = String((e as any).abilityId || '').trim().toLowerCase() === 'equip';
+            const persistedAbilityType = String((e as any).abilityType || (e as any).abilityId || '').trim().toLowerCase();
+            const isEquipActivation = persistedAbilityType === 'equip';
+            const isFortifyActivation = persistedAbilityType === 'fortify';
+            const isReconfigureAttachActivation = persistedAbilityType === 'reconfigure_attach';
             if (retargetValidTargets || persistedTargets) {
               const stack = Array.isArray((stateAny as any).stack) ? (stateAny as any).stack : (Array.isArray(ctx.state.stack) ? ctx.state.stack : []);
               if (Array.isArray(stack) && stack.length > 0) {
@@ -2408,6 +2411,30 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                       equipmentId: String(permId || ''),
                       targetCreatureId,
                       equipmentName: String((e as any).cardName || item.sourceName || 'Equipment'),
+                      targetCreatureName: String(validTarget?.name || ''),
+                    };
+                  } else if (isFortifyActivation) {
+                    const targetLandId = String(persistedTargets?.[0] || '');
+                    const validTarget = retargetValidTargets
+                      ? retargetValidTargets.find((target: any) => String(target?.id || '') === targetLandId)
+                      : null;
+                    (item as any).abilityType = 'fortify';
+                    (item as any).fortifyParams = {
+                      fortificationId: String(permId || ''),
+                      targetLandId,
+                      fortificationName: String((e as any).cardName || item.sourceName || 'Fortification'),
+                      targetLandName: String(validTarget?.name || ''),
+                    };
+                  } else if (isReconfigureAttachActivation) {
+                    const targetCreatureId = String(persistedTargets?.[0] || '');
+                    const validTarget = retargetValidTargets
+                      ? retargetValidTargets.find((target: any) => String(target?.id || '') === targetCreatureId)
+                      : null;
+                    (item as any).abilityType = 'reconfigure_attach';
+                    (item as any).reconfigureParams = {
+                      reconfigureId: String(permId || ''),
+                      targetCreatureId,
+                      reconfigureName: String((e as any).cardName || item.sourceName || 'Equipment'),
                       targetCreatureName: String(validTarget?.name || ''),
                     };
                   }

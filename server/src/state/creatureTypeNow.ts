@@ -65,6 +65,17 @@ function permanentAddsChosenCreatureTypeToSelf(permanent: any): boolean {
 export function isCreatureNow(permanent: any): boolean {
   if (!permanent) return false;
 
+  const oracleText = String(permanent?.oracle_text || permanent?.card?.oracle_text || '').toLowerCase();
+  const effectiveTypeLine = getEffectiveTypeLine(permanent).toLowerCase();
+
+  if (
+    permanent?.attachedTo &&
+    /\b(bestow|reconfigure)\b/.test(oracleText) &&
+    (/\benchantment\b/.test(effectiveTypeLine) || /\bequipment\b/.test(effectiveTypeLine))
+  ) {
+    return false;
+  }
+
   // Highest-priority explicit flags used by animation effects.
   if (permanent.isCreature === true) return true;
   if (permanent.animated === true) return true;
@@ -115,7 +126,6 @@ export function isCreatureNow(permanent: any): boolean {
     if (permanent.grantedTypes.includes('Creature')) return true;
   }
 
-  const effectiveTypeLine = getEffectiveTypeLine(permanent).toLowerCase();
   return effectiveTypeLine.includes('creature');
 }
 

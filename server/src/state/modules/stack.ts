@@ -38,6 +38,7 @@ import {
 import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { detectCombatDamageTriggers } from "./triggers/index.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
+import { isCreatureNow } from "../creatureTypeNow.js";
 import { handleElixirShuffle, handleEldraziShuffle } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand } from "./zones.js";
@@ -125,6 +126,8 @@ function cloneStackItemForAbilityCopy(
     searchParams: (original as any).searchParams ? { ...(original as any).searchParams } : (original as any).searchParams,
     upgradeData: (original as any).upgradeData ? { ...(original as any).upgradeData } : (original as any).upgradeData,
     equipParams: (original as any).equipParams ? { ...(original as any).equipParams } : (original as any).equipParams,
+    fortifyParams: (original as any).fortifyParams ? { ...(original as any).fortifyParams } : (original as any).fortifyParams,
+    reconfigureParams: (original as any).reconfigureParams ? { ...(original as any).reconfigureParams } : (original as any).reconfigureParams,
     copiedFromStackItemId: targetStackItemId,
     copiedBySourceName: sourceName,
     isCopy: true,
@@ -7039,8 +7042,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
       
       // Verify target is still a legal creature
-      const targetTypeLine = (targetCreature.card?.type_line || "").toLowerCase();
-      if (!targetTypeLine.includes("creature")) {
+      if (!isCreatureNow(targetCreature)) {
         debug(2, `[resolveTopOfStack] Target ${targetCreatureName || targetCreatureId} is no longer a creature`);
         bumpSeq();
         return;
@@ -7075,6 +7077,156 @@ export function resolveTopOfStack(ctx: GameContext) {
       targetCreature.isEquipped = true;
       
       debug(2, `[resolveTopOfStack] ${equipmentName || 'Equipment'} equipped to ${targetCreatureName || 'creature'}`);
+      bumpSeq();
+      return;
+    }
+
+    if (abilityType === 'reconfigure_attach') {
+      debug(2, `[resolveTopOfStack] Resolving reconfigure attach ability from ${sourceName} for ${controller}`);
+
+      const reconfigureParams = (item as any).reconfigureParams || {};
+      const { reconfigureId, targetCreatureId, reconfigureName, targetCreatureName } = reconfigureParams;
+
+      if (!reconfigureId || !targetCreatureId) {
+        debugWarn(2, `[resolveTopOfStack] Reconfigure attach ability missing parameters`);
+        bumpSeq();
+        return;
+      }
+
+      const battlefield = state.battlefield || [];
+      const equipment = battlefield.find((p: any) => p.id === reconfigureId);
+      const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+
+      if (!equipment) {
+        debug(2, `[resolveTopOfStack] Reconfigure source ${reconfigureName || reconfigureId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      if (!targetCreature) {
+        debug(2, `[resolveTopOfStack] Reconfigure target ${targetCreatureName || targetCreatureId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      if (!isCreatureNow(targetCreature)) {
+        debug(2, `[resolveTopOfStack] Reconfigure target ${targetCreatureName || targetCreatureId} is no longer a creature`);
+        bumpSeq();
+        return;
+      }
+
+      if (equipment.attachedTo) {
+        const previousTarget = battlefield.find((p: any) => p?.id === equipment.attachedTo);
+        if (previousTarget && previousTarget.attachedEquipment) {
+          previousTarget.attachedEquipment = (previousTarget.attachedEquipment as string[]).filter(
+            (id: string) => id !== reconfigureId
+          );
+          if (previousTarget.attachedEquipment.length === 0) {
+            previousTarget.isEquipped = false;
+          }
+        }
+      }
+
+      equipment.attachedTo = targetCreatureId;
+      if (!targetCreature.attachedEquipment) {
+        targetCreature.attachedEquipment = [];
+      }
+      if (!targetCreature.attachedEquipment.includes(reconfigureId)) {
+        targetCreature.attachedEquipment.push(reconfigureId);
+      }
+      targetCreature.isEquipped = true;
+
+      debug(2, `[resolveTopOfStack] ${reconfigureName || 'Reconfigure permanent'} attached to ${targetCreatureName || 'creature'}`);
+      bumpSeq();
+      return;
+    }
+
+    if (abilityType === 'reconfigure_unattach') {
+      debug(2, `[resolveTopOfStack] Resolving reconfigure unattach ability from ${sourceName} for ${controller}`);
+
+      const battlefield = state.battlefield || [];
+      const sourcePermanentId = String((item as any).source || '');
+      const equipment = battlefield.find((p: any) => p.id === sourcePermanentId);
+      if (!equipment) {
+        debug(2, `[resolveTopOfStack] Reconfigure source ${sourceName || sourcePermanentId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      if (equipment.attachedTo) {
+        const previousTarget = battlefield.find((p: any) => p?.id === equipment.attachedTo);
+        if (previousTarget && previousTarget.attachedEquipment) {
+          previousTarget.attachedEquipment = (previousTarget.attachedEquipment as string[]).filter(
+            (id: string) => id !== equipment.id
+          );
+          if (previousTarget.attachedEquipment.length === 0) {
+            previousTarget.isEquipped = false;
+          }
+        }
+      }
+
+      delete equipment.attachedTo;
+      debug(2, `[resolveTopOfStack] ${sourceName || 'Reconfigure permanent'} became unattached`);
+      bumpSeq();
+      return;
+    }
+
+    if (abilityType === 'fortify') {
+      debug(2, `[resolveTopOfStack] Resolving fortify ability from ${sourceName} for ${controller}`);
+
+      const fortifyParams = (item as any).fortifyParams || {};
+      const { fortificationId, targetLandId, fortificationName, targetLandName } = fortifyParams;
+
+      if (!fortificationId || !targetLandId) {
+        debugWarn(2, `[resolveTopOfStack] Fortify ability missing parameters`);
+        bumpSeq();
+        return;
+      }
+
+      const battlefield = state.battlefield || [];
+      const fortification = battlefield.find((p: any) => p.id === fortificationId);
+      const targetLand = battlefield.find((p: any) => p.id === targetLandId);
+
+      if (!fortification) {
+        debug(2, `[resolveTopOfStack] Fortification ${fortificationName || fortificationId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      if (!targetLand) {
+        debug(2, `[resolveTopOfStack] Target land ${targetLandName || targetLandId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      const targetTypeLine = (targetLand.card?.type_line || '').toLowerCase();
+      if (!targetTypeLine.includes('land')) {
+        debug(2, `[resolveTopOfStack] Target ${targetLandName || targetLandId} is no longer a land`);
+        bumpSeq();
+        return;
+      }
+
+      if (fortification.attachedTo) {
+        const previousTarget = battlefield.find((p: any) => p?.id === fortification.attachedTo);
+        if (previousTarget && previousTarget.attachedEquipment) {
+          previousTarget.attachedEquipment = (previousTarget.attachedEquipment as string[]).filter(
+            (id: string) => id !== fortificationId
+          );
+          if (previousTarget.attachedEquipment.length === 0) {
+            previousTarget.isEquipped = false;
+          }
+        }
+      }
+
+      fortification.attachedTo = targetLandId;
+      if (!targetLand.attachedEquipment) {
+        targetLand.attachedEquipment = [];
+      }
+      if (!targetLand.attachedEquipment.includes(fortificationId)) {
+        targetLand.attachedEquipment.push(fortificationId);
+      }
+
+      debug(2, `[resolveTopOfStack] ${fortificationName || 'Fortification'} fortified ${targetLandName || 'land'}`);
       bumpSeq();
       return;
     }
