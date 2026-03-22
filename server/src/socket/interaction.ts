@@ -3556,7 +3556,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Handle equip abilities (equipment cards)
     // Check if this is an equip ability - abilityId contains "equip" or it's an equipment with equip cost
     const isEquipment = typeLine.includes("equipment");
-    const isEquipAbility = abilityId.includes("equip") || (isEquipment && oracleText.includes("equip"));
+    const hasExplicitEquipAbilityId = /-equip-(\d+)$/i.test(abilityId) || abilityId === 'equip';
+    const equipAbilityText = hasExplicitEquipAbilityId ? oracleText : scopedAbilityFullText;
+    const isEquipAbility = hasExplicitEquipAbilityId || (isEquipment && /\bequip\b/i.test(equipAbilityText));
     if (isEquipAbility) {
       // Parse all equip abilities from oracle text to match the one being activated
       // Format: "Equip [type] [creature] {cost}" e.g., "Equip legendary creature {3}" or "Equip {7}"
@@ -3565,7 +3567,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const equipAbilities: { type: string | null; cost: string; index: number }[] = [];
       let equipMatch;
       let index = 0;
-      while ((equipMatch = equipRegex.exec(oracleText)) !== null) {
+      while ((equipMatch = equipRegex.exec(equipAbilityText)) !== null) {
         const conditionalType = equipMatch[1]?.trim() || null; // "legendary", "Knight", etc.
         const cost = equipMatch[2];
         equipAbilities.push({ type: conditionalType, cost, index: index++ });
@@ -4238,10 +4240,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Handle Crew abilities (Vehicle cards)
     // Crew N: Tap creatures with total power N or more to make this Vehicle an artifact creature
     const isVehicle = typeLine.includes("vehicle");
-    const isCrewAbility = abilityId.includes("crew") || (isVehicle && oracleText.includes("crew"));
+    const hasExplicitCrewAbilityId = /-crew-(\d+)$/i.test(abilityId) || abilityId === 'crew';
+    const crewAbilityText = hasExplicitCrewAbilityId ? oracleText : scopedAbilityFullText;
+    const isCrewAbility = hasExplicitCrewAbilityId || (isVehicle && /\bcrew\b/i.test(crewAbilityText));
     if (isCrewAbility) {
       // Parse crew power requirement from oracle text
-      const crewMatch = oracleText.match(/crew\s*(\d+)/i);
+      const crewMatch = crewAbilityText.match(/crew\s*(\d+)/i);
       const crewPower = crewMatch ? parseInt(crewMatch[1], 10) : 0;
       
       // Get valid creatures that can crew (untapped creatures the player controls)
@@ -4363,10 +4367,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Station N (Rule 702.184a): "Tap another untapped creature you control: Put a number of 
     // charge counters on this permanent equal to the tapped creature's power."
     const isSpacecraft = typeLine.includes("spacecraft");
-    const isStationAbility = abilityId.includes("station") || (isSpacecraft && oracleText.includes("station"));
+    const hasExplicitStationAbilityId = /-station-(\d+)$/i.test(abilityId) || abilityId === 'station';
+    const stationAbilityText = hasExplicitStationAbilityId ? oracleText : scopedAbilityFullText;
+    const isStationAbility = hasExplicitStationAbilityId || (isSpacecraft && /\bstation\b/i.test(stationAbilityText));
     if (isStationAbility) {
       // Parse station threshold from oracle text
-      const stationThreshold = parseStationThreshold(oracleText);
+      const stationThreshold = parseStationThreshold(stationAbilityText);
       
       // Per Rule 702.184a, station is activated at sorcery speed
       // Check if it's the player's turn and main phase
@@ -4459,8 +4465,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Handle Level Up abilities (Rule 702.87)
     // "Level up [cost]" means "[Cost]: Put a level counter on this permanent. Activate only as a sorcery."
     const levelUpMatch = oracleText.match(/level\s+up\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
-    const isLevelUpAbility = abilityId.includes("level-up") || abilityId.includes("levelup") || 
-      (levelUpMatch && abilityId.includes("level"));
+    const isLevelUpAbility = /-level-up-(\d+)$/i.test(abilityId) || /-levelup-(\d+)$/i.test(abilityId) || abilityId === 'level-up';
     
     if (isLevelUpAbility && levelUpMatch) {
       const levelUpCost = levelUpMatch[1];
@@ -4560,8 +4565,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Handle Outlast abilities (Rule 702.107)
     // "Outlast [cost]" means "[Cost], {T}: Put a +1/+1 counter on this creature. Activate only as a sorcery."
     const outlastMatch = oracleText.match(/outlast\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
-    const isOutlastAbility = abilityId.includes("outlast") || 
-      (outlastMatch && abilityId.includes("outlast"));
+    const isOutlastAbility = /-outlast-(\d+)$/i.test(abilityId) || abilityId === 'outlast';
     
     if (isOutlastAbility && outlastMatch) {
       const outlastCost = outlastMatch[1];

@@ -294,4 +294,239 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     const sourcePermanent = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'nest_1');
     expect(Boolean(sourcePermanent?.tapped)).toBe(true);
   });
+
+  it('does not let crew hijack a Vehicle\'s separate generic activated ability', async () => {
+    const crewGameId = `${gameId}_crew`;
+    ResolutionQueueManager.removeQueue(crewGameId);
+    games.delete(crewGameId as any);
+
+    createGameIfNotExists(crewGameId, 'commander', 40);
+    const game = ensureGame(crewGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [{ id: 'drawn_crew_1', name: 'Drawn Card', type_line: 'Artifact', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'vehicle_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'vehicle_card_1',
+          name: 'Survey Skiff',
+          type_line: 'Artifact — Vehicle',
+          oracle_text: '{T}: Draw a card.\nCrew 3.',
+        },
+      },
+      {
+        id: 'crew_helper_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'crew_helper_card_1',
+          name: 'Test Driver',
+          type_line: 'Creature — Pilot',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(crewGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: crewGameId, permanentId: 'vehicle_1', abilityId: 'vehicle_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(crewGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('draw a card');
+
+    const vehicle = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'vehicle_1');
+    expect(Boolean(vehicle?.tapped)).toBe(true);
+  });
+
+  it('does not let station hijack a Spacecraft\'s separate generic activated ability', async () => {
+    const stationGameId = `${gameId}_station`;
+    ResolutionQueueManager.removeQueue(stationGameId);
+    games.delete(stationGameId as any);
+
+    createGameIfNotExists(stationGameId, 'commander', 40);
+    const game = ensureGame(stationGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'precombat_main';
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [{ id: 'drawn_station_1', name: 'Drawn Card', type_line: 'Artifact', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'spacecraft_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'spacecraft_card_1',
+          name: 'Cartographer Shuttle',
+          type_line: 'Artifact — Spacecraft',
+          oracle_text: '{T}: Draw a card.\nStation 3\n3+ | This becomes an artifact creature.',
+        },
+      },
+      {
+        id: 'station_helper_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'station_helper_card_1',
+          name: 'Test Astronaut',
+          type_line: 'Creature — Human',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(stationGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: stationGameId, permanentId: 'spacecraft_1', abilityId: 'spacecraft_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(stationGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('draw a card');
+
+    const spacecraft = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'spacecraft_1');
+    expect(Boolean(spacecraft?.tapped)).toBe(true);
+  });
+
+  it('does not let equip hijack an Equipment\'s separate generic activated ability', async () => {
+    const equipGameId = `${gameId}_equip`;
+    ResolutionQueueManager.removeQueue(equipGameId);
+    games.delete(equipGameId as any);
+
+    createGameIfNotExists(equipGameId, 'commander', 40);
+    const game = ensureGame(equipGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [{ id: 'drawn_equip_1', name: 'Drawn Card', type_line: 'Artifact', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'equipment_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'equipment_card_1',
+          name: 'Survey Blade',
+          type_line: 'Artifact — Equipment',
+          oracle_text: '{T}: Draw a card.\nEquip {2}',
+        },
+      },
+      {
+        id: 'equip_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'equip_target_card_1',
+          name: 'Test Soldier',
+          type_line: 'Creature — Soldier',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(equipGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: equipGameId, permanentId: 'equipment_1', abilityId: 'equipment_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(equipGameId);
+    expect(queue.steps).toHaveLength(0);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '').toLowerCase()).toContain('draw a card');
+
+    const equipment = (game.state as any).battlefield.find((permanent: any) => permanent.id === 'equipment_1');
+    expect(Boolean(equipment?.tapped)).toBe(true);
+  });
 });
