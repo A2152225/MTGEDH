@@ -17,6 +17,17 @@
  * - Handles the recursive nature of MTG templating language
  */
 
+import {
+  normalizeOracleTextSelfReferences,
+  splitOracleTextIntoParseLines,
+} from './oracleTextParserPreprocess';
+import {
+  hasTargeting,
+  isManaProducingAbility,
+  parseKeywordsFromOracleText,
+  parseTargets,
+} from './oracleTextParserSupport';
+
 /**
  * Parsed ability structure
  */
@@ -79,31 +90,6 @@ export interface OracleTextParseResult {
   readonly isReplacement: boolean;
   readonly hasTargets: boolean;
   readonly hasModes: boolean;
-}
-
-function buildSelfReferenceAliases(cardName?: string): string[] {
-  const raw = String(cardName || '').trim();
-  if (!raw) return [];
-
-  const aliases = new Set<string>();
-  const pushAlias = (value: string): void => {
-    const normalized = String(value || '').trim();
-    if (!normalized) return;
-    aliases.add(normalized);
-  };
-
-  pushAlias(raw);
-
-  for (const face of raw.split(/\s*\/\/\s*/).map(part => part.trim()).filter(Boolean)) {
-    pushAlias(face);
-
-    const commaHead = face.split(',')[0]?.trim();
-    if (commaHead && commaHead.length >= 4) {
-      pushAlias(commaHead);
-    }
-  }
-
-  return [...aliases].sort((a, b) => b.length - a.length || a.localeCompare(b));
 }
 
 // =============================================================================
@@ -510,188 +496,12 @@ export function parseDelayedTrigger(text: string): { effect: string; timing: str
  * periods), they are typically part of the same effect. This is why we include common
  * action verbs like "Draw", "Exile", etc. as continuation patterns.
  */
-const CONTINUATION_SENTENCE_PATTERNS = [
-  /^then\b/i,          // Sequential action: "Then draw a card"
-  /^\(/,               // Reminder/parenthetical continuation: "(You may ... )"
-  /^you\b/i,           // Continuation of effect on player: "You may...", "You gain..."
-  /^if\b/i,            // Conditional modifier: "If you do..."
-  /^choose\b/i,         // Intervening choice that refers to previous sentence: "Choose one of them"
-  /^when\s+you\s+do\b/i,  // Reflexive trigger: "When you do, X happens"
-  /^whenever\s+you\s+do\b/i,  // Reflexive trigger: "Whenever you do, X happens"
-  /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\b/i, // Delayed trigger created by a spell/ability
-  /^at\s+end\s+of\s+combat\b/i, // Delayed trigger created by a spell/ability
-  /^at\s+(?:the\s+)?end\s+of\s+turn\b/i, // Oracle shorthand for next end step delayed trigger
-  /^create\b/i,        // Token creation as continuation (often follows an effect)
-  /^those\b/i,         // Reference to previous objects
-  /^that\b/i,          // Reference to previous object/effect: "That creature gains..."
-  /^return\b/i,        // Return action as continuation (often after exile)
-  /^it\b/i,            // Reference to previous object: "It gains...", "It becomes..."
-  /^until\b/i,         // Duration modifier: "Until end of turn"
-  /^through\b/i,       // Duration modifier: "Through end of turn"
-  /^as\s+long\s+as\b/i, // Condition/duration modifier: "As long as ..."
-  /^during\b/i,        // Timing window modifier: "During your next turn ..."
-  /^put\b/i,           // Put action as continuation (counters, cards in zones)
-  /^activate\b/i,      // Activation restriction: "Activate only as a sorcery"
-  /^this\b/i,          // Reference to the card itself as continuation
-  /^for\b/i,           // Purpose/restriction clause
-  /^spend\b/i,         // Mana spending restriction: "Spend this mana only to..."
-  /^they\b/i,          // Reference to previous subjects
-  /^each\b/i,          // Continuation affecting each player/permanent
-  /^otherwise\b/i,     // Alternative clause
-  /^instead\b/i,       // Replacement continuation
-  /^draw\b/i,          // Draw as continuation: "Destroy X. Draw a card."
-  /^exile\b/i,         // Exile as continuation: "Destroy X. Exile it." / "Choose target. Exile the top card ..."
-  /^shuffle\b/i,       // Shuffle as continuation: "Search library. Shuffle."
-  /^(?:sacrifice|exile)\s+(?:it|them|that token|those tokens|the token|the tokens)\b/i, // Follow-up cleanup for created/affected objects
-];
-
-/**
- * Check if a sentence is a continuation of the previous sentence
- * rather than an independent effect.
- * 
- * @param sentence The sentence to check (trimmed)
- * @returns true if this sentence should be merged with the previous one
- */
-function isContinuationSentence(sentence: string): boolean {
-  const trimmed = sentence.trim();
-  
-  // Check against all continuation patterns
-  return CONTINUATION_SENTENCE_PATTERNS.some(pattern => pattern.test(trimmed));
-}
-
-/**
- * Merge sentences that are continuations with their preceding sentences.
- * This handles cases where a period separates what is logically one ability
- * into multiple sentences for readability.
- * 
- * Note: Continuation sentences in MTG oracle text maintain proper capitalization
- * after periods even though they're part of the same ability. We preserve this
- * by simply concatenating with a space.
- * 
- * @param sentences Array of sentences split by periods
- * @returns Array of merged sentences where continuations are combined
- */
-function mergeContinuationSentences(sentences: string[]): string[] {
-  const merged: string[] = [];
-  
-  for (const sentence of sentences) {
-    const trimmed = sentence.trim();
-    if (!trimmed) continue;
-    
-    // Check if this is a continuation sentence
-    if (merged.length > 0 && isContinuationSentence(trimmed)) {
-      // Merge with the previous sentence
-      // Preserve original capitalization by concatenating with a space
-      merged[merged.length - 1] = merged[merged.length - 1] + ' ' + trimmed;
-    } else {
-      // This is a new independent sentence
-      merged.push(trimmed);
-    }
-  }
-  
-  return merged;
-}
-
-/**
- * Check if effect text produces mana
- */
-function isManaProducingAbility(effectText: string): boolean {
-  const text = effectText.toLowerCase();
-  
-  // Check for explicit mana symbols
-  if (/\{[wubrgc]\}/i.test(text)) return true;
-  
-  // Check for "add mana" patterns
-  if (/add\s+\{/.test(text)) return true;
-  if (/add\s+(one|two|three)?\s*mana/.test(text)) return true;
-  if (/mana of any (type|color)/.test(text)) return true;
-  
-  return false;
-}
-
-/**
- * Check if effect text has targeting
- */
-function hasTargeting(effectText: string): boolean {
-  return /\btarget\b/i.test(effectText);
-}
-
-/**
- * Parse target types from effect text
- */
-function parseTargets(effectText: string): string[] {
-  const targets: string[] = [];
-  const text = effectText.toLowerCase();
-  
-  // Common target patterns
-  const patterns = [
-    { pattern: /target\s+creature/, type: 'creature' },
-    { pattern: /target\s+player/, type: 'player' },
-    { pattern: /target\s+opponent/, type: 'opponent' },
-    { pattern: /target\s+permanent/, type: 'permanent' },
-    { pattern: /target\s+artifact/, type: 'artifact' },
-    { pattern: /target\s+enchantment/, type: 'enchantment' },
-    { pattern: /target\s+planeswalker/, type: 'planeswalker' },
-    { pattern: /target\s+land/, type: 'land' },
-    { pattern: /target\s+spell/, type: 'spell' },
-    { pattern: /any\s+target/, type: 'any' },
-  ];
-  
-  for (const { pattern, type } of patterns) {
-    if (pattern.test(text)) {
-      targets.push(type);
-    }
-  }
-  
-  return targets;
-}
 
 /**
  * Parse keywords from card oracle text
  */
 export function parseKeywords(oracleText: string): string[] {
-  const keywords: string[] = [];
-  const text = oracleText.toLowerCase();
-  
-  // Common keywords (alphabetical)
-  const keywordList = [
-    'absorb', 'affinity', 'afflict', 'afterlife', 'aftermath', 'amplify', 'annihilator',
-    'backup', 'banding', 'bargain', 'battalion', 'battle cry', 'bestow', 'blitz', 'bloodthirst',
-    'bushido', 'buyback', 'cascade', 'casualty', 'celebration', 'champion', 'changeling',
-    'cipher', 'cleave', 'companion', 'compleated', 'conjure', 'connive', 'conspire', 'convoke',
-    'corrupted', 'crew', 'cumulative upkeep', 'cycling', 'dash', 'daybound', 'deathtouch',
-    'decayed', 'defender', 'delve', 'demonstrate', 'descend', 'detain', 'devotion', 'devour',
-    'discover', 'disguise', 'disappear', 'disturb', 'domain', 'double strike', 'dredge', 'echo', 'embalm',
-    'emerge', 'enchant', 'encore', 'enlist', 'enrage', 'entwine', 'equip', 'escalate', 'escape',
-    'eternalize', 'evoke', 'evolve', 'exalted', 'exploit', 'explore', 'extort', 'fabricate',
-    'fading', 'fear', 'ferocious', 'fight', 'first strike', 'flanking', 'flash', 'flashback',
-    'flying', 'for mirrodin!', 'forecast', 'foretell', 'formidable', 'friends forever', 'fuse',
-    'goad', 'graft', 'gravestorm', 'haste', 'haunt', 'hellbent', 'heroic', 'hexproof',
-    'hideaway', 'horsemanship', 'imprint', 'improvise', 'incubate', 'indestructible', 'infect',
-    'inspired', 'intimidate', 'investigate', 'islandwalk', 'jump-start', 'kicker', 'kinship',
-    'landfall', 'landwalk', 'learn', 'level up', 'lifelink', 'living weapon', 'madness',
-    'magecraft', 'manifest', 'megamorph', 'meld', 'menace', 'mentor', 'metalcraft', 'mill',
-    'miracle', 'modular', 'monstrosity', 'morbid', 'morph', 'mountainwalk', 'mutate', 'ninjutsu',
-    'nightbound', 'offering', 'offspring', 'outlast', 'overload', 'partner', 'partner with',
-    'persist', 'phasing', 'plainswalk', 'plot', 'populate', 'proliferate', 'protection',
-    'provoke', 'prowess', 'prowl', 'radiance', 'raid', 'rally', 'rampage', 'reach', 'rebound',
-    'reconfigure', 'recover', 'reinforce', 'renown', 'replicate', 'retrace', 'revolt', 'riot',
-    'ripple', 'saddle', 'scavenge', 'scry', 'shadow', 'shroud', 'skulk', 'soulbond', 'soulshift',
-    'spectacle', 'sneak', 'splice', 'split second', 'spree', 'squad', 'storm', 'strive', 'sunburst',
-    'support', 'surge', 'surveil', 'suspend', 'swampcycling', 'swampwalk', 'threshold', 'totem armor',
-    'trample', 'training', 'transfigure', 'transform', 'transmute', 'treasure', 'tribute', 'undaunted',
-    'undergrowth', 'undying', 'unearth', 'unleash', 'vanishing', 'vigilance', 'ward', 'wither',
-  ];
-  
-  for (const keyword of keywordList) {
-    // Match keyword at word boundary
-    const pattern = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-    if (pattern.test(text)) {
-      keywords.push(keyword);
-    }
-  }
-  
-  return keywords;
+  return parseKeywordsFromOracleText(oracleText);
 }
 
 // =============================================================================
@@ -715,48 +525,14 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
   let hasTargets = false;
   let hasModes = false;
 
-  const escapeRegex = (value: string): string => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
   // Normalize self-references in text. This includes the full printed card name
   // plus common legendary shorthand like "Endrek Sahr" from
   // "Endrek Sahr, Master Breeder".
-  const normalizedText = buildSelfReferenceAliases(cardName).reduce((text, alias) => {
-    const pattern = new RegExp(`(^|[^a-z0-9])(${escapeRegex(alias)})(?=[^a-z0-9]|$)`, 'gi');
-    return text.replace(pattern, '$1this permanent');
-  }, oracleText);
+  const normalizedText = normalizeOracleTextSelfReferences(oracleText, cardName);
   
-  // Split into lines/sentences for parsing.
-  // Split by newlines first to preserve ability boundaries, but merge modal bullet lines
-  // (lines starting with "•") into the previous line so we can parse the entire modal block.
-  const rawLines = normalizedText.split(/\n+/).map(l => l.trim()).filter(Boolean);
-  const abilityLines: string[] = [];
-  for (const raw of rawLines) {
-    if (/^[\u2022•]\s+/.test(raw) && abilityLines.length > 0) {
-      abilityLines[abilityLines.length - 1] = `${abilityLines[abilityLines.length - 1]}\n${raw}`;
-    } else {
-      abilityLines.push(raw);
-    }
-  }
-  
-  // For each ability line, split into sentences and merge continuations.
-  // Modal bullet blocks must remain intact (they frequently include newlines and bullets).
-  const lines: string[] = [];
-  for (const abilityLine of abilityLines) {
-    const isModalBulletBlock = /\n\s*[\u2022•]\s+/.test(abilityLine);
-    if (isModalBulletBlock) {
-      lines.push(abilityLine);
-      continue;
-    }
-
-    // Split sentences within this ability line
-    const sentences = abilityLine.split(/(?<=[.!])\s+/).filter(s => s.trim());
-
-    // Merge continuation sentences within this line only
-    const merged = mergeContinuationSentences(sentences);
-
-    // Add the merged sentences to our final list
-    lines.push(...merged);
-  }
+  // Shared preprocessing preserves ability boundaries, keeps modal bullet blocks
+  // intact, and merges sentence fragments that continue a prior instruction.
+  const lines = splitOracleTextIntoParseLines(normalizedText);
   
   for (const line of lines) {
     const trimmed = line.trim();

@@ -1,0 +1,123 @@
+function escapeRegex(value: string): string {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function buildSelfReferenceAliases(cardName?: string): string[] {
+  const raw = String(cardName || '').trim();
+  if (!raw) return [];
+
+  const aliases = new Set<string>();
+  const pushAlias = (value: string): void => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    aliases.add(normalized);
+  };
+
+  pushAlias(raw);
+
+  for (const face of raw.split(/\s*\/\/\s*/).map(part => part.trim()).filter(Boolean)) {
+    pushAlias(face);
+
+    const commaHead = face.split(',')[0]?.trim();
+    if (commaHead && commaHead.length >= 4) {
+      pushAlias(commaHead);
+    }
+  }
+
+  return [...aliases].sort((a, b) => b.length - a.length || a.localeCompare(b));
+}
+
+const CONTINUATION_SENTENCE_PATTERNS = [
+  /^then\b/i,
+  /^\(/,
+  /^you\b/i,
+  /^if\b/i,
+  /^choose\b/i,
+  /^when\s+you\s+do\b/i,
+  /^whenever\s+you\s+do\b/i,
+  /^unless\b/i,
+  /^where\b/i,
+  /^when\b/i,
+  /^whenever\b/i,
+  /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\b/i,
+  /^at\s+end\s+of\s+combat\b/i,
+  /^at\s+(?:the\s+)?end\s+of\s+turn\b/i,
+  /^create\b/i,
+  /^those\b/i,
+  /^that\b/i,
+  /^return\b/i,
+  /^it\b/i,
+  /^until\b/i,
+  /^through\b/i,
+  /^as\s+long\s+as\b/i,
+  /^during\b/i,
+  /^put\b/i,
+  /^activate\b/i,
+  /^this\b/i,
+  /^for\b/i,
+  /^spend\b/i,
+  /^they\b/i,
+  /^each\b/i,
+  /^otherwise\b/i,
+  /^instead\b/i,
+  /^draw\b/i,
+  /^exile\b/i,
+  /^shuffle\b/i,
+  /^(?:sacrifice|exile)\s+(?:it|them|that token|those tokens|the token|the tokens)\b/i,
+];
+
+export function isContinuationSentence(sentence: string): boolean {
+  const trimmed = sentence.trim();
+  return CONTINUATION_SENTENCE_PATTERNS.some(pattern => pattern.test(trimmed));
+}
+
+export function mergeContinuationSentences(sentences: string[]): string[] {
+  const merged: string[] = [];
+
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if (!trimmed) continue;
+
+    if (merged.length > 0 && isContinuationSentence(trimmed)) {
+      merged[merged.length - 1] = merged[merged.length - 1] + ' ' + trimmed;
+    } else {
+      merged.push(trimmed);
+    }
+  }
+
+  return merged;
+}
+
+export function normalizeOracleTextSelfReferences(oracleText: string, cardName?: string): string {
+  return buildSelfReferenceAliases(cardName).reduce((text, alias) => {
+    const pattern = new RegExp(`(^|[^a-z0-9])(${escapeRegex(alias)})(?=[^a-z0-9]|$)`, 'gi');
+    return text.replace(pattern, '$1this permanent');
+  }, oracleText);
+}
+
+export function splitOracleTextIntoParseLines(oracleText: string): string[] {
+  const rawLines = oracleText.split(/\n+/).map(line => line.trim()).filter(Boolean);
+  const abilityLines: string[] = [];
+
+  for (const raw of rawLines) {
+    if (/^[\u2022•]\s+/.test(raw) && abilityLines.length > 0) {
+      abilityLines[abilityLines.length - 1] = `${abilityLines[abilityLines.length - 1]}\n${raw}`;
+    } else {
+      abilityLines.push(raw);
+    }
+  }
+
+  const lines: string[] = [];
+  for (const abilityLine of abilityLines) {
+    const isModalBulletBlock = /\n\s*[\u2022•]\s+/.test(abilityLine);
+    if (isModalBulletBlock) {
+      lines.push(abilityLine);
+      continue;
+    }
+
+    const sentences = abilityLine.split(/(?<=[.!])\s+/).filter(sentence => sentence.trim());
+    lines.push(...mergeContinuationSentences(sentences));
+  }
+
+  return lines;
+}

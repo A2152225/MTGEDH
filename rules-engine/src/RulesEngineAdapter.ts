@@ -30,42 +30,26 @@ import {
   checkPlayerLoss,
   PlayerLossCheck,
   LoseCondition,
-  WinCondition,
   GameResult,
-  GameEndReason,
   MulliganState,
   takeMulligan,
   keepHand,
 } from './types/gameFlow';
 import { ManaType, type ManaPool as RulesEngineManaPool, type ManaCost } from './types/mana';
 import { emptyManaPool } from './manaAbilities';
-import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import {
-  opponentsHaveCantWinEffect,
   playerHasCantLoseEffect,
   applyTemporaryCantLoseAndOpponentsCantWinEffect,
 } from './winEffectCards';
-
-function hasPermanentType(perm: any, type: string): boolean {
-  const targetType = type.toLowerCase();
-  const effectiveTypes = Array.isArray(perm?.effectiveTypes) ? perm.effectiveTypes : [];
-  if (effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-    return true;
-  }
-
-  const grantedTypes = Array.isArray(perm?.grantedTypes) ? perm.grantedTypes : [];
-  if (grantedTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-    return true;
-  }
-
-  const cardType = String(perm?.cardType || '').toLowerCase();
-  if (cardType.includes(targetType)) {
-    return true;
-  }
-
-  const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
-  return typeLine.includes(targetType);
-}
+import {
+  checkAuraAttachmentForState,
+  checkCreatureDeathsForState,
+  checkLegendRuleForState,
+  checkPlaneswalkerDeathsForState,
+  checkWinConditionsForState,
+  movePermanentToGraveyard,
+  payLifeActionForState,
+} from './rulesEngineAdapterStateSupport';
 
 /** Simple mana pool interface for checking mana availability (doesn't need restricted mana info) */
 interface SimpleManaPool {
@@ -1958,60 +1942,12 @@ export class RulesEngineAdapter {
    * Check win conditions
    */
   private checkWinConditions(gameId: string, state: GameState): EngineResult<GameState> {
-    const activePlayers = state.players.filter(p => !p.hasLost);
-    
-    if (activePlayers.length === 1) {
-      const winner = activePlayers[0];
-      const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
-      const cantWin = opponentsHaveCantWinEffect(winner.id as any, battlefield as any, state.players as any, ((state as any).winLossEffects || []) as any);
-      if (cantWin.hasCantWin) {
-        return {
-          next: state,
-          log: [`${winner.id} cannot win because of ${cantWin.source}`],
-        };
-      }
-      
-      const nextState = { ...state, status: 'finished' as any, winner: winner.id };
-      this.gameStates.set(gameId, nextState);
-      
-      this.emit({
-        type: RulesEngineEvent.PLAYER_WON,
-        timestamp: Date.now(),
-        gameId,
-        data: { playerId: winner.id, reason: WinCondition.OPPONENTS_LEFT },
-      });
-      
-      this.emit({
-        type: RulesEngineEvent.GAME_ENDED,
-        timestamp: Date.now(),
-        gameId,
-        data: { winner: winner.id, reason: GameEndReason.PLAYER_WIN },
-      });
-      
-      return {
-        next: nextState,
-        log: [`${winner.id} wins the game!`],
-      };
-    }
-    
-    if (activePlayers.length === 0) {
-      const nextState = { ...state, status: 'finished' as any };
-      this.gameStates.set(gameId, nextState);
-      
-      this.emit({
-        type: RulesEngineEvent.GAME_ENDED,
-        timestamp: Date.now(),
-        gameId,
-        data: { reason: GameEndReason.DRAW },
-      });
-      
-      return {
-        next: nextState,
-        log: ['Game is a draw - all players lost'],
-      };
-    }
-    
-    return { next: state };
+    return checkWinConditionsForState({
+      gameId,
+      state,
+      emit: event => this.emit(event),
+      persistState: (targetGameId, nextState) => this.gameStates.set(targetGameId, nextState),
+    });
   }
   
   /**
@@ -2051,37 +1987,12 @@ export class RulesEngineAdapter {
    */
   private payLifeAction(gameId: string, action: any): EngineResult<GameState> {
     const state = this.gameStates.get(gameId)!;
-    const player = state.players.find(p => p.id === action.playerId);
-    
-    if (!player) {
-      return { next: state, log: ['Player not found'] };
-    }
-    
-    const amount = action.amount || 1;
-    const newLife = (player.life || 0) - amount;
-    
-    const updatedPlayers = state.players.map(p =>
-      p.id === action.playerId
-        ? { ...p, life: newLife }
-        : p
-    );
-    
-    const nextState: GameState = {
-      ...state,
-      players: updatedPlayers,
-    };
-    
-    this.emit({
-      type: RulesEngineEvent.LIFE_PAID,
-      timestamp: Date.now(),
+    return payLifeActionForState({
       gameId,
-      data: { playerId: action.playerId, amount, newLife },
+      state,
+      action,
+      emit: event => this.emit(event),
     });
-    
-    return {
-      next: nextState,
-      log: [`${action.playerId} paid ${amount} life`],
-    };
   }
   
   /**
@@ -2091,70 +2002,11 @@ export class RulesEngineAdapter {
     state: GameState,
     gameId: string
   ): { state: GameState; deaths: string[]; logs: string[] } {
-    const deaths: string[] = [];
-    const logs: string[] = [];
-    let updatedState = state;
-    
-    // Check all battlefields
-    const allPermanents: any[] = [];
-    
-    // Collect from global battlefield (centralized in state.battlefield)
-    if (state.battlefield) {
-      allPermanents.push(...(state.battlefield as any[]));
-    }
-    
-    const processedPermanents = applyStaticAbilitiesToBattlefield(allPermanents as any[]);
-
-    for (const perm of processedPermanents) {
-      if (!hasPermanentType(perm, 'creature')) continue;
-      
-      // Calculate effective toughness
-      let toughness = parseInt(String(perm.effectiveToughness ?? perm.baseToughness ?? perm.card?.toughness ?? '0'), 10);
-      const plusCounters = perm.counters?.['+1/+1'] || 0;
-      const minusCounters = perm.counters?.['-1/-1'] || 0;
-      const damageMarked = perm.counters?.damage || perm.damageMarked || 0;
-      
-      toughness += plusCounters - minusCounters;
-      
-      // Check for zero or less toughness (Rule 704.5f)
-      if (toughness <= 0) {
-        deaths.push(perm.id);
-        logs.push(`${perm.card?.name || 'Creature'} dies (0 or less toughness)`);
-        updatedState = this.moveToGraveyard(updatedState, perm);
-        
-        this.emit({
-          type: RulesEngineEvent.CREATURE_DIED,
-          timestamp: Date.now(),
-          gameId,
-          data: { 
-            permanentId: perm.id, 
-            name: perm.card?.name,
-            reason: 'zero_toughness',
-          },
-        });
-        continue;
-      }
-      
-      // Check for lethal damage (Rule 704.5g)
-      if (damageMarked >= toughness) {
-        deaths.push(perm.id);
-        logs.push(`${perm.card?.name || 'Creature'} dies (lethal damage)`);
-        updatedState = this.moveToGraveyard(updatedState, perm);
-        
-        this.emit({
-          type: RulesEngineEvent.CREATURE_DIED,
-          timestamp: Date.now(),
-          gameId,
-          data: { 
-            permanentId: perm.id, 
-            name: perm.card?.name,
-            reason: 'lethal_damage',
-          },
-        });
-      }
-    }
-    
-    return { state: updatedState, deaths, logs };
+    return checkCreatureDeathsForState({
+      gameId,
+      state,
+      emit: event => this.emit(event),
+    });
   }
   
   /**
@@ -2164,43 +2016,11 @@ export class RulesEngineAdapter {
     state: GameState,
     gameId: string
   ): { state: GameState; deaths: string[]; logs: string[] } {
-    const deaths: string[] = [];
-    const logs: string[] = [];
-    let updatedState = state;
-    
-    const allPermanents: any[] = [];
-    
-    // Collect from global battlefield (centralized in state.battlefield)
-    if (state.battlefield) {
-      allPermanents.push(...(state.battlefield as any[]));
-    }
-    
-    const processedPermanents = applyStaticAbilitiesToBattlefield(allPermanents as any[]);
-
-    for (const perm of processedPermanents) {
-      if (!hasPermanentType(perm, 'planeswalker')) continue;
-      
-      const loyalty = perm.counters?.loyalty || perm.loyalty || 0;
-      
-      if (loyalty <= 0) {
-        deaths.push(perm.id);
-        logs.push(`${perm.card?.name || 'Planeswalker'} dies (0 loyalty)`);
-        updatedState = this.moveToGraveyard(updatedState, perm);
-        
-        this.emit({
-          type: RulesEngineEvent.PERMANENT_LEFT_BATTLEFIELD,
-          timestamp: Date.now(),
-          gameId,
-          data: { 
-            permanentId: perm.id, 
-            name: perm.card?.name,
-            reason: 'zero_loyalty',
-          },
-        });
-      }
-    }
-    
-    return { state: updatedState, deaths, logs };
+    return checkPlaneswalkerDeathsForState({
+      gameId,
+      state,
+      emit: event => this.emit(event),
+    });
   }
   
   /**
@@ -2210,13 +2030,12 @@ export class RulesEngineAdapter {
     state: GameState,
     gameId: string
   ): { state: GameState; sacrificed: string[]; logs: string[] } {
-    const sacrificed: string[] = [];
-    const logs: string[] = [];
-    let updatedState = state;
-    
-    // Group legends by controller and name
-    const legendsByControllerAndName = new Map<string, any[]>();
-    
+    return checkLegendRuleForState({
+      gameId,
+      state,
+      emit: event => this.emit(event),
+    });
+    /*
     // Check for legendary permanents controlled by each player
     const battlefield = state.battlefield || [];
     for (const player of state.players) {
@@ -2264,6 +2083,7 @@ export class RulesEngineAdapter {
     }
     
     return { state: updatedState, sacrificed, logs };
+    */
   }
   
   /**
@@ -2273,72 +2093,17 @@ export class RulesEngineAdapter {
     state: GameState,
     gameId: string
   ): { state: GameState; detached: string[]; logs: string[] } {
-    const detached: string[] = [];
-    const logs: string[] = [];
-    let updatedState = state;
-    
-    const allPermanents: any[] = [];
-    
-    // Collect from global battlefield (centralized in state.battlefield)
-    if (state.battlefield) {
-      allPermanents.push(...(state.battlefield as any[]));
-    }
-    
-    for (const perm of allPermanents) {
-      const typeLine = (perm.card?.type_line || perm.type_line || '').toLowerCase();
-      if (!typeLine.includes('aura')) continue;
-      
-      const attachedToId = perm.attachedTo || perm.enchanting;
-      if (!attachedToId) {
-        // Aura not attached to anything - put in graveyard
-        detached.push(perm.id);
-        logs.push(`${perm.card?.name || 'Aura'} put into graveyard (not attached)`);
-        updatedState = this.moveToGraveyard(updatedState, perm);
-        continue;
-      }
-      
-      // Check if the attached permanent still exists
-      const attachedTo = allPermanents.find(p => p.id === attachedToId) ||
-                        state.players.find(p => p.id === attachedToId);
-      
-      if (!attachedTo) {
-        detached.push(perm.id);
-        logs.push(`${perm.card?.name || 'Aura'} put into graveyard (attached permanent no longer exists)`);
-        updatedState = this.moveToGraveyard(updatedState, perm);
-      }
-    }
-    
-    return { state: updatedState, detached, logs };
+    return checkAuraAttachmentForState({
+      gameId,
+      state,
+    });
   }
   
   /**
    * Move a permanent to its owner's graveyard
    */
   private moveToGraveyard(state: GameState, permanent: any): GameState {
-    const ownerId = permanent.controller || permanent.controllerId || permanent.owner;
-    
-    // Remove from battlefield
-    const updatedBattlefield = (state.battlefield || []).filter(
-      (p: any) => p.id !== permanent.id
-    );
-    
-    // Update player graveyards
-    const updatedPlayers = state.players.map(player => {
-      if (player.id === ownerId) {
-        return {
-          ...player,
-          graveyard: [...(player.graveyard || []), permanent.card || permanent],
-        };
-      }
-      
-      return player;
-    });
-    
-    return {
-      ...state,
-      battlefield: updatedBattlefield,
-      players: updatedPlayers,
-    };
+    return movePermanentToGraveyard(state, permanent);
   }
 }
 
