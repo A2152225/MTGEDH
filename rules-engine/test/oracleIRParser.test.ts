@@ -63,6 +63,141 @@ describe('Oracle IR Parser', () => {
     expect(tokenStep.token.toLowerCase()).toContain('soldier');
   });
 
+  it('splits sacrifice-leading conjunction clauses so deterministic self-sacrifice can execute', () => {
+    const text = "Sacrifice this artifact and draw three cards.";
+    const ir = parseOracleTextToIR(text, "Volrath's Motion Sensor");
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0].kind).toBe('sacrifice');
+    expect(steps[0].what).toEqual({ kind: 'raw', text: 'this artifact' });
+    expect(steps[1].kind).toBe('draw');
+    expect(steps[1].amount).toEqual({ kind: 'number', value: 3 });
+  });
+
+  it('preserves unsupported sacrifice follow-ups as explicit unknown steps after splitting', () => {
+    const text = 'Sacrifice this enchantment and counter that spell.';
+    const ir = parseOracleTextToIR(text, 'Hesitation');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0].kind).toBe('sacrifice');
+    expect(steps[1].kind).toBe('unknown');
+    expect(steps[1].raw).toBe('counter that spell');
+  });
+
+  it('splits named-self sacrifice conjunctions while preserving then-sequence metadata', () => {
+    const text = 'Sacrifice Scavenger Hunt, then open an Attraction.';
+    const ir = parseOracleTextToIR(text, 'Scavenger Hunt');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0].kind).toBe('sacrifice');
+    expect(steps[0].what).toEqual({ kind: 'raw', text: 'this permanent' });
+    expect(steps[1].kind).toBe('unknown');
+    expect(steps[1].sequence).toBe('then');
+    expect(steps[1].raw).toBe('then open an Attraction');
+  });
+
+  it('normalizes legendary shorthand self-references before sacrifice parsing', () => {
+    const text = 'When you control seven or more Thrulls, sacrifice Endrek Sahr.';
+    const ir = parseOracleTextToIR(text, 'Endrek Sahr, Master Breeder');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe('sacrifice');
+    expect(steps[0].what).toEqual({ kind: 'raw', text: 'this permanent' });
+  });
+
+  it('preserves condition-gated shorthand legendary self-reference conjunctions as a conditional wrapper', () => {
+    const text = 'If eight or more mana was spent to cast that spell, sacrifice Tellah and it deals that much damage to each opponent.';
+    const ir = parseOracleTextToIR(text, 'Tellah, Great Sage');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe('conditional');
+    expect(steps[0].condition).toEqual({ kind: 'if', raw: 'eight or more mana was spent to cast that spell' });
+    expect(steps[0].steps).toHaveLength(2);
+    expect(steps[0].steps[0].kind).toBe('sacrifice');
+    expect(steps[0].steps[0].what).toEqual({ kind: 'raw', text: 'this permanent' });
+    expect(steps[0].steps[1].kind).toBe('deal_damage');
+    expect(steps[0].steps[1].amount).toEqual({ kind: 'unknown', raw: 'that much' });
+    expect(steps[0].steps[1].target).toEqual({ kind: 'raw', text: 'each opponent' });
+    expect(steps[0].steps[1].raw).toBe('it deals that much damage to each opponent');
+  });
+
+  it('parses leading conditional sacrifice conjunctions into wrapped inner steps', () => {
+    const text = "If you don't, sacrifice this artifact and draw three cards.";
+    const ir = parseOracleTextToIR(text, 'Sorcerer\'s Strongbox');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe('conditional');
+    expect(steps[0].condition).toEqual({ kind: 'if', raw: "you don't" });
+    expect(steps[0].steps).toHaveLength(2);
+    expect(steps[0].steps[0].kind).toBe('sacrifice');
+    expect(steps[0].steps[0].what).toEqual({ kind: 'raw', text: 'this artifact' });
+    expect(steps[0].steps[1].kind).toBe('draw');
+    expect(steps[0].steps[1].amount).toEqual({ kind: 'number', value: 3 });
+  });
+
+  it('parses leading conditional sacrifice wrappers with comma-delimited followups', () => {
+    const text = "If you can't, sacrifice it, put a +1/+1 counter on enchanted creature, and that creature gains flying.";
+    const ir = parseOracleTextToIR(text, 'Cocoon');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe('conditional');
+    expect(steps[0].condition).toEqual({ kind: 'if', raw: "you can't" });
+    expect(steps[0].steps).toHaveLength(3);
+    expect(steps[0].steps[0].kind).toBe('sacrifice');
+    expect(steps[0].steps[0].what).toEqual({ kind: 'raw', text: 'it' });
+    expect(steps[0].steps[1].kind).toBe('unknown');
+    expect(steps[0].steps[1].raw).toBe('put a +1/+1 counter on enchanted creature');
+    expect(steps[0].steps[2].kind).toBe('unknown');
+    expect(steps[0].steps[2].raw).toBe('that creature gains flying');
+  });
+
+  it('parses conditional sacrifice wrappers that were split by top-level then handling', () => {
+    const text = "If the result is equal to this Vehicle's mana value, sacrifice this Vehicle, then it deals that much damage to any target.";
+    const ir = parseOracleTextToIR(text, 'Captain Rex Nebula');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe('conditional');
+    expect(steps[0].condition).toEqual({ kind: 'if', raw: "the result is equal to this Vehicle's mana value" });
+    expect(steps[0].steps).toHaveLength(2);
+    expect(steps[0].steps[0].kind).toBe('sacrifice');
+    expect(steps[0].steps[1].kind).toBe('deal_damage');
+    expect(steps[0].steps[1].amount).toEqual({ kind: 'unknown', raw: 'that much' });
+    expect(steps[0].steps[1].target).toEqual({ kind: 'raw', text: 'any target' });
+  });
+
+  it('splits named-self sacrifice conjunctions that continue with "it deals"', () => {
+    const text = 'Sacrifice Tellah and it deals 3 damage to each opponent.';
+    const ir = parseOracleTextToIR(text, 'Tellah, Great Sage');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0].kind).toBe('sacrifice');
+    expect(steps[0].what).toEqual({ kind: 'raw', text: 'this permanent' });
+    expect(steps[1].kind).toBe('deal_damage');
+    expect(steps[1].amount).toEqual({ kind: 'number', value: 3 });
+    expect(steps[1].target).toEqual({ kind: 'raw', text: 'each opponent' });
+    expect(steps[1].raw).toBe('it deals 3 damage to each opponent');
+  });
+
+  it('splits explicit self-reference sacrifice conjunctions that continue with "it deals"', () => {
+    const text = 'When another creature enters, sacrifice this creature and it deals 3 damage to target player or planeswalker.';
+    const ir = parseOracleTextToIR(text, 'Mogg Bombers');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0].kind).toBe('sacrifice');
+    expect(steps[0].what).toEqual({ kind: 'raw', text: 'this creature' });
+    expect(steps[1].raw).toBe('it deals 3 damage to target player or planeswalker');
+  });
+
   it('parses optional tap-or-untap target permanent clauses', () => {
     const text = 'You may tap or untap target permanent.';
     const ir = parseOracleTextToIR(text);
@@ -555,6 +690,185 @@ describe('Oracle IR Parser', () => {
     expect(create).toBeTruthy();
     expect(create.entersTapped).toBe(true);
     expect(create.withCounters).toEqual({ '+1/+1': 2 });
+  });
+
+  it('parses standalone delayed next-end-step sacrifice cleanup', () => {
+    const text = 'Draw a card. At the beginning of the next end step, sacrifice that creature.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(2);
+    expect(steps[1]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'next_end_step',
+      action: 'sacrifice',
+      who: { kind: 'you' },
+      object: { kind: 'raw', text: 'that creature' },
+    });
+  });
+
+  it('parses trailing delayed next-end-step sacrifice cleanup', () => {
+    const text = 'Draw a card. Sacrifice it at the beginning of the next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(2);
+    expect(steps[1]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'next_end_step',
+      action: 'sacrifice',
+      who: { kind: 'you' },
+      object: { kind: 'raw', text: 'it' },
+    });
+  });
+
+  it('parses trailing delayed your-next-end-step sacrifice cleanup', () => {
+    const text = 'Whenever this creature attacks, sacrifice this creature at the beginning of your next end step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'your_next_end_step',
+      action: 'sacrifice',
+      who: { kind: 'you' },
+      object: { kind: 'raw', text: 'this creature' },
+    });
+  });
+
+  it('parses standalone delayed end-of-combat exile cleanup', () => {
+    const text = 'Draw a card. Exile those tokens at end of combat.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(2);
+    expect(steps[1]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'end_of_combat',
+      action: 'exile',
+      object: { kind: 'raw', text: 'those tokens' },
+    });
+  });
+
+  it('parses trailing delayed next-cleanup-step sacrifice cleanup', () => {
+    const text = 'Sacrifice this Aura at the beginning of the next cleanup step.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'next_cleanup_step',
+      action: 'sacrifice',
+      who: { kind: 'you' },
+      object: { kind: 'raw', text: 'this Aura' },
+    });
+  });
+
+  it('parses trailing delayed your-next-upkeep sacrifice cleanup for contextual tokens', () => {
+    const text = 'Sacrifice those tokens at the beginning of your next upkeep.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'your_next_upkeep',
+      action: 'sacrifice',
+      who: { kind: 'you' },
+      object: { kind: 'raw', text: 'those tokens' },
+    });
+  });
+
+  it('parses trailing delayed sacrifice cleanup with a mana value condition', () => {
+    const text = 'Sacrifice it at the beginning of the next end step if it has mana value 3 or less.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'next_end_step',
+      action: 'sacrifice',
+      who: { kind: 'you' },
+      object: { kind: 'raw', text: 'it' },
+      condition: { kind: 'mana_value_compare', comparator: 'lte', value: 3, subject: 'it' },
+    });
+  });
+
+  it('parses immediate sacrifice with a zero-counter condition', () => {
+    const text = 'Sacrifice this enchantment if there are no echo counters on it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'sacrifice',
+      who: { kind: 'you' },
+      what: { kind: 'raw', text: 'this enchantment' },
+      condition: { kind: 'counter_compare', counter: 'echo', comparator: 'eq', value: 0, subject: 'it' },
+    });
+  });
+
+  it('parses immediate sacrifice with a counter-threshold condition', () => {
+    const text = 'Then sacrifice it if it has five or more bloodstain counters on it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'sacrifice',
+      who: { kind: 'you' },
+      what: { kind: 'raw', text: 'it' },
+      condition: { kind: 'counter_compare', counter: 'bloodstain', comparator: 'gte', value: 5, subject: 'it' },
+      sequence: 'then',
+    });
+  });
+
+  it('parses trailing leave-the-battlefield delayed sacrifice cleanup', () => {
+    const text = 'Sacrifice Stangg when that token leaves the battlefield.';
+    const ir = parseOracleTextToIR(text, 'Stangg');
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'when_leaves_battlefield',
+      action: 'sacrifice',
+      object: { kind: 'raw', text: 'this permanent' },
+      watch: { kind: 'raw', text: 'that token' },
+    });
+  });
+
+  it('parses trailing lose-control delayed sacrifice cleanup for itself', () => {
+    const text = 'Sacrifice it when you lose control of this creature.';
+    const ir = parseOracleTextToIR(text, 'Krovikan Vampire');
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'when_control_lost',
+      action: 'sacrifice',
+      object: { kind: 'raw', text: 'it' },
+      watch: { kind: 'raw', text: 'this creature' },
+    });
+  });
+
+  it('parses trailing lose-control delayed sacrifice cleanup for a bound creature', () => {
+    const text = 'Sacrifice the creature when you lose control of this creature.';
+    const ir = parseOracleTextToIR(text, 'Seraph');
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'schedule_delayed_battlefield_action',
+      timing: 'when_control_lost',
+      action: 'sacrifice',
+      object: { kind: 'raw', text: 'the creature' },
+      watch: { kind: 'raw', text: 'this creature' },
+    });
   });
 
   it('parses exile and return/move zone clauses', () => {

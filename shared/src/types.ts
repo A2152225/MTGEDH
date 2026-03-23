@@ -239,6 +239,9 @@ export interface BattlefieldPermanent {
   echoPaid?: boolean;
   // Token flag
   isToken?: boolean;
+  // Provenance for token-linked delayed cleanup/reference effects
+  createdBySourceId?: string;
+  createdBySourceName?: string;
   // Summoning sickness
   summoningSickness?: boolean;
   // Track if this permanent entered this turn (combat/trigger helpers)

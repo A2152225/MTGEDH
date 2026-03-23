@@ -7,6 +7,7 @@ export interface TriggerEventData {
   readonly targetId?: string;
   readonly targetControllerId?: string;
   readonly targetPermanentId?: string;
+  readonly chosenObjectIds?: readonly string[];
   readonly targetPlayerId?: string;
   readonly targetOpponentId?: string;
   readonly tapOrUntapChoice?: 'tap' | 'untap';
@@ -22,6 +23,8 @@ export interface TriggerEventData {
   readonly damageDealt?: number;
   readonly cardsDrawn?: number;
   readonly spellType?: string;
+  readonly wonCoinFlip?: boolean;
+  readonly winningVoteChoice?: string | null;
   readonly isYourTurn?: boolean;
   readonly isOpponentsTurn?: boolean;
   readonly creatureTypes?: readonly string[];
@@ -156,6 +159,7 @@ export function buildTriggerEventDataFromPayloads(
     'target',
     'targetId',
     'targetPermanentId',
+    'chosenObjectIds',
     'targetPlayerId',
     'targetOpponentId',
     'targets',
@@ -212,6 +216,7 @@ export function buildTriggerEventDataFromPayloads(
   const opponentsDealtDamageIdsSanitized = opponentsDealtDamageIdsRaw.filter(id => isOpponentId(id));
 
   const sourceId = scalarString('sourceId');
+  const chosenObjectIds = collectIds('chosenObjectIds');
   const targetPermanentId =
     scalarString('targetPermanentId') ??
     (targetPlayerId || targetOpponentId ? undefined : singleton(targetIds));
@@ -227,6 +232,7 @@ export function buildTriggerEventDataFromPayloads(
     targetId,
     targetControllerId: scalarString('targetControllerId'),
     targetPermanentId,
+    chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
     targetPlayerId,
     targetOpponentId,
     tapOrUntapChoice,
@@ -236,6 +242,8 @@ export function buildTriggerEventDataFromPayloads(
     damageDealt: scalarNumber('damageDealt'),
     cardsDrawn: scalarNumber('cardsDrawn'),
     spellType: scalarString('spellType'),
+    wonCoinFlip: scalarBool('wonCoinFlip'),
+    winningVoteChoice: scalarString('winningVoteChoice'),
     isYourTurn: scalarBool('isYourTurn'),
     isOpponentsTurn: scalarBool('isOpponentsTurn'),
     hand: hand.length > 0 ? hand : undefined,
@@ -263,6 +271,7 @@ export function buildStackTriggerMetaFromEventData(
     targetId?: string;
     targetControllerId?: string;
     targetPermanentId?: string;
+    chosenObjectIds?: readonly string[];
     targetPlayerId?: string;
     targetOpponentId?: string;
     tapOrUntapChoice?: 'tap' | 'untap';
@@ -275,6 +284,8 @@ export function buildStackTriggerMetaFromEventData(
     damageDealt?: number;
     cardsDrawn?: number;
     spellType?: string;
+    wonCoinFlip?: boolean;
+    winningVoteChoice?: string | null;
     isYourTurn?: boolean;
     isOpponentsTurn?: boolean;
     hand?: readonly string[];
@@ -297,6 +308,7 @@ export function buildStackTriggerMetaFromEventData(
       targetId: normalized.targetId,
       targetControllerId: normalized.targetControllerId,
       targetPermanentId: normalized.targetPermanentId,
+      chosenObjectIds: normalized.chosenObjectIds,
       targetPlayerId: normalized.targetPlayerId,
       targetOpponentId: normalized.targetOpponentId,
       tapOrUntapChoice: normalized.tapOrUntapChoice,
@@ -355,6 +367,8 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
   const dedupeOpponents = (ids: readonly string[] | undefined): readonly string[] | undefined =>
     dedupe((ids || []).filter(id => isOpponentId(id)));
 
+  const normalizedChosenObjectIds = dedupe(eventData.chosenObjectIds);
+
   const singleton = (ids: readonly string[] | undefined): string | undefined =>
     Array.isArray(ids) && ids.length === 1 ? ids[0] : undefined;
 
@@ -370,22 +384,28 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     targetPlayerId: normalizedTargetPlayerId,
     targetOpponentId,
     targetPermanentId: normalizedTargetPermanentId,
+    chosenObjectIds: normalizedChosenObjectIds,
     tapOrUntapChoice: eventData.tapOrUntapChoice,
     affectedPlayerIds: dedupe(eventData.affectedPlayerIds),
     affectedOpponentIds: dedupedAffectedOpponents,
     opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
     spellType: eventData.spellType,
+    wonCoinFlip: eventData.wonCoinFlip,
+    winningVoteChoice: eventData.winningVoteChoice ?? undefined,
   };
 
   if (
     !hint.targetPlayerId &&
     !hint.targetOpponentId &&
     !hint.targetPermanentId &&
+    !hint.chosenObjectIds &&
     !hint.tapOrUntapChoice &&
     !hint.affectedPlayerIds &&
     !hint.affectedOpponentIds &&
     !hint.opponentsDealtDamageIds &&
-    !hint.spellType
+    !hint.spellType &&
+    typeof hint.wonCoinFlip !== 'boolean' &&
+    typeof hint.winningVoteChoice === 'undefined'
   ) {
     return undefined;
   }

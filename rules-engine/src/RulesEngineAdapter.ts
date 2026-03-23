@@ -120,6 +120,12 @@ import {
   type TriggeredAbility,
   TriggerEvent,
 } from './triggeredAbilities';
+import {
+  checkDelayedTriggers,
+  createDelayedTriggerRegistry,
+  DelayedTriggerTiming,
+  processDelayedTriggers,
+} from './delayedTriggeredAbilities';
 
 // Import modular action handlers
 import {
@@ -822,25 +828,168 @@ export class RulesEngineAdapter {
         result = { next: currentState, log: ['Unknown action type'] };
     }
     
-    const syncedResultState: GameState = {
+    let syncedResultState: GameState = {
       ...result.next,
       stack: [...(((this.stacks.get(gameId)?.objects as any[]) || ((result.next as any).stack as any[]) || []))] as any,
     };
+
+    const controlLossAfterAction = this.processControlLossDelayedTriggers(
+      gameId,
+      currentState,
+      syncedResultState
+    );
+    syncedResultState = controlLossAfterAction.state;
 
     // Update stored state
     this.gameStates.set(gameId, syncedResultState);
     
     // Check state-based actions after each action
     const sbaResult = this.checkStateBasedActions(gameId, syncedResultState);
-    const syncedSbaState: GameState = {
+    let syncedSbaState: GameState = {
       ...sbaResult.next,
       stack: [...(((this.stacks.get(gameId)?.objects as any[]) || ((sbaResult.next as any).stack as any[]) || []))] as any,
     };
+
+    const controlLossAfterSba = this.processControlLossDelayedTriggers(
+      gameId,
+      syncedResultState,
+      syncedSbaState
+    );
+    syncedSbaState = controlLossAfterSba.state;
     this.gameStates.set(gameId, syncedSbaState);
     
     return {
       next: syncedSbaState,
-      log: [...(result.log || []), ...(sbaResult.log || [])],
+      log: [
+        ...(result.log || []),
+        ...(controlLossAfterAction.log || []),
+        ...(sbaResult.log || []),
+        ...(controlLossAfterSba.log || []),
+      ],
+    };
+  }
+
+  private getActivePlayerId(state: GameState): string {
+    const activeIndex = Number.isInteger((state as any).activePlayerIndex)
+      ? Number((state as any).activePlayerIndex)
+      : -1;
+    const players = Array.isArray(state.players) ? state.players : [];
+    const indexedActivePlayer = activeIndex >= 0 ? players[activeIndex] : undefined;
+    return String(indexedActivePlayer?.id || (state as any).turnPlayer || '').trim();
+  }
+
+  private getTurnOrder(state: GameState): string[] {
+    return Array.isArray((state as any).turnOrder)
+      ? (state as any).turnOrder
+          .map((id: unknown) => String(id || '').trim())
+          .filter(Boolean)
+      : [];
+  }
+
+  private getPermanentControllerId(permanent: any): string {
+    return String(permanent?.controller || permanent?.controllerId || '').trim();
+  }
+
+  private processControlLossDelayedTriggers(
+    gameId: string,
+    previousState: GameState,
+    nextState: GameState
+  ): { state: GameState; log: string[] } {
+    const previousRegistry = ((previousState as any).delayedTriggerRegistry || createDelayedTriggerRegistry()) as ReturnType<typeof createDelayedTriggerRegistry>;
+    const nextRegistry = ((nextState as any).delayedTriggerRegistry || createDelayedTriggerRegistry()) as ReturnType<typeof createDelayedTriggerRegistry>;
+    const watchedTriggers = previousRegistry.triggers.filter(
+      trigger => trigger.timing === DelayedTriggerTiming.WHEN_CONTROL_LOST && String(trigger.watchingPermanentId || '').trim().length > 0
+    );
+
+    if (watchedTriggers.length === 0) {
+      return { state: nextState, log: [] };
+    }
+
+    const watchedPermanentIds = new Set(
+      watchedTriggers
+        .map(trigger => String(trigger.watchingPermanentId || '').trim())
+        .filter(Boolean)
+    );
+    if (watchedPermanentIds.size === 0) {
+      return { state: nextState, log: [] };
+    }
+
+    const previousBattlefield = Array.isArray((previousState as any).battlefield)
+      ? ((previousState as any).battlefield as any[])
+      : [];
+    const nextBattlefield = Array.isArray((nextState as any).battlefield)
+      ? ((nextState as any).battlefield as any[])
+      : [];
+    const nextBattlefieldById = new Map<string, any>(
+      nextBattlefield.map(perm => [String(perm?.id || '').trim(), perm])
+    );
+
+    const eligibleTriggerIds = new Set(previousRegistry.triggers.map(trigger => trigger.id));
+    let workingRegistry = nextRegistry;
+    const firedTriggers = [];
+
+    for (const previousPermanent of previousBattlefield) {
+      const permanentId = String(previousPermanent?.id || '').trim();
+      if (!permanentId || !watchedPermanentIds.has(permanentId)) {
+        continue;
+      }
+
+      const previousControllerId = this.getPermanentControllerId(previousPermanent);
+      if (!previousControllerId) {
+        continue;
+      }
+
+      const nextPermanent = nextBattlefieldById.get(permanentId);
+      const nextControllerId = nextPermanent ? this.getPermanentControllerId(nextPermanent) : '';
+      if (nextPermanent && nextControllerId === previousControllerId) {
+        continue;
+      }
+
+      const delayedCheck = checkDelayedTriggers(workingRegistry, {
+        type: 'control_lost',
+        permanentId,
+        playerId: previousControllerId as PlayerID,
+        eligibleTriggerIds,
+      });
+      if (delayedCheck.triggersToFire.length === 0) {
+        continue;
+      }
+
+      firedTriggers.push(...delayedCheck.triggersToFire);
+      workingRegistry = {
+        ...workingRegistry,
+        triggers: delayedCheck.remainingTriggers,
+        firedTriggerIds: [
+          ...workingRegistry.firedTriggerIds,
+          ...delayedCheck.triggersToFire.map(trigger => trigger.id),
+        ],
+      };
+    }
+
+    if (firedTriggers.length === 0) {
+      return { state: nextState, log: [] };
+    }
+
+    const delayedInstances = processDelayedTriggers(firedTriggers, Date.now());
+    const stackPlacement = putTriggersOnStack(
+      { triggers: delayedInstances },
+      this.getActivePlayerId(nextState),
+      this.getTurnOrder(nextState)
+    );
+
+    let stack = this.stacks.get(gameId) || createEmptyStack();
+    for (const stackObject of stackPlacement.stackObjects) {
+      stack = pushToStack(stack, stackObject).stack;
+    }
+    this.stacks.set(gameId, stack);
+
+    return {
+      state: ({
+        ...nextState,
+        delayedTriggerRegistry: workingRegistry,
+        stack: [...((stack.objects as any[]) || [])] as any,
+      } as any) as GameState,
+      log: firedTriggers.map(trigger => `Delayed trigger fires: ${trigger.sourceName}`),
     };
   }
   

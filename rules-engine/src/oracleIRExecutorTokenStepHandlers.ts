@@ -1,5 +1,11 @@
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
 import { COMMON_TOKENS, createTokens, createTokensByName, parseTokenCreationFromText } from './tokenCreation';
+import {
+  DelayedTriggerTiming,
+  createDelayedTrigger,
+  createDelayedTriggerRegistry,
+  registerDelayedTrigger,
+} from './delayedTriggeredAbilities';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
@@ -30,7 +36,7 @@ function addTokensToBattlefield(
   ctx: OracleIRExecutionContext,
   entersTapped?: boolean,
   withCounters?: Record<string, number>
-): { state: GameState; log: string[] } {
+): { state: GameState; log: string[]; createdTokenIds: string[] } {
   const hasOverrides = Boolean(entersTapped) || (withCounters && Object.keys(withCounters).length > 0);
 
   const resolveCommonTokenKey = (name: string): string | null => {
@@ -71,6 +77,7 @@ function addTokensToBattlefield(
         return {
           state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
           log: [...result.log],
+          createdTokenIds: tokensToAdd.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
         };
       }
     }
@@ -78,7 +85,7 @@ function addTokensToBattlefield(
 
   const tokenParse = parseTokenCreationFromText(clauseRaw);
   if (!tokenParse) {
-    return { state, log: ['Token creation not recognized'] };
+    return { state, log: ['Token creation not recognized'], createdTokenIds: [] };
   }
 
   const count = Math.max(1, amount | 0);
@@ -99,6 +106,7 @@ function addTokensToBattlefield(
         return {
           state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
           log: [...commonParsed.log],
+          createdTokenIds: tokensToAdd.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
         };
       }
     }
@@ -123,6 +131,62 @@ function addTokensToBattlefield(
   return {
     state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
     log: [...created.log],
+    createdTokenIds: tokensToAdd.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
+  };
+}
+
+function scheduleTokenCleanup(
+  state: GameState,
+  controllerId: PlayerID,
+  sourceName: string | undefined,
+  sourceId: string | undefined,
+  tokenIds: readonly string[],
+  timing: DelayedTriggerTiming,
+  action: 'sacrifice' | 'exile'
+): { state: GameState; log: string[] } {
+  const normalizedTokenIds = tokenIds.map(id => String(id || '').trim()).filter(Boolean);
+  if (normalizedTokenIds.length === 0) {
+    return { state, log: [] };
+  }
+
+  const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
+  const effect =
+    action === 'exile'
+      ? normalizedTokenIds.length === 1
+        ? 'Exile that token.'
+        : 'Exile those tokens.'
+      : normalizedTokenIds.length === 1
+        ? 'Sacrifice that token.'
+        : 'Sacrifice those tokens.';
+
+  const delayedTrigger = createDelayedTrigger(
+    String(sourceId || sourceName || 'oracle-ir'),
+    String(sourceName || 'Delayed cleanup'),
+    controllerId,
+    timing,
+    effect,
+    currentTurn,
+    {
+      targets: [...normalizedTokenIds],
+      eventDataSnapshot: {
+        sourceId: sourceId ? String(sourceId).trim() : undefined,
+        sourceControllerId: String(controllerId || '').trim() || undefined,
+        targetPermanentId: normalizedTokenIds.length === 1 ? normalizedTokenIds[0] : undefined,
+        chosenObjectIds: normalizedTokenIds,
+      },
+    }
+  );
+
+  const registry = (state as any).delayedTriggerRegistry || createDelayedTriggerRegistry();
+  const nextRegistry = registerDelayedTrigger(registry, delayedTrigger);
+  return {
+    state: {
+      ...(state as any),
+      delayedTriggerRegistry: nextRegistry,
+    } as GameState,
+    log: [
+      `Scheduled delayed ${action} for ${normalizedTokenIds.length} token(s) at ${timing.replace(/_/g, ' ')}`,
+    ],
   };
 }
 
@@ -165,6 +229,34 @@ export function applyCreateTokenStep(
     );
     nextState = result.state;
     log.push(...result.log);
+
+    if (result.createdTokenIds.length > 0 && step.atNextEndStep) {
+      const scheduled = scheduleTokenCleanup(
+        nextState,
+        playerId,
+        ctx.sourceName,
+        ctx.sourceId,
+        result.createdTokenIds,
+        DelayedTriggerTiming.NEXT_END_STEP,
+        step.atNextEndStep
+      );
+      nextState = scheduled.state;
+      log.push(...scheduled.log);
+    }
+
+    if (result.createdTokenIds.length > 0 && step.atEndOfCombat) {
+      const scheduled = scheduleTokenCleanup(
+        nextState,
+        playerId,
+        ctx.sourceName,
+        ctx.sourceId,
+        result.createdTokenIds,
+        DelayedTriggerTiming.END_OF_COMBAT,
+        step.atEndOfCombat
+      );
+      nextState = scheduled.state;
+      log.push(...scheduled.log);
+    }
   }
 
   return { applied: true, state: nextState, log };

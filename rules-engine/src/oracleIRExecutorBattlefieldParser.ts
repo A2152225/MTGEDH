@@ -17,7 +17,8 @@ export type SimplePermanentType =
   | 'enchantment'
   | 'land'
   | 'planeswalker'
-  | 'battle';
+  | 'battle'
+  | 'vehicle';
 
 export type DeterministicMixedDamagePlayerTarget =
   | 'you'
@@ -227,6 +228,7 @@ export function parseSimpleBattlefieldSelector(
     'land',
     'planeswalker',
     'battle',
+    'vehicle',
   ]);
   const types: SimplePermanentType[] = [];
   for (const part of parts) {
@@ -252,6 +254,7 @@ export function parseSimplePermanentTypeFromText(text: string): SimplePermanentT
   if (/\bartifact(s)?\b/i.test(lower)) return 'artifact';
   if (/\benchantment(s)?\b/i.test(lower)) return 'enchantment';
   if (/\bland(s)?\b/i.test(lower)) return 'land';
+  if (/\bvehicle(s)?\b/i.test(lower)) return 'vehicle';
   if (/\bpermanent(s)?\b/i.test(lower)) return 'permanent';
   return null;
 }

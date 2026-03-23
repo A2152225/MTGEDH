@@ -1,6 +1,7 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { OracleEffectStep } from './oracleIR';
+import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
 import {
   applyTemporaryPowerToughnessModifier,
   resolveSingleCreatureTargetId,
@@ -14,6 +15,7 @@ export type ModifyPtRuntime = {
   readonly lastExiledCards?: readonly any[];
   readonly lastGoadedCreatures?: readonly BattlefieldPermanent[];
   readonly lastSacrificedCreaturesPowerTotal?: number;
+  readonly lastSacrificedPermanents?: readonly LastKnownPermanentSnapshot[];
   readonly lastExcessDamageDealtThisWay?: number;
   readonly lastScryLookedAtCount?: number;
 };

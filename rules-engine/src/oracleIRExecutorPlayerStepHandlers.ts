@@ -1,6 +1,7 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import {
   addManaToPoolForPlayer,
   adjustLife,
@@ -32,6 +33,47 @@ type StepSkipResult = {
 };
 
 export type PlayerStepHandlerResult = StepApplyResult | StepSkipResult;
+
+function resolveVariableAmount(
+  state: GameState,
+  controllerId: PlayerID,
+  amount: Extract<OracleEffectStep, { kind: 'gain_life' | 'lose_life' }>['amount'],
+  ctx: OracleIRExecutionContext,
+  runtime: ModifyPtRuntime | undefined,
+  evaluateWhereX?: (
+    state: GameState,
+    controllerId: PlayerID,
+    whereRaw: string,
+    targetCreatureId?: string,
+    ctx?: OracleIRExecutionContext,
+    runtime?: ModifyPtRuntime
+  ) => number | null
+): number | null {
+  const numericAmount = quantityToNumber(amount);
+  if (numericAmount !== null) return numericAmount;
+  if (amount.kind !== 'unknown' || !evaluateWhereX) return null;
+
+  const raw = String(amount.raw || '').trim().replace(/^equal to\s+/i, '').trim();
+  if (!raw) return null;
+
+  const evaluated = evaluateWhereX(state, controllerId, `X is ${raw}`, undefined, ctx, runtime);
+  if (evaluated !== null) return evaluated;
+
+  const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
+  if (sacrificed.length === 1) {
+    const snapshot = sacrificed[0] as any;
+    const lowerRaw = raw.toLowerCase();
+    const readFinite = (value: unknown): number | null => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+    if (/^(?:the sacrificed|that) creature's power$/.test(lowerRaw)) return readFinite(snapshot?.power);
+    if (/^(?:the sacrificed|that) creature's toughness$/.test(lowerRaw)) return readFinite(snapshot?.toughness);
+    if (/^(?:the sacrificed|that) creature's mana value$/.test(lowerRaw)) return readFinite(snapshot?.manaValue);
+  }
+
+  return null;
+}
 
 export function applyScryStep(
   state: GameState,
@@ -256,9 +298,19 @@ export function applyDiscardStep(
 export function applyGainLifeStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'gain_life' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  controllerId: PlayerID,
+  runtime?: ModifyPtRuntime,
+  evaluateWhereX?: (
+    state: GameState,
+    controllerId: PlayerID,
+    whereRaw: string,
+    targetCreatureId?: string,
+    ctx?: OracleIRExecutionContext,
+    runtime?: ModifyPtRuntime
+  ) => number | null
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
+  const amount = resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
   if (amount === null) {
     return {
       applied: false,
@@ -291,9 +343,19 @@ export function applyGainLifeStep(
 export function applyLoseLifeStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'lose_life' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  controllerId: PlayerID,
+  runtime?: ModifyPtRuntime,
+  evaluateWhereX?: (
+    state: GameState,
+    controllerId: PlayerID,
+    whereRaw: string,
+    targetCreatureId?: string,
+    ctx?: OracleIRExecutionContext,
+    runtime?: ModifyPtRuntime
+  ) => number | null
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
+  const amount = resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
   if (amount === null) {
     return {
       applied: false,

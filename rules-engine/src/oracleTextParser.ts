@@ -81,6 +81,31 @@ export interface OracleTextParseResult {
   readonly hasModes: boolean;
 }
 
+function buildSelfReferenceAliases(cardName?: string): string[] {
+  const raw = String(cardName || '').trim();
+  if (!raw) return [];
+
+  const aliases = new Set<string>();
+  const pushAlias = (value: string): void => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    aliases.add(normalized);
+  };
+
+  pushAlias(raw);
+
+  for (const face of raw.split(/\s*\/\/\s*/).map(part => part.trim()).filter(Boolean)) {
+    pushAlias(face);
+
+    const commaHead = face.split(',')[0]?.trim();
+    if (commaHead && commaHead.length >= 4) {
+      pushAlias(commaHead);
+    }
+  }
+
+  return [...aliases].sort((a, b) => b.length - a.length || a.localeCompare(b));
+}
+
 // =============================================================================
 // ACTIVATED ABILITIES (Rule 602)
 // Golden Rule: [Cost] : [Effect]
@@ -691,15 +716,14 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
   let hasModes = false;
 
   const escapeRegex = (value: string): string => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  
-  // Normalize card name references in text
-  const normalizedCardName = String(cardName || '').trim();
-  const cardNamePattern = normalizedCardName
-    ? new RegExp(`(^|[^a-z0-9])(${escapeRegex(normalizedCardName)})(?=[^a-z0-9]|$)`, 'gi')
-    : null;
-  const normalizedText = cardNamePattern
-    ? oracleText.replace(cardNamePattern, '$1this permanent')
-    : oracleText;
+
+  // Normalize self-references in text. This includes the full printed card name
+  // plus common legendary shorthand like "Endrek Sahr" from
+  // "Endrek Sahr, Master Breeder".
+  const normalizedText = buildSelfReferenceAliases(cardName).reduce((text, alias) => {
+    const pattern = new RegExp(`(^|[^a-z0-9])(${escapeRegex(alias)})(?=[^a-z0-9]|$)`, 'gi');
+    return text.replace(pattern, '$1this permanent');
+  }, oracleText);
   
   // Split into lines/sentences for parsing.
   // Split by newlines first to preserve ability boundaries, but merge modal bullet lines

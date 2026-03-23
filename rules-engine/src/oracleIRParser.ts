@@ -5,6 +5,8 @@ import {
   AbilityType,
 } from './oracleTextParser';
 import type {
+  OracleBattlefieldObjectCondition,
+  OracleClauseCondition,
   OracleEffectStep,
   OracleIRAbility,
   OracleIRResult,
@@ -37,6 +39,133 @@ import {
   parseQuantity,
   splitIntoClauses,
 } from './oracleIRParserUtils';
+
+function normalizeCounterName(counter: string): string {
+  return String(counter || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\+\s*1\s*\/\s*\+\s*1/g, '+1/+1')
+    .replace(/\-\s*1\s*\/\s*\-\s*1/g, '-1/-1')
+    .replace(/\bcounters?\b/gi, '')
+    .trim();
+}
+
+function parseBattlefieldObjectCondition(rawText: string): OracleBattlefieldObjectCondition | undefined {
+  const text = normalizeOracleText(rawText).replace(/[.]+$/g, '').trim();
+  if (!text.startsWith('if ')) return undefined;
+
+  const manaValueMatch = text.match(/^if it has mana value (a|an|\d+|x|[a-z]+) or (less|fewer|more|greater)$/i);
+  if (manaValueMatch) {
+    const value = parseQuantity(String(manaValueMatch[1] || '').trim());
+    if (value.kind !== 'number') return undefined;
+    return {
+      kind: 'mana_value_compare',
+      comparator: /less|fewer/i.test(String(manaValueMatch[2] || '')) ? 'lte' : 'gte',
+      value: Math.max(0, value.value | 0),
+      subject: 'it',
+    };
+  }
+
+  const counterMatch = text.match(/^if it has (a|an|\d+|x|[a-z]+) or (less|fewer|more|greater) (.+?) counters? on it$/i);
+  if (counterMatch) {
+    const value = parseQuantity(String(counterMatch[1] || '').trim());
+    if (value.kind !== 'number') return undefined;
+    const counter = normalizeCounterName(String(counterMatch[3] || ''));
+    if (!counter) return undefined;
+    return {
+      kind: 'counter_compare',
+      counter,
+      comparator: /less|fewer/i.test(String(counterMatch[2] || '')) ? 'lte' : 'gte',
+      value: Math.max(0, value.value | 0),
+      subject: 'it',
+    };
+  }
+
+  const zeroCounterMatch = text.match(/^if there are no (.+?) counters? on it$/i);
+  if (zeroCounterMatch) {
+    const counter = normalizeCounterName(String(zeroCounterMatch[1] || ''));
+    if (!counter) return undefined;
+    return {
+      kind: 'counter_compare',
+      counter,
+      comparator: 'eq',
+      value: 0,
+      subject: 'it',
+    };
+  }
+
+  return undefined;
+}
+
+function splitSacrificeObjectAndCondition(rawText: string): {
+  readonly objectText: string;
+  readonly condition?: OracleBattlefieldObjectCondition;
+} {
+  const text = String(rawText || '').trim();
+  if (!text) return { objectText: text };
+
+  const conditional = text.match(/^(.+?)\s+if\s+(.+)$/i);
+  if (!conditional) return { objectText: text };
+
+  const condition = parseBattlefieldObjectCondition(`if ${String(conditional[2] || '').trim()}`);
+  if (!condition) return { objectText: text };
+
+  return {
+    objectText: String(conditional[1] || '').trim(),
+    condition,
+  };
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeLeadingConditionalCondition(rawText: string, cardName?: string): string {
+  let normalized = String(rawText || '').trim();
+  if (!normalized) return normalized;
+
+  for (const alias of buildSelfReferenceAliases(cardName)) {
+    if (!alias) continue;
+    const escaped = escapeRegExp(alias);
+    normalized = normalized
+      .replace(new RegExp(`\\b${escaped}'s\\b`, 'ig'), "this permanent's")
+      .replace(new RegExp(`\\b${escaped}\\b`, 'ig'), 'this permanent');
+  }
+
+  return normalized.trim();
+}
+
+function splitLeadingConditionalBody(body: string, cardName?: string): readonly string[] {
+  const out: string[] = [];
+
+  for (const clause of splitIntoClauses(body)) {
+    if (/^sacrifice\b/i.test(clause) && clause.includes(',')) {
+      const segments = clause.split(/\s*,\s*/).map(part => part.trim()).filter(Boolean);
+      if (
+        segments.length > 1 &&
+        /^sacrifice\b/i.test(String(segments[0] || '')) &&
+        segments.slice(1).every(part => isSafeSacrificeFollowupClause(part.replace(/^and\s+/i, '')))
+      ) {
+        out.push(String(segments[0] || '').trim());
+        for (let i = 1; i < segments.length; i += 1) {
+          out.push(String(segments[i] || '').replace(/^and\s+/i, '').trim());
+        }
+        continue;
+      }
+    }
+
+    const split = splitConservativeSacrificeLeadClause(clause, cardName);
+    if (split) {
+      out.push(...split);
+      continue;
+    }
+
+    out.push(clause);
+  }
+
+  return out;
+}
 
 function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   const normalized = normalizeClauseForParse(rawClause);
@@ -92,6 +221,15 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   // Draw
   {
+    const mMoreExplicit = clause.match(
+      /^(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner)\s+)?draws?\s+([a-z0-9]+)\s+more\s+cards?\b/i
+    );
+    if (mMoreExplicit) {
+      const who = parsePlayerSelector(mMoreExplicit[1]);
+      const amount = parseQuantity(mMoreExplicit[2]);
+      return withMeta({ kind: 'draw', who, amount, raw: rawClause });
+    }
+
     const m = clause.match(/^(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 -]*['ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢]s (?:controller|owner))\s+)?draws?\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (m) {
       const who = parsePlayerSelector(m[1]);
@@ -101,6 +239,20 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     const m2 = clause.match(/^draw\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (m2) {
       return withMeta({ kind: 'draw', who: { kind: 'you' }, amount: parseQuantity(m2[1]), raw: rawClause });
+    }
+  }
+
+  // Remove counters
+  {
+    const m = clause.match(/^remove\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+from\s+(.+)$/i);
+    if (m) {
+      return withMeta({
+        kind: 'remove_counter',
+        amount: parseQuantity(m[1]),
+        counter: normalizeCounterName(String(m[2] || '')),
+        target: parseObjectSelector(m[3]),
+        raw: rawClause,
+      });
     }
   }
 
@@ -320,6 +472,25 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     if (gain2) {
       return withMeta({ kind: 'gain_life', who: { kind: 'you' }, amount: parseQuantity(gain2[1]), raw: rawClause });
     }
+    const gainEqual = clause.match(/^(.*?)(?:gains?\s+life\s+equal\s+to)\s+(.+)$/i);
+    if (gainEqual) {
+      const whoRaw = String(gainEqual[1] || '').trim().replace(/\s+$/, '');
+      return withMeta({
+        kind: 'gain_life',
+        who: parsePlayerSelector(whoRaw || 'you'),
+        amount: { kind: 'unknown', raw: String(gainEqual[2] || '').trim() },
+        raw: rawClause,
+      });
+    }
+    const gainEqual2 = clause.match(/^gain\s+life\s+equal\s+to\s+(.+)$/i);
+    if (gainEqual2) {
+      return withMeta({
+        kind: 'gain_life',
+        who: { kind: 'you' },
+        amount: { kind: 'unknown', raw: String(gainEqual2[1] || '').trim() },
+        raw: rawClause,
+      });
+    }
 
     const lose = clause.match(/^(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 -]*['ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢]s (?:controller|owner))\s+)?loses?\s+(\d+|x|[a-z]+)\s+life\b/i);
     if (lose) {
@@ -334,11 +505,30 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     if (lose2) {
       return withMeta({ kind: 'lose_life', who: { kind: 'you' }, amount: parseQuantity(lose2[1]), raw: rawClause });
     }
+    const loseEqual = clause.match(/^(.*?)(?:loses?\s+life\s+equal\s+to)\s+(.+)$/i);
+    if (loseEqual) {
+      const whoRaw = String(loseEqual[1] || '').trim().replace(/\s+$/, '');
+      return withMeta({
+        kind: 'lose_life',
+        who: parsePlayerSelector(whoRaw || 'you'),
+        amount: { kind: 'unknown', raw: String(loseEqual[2] || '').trim() },
+        raw: rawClause,
+      });
+    }
+    const loseEqual2 = clause.match(/^lose\s+life\s+equal\s+to\s+(.+)$/i);
+    if (loseEqual2) {
+      return withMeta({
+        kind: 'lose_life',
+        who: { kind: 'you' },
+        amount: { kind: 'unknown', raw: String(loseEqual2[1] || '').trim() },
+        raw: rawClause,
+      });
+    }
   }
 
   // Deal damage
   {
-    const m = clause.match(/^deal\s+(\d+|x|[a-z]+)\s+damage\s+to\s+(.+)$/i);
+    const m = clause.match(/^deal\s+(that much|\d+|x|[a-z]+)\s+damage\s+to\s+(.+)$/i);
     if (m) {
       return withMeta({
         kind: 'deal_damage',
@@ -347,7 +537,7 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
         raw: rawClause,
       });
     }
-    const m2 = clause.match(/^(?:it|this (?:permanent|spell))\s+deals?\s+(\d+|x|[a-z]+)\s+damage\s+to\s+(.+)$/i);
+    const m2 = clause.match(/^(?:it|this (?:permanent|spell))\s+deals?\s+(that much|\d+|x|[a-z]+)\s+damage\s+to\s+(.+)$/i);
     if (m2) {
       return withMeta({
         kind: 'deal_damage',
@@ -392,6 +582,188 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     }
   }
 
+  // Delayed battlefield cleanup scheduling
+  {
+    const tryParseDelayedBattlefieldAction = (
+      actionText: string,
+      timing:
+        | 'next_end_step'
+        | 'your_next_end_step'
+        | 'next_upkeep'
+        | 'your_next_upkeep'
+        | 'end_of_combat'
+        | 'next_cleanup_step'
+        | 'when_control_lost'
+        | 'when_leaves_battlefield',
+      watchText?: string,
+      conditionText?: string
+    ): OracleEffectStep | null => {
+      const mSacSubject = actionText.match(/^(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 -]*['ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢]s (?:controller|owner))\s+)?sacrifices?\s+(.+)$/i);
+      if (mSacSubject) {
+        const parsedObject = splitSacrificeObjectAndCondition(String(mSacSubject[2] || '').trim());
+        const condition = conditionText ? parseBattlefieldObjectCondition(`if ${conditionText}`) : parsedObject.condition;
+        return withMeta({
+          kind: 'schedule_delayed_battlefield_action',
+          timing,
+          action: 'sacrifice',
+          who: parsePlayerSelector(mSacSubject[1]),
+          object: parseObjectSelector(parsedObject.objectText),
+          ...(condition ? { condition } : {}),
+          ...(watchText ? { watch: parseObjectSelector(watchText) } : {}),
+          raw: rawClause,
+        });
+      }
+
+      const mSac = actionText.match(/^sacrifice\s+(.+)$/i);
+      if (mSac) {
+        const parsedObject = splitSacrificeObjectAndCondition(String(mSac[1] || '').trim());
+        const condition = conditionText ? parseBattlefieldObjectCondition(`if ${conditionText}`) : parsedObject.condition;
+        return withMeta({
+          kind: 'schedule_delayed_battlefield_action',
+          timing,
+          action: 'sacrifice',
+          who: { kind: 'you' },
+          object: parseObjectSelector(parsedObject.objectText),
+          ...(condition ? { condition } : {}),
+          ...(watchText ? { watch: parseObjectSelector(watchText) } : {}),
+          raw: rawClause,
+        });
+      }
+
+      const mExile = actionText.match(/^exile\s+(.+)$/i);
+      if (mExile) {
+        return withMeta({
+          kind: 'schedule_delayed_battlefield_action',
+          timing,
+          action: 'exile',
+          object: parseObjectSelector(mExile[1]),
+          ...(watchText ? { watch: parseObjectSelector(watchText) } : {}),
+          raw: rawClause,
+        });
+      }
+
+      return null;
+    };
+
+    const timingSpecs: readonly {
+      readonly timing: 'next_end_step' | 'your_next_end_step' | 'next_upkeep' | 'your_next_upkeep' | 'end_of_combat' | 'next_cleanup_step';
+      readonly leading: RegExp;
+      readonly leadingConditional: RegExp;
+      readonly trailing: RegExp;
+      readonly trailingConditional: RegExp;
+    }[] = [
+      {
+        timing: 'next_end_step',
+        leading: /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step,\s*(.+)$/i,
+        leadingConditional: /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step,\s*(.+?)\s+if\s+(.+)$/i,
+        trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\s*$/i,
+        trailingConditional: /^(.+?)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+end\s+step\s+if\s+(.+)$/i,
+      },
+      {
+        timing: 'your_next_end_step',
+        leading: /^at\s+the\s+beginning\s+of\s+your\s+next\s+end\s+step,\s*(.+)$/i,
+        leadingConditional: /^at\s+the\s+beginning\s+of\s+your\s+next\s+end\s+step,\s*(.+?)\s+if\s+(.+)$/i,
+        trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+your\s+next\s+end\s+step\s*$/i,
+        trailingConditional: /^(.+?)\s+at\s+the\s+beginning\s+of\s+your\s+next\s+end\s+step\s+if\s+(.+)$/i,
+      },
+      {
+        timing: 'next_end_step',
+        leading: /^at\s+(?:the\s+)?end\s+of\s+turn(?:,|\s+)\s*(.+)$/i,
+        leadingConditional: /^at\s+(?:the\s+)?end\s+of\s+turn(?:,|\s+)\s*(.+?)\s+if\s+(.+)$/i,
+        trailing: /^(.+?)\s+at\s+(?:the\s+)?end\s+of\s+turn\s*$/i,
+        trailingConditional: /^(.+?)\s+at\s+(?:the\s+)?end\s+of\s+turn\s+if\s+(.+)$/i,
+      },
+      {
+        timing: 'end_of_combat',
+        leading: /^at\s+(?:the\s+)?end\s+of\s+combat,\s*(.+)$/i,
+        leadingConditional: /^at\s+(?:the\s+)?end\s+of\s+combat,\s*(.+?)\s+if\s+(.+)$/i,
+        trailing: /^(.+?)\s+at\s+(?:the\s+)?end\s+of\s+combat\s*$/i,
+        trailingConditional: /^(.+?)\s+at\s+(?:the\s+)?end\s+of\s+combat\s+if\s+(.+)$/i,
+      },
+      {
+        timing: 'next_cleanup_step',
+        leading: /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+cleanup\s+step,\s*(.+)$/i,
+        leadingConditional: /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+cleanup\s+step,\s*(.+?)\s+if\s+(.+)$/i,
+        trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+cleanup\s+step\s*$/i,
+        trailingConditional: /^(.+?)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+cleanup\s+step\s+if\s+(.+)$/i,
+      },
+      {
+        timing: 'next_upkeep',
+        leading: /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+upkeep,\s*(.+)$/i,
+        leadingConditional: /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+upkeep,\s*(.+?)\s+if\s+(.+)$/i,
+        trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+upkeep\s*$/i,
+        trailingConditional: /^(.+?)\s+at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+upkeep\s+if\s+(.+)$/i,
+      },
+      {
+        timing: 'your_next_upkeep',
+        leading: /^at\s+the\s+beginning\s+of\s+your\s+next\s+upkeep,\s*(.+)$/i,
+        leadingConditional: /^at\s+the\s+beginning\s+of\s+your\s+next\s+upkeep,\s*(.+?)\s+if\s+(.+)$/i,
+        trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+your\s+next\s+upkeep\s*$/i,
+        trailingConditional: /^(.+?)\s+at\s+the\s+beginning\s+of\s+your\s+next\s+upkeep\s+if\s+(.+)$/i,
+      },
+    ];
+
+    for (const spec of timingSpecs) {
+      const leadingConditional = clause.match(spec.leadingConditional);
+      if (leadingConditional) {
+        const parsed = tryParseDelayedBattlefieldAction(
+          String(leadingConditional[1] || '').trim(),
+          spec.timing,
+          undefined,
+          String(leadingConditional[2] || '').trim()
+        );
+        if (parsed) return parsed;
+      }
+
+      const leading = clause.match(spec.leading);
+      if (leading) {
+        const parsed = tryParseDelayedBattlefieldAction(String(leading[1] || '').trim(), spec.timing);
+        if (parsed) return parsed;
+      }
+
+      const trailingConditional = clause.match(spec.trailingConditional);
+      if (trailingConditional) {
+        const parsed = tryParseDelayedBattlefieldAction(
+          String(trailingConditional[1] || '').trim(),
+          spec.timing,
+          undefined,
+          String(trailingConditional[2] || '').trim()
+        );
+        if (parsed) return parsed;
+      }
+
+      const trailing = clause.match(spec.trailing);
+      if (trailing) {
+        const parsed = tryParseDelayedBattlefieldAction(String(trailing[1] || '').trim(), spec.timing);
+        if (parsed) return parsed;
+      }
+    }
+
+    {
+      const trailingLoseControl = clause.match(/^(.+?)\s+when\s+you\s+lose\s+control\s+of\s+(.+?)\s*$/i);
+      if (trailingLoseControl) {
+        const parsed = tryParseDelayedBattlefieldAction(
+          String(trailingLoseControl[1] || '').trim(),
+          'when_control_lost',
+          String(trailingLoseControl[2] || '').trim()
+        );
+        if (parsed) return parsed;
+      }
+    }
+
+    {
+      const trailingWhenLeaves = clause.match(/^(.+?)\s+when\s+(.+?)\s+leaves\s+the\s+battlefield\s*$/i);
+      if (trailingWhenLeaves) {
+        const parsed = tryParseDelayedBattlefieldAction(
+          String(trailingWhenLeaves[1] || '').trim(),
+          'when_leaves_battlefield',
+          String(trailingWhenLeaves[2] || '').trim()
+        );
+        if (parsed) return parsed;
+      }
+    }
+  }
+
   // Destroy / Exile
   {
     const m = clause.match(/^destroy\s+(.+)$/i);
@@ -420,16 +792,25 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   {
     const m = clause.match(/^(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 -]*['ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢]s (?:controller|owner))\s+)?sacrifices?\s+(.+)$/i);
     if (m) {
+      const parsedObject = splitSacrificeObjectAndCondition(String(m[2] || '').trim());
       return withMeta({
         kind: 'sacrifice',
         who: parsePlayerSelector(m[1]),
-        what: parseObjectSelector(m[2]),
+        what: parseObjectSelector(parsedObject.objectText),
+        ...(parsedObject.condition ? { condition: parsedObject.condition } : {}),
         raw: rawClause,
       });
     }
     const m2 = clause.match(/^sacrifice\s+(.+)$/i);
     if (m2) {
-      return withMeta({ kind: 'sacrifice', who: { kind: 'you' }, what: parseObjectSelector(m2[1]), raw: rawClause });
+      const parsedObject = splitSacrificeObjectAndCondition(String(m2[1] || '').trim());
+      return withMeta({
+        kind: 'sacrifice',
+        who: { kind: 'you' },
+        what: parseObjectSelector(parsedObject.objectText),
+        ...(parsedObject.condition ? { condition: parsedObject.condition } : {}),
+        raw: rawClause,
+      });
     }
   }
 
@@ -522,7 +903,146 @@ function abilityEffectText(ability: ParsedAbility): string {
   return String(ability.effect || ability.text || '').trim();
 }
 
-function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
+function isSafeSacrificeFollowupClause(rawClause: string): boolean {
+  const parsed = parseEffectClauseToStep(rawClause);
+  if (parsed.kind !== 'unknown') return true;
+
+  const normalized = normalizeClauseForParse(rawClause);
+  const clause = String(normalized.clause || '').trim();
+  if (!clause) return false;
+
+  return /^(?:open|counter|draw|create|destroy|exile|return|put|gain|lose|deal|tap|untap|mill|discard|surveil|scry|goad)\b/i.test(
+    clause
+  ) ||
+    /^(?:target|that|those|its|it|each|he|they|you)\b/i.test(clause) ||
+    /^(?:enchanted player|enchanted creature|defending player|the defending player)\b/i.test(clause);
+}
+
+function isExplicitSelfSacrificeReference(text: string): boolean {
+  return /^(?:it|this creature|this artifact|this enchantment|this aura|this equipment|this land|this planeswalker|this battle|this vehicle|this permanent|this attraction)$/i.test(
+    String(text || '').trim()
+  );
+}
+
+function buildSelfReferenceAliases(cardName?: string): string[] {
+  const raw = String(cardName || '').trim();
+  if (!raw) return [];
+
+  const aliases = new Set<string>();
+  const pushAlias = (value: string): void => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    aliases.add(normalized.toLowerCase());
+  };
+
+  pushAlias(raw);
+
+  for (const face of raw.split(/\s*\/\/\s*/).map(part => part.trim()).filter(Boolean)) {
+    pushAlias(face);
+
+    const commaHead = face.split(',')[0]?.trim();
+    if (commaHead && commaHead.length >= 4) {
+      pushAlias(commaHead);
+    }
+  }
+
+  return [...aliases];
+}
+
+function isExplicitOrNamedSelfSacrificeReference(text: string, cardName?: string): boolean {
+  if (isExplicitSelfSacrificeReference(text)) return true;
+  const normalized = String(text || '').trim().toLowerCase();
+  return normalized.length > 0 && buildSelfReferenceAliases(cardName).includes(normalized);
+}
+
+function splitConservativeSacrificeLeadClause(rawClause: string, cardName?: string): string[] | null {
+  const normalized = normalizeClauseForParse(rawClause);
+  const clause = String(normalized.clause || '').trim();
+  if (!clause || normalized.optional || !/^sacrifice\b/i.test(clause)) return null;
+
+  const delimiterMatches: readonly { readonly objectText: string; readonly secondRaw: string }[] = [
+    ...(() => {
+      const m = clause.match(/^sacrifice\s+(.+?),\s*then\s+(.+)$/i);
+      return m
+        ? [
+            {
+              objectText: String(m[1] || '').trim(),
+              secondRaw: `then ${String(m[2] || '').trim()}`,
+            },
+          ]
+        : [];
+    })(),
+    ...(() => {
+      const m = clause.match(/^sacrifice\s+(.+?)\s+and\s+(.+)$/i);
+      return m
+        ? [
+            {
+              objectText: String(m[1] || '').trim(),
+              secondRaw: String(m[2] || '').trim(),
+            },
+          ]
+        : [];
+    })(),
+  ];
+
+  for (const candidate of delimiterMatches) {
+    const objectText = candidate.objectText;
+    const secondRaw = candidate.secondRaw;
+    if (!objectText || !secondRaw) continue;
+    if (/[,:;]/.test(objectText) || /\band\/or\b/i.test(objectText) || /\bor\b/i.test(objectText)) continue;
+    if (/^it\b/i.test(secondRaw) && !isExplicitOrNamedSelfSacrificeReference(objectText, cardName)) continue;
+
+    const firstRaw = `Sacrifice ${objectText}`;
+    const firstStep = parseEffectClauseToStep(firstRaw);
+    if (firstStep.kind !== 'sacrifice') continue;
+    if (!isSafeSacrificeFollowupClause(secondRaw)) continue;
+
+    return [firstRaw, secondRaw];
+  }
+
+  return null;
+}
+
+function tryParseLeadingConditionalStep(rawClause: string, cardName?: string): OracleEffectStep | null {
+  const normalized = normalizeClauseForParse(rawClause);
+  const clause = String(normalized.clause || '').trim();
+  if (!clause) return null;
+
+  const match = clause.match(/^if\s+([^,]+),\s*(.+)$/i);
+  if (!match) return null;
+
+  const conditionRaw = normalizeLeadingConditionalCondition(String(match[1] || '').trim(), cardName);
+  const body = String(match[2] || '').trim();
+  if (!conditionRaw || !body) return null;
+
+  const innerClauses = splitLeadingConditionalBody(body, cardName);
+  if (innerClauses.length <= 0) return null;
+
+  const innerSteps = innerClauses.map(part => parseEffectClauseToStep(part));
+  const hasSacrificeWrapperShape =
+    innerSteps.length > 1 && innerSteps.some(step => step.kind === 'sacrifice');
+  if (!hasSacrificeWrapperShape) return null;
+
+  const step: {
+    kind: 'conditional';
+    condition: OracleClauseCondition;
+    steps: readonly OracleEffectStep[];
+    optional?: boolean;
+    sequence?: 'then';
+    raw: string;
+  } = {
+    kind: 'conditional',
+    condition: { kind: 'if', raw: conditionRaw },
+    steps: innerSteps,
+    raw: rawClause,
+  };
+
+  if (normalized.optional) step.optional = normalized.optional;
+  if (normalized.sequence) step.sequence = normalized.sequence;
+  return step;
+}
+
+function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): OracleIRAbility {
   const effectText = abilityEffectText(ability);
 
   // Check for a modal "Choose N \u2014 \u2022 Mode A \u2022 Mode B" block at the top of the effect.
@@ -534,7 +1054,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       text: modeEffectText,
       effect: modeEffectText,
     };
-    return parseAbilityToIRAbility(mockAbility).steps;
+    return parseAbilityToIRAbility(mockAbility, cardName).steps;
   });
   if (chooseModeStep !== null) {
     return {
@@ -547,7 +1067,23 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
     };
   }
 
-  const clauses = splitIntoClauses(effectText);
+  const combinedClauses: string[] = [];
+  const rawClauses = splitIntoClauses(effectText);
+  for (let clauseIndex = 0; clauseIndex < rawClauses.length; clauseIndex += 1) {
+    const clause = rawClauses[clauseIndex];
+    const nextClause = rawClauses[clauseIndex + 1];
+    if (/^if\b/i.test(clause) && /^then\b/i.test(String(nextClause || ''))) {
+      const combined = `${clause}, ${nextClause}`;
+      if (tryParseLeadingConditionalStep(combined, cardName)) {
+        combinedClauses.push(combined);
+        clauseIndex += 1;
+        continue;
+      }
+    }
+    combinedClauses.push(clause);
+  }
+
+  const clauses = combinedClauses.flatMap(clause => splitConservativeSacrificeLeadClause(clause, cardName) ?? [clause]);
 
   const steps: OracleEffectStep[] = [];
 
@@ -3147,6 +3683,15 @@ function parseAbilityToIRAbility(ability: ParsedAbility): OracleIRAbility {
       continue;
     }
 
+    const conditionalWrapped = tryParseLeadingConditionalStep(clauses[i], cardName);
+    if (conditionalWrapped) {
+      steps.push(conditionalWrapped);
+      lastCreateTokenStepIndexes = null;
+      pendingImpulseFromExileTop = null;
+      i += 1;
+      continue;
+    }
+
     const next = parseEffectClauseToStep(clauses[i]);
     steps.push(next);
     lastCreateTokenStepIndexes = next.kind === 'create_token' ? [steps.length - 1] : null;
@@ -3167,7 +3712,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   const normalizedOracleText = normalizeOracleText(oracleText);
   const parsed: OracleTextParseResult = parseOracleText(normalizedOracleText, cardName);
 
-  let abilities = parsed.abilities.map(parseAbilityToIRAbility);
+  let abilities = parsed.abilities.map(ability => parseAbilityToIRAbility(ability, cardName));
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
   abilities = mergeRevealFollowupAbilities(abilities);
 

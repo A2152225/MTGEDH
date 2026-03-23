@@ -35,6 +35,21 @@ export type OracleClauseCondition =
   | { readonly kind: 'as_long_as'; readonly raw: string }
   | { readonly kind: 'where'; readonly raw: string };
 
+export type OracleBattlefieldObjectCondition =
+  | {
+      readonly kind: 'mana_value_compare';
+      readonly comparator: 'lte' | 'gte';
+      readonly value: number;
+      readonly subject: 'it';
+    }
+  | {
+      readonly kind: 'counter_compare';
+      readonly counter: string;
+      readonly comparator: 'lte' | 'gte' | 'eq';
+      readonly value: number;
+      readonly subject: 'it';
+    };
+
 export type OracleZone =
   | 'battlefield'
   | 'hand'
@@ -110,6 +125,15 @@ export type OracleEffectStep =
   | {
       readonly kind: 'surveil';
       readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'remove_counter';
+      readonly target: OracleObjectSelector;
+      readonly counter: string;
       readonly amount: OracleQuantity;
       readonly optional?: boolean;
       readonly sequence?: 'then';
@@ -219,6 +243,31 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      /**
+       * Schedule a delayed one-shot battlefield action whose targets must be
+       * bound now and resolved later against exact chosen object ids.
+       */
+      readonly kind: 'schedule_delayed_battlefield_action';
+      readonly timing:
+        | 'next_end_step'
+        | 'your_next_end_step'
+        | 'next_upkeep'
+        | 'your_next_upkeep'
+        | 'end_of_combat'
+        | 'next_cleanup_step'
+        | 'when_control_lost'
+        | 'when_leaves_battlefield';
+      readonly action: 'sacrifice' | 'exile';
+      readonly who?: OraclePlayerSelector;
+      readonly object: OracleObjectSelector;
+      readonly condition?: OracleBattlefieldObjectCondition;
+      /** Optional watched object for event-based delayed cleanup like "when that token leaves the battlefield". */
+      readonly watch?: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'destroy';
       readonly target: OracleObjectSelector;
       readonly optional?: boolean;
@@ -236,6 +285,7 @@ export type OracleEffectStep =
       readonly kind: 'sacrifice';
       readonly who: OraclePlayerSelector;
       readonly what: OracleObjectSelector;
+      readonly condition?: OracleBattlefieldObjectCondition;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -276,6 +326,18 @@ export type OracleEffectStep =
         /** Steps that resolve when this mode is chosen. */
         readonly steps: readonly OracleEffectStep[];
       }[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * A leading conditional wrapper around one or more inner steps, used for
+       * clause shapes like "If <condition>, sacrifice this creature and draw a card."
+       */
+      readonly kind: 'conditional';
+      readonly condition: OracleClauseCondition;
+      readonly steps: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

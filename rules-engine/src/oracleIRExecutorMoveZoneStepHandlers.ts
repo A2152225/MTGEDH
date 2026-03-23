@@ -4,6 +4,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { parseSimpleBattlefieldSelector } from './oracleIRExecutorBattlefieldParser';
 import { bounceMatchingBattlefieldPermanentsToOwnersHands } from './oracleIRExecutorBattlefieldOps';
 import {
+  exileExactMatchingFromGraveyard,
   exileAllMatchingFromGraveyard,
   moveAllMatchingFromExile,
   moveAllMatchingFromHand,
@@ -16,12 +17,15 @@ import {
   parseMoveZoneAllFromYourExile,
   parseMoveZoneAllFromYourGraveyard,
   parseMoveZoneAllFromYourHand,
+  parseMoveZoneCountFromYourGraveyard,
+  putExactMatchingFromGraveyardOntoBattlefieldWithController,
   putAllMatchingFromExileOntoBattlefield,
   putAllMatchingFromExileOntoBattlefieldWithController,
   putAllMatchingFromGraveyardOntoBattlefield,
   putAllMatchingFromGraveyardOntoBattlefieldWithController,
   putAllMatchingFromHandOntoBattlefield,
   putAllMatchingFromHandOntoBattlefieldWithController,
+  returnExactMatchingFromGraveyardToHand,
   returnAllMatchingFromGraveyardToHand,
 } from './oracleIRExecutorZoneOps';
 
@@ -37,7 +41,14 @@ type StepSkipResult = {
   readonly reason:
     | 'unsupported_destination'
     | 'unsupported_selector'
-    | 'battlefield_requires_explicit_control_override';
+    | 'battlefield_requires_explicit_control_override'
+    | 'player_choice_required'
+    | 'impossible_action';
+  readonly options?: {
+    readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
+    readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
+    readonly persist?: boolean;
+  };
 };
 
 export type MoveZoneStepHandlerResult = StepApplyResult | StepSkipResult;
@@ -89,6 +100,7 @@ export function applyMoveZoneStep(
   }
 
   const parsedFromGraveyard = parseMoveZoneAllFromYourGraveyard(step.what as any);
+  const parsedCountFromGraveyard = parseMoveZoneCountFromYourGraveyard(step.what as any);
   const parsedFromHand = parseMoveZoneAllFromYourHand(step.what as any);
   const parsedFromExile = parseMoveZoneAllFromYourExile(step.what as any);
   const parsedEachPlayersGy = parseMoveZoneAllFromEachPlayersGraveyard(step.what as any);
@@ -100,6 +112,7 @@ export function applyMoveZoneStep(
 
   if (
     !parsedFromGraveyard &&
+    !parsedCountFromGraveyard &&
     !parsedFromHand &&
     !parsedFromExile &&
     !parsedEachPlayersGy &&
@@ -114,6 +127,76 @@ export function applyMoveZoneStep(
       message: `Skipped move zone (unsupported selector): ${step.raw}`,
       reason: 'unsupported_selector',
     };
+  }
+
+  if (parsedCountFromGraveyard) {
+    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    const result =
+      step.to === 'hand'
+        ? returnExactMatchingFromGraveyardToHand(
+            nextState,
+            controllerId,
+            parsedCountFromGraveyard.count,
+            parsedCountFromGraveyard.cardType
+          )
+        : step.to === 'battlefield'
+          ? putExactMatchingFromGraveyardOntoBattlefieldWithController(
+              nextState,
+              controllerId,
+              controllerId,
+              parsedCountFromGraveyard.count,
+              parsedCountFromGraveyard.cardType,
+              step.entersTapped
+            )
+          : exileExactMatchingFromGraveyard(
+              nextState,
+              controllerId,
+              parsedCountFromGraveyard.count,
+              parsedCountFromGraveyard.cardType
+            );
+
+    if (result.kind === 'player_choice_required') {
+      return {
+        applied: false,
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            requiredCount: parsedCountFromGraveyard.count,
+            availableCount: result.available,
+            zone: 'graveyard',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (not enough matching cards): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            requiredCount: parsedCountFromGraveyard.count,
+            availableCount: result.available,
+            zone: 'graveyard',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    return { applied: true, state: result.state, log: result.log };
   }
 
   if (parsedEachOpponentsExile) {

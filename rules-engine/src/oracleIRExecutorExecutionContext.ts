@@ -50,6 +50,9 @@ export function buildOracleIRExecutionContext(
   const hintTargetOpponentId = normalizeId(hint?.targetOpponentId);
   const hintTargetPlayerId = normalizeId(hint?.targetPlayerId);
   const hintTargetPermanentId = normalizeId(hint?.targetPermanentId);
+  const hintChosenObjectIds = Array.isArray(hint?.chosenObjectIds)
+    ? hint.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+    : undefined;
   const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
   const baseTargetPlayerId = normalizeId(baseSel?.targetPlayerId);
 
@@ -92,6 +95,10 @@ export function buildOracleIRExecutionContext(
       ? baseTargetPlayerId
       : undefined;
 
+  const baseChosenObjectIds = Array.isArray(baseSel?.chosenObjectIds)
+    ? baseSel.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+
   const selectorContext: OracleIRSelectorContext = {
     targetPlayerId:
       hintTargetPlayerId ??
@@ -105,11 +112,9 @@ export function buildOracleIRExecutionContext(
       baseTargetOpponentId ??
       baseTargetFromPlayer,
     ...(sanitizedEachOfThoseOpponents ? { eachOfThoseOpponents: sanitizedEachOfThoseOpponents } : {}),
-    ...(Array.isArray(baseSel?.chosenObjectIds) && baseSel.chosenObjectIds.length > 0
+    ...((baseChosenObjectIds.length > 0 || (hintChosenObjectIds && hintChosenObjectIds.length > 0))
       ? {
-          chosenObjectIds: baseSel.chosenObjectIds
-            .map(id => String(id || '').trim())
-            .filter(Boolean),
+          chosenObjectIds: Array.from(new Set([...(baseChosenObjectIds || []), ...((hintChosenObjectIds || []))])),
         }
       : {}),
   };
@@ -123,18 +128,24 @@ export function buildOracleIRExecutionContext(
   if (!selectorContext.targetPlayerId && !selectorContext.targetOpponentId && !selectorContext.eachOfThoseOpponents) {
     if (
       normalizedControllerId === base.controllerId &&
+      !selectorContext.chosenObjectIds &&
       !referenceSpellTypes &&
       !hintTargetPermanentId &&
-      !hint?.tapOrUntapChoice
+      !hint?.tapOrUntapChoice &&
+      typeof hint?.wonCoinFlip !== 'boolean' &&
+      typeof hint?.winningVoteChoice === 'undefined'
     ) {
       return base;
     }
     return {
       ...base,
       controllerId: normalizedControllerId,
+      ...(selectorContext.chosenObjectIds ? { selectorContext } : {}),
       ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
       ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
       ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
+      ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
+      ...(typeof hint?.winningVoteChoice !== 'undefined' ? { winningVoteChoice: hint.winningVoteChoice } : {}),
     };
   }
 
@@ -145,5 +156,7 @@ export function buildOracleIRExecutionContext(
     ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
     ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
     ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
+    ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
+    ...(typeof hint?.winningVoteChoice !== 'undefined' ? { winningVoteChoice: hint.winningVoteChoice } : {}),
   };
 }

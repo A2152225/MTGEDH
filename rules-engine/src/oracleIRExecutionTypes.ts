@@ -31,6 +31,8 @@ export interface OracleIRExecutionEventHint {
   readonly targetOpponentId?: PlayerID;
   /** Best-effort single target permanent from trigger/ability resolution context. */
   readonly targetPermanentId?: string;
+  /** Bound chosen objects for delayed/antecedent-based battlefield references. */
+  readonly chosenObjectIds?: readonly string[];
   /** Explicit choice for "tap or untap" style effects when known. */
   readonly tapOrUntapChoice?: 'tap' | 'untap';
   /** Generic affected players for this event (may include non-opponents). */
@@ -41,6 +43,10 @@ export interface OracleIRExecutionEventHint {
   readonly opponentsDealtDamageIds?: readonly PlayerID[];
   /** Spell type context used by some exile-until templates (for example, Possibility Storm). */
   readonly spellType?: string;
+  /** Result of a relevant coin flip when the wrapper condition depends on it. */
+  readonly wonCoinFlip?: boolean;
+  /** Winning choice text for vote-result wrappers such as "carnage gets more votes". */
+  readonly winningVoteChoice?: string | null;
 }
 
 export interface OracleIRExecutionContext {
@@ -55,6 +61,10 @@ export interface OracleIRExecutionContext {
   readonly tapOrUntapChoice?: 'tap' | 'untap';
   /** Normalized reference spell types used by some deterministic unknown-amount loops. */
   readonly referenceSpellTypes?: readonly string[];
+  /** Result of a relevant coin flip when already known from runtime context. */
+  readonly wonCoinFlip?: boolean;
+  /** Winning vote choice when already known from runtime context. */
+  readonly winningVoteChoice?: string | null;
   /**
    * Optional selector bindings supplied by the caller from trigger/target resolution context.
    * This allows relational selectors such as "each of those opponents" to execute

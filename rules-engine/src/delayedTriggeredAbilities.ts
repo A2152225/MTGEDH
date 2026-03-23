@@ -21,6 +21,7 @@
 
 import type { PlayerID } from '../../shared/src';
 import { TriggerEvent, type TriggerInstance, createTriggerInstance, type TriggeredAbility } from './triggeredAbilities';
+import type { TriggerEventData } from './triggeredAbilities';
 
 /**
  * When the delayed trigger should fire
@@ -38,6 +39,8 @@ export enum DelayedTriggerTiming {
   YOUR_NEXT_UPKEEP = 'your_next_upkeep',
   /** End of combat */
   END_OF_COMBAT = 'end_of_combat',
+  /** Beginning of the next cleanup step */
+  NEXT_CLEANUP = 'next_cleanup',
   /** Beginning of next combat */
   NEXT_COMBAT = 'next_combat',
   /** Next time a specific event occurs */
@@ -48,6 +51,8 @@ export enum DelayedTriggerTiming {
   YOUR_NEXT_TURN = 'your_next_turn',
   /** When a specific permanent leaves the battlefield */
   WHEN_LEAVES = 'when_leaves',
+  /** When the controller loses control of a watched permanent */
+  WHEN_CONTROL_LOST = 'when_control_lost',
   /** Until end of turn (expires at cleanup) */
   UNTIL_END_OF_TURN = 'until_end_of_turn',
   /** Until next turn */
@@ -84,6 +89,8 @@ export interface DelayedTriggeredAbility {
   readonly timestamp: number;
   /** Additional data for the effect */
   readonly effectData?: Record<string, unknown>;
+  /** Trigger-time snapshot to reuse when the delayed ability resolves later. */
+  readonly eventDataSnapshot?: TriggerEventData;
 }
 
 /**
@@ -120,6 +127,7 @@ export function createDelayedTrigger(
     targets?: string[];
     oneShot?: boolean;
     effectData?: Record<string, unknown>;
+    eventDataSnapshot?: TriggerEventData;
   } = {}
 ): DelayedTriggeredAbility {
   return {
@@ -137,6 +145,7 @@ export function createDelayedTrigger(
     oneShot: options.oneShot ?? true,
     timestamp: Date.now(),
     effectData: options.effectData,
+    eventDataSnapshot: options.eventDataSnapshot,
   };
 }
 
@@ -159,11 +168,12 @@ export function registerDelayedTrigger(
 export function checkDelayedTriggers(
   registry: Readonly<DelayedTriggerRegistry>,
   currentEvent: {
-    type: 'end_step' | 'upkeep' | 'combat_end' | 'combat_begin' | 'cleanup' | 'permanent_left' | 'turn_start';
+    type: 'end_step' | 'upkeep' | 'combat_end' | 'combat_begin' | 'cleanup' | 'permanent_left' | 'control_lost' | 'turn_start';
     playerId?: PlayerID;
     activePlayerId?: PlayerID;
     permanentId?: string;
     currentTurn?: number;
+    eligibleTriggerIds?: ReadonlySet<string>;
   }
 ): {
   triggersToFire: readonly DelayedTriggeredAbility[];
@@ -175,6 +185,11 @@ export function checkDelayedTriggers(
   for (const trigger of registry.triggers) {
     // Skip already fired one-shot triggers
     if (trigger.fired && trigger.oneShot) {
+      continue;
+    }
+
+    if (currentEvent.eligibleTriggerIds && !currentEvent.eligibleTriggerIds.has(trigger.id)) {
+      remainingTriggers.push(trigger);
       continue;
     }
     
@@ -218,6 +233,12 @@ export function checkDelayedTriggers(
           shouldFire = true;
         }
         break;
+
+      case DelayedTriggerTiming.NEXT_CLEANUP:
+        if (currentEvent.type === 'cleanup') {
+          shouldFire = true;
+        }
+        break;
         
       case DelayedTriggerTiming.NEXT_COMBAT:
         if (currentEvent.type === 'combat_begin') {
@@ -228,6 +249,16 @@ export function checkDelayedTriggers(
       case DelayedTriggerTiming.WHEN_LEAVES:
         if (currentEvent.type === 'permanent_left' && 
             currentEvent.permanentId === trigger.watchingPermanentId) {
+          shouldFire = true;
+        }
+        break;
+
+      case DelayedTriggerTiming.WHEN_CONTROL_LOST:
+        if (
+          currentEvent.type === 'control_lost' &&
+          currentEvent.permanentId === trigger.watchingPermanentId &&
+          (!currentEvent.playerId || currentEvent.playerId === trigger.controllerId)
+        ) {
           shouldFire = true;
         }
         break;
@@ -291,7 +322,7 @@ export function processDelayedTriggers(
       targets: delayed.targets,
     };
     
-    instances.push(createTriggerInstance(ability, timestamp));
+    instances.push(createTriggerInstance(ability, timestamp, delayed.eventDataSnapshot));
   }
   
   return instances;

@@ -167,8 +167,11 @@ export interface StackObject {
       readonly sourceControllerId?: string;
       readonly targetId?: string;
       readonly targetControllerId?: string;
+      readonly targetPermanentId?: string;
+      readonly chosenObjectIds?: readonly string[];
       readonly targetPlayerId?: string;
       readonly targetOpponentId?: string;
+      readonly tapOrUntapChoice?: 'tap' | 'untap';
       readonly affectedPlayerIds?: readonly string[];
       readonly affectedOpponentIds?: readonly string[];
       readonly opponentsDealtDamageIds?: readonly string[];
@@ -180,6 +183,8 @@ export interface StackObject {
       readonly spellType?: string;
       readonly isYourTurn?: boolean;
       readonly isOpponentsTurn?: boolean;
+      readonly hand?: readonly string[];
+      readonly handAtBeginningOfTurn?: readonly string[];
       readonly battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
     };
   };

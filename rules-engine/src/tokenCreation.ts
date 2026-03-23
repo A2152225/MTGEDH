@@ -503,10 +503,16 @@ export function createTokenPermanent(
   characteristics: TokenCharacteristics,
   controllerId: PlayerID,
   sourceId?: string,
-  withCounters?: Record<string, number>
+  sourceNameOrWithCounters?: string | Record<string, number>,
+  withCountersArg?: Record<string, number>
 ): BattlefieldPermanent {
   const tokenId = `token-${generateTokenId()}`;
   const timestamp = Date.now();
+  const sourceName = typeof sourceNameOrWithCounters === 'string' ? sourceNameOrWithCounters : undefined;
+  const withCounters =
+    typeof sourceNameOrWithCounters === 'string'
+      ? withCountersArg
+      : sourceNameOrWithCounters;
   
   // Build the type line
   const typeLineParts: string[] = [];
@@ -542,8 +548,8 @@ export function createTokenPermanent(
     basePower: characteristics.power,
     baseToughness: characteristics.toughness,
     isToken: true,
-    // Note: sourceId passed to function can be used for trigger tracking
-    // but is not stored on the permanent itself
+    createdBySourceId: sourceId ? String(sourceId).trim() || undefined : undefined,
+    createdBySourceName: sourceName ? String(sourceName).trim() || undefined : undefined,
   };
   
   return token;
@@ -807,6 +813,7 @@ export function createTokens(
       request.characteristics,
       request.controllerId,
       request.sourceId,
+      request.sourceName,
       request.withCounters
     );
     

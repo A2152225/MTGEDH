@@ -5,6 +5,29 @@ export type SimpleCardType = 'any' | 'creature' | 'artifact' | 'enchantment' | '
 
 const stripImpulsePermissionMarkers = stripPlayableFromExileTags;
 
+function parseSmallNumberWord(text: string): number | null {
+  const lower = String(text || '').trim().toLowerCase();
+  if (!lower) return null;
+  if (/^\d+$/.test(lower)) return parseInt(lower, 10);
+  const lookup: Record<string, number> = {
+    a: 1,
+    an: 1,
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+  };
+  return Number.isFinite(lookup[lower]) ? lookup[lower] : null;
+}
+
 export function parseSimpleCardTypeFromText(text: string): SimpleCardType | null {
   const lower = String(text || '')
     .toLowerCase()
@@ -56,6 +79,159 @@ export function parseMoveZoneAllFromYourGraveyard(what: { readonly kind: string;
   const parsed = parseSimpleCardTypeFromText(typeText);
   if (!parsed) return null;
   return { cardType: parsed };
+}
+
+export function parseMoveZoneCountFromYourGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly count: number; readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (lower.startsWith('all ')) return null;
+  if (!/\bfrom your graveyard\b/i.test(lower)) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+
+  let m = cleaned.match(/^([a-z0-9]+)\s+cards?\s+from\s+your\s+graveyard$/i);
+  if (m) {
+    const count = parseSmallNumberWord(String(m[1] || ''));
+    if (count === null || count <= 0) return null;
+    return { count, cardType: 'any' };
+  }
+
+  m = cleaned.match(/^([a-z0-9]+)\s+(.+?)\s+cards?\s+from\s+your\s+graveyard$/i);
+  if (!m) return null;
+
+  const count = parseSmallNumberWord(String(m[1] || ''));
+  if (count === null || count <= 0) return null;
+
+  const typeText = String(m[2] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { count, cardType: parsed };
+}
+
+type ExactGraveyardSelection =
+  | { readonly kind: 'missing_player' }
+  | { readonly kind: 'impossible'; readonly available: number }
+  | { readonly kind: 'player_choice_required'; readonly available: number }
+  | {
+      readonly kind: 'deterministic';
+      readonly kept: readonly any[];
+      readonly moved: readonly any[];
+    };
+
+function selectExactMatchingFromGraveyard(
+  state: GameState,
+  playerId: PlayerID,
+  count: number,
+  cardType: SimpleCardType
+): ExactGraveyardSelection {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { kind: 'missing_player' };
+
+  const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+  const kept: any[] = [];
+  const moved: any[] = [];
+
+  for (const card of graveyard) {
+    if (cardMatchesType(card, cardType)) moved.push(card);
+    else kept.push(card);
+  }
+
+  if (moved.length < count) return { kind: 'impossible', available: moved.length };
+  if (moved.length > count) return { kind: 'player_choice_required', available: moved.length };
+  return { kind: 'deterministic', kept, moved };
+}
+
+export function exileExactMatchingFromGraveyard(
+  state: GameState,
+  playerId: PlayerID,
+  count: number,
+  cardType: SimpleCardType
+):
+  | { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] }
+  | { readonly kind: 'impossible'; readonly available: number }
+  | { readonly kind: 'player_choice_required'; readonly available: number } {
+  const selection = selectExactMatchingFromGraveyard(state, playerId, count, cardType);
+  if (selection.kind === 'missing_player') return { kind: 'applied', state, log: [] };
+  if (selection.kind === 'impossible' || selection.kind === 'player_choice_required') return selection;
+
+  const player = state.players.find(p => p.id === playerId) as any;
+  const exile = Array.isArray(player?.exile) ? [...player.exile] : [];
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId ? ({ ...(p as any), graveyard: [...selection.kept], exile: [...exile, ...selection.moved] } as any) : p
+  );
+  return {
+    kind: 'applied',
+    state: { ...state, players: updatedPlayers as any } as any,
+    log: [`${playerId} exiles ${selection.moved.length} card(s) from graveyard`],
+  };
+}
+
+export function returnExactMatchingFromGraveyardToHand(
+  state: GameState,
+  playerId: PlayerID,
+  count: number,
+  cardType: SimpleCardType
+):
+  | { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] }
+  | { readonly kind: 'impossible'; readonly available: number }
+  | { readonly kind: 'player_choice_required'; readonly available: number } {
+  const selection = selectExactMatchingFromGraveyard(state, playerId, count, cardType);
+  if (selection.kind === 'missing_player') return { kind: 'applied', state, log: [] };
+  if (selection.kind === 'impossible' || selection.kind === 'player_choice_required') return selection;
+
+  const player = state.players.find(p => p.id === playerId) as any;
+  const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId ? ({ ...(p as any), graveyard: [...selection.kept], hand: [...hand, ...selection.moved] } as any) : p
+  );
+  return {
+    kind: 'applied',
+    state: { ...state, players: updatedPlayers as any } as any,
+    log: [`${playerId} returns ${selection.moved.length} card(s) from graveyard to hand`],
+  };
+}
+
+export function putExactMatchingFromGraveyardOntoBattlefieldWithController(
+  state: GameState,
+  sourcePlayerId: PlayerID,
+  controllerId: PlayerID,
+  count: number,
+  cardType: SimpleCardType,
+  entersTapped?: boolean
+):
+  | { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] }
+  | { readonly kind: 'impossible'; readonly available: number }
+  | { readonly kind: 'player_choice_required'; readonly available: number } {
+  const selection = selectExactMatchingFromGraveyard(state, sourcePlayerId, count, cardType);
+  if (selection.kind === 'missing_player') return { kind: 'applied', state, log: [] };
+  if (selection.kind === 'impossible' || selection.kind === 'player_choice_required') return selection;
+
+  const newPermanents = createBattlefieldPermanentsFromCards(
+    [...selection.moved],
+    sourcePlayerId,
+    controllerId,
+    entersTapped,
+    'gy'
+  );
+  const updatedPlayers = state.players.map(p =>
+    p.id === sourcePlayerId ? ({ ...(p as any), graveyard: [...selection.kept] } as any) : p
+  );
+  return {
+    kind: 'applied',
+    state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanents] } as any,
+    log: [`${controllerId} puts ${selection.moved.length} card(s) from ${sourcePlayerId}'s graveyard onto the battlefield`],
+  };
 }
 
 export function parseMoveZoneAllFromYourHand(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):

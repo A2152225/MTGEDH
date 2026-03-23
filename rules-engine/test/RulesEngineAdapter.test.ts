@@ -6,6 +6,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { RulesEngineAdapter, RulesEngineEvent } from '../src/RulesEngineAdapter';
 import type { GameState } from '../../shared/src';
 import { GameStep } from '../../shared/src';
+import {
+  createDelayedTrigger,
+  DelayedTriggerTiming,
+  registerDelayedTrigger,
+} from '../src/delayedTriggeredAbilities';
 import { createEmblemFromPlaneswalker } from '../src/emblemSupport';
 import { applyTemporaryCantLoseAndOpponentsCantWinEffect } from '../src/winEffectCards';
 import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
@@ -2146,6 +2151,101 @@ describe('RulesEngineAdapter', () => {
 
       expect(result.next.battlefield.some((perm: any) => perm.id === 'awakened-walker')).toBe(false);
       expect(result.log.some(msg => msg.includes('Awakened Walker dies (0 loyalty)'))).toBe(true);
+    });
+  });
+
+  describe('delayed control-loss triggers', () => {
+    it('puts prior control-loss delayed triggers on the stack and resolves them against bound objects', () => {
+      const delayedTrigger = createDelayedTrigger(
+        'krovikan-vampire',
+        'Krovikan Vampire',
+        'player1',
+        DelayedTriggerTiming.WHEN_CONTROL_LOST,
+        'You sacrifice that creature.',
+        1,
+        {
+          watchingPermanentId: 'krovikan-vampire',
+          eventDataSnapshot: {
+            sourceId: 'krovikan-vampire',
+            sourceControllerId: 'player1',
+            chosenObjectIds: ['stolen-creature'],
+          },
+        }
+      );
+
+      const startState: GameState = {
+        ...testGameState,
+        battlefield: [
+          {
+            id: 'krovikan-vampire',
+            controller: 'player1',
+            owner: 'player1',
+            card: {
+              name: 'Krovikan Vampire',
+              type_line: 'Creature - Vampire',
+              power: '3',
+              toughness: '3',
+            },
+          },
+          {
+            id: 'stolen-creature',
+            controller: 'player1',
+            owner: 'player2',
+            card: {
+              name: 'Captured Bear',
+              type_line: 'Creature - Bear',
+              power: '2',
+              toughness: '2',
+            },
+          },
+        ] as any,
+        delayedTriggerRegistry: registerDelayedTrigger(
+          { triggers: [], firedTriggerIds: [] },
+          delayedTrigger
+        ),
+      } as any;
+
+      adapter.initializeGame('test-game', startState);
+
+      const nextState: GameState = {
+        ...startState,
+        battlefield: [
+          {
+            id: 'krovikan-vampire',
+            controller: 'player2',
+            owner: 'player1',
+            card: {
+              name: 'Krovikan Vampire',
+              type_line: 'Creature - Vampire',
+              power: '3',
+              toughness: '3',
+            },
+          },
+          {
+            id: 'stolen-creature',
+            controller: 'player1',
+            owner: 'player2',
+            card: {
+              name: 'Captured Bear',
+              type_line: 'Creature - Bear',
+              power: '2',
+              toughness: '2',
+            },
+          },
+        ] as any,
+      } as any;
+
+      const processed = (adapter as any).processControlLossDelayedTriggers('test-game', startState, nextState);
+
+      expect(processed.state.delayedTriggerRegistry.triggers).toHaveLength(0);
+      expect(processed.state.delayedTriggerRegistry.firedTriggerIds).toContain(delayedTrigger.id);
+      expect((processed.state.stack as any[])).toHaveLength(1);
+      expect((processed.state.stack as any[])[0]?.cardName).toContain('Krovikan Vampire trigger');
+
+      ((adapter as any).gameStates as Map<string, GameState>).set('test-game', processed.state);
+      const resolveResult = adapter.executeAction('test-game', { type: 'resolveStack' });
+
+      expect((resolveResult.next.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['krovikan-vampire']);
     });
   });
   

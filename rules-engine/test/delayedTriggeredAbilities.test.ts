@@ -183,6 +183,72 @@ describe('Delayed Triggered Abilities', () => {
       });
       expect(fire).toHaveLength(1);
     });
+
+    it('should fire when-control-lost triggers only for the watched permanent and controller', () => {
+      let registry = createDelayedTriggerRegistry();
+      registry = registerDelayedTrigger(registry,
+        createDelayedTrigger('s1', 'Krovikan Vampire', 'p1', DelayedTriggerTiming.WHEN_CONTROL_LOST, 'Sacrifice that creature.', 1, {
+          watchingPermanentId: 'krovikan-vampire',
+        })
+      );
+
+      const { triggersToFire: wrongPermanent } = checkDelayedTriggers(registry, {
+        type: 'control_lost',
+        permanentId: 'other-permanent',
+        playerId: 'p1',
+      });
+      expect(wrongPermanent).toHaveLength(0);
+
+      const { triggersToFire: wrongController } = checkDelayedTriggers(registry, {
+        type: 'control_lost',
+        permanentId: 'krovikan-vampire',
+        playerId: 'p2',
+      });
+      expect(wrongController).toHaveLength(0);
+
+      const { triggersToFire: fire } = checkDelayedTriggers(registry, {
+        type: 'control_lost',
+        permanentId: 'krovikan-vampire',
+        playerId: 'p1',
+      });
+      expect(fire).toHaveLength(1);
+    });
+
+    it('should not fire newly-created control-loss triggers when eligibility is restricted to prior triggers', () => {
+      const priorTrigger = createDelayedTrigger(
+        's1',
+        'Prior Watcher',
+        'p1',
+        DelayedTriggerTiming.WHEN_CONTROL_LOST,
+        'Sacrifice that creature.',
+        1,
+        { watchingPermanentId: 'watched-permanent' }
+      );
+      const newTrigger = createDelayedTrigger(
+        's2',
+        'New Watcher',
+        'p1',
+        DelayedTriggerTiming.WHEN_CONTROL_LOST,
+        'Exile that creature.',
+        1,
+        { watchingPermanentId: 'watched-permanent' }
+      );
+
+      const registry = {
+        triggers: [priorTrigger, newTrigger],
+        firedTriggerIds: [],
+      };
+
+      const { triggersToFire } = checkDelayedTriggers(registry, {
+        type: 'control_lost',
+        permanentId: 'watched-permanent',
+        playerId: 'p1',
+        eligibleTriggerIds: new Set([priorTrigger.id]),
+      });
+
+      expect(triggersToFire).toHaveLength(1);
+      expect(triggersToFire[0]?.id).toBe(priorTrigger.id);
+    });
     
     it('should fire end of combat triggers', () => {
       let registry = createDelayedTriggerRegistry();
@@ -246,6 +312,28 @@ describe('Delayed Triggered Abilities', () => {
       
       expect(instances).toHaveLength(1);
       expect(instances[0].sourceName).toBe('Test Card');
+    });
+
+    it('preserves event-data snapshots for delayed resolution context', () => {
+      const trigger = createDelayedTrigger(
+        'source-1',
+        'Test Card',
+        'player1',
+        DelayedTriggerTiming.NEXT_END_STEP,
+        'Sacrifice those tokens.',
+        1,
+        {
+          eventDataSnapshot: {
+            sourceId: 'source-1',
+            sourceControllerId: 'player1',
+            chosenObjectIds: ['token-a', 'token-b'],
+          },
+        }
+      );
+
+      const instances = processDelayedTriggers([trigger], Date.now());
+
+      expect(instances[0]?.triggerEventDataSnapshot?.chosenObjectIds).toEqual(['token-a', 'token-b']);
     });
   });
   

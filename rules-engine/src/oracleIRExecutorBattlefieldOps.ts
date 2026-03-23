@@ -99,6 +99,8 @@ export function permanentMatchesSelector(
         return hasExecutorClass(perm, 'planeswalker');
       case 'battle':
         return hasExecutorClass(perm, 'battle');
+      case 'vehicle':
+        return hasExecutorClass(perm, 'vehicle');
       default:
         return false;
     }
@@ -123,6 +125,8 @@ export function permanentMatchesType(perm: BattlefieldPermanent, type: SimplePer
       return hasExecutorClass(perm, 'planeswalker');
     case 'battle':
       return hasExecutorClass(perm, 'battle');
+    case 'vehicle':
+      return hasExecutorClass(perm, 'vehicle');
     default:
       return false;
   }

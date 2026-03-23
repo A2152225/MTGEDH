@@ -1,63 +1,56 @@
 # Sacrifice Executor Coverage Audit
 
-Generated: 2026-03-23T02:32:49.666Z
+Generated: 2026-03-23T09:31:19.252Z
 
 ## Summary
 
 - Distinct sacrifice-related clauses scanned: 4979
-- Supported effect cards matching the current sacrifice executor shape: 161
-- Sample supported effect clauses captured: 25
-- Sample effect clauses that still imply player choice or executor gaps: 50
+- Deterministic or context-bound supported effect cards: 716
+- Semantically understood but choice-required effect cards: 366
+- Sample delayed cleanup follow-up clauses still needing timing-aware handling: 0
+- Sample unsupported sacrifice clauses: 8
 - Sample sacrifice clauses classified as additional-cost or keyword surfaces: 25
 
-## Migration Notes
+## Classification Notes
 
-- Treat `supportedEffectCards` in the JSON report as the first-pass compatibility set when refactoring sacrifice handling.
-- Treat `choiceOrGapSamples` and `unsupportedEffectSamples` as the safest backlog for extending sacrifice coverage without broad regressions.
-- Treat `additionalCostOrKeywordSamples` as adjacent sacrifice wording that likely belongs to cost or keyword handling, not the standalone `sacrifice` executor step.
+- `deterministicSupported`: the current parser/executor understands the selector shape and can execute it when context is bound.
+- `choiceRequired`: the clause is semantically understood, but safe execution still requires a player or payment choice.
+- `delayedCleanupFollowup`: the clause looks like a timing-qualified cleanup reference and should be handled by timing-aware delayed-trigger plumbing rather than immediate sacrifice execution.
+- `unsupported`: the clause still falls outside the currently understood sacrifice selector space.
 
-## Sample Supported Cards
+## Top Choice-Required Object Phrases
 
-- Unscrupulous Contractor: When this creature enters, you may sacrifice a creature.
-- Excavating Anurid: When this creature enters, you may sacrifice a land.
-- Waterspout Djinn: At the beginning of your upkeep, sacrifice this creature unless you return an untapped Island you control to its owner's hand.
-- Distract the Hydra: Each player may sacrifice a creature.
-- Eradicator Valkyrie: Boast — {1}{B}, Sacrifice a creature: Each opponent sacrifices a creature or planeswalker.
-- Baldur's Gate Wilderness: Defiled Temple — You may sacrifice a permanent.
-- Commander Greven il-Vec: When Commander Greven il-Vec enters, sacrifice a creature.
-- Liliana of the Veil: −2: Target player sacrifices a creature.
-- Phyrexian War Beast: When this creature leaves the battlefield, sacrifice a land and this creature deals 1 damage to you.
-- Faerie Impostor: When this creature enters, sacrifice it unless you return another creature you control to its owner's hand.
-- Daretti, Rocketeer Engineer: You may sacrifice an artifact.
-- Grist, the Hunger Tide: −2: You may sacrifice a creature.
-- Goremand: When this creature enters, each opponent sacrifices a creature.
-- Yukora, the Prisoner: When Yukora leaves the battlefield, sacrifice all non-Ogre creatures you control.
-- Quickling: When this creature enters, sacrifice it unless you return another creature you control to its owner's hand.
-- Lithobraking: Then you may sacrifice an artifact.
-- The Fourth Sphere: At the beginning of your upkeep, sacrifice a nonblack creature.
-- Abhorrent Overlord: At the beginning of your upkeep, sacrifice a creature.
-- All Is Dust: Each player sacrifices all permanents they control that are one or more colors.
-- Demonic Taskmaster: At the beginning of your upkeep, sacrifice a creature other than this creature.
+- `a creature of their choice`: 55
+- `a land of their choice`: 15
+- `two creatures of their choice`: 6
+- `a creature or planeswalker of their choice`: 5
+- `a permanent of their choice`: 5
+- `it unless you pay {1}`: 5
+- `it unless you return a non-lair land you control to its owner's hand`: 5
+- `a nontoken creature of their choice`: 4
+- `this creature`: 4
+- `this creature unless you discard a card`: 4
+- `this creature unless you pay {g}{g}`: 4
+- `a permanent of their choice unless they pay {1}`: 3
+- `an attacking creature of their choice`: 3
+- `it unless it escaped`: 3
+- `it unless you discard a card at random`: 3
+- `it unless you discard a land card`: 3
+- `this creature unless you pay {u}`: 3
+- `this enchantment unless you pay {w}{w}`: 3
+- `a creature of their choice with flying`: 2
+- `a permanent of their choice for that player to ignore this effect until end of turn`: 2
+
+## Top Delayed Cleanup Object Phrases
+
 
 ## Top Unsupported Object Phrases
 
-- `it`: 83
-- `this creature`: 75
-- `a creature of their choice`: 59
-- `it at the beginning of the next end step`: 46
-- `it.)`: 40
-- `them at the beginning of the next end step`: 38
-- `this enchantment`: 34
-- `another creature`: 27
-- `it at end of combat.)`: 22
-- `a land of their choice`: 15
-- `this artifact`: 15
-- `this aura`: 14
-- `another creature or artifact`: 8
-- `it at end of combat`: 8
-- `it at the beginning of the next end step.)`: 8
-- `it at the beginning of your next end step`: 7
-- `a creature or planeswalker of their choice`: 6
-- `a food`: 6
-- `a permanent of their choice`: 6
-- `another creature or an artifact`: 6
+- `it (the card, not your head`: 1
+- `this artifact and put all cards exiled with it into their owners' hands`: 1
+- `this creature after it enters`: 1
+- `this creature and counter that spell or ability`: 1
+- `this creature and create a 4/4 red giant bird creature token`: 1
+- `this creature and it deals 3 damage to each creature and each player`: 1
+- `this creature when your head stops touching the table`: 1
+- `this enchantment and said player discards their complement of cards in hand (hereafter known as "hand"`: 1

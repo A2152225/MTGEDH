@@ -2,6 +2,10 @@ import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import {
+  lastKnownSnapshotHasClass,
+  type LastKnownPermanentSnapshot,
+} from './oracleIRExecutorLastKnownInfo';
+import {
   getCardsFromPlayerZone,
   getContextExcludedId,
   getContextSourceObject,
@@ -100,6 +104,27 @@ export function evaluateModifyPtWhereX(
   const getSourceRef = (): any | null => getContextSourceObject(ctx, findObjectById);
 
   const getTargetRef = (): any | null => getContextTargetObject(targetCreatureId, findObjectById);
+
+  const resolveLastSacrificedSnapshot = (
+    requiredClass: 'creature' | 'artifact' | 'permanent' | 'card'
+  ): LastKnownPermanentSnapshot | null => {
+    const snapshots = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
+    if (snapshots.length === 0) return null;
+
+    const matches = (snapshot: LastKnownPermanentSnapshot): boolean => {
+      if (requiredClass === 'card') return true;
+      return lastKnownSnapshotHasClass(snapshot, requiredClass);
+    };
+
+    const sourceId = String(ctx?.sourceId || '').trim();
+    if (sourceId) {
+      const sourceMatch = snapshots.find(snapshot => snapshot.id === sourceId && matches(snapshot));
+      if (sourceMatch) return sourceMatch;
+    }
+
+    const candidates = snapshots.filter(matches);
+    return candidates.length === 1 ? candidates[0] : null;
+  };
 
 
   {
@@ -1668,6 +1693,13 @@ export function evaluateModifyPtWhereX(
   {
     const m = raw.match(/^x is the sacrificed creature'?s (power|toughness|mana value)$/i);
     if (m) {
+      const snapshot = resolveLastSacrificedSnapshot('creature');
+      if (snapshot) {
+        const which = String(m[1] || '').toLowerCase();
+        if (which === 'mana value') return snapshot.manaValue;
+        return which === 'power' ? snapshot.power : snapshot.toughness;
+      }
+
       const sourceId = String(ctx?.sourceId || '').trim();
       if (!sourceId) return null;
       const ref = findObjectById(sourceId);
@@ -1694,6 +1726,9 @@ export function evaluateModifyPtWhereX(
   {
     const m = raw.match(/^x is the sacrificed artifact'?s mana value$/i);
     if (m) {
+      const snapshot = resolveLastSacrificedSnapshot('artifact');
+      if (snapshot) return snapshot.manaValue;
+
       const sourceId = String(ctx?.sourceId || '').trim();
       if (!sourceId) return null;
       const ref = findObjectById(sourceId);
@@ -2003,10 +2038,17 @@ export function evaluateModifyPtWhereX(
   {
     const m = raw.match(/^x is the number of colors that (creature|card|permanent) was$/i);
     if (m) {
+      const subject = String(m[1] || '').toLowerCase();
+      const snapshot = resolveLastSacrificedSnapshot(
+        subject === 'card' ? 'card' : (subject as 'creature' | 'permanent')
+      );
+      if (snapshot) {
+        return snapshot.colors.length;
+      }
+
       const ref = getSourceRef();
       if (!ref) return null;
 
-      const subject = String(m[1] || '').toLowerCase();
       const refCard = (ref as any)?.card || ref;
       const tl = typeLineLower(refCard);
       if (subject === 'creature' && !hasExecutorClass(ref, 'creature')) return null;
@@ -2163,6 +2205,9 @@ export function evaluateModifyPtWhereX(
       const refWord = String(m[1] || '').toLowerCase();
       const objectWord = String(m[2] || '').toLowerCase();
       const statWord = String(m[3] || '').toLowerCase();
+      const snapshot = resolveLastSacrificedSnapshot(
+        objectWord === 'card' ? 'card' : (objectWord as 'creature' | 'artifact' | 'permanent')
+      );
 
       let refId = '';
       if (refWord === 'that' && objectWord === 'creature' && targetCreatureId) {
@@ -2173,9 +2218,17 @@ export function evaluateModifyPtWhereX(
         refId = String(targetCreatureId);
       }
 
-      if (!refId) return null;
+      if (!refId) {
+        if (!snapshot || statWord === 'intensity') return null;
+        if (statWord === 'mana value') return snapshot.manaValue;
+        return statWord === 'power' ? snapshot.power : snapshot.toughness;
+      }
       const target = battlefield.find((p: any) => String(p?.id || '').trim() === refId) as any;
-      if (!target) return null;
+      if (!target) {
+        if (!snapshot || statWord === 'intensity') return null;
+        if (statWord === 'mana value') return snapshot.manaValue;
+        return statWord === 'power' ? snapshot.power : snapshot.toughness;
+      }
 
       if (statWord === 'mana value') {
         return getCardManaValue(target?.card || target);

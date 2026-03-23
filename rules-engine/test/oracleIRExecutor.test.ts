@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import type { GameState } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
+import { DelayedTriggerTiming, checkDelayedTriggers, processDelayedTriggers } from '../src/delayedTriggeredAbilities';
+import { executeTriggeredAbilityEffectWithOracleIR } from '../src/triggeredAbilities';
 import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
@@ -499,7 +501,11 @@ describe('Oracle IR Executor', () => {
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'outfitted-jouster',
+      sourceName: 'Outfitted Jouster',
+    });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
     const p3 = result.state.players.find(p => p.id === 'p3') as any;
 
@@ -553,7 +559,11 @@ describe('Oracle IR Executor', () => {
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'outfitted-jouster-choice',
+      sourceName: 'Outfitted Jouster',
+    });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
     const p3 = result.state.players.find(p => p.id === 'p3') as any;
 
@@ -585,7 +595,11 @@ describe('Oracle IR Executor', () => {
       ],
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'outfitted-jouster',
+      sourceName: 'Outfitted Jouster',
+    });
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
     expect(p1.library).toHaveLength(1);
@@ -629,7 +643,11 @@ describe('Oracle IR Executor', () => {
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'outfitted-jouster-choice',
+      sourceName: 'Outfitted Jouster',
+    });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
     expect(p2.library.map((c: any) => c.id)).toEqual(['p2c3']);
@@ -660,7 +678,11 @@ describe('Oracle IR Executor', () => {
       ],
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'outfitted-jouster',
+      sourceName: 'Outfitted Jouster',
+    });
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
     expect(p1.library).toHaveLength(1);
@@ -826,7 +848,11 @@ describe('Oracle IR Executor', () => {
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'outfitted-jouster-choice',
+      sourceName: 'Outfitted Jouster',
+    });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
     expect(p2.library.map((c: any) => c.id)).toEqual(['p2c3']);
@@ -13334,9 +13360,1337 @@ describe('Oracle IR Executor', () => {
 
     expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
     expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
-    expect(result.automationGaps.some(gap => gap.reasonCode === 'unsupported_object_selector')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.classification === 'player_choice')).toBe(true);
     expect(((result.state as any).oracleAutomationGaps || []).length).toBeGreaterThan(0);
     expect(result.state.battlefield).toHaveLength(1);
+  });
+
+  it('applies contextual sacrifice for "that creature" via target permanent binding', () => {
+    const ir = parseOracleTextToIR('Sacrifice that creature.', 'Context Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'context-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'context-creature-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'safe-artifact',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-artifact-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetPermanentId: 'context-creature',
+    });
+    const names = (result.state.battlefield as any[]).map(p => String((p as any)?.card?.name || ''));
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(names).toContain('Mind Stone');
+    expect(names).not.toContain('Runeclaw Bear');
+  });
+
+  it('applies contextual sacrifice for "that permanent" via target permanent binding', () => {
+    const ir = parseOracleTextToIR('Sacrifice that permanent.', 'Context Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'context-permanent',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'context-permanent-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+        {
+          id: 'safe-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-creature-card', name: 'Bear Cub', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetPermanentId: 'context-permanent',
+    });
+    const names = (result.state.battlefield as any[]).map(p => String((p as any)?.card?.name || ''));
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(names).toContain('Bear Cub');
+    expect(names).not.toContain('Mind Stone');
+  });
+
+  it('applies contextual sacrifice for "the token" via chosen object binding', () => {
+    const ir = parseOracleTextToIR('Sacrifice the token.', 'Context Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'context-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'context-token-card', name: 'Elemental', type_line: 'Creature - Elemental' },
+        },
+        {
+          id: 'safe-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'safe-token-card', name: 'Treasure', type_line: 'Artifact - Treasure' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenObjectIds: ['context-token'] } as any,
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(remainingIds).toEqual(['safe-token']);
+  });
+
+  it('applies contextual sacrifice for "those creatures" via chosen object binding', () => {
+    const ir = parseOracleTextToIR('Sacrifice those creatures.', 'Context Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'context-creature-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'context-creature-a-card', name: 'Bear Cub', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'context-creature-b',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'context-creature-b-card', name: 'Goblin Piker', type_line: 'Creature - Goblin Warrior' },
+        },
+        {
+          id: 'safe-artifact-perm',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-artifact-perm-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenObjectIds: ['context-creature-a', 'context-creature-b'] } as any,
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(remainingIds).toEqual(['safe-artifact-perm']);
+  });
+
+  it('skips contextual sacrifice for "that creature" when no binding is available', () => {
+    const ir = parseOracleTextToIR('Sacrifice that creature.', 'Context Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'unbound-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'unbound-creature-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+    });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'no_deterministic_target')).toBe(true);
+  });
+
+  it('applies sacrifice for "enchanted creature" using the source attachment binding', () => {
+    const ir = parseOracleTextToIR('Sacrifice enchanted creature.', 'Cocoon');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'cocoon-aura',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'enchanted-bear',
+          card: { id: 'cocoon-card', name: 'Cocoon', type_line: 'Enchantment - Aura' },
+        },
+        {
+          id: 'enchanted-bear',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'enchanted-bear-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'safe-artifact-after-aura',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-artifact-after-aura-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cocoon-aura',
+      sourceName: 'Cocoon',
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(remainingIds).toEqual(['cocoon-aura', 'safe-artifact-after-aura']);
+  });
+
+  it('applies sacrifice for a named attached Equipment when there is one deterministic match', () => {
+    const ir = parseOracleTextToIR('Sacrifice an Equipment attached to Outfitted Jouster.', 'Outfitted Jouster');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'outfitted-jouster',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'outfitted-jouster-card', name: 'Outfitted Jouster', type_line: 'Creature - Human Knight' },
+        },
+        {
+          id: 'short-sword',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'outfitted-jouster',
+          card: { id: 'short-sword-card', name: 'Short Sword', type_line: 'Artifact - Equipment' },
+        },
+        {
+          id: 'safe-aura-after-equipment',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'outfitted-jouster',
+          card: { id: 'safe-aura-after-equipment-card', name: 'Sentinel Eyes', type_line: 'Enchantment - Aura' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'outfitted-jouster',
+      sourceName: 'Outfitted Jouster',
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(remainingIds).toEqual(['outfitted-jouster', 'safe-aura-after-equipment']);
+  });
+
+  it('classifies attached-Equipment sacrifice as player choice when multiple matches exist', () => {
+    const ir = parseOracleTextToIR('Sacrifice an Equipment attached to Outfitted Jouster.', 'Outfitted Jouster');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'outfitted-jouster-choice',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'outfitted-jouster-choice-card', name: 'Outfitted Jouster', type_line: 'Creature - Human Knight' },
+        },
+        {
+          id: 'short-sword-choice',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'outfitted-jouster-choice',
+          card: { id: 'short-sword-choice-card', name: 'Short Sword', type_line: 'Artifact - Equipment' },
+        },
+        {
+          id: 'bone-saw-choice',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'outfitted-jouster-choice',
+          card: { id: 'bone-saw-choice-card', name: 'Bonesaw', type_line: 'Artifact - Equipment' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'outfitted-jouster-choice',
+      sourceName: 'Outfitted Jouster',
+    });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.classification === 'player_choice')).toBe(true);
+  });
+
+  it('classifies "of their choice" sacrifice text as player choice instead of unsupported', () => {
+    const ir = parseOracleTextToIR('Each opponent sacrifices a creature of their choice.', 'Choice Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'choice-creature-a',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'choice-creature-a-card', name: 'Bear Cub', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'choice-creature-b',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'choice-creature-b-card', name: 'Goblin Piker', type_line: 'Creature - Goblin Warrior' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.classification === 'player_choice')).toBe(true);
+  });
+
+  it('classifies "any number of creatures" sacrifice text as player choice', () => {
+    const ir = parseOracleTextToIR('Sacrifice any number of creatures.', 'Choice Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'any-number-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'any-number-a-card', name: 'Bear Cub', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'any-number-b',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'any-number-b-card', name: 'Goblin Piker', type_line: 'Creature - Goblin Warrior' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+  });
+
+  it('classifies "one or more Treasures" sacrifice text as player choice', () => {
+    const ir = parseOracleTextToIR('You may sacrifice one or more Treasures.', 'Treasure Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'treasure-choice-a',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'treasure-choice-a-card', name: 'Treasure', type_line: 'Artifact - Treasure' },
+        },
+        {
+          id: 'treasure-choice-b',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'treasure-choice-b-card', name: 'Treasure', type_line: 'Artifact - Treasure' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' }, { allowOptional: true });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.classification === 'player_choice')).toBe(true);
+  });
+
+  it('classifies sacrifice-or-pay wording as player choice instead of unsupported', () => {
+    const ir = parseOracleTextToIR('Whenever this creature attacks, you may sacrifice a Food or pay {2}{W}.', 'Nimble Hobbit');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'nimble-hobbit-food',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'nimble-hobbit-food-card', name: 'Food', type_line: 'Artifact - Food' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', sourceId: 'nimble-hobbit', sourceName: 'Nimble Hobbit' },
+      { allowOptional: true }
+    );
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.classification === 'player_choice')).toBe(true);
+  });
+
+  it('classifies sacrifice-and-pay wording as player choice instead of unsupported', () => {
+    const ir = parseOracleTextToIR('You may sacrifice this enchantment and pay {2}{G}{G}.', 'Preferred Selection');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'preferred-selection',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'preferred-selection-card', name: 'Preferred Selection', type_line: 'Enchantment' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', sourceId: 'preferred-selection', sourceName: 'Preferred Selection' },
+      { allowOptional: true }
+    );
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.classification === 'player_choice')).toBe(true);
+  });
+
+  it('classifies prevention-cost self-sacrifice text as player choice instead of unsupported', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your upkeep, sacrifice this creature unless you pay {U}.',
+      'Phantasmal Forces'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'forces-self-choice',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'forces-choice-card', name: 'Phantasmal Forces', type_line: 'Creature - Illusion' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'forces-self-choice',
+      sourceName: 'Phantasmal Forces',
+    });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.classification === 'player_choice')).toBe(true);
+  });
+
+  it('applies word-number sacrifice counts like "two creatures" deterministically when exact count matches', () => {
+    const ir = parseOracleTextToIR('Sacrifice two creatures.', 'Count Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'two-creatures-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'two-creatures-a-card', name: 'Bear Cub', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'two-creatures-b',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'two-creatures-b-card', name: 'Goblin Piker', type_line: 'Creature - Goblin Warrior' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.state.battlefield).toHaveLength(0);
+    expect((p1?.graveyard || []).length).toBe(2);
+  });
+
+  it('applies subtype-token sacrifice text like "a Blood token"', () => {
+    const ir = parseOracleTextToIR('Sacrifice a Blood token.', 'Token Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'blood-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'blood-token-card', name: 'Blood', type_line: 'Artifact - Blood' },
+        },
+        {
+          id: 'food-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'food-token-card', name: 'Food', type_line: 'Artifact - Food' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(remainingIds).toEqual(['food-token']);
+  });
+
+  it('applies self-sacrifice for "this Equipment"', () => {
+    const ir = parseOracleTextToIR('Sacrifice this Equipment.', 'Equipment Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'self-equipment',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'self-equipment-card', name: 'Short Sword', type_line: 'Artifact - Equipment' },
+        },
+        {
+          id: 'safe-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-creature-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'self-equipment',
+      sourceName: 'Short Sword',
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(remainingIds).toEqual(['safe-creature']);
+  });
+
+  it('applies self-sacrifice for named source references', () => {
+    const ir = parseOracleTextToIR('Sacrifice Night Out in Vegas.', 'Night Out in Vegas');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'named-self-enchantment',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'named-self-enchantment-card', name: 'Night Out in Vegas', type_line: 'Enchantment' },
+        },
+        {
+          id: 'safe-permanent-after-name',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-permanent-after-name-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'named-self-enchantment',
+      sourceName: 'Night Out in Vegas',
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(remainingIds).toEqual(['safe-permanent-after-name']);
+  });
+
+  it('applies the sacrifice half of a split conjunction and records a gap for the unsupported follow-up', () => {
+    const ir = parseOracleTextToIR('Sacrifice this enchantment and counter that spell.', 'Hesitation');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'hesitation-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'hesitation-source-card', name: 'Hesitation', type_line: 'Enchantment' },
+        },
+        {
+          id: 'safe-artifact-after-split',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-artifact-after-split-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'hesitation-source',
+      sourceName: 'Hesitation',
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'unknown')).toBe(true);
+    expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('counter that spell'))).toBe(true);
+    expect(remainingIds).toEqual(['safe-artifact-after-split']);
+  });
+
+  it('applies the sacrifice half of an explicit self-reference "it deals" conjunction and records the unresolved follow-up', () => {
+    const ir = parseOracleTextToIR(
+      'When another creature enters, sacrifice this creature and it deals 3 damage to target player or planeswalker.',
+      'Mogg Bombers'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'mogg-bombers-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'mogg-bombers-source-card', name: 'Mogg Bombers', type_line: 'Creature - Goblin' },
+        },
+        {
+          id: 'safe-artifact-after-it-deals-split',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-artifact-after-it-deals-split-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'mogg-bombers-source',
+      sourceName: 'Mogg Bombers',
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'unknown' || s.kind === 'damage' || s.kind === 'deal_damage')).toBe(true);
+    expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('it deals 3 damage'))).toBe(true);
+    expect(remainingIds).toEqual(['safe-artifact-after-it-deals-split']);
+  });
+
+  it('keeps leading conditional sacrifice conjunctions persisted as a conditional gap when the wrapper condition is unsupported', () => {
+    const ir = parseOracleTextToIR("If you don't, sacrifice this artifact and draw three cards.", "Sorcerer's Strongbox");
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'strongbox-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'strongbox-source-card', name: "Sorcerer's Strongbox", type_line: 'Artifact' },
+        },
+        {
+          id: 'safe-artifact-after-conditional',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-artifact-after-conditional-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'strongbox-source',
+      sourceName: "Sorcerer's Strongbox",
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps).toHaveLength(0);
+    expect(result.skippedSteps.some(s => s.kind === 'conditional')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'unsupported_condition_clause')).toBe(true);
+    expect(remainingIds).toEqual(['strongbox-source', 'safe-artifact-after-conditional']);
+  });
+
+  it('applies wrapped conditional sacrifice steps when the condition can be safely evaluated', () => {
+    const ir = parseOracleTextToIR('If you control an artifact, sacrifice this creature and draw a card.', 'Conditional Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'conditional-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'conditional-source-card', name: 'Conditional Test', type_line: 'Creature - Wizard' },
+        },
+        {
+          id: 'supporting-artifact',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'supporting-artifact-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'conditional-source',
+      sourceName: 'Conditional Test',
+    });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
+    expect((p1?.hand || []).length).toBe(1);
+    expect(remainingIds).toEqual(['supporting-artifact']);
+  });
+
+  it('applies mana-spent conditional sacrifice wrappers when the source tracks mana spent to cast it', () => {
+    const ir = parseOracleTextToIR(
+      'If eight or more mana was spent to cast that spell, sacrifice Tellah and it deals that much damage to each opponent.',
+      'Tellah, Great Sage'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }],
+          hand: [],
+          graveyard: [],
+        },
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'd1' }],
+          hand: [],
+          graveyard: [],
+        },
+      ] as any,
+      battlefield: [
+        {
+          id: 'tellah-source',
+          controller: 'p1',
+          owner: 'p1',
+          manaSpentTotal: 8,
+          card: { id: 'tellah-source-card', name: 'Tellah, Great Sage', type_line: 'Legendary Creature - Wizard', manaSpentTotal: 8 },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'tellah-source',
+      sourceName: 'Tellah, Great Sage',
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+    expect((result.state.battlefield as any[])).toHaveLength(0);
+    expect(p2?.life).toBe(32);
+  });
+
+  it('applies "if you can\'t" sacrifice fallbacks when the prior graveyard move is impossible', () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of your upkeep, exile two cards from your graveyard. If you can't, sacrifice Egon and draw a card.",
+      'Egon, God of Death'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'drawn-card', name: 'Drawn Card' }],
+          hand: [],
+          graveyard: [{ id: 'grave-card-1', name: 'Only Card', type_line: 'Instant' }],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [
+        {
+          id: 'egon-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'egon-source-card', name: 'Egon, God of Death', type_line: 'Legendary Creature - God' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'egon-source',
+      sourceName: 'Egon, God of Death',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'impossible_action')).toBe(false);
+    expect((result.state.battlefield as any[])).toHaveLength(0);
+    expect((p1?.hand || []).map((card: any) => card.id)).toEqual(['drawn-card']);
+    expect((p1?.graveyard || []).map((card: any) => card.id)).toEqual(['grave-card-1', 'egon-source-card']);
+  });
+
+  it('does not apply "if you can\'t" sacrifice fallbacks when the prior graveyard move succeeds exactly', () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of your upkeep, exile two cards from your graveyard. If you can't, sacrifice Egon and draw a card.",
+      'Egon, God of Death'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'drawn-card', name: 'Drawn Card' }],
+          hand: [],
+          graveyard: [
+            { id: 'grave-card-1', name: 'First Card', type_line: 'Instant' },
+            { id: 'grave-card-2', name: 'Second Card', type_line: 'Sorcery' },
+          ],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [
+        {
+          id: 'egon-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'egon-source-card', name: 'Egon, God of Death', type_line: 'Legendary Creature - God' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'egon-source',
+      sourceName: 'Egon, God of Death',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(false);
+    expect((result.state.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['egon-source']);
+    expect((p1?.graveyard || [])).toHaveLength(0);
+    expect((p1?.exile || []).map((card: any) => card.id)).toEqual(['grave-card-1', 'grave-card-2']);
+  });
+
+  it('keeps exact-count graveyard move fallbacks off when the move is possible but needs a card choice', () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of your upkeep, exile two cards from your graveyard. If you can't, sacrifice Egon and draw a card.",
+      'Egon, God of Death'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'drawn-card', name: 'Drawn Card' }],
+          hand: [],
+          graveyard: [
+            { id: 'grave-card-1', name: 'First Card', type_line: 'Instant' },
+            { id: 'grave-card-2', name: 'Second Card', type_line: 'Sorcery' },
+            { id: 'grave-card-3', name: 'Third Card', type_line: 'Creature - Zombie' },
+          ],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [
+        {
+          id: 'egon-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'egon-source-card', name: 'Egon, God of Death', type_line: 'Legendary Creature - God' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'egon-source',
+      sourceName: 'Egon, God of Death',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(false);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'unsupported_condition_clause')).toBe(false);
+    expect((result.state.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['egon-source']);
+    expect((p1?.graveyard || []).map((card: any) => card.id)).toEqual(['grave-card-1', 'grave-card-2', 'grave-card-3']);
+    expect((p1?.exile || [])).toHaveLength(0);
+  });
+
+  it('applies source-counter conditional sacrifice wrappers for Bucket List style conditions', () => {
+    const ir = parseOracleTextToIR(
+      'If all five types on Bucket List have counters over them, sacrifice it and draw one more card.',
+      'Bucket List'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'bucket-list-source',
+          controller: 'p1',
+          owner: 'p1',
+          counters: { artifact: 1, creature: 1, enchantment: 1, instant: 1, sorcery: 1 },
+          card: { id: 'bucket-list-source-card', name: 'Bucket List', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'bucket-list-source',
+      sourceName: 'Bucket List',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
+    expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('draw one more card'))).toBe(false);
+    expect((result.state.battlefield as any[])).toHaveLength(0);
+    expect((p1?.hand || [])).toHaveLength(1);
+  });
+
+  it('applies chosen-name conditional sacrifice wrappers when the top card matches the source chosen name', () => {
+    const ir = parseOracleTextToIR(
+      'Choose a card name, then reveal the top card of your library. If that card has the chosen name, sacrifice this artifact and draw three cards.',
+      "Diviner's Lockbox"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [
+            { id: 'top-card', name: 'Counterspell', type_line: 'Instant' },
+            { id: 'draw-2', name: 'Island', type_line: 'Land' },
+            { id: 'draw-3', name: 'Swamp', type_line: 'Land' },
+          ],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [
+        {
+          id: 'lockbox-source',
+          controller: 'p1',
+          owner: 'p1',
+          chosenCardName: 'Counterspell',
+          card: { id: 'lockbox-source-card', name: "Diviner's Lockbox", type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'lockbox-source',
+      sourceName: "Diviner's Lockbox",
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
+    expect((result.state.battlefield as any[])).toHaveLength(0);
+    expect((p1?.hand || [])).toHaveLength(3);
+  });
+
+  it('applies coin-flip conditional sacrifice wrappers when the runtime context says the flip was won', () => {
+    const ir = parseOracleTextToIR(
+      'Flip a coin. If you win the flip, sacrifice this artifact and draw three cards.',
+      "Sorcerer's Strongbox"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      ] as any,
+      battlefield: [
+        {
+          id: 'strongbox-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'strongbox-source-card', name: "Sorcerer's Strongbox", type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'strongbox-source',
+      sourceName: "Sorcerer's Strongbox",
+      wonCoinFlip: true,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
+    expect((result.state.battlefield as any[])).toHaveLength(0);
+    expect((p1?.hand || [])).toHaveLength(3);
+  });
+
+  it('applies vote-result conditional sacrifice wrappers when the runtime context provides the winning vote', () => {
+    const ir = parseOracleTextToIR(
+      'If carnage gets more votes, sacrifice this artifact and destroy all nonland permanents.',
+      'Coercive Portal'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'portal-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'portal-source-card', name: 'Coercive Portal', type_line: 'Artifact' },
+        },
+        {
+          id: 'creature-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'creature-a-card', name: 'Grizzly Bears', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'land-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'land-a-card', name: 'Forest', type_line: 'Land' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'portal-source',
+      sourceName: 'Coercive Portal',
+      winningVoteChoice: 'carnage',
+    });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'destroy')).toBe(true);
+    expect((result.state.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['land-a']);
+  });
+
+  it('treats specific \"you do not ...\" conditional wrappers as false after a successful antecedent action', () => {
+    const ir = parseOracleTextToIR(
+      'You may sacrifice a Forest. If you do not sacrifice a Forest, sacrifice this creature and it deals 7 damage to you.',
+      'Gargantuan Gorilla'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] },
+      ] as any,
+      battlefield: [
+        {
+          id: 'gorilla-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'gorilla-source-card', name: 'Gargantuan Gorilla', type_line: 'Creature - Gorilla' },
+        },
+        {
+          id: 'forest-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'forest-a-card', name: 'Snow-Covered Forest', type_line: 'Basic Snow Land - Forest' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'gorilla-source',
+        sourceName: 'Gargantuan Gorilla',
+      },
+      { allowOptional: true }
+    );
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice' && /forest/i.test(s.raw))).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(false);
+    expect((result.state.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['gorilla-source']);
+    expect(p1?.life).toBe(40);
+  });
+
+  it('keeps the antecedent action outcome for \"you do not\" wrappers even when an unsupported bonus clause sits between them', () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of your upkeep, you may sacrifice a Forest. If you sacrifice a snow Forest this way, this creature gains trample until end of turn. If you don't sacrifice a Forest, sacrifice this creature and it deals 7 damage to you.",
+      'Gargantuan Gorilla'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] },
+      ] as any,
+      battlefield: [
+        {
+          id: 'gorilla-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'gorilla-source-card', name: 'Gargantuan Gorilla', type_line: 'Creature - Gorilla' },
+        },
+        {
+          id: 'forest-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'forest-a-card', name: 'Snow-Covered Forest', type_line: 'Basic Snow Land - Forest' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'gorilla-source',
+        sourceName: 'Gargantuan Gorilla',
+      },
+      { allowOptional: true }
+    );
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice' && /forest/i.test(s.raw))).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(false);
+    expect((result.state.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['gorilla-source']);
+    expect(p1?.life).toBe(40);
+  });
+
+  it("applies remove-counter antecedents before \"if you can't\" sacrifice fallbacks for Cocoon-style text", () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of your upkeep, remove a pupa counter from this Aura. If you can't, sacrifice it, put a +1/+1 counter on enchanted creature, and that creature gains flying.",
+      'Cocoon'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'cocoon-source',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'cocoon-bear',
+          counters: {},
+          card: { id: 'cocoon-source-card', name: 'Cocoon', type_line: 'Enchantment - Aura' },
+        },
+        {
+          id: 'cocoon-bear',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'cocoon-bear-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cocoon-source',
+      sourceName: 'Cocoon',
+    });
+
+    expect(result.appliedSteps.some(s => s.kind === 'remove_counter')).toBe(false);
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'impossible_action')).toBe(false);
+    expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('put a +1/+1 counter'))).toBe(true);
+    expect((result.state.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['cocoon-bear']);
+  });
+
+  it('applies die-roll conditional sacrifice wrappers for Captain Rex Nebula style text', () => {
+    const ir = parseOracleTextToIR(
+      "If the result is equal to this Vehicle's mana value, sacrifice this Vehicle, then it deals that much damage to any target.",
+      'Captain Rex Nebula'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      lastDieRollByPlayer: { p1: 4 } as any,
+      battlefield: [
+        {
+          id: 'rex-vehicle',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'rex-vehicle-card', name: 'Shiny Rock', type_line: 'Artifact - Vehicle', mana_value: 4 },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'rex-vehicle',
+      sourceName: 'Captain Rex Nebula',
+    });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(false);
+    expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('that much damage to any target'))).toBe(true);
+    expect((result.state.battlefield as any[])).toHaveLength(0);
+  });
+
+  it('applies subtype-wide sacrifice text like "all Dragons you control"', () => {
+    const ir = parseOracleTextToIR('Sacrifice all Dragons you control.', 'Subtype Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'dragon-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'dragon-a-card', name: 'Shivan Dragon', type_line: 'Creature - Dragon' },
+        },
+        {
+          id: 'dragon-b',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'dragon-b-card', name: 'Moonveil Dragon', type_line: 'Creature - Dragon' },
+        },
+        {
+          id: 'not-dragon',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'not-dragon-card', name: 'Bear Cub', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(remainingIds).toEqual(['not-dragon']);
+  });
+
+  it('classifies X-count sacrifice text as player choice instead of unsupported', () => {
+    const ir = parseOracleTextToIR('Sacrifice X creatures.', 'Choice Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'x-creature-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'x-creature-a-card', name: 'Bear Cub', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+  });
+
+  it('classifies "one of them" sacrifice text as player choice instead of unsupported', () => {
+    const ir = parseOracleTextToIR('Sacrifice one of them.', 'Choice Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'one-of-them-a',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'one-of-them-a-card', name: 'Bear Cub', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'one-of-them-b',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'one-of-them-b-card', name: 'Goblin Piker', type_line: 'Creature - Goblin Warrior' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.classification === 'player_choice')).toBe(true);
   });
 
   it('applies deterministic "another creature" sacrifice by excluding the source permanent', () => {
@@ -20742,6 +22096,197 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('uses pre-sacrifice last-known toughness for sacrificed-creature where-X evaluation', () => {
+    const steps: any[] = [
+      {
+        kind: 'sacrifice',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'that creature' },
+        raw: 'Sacrifice that creature.',
+      },
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: "X is the sacrificed creature's toughness" },
+        raw: "Target creature gets +X/+0 until end of turn where X is the sacrificed creature's toughness.",
+      },
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'sacLkiCreature',
+          owner: 'p1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Huge Beast',
+          cardType: 'Creature',
+          basePower: 6,
+          baseToughness: 6,
+          power: 6,
+          toughness: 6,
+          counters: { '+1/+1': 50 },
+          card: { id: 'cardHugeBeast', name: 'Huge Beast', type_line: 'Creature - Beast', power: '6', toughness: '6', manaValue: 6 },
+          tapped: false,
+          summoningSick: false,
+        } as any,
+        {
+          id: 'targetSacLki',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Target Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'targetSacLki',
+      selectorContext: { chosenObjectIds: ['sacLkiCreature'] } as any,
+    });
+
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetSacLki') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+    const graveyardCard = (((result.state as any).players || [])[0]?.graveyard || [])[0] as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['sacrifice', 'modify_pt']);
+    expect(graveyardCard?.toughness).toBe('6');
+    expect(ptMod.power).toBe(56);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('uses pre-sacrifice last-known toughness for gain-life follow-ups', () => {
+    const ir = parseOracleTextToIR(
+      "Sacrifice that creature. You gain life equal to the sacrificed creature's toughness.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 10,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'sacLkiLifeCreature',
+          owner: 'p1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Huge Beast',
+          cardType: 'Creature',
+          basePower: 6,
+          baseToughness: 6,
+          power: 6,
+          toughness: 6,
+          counters: { '+1/+1': 50 },
+          card: { id: 'cardHugeBeastLife', name: 'Huge Beast', type_line: 'Creature - Beast', power: '6', toughness: '6', manaValue: 6 },
+          tapped: false,
+          summoningSick: false,
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenObjectIds: ['sacLkiLifeCreature'] } as any,
+    });
+
+    const player = ((result.state as any).players || []).find((p: any) => p.id === 'p1') as any;
+    const graveyardCard = (player?.graveyard || [])[0] as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['sacrifice', 'gain_life']);
+    expect(graveyardCard?.toughness).toBe('6');
+    expect(player.life).toBe(66);
+  });
+
+  it('uses pre-sacrifice last-known toughness for pronoun-style gain-life follow-ups', () => {
+    const ir = parseOracleTextToIR(
+      'Sacrifice that creature. You gain life equal to that creature\'s toughness.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 10,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'sacPronounCreature',
+          owner: 'p1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Huge Beast',
+          cardType: 'Creature',
+          basePower: 6,
+          baseToughness: 6,
+          power: 6,
+          toughness: 6,
+          counters: { '+1/+1': 50 },
+          card: { id: 'cardPronounBeast', name: 'Huge Beast', type_line: 'Creature - Beast', power: '6', toughness: '6', manaValue: 6 },
+          tapped: false,
+          summoningSick: false,
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { chosenObjectIds: ['sacPronounCreature'] } as any,
+    });
+
+    const player = ((result.state as any).players || []).find((p: any) => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['sacrifice', 'gain_life']);
+    expect(player.life).toBe(66);
+  });
+
   it('applies X-based modify_pt where X is the number of colors that creature was', () => {
     const ir = parseOracleTextToIR(
       'Target creature gets +X/+0 until end of turn where X is the number of colors that creature was.',
@@ -25772,6 +27317,828 @@ describe('Oracle IR Executor', () => {
     const step = steps[0] as any;
     expect(step.kind).toBe('create_token');
     expect(step.atEndOfCombat).toBe('sacrifice');
+  });
+
+  it('schedules delayed token sacrifice cleanup without removing the created tokens immediately', () => {
+    const ir = parseOracleTextToIR(
+      'Create two 1/1 red Elemental creature tokens. At the beginning of the next end step, sacrifice them.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({ turnNumber: 3 } as any);
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'source-token-cleanup',
+      sourceName: 'Test',
+    });
+
+    expect(result.state.battlefield).toHaveLength(2);
+    const registry = (result.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.effect).toBe('Sacrifice those tokens.');
+    expect(registry?.triggers?.[0]?.eventDataSnapshot?.chosenObjectIds).toHaveLength(2);
+  });
+
+  it('fires delayed token exile cleanup against the exact originally created tokens', () => {
+    const ir = parseOracleTextToIR(
+      'Create two 1/1 blue Illusion creature tokens. Exile those tokens at end of combat.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      battlefield: [
+        {
+          id: 'preexisting-illusion',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          attachedTo: undefined,
+          attachments: [],
+          modifiers: [],
+          isToken: true,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            id: 'preexisting-illusion',
+            name: 'Illusion',
+            type_line: 'Creature - Illusion',
+            oracle_text: '',
+            power: '1',
+            toughness: '1',
+            colors: ['U'],
+            mana_cost: '',
+            cmc: 0,
+            image_uris: {},
+          },
+        } as any,
+      ],
+    } as any);
+
+    const created = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'source-token-cleanup',
+      sourceName: 'Test',
+    });
+
+    expect(created.state.battlefield).toHaveLength(3);
+
+    const registry = (created.state as any).delayedTriggerRegistry;
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'combat_end', activePlayerId: 'p2' as any });
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      created.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect(resolved.state.battlefield).toHaveLength(1);
+    expect((resolved.state.battlefield[0] as any)?.id).toBe('preexisting-illusion');
+  });
+
+  it('schedules standalone delayed sacrifice cleanup against the exact bound creature', () => {
+    const ir = parseOracleTextToIR(
+      'Draw a card. At the beginning of the next end step, sacrifice that creature.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 4,
+      battlefield: [
+        {
+          id: 'bound-cleanup-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'bound-cleanup-card', name: 'Ball Lightning', type_line: 'Creature - Elemental' },
+        },
+        {
+          id: 'lookalike-cleanup-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'lookalike-cleanup-card', name: 'Ball Lightning', type_line: 'Creature - Elemental' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cleanup-source',
+      sourceName: 'Test',
+      targetPermanentId: 'bound-cleanup-creature',
+    });
+
+    expect(scheduled.state.battlefield).toHaveLength(2);
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.effect).toBe('You sacrifice that creature.');
+    expect(registry?.triggers?.[0]?.eventDataSnapshot?.chosenObjectIds).toEqual(['bound-cleanup-creature']);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p2' as any });
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect((resolved.state.battlefield as any[]).map(perm => perm.id)).toEqual(['lookalike-cleanup-creature']);
+  });
+
+  it('schedules delayed sacrifice cleanup with a mana value condition and removes only when the condition is true', () => {
+    const ir = parseOracleTextToIR(
+      'Sacrifice it at the beginning of the next end step if it has mana value 3 or less.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 4,
+      battlefield: [
+        {
+          id: 'cheap-bound-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'cheap-bound-card', name: 'Cheap Threat', type_line: 'Creature - Elemental', mana_value: 2 },
+        },
+        {
+          id: 'expensive-safe-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'expensive-safe-card', name: 'Expensive Threat', type_line: 'Creature - Elemental', mana_value: 6 },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cheap-bound-creature',
+      sourceName: 'Cheap Threat',
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.effect).toBe('You sacrifice that creature if it has mana value 3 or less.');
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p2' as any });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect((resolved.state.battlefield as any[]).map(perm => perm.id)).toEqual(['expensive-safe-creature']);
+  });
+
+  it('schedules standalone delayed self-sacrifice cleanup for your next end step', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this creature attacks, sacrifice this creature at the beginning of your next end step.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 8,
+      battlefield: [
+        {
+          id: 'self-cleanup-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'self-cleanup-card', name: 'Ball Lightning', type_line: 'Creature - Elemental' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'self-cleanup-creature',
+      sourceName: 'Ball Lightning',
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.effect).toBe('You sacrifice that creature.');
+
+    const noFire = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p2' as any });
+    expect(noFire.triggersToFire).toHaveLength(0);
+
+    const fire = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p1' as any });
+    expect(fire.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(fire.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect(resolved.state.battlefield).toHaveLength(0);
+  });
+
+  it('schedules standalone delayed token sacrifice cleanup for your next upkeep', () => {
+    const ir = parseOracleTextToIR(
+      'Sacrifice those tokens at the beginning of your next upkeep.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 8,
+      battlefield: [
+        {
+          id: 'token-a',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'token-a-card', name: 'Elemental', type_line: 'Creature - Elemental' },
+        },
+        {
+          id: 'token-b',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'token-b-card', name: 'Elemental', type_line: 'Creature - Elemental' },
+        },
+        {
+          id: 'nontoken-safe',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'nontoken-safe-card', name: 'Safe Creature', type_line: 'Creature - Elemental' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'source-token-cleanup',
+      sourceName: 'Test',
+      selectorContext: {
+        chosenObjectIds: ['token-a', 'token-b'],
+      },
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.effect).toBe('You sacrifice those tokens.');
+
+    const noFire = checkDelayedTriggers(registry, { type: 'upkeep', activePlayerId: 'p2' as any });
+    expect(noFire.triggersToFire).toHaveLength(0);
+
+    const fire = checkDelayedTriggers(registry, { type: 'upkeep', activePlayerId: 'p1' as any });
+    expect(fire.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(fire.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect((resolved.state.battlefield as any[]).map(perm => perm.id)).toEqual(['nontoken-safe']);
+  });
+
+  it('treats zero-counter sacrifice conditions as deterministic no-ops until the counters are gone', () => {
+    const ir = parseOracleTextToIR(
+      'Sacrifice this enchantment if there are no echo counters on it.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const withCounters = makeState({
+      battlefield: [
+        {
+          id: 'echo-enchantment',
+          controller: 'p1',
+          owner: 'p1',
+          counters: { echo: 1 },
+          card: { id: 'echo-enchantment-card', name: 'Echo Aura', type_line: 'Enchantment - Aura' },
+        },
+      ] as any,
+    });
+
+    const skipped = applyOracleIRStepsToGameState(withCounters, steps, {
+      controllerId: 'p1',
+      sourceId: 'echo-enchantment',
+      sourceName: 'Echo Aura',
+    });
+
+    expect(skipped.state.battlefield).toHaveLength(1);
+    expect((skipped.state as any).oracleAutomationGaps || []).toHaveLength(0);
+
+    const withoutCounters = makeState({
+      battlefield: [
+        {
+          id: 'echo-enchantment',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          card: { id: 'echo-enchantment-card', name: 'Echo Aura', type_line: 'Enchantment - Aura' },
+        },
+      ] as any,
+    });
+
+    const resolved = applyOracleIRStepsToGameState(withoutCounters, steps, {
+      controllerId: 'p1',
+      sourceId: 'echo-enchantment',
+      sourceName: 'Echo Aura',
+    });
+
+    expect(resolved.state.battlefield).toHaveLength(0);
+  });
+
+  it('schedules standalone delayed end-of-combat exile cleanup for contextual tokens', () => {
+    const ir = parseOracleTextToIR('Draw a card. Exile those tokens at end of combat.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'bound-token-a',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'bound-token-a-card', name: 'Elemental', type_line: 'Creature - Elemental' },
+        },
+        {
+          id: 'bound-token-b',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'bound-token-b-card', name: 'Elemental', type_line: 'Creature - Elemental' },
+        },
+        {
+          id: 'unbound-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'unbound-token-card', name: 'Elemental', type_line: 'Creature - Elemental' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cleanup-source',
+      sourceName: 'Test',
+      selectorContext: { chosenObjectIds: ['bound-token-a', 'bound-token-b'] } as any,
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.effect).toBe('Exile those tokens.');
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'combat_end', activePlayerId: 'p2' as any });
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect((resolved.state.battlefield as any[]).map(perm => perm.id)).toEqual(['unbound-token']);
+  });
+
+  it('schedules delayed sacrifice cleanup for a contextual vehicle reference against the exact bound vehicle', () => {
+    const ir = parseOracleTextToIR(
+      'Draw a card. At the beginning of the next end step, sacrifice that Vehicle.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 12,
+      battlefield: [
+        {
+          id: 'bound-vehicle-cleanup',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'bound-vehicle-cleanup-card', name: 'Sky Skiff', type_line: 'Artifact - Vehicle' },
+        },
+        {
+          id: 'other-vehicle-cleanup',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'other-vehicle-cleanup-card', name: 'Untethered Express', type_line: 'Artifact - Vehicle' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cleanup-source',
+      sourceName: 'Test',
+      selectorContext: { chosenObjectIds: ['bound-vehicle-cleanup'] } as any,
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.eventDataSnapshot?.chosenObjectIds).toEqual(['bound-vehicle-cleanup']);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p2' as any });
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect((resolved.state.battlefield as any[]).map(perm => perm.id)).toEqual(['other-vehicle-cleanup']);
+  });
+
+  it('schedules delayed sacrifice cleanup for "the token" alias against the exact bound token', () => {
+    const ir = parseOracleTextToIR(
+      'Draw a card. At the beginning of the next end step, sacrifice the token.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 12,
+      battlefield: [
+        {
+          id: 'bound-token-cleanup',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'bound-token-cleanup-card', name: 'Elemental', type_line: 'Creature - Elemental' },
+        },
+        {
+          id: 'other-token-cleanup',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'other-token-cleanup-card', name: 'Treasure', type_line: 'Artifact - Treasure' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cleanup-source',
+      sourceName: 'Test',
+      selectorContext: { chosenObjectIds: ['bound-token-cleanup'] } as any,
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.effect).toBe('You sacrifice that token.');
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p2' as any });
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect((resolved.state.battlefield as any[]).map(perm => perm.id)).toEqual(['other-token-cleanup']);
+  });
+
+  it('schedules delayed sacrifice cleanup for "enchanted creature" against the currently enchanted permanent', () => {
+    const ir = parseOracleTextToIR(
+      'Draw a card. At the beginning of the next end step, sacrifice enchanted creature.',
+      'Cocoon'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 15,
+      battlefield: [
+        {
+          id: 'cocoon-cleanup-aura',
+          controller: 'p1',
+          owner: 'p1',
+          attachedTo: 'cocoon-bound-creature',
+          card: { id: 'cocoon-cleanup-aura-card', name: 'Cocoon', type_line: 'Enchantment - Aura' },
+        },
+        {
+          id: 'cocoon-bound-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'cocoon-bound-creature-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'cocoon-safe-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'cocoon-safe-creature-card', name: 'Grizzly Bears', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cocoon-cleanup-aura',
+      sourceName: 'Cocoon',
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.effect).toBe('You sacrifice that creature.');
+    expect(registry?.triggers?.[0]?.eventDataSnapshot?.chosenObjectIds).toEqual(['cocoon-bound-creature']);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p2' as any });
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect((resolved.state.battlefield as any[]).map(perm => perm.id)).toEqual([
+      'cocoon-cleanup-aura',
+      'cocoon-safe-creature',
+    ]);
+  });
+
+  it('tracks token provenance and sacrifices only tokens created with the source', () => {
+    const createIR = parseOracleTextToIR('Create two 1/1 red Elemental creature tokens.', 'Form of the Stax Player');
+    const createSteps = createIR.abilities[0]?.steps ?? [];
+    const created = applyOracleIRStepsToGameState(makeState(), createSteps, {
+      controllerId: 'p1',
+      sourceId: 'form-stax-player',
+      sourceName: 'Form of the Stax Player',
+    });
+
+    const createdTokens = (created.state.battlefield as any[]).filter(perm => perm.isToken);
+    expect(createdTokens).toHaveLength(2);
+    expect(createdTokens.every(token => token.createdBySourceId === 'form-stax-player')).toBe(true);
+
+    const withUnrelatedToken = {
+      ...created.state,
+      battlefield: [
+        ...(created.state.battlefield as any[]),
+        {
+          id: 'other-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'other-token', name: 'Elemental', type_line: 'Creature - Elemental' },
+        },
+      ] as any,
+    } as any;
+
+    const ir = parseOracleTextToIR('Sacrifice each token created with it.', 'Form of the Stax Player');
+    const steps = ir.abilities[0]?.steps ?? [];
+    const result = applyOracleIRStepsToGameState(withUnrelatedToken, steps, {
+      controllerId: 'p1',
+      sourceId: 'form-stax-player',
+      sourceName: 'Form of the Stax Player',
+    });
+
+    expect((result.state.battlefield as any[]).map(perm => perm.id)).toEqual(['other-token']);
+  });
+
+  it('schedules leave-the-battlefield delayed sacrifice cleanup against the watched token', () => {
+    const ir = parseOracleTextToIR('Sacrifice Stangg when that token leaves the battlefield.', 'Stangg');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 6,
+      battlefield: [
+        {
+          id: 'stangg-perm',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'stangg-card', name: 'Stangg', type_line: 'Legendary Creature - Human Warrior' },
+        },
+        {
+          id: 'stangg-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'stangg-token-card', name: 'Stangg Twin', type_line: 'Legendary Creature - Human Warrior' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'stangg-perm',
+      sourceName: 'Stangg',
+      targetPermanentId: 'stangg-token',
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.watchingPermanentId).toBe('stangg-token');
+    expect(registry?.triggers?.[0]?.eventDataSnapshot?.chosenObjectIds).toEqual(['stangg-perm']);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'permanent_left', permanentId: 'stangg-token' });
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect((resolved.state.battlefield as any[]).map(perm => perm.id)).toEqual(['stangg-token']);
+  });
+
+  it('schedules lose-control delayed sacrifice cleanup against the watched source', () => {
+    const ir = parseOracleTextToIR('Sacrifice the creature when you lose control of this creature.', 'Seraph');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 8,
+      battlefield: [
+        {
+          id: 'seraph-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'seraph-card', name: 'Seraph', type_line: 'Creature - Angel' },
+        },
+        {
+          id: 'borrowed-creature',
+          controller: 'p1',
+          owner: 'p2',
+          card: { id: 'borrowed-card', name: 'Borrowed Bear', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'seraph-source',
+      sourceName: 'Seraph',
+      targetPermanentId: 'borrowed-creature',
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.timing).toBe(DelayedTriggerTiming.WHEN_CONTROL_LOST);
+    expect(registry?.triggers?.[0]?.watchingPermanentId).toBe('seraph-source');
+    expect(registry?.triggers?.[0]?.eventDataSnapshot?.chosenObjectIds).toEqual(['borrowed-creature']);
+  });
+
+  it('schedules next-cleanup-step sacrifice cleanup and fires on cleanup', () => {
+    const ir = parseOracleTextToIR('Sacrifice this Aura at the beginning of the next cleanup step.', 'Test Aura');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 10,
+      battlefield: [
+        {
+          id: 'cleanup-aura',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'cleanup-aura-card', name: 'Test Aura', type_line: 'Enchantment - Aura' },
+        },
+      ] as any,
+    });
+
+    const scheduled = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'cleanup-aura',
+      sourceName: 'Test Aura',
+    });
+
+    const registry = (scheduled.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.timing).toBe(DelayedTriggerTiming.NEXT_CLEANUP);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'cleanup', activePlayerId: 'p1' as any });
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      scheduled.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect(resolved.state.battlefield).toHaveLength(0);
+  });
+
+  it('applies immediate sacrifice when a counter-threshold condition is true', () => {
+    const ir = parseOracleTextToIR('Then sacrifice it if it has five or more bloodstain counters on it.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'bloodstained-creature',
+          controller: 'p1',
+          owner: 'p1',
+          counters: { bloodstain: 5 },
+          card: { id: 'bloodstained-card', name: 'Marked Creature', type_line: 'Creature - Horror', mana_value: 4 },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'bloodstained-creature',
+      sourceName: 'Marked Creature',
+    });
+
+    expect(result.appliedSteps.some(step => step.kind === 'sacrifice')).toBe(true);
+    expect(result.skippedSteps.some(step => step.kind === 'sacrifice')).toBe(false);
+    expect(result.state.battlefield).toHaveLength(0);
+  });
+
+  it('does not sacrifice when a counter-threshold condition is false and does not record a gap', () => {
+    const ir = parseOracleTextToIR('Then sacrifice it if it has five or more bloodstain counters on it.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'safe-creature',
+          controller: 'p1',
+          owner: 'p1',
+          counters: { bloodstain: 4 },
+          card: { id: 'safe-card', name: 'Safe Creature', type_line: 'Creature - Horror', mana_value: 4 },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'safe-creature',
+      sourceName: 'Safe Creature',
+    });
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect((result.state.battlefield as any[])[0]?.id).toBe('safe-creature');
+    expect(result.appliedSteps.some(step => step.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(step => step.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps).toHaveLength(0);
+    expect(((result.state as any).oracleAutomationGaps || []).length).toBe(0);
   });
 
   it('attaches until-EOT haste follow-up to create_token IR', () => {

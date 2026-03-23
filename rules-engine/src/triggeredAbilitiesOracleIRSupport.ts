@@ -30,6 +30,8 @@ export interface TriggerEventData {
   readonly damageDealt?: number;
   readonly cardsDrawn?: number;
   readonly spellType?: string;
+  readonly wonCoinFlip?: boolean;
+  readonly winningVoteChoice?: string | null;
   readonly isYourTurn?: boolean;
   readonly isOpponentsTurn?: boolean;
   readonly creatureTypes?: readonly string[];
@@ -259,6 +261,8 @@ export function buildTriggerEventDataFromPayloads(
     damageDealt: scalarNumber('damageDealt'),
     cardsDrawn: scalarNumber('cardsDrawn'),
     spellType: scalarString('spellType'),
+    wonCoinFlip: scalarBool('wonCoinFlip'),
+    winningVoteChoice: scalarString('winningVoteChoice'),
     isYourTurn: scalarBool('isYourTurn'),
     isOpponentsTurn: scalarBool('isOpponentsTurn'),
     hand: hand.length > 0 ? hand : undefined,
@@ -298,6 +302,8 @@ export function buildStackTriggerMetaFromEventData(
     damageDealt?: number;
     cardsDrawn?: number;
     spellType?: string;
+    wonCoinFlip?: boolean;
+    winningVoteChoice?: string | null;
     isYourTurn?: boolean;
     isOpponentsTurn?: boolean;
     hand?: readonly string[];
@@ -332,6 +338,8 @@ export function buildStackTriggerMetaFromEventData(
       damageDealt: normalized.damageDealt,
       cardsDrawn: normalized.cardsDrawn,
       spellType: normalized.spellType,
+      wonCoinFlip: normalized.wonCoinFlip,
+      winningVoteChoice: normalized.winningVoteChoice ?? undefined,
       isYourTurn: normalized.isYourTurn,
       isOpponentsTurn: normalized.isOpponentsTurn,
       hand: normalized.hand,
@@ -398,6 +406,8 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     affectedOpponentIds: dedupedAffectedOpponents,
     opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
     spellType: eventData.spellType,
+    wonCoinFlip: eventData.wonCoinFlip,
+    winningVoteChoice: eventData.winningVoteChoice ?? undefined,
   };
 
   if (
@@ -408,7 +418,9 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     !hint.affectedPlayerIds &&
     !hint.affectedOpponentIds &&
     !hint.opponentsDealtDamageIds &&
-    !hint.spellType
+    !hint.spellType &&
+    typeof hint.wonCoinFlip !== 'boolean' &&
+    typeof hint.winningVoteChoice === 'undefined'
   ) {
     return undefined;
   }
