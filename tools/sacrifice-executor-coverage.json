@@ -1,0 +1,3305 @@
+{
+  "generatedAt": "2026-03-23T02:32:49.666Z",
+  "sources": {
+    "oracleCardsPath": "D:\\Git\\MTGEDH\\oracle-cards.json",
+    "atomicIndexPath": "D:\\Git\\MTGEDH\\tools\\atomic-oracle-index.json",
+    "atomicCardsPath": "D:\\Git\\MTGEDH\\AtomicCards.json"
+  },
+  "summary": {
+    "sourceRowCount": 69904,
+    "distinctSacrificeClauses": 4979,
+    "impactedSupportedEffectCards": 161,
+    "supportedEffectClauseSamples": 25,
+    "choiceOrGapClauseSamples": 25,
+    "unsupportedEffectClauseSamples": 25,
+    "additionalCostOrKeywordClauseSamples": 25,
+    "otherSacrificeTextClauseSamples": 25
+  },
+  "buckets": {
+    "supportedEffectCards": [
+      {
+        "name": "A-Baleful Beholder",
+        "oracleId": "9ffed3f8-31c8-4671-8357-e0ab23b21551",
+        "source": "oracle-cards",
+        "clause": "• Antimagic Cone — Each opponent sacrifices an enchantment.",
+        "objectText": "an enchantment",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "enchantment"
+        }
+      },
+      {
+        "name": "A-Minsc & Boo, Timeless Heroes",
+        "oracleId": "94cf9969-9546-4c75-b42a-668109600b6f",
+        "source": "atomic-index",
+        "clause": "[−2]: Sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Abhorrent Overlord",
+        "oracleId": "13f63240-a6bb-4333-a3dd-818725c6fb73",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Accursed Centaur",
+        "oracleId": "b1e6921e-e460-4e58-82b0-d98ee31c279d",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Ace, Fearless Rebel",
+        "oracleId": "50d0d870-fe3d-44a2-ad6e-93307a1fb468",
+        "source": "oracle-cards",
+        "clause": "Nitro-9 — Whenever Ace attacks, you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "All Is Dust",
+        "oracleId": "14693689-d087-43b6-9c3f-63ab0648fc20",
+        "source": "oracle-cards",
+        "clause": "Each player sacrifices all permanents they control that are one or more colors.",
+        "objectText": "all permanents they control that are one or more colors",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Altar of the Wretched // Wretched Bonemass",
+        "oracleId": "c551f007-9740-4a2a-8ef5-7be1a7afe14b",
+        "source": "atomic-index",
+        "clause": "When this artifact enters, you may sacrifice a nontoken creature.",
+        "objectText": "a nontoken creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Archdemon of Unx",
+        "oracleId": "41e250e6-8e38-4cbc-ae66-98800a5feba8",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a non-Zombie creature, then create a 2/2 black Zombie creature token.",
+        "objectText": "a non-zombie creature, then create a 2/2 black zombie creature token",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Baldur's Gate Wilderness",
+        "oracleId": "06b9590d-01bf-4fae-9837-352c9e04267a",
+        "source": "oracle-cards",
+        "clause": "Defiled Temple — You may sacrifice a permanent.",
+        "objectText": "a permanent",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Bearer of Silence",
+        "oracleId": "d69c8c55-6433-4cc5-bdc7-9722f121b8e2",
+        "source": "oracle-cards",
+        "clause": "If you do, target opponent sacrifices a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Bebop & Rocksteady",
+        "oracleId": "a08b0a07-6da2-4ff6-88e5-88355dd84589",
+        "source": "oracle-cards",
+        "clause": "Whenever Bebop & Rocksteady attack or block, sacrifice a permanent unless you discard a card.",
+        "objectText": "a permanent unless you discard a card",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Benthic Criminologists",
+        "oracleId": "5539d78c-1acc-46dd-ba6d-cc0cdad6ff44",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature enters or attacks, you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Birthing Ritual",
+        "oracleId": "37a5ab64-12e4-4aad-9a09-46a26fe9953b",
+        "source": "oracle-cards",
+        "clause": "Then you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Bound // Determined",
+        "oracleId": "df39fbee-6ddc-4733-a32e-cdaf369ecccf",
+        "source": "atomic-index",
+        "clause": "Sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Braids, Arisen Nightmare",
+        "oracleId": "e0445c80-fa53-4c3e-881e-940e9fce7f57",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your end step, you may sacrifice an artifact, creature, enchantment, land, or planeswalker.",
+        "objectText": "an artifact, creature, enchantment, land, or planeswalker",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Braids's Frightful Return",
+        "oracleId": "4567a42a-aa1c-4ca2-b5e2-b09acac3f276",
+        "source": "oracle-cards",
+        "clause": "I — You may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Breath of Fury",
+        "oracleId": "fdaa0faf-e7ee-48b3-9330-de0fc3792ad3",
+        "source": "oracle-cards",
+        "clause": "When enchanted creature deals combat damage to a player, sacrifice it and attach this Aura to a creature you control.",
+        "objectText": "it and attach this aura to a creature you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Breeches, the Blastmaker",
+        "oracleId": "8514f20a-50c7-4319-84cb-2bf263548234",
+        "source": "oracle-cards",
+        "clause": "Whenever you cast your second spell each turn, you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Brood Astronomer",
+        "oracleId": "7a56bdd4-f70e-4abf-9cb7-1624be3288ce",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Buzzard-Wasp Colony",
+        "oracleId": "29fd050c-dd1d-4e1b-b3cc-f7d8d18e4dcb",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice an artifact or creature.",
+        "objectText": "an artifact or creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Cabal Therapist",
+        "oracleId": "9b7870df-6bca-499f-bc6e-e57f2ddfe640",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your first main phase, you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Chandra, Spark Hunter",
+        "oracleId": "30bb01c1-9253-4251-80e7-fb8236b3d858",
+        "source": "atomic-index",
+        "clause": "[+2]: You may sacrifice an artifact or discard a card.",
+        "objectText": "an artifact or discard a card",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Chisei, Heart of Oceans",
+        "oracleId": "f91407fe-3c3b-4ffc-81de-cb8c5b0fe526",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice Chisei unless you remove a counter from a permanent you control.",
+        "objectText": "chisei unless you remove a counter from a permanent you control",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Command Bridge",
+        "oracleId": "87c8e1ed-258a-4a89-bcc6-211405e49692",
+        "source": "oracle-cards",
+        "clause": "When this land enters, sacrifice it unless you tap an untapped permanent you control.",
+        "objectText": "it unless you tap an untapped permanent you control",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Commander Greven il-Vec",
+        "oracleId": "08fa1bee-cedf-4a29-9b02-cbdcc0926f8f",
+        "source": "oracle-cards",
+        "clause": "When Commander Greven il-Vec enters, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Consumed by Greed",
+        "oracleId": "b548578c-4910-402c-8e78-498924e0a9be",
+        "source": "oracle-cards",
+        "clause": "Target opponent sacrifices a creature with the greatest power among creatures they control.",
+        "objectText": "a creature with the greatest power among creatures they control",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Cornered Crook",
+        "oracleId": "4477eeab-a51a-4dc2-9c97-83f2551d8b54",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Crackling Doom",
+        "oracleId": "ee81f37b-2a81-46d7-8d2f-9091123846c4",
+        "source": "oracle-cards",
+        "clause": "Each opponent sacrifices a creature with the greatest power among creatures that player controls.",
+        "objectText": "a creature with the greatest power among creatures that player controls",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Crosis's Catacombs",
+        "oracleId": "e9a7dede-3968-4b0e-a707-419d46a6fec9",
+        "source": "oracle-cards",
+        "clause": "When this land enters, sacrifice it unless you return a non-Lair land you control to its owner's hand.",
+        "objectText": "it unless you return a non-lair land you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Crovax the Cursed",
+        "oracleId": "e1b74ef7-ab6b-4d40-8087-3f3a448b7e0a",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Crypt Lurker",
+        "oracleId": "f0cbf361-d7dc-4556-a654-71c08785095a",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a creature or discard a creature card.",
+        "objectText": "a creature or discard a creature card",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Cycle of Renewal",
+        "oracleId": "77eda626-5cef-496d-b291-cfa1ee6fc1fb",
+        "source": "oracle-cards",
+        "clause": "Sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Daemogoth Titan",
+        "oracleId": "a52e73bb-47cb-4912-9b81-4ae40641eabb",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature attacks or blocks, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Daemogoth Woe-Eater",
+        "oracleId": "290323d7-d8cb-4706-87d9-b920a4e2f680",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Daretti, Ingenious Iconoclast",
+        "oracleId": "add0f7e7-8990-4fd1-8ac7-8115f7802912",
+        "source": "atomic-index",
+        "clause": "[−1]: You may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Daretti, Rocketeer Engineer",
+        "oracleId": "0eb1d539-6301-46b0-903e-487eda34253f",
+        "source": "oracle-cards",
+        "clause": "You may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Daretti, Scrap Savant",
+        "oracleId": "ea9f4de3-fc35-435a-8dff-a5657d14a9bd",
+        "source": "atomic-index",
+        "clause": "[−2]: Sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Darigaaz's Caldera",
+        "oracleId": "19b58ec9-bb88-4193-8ea8-c8f09ceec1ed",
+        "source": "oracle-cards",
+        "clause": "When this land enters, sacrifice it unless you return a non-Lair land you control to its owner's hand.",
+        "objectText": "it unless you return a non-lair land you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Davriel, Soul Broker",
+        "oracleId": "22b5721d-c187-4e0f-b752-52c2a26f3505",
+        "source": "oracle-cards",
+        "clause": "If they can't, they sacrifice an attacking creature.",
+        "objectText": "an attacking creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Death Pit Offering",
+        "oracleId": "d445032b-b243-4203-9c88-a0ac357fb9b5",
+        "source": "oracle-cards",
+        "clause": "When this enchantment enters, sacrifice all creatures you control.",
+        "objectText": "all creatures you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Demonic Appetite",
+        "oracleId": "52d34007-38c0-4858-8ec8-c622da916277",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Demonic Taskmaster",
+        "oracleId": "162e45f5-edb8-4a13-acdc-8980ce5ba8ac",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature other than this creature.",
+        "objectText": "a creature other than this creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Desecration Elemental",
+        "oracleId": "38ff7aa1-e2cb-450d-a18f-45841f9f9337",
+        "source": "oracle-cards",
+        "clause": "Whenever a player casts a spell, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Devouring Strossus",
+        "oracleId": "8f2ab0a8-9d60-493b-a284-9ed7fa07e5ea",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Devouring Sugarmaw // Have for Dinner",
+        "oracleId": "c8bc28ea-5630-49d5-963a-5789fa83f3c7",
+        "source": "atomic-index",
+        "clause": "At the beginning of your upkeep, you may sacrifice an artifact, enchantment, or token.",
+        "objectText": "an artifact, enchantment, or token",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Distract the Hydra",
+        "oracleId": "055592ce-2432-450b-89f6-fcb09f6c8ac2",
+        "source": "oracle-cards",
+        "clause": "Each player may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Doomgape",
+        "oracleId": "ab94d8f7-f811-436a-9a22-9a12bd929e98",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Dreadfeast Demon",
+        "oracleId": "aa364a33-7c72-4096-b8ed-ca9d5515c3fe",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your end step, sacrifice a non-Demon creature.",
+        "objectText": "a non-demon creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Dredge",
+        "oracleId": "efc9498a-b740-44de-aef3-01a1fa4ee49a",
+        "source": "oracle-cards",
+        "clause": "Sacrifice a creature or land.",
+        "objectText": "a creature or land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Drinker of Sorrow",
+        "oracleId": "6208534d-e7c7-43ef-b8b2-fea1d82459e8",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature deals combat damage, sacrifice a permanent.",
+        "objectText": "a permanent",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Dromar's Cavern",
+        "oracleId": "d8b57707-796d-4488-8f91-65bb75bc6281",
+        "source": "oracle-cards",
+        "clause": "When this land enters, sacrifice it unless you return a non-Lair land you control to its owner's hand.",
+        "objectText": "it unless you return a non-lair land you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Eldrazi Monument",
+        "oracleId": "c7ee1b21-d02e-49ef-95d6-d6dbf2f886ae",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Emrakul, the World Anew",
+        "oracleId": "33300e69-29f6-41e4-92ab-82d8b018b217",
+        "source": "oracle-cards",
+        "clause": "When Emrakul leaves the battlefield, sacrifice all creatures you control.",
+        "objectText": "all creatures you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Entish Restoration",
+        "oracleId": "736017e2-bc33-49e8-812d-1639443fdb51",
+        "source": "oracle-cards",
+        "clause": "Sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Epicenter",
+        "oracleId": "264cb7f6-6d36-4e58-87f4-83ccaa998a32",
+        "source": "oracle-cards",
+        "clause": "Threshold — Each player sacrifices all lands they control instead if there are seven or more cards in your graveyard.",
+        "objectText": "all lands they control instead if there are seven or more cards in your graveyard",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Eradicator Valkyrie",
+        "oracleId": "06b7987d-c876-4369-9c2d-ce1d35a01097",
+        "source": "oracle-cards",
+        "clause": "Boast — {1}{B}, Sacrifice a creature: Each opponent sacrifices a creature or planeswalker.",
+        "objectText": "a creature or planeswalker",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Excavating Anurid",
+        "oracleId": "0239b661-80be-4b52-b3b7-fca229192b58",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Faerie Impostor",
+        "oracleId": "0d78ba2c-4de0-47d9-b1b9-13dc9de8844b",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice it unless you return another creature you control to its owner's hand.",
+        "objectText": "it unless you return another creature you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Feed the Pack",
+        "oracleId": "48981194-6465-4900-8cea-206f8ab5d00e",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your end step, you may sacrifice a nontoken creature.",
+        "objectText": "a nontoken creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Felothar, Dawn of the Abzan",
+        "oracleId": "fd666669-ad23-4e41-b78c-1cd7b82eb8b4",
+        "source": "oracle-cards",
+        "clause": "Whenever Felothar enters or attacks, you may sacrifice a nonland permanent.",
+        "objectText": "a nonland permanent",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "nonland_permanent"
+        }
+      },
+      {
+        "name": "Fettergeist",
+        "oracleId": "7ed73cff-137c-4ad1-b11d-c62aa746655e",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice this creature unless you pay {1} for each other creature you control.",
+        "objectText": "this creature unless you pay {1} for each other creature you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Fireblade Artist",
+        "oracleId": "52630eaf-995e-4d08-be99-888a38b598b2",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Flare of Malice",
+        "oracleId": "4ce156f8-6b0b-41ce-9e8f-b2735c757406",
+        "source": "oracle-cards",
+        "clause": "Each opponent sacrifices a creature or planeswalker with the greatest mana value among creatures and planeswalkers they control.",
+        "objectText": "a creature or planeswalker with the greatest mana value among creatures and planeswalkers they control",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Forbidden Ritual",
+        "oracleId": "4b5d9c76-8be8-4e25-b978-9750df3d8c15",
+        "source": "oracle-cards",
+        "clause": "Sacrifice a nontoken permanent.",
+        "objectText": "a nontoken permanent",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Foul Spirit",
+        "oracleId": "d8177d08-a603-42e9-9350-890eac05e184",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Foundry Groundbreaker",
+        "oracleId": "1a79cd7b-1d92-417d-949f-3b807772591f",
+        "source": "oracle-cards",
+        "clause": "When Foundry Groundbreaker enters, sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Gastal Blockbuster",
+        "oracleId": "3b601721-90ca-45d3-9a3a-19c719799bfa",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a creature or Vehicle.",
+        "objectText": "a creature or vehicle",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Glacial Chasm",
+        "oracleId": "73e7a2ad-d11c-4867-b97d-f971809da778",
+        "source": "oracle-cards",
+        "clause": "When this land enters, sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Glint Hawk",
+        "oracleId": "5d24525f-dbac-434b-bda7-ff8af55245ff",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice it unless you return an artifact you control to its owner's hand.",
+        "objectText": "it unless you return an artifact you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Goblin Firebug",
+        "oracleId": "ee337677-d898-40a5-9453-405d07ec12b1",
+        "source": "oracle-cards",
+        "clause": "When this creature leaves the battlefield, sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Goremand",
+        "oracleId": "0f80f061-6304-4c7b-ab53-f406385e39df",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, each opponent sacrifices a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Grave Choice",
+        "oracleId": "f24d0138-c3d9-48ba-9031-6249808b220b",
+        "source": "oracle-cards",
+        "clause": "Target opponent sacrifices a nontoken creature.",
+        "objectText": "a nontoken creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Greater Harvester",
+        "oracleId": "1e8f17ab-4616-44de-adfd-010882cfcd42",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a permanent.",
+        "objectText": "a permanent",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Grist, the Hunger Tide",
+        "oracleId": "0efb0d7e-dea0-4817-a243-15066e9ef333",
+        "source": "atomic-index",
+        "clause": "[−2]: You may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Harvester Troll",
+        "oracleId": "28c44f88-1d47-4894-86ce-4089bd761360",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a creature or land.",
+        "objectText": "a creature or land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Hellcarver Demon",
+        "oracleId": "90514aa5-84b6-4be7-b6d0-b05529c97140",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature deals combat damage to a player, sacrifice all other permanents you control and discard your hand.",
+        "objectText": "all other permanents you control and discard your hand",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Hellion Eruption",
+        "oracleId": "e1894a57-0faa-4e0d-8ab9-e4785f0457a4",
+        "source": "oracle-cards",
+        "clause": "Sacrifice all creatures you control, then create that many 4/4 red Hellion creature tokens.",
+        "objectText": "all creatures you control, then create that many 4/4 red hellion creature tokens",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Helm of Obedience",
+        "oracleId": "16cadebf-c484-41f8-9e38-5c2c528f5b54",
+        "source": "oracle-cards",
+        "clause": "If one or more creature cards were put into that graveyard this way, sacrifice this artifact and put one of them onto the battlefield under your control.",
+        "objectText": "this artifact and put one of them onto the battlefield under your control",
+        "parsed": {
+          "mode": "all",
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Impulsive Destruction",
+        "oracleId": "f6ea7f86-3d0f-4c78-ae02-c5804c8769eb",
+        "source": "oracle-cards",
+        "clause": "Each player may sacrifice an artifact or enchantment.",
+        "objectText": "an artifact or enchantment",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Industrial Advancement",
+        "oracleId": "7a0aa9ea-610e-4910-b66d-fdac69e88adf",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your end step, you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Invasion of New Capenna // Holy Frazzle-Cannon",
+        "oracleId": "530dc119-e266-4525-abe9-7fab599e9de2",
+        "source": "atomic-index",
+        "clause": "When this Siege enters, you may sacrifice an artifact or creature.",
+        "objectText": "an artifact or creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Ironclad Revolutionary",
+        "oracleId": "382109c5-fd08-4e82-b898-2a387181b470",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Kardur's Vicious Return",
+        "oracleId": "6ca1d5ca-cc97-4783-9c0a-f47097f35ba8",
+        "source": "oracle-cards",
+        "clause": "I — You may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Karlach, Tiefling Punisher",
+        "oracleId": "2dfc72ed-d2d4-4f89-a459-39d06839a257",
+        "source": "oracle-cards",
+        "clause": "When this card specializes from any zone, you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Keldon Firebombers",
+        "oracleId": "d5e02fa5-827e-414b-acb5-932de4bb3ee3",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, each player sacrifices all lands they control except for three.",
+        "objectText": "all lands they control except for three",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Kjeldoran Dead",
+        "oracleId": "61e00946-7df7-4298-91b2-c656169e6601",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Koskun Falls",
+        "oracleId": "a9b9e798-debc-4f2c-9770-e16f670082f7",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice this enchantment unless you tap an untapped creature you control.",
+        "objectText": "this enchantment unless you tap an untapped creature you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Kuldotha Flamefiend",
+        "oracleId": "e93089b1-e790-402b-a994-69a7e422e4f2",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Lair of the Ashen Idol",
+        "oracleId": "ac4fe2a2-76ff-49d9-b506-26a17b4bf892",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Larval Scoutlander",
+        "oracleId": "b3f3d55c-a3f6-441b-a380-60c0734dc514",
+        "source": "oracle-cards",
+        "clause": "When this Spacecraft enters, you may sacrifice a land or Lander.",
+        "objectText": "a land or lander",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Lesser Gargadon",
+        "oracleId": "7e162cc1-9482-4812-8897-209ec2927ec0",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature attacks or blocks, sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Lich's Tomb",
+        "oracleId": "600b9ab8-36dc-4f02-b48c-091348d132ac",
+        "source": "oracle-cards",
+        "clause": "Whenever you lose life, sacrifice a permanent for each 1 life you lost.",
+        "objectText": "a permanent for each 1 life you lost",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Liege of the Pit",
+        "oracleId": "fd775874-0182-46b1-8624-267bdc4e8075",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature other than this creature.",
+        "objectText": "a creature other than this creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Liliana of the Veil",
+        "oracleId": "0ba134d8-ee7d-48ec-8dc6-57942b8e9261",
+        "source": "atomic-index",
+        "clause": "[−2]: Target player sacrifices a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Lithobraking",
+        "oracleId": "118c4be1-2204-4133-a80e-990ef96c7e35",
+        "source": "oracle-cards",
+        "clause": "Then you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Living Tsunami",
+        "oracleId": "7260657a-c1cd-4081-8ab5-46d604dccca8",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice this creature unless you return a land you control to its owner's hand.",
+        "objectText": "this creature unless you return a land you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Lord of the Pit",
+        "oracleId": "ea152809-85a2-4fde-8251-3b1f267e4443",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature other than this creature.",
+        "objectText": "a creature other than this creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Minsc & Boo, Timeless Heroes",
+        "oracleId": "3a310554-3f69-4158-bb94-9d6965c7125a",
+        "source": "atomic-index",
+        "clause": "[−2]: Sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Molten Man, Inferno Incarnate",
+        "oracleId": "c6fcf3c1-0626-4d53-92c0-caa22fa61e9a",
+        "source": "oracle-cards",
+        "clause": "When Molten Man leaves the battlefield, sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Oni Possession",
+        "oracleId": "df059974-2cf4-471e-a1e6-17d053113062",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Ovinomancer",
+        "oracleId": "98026d30-a29f-4590-968f-b1b36926a275",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice it unless you return three basic lands you control to their owner's hand.",
+        "objectText": "it unless you return three basic lands you control to their owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Painwracker Oni",
+        "oracleId": "4c033502-2005-4e13-96b6-3f8c0a4b6a81",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature if you don't control an Ogre.",
+        "objectText": "a creature if you don't control an ogre",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Phyrexian War Beast",
+        "oracleId": "0c93c418-e10b-4a6d-bddb-3b786bb6a928",
+        "source": "oracle-cards",
+        "clause": "When this creature leaves the battlefield, sacrifice a land and this creature deals 1 damage to you.",
+        "objectText": "a land and this creature deals 1 damage to you",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Pitiless Carnage",
+        "oracleId": "186bfdac-ce9c-476f-89b6-ef467487fca5",
+        "source": "oracle-cards",
+        "clause": "Sacrifice any number of permanents you control, then draw that many cards.",
+        "objectText": "any number of permanents you control, then draw that many cards",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Plague Reaver",
+        "oracleId": "eef50ef8-958b-4f5c-b261-16926d9fe672",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your end step, sacrifice each other creature you control.",
+        "objectText": "each other creature you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Professor Onyx",
+        "oracleId": "9df2e909-ed13-456a-9636-7398732009a9",
+        "source": "atomic-index",
+        "clause": "[−3]: Each opponent sacrifices a creature with the greatest power among creatures that player controls.",
+        "objectText": "a creature with the greatest power among creatures that player controls",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Promise of Aclazotz // Foul Rebirth",
+        "oracleId": "4ef4b4f9-47cd-4862-8cbb-b6e624d6e6fc",
+        "source": "atomic-index",
+        "clause": "At the beginning of your end step, you may sacrifice a non-Demon creature.",
+        "objectText": "a non-demon creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Psychic Vortex",
+        "oracleId": "451e35dd-e0b5-4157-8511-bacb315e19bd",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your end step, sacrifice a land and discard your hand.",
+        "objectText": "a land and discard your hand",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Public Thoroughfare",
+        "oracleId": "de5b995c-9691-4555-9070-66bcbc29f955",
+        "source": "oracle-cards",
+        "clause": "When this land enters, sacrifice it unless you tap an untapped artifact or land you control.",
+        "objectText": "it unless you tap an untapped artifact or land you control",
+        "parsed": {
+          "mode": "all",
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Quickling",
+        "oracleId": "109899e1-abd7-4582-8b67-b0852755bf75",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice it unless you return another creature you control to its owner's hand.",
+        "objectText": "it unless you return another creature you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Rakdos the Defiler",
+        "oracleId": "789bf406-38f0-4888-b2ff-c4a95ac79283",
+        "source": "oracle-cards",
+        "clause": "Whenever Rakdos attacks, sacrifice half the non-Demon permanents you control, rounded up.",
+        "objectText": "half the non-demon permanents you control, rounded up",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Rare-B-Gone",
+        "oracleId": "9856a5f8-88bf-43cd-9527-8fd1d9b0101f",
+        "source": "oracle-cards",
+        "clause": "Each player sacrifices all permanents that are rare or mythic rare, then each player reveals their hand and discards all cards that are rare or mythic rare.",
+        "objectText": "all permanents that are rare or mythic rare, then each player reveals their hand and discards all cards that are rare or mythic rare",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Ravenous Necrotitan",
+        "oracleId": "90109cb4-1e16-4d54-9332-b5fb1e71042c",
+        "source": "oracle-cards",
+        "clause": "Corrupted — When this creature enters, sacrifice a creature unless an opponent has three or more poison counters.",
+        "objectText": "a creature unless an opponent has three or more poison counters",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Ravenous Vampire",
+        "oracleId": "2c029419-3601-4158-b10f-45a19de7faa3",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, you may sacrifice a nonartifact creature.",
+        "objectText": "a nonartifact creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Reckless Detective",
+        "oracleId": "4debd0e4-3bb6-4dd1-addc-08e4bda69d11",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature attacks, you may sacrifice an artifact or discard a card.",
+        "objectText": "an artifact or discard a card",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Redcap Melee",
+        "oracleId": "1b78aa71-b554-45dc-a737-52cd74c3e7f1",
+        "source": "oracle-cards",
+        "clause": "If a nonred permanent is dealt damage this way, you sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Replicating Terror",
+        "oracleId": "87922216-84c0-4d34-babc-10fed82ed2d3",
+        "source": "oracle-cards",
+        "clause": "Each opponent sacrifices a nontoken creature.",
+        "objectText": "a nontoken creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Rith's Grove",
+        "oracleId": "e13289e5-370b-435b-a38e-cf57c3078cec",
+        "source": "oracle-cards",
+        "clause": "When this land enters, sacrifice it unless you return a non-Lair land you control to its owner's hand.",
+        "objectText": "it unless you return a non-lair land you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Roiling Regrowth",
+        "oracleId": "65d63518-3261-40b5-87b8-19c152b29ee3",
+        "source": "oracle-cards",
+        "clause": "Sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Ruinous Minotaur",
+        "oracleId": "ece9d3e5-79e5-4c56-9e8d-8abcd819c041",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature deals damage to an opponent, sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Rupture",
+        "oracleId": "d2179a54-4b45-4b67-a31c-aa1a7bcfda2c",
+        "source": "oracle-cards",
+        "clause": "Sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Ruthless Technomancer",
+        "oracleId": "4e58ad76-37c7-4531-b207-6890b39a2679",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice another creature you control.",
+        "objectText": "another creature you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Saw",
+        "oracleId": "d88bfa98-6869-4d64-a9d2-07a308a67fe2",
+        "source": "oracle-cards",
+        "clause": "Whenever equipped creature attacks, you may sacrifice a permanent other than that creature or this Equipment.",
+        "objectText": "a permanent other than that creature or this equipment",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Selfcraft Mechan",
+        "oracleId": "4ba4cb4b-f421-4abd-8fcf-a01174447790",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Serendib Djinn",
+        "oracleId": "683e7135-de54-49c8-a978-4f84628a6a91",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Servant of Volrath",
+        "oracleId": "4e389b61-7b31-42ba-a19b-2502f63fd34a",
+        "source": "oracle-cards",
+        "clause": "When this creature leaves the battlefield, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Shadowgrange Archfiend",
+        "oracleId": "8f3705ff-e8e5-48e7-ab68-df6849d78867",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, each opponent sacrifices a creature with the greatest power among creatures they control.",
+        "objectText": "a creature with the greatest power among creatures they control",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Shrapnel Slinger",
+        "oracleId": "b400536c-ea8b-4237-90da-1d3ac139881d",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Smothering Abomination",
+        "oracleId": "c3db28e5-6162-4642-a1c9-a7ace0737950",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Sorin, Solemn Visitor Emblem",
+        "oracleId": "fd01f885-26b0-4497-960e-5a571881ee28",
+        "source": "oracle-cards",
+        "clause": "At the beginning of each opponent's upkeep, that player sacrifices a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Soul Servitude",
+        "oracleId": "b8949341-7a8e-402c-a05e-cf26c270cf36",
+        "source": "oracle-cards",
+        "clause": "Target player sacrifices a nontoken creature.",
+        "objectText": "a nontoken creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Soul Shatter",
+        "oracleId": "615927c2-3fb0-4e64-a1a7-55fb56de1423",
+        "source": "oracle-cards",
+        "clause": "Each opponent sacrifices a creature or planeswalker with the greatest mana value among creatures and planeswalkers they control.",
+        "objectText": "a creature or planeswalker with the greatest mana value among creatures and planeswalkers they control",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Spined Fluke",
+        "oracleId": "3c880ac2-0b22-4f7e-a55a-381de235e971",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Springbloom Druid",
+        "oracleId": "788a4896-3414-40bf-b391-d2efea2fb5f9",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Thalia and The Gitrog Monster",
+        "oracleId": "422a76e1-97a2-4a90-b07d-f487a2d8c236",
+        "source": "oracle-cards",
+        "clause": "Whenever Thalia and The Gitrog Monster attacks, sacrifice a creature or land, then draw a card.",
+        "objectText": "a creature or land, then draw a card",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "The Aether Flues",
+        "oracleId": "8eb442a9-5e61-4e2e-983d-b49b04be2575",
+        "source": "oracle-cards",
+        "clause": "When you planeswalk to The Aether Flues and at the beginning of your upkeep, you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "The Dining Car",
+        "oracleId": "7099883d-0a4b-47ae-bff8-a96efa7a3a9a",
+        "source": "oracle-cards",
+        "clause": "Sixty-Six Seconds — At the beginning of your upkeep, sacrifice a creature with the least toughness among creatures you control.",
+        "objectText": "a creature with the least toughness among creatures you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "The Fourth Sphere",
+        "oracleId": "13e801cd-e537-4ea6-8c3d-21b142bdc026",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a nonblack creature.",
+        "objectText": "a nonblack creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "The Gitrog, Ravenous Ride",
+        "oracleId": "7739311a-682b-48a6-8db2-c07f44141751",
+        "source": "oracle-cards",
+        "clause": "Whenever The Gitrog deals combat damage to a player, you may sacrifice a creature that saddled it this turn.",
+        "objectText": "a creature that saddled it this turn",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "The Huntsman's Redemption",
+        "oracleId": "ae63fd5c-46ff-41fb-a1f6-6259336525c1",
+        "source": "oracle-cards",
+        "clause": "II — You may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Tip the Scales",
+        "oracleId": "f7cac691-960f-4e36-8eae-f24bcdc1269b",
+        "source": "oracle-cards",
+        "clause": "Sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Tragic Arrogance",
+        "oracleId": "8a29bd35-33ef-4317-9fe5-8aaff5d7d64d",
+        "source": "oracle-cards",
+        "clause": "Then each player sacrifices all other nonland permanents they control.",
+        "objectText": "all other nonland permanents they control",
+        "parsed": {
+          "mode": "all",
+          "type": "nonland_permanent"
+        }
+      },
+      {
+        "name": "Transmute Artifact",
+        "oracleId": "dbe792f9-22be-4972-b418-99a6190c4421",
+        "source": "oracle-cards",
+        "clause": "Sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Treva's Ruins",
+        "oracleId": "7b2c7758-2b89-49ff-8838-8dc9880c7209",
+        "source": "oracle-cards",
+        "clause": "When this land enters, sacrifice it unless you return a non-Lair land you control to its owner's hand.",
+        "objectText": "it unless you return a non-lair land you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Ugin's Construct",
+        "oracleId": "6b87a933-b0d2-4120-b4a0-65ab0f3dbe48",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice a permanent that's one or more colors.",
+        "objectText": "a permanent that's one or more colors",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Undercity Eliminator",
+        "oracleId": "93cb9c7e-d6d3-4b1e-8bcf-2a4a1d95a549",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice an artifact or creature.",
+        "objectText": "an artifact or creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Unscrupulous Contractor",
+        "oracleId": "00ff5598-2f7f-4e28-8b63-5ae1ce18f0c5",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Vapor Snare",
+        "oracleId": "29ae5540-5fdf-48be-86ba-b4db0fe19f6c",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice this Aura unless you return a land you control to its owner's hand.",
+        "objectText": "this aura unless you return a land you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Victimize",
+        "oracleId": "240e85d3-e495-4877-8609-4b4056c402f7",
+        "source": "oracle-cards",
+        "clause": "Sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Vindictive Mob",
+        "oracleId": "af55096c-af6b-479f-8257-144e596e89d8",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Visions of Ruin",
+        "oracleId": "3570001c-844f-4319-9850-ab997d62a83b",
+        "source": "oracle-cards",
+        "clause": "Each opponent sacrifices an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Vivien on the Hunt",
+        "oracleId": "f6f927f3-dc3f-446c-aa7b-81048eb73243",
+        "source": "atomic-index",
+        "clause": "[+2]: You may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Waterspout Djinn",
+        "oracleId": "050dac46-9ba0-4b8a-b61b-1c7ec6f3723a",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice this creature unless you return an untapped Island you control to its owner's hand.",
+        "objectText": "this creature unless you return an untapped island you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Wave of Vitriol",
+        "oracleId": "5b8b1f03-9e2e-40f2-97e0-c9fb8d780d56",
+        "source": "oracle-cards",
+        "clause": "Each player sacrifices all artifacts, enchantments, and nonbasic lands they control.",
+        "objectText": "all artifacts, enchantments, and nonbasic lands they control",
+        "parsed": {
+          "mode": "all",
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "West Wind Avatar",
+        "oracleId": "92e45a8f-c582-45e1-9b7f-def219023ebf",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature enters or attacks, you may sacrifice a token or a land.",
+        "objectText": "a token or a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Witch-king, Bringer of Ruin",
+        "oracleId": "afcb21bb-aeb3-4024-9ce1-68ba7fb64b2d",
+        "source": "oracle-cards",
+        "clause": "Whenever Witch-king attacks, defending player sacrifices a creature with the least power among creatures they control.",
+        "objectText": "a creature with the least power among creatures they control",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Wormfang Drake",
+        "oracleId": "d37c4e77-5023-4d13-9cfe-a43f513364bf",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice it unless you exile a creature you control other than this creature.",
+        "objectText": "it unless you exile a creature you control other than this creature",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Yawgmoth Demon",
+        "oracleId": "6c54fc14-2af8-46e8-a4dc-b2a0a88ef2e1",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Yukora, the Prisoner",
+        "oracleId": "10026343-a8cd-4a99-b4d9-ff7611f52052",
+        "source": "oracle-cards",
+        "clause": "When Yukora leaves the battlefield, sacrifice all non-Ogre creatures you control.",
+        "objectText": "all non-ogre creatures you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Yuma, Proud Protector",
+        "oracleId": "b8a0b967-3b5b-46f5-830b-5c8f1037784a",
+        "source": "oracle-cards",
+        "clause": "Whenever Yuma enters or attacks, you may sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Yuna's Decision",
+        "oracleId": "77dd6ce0-91fc-4e71-99ff-47cdf3359067",
+        "source": "oracle-cards",
+        "clause": "• Continue the Pilgrimage — Sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      }
+    ],
+    "supportedEffectSamples": [
+      {
+        "name": "Unscrupulous Contractor",
+        "oracleId": "00ff5598-2f7f-4e28-8b63-5ae1ce18f0c5",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Excavating Anurid",
+        "oracleId": "0239b661-80be-4b52-b3b7-fca229192b58",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, you may sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Waterspout Djinn",
+        "oracleId": "050dac46-9ba0-4b8a-b61b-1c7ec6f3723a",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice this creature unless you return an untapped Island you control to its owner's hand.",
+        "objectText": "this creature unless you return an untapped island you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Distract the Hydra",
+        "oracleId": "055592ce-2432-450b-89f6-fcb09f6c8ac2",
+        "source": "oracle-cards",
+        "clause": "Each player may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Eradicator Valkyrie",
+        "oracleId": "06b7987d-c876-4369-9c2d-ce1d35a01097",
+        "source": "oracle-cards",
+        "clause": "Boast — {1}{B}, Sacrifice a creature: Each opponent sacrifices a creature or planeswalker.",
+        "objectText": "a creature or planeswalker",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Baldur's Gate Wilderness",
+        "oracleId": "06b9590d-01bf-4fae-9837-352c9e04267a",
+        "source": "oracle-cards",
+        "clause": "Defiled Temple — You may sacrifice a permanent.",
+        "objectText": "a permanent",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Commander Greven il-Vec",
+        "oracleId": "08fa1bee-cedf-4a29-9b02-cbdcc0926f8f",
+        "source": "oracle-cards",
+        "clause": "When Commander Greven il-Vec enters, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Liliana of the Veil",
+        "oracleId": "0ba134d8-ee7d-48ec-8dc6-57942b8e9261",
+        "source": "oracle-cards",
+        "clause": "−2: Target player sacrifices a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Phyrexian War Beast",
+        "oracleId": "0c93c418-e10b-4a6d-bddb-3b786bb6a928",
+        "source": "oracle-cards",
+        "clause": "When this creature leaves the battlefield, sacrifice a land and this creature deals 1 damage to you.",
+        "objectText": "a land and this creature deals 1 damage to you",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Faerie Impostor",
+        "oracleId": "0d78ba2c-4de0-47d9-b1b9-13dc9de8844b",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice it unless you return another creature you control to its owner's hand.",
+        "objectText": "it unless you return another creature you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Daretti, Rocketeer Engineer",
+        "oracleId": "0eb1d539-6301-46b0-903e-487eda34253f",
+        "source": "oracle-cards",
+        "clause": "You may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Grist, the Hunger Tide",
+        "oracleId": "0efb0d7e-dea0-4817-a243-15066e9ef333",
+        "source": "oracle-cards",
+        "clause": "−2: You may sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Goremand",
+        "oracleId": "0f80f061-6304-4c7b-ab53-f406385e39df",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, each opponent sacrifices a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Yukora, the Prisoner",
+        "oracleId": "10026343-a8cd-4a99-b4d9-ff7611f52052",
+        "source": "oracle-cards",
+        "clause": "When Yukora leaves the battlefield, sacrifice all non-Ogre creatures you control.",
+        "objectText": "all non-ogre creatures you control",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Quickling",
+        "oracleId": "109899e1-abd7-4582-8b67-b0852755bf75",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice it unless you return another creature you control to its owner's hand.",
+        "objectText": "it unless you return another creature you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Lithobraking",
+        "oracleId": "118c4be1-2204-4133-a80e-990ef96c7e35",
+        "source": "oracle-cards",
+        "clause": "Then you may sacrifice an artifact.",
+        "objectText": "an artifact",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "The Fourth Sphere",
+        "oracleId": "13e801cd-e537-4ea6-8c3d-21b142bdc026",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a nonblack creature.",
+        "objectText": "a nonblack creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Abhorrent Overlord",
+        "oracleId": "13f63240-a6bb-4333-a3dd-818725c6fb73",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature.",
+        "objectText": "a creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "All Is Dust",
+        "oracleId": "14693689-d087-43b6-9c3f-63ab0648fc20",
+        "source": "oracle-cards",
+        "clause": "Each player sacrifices all permanents they control that are one or more colors.",
+        "objectText": "all permanents they control that are one or more colors",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Demonic Taskmaster",
+        "oracleId": "162e45f5-edb8-4a13-acdc-8980ce5ba8ac",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a creature other than this creature.",
+        "objectText": "a creature other than this creature",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Helm of Obedience",
+        "oracleId": "16cadebf-c484-41f8-9e38-5c2c528f5b54",
+        "source": "oracle-cards",
+        "clause": "If one or more creature cards were put into that graveyard this way, sacrifice this artifact and put one of them onto the battlefield under your control.",
+        "objectText": "this artifact and put one of them onto the battlefield under your control",
+        "parsed": {
+          "mode": "all",
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Pitiless Carnage",
+        "oracleId": "186bfdac-ce9c-476f-89b6-ef467487fca5",
+        "source": "oracle-cards",
+        "clause": "Sacrifice any number of permanents you control, then draw that many cards.",
+        "objectText": "any number of permanents you control, then draw that many cards",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Darigaaz's Caldera",
+        "oracleId": "19b58ec9-bb88-4193-8ea8-c8f09ceec1ed",
+        "source": "oracle-cards",
+        "clause": "When this land enters, sacrifice it unless you return a non-Lair land you control to its owner's hand.",
+        "objectText": "it unless you return a non-lair land you control to its owner's hand",
+        "parsed": {
+          "mode": "all",
+          "type": "land"
+        }
+      },
+      {
+        "name": "Foundry Groundbreaker",
+        "oracleId": "1a79cd7b-1d92-417d-949f-3b807772591f",
+        "source": "oracle-cards",
+        "clause": "When Foundry Groundbreaker enters, sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Redcap Melee",
+        "oracleId": "1b78aa71-b554-45dc-a737-52cd74c3e7f1",
+        "source": "oracle-cards",
+        "clause": "If a nonred permanent is dealt damage this way, you sacrifice a land.",
+        "objectText": "a land",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      }
+    ],
+    "choiceOrGapSamples": [
+      {
+        "name": "Cruel Ultimatum",
+        "oracleId": "01294ac9-1a06-4ee8-b3b1-db1f07c9d94e",
+        "source": "oracle-cards",
+        "clause": "Target opponent sacrifices a creature of their choice, discards three cards, then loses 5 life.",
+        "objectText": "a creature of their choice, discards three cards, then loses 5 life",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Diabolic Edict",
+        "oracleId": "058917c1-21ab-488a-9f9c-591c55f3c596",
+        "source": "oracle-cards",
+        "clause": "Target player sacrifices a creature of their choice.",
+        "objectText": "a creature of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Nefarox, Overlord of Grixis",
+        "oracleId": "0632f0f9-8d4f-4e94-8b53-1275b7f21a57",
+        "source": "oracle-cards",
+        "clause": "Whenever Nefarox attacks alone, defending player sacrifices a creature of their choice.",
+        "objectText": "a creature of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "The Dalek Emperor",
+        "oracleId": "07799012-7051-400e-adde-b54b41b80c70",
+        "source": "oracle-cards",
+        "clause": "At the beginning of combat on your turn, each opponent faces a villainous choice — That player sacrifices a creature of their choice, or you create a 3/3 black Dalek artifact creature token with menace.",
+        "objectText": "a creature of their choice, or you create a 3/3 black dalek artifact creature token with menace",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Momentum Breaker",
+        "oracleId": "087d2e42-c69f-4cd2-b2e3-e0b64ac2893b",
+        "source": "oracle-cards",
+        "clause": "When this enchantment enters, each opponent sacrifices a creature or Vehicle of their choice.",
+        "objectText": "a creature or vehicle of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Summon: Anima",
+        "oracleId": "0990e57f-279e-4348-a049-e06187cc38d4",
+        "source": "oracle-cards",
+        "clause": "IV — Oblivion — Each opponent sacrifices a creature of their choice and loses 3 life.",
+        "objectText": "a creature of their choice and loses 3 life",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Dead Drop",
+        "oracleId": "09f3d60c-34ee-41ec-a047-fe2140b11950",
+        "source": "oracle-cards",
+        "clause": "Target player sacrifices two creatures of their choice.",
+        "objectText": "two creatures of their choice",
+        "parsed": null
+      },
+      {
+        "name": "Kibo, Uktabi Prince",
+        "oracleId": "0b9be4fa-5238-4afd-a9f6-f9022e67e5ab",
+        "source": "oracle-cards",
+        "clause": "Whenever Kibo attacks, defending player sacrifices an artifact of their choice.",
+        "objectText": "an artifact of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "artifact"
+        }
+      },
+      {
+        "name": "Liliana of the Veil",
+        "oracleId": "0ba134d8-ee7d-48ec-8dc6-57942b8e9261",
+        "source": "oracle-cards",
+        "clause": "That player sacrifices all permanents in the pile of their choice.",
+        "objectText": "all permanents in the pile of their choice",
+        "parsed": {
+          "mode": "all",
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Oath of Liliana",
+        "oracleId": "0bd7fd12-a0b7-4b4e-8a33-cace6e6bd6d1",
+        "source": "oracle-cards",
+        "clause": "When Oath of Liliana enters, each opponent sacrifices a creature of their choice.",
+        "objectText": "a creature of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Anowon, the Ruin Sage",
+        "oracleId": "0c201f79-9eca-48c8-88ba-a20fa6918a07",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, each player sacrifices a non-Vampire creature of their choice.",
+        "objectText": "a non-vampire creature of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Ember Swallower",
+        "oracleId": "0cdc86c4-8c68-4ba6-8165-511f32156a4c",
+        "source": "oracle-cards",
+        "clause": "When this creature becomes monstrous, each player sacrifices three lands of their choice.",
+        "objectText": "three lands of their choice",
+        "parsed": null
+      },
+      {
+        "name": "Slum Reaper",
+        "oracleId": "0cf742c1-feb5-4108-9976-37fa58528212",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, each player sacrifices a creature of their choice.",
+        "objectText": "a creature of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Custodi Lich",
+        "oracleId": "0d95ee14-9ff0-4d7f-be56-361a500ce36f",
+        "source": "oracle-cards",
+        "clause": "Whenever you become the monarch, target player sacrifices a creature of their choice.",
+        "objectText": "a creature of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Spelltithe Enforcer",
+        "oracleId": "0da4988f-47ca-4786-ac33-edbc9cfd6785",
+        "source": "oracle-cards",
+        "clause": "Whenever an opponent casts a spell, that player sacrifices a permanent of their choice unless they pay {1}.",
+        "objectText": "a permanent of their choice unless they pay {1}",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Wildfire",
+        "oracleId": "0da68ca2-07fd-4359-95a9-fb2f815e6ed0",
+        "source": "oracle-cards",
+        "clause": "Each player sacrifices four lands of their choice.",
+        "objectText": "four lands of their choice",
+        "parsed": null
+      },
+      {
+        "name": "Rush of Dread",
+        "oracleId": "0dfe6ec6-a0df-41c8-90dd-1ddf0417700a",
+        "source": "oracle-cards",
+        "clause": "+ {1} — Target opponent sacrifices half the creatures they control of their choice, rounded up.",
+        "objectText": "half the creatures they control of their choice, rounded up",
+        "parsed": null
+      },
+      {
+        "name": "Geth's Verdict",
+        "oracleId": "0f575f18-4606-4b85-9a90-07f8d8d46d06",
+        "source": "oracle-cards",
+        "clause": "Target player sacrifices a creature of their choice and loses 1 life.",
+        "objectText": "a creature of their choice and loses 1 life",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Tremble",
+        "oracleId": "0fa0f562-e66f-4630-890a-9a4ae24fd6c0",
+        "source": "oracle-cards",
+        "clause": "Each player sacrifices a land of their choice.",
+        "objectText": "a land of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "land"
+        }
+      },
+      {
+        "name": "Aether Barrier",
+        "oracleId": "0fe602b7-9f88-4d3d-af24-7790df867ed5",
+        "source": "oracle-cards",
+        "clause": "Whenever a player casts a creature spell, that player sacrifices a permanent of their choice unless they pay {1}.",
+        "objectText": "a permanent of their choice unless they pay {1}",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      },
+      {
+        "name": "Cruel Edict",
+        "oracleId": "10c585c4-bf5b-4d8f-94a9-e9a5036a688f",
+        "source": "oracle-cards",
+        "clause": "Target opponent sacrifices a creature of their choice.",
+        "objectText": "a creature of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Wasitora, Nekoru Queen",
+        "oracleId": "13fc4168-fcc2-4011-804f-211d5d86b7dd",
+        "source": "oracle-cards",
+        "clause": "Whenever Wasitora deals combat damage to a player, that player sacrifices a creature of their choice.",
+        "objectText": "a creature of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Unleash the Flux",
+        "oracleId": "14066888-66f6-4903-8de2-cc961aa45d8d",
+        "source": "oracle-cards",
+        "clause": "When you encounter Unleash the Flux, each player sacrifices a nonland permanent of their choice, then you flip a coin.",
+        "objectText": "a nonland permanent of their choice, then you flip a coin",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "nonland_permanent"
+        }
+      },
+      {
+        "name": "Only Blood Ends Your Nightmares",
+        "oracleId": "147895ee-c438-4ebb-bf3c-a5ab522fd3fc",
+        "source": "oracle-cards",
+        "clause": "When you set this scheme in motion, each opponent sacrifices a creature of their choice.",
+        "objectText": "a creature of their choice",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "creature"
+        }
+      },
+      {
+        "name": "Rishadan Cutpurse",
+        "oracleId": "147e0e74-f76b-4f0a-951f-d39afdd72c02",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, each opponent sacrifices a permanent of their choice unless they pay {1}.",
+        "objectText": "a permanent of their choice unless they pay {1}",
+        "parsed": {
+          "mode": "count",
+          "count": 1,
+          "type": "permanent"
+        }
+      }
+    ],
+    "unsupportedEffectSamples": [
+      {
+        "name": "Kavaron Consumed",
+        "oracleId": "00078ea3-0462-4a6e-b7b1-25fea012b2b7",
+        "source": "oracle-cards",
+        "clause": "Sacrifice it at the beginning of the next end step.",
+        "objectText": "it at the beginning of the next end step",
+        "parsed": null
+      },
+      {
+        "name": "Planebound Accomplice",
+        "oracleId": "01076e04-3106-4968-8ef4-b26fc3786699",
+        "source": "oracle-cards",
+        "clause": "Sacrifice it at the beginning of the next end step.",
+        "objectText": "it at the beginning of the next end step",
+        "parsed": null
+      },
+      {
+        "name": "Brawl-Bash Ogre",
+        "oracleId": "0156bfbc-26bc-4699-a7ff-437f7c043716",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature attacks, you may sacrifice another creature.",
+        "objectText": "another creature",
+        "parsed": null
+      },
+      {
+        "name": "Ragefire Hellkite",
+        "oracleId": "0166996d-941f-49fe-bf4f-64b6fd4b69e9",
+        "source": "oracle-cards",
+        "clause": "Whenever this creature attacks, you may sacrifice another creature.",
+        "objectText": "another creature",
+        "parsed": null
+      },
+      {
+        "name": "Impetuous Devils",
+        "oracleId": "01add64a-205d-4c0e-a393-89e7a1a0ea44",
+        "source": "oracle-cards",
+        "clause": "At the beginning of the end step, sacrifice this creature.",
+        "objectText": "this creature",
+        "parsed": null
+      },
+      {
+        "name": "Labyrinth Guardian",
+        "oracleId": "01deda1e-01f2-495f-992a-ca2e8b0a1111",
+        "source": "oracle-cards",
+        "clause": "When Labyrinth Guardian becomes the target of a spell, sacrifice it.",
+        "objectText": "it",
+        "parsed": null
+      },
+      {
+        "name": "Lotus Vale",
+        "oracleId": "01fc5bb3-ebd7-4ab4-8aef-2ece1e1d9b7c",
+        "source": "oracle-cards",
+        "clause": "If this land would enter, sacrifice two untapped lands instead.",
+        "objectText": "two untapped lands instead",
+        "parsed": null
+      },
+      {
+        "name": "Impulsivity",
+        "oracleId": "02b6900b-219f-4832-8f93-6ef27ee76c0c",
+        "source": "oracle-cards",
+        "clause": "Sacrifice them at the beginning of the next end step.",
+        "objectText": "them at the beginning of the next end step",
+        "parsed": null
+      },
+      {
+        "name": "Tourach's Gate",
+        "oracleId": "03e27ebd-6141-4002-b41f-0bf9d6ec2908",
+        "source": "oracle-cards",
+        "clause": "If there are no time counters on this Aura, sacrifice it.",
+        "objectText": "it",
+        "parsed": null
+      },
+      {
+        "name": "Junk Golem",
+        "oracleId": "044be66d-9334-4d4b-b420-b97a18698e95",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice this creature unless you remove a +1/+1 counter from it.",
+        "objectText": "this creature unless you remove a +1/+1 counter from it",
+        "parsed": null
+      },
+      {
+        "name": "Lich's Duel Mastery",
+        "oracleId": "04a7c544-5db7-4d9e-afb7-4ea526bf34b5",
+        "source": "oracle-cards",
+        "clause": "If you can't, sacrifice Lich's Duel Mastery.",
+        "objectText": "lich's duel mastery",
+        "parsed": null
+      },
+      {
+        "name": "Push Your Luck",
+        "oracleId": "04b0d194-4263-44e5-979d-40f793cc1ba0",
+        "source": "oracle-cards",
+        "clause": "Sacrifice this Attraction and open an Attraction.",
+        "objectText": "this attraction and open an attraction",
+        "parsed": null
+      },
+      {
+        "name": "Soultether Golem",
+        "oracleId": "0544de10-b409-469b-ae96-b88e9452f26f",
+        "source": "oracle-cards",
+        "clause": "When the last is removed, sacrifice it.)",
+        "objectText": "it.)",
+        "parsed": null
+      },
+      {
+        "name": "Afiya Grove",
+        "oracleId": "056a98aa-f3f7-4ac9-9755-3e8a60a59abb",
+        "source": "oracle-cards",
+        "clause": "When this enchantment has no +1/+1 counters on it, sacrifice it.",
+        "objectText": "it",
+        "parsed": null
+      },
+      {
+        "name": "Justice",
+        "oracleId": "0586fdc7-3025-4040-8eaf-f8a57a21aff0",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice this enchantment unless you pay {W}{W}.",
+        "objectText": "this enchantment unless you pay {w}{w}",
+        "parsed": null
+      },
+      {
+        "name": "Tar Pit Warrior",
+        "oracleId": "05a7ca83-e820-433f-b9e9-151e817d3708",
+        "source": "oracle-cards",
+        "clause": "When this creature becomes the target of a spell or ability, sacrifice it.",
+        "objectText": "it",
+        "parsed": null
+      },
+      {
+        "name": "Scavenger Hunt",
+        "oracleId": "05b9c160-e160-455e-8939-6096fae31769",
+        "source": "oracle-cards",
+        "clause": "Sacrifice Scavenger Hunt and open an Attraction.",
+        "objectText": "scavenger hunt and open an attraction",
+        "parsed": null
+      },
+      {
+        "name": "Awaken the Sky Tyrant",
+        "oracleId": "0607b289-74a6-4f3a-b15c-a639244873b6",
+        "source": "oracle-cards",
+        "clause": "When a source an opponent controls deals damage to you, sacrifice this enchantment.",
+        "objectText": "this enchantment",
+        "parsed": null
+      },
+      {
+        "name": "Mukotai Soulripper",
+        "oracleId": "060d109f-2969-4f9e-a723-535d662a571a",
+        "source": "oracle-cards",
+        "clause": "Whenever this Vehicle attacks, you may sacrifice another artifact or creature.",
+        "objectText": "another artifact or creature",
+        "parsed": null
+      },
+      {
+        "name": "Yet Another Night in Vegas",
+        "oracleId": "062568d1-e948-4ad7-8132-a2594827c443",
+        "source": "oracle-cards",
+        "clause": "• Go to bed — Sacrifice this enchantment.",
+        "objectText": "this enchantment",
+        "parsed": null
+      },
+      {
+        "name": "Puppet Conjurer",
+        "oracleId": "06494c26-3822-43ee-bedf-611c9ec7cc6b",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice a Homunculus.",
+        "objectText": "a homunculus",
+        "parsed": null
+      },
+      {
+        "name": "Phantasmal Forces",
+        "oracleId": "06a158c6-7e36-49f8-a8e0-a7b7df5fd7ed",
+        "source": "oracle-cards",
+        "clause": "At the beginning of your upkeep, sacrifice this creature unless you pay {U}.",
+        "objectText": "this creature unless you pay {u}",
+        "parsed": null
+      },
+      {
+        "name": "Slave of Bolas",
+        "oracleId": "07190a8b-2a59-45b3-9fbf-505161698a9c",
+        "source": "oracle-cards",
+        "clause": "Sacrifice it at the beginning of the next end step.",
+        "objectText": "it at the beginning of the next end step",
+        "parsed": null
+      },
+      {
+        "name": "Nyssa of Traken",
+        "oracleId": "07802bd6-29ca-40c5-beba-c2baf7a92555",
+        "source": "oracle-cards",
+        "clause": "Sonic Booster — Whenever Nyssa of Traken attacks, sacrifice any number of artifacts.",
+        "objectText": "any number of artifacts",
+        "parsed": null
+      },
+      {
+        "name": "War Elemental",
+        "oracleId": "07947d01-ebb1-46b7-9bdd-ea00e034805b",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, sacrifice it unless an opponent was dealt damage this turn.",
+        "objectText": "it unless an opponent was dealt damage this turn",
+        "parsed": null
+      }
+    ],
+    "additionalCostOrKeywordSamples": [
+      {
+        "name": "Greta, Sweettooth Scourge",
+        "oracleId": "00173df7-a584-410c-af1d-ada9c791056a",
+        "source": "oracle-cards",
+        "clause": "(It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Greta, Sweettooth Scourge",
+        "oracleId": "00173df7-a584-410c-af1d-ada9c791056a",
+        "source": "oracle-cards",
+        "clause": "{G}, Sacrifice a Food: Put a +1/+1 counter on target creature.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Greta, Sweettooth Scourge",
+        "oracleId": "00173df7-a584-410c-af1d-ada9c791056a",
+        "source": "oracle-cards",
+        "clause": "{1}{B}, Sacrifice a Food: You draw a card and you lose 1 life.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Ruthless Knave",
+        "oracleId": "00225c40-27ff-410f-a591-5c788c6a2bd6",
+        "source": "oracle-cards",
+        "clause": "{2}{B}, Sacrifice a creature: Create two Treasure tokens.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Ruthless Knave",
+        "oracleId": "00225c40-27ff-410f-a591-5c788c6a2bd6",
+        "source": "oracle-cards",
+        "clause": "(They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Ruthless Knave",
+        "oracleId": "00225c40-27ff-410f-a591-5c788c6a2bd6",
+        "source": "oracle-cards",
+        "clause": "Sacrifice three Treasures: Draw a card.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Seedship Agrarian",
+        "oracleId": "003d9c17-5d5c-469f-ad87-d78faf55e025",
+        "source": "oracle-cards",
+        "clause": "(It's an artifact with \"{2}, {T}, Sacrifice this token: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.\")",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Escape Tunnel",
+        "oracleId": "0056fc91-4398-471c-b561-7ff99750ac8a",
+        "source": "oracle-cards",
+        "clause": "{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Escape Tunnel",
+        "oracleId": "0056fc91-4398-471c-b561-7ff99750ac8a",
+        "source": "oracle-cards",
+        "clause": "{T}, Sacrifice this land: Target creature with power 2 or less can't be blocked this turn.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Food Fight",
+        "oracleId": "00571e7f-4e40-4a07-a529-34580e942338",
+        "source": "oracle-cards",
+        "clause": "Artifacts you control have \"{2}, Sacrifice this artifact: It deals damage to any target equal to 1 plus the number of permanents named Food Fight you control.\"",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Goblin Barrage",
+        "oracleId": "0071723e-388d-4ae7-bc99-c143dd356c63",
+        "source": "oracle-cards",
+        "clause": "Kicker—Sacrifice an artifact or Goblin.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Goblin Barrage",
+        "oracleId": "0071723e-388d-4ae7-bc99-c143dd356c63",
+        "source": "oracle-cards",
+        "clause": "(You may sacrifice an artifact or Goblin in addition to any other costs as you cast this spell.)",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Mind Extraction",
+        "oracleId": "0077740a-528b-4ee3-b331-fac321b95302",
+        "source": "oracle-cards",
+        "clause": "As an additional cost to cast this spell, sacrifice a creature.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Crypt Creeper",
+        "oracleId": "00b3971b-5bf7-4a3f-9607-6265f9af9098",
+        "source": "oracle-cards",
+        "clause": "Sacrifice this creature: Exile target card from a graveyard.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Spider-Ham, Peter Porker",
+        "oracleId": "00b50215-e832-417f-9c80-2bc3050b6ebb",
+        "source": "oracle-cards",
+        "clause": "(It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Courier's Briefcase",
+        "oracleId": "00cd3bf9-0dd6-4ec0-a841-1839a71604ab",
+        "source": "oracle-cards",
+        "clause": "{T}, Sacrifice this artifact: Add one mana of any color.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Courier's Briefcase",
+        "oracleId": "00cd3bf9-0dd6-4ec0-a841-1839a71604ab",
+        "source": "oracle-cards",
+        "clause": "{W}{U}{B}{R}{G}, {T}, Sacrifice this artifact: Draw three cards.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Etchings of the Chosen",
+        "oracleId": "0114f97f-b196-4af1-90aa-eba164cb8f22",
+        "source": "oracle-cards",
+        "clause": "{1}, Sacrifice a creature of the chosen type: Target creature you control gains indestructible until end of turn.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Eldrazi Confluence",
+        "oracleId": "01160cb5-6d83-4317-9522-74083b3a83bb",
+        "source": "oracle-cards",
+        "clause": "• Create a 1/1 colorless Eldrazi Scion creature token with \"Sacrifice this token: Add {C}.\"",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Long List of the Ents",
+        "oracleId": "01376449-5cd2-4079-8aaa-5128634ef20b",
+        "source": "oracle-cards",
+        "clause": "Sacrifice after VI.)",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Sunbeam Spellbomb",
+        "oracleId": "014c94d8-2c39-4d33-902b-fa2398406fd5",
+        "source": "oracle-cards",
+        "clause": "{W}, Sacrifice this artifact: You gain 5 life.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Sunbeam Spellbomb",
+        "oracleId": "014c94d8-2c39-4d33-902b-fa2398406fd5",
+        "source": "oracle-cards",
+        "clause": "{1}, Sacrifice this artifact: Draw a card.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Topography Tracker",
+        "oracleId": "0171861e-98d5-4e58-834f-899d8ad7acea",
+        "source": "oracle-cards",
+        "clause": "(It's an artifact with \"{1}, {T}, Sacrifice this token: Target creature you control explores.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Cinder Elemental",
+        "oracleId": "01805d0d-3a72-4d26-9475-3e68c278b7fe",
+        "source": "oracle-cards",
+        "clause": "{X}{R}, {T}, Sacrifice this creature: It deals X damage to any target.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Cabal Therapy",
+        "oracleId": "018107d1-ebf7-4657-bc91-c8374af55cc5",
+        "source": "oracle-cards",
+        "clause": "Flashback—Sacrifice a creature.",
+        "objectText": null,
+        "parsed": null
+      }
+    ],
+    "otherSacrificeTextSamples": [
+      {
+        "name": "Mind Extraction",
+        "oracleId": "0077740a-528b-4ee3-b331-fac321b95302",
+        "source": "oracle-cards",
+        "clause": "Target player reveals their hand and discards all cards of each of the sacrificed creature's colors.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Minion Reflector",
+        "oracleId": "0124977f-06e6-430a-a874-f7d05883a97c",
+        "source": "oracle-cards",
+        "clause": "If you do, create a token that's a copy of that creature, except it has haste and \"At the beginning of the end step, sacrifice this permanent.\"",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Doomsday Confluence",
+        "oracleId": "01bc8bfa-2e46-4324-a848-cc68bc9330d0",
+        "source": "oracle-cards",
+        "clause": "• Each player sacrifices a nonartifact creature of their choice.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Pir's Whim",
+        "oracleId": "01c2b66a-66d1-4282-a078-b1fa737c57f4",
+        "source": "oracle-cards",
+        "clause": "Each foe sacrifices an artifact or enchantment of their choice.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Albino Troll",
+        "oracleId": "02079e18-ac14-4255-95c4-741eb76c4799",
+        "source": "oracle-cards",
+        "clause": "Echo {1}{G} (At the beginning of your upkeep, if this came under your control since the beginning of your last upkeep, sacrifice it unless you pay its echo cost.)",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Prismatic Circle",
+        "oracleId": "022dae2e-7fc3-486e-9168-59652d9ab21c",
+        "source": "oracle-cards",
+        "clause": "Cumulative upkeep {1} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Bushmeat Poacher",
+        "oracleId": "0287d541-3f73-4c8b-9a77-87f99898758d",
+        "source": "oracle-cards",
+        "clause": "{1}, {T}, Sacrifice another creature: You gain life equal to the sacrificed creature's toughness.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Walker of the Grove",
+        "oracleId": "02d69413-e040-46b1-8f58-69bde666329d",
+        "source": "oracle-cards",
+        "clause": "If you do, it's sacrificed when it enters.)",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Foul Emissary",
+        "oracleId": "034c2b40-6bcc-4bb5-be94-4602496ddcc6",
+        "source": "oracle-cards",
+        "clause": "When you sacrifice this creature while casting a spell with emerge, create a 3/2 colorless Eldrazi Horror creature token.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Patron of the Nezumi",
+        "oracleId": "038a8b6b-4529-4e06-bdff-9ee7ba291776",
+        "source": "oracle-cards",
+        "clause": "Rat offering (You may cast this spell any time you could cast an instant by sacrificing a Rat and paying the difference in mana costs between this and the sacrificed Rat.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Miren, the Moaning Well",
+        "oracleId": "03fe19bb-8e22-4030-8299-2ddd2d5a7eb2",
+        "source": "oracle-cards",
+        "clause": "{3}, {T}, Sacrifice a creature: You gain life equal to the sacrificed creature's toughness.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Earth-Cult Elemental",
+        "oracleId": "043d8dee-379f-4706-ad47-0bb562717007",
+        "source": "oracle-cards",
+        "clause": "1—9 | Each player sacrifices a permanent of their choice.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Earth-Cult Elemental",
+        "oracleId": "043d8dee-379f-4706-ad47-0bb562717007",
+        "source": "oracle-cards",
+        "clause": "10—19 | Each opponent sacrifices a permanent of their choice.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Earth-Cult Elemental",
+        "oracleId": "043d8dee-379f-4706-ad47-0bb562717007",
+        "source": "oracle-cards",
+        "clause": "20 | Each opponent sacrifices two permanents of their choice.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Reckoner's Bargain",
+        "oracleId": "044ea111-ce87-49ab-98f7-ae8447f48ac5",
+        "source": "oracle-cards",
+        "clause": "You gain life equal to the sacrificed permanent's mana value.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Demonlord of Ashmouth",
+        "oracleId": "049777d0-910d-46d2-9ca1-10277b2fb845",
+        "source": "oracle-cards",
+        "clause": "When this creature enters, exile it unless you sacrifice another creature.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Gitrog, Horror of Zhava",
+        "oracleId": "04ea8ccf-e565-4f4e-b842-56e7fac5679f",
+        "source": "oracle-cards",
+        "clause": "At the beginning of each combat, if Gitrog, Horror of Zhava is untapped, any opponent may sacrifice a nontoken creature.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Ebon Praetor",
+        "oracleId": "0501af1f-c67c-4cb1-aced-4be426c83316",
+        "source": "oracle-cards",
+        "clause": "If the sacrificed creature was a Thrull, put a +1/+0 counter on this creature.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Rankle's Prank",
+        "oracleId": "052e8e1c-d006-4c9f-90da-deafbbf7fed3",
+        "source": "oracle-cards",
+        "clause": "• Each player sacrifices two creatures of their choice.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Rankle, Pitiless Trickster",
+        "oracleId": "0546d1fb-2427-4b00-9a56-258a979dccd8",
+        "source": "oracle-cards",
+        "clause": "When you do, each player discards a card and sacrifices a creature.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Distract the Hydra",
+        "oracleId": "055592ce-2432-450b-89f6-fcb09f6c8ac2",
+        "source": "oracle-cards",
+        "clause": "Each player who sacrificed a creature this way chooses a Head and taps it.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Distract the Hydra",
+        "oracleId": "055592ce-2432-450b-89f6-fcb09f6c8ac2",
+        "source": "oracle-cards",
+        "clause": "Each player who didn't sacrifice a creature loses 3 life.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Nicol Bolas, Planeswalker",
+        "oracleId": "05e9b55e-6329-48ec-b7d7-24c6b9692244",
+        "source": "oracle-cards",
+        "clause": "That player or that planeswalker's controller discards seven cards, then sacrifices seven permanents of their choice.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "The Superlatorium",
+        "oracleId": "061dd278-c74c-4f43-98de-577ea9df5f5e",
+        "source": "oracle-cards",
+        "clause": "Prize — Create two 1/1 red Balloon creature tokens with flying, then sacrifice this Attraction and open an Attraction.",
+        "objectText": null,
+        "parsed": null
+      },
+      {
+        "name": "Mirkwood Bats",
+        "oracleId": "0636b6c3-0662-420a-b30d-f0a14e7c512d",
+        "source": "oracle-cards",
+        "clause": "Whenever you create or sacrifice a token, each opponent loses 1 life.",
+        "objectText": null,
+        "parsed": null
+      }
+    ]
+  },
+  "unsupportedObjectPhrases": [
+    {
+      "objectText": "it",
+      "count": 83
+    },
+    {
+      "objectText": "this creature",
+      "count": 75
+    },
+    {
+      "objectText": "a creature of their choice",
+      "count": 59
+    },
+    {
+      "objectText": "it at the beginning of the next end step",
+      "count": 46
+    },
+    {
+      "objectText": "it.)",
+      "count": 40
+    },
+    {
+      "objectText": "them at the beginning of the next end step",
+      "count": 38
+    },
+    {
+      "objectText": "this enchantment",
+      "count": 34
+    },
+    {
+      "objectText": "another creature",
+      "count": 27
+    },
+    {
+      "objectText": "it at end of combat.)",
+      "count": 22
+    },
+    {
+      "objectText": "a land of their choice",
+      "count": 15
+    },
+    {
+      "objectText": "this artifact",
+      "count": 15
+    },
+    {
+      "objectText": "this aura",
+      "count": 14
+    },
+    {
+      "objectText": "another creature or artifact",
+      "count": 8
+    },
+    {
+      "objectText": "it at end of combat",
+      "count": 8
+    },
+    {
+      "objectText": "it at the beginning of the next end step.)",
+      "count": 8
+    },
+    {
+      "objectText": "it at the beginning of your next end step",
+      "count": 7
+    },
+    {
+      "objectText": "a creature or planeswalker of their choice",
+      "count": 6
+    },
+    {
+      "objectText": "a food",
+      "count": 6
+    },
+    {
+      "objectText": "a permanent of their choice",
+      "count": 6
+    },
+    {
+      "objectText": "another creature or an artifact",
+      "count": 6
+    },
+    {
+      "objectText": "that creature",
+      "count": 6
+    },
+    {
+      "objectText": "that creature at the beginning of the next end step",
+      "count": 6
+    },
+    {
+      "objectText": "them at the beginning of the next end step.)",
+      "count": 6
+    },
+    {
+      "objectText": "this creature at the beginning of the next end step",
+      "count": 6
+    },
+    {
+      "objectText": "two creatures of their choice",
+      "count": 6
+    },
+    {
+      "objectText": "a nontoken creature of their choice",
+      "count": 5
+    },
+    {
+      "objectText": "it unless you pay {1}",
+      "count": 5
+    },
+    {
+      "objectText": "scavenger hunt and open an attraction",
+      "count": 5
+    },
+    {
+      "objectText": "trivia contest and open an attraction",
+      "count": 5
+    },
+    {
+      "objectText": "a vampire",
+      "count": 4
+    },
+    {
+      "objectText": "another artifact",
+      "count": 4
+    },
+    {
+      "objectText": "another permanent",
+      "count": 4
+    },
+    {
+      "objectText": "that token at the beginning of the next end step",
+      "count": 4
+    },
+    {
+      "objectText": "this creature unless you discard a card",
+      "count": 4
+    },
+    {
+      "objectText": "this creature unless you pay {g}{g}",
+      "count": 4
+    },
+    {
+      "objectText": "this land",
+      "count": 4
+    },
+    {
+      "objectText": "a permanent of their choice unless they pay {1}",
+      "count": 3
+    },
+    {
+      "objectText": "a token",
+      "count": 3
+    },
+    {
+      "objectText": "an attacking creature of their choice",
+      "count": 3
+    },
+    {
+      "objectText": "an enchantment of their choice",
+      "count": 3
+    },
+    {
+      "objectText": "any number of creatures",
+      "count": 3
+    },
+    {
+      "objectText": "it unless it escaped",
+      "count": 3
+    },
+    {
+      "objectText": "it unless you discard a card at random",
+      "count": 3
+    },
+    {
+      "objectText": "it unless you discard a land card",
+      "count": 3
+    },
+    {
+      "objectText": "that permanent",
+      "count": 3
+    },
+    {
+      "objectText": "that token at end of combat",
+      "count": 3
+    },
+    {
+      "objectText": "this attraction and open an attraction",
+      "count": 3
+    },
+    {
+      "objectText": "this creature unless you pay {u}",
+      "count": 3
+    },
+    {
+      "objectText": "this enchantment unless you pay {w}{w}",
+      "count": 3
+    },
+    {
+      "objectText": "those tokens",
+      "count": 3
+    }
+  ]
+}

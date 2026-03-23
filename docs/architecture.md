@@ -20,5 +20,11 @@ Rules Engine
 - Pure functions only
 - Commander tax and modular mechanics
 
+Oracle IR Executor
+- `rules-engine/src/oracleIRExecutor.ts` remains the main orchestration entrypoint for Oracle IR step execution.
+- Step families are being split into focused helper modules to reduce executor size without changing behavior.
+- Current extracted modules include battlefield step handlers, move-zone handlers, damage handlers, token handlers, goad handlers, choose-mode handlers, P/T-modifier handlers, shared creature-step utilities, `modify_pt where-X` lookup helpers, class/count parsing plus greatest/least aggregation helpers, mana/color evaluation utilities, commander/command-zone helpers, shared player/state lookup helpers, and shared execution-context/source-target reference helpers.
+- When extending Oracle IR execution, prefer adding logic to the focused handler/helper module that matches the step family before growing the main executor again.
+
 Testing
 - Start with vitest for rules engine
