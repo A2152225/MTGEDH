@@ -2,61 +2,13 @@ import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import {
-  lastKnownSnapshotHasClass,
-  type LastKnownPermanentSnapshot,
-} from './oracleIRExecutorLastKnownInfo';
-import {
-  getCardsFromPlayerZone,
-  getContextExcludedId,
-  getContextSourceObject,
-  getContextTargetObject,
-} from './oracleIRExecutorContextRefUtils';
-import {
-  collectCommandZoneObjects as collectCommandZoneObjectsFromUtils,
   getHighestCommanderTaxForController,
-  isCommanderObject as isCommanderObjectFromUtils,
 } from './oracleIRExecutorCommanderUtils';
 import {
-  getProcessedBattlefield,
   countControlledByClass,
   normalizeControlledClassKey,
 } from './oracleIRExecutorCreatureStepUtils';
 import {
-  countCardsByClasses as countCardsByClassesFromUtils,
-  countNegatedClass as countNegatedClassFromUtils,
-  countPermanentsByClasses as countPermanentsByClassesFromUtils,
-  greatestManaValueAmongCards as greatestManaValueAmongCardsFromUtils,
-  greatestPowerAmongCreatureCards as greatestPowerAmongCreatureCardsFromUtils,
-  greatestSharedCreatureSubtypeCount as greatestSharedCreatureSubtypeCountFromUtils,
-  greatestStatAmongCreatures as greatestStatAmongCreaturesFromUtils,
-  highestManaValueAmongPermanents as highestManaValueAmongPermanentsFromUtils,
-  leastStatAmongCreatures as leastStatAmongCreaturesFromUtils,
-  lowestManaValueAmongPermanents as lowestManaValueAmongPermanentsFromUtils,
-  parseCardClassList as parseCardClassListFromUtils,
-  parseClassList as parseClassListFromUtils,
-  parseColorQualifiedClassSpec as parseColorQualifiedClassSpecFromUtils,
-} from './oracleIRExecutorModifyPtClassUtils';
-import {
-  findObjectByIdInState as findObjectByIdFromState,
-  findObjectByNameInState as findObjectByNameFromState,
-  getCounterCountOnObject as getCounterCountOnObjectFromState,
-  getCreatureSubtypeKeys as getCreatureSubtypeKeysFromState,
-  hasFlyingKeyword as hasFlyingKeywordFromState,
-  isAttackingObject as isAttackingObjectFromState,
-  normalizeModifyPtWhereRaw,
-  resolveContextPlayerFromState as resolveContextPlayerFromStateHelper,
-} from './oracleIRExecutorModifyPtWhereUtils';
-import {
-  countManaSymbolsInManaCost as countManaSymbolsInManaCostFromUtils,
-  getAmountOfManaSpent as getAmountOfManaSpentFromUtils,
-  getAmountOfSpecificManaSymbolSpent as getAmountOfSpecificManaSymbolSpentFromUtils,
-  getColorsFromObject as getColorsFromObjectFromUtils,
-  getColorsOfManaSpent as getColorsOfManaSpentFromUtils,
-  normalizeManaColorCode as normalizeManaColorCodeFromUtils,
-} from './oracleIRExecutorManaUtils';
-import {
-  getExecutorTypeLineLower,
-  hasExecutorClass as hasExecutorClassFromPermanentUtils,
   isExecutorCreature,
 } from './oracleIRExecutorPermanentUtils';
 import {
@@ -68,7 +20,8 @@ import {
   quantityToNumber,
   resolvePlayers,
 } from './oracleIRExecutorPlayerUtils';
-import { findPlayerById as findPlayerByIdFromState } from './oracleIRExecutorStateUtils';
+import { createModifyPtWhereEvaluatorContext } from './oracleIRExecutorModifyPtWhereContext';
+import { tryEvaluateModifyPtWhereExtrema } from './oracleIRExecutorModifyPtWhereExtremaHandlers';
 
 export function evaluateModifyPtWhereX(
   state: GameState,
@@ -81,51 +34,48 @@ export function evaluateModifyPtWhereX(
 ): number | null {
   if (depth > 3) return null;
 
-  const raw = normalizeModifyPtWhereRaw(whereRaw);
-
-  const battlefield = getProcessedBattlefield(state);
-  const controlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === controllerId);
-  const opponentsControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() !== controllerId);
-  const typeLineLower = (p: any): string => getExecutorTypeLineLower(p);
-  const isAttackingObject = (obj: any): boolean => isAttackingObjectFromState(obj);
-  const hasFlyingKeyword = (obj: any): boolean => hasFlyingKeywordFromState(obj);
-  const getCreatureSubtypeKeys = (obj: any): readonly string[] => getCreatureSubtypeKeysFromState(obj, typeLineLower);
-
-  const resolveContextPlayer = (): any | null => resolveContextPlayerFromStateHelper(state, ctx);
-
-  const findPlayerById = (playerIdRaw: string): any | null => findPlayerByIdFromState(state, playerIdRaw);
-
-  const findObjectById = (idRaw: string): any | null => findObjectByIdFromState(state, battlefield, idRaw);
-
-  const findObjectByName = (nameRaw: string): any | null => findObjectByNameFromState(state, battlefield, nameRaw, ctx);
-
-  const getExcludedId = (): string => getContextExcludedId(targetCreatureId, ctx);
-
-  const getSourceRef = (): any | null => getContextSourceObject(ctx, findObjectById);
-
-  const getTargetRef = (): any | null => getContextTargetObject(targetCreatureId, findObjectById);
-
-  const resolveLastSacrificedSnapshot = (
-    requiredClass: 'creature' | 'artifact' | 'permanent' | 'card'
-  ): LastKnownPermanentSnapshot | null => {
-    const snapshots = Array.isArray(runtime?.lastSacrificedPermanents) ? runtime.lastSacrificedPermanents : [];
-    if (snapshots.length === 0) return null;
-
-    const matches = (snapshot: LastKnownPermanentSnapshot): boolean => {
-      if (requiredClass === 'card') return true;
-      return lastKnownSnapshotHasClass(snapshot, requiredClass);
-    };
-
-    const sourceId = String(ctx?.sourceId || '').trim();
-    if (sourceId) {
-      const sourceMatch = snapshots.find(snapshot => snapshot.id === sourceId && matches(snapshot));
-      if (sourceMatch) return sourceMatch;
-    }
-
-    const candidates = snapshots.filter(matches);
-    return candidates.length === 1 ? candidates[0] : null;
-  };
-
+  const {
+    raw,
+    battlefield,
+    controlled,
+    opponentsControlled,
+    getCardsFromPlayerZone,
+    typeLineLower,
+    isAttackingObject,
+    hasFlyingKeyword,
+    getCreatureSubtypeKeys,
+    resolveContextPlayer,
+    findPlayerById,
+    findObjectById,
+    findObjectByName,
+    getExcludedId,
+    getSourceRef,
+    getTargetRef,
+    resolveLastSacrificedSnapshot,
+    getCounterCountOnObject,
+    isCommanderObject,
+    collectCommandZoneObjects,
+    countCardsByClasses,
+    getColorsFromObject,
+    countManaSymbolsInManaCost,
+    normalizeManaColorCode,
+    getColorsOfManaSpent,
+    getAmountOfManaSpent,
+    getAmountOfSpecificManaSymbolSpent,
+    parseCardClassList,
+    parseClassList,
+    parseColorQualifiedClassSpec,
+    countByClasses,
+    hasExecutorClass,
+    countNegatedClass,
+    leastStatAmongCreatures,
+    greatestStatAmongCreatures,
+    greatestPowerAmongCreatureCards,
+    greatestManaValueAmongCards,
+    greatestSharedCreatureSubtypeCount,
+    lowestManaValueAmongPermanents,
+    highestManaValueAmongPermanents,
+  } = createModifyPtWhereEvaluatorContext(state, controllerId, whereRaw, targetCreatureId, ctx, runtime);
 
   {
     const m = raw.match(/^x is the damage dealt to your opponents this turn$/i);
@@ -143,34 +93,6 @@ export function evaluateModifyPtWhereX(
       }, 0);
     }
   }
-
-  const getCounterCountOnObject = (obj: any, counterNameRaw: string): number | null => getCounterCountOnObjectFromState(obj, counterNameRaw);
-
-  const isCommanderObject = (obj: any): boolean => isCommanderObjectFromUtils(obj);
-
-  const collectCommandZoneObjects = (): readonly any[] =>
-    collectCommandZoneObjectsFromUtils(state, controllerId, findObjectById);
-
-  const countCardsByClasses = (cards: readonly any[], classes: readonly string[]): number =>
-    countCardsByClassesFromUtils(cards, classes, typeLineLower);
-
-  const getColorsFromObject = (obj: any): readonly string[] => getColorsFromObjectFromUtils(obj);
-
-  const getColorsFromPermanent = (perm: any): readonly string[] => getColorsFromObject(perm);
-
-  const countManaSymbolsInManaCost = (obj: any, colorSymbol: string): number =>
-    countManaSymbolsInManaCostFromUtils(obj, colorSymbol);
-
-  const normalizeManaColorCode = (value: unknown): string | null => normalizeManaColorCodeFromUtils(value);
-
-  const getColorsOfManaSpent = (obj: any): number | null => getColorsOfManaSpentFromUtils(obj);
-
-  const getAmountOfManaSpent = (obj: any): number | null => getAmountOfManaSpentFromUtils(obj);
-
-  const getAmountOfSpecificManaSymbolSpent = (obj: any, symbolRaw: string): number | null =>
-    getAmountOfSpecificManaSymbolSpentFromUtils(obj, symbolRaw);
-
-  const parseCardClassList = (text: string): readonly string[] | null => parseCardClassListFromUtils(text);
 
   const evaluateInner = (expr: string): number | null => {
     return evaluateModifyPtWhereX(state, controllerId, `x is ${expr}`, targetCreatureId, ctx, runtime, depth + 1);
@@ -241,60 +163,6 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  const parseClassList = (text: string): readonly string[] | null => parseClassListFromUtils(text);
-
-  const parseColorQualifiedClassSpec = (
-    text: string
-  ): { readonly classes: readonly string[]; readonly requiredColor?: string } | null =>
-    parseColorQualifiedClassSpecFromUtils(text, normalizeManaColorCode);
-
-  const countByClasses = (
-    permanents: readonly BattlefieldPermanent[],
-    classes: readonly string[],
-    requiredColor?: string
-  ): number => countPermanentsByClassesFromUtils(permanents, classes, getColorsFromPermanent, typeLineLower, requiredColor);
-
-  const hasExecutorClass = (permanent: BattlefieldPermanent | any, klass: string): boolean =>
-    hasExecutorClassFromPermanentUtils(permanent, klass);
-
-  const countNegatedClass = (
-    permanents: readonly BattlefieldPermanent[],
-    base: 'creature' | 'permanent',
-    excludedQualifier: string,
-    excludedId?: string
-  ): number => countNegatedClassFromUtils(permanents, base, excludedQualifier, hasExecutorClass, typeLineLower, excludedId);
-
-  const leastStatAmongCreatures = (
-    permanents: readonly BattlefieldPermanent[],
-    which: 'power' | 'toughness',
-    opts?: { readonly excludedId?: string; readonly excludedSubtype?: string }
-  ): number => leastStatAmongCreaturesFromUtils(permanents, which, hasExecutorClass, typeLineLower, opts);
-
-  const greatestStatAmongCreatures = (
-    permanents: readonly BattlefieldPermanent[],
-    which: 'power' | 'toughness',
-    opts?: { readonly excludedId?: string; readonly excludedSubtype?: string }
-  ): number => greatestStatAmongCreaturesFromUtils(permanents, which, hasExecutorClass, typeLineLower, opts);
-
-  const greatestPowerAmongCreatureCards = (cards: readonly any[]): number =>
-    greatestPowerAmongCreatureCardsFromUtils(cards, typeLineLower);
-
-  const greatestManaValueAmongCards = (cards: readonly any[]): number =>
-    greatestManaValueAmongCardsFromUtils(cards, getCardManaValue);
-
-  const greatestSharedCreatureSubtypeCount = (permanents: readonly BattlefieldPermanent[]): number =>
-    greatestSharedCreatureSubtypeCountFromUtils(permanents, hasExecutorClass, getCreatureSubtypeKeys);
-
-  const lowestManaValueAmongPermanents = (
-    permanents: readonly BattlefieldPermanent[],
-    opts?: { readonly excludedId?: string; readonly excludedQualifier?: string }
-  ): number => lowestManaValueAmongPermanentsFromUtils(permanents, getCardManaValue, hasExecutorClass, typeLineLower, opts);
-
-  const highestManaValueAmongPermanents = (
-    permanents: readonly BattlefieldPermanent[],
-    opts?: { readonly excludedId?: string; readonly excludedQualifier?: string }
-  ): number => highestManaValueAmongPermanentsFromUtils(permanents, getCardManaValue, hasExecutorClass, typeLineLower, opts);
-
   {
     const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) creatures you control$/i);
     if (m) {
@@ -306,7 +174,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) creatures (?:your opponents control|an opponent controls|you don['â€™]?t control|you do not control)$/i);
     if (m) {
       const isOther = Boolean(String(m[1] || '').trim());
       const excludedQualifier = String(m[2] || '').toLowerCase();
@@ -336,7 +204,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
+    const m = raw.match(/^x is the number of (other )?non[- ]?([a-z][a-z-]*) permanents (?:your opponents control|an opponent controls|you don['â€™]?t control|you do not control)$/i);
     if (m) {
       const isOther = Boolean(String(m[1] || '').trim());
       const excludedQualifier = String(m[2] || '').toLowerCase();
@@ -609,7 +477,7 @@ export function evaluateModifyPtWhereX(
       if (mentionsAttackingCreatures && !/\bwith\s+flying\b/.test(phrase) && !/\battacking\s+you\b/.test(phrase)) {
         const isOther = /\bother\b/.test(phrase);
         const excludedId = isOther ? getExcludedId() : '';
-        const useOpponents = /\b(?:your opponents control|an opponent controls|you don['’]?t control|you do not control)\b/.test(phrase);
+        const useOpponents = /\b(?:your opponents control|an opponent controls|you don['â€™]?t control|you do not control)\b/.test(phrase);
         const useControlled = /\byou control\b/.test(phrase);
         const pool = useOpponents ? opponentsControlled : useControlled ? controlled : battlefield;
         return pool.filter((p: any) => {
@@ -803,7 +671,7 @@ export function evaluateModifyPtWhereX(
     if (m) {
       const seen = new Set<string>();
       for (const p of controlled as any[]) {
-        for (const color of getColorsFromPermanent(p)) {
+        for (const color of getColorsFromObject(p)) {
           seen.add(color);
         }
       }
@@ -1067,7 +935,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the amount of life your opponents(?:['’])?(?: have)? gained(?: this turn)?$/i);
+    const m = raw.match(/^x is the amount of life your opponents(?:['â€™])?(?: have)? gained(?: this turn)?$/i);
     if (m) {
       const stateAny: any = state as any;
 
@@ -1131,7 +999,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the amount of life your opponents(?:['’])?(?: have)? lost(?: this turn)?$/i);
+    const m = raw.match(/^x is the amount of life your opponents(?:['â€™])?(?: have)? lost(?: this turn)?$/i);
     if (m) {
       const stateAny: any = state as any;
 
@@ -1170,7 +1038,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the amount of life (?:you(?:['’]ve| have)|you) lost(?: this turn)?$/i);
+    const m = raw.match(/^x is the amount of life (?:you(?:['â€™]ve| have)|you) lost(?: this turn)?$/i);
     if (m) {
       const stateAny: any = state as any;
 
@@ -1195,7 +1063,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of cards? (?:you(?:['’]ve| have)|you) discarded this turn$/i);
+    const m = raw.match(/^x is the number of cards? (?:you(?:['â€™]ve| have)|you) discarded this turn$/i);
     if (m) {
       const stateAny: any = state as any;
 
@@ -1263,7 +1131,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of cards? (?:you(?:['’]ve| have)|you) drawn this turn$|^x is the number of cards? you drew this turn$/i);
+    const m = raw.match(/^x is the number of cards? (?:you(?:['â€™]ve| have)|you) drawn this turn$|^x is the number of cards? you drew this turn$/i);
     if (m) {
       const stateAny: any = state as any;
 
@@ -1331,7 +1199,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of spells? (?:you(?:['’]ve| have)|you) cast this turn$|^x is the number of spells? you cast this turn$/i);
+    const m = raw.match(/^x is the number of spells? (?:you(?:['â€™]ve| have)|you) cast this turn$|^x is the number of spells? you cast this turn$/i);
     if (m) {
       const stateAny: any = state as any;
 
@@ -1398,7 +1266,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── All-players spells cast this turn (no “you”/“opponents” qualifier) ───────────
+  // â”€â”€ All-players spells cast this turn (no â€œyouâ€/â€œopponentsâ€ qualifier) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the number of spells? cast this turn$/i);
     if (m) {
@@ -1427,7 +1295,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of lands? (?:you(?:['’]ve| have)|you) played this turn$|^x is the number of lands? you played this turn$/i);
+    const m = raw.match(/^x is the number of lands? (?:you(?:['â€™]ve| have)|you) played this turn$|^x is the number of lands? you played this turn$/i);
     if (m) {
       const stateAny: any = state as any;
 
@@ -1594,7 +1462,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of creatures that died under (?:(?:your )?opponents(?:['’])?|an opponent(?:['’]s)?) control(?: this turn)?$/i);
+    const m = raw.match(/^x is the number of creatures that died under (?:(?:your )?opponents(?:['â€™])?|an opponent(?:['â€™]s)?) control(?: this turn)?$/i);
     if (m) {
       const stateAny: any = state as any;
       const byController = stateAny.creaturesDiedThisTurnByController;
@@ -1655,7 +1523,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of permanents (?:you(?:['’]ve| have)|you) sacrificed(?: this turn)?$/i);
+    const m = raw.match(/^x is the number of permanents (?:you(?:['â€™]ve| have)|you) sacrificed(?: this turn)?$/i);
     if (m) {
       const stateAny: any = state as any;
       const byController = stateAny.permanentsSacrificedThisTurn;
@@ -1906,7 +1774,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of (.+) cards? in its controller['’]?s graveyard$/i);
+    const m = raw.match(/^x is the number of (.+) cards? in its controller['â€™]?s graveyard$/i);
     if (m) {
       const classes = parseCardClassList(String(m[1] || ''));
       if (!classes) return null;
@@ -1922,7 +1790,7 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the number of (.+) cards? in target (?:opponent|player)['’]?s (graveyard|hand|library|exile)$/i);
+    const m = raw.match(/^x is the number of (.+) cards? in target (?:opponent|player)['â€™]?s (graveyard|hand|library|exile)$/i);
     if (m) {
       const classes = parseCardClassList(String(m[1] || ''));
       if (!classes) return null;
@@ -2118,7 +1986,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Generic (colorless numeric) mana in that spell’s mana cost ────────────────────
+  // â”€â”€ Generic (colorless numeric) mana in that spellâ€™s mana cost â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the amount of generic mana in (?:that|this) spell['\u2019]?s mana cost$/i);
     if (m) {
@@ -2299,363 +2167,49 @@ export function evaluateModifyPtWhereX(
   }
 
   {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among creatures on (?:the )?battlefield$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      return greatestStatAmongCreatures(battlefield, which);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among other creatures on (?:the )?battlefield$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const excludedId = getExcludedId();
-      return greatestStatAmongCreatures(battlefield, which, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents you control$/i);
-    if (m) {
-      const isOther = Boolean(String(m[1] || '').trim());
-      const excludedQualifier = String(m[2] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return highestManaValueAmongPermanents(controlled, {
-        excludedId: excludedId || undefined,
-        excludedQualifier,
-      });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const isOther = Boolean(String(m[1] || '').trim());
-      const excludedQualifier = String(m[2] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return highestManaValueAmongPermanents(opponentsControlled, {
-        excludedId: excludedId || undefined,
-        excludedQualifier,
-      });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents on (?:the )?battlefield$/i);
-    if (m) {
-      const isOther = Boolean(String(m[1] || '').trim());
-      const excludedQualifier = String(m[2] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return highestManaValueAmongPermanents(battlefield, {
-        excludedId: excludedId || undefined,
-        excludedQualifier,
-      });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among permanents on (?:the )?battlefield$/i);
-    if (m) {
-      return highestManaValueAmongPermanents(battlefield);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among other permanents on (?:the )?battlefield$/i);
-    if (m) {
-      const excludedId = getExcludedId();
-      return highestManaValueAmongPermanents(battlefield, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among other permanents you control$/i);
-    if (m) {
-      const excludedId = getExcludedId();
-      return highestManaValueAmongPermanents(controlled, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among other permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const excludedId = getExcludedId();
-      return highestManaValueAmongPermanents(opponentsControlled, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among artifacts you control$/i);
-    if (m) {
-      const artifacts = (controlled as any[]).filter((p: any) => hasExecutorClass(p, 'artifact')) as BattlefieldPermanent[];
-      return highestManaValueAmongPermanents(artifacts);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the greatest number of creatures you control that have a creature type in common$/i);
-    if (m) {
-      return greatestSharedCreatureSubtypeCount(controlled);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among permanents you control$/i);
-    if (m) {
-      return highestManaValueAmongPermanents(controlled);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (?:mana value|converted mana cost) among permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      return highestManaValueAmongPermanents(opponentsControlled);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among creatures you control$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      return leastStatAmongCreatures(controlled, which);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      return leastStatAmongCreatures(opponentsControlled, which);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among creatures on (?:the )?battlefield$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      return leastStatAmongCreatures(battlefield, which);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among other creatures you control$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const excludedId = getExcludedId();
-      return leastStatAmongCreatures(controlled, which, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among other creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const excludedId = getExcludedId();
-      return leastStatAmongCreatures(opponentsControlled, which, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among other creatures on (?:the )?battlefield$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const excludedId = getExcludedId();
-      return leastStatAmongCreatures(battlefield, which, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures you control$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const isOther = Boolean(String(m[2] || '').trim());
-      const excludedSubtype = String(m[3] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return leastStatAmongCreatures(controlled, which, { excludedId: excludedId || undefined, excludedSubtype });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const isOther = Boolean(String(m[2] || '').trim());
-      const excludedSubtype = String(m[3] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return leastStatAmongCreatures(opponentsControlled, which, { excludedId: excludedId || undefined, excludedSubtype });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures on (?:the )?battlefield$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const isOther = Boolean(String(m[2] || '').trim());
-      const excludedSubtype = String(m[3] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return leastStatAmongCreatures(battlefield, which, { excludedId: excludedId || undefined, excludedSubtype });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among other permanents you control$/i);
-    if (m) {
-      const excludedId = getExcludedId();
-      return lowestManaValueAmongPermanents(controlled, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among other permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const excludedId = getExcludedId();
-      return lowestManaValueAmongPermanents(opponentsControlled, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among other permanents on (?:the )?battlefield$/i);
-    if (m) {
-      const excludedId = getExcludedId();
-      return lowestManaValueAmongPermanents(battlefield, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents you control$/i);
-    if (m) {
-      const isOther = Boolean(String(m[1] || '').trim());
-      const excludedQualifier = String(m[2] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return lowestManaValueAmongPermanents(controlled, {
-        excludedId: excludedId || undefined,
-        excludedQualifier,
-      });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const isOther = Boolean(String(m[1] || '').trim());
-      const excludedQualifier = String(m[2] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return lowestManaValueAmongPermanents(opponentsControlled, {
-        excludedId: excludedId || undefined,
-        excludedQualifier,
-      });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among (other )?non[- ]?([a-z][a-z-]*) permanents on (?:the )?battlefield$/i);
-    if (m) {
-      const isOther = Boolean(String(m[1] || '').trim());
-      const excludedQualifier = String(m[2] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return lowestManaValueAmongPermanents(battlefield, {
-        excludedId: excludedId || undefined,
-        excludedQualifier,
-      });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among permanents you control$/i);
-    if (m) {
-      return lowestManaValueAmongPermanents(controlled);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among permanents (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      return lowestManaValueAmongPermanents(opponentsControlled);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:least|lowest|smallest) (?:mana value|converted mana cost) among permanents on (?:the )?battlefield$/i);
-    if (m) {
-      return lowestManaValueAmongPermanents(battlefield);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures you control$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const isOther = Boolean(String(m[2] || '').trim());
-      const excludedSubtype = String(m[3] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return greatestStatAmongCreatures(controlled, which, {
-        excludedId: excludedId || undefined,
-        excludedSubtype,
-      });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const isOther = Boolean(String(m[2] || '').trim());
-      const excludedSubtype = String(m[3] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return greatestStatAmongCreatures(opponentsControlled, which, {
-        excludedId: excludedId || undefined,
-        excludedSubtype,
-      });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among (other )?non[- ]?([a-z][a-z-]*) creatures on (?:the )?battlefield$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const isOther = Boolean(String(m[2] || '').trim());
-      const excludedSubtype = String(m[3] || '').toLowerCase();
-      const excludedId = isOther ? getExcludedId() : '';
-      return greatestStatAmongCreatures(battlefield, which, {
-        excludedId: excludedId || undefined,
-        excludedSubtype,
-      });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among other creatures you control$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const excludedId = getExcludedId();
-      return greatestStatAmongCreatures(controlled, which, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among other creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      const excludedId = getExcludedId();
-      return greatestStatAmongCreatures(opponentsControlled, which, { excludedId: excludedId || undefined });
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among creatures you control$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      return greatestStatAmongCreatures(controlled, which);
-    }
-  }
-
-  {
-    const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among creatures (?:your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i);
-    if (m) {
-      const which = String(m[1] || '').toLowerCase() as 'power' | 'toughness';
-      return greatestStatAmongCreatures(opponentsControlled, which);
-    }
+    const extrema = tryEvaluateModifyPtWhereExtrema(raw, {
+      raw,
+      battlefield,
+      controlled,
+      opponentsControlled,
+      getCardsFromPlayerZone,
+      typeLineLower,
+      isAttackingObject,
+      hasFlyingKeyword,
+      getCreatureSubtypeKeys,
+      resolveContextPlayer,
+      findPlayerById,
+      findObjectById,
+      findObjectByName,
+      getExcludedId,
+      getSourceRef,
+      getTargetRef,
+      resolveLastSacrificedSnapshot,
+      getCounterCountOnObject,
+      isCommanderObject,
+      collectCommandZoneObjects,
+      countCardsByClasses,
+      getColorsFromObject,
+      countManaSymbolsInManaCost,
+      normalizeManaColorCode,
+      getColorsOfManaSpent,
+      getAmountOfManaSpent,
+      getAmountOfSpecificManaSymbolSpent,
+      parseCardClassList,
+      parseClassList,
+      parseColorQualifiedClassSpec,
+      countByClasses,
+      hasExecutorClass,
+      countNegatedClass,
+      leastStatAmongCreatures,
+      greatestStatAmongCreatures,
+      greatestPowerAmongCreatureCards,
+      greatestManaValueAmongCards,
+      greatestSharedCreatureSubtypeCount,
+      lowestManaValueAmongPermanents,
+      highestManaValueAmongPermanents,
+    });
+    if (extrema !== null) return extrema;
   }
 
   {
@@ -2667,7 +2221,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Cards exiled by a named permanent ────────────────────────────────────────
+  // Cards exiled by a named permanent
   {
     const m = raw.match(/^x is the number of (?:(nonland permanent|permanent|artifact|battle|creature|enchantment|instant|land|planeswalker|sorcery) )?cards? exiled with (?!this\b)([a-z][a-z0-9 ,.'\u2019-]*)$/i);
     if (m) {
@@ -2684,7 +2238,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest power/toughness among [subtype] you/they control ─────────────
+  // â”€â”€ Greatest power/toughness among [subtype] you/they control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among ([\w]+(?:\s+[\w]+)*?)\s+(?:you control|they control|your opponents control|an opponent controls)$/i);
     if (m) {
@@ -2703,7 +2257,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest power among other attacking creatures ─────────────────────────
+  // â”€â”€ Greatest power among other attacking creatures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among other attacking creatures$/i);
     if (m) {
@@ -2714,7 +2268,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest power among tapped creatures opponents control ────────────────
+  // â”€â”€ Greatest power among tapped creatures opponents control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) (power|toughness) among tapped creatures (?:your opponents control|an opponent controls|you don['']?t control|you do not control)$/i);
     if (m) {
@@ -2724,7 +2278,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest power among creature cards in graveyard ──────────────────────
+  // â”€â”€ Greatest power among creature cards in graveyard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) power among creature cards? in (?:your graveyard|all graveyards|(?:your opponents?|their) graveyard)$/i);
     if (m) {
@@ -2741,7 +2295,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest power among creature cards exiled this way ───────────────────
+  // â”€â”€ Greatest power among creature cards exiled this way â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) power among creature cards? exiled this way$/i);
     if (m) {
@@ -2763,7 +2317,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest MV among cards in graveyard / discarded this way / exiled this way ──
+  // â”€â”€ Greatest MV among cards in graveyard / discarded this way / exiled this way â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) mana value among cards? (?:in your graveyard|discarded this way|exiled this way)$/i);
     if (m) {
@@ -2790,7 +2344,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest MV among elementals you control ──────────────────────────────
+  // â”€â”€ Greatest MV among elementals you control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) mana value among elementals? you control$/i);
     if (m) {
@@ -2801,7 +2355,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest MV among other artifacts you control ────────────────────────
+  // â”€â”€ Greatest MV among other artifacts you control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) mana value among other artifacts? you control$/i);
     if (m) {
@@ -2811,7 +2365,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest MV among your commanders ────────────────────────────────────
+  // â”€â”€ Greatest MV among your commanders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) mana value among (?:your |the )?commanders?$/i);
     if (m) {
@@ -2826,7 +2380,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest MV among instant and sorcery spells you've cast this turn ────
+  // â”€â”€ Greatest MV among instant and sorcery spells you've cast this turn â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the (?:greatest|highest) mana value among instant(?:\s+and\s+sorcery)?\s+(?:and sorcery\s+)?spells? (?:you(?:'ve)? cast|cast) (?:from\s+.+\s+)?this turn$/i);
     if (m) {
@@ -2843,7 +2397,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Greatest number of artifacts an opponent controls ─────────────────────
+  // â”€â”€ Greatest number of artifacts an opponent controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the greatest number of artifacts? (?:an? )?opponent(?:s?) controls?$/i);
     if (m) {
@@ -2865,7 +2419,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Number of [type] counters on [named card] ────────────────────────────
+  // â”€â”€ Number of [type] counters on [named card] â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is (?:the number of|the amount of) (.+?) counters? on ([a-z0-9][a-z0-9 ,'.-]{2,60})$/i);
     if (m) {
@@ -2877,7 +2431,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Difference between power and toughness ────────────────────────────────
+  // â”€â”€ Difference between power and toughness â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the difference between (?:its|that creature'?s|this creature'?s) power and toughness$/i);
     if (m) {
@@ -2892,7 +2446,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Loyalty stat of a named planeswalker ─────────────────────────────────
+  // â”€â”€ Loyalty stat of a named planeswalker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is ([a-z0-9 ,.'-]+)'s loyalty$/i);
     if (m) {
@@ -2904,9 +2458,9 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Difference between those players’ life totals ───────────────────────────────────
+  // â”€â”€ Difference between those playersâ€™ life totals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
-    const m = raw.match(/^x is the difference between those players['’] life totals?$/i);
+    const m = raw.match(/^x is the difference between those players['â€™] life totals?$/i);
     if (m) {
       const ids: readonly string[] = Array.isArray(ctx?.selectorContext?.eachOfThoseOpponents)
         ? (ctx?.selectorContext?.eachOfThoseOpponents || []).map(id => String(id || '').trim()).filter(Boolean)
@@ -2926,7 +2480,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Amount of {E} energy you have ────────────────────────────────────────
+  // â”€â”€ Amount of {E} energy you have â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the amount of \{e\} you have$/i);
     if (m) {
@@ -2937,7 +2491,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Damage dealt to this creature / it this turn ─────────────────────────
+  // â”€â”€ Damage dealt to this creature / it this turn â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the amount of damage dealt to (it|this creature) this turn$/i);
     if (m) {
@@ -2950,7 +2504,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Damage this creature / it dealt to that player ───────────────────────
+  // â”€â”€ Damage this creature / it dealt to that player â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is the amount of damage (?:this creature|that creature|it) dealt to that player$/i);
     if (m) {
@@ -2976,7 +2530,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── How far below 0 its power is (negative power) ────────────────────────
+  // â”€â”€ How far below 0 its power is (negative power) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m = raw.match(/^x is how (?:far below 0|much less than 0) its power is$/i);
     if (m) {
@@ -2990,7 +2544,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Random number from a range ───────────────────────────────────────────
+  // â”€â”€ Random number from a range â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     const m =
       raw.match(/^x is a number from (\d+) to (\d+) chosen at random(?: each time)?$/i) ||
@@ -3007,7 +2561,7 @@ export function evaluateModifyPtWhereX(
     }
   }
 
-  // ── Safe-skips (non-deterministic or complex context) ────────────────────
+  // â”€â”€ Safe-skips (non-deterministic or complex context) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Random numbers
   if (/^x is a number chosen at random$/i.test(raw)) return null;
   // Noted numbers

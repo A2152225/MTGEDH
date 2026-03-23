@@ -1,0 +1,199 @@
+import type { OracleEffectStep } from './oracleIR';
+import { normalizeCounterName } from './oracleIRParserSacrificeHelpers';
+import { parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
+
+type WithMeta = <T extends OracleEffectStep>(step: T) => T;
+
+const PLAYER_SUBJECT_PREFIX =
+  "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
+
+export function tryParseSimpleActionClause(args: {
+  clause: string;
+  rawClause: string;
+  withMeta: WithMeta;
+}): OracleEffectStep | null {
+  const { clause, rawClause, withMeta } = args;
+
+  {
+    const moreCards = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+([a-z0-9]+)\\s+more\\s+cards?\\b`, 'i')
+    );
+    if (moreCards) {
+      return withMeta({
+        kind: 'draw',
+        who: parsePlayerSelector(moreCards[1]),
+        amount: parseQuantity(moreCards[2]),
+        raw: rawClause,
+      });
+    }
+
+    const draw = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}draws?\\s+(a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i')
+    );
+    if (draw) {
+      return withMeta({
+        kind: 'draw',
+        who: parsePlayerSelector(draw[1]),
+        amount: parseQuantity(draw[2]),
+        raw: rawClause,
+      });
+    }
+
+    const drawDefault = clause.match(/^draw\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    if (drawDefault) {
+      return withMeta({
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: parseQuantity(drawDefault[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const removeCounters = clause.match(/^remove\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+from\s+(.+)$/i);
+    if (removeCounters) {
+      return withMeta({
+        kind: 'remove_counter',
+        amount: parseQuantity(removeCounters[1]),
+        counter: normalizeCounterName(String(removeCounters[2] || '')),
+        target: parseObjectSelector(removeCounters[3]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const addMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\}(?:\\s*\\{[^}]+\\})*)\\s*$`, 'i'));
+    if (addMana) {
+      const mana = String(addMana[2] || '').trim();
+      if (mana && !/\bor\b/i.test(clause)) {
+        return withMeta({ kind: 'add_mana', who: parsePlayerSelector(addMana[1]), mana, raw: rawClause });
+      }
+    }
+  }
+
+  {
+    const scry = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:scry|scries)\\s+(a|an|\\d+|x|[a-z]+)\\b`, 'i'));
+    if (scry) {
+      return withMeta({
+        kind: 'scry',
+        who: parsePlayerSelector(scry[1]),
+        amount: parseQuantity(scry[2]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const surveil = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:surveil|surveils)\\s+(a|an|\\d+|x|[a-z]+)\\b`, 'i')
+    );
+    if (surveil) {
+      return withMeta({
+        kind: 'surveil',
+        who: parsePlayerSelector(surveil[1]),
+        amount: parseQuantity(surveil[2]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const discardHand = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+(?:your|their)\\s+hand\\b`, 'i')
+    );
+    if (discardHand) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(discardHand[1]),
+        amount: { kind: 'number', value: 9999 },
+        raw: rawClause,
+      });
+    }
+
+    const discardAllInHand = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+all\\s+cards?\\s+in\\s+(?:your|their)\\s+hand\\b`, 'i')
+    );
+    if (discardAllInHand) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(discardAllInHand[1]),
+        amount: { kind: 'number', value: 9999 },
+        raw: rawClause,
+      });
+    }
+
+    const discard = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+(a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i')
+    );
+    if (discard) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(discard[1]),
+        amount: parseQuantity(discard[2]),
+        raw: rawClause,
+      });
+    }
+
+    const discardDefault = clause.match(/^discard\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    if (discardDefault) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: parseQuantity(discardDefault[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const millUntilLand = clause.match(
+      new RegExp(
+        `^${PLAYER_SUBJECT_PREFIX}reveals?\\s+cards?\\s+from\\s+the\\s+top\\s+of\\s+(?:their|your|his or her)\\s+library\\s+until\\s+(?:they|you)\\s+reveal\\s+a\\s+land\\s+card\\b`,
+        'i'
+      )
+    );
+    if (millUntilLand) {
+      return withMeta({
+        kind: 'mill',
+        who: parsePlayerSelector(millUntilLand[1]),
+        amount: { kind: 'unknown', raw: 'until they reveal a land card' },
+        raw: rawClause,
+      });
+    }
+
+    const mill = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}mill(?:s)?\\s+(a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i'));
+    if (mill) {
+      return withMeta({
+        kind: 'mill',
+        who: parsePlayerSelector(mill[1]),
+        amount: parseQuantity(mill[2]),
+        raw: rawClause,
+      });
+    }
+
+    const millDefault = clause.match(/^mill\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
+    if (millDefault) {
+      return withMeta({
+        kind: 'mill',
+        who: { kind: 'you' },
+        amount: parseQuantity(millDefault[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const goad = clause.match(/^goad\s+(.+)$/i);
+    if (goad) {
+      return withMeta({
+        kind: 'goad',
+        target: parseObjectSelector(goad[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  return null;
+}

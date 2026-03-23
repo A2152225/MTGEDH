@@ -50,6 +50,8 @@ import {
   movePermanentToGraveyard,
   payLifeActionForState,
 } from './rulesEngineAdapterStateSupport';
+import { dispatchRulesEngineAction } from './rulesEngineAdapterActionDispatch';
+import { processControlLossDelayedTriggersForState } from './rulesEngineAdapterDelayedTriggerSupport';
 
 /** Simple mana pool interface for checking mana availability (doesn't need restricted mana info) */
 interface SimpleManaPool {
@@ -91,7 +93,6 @@ import {
 } from './activatedAbilities';
 import {
   createEmptyTriggerQueue,
-  putTriggersOnStack,
   processEvent,
   buildTriggerEventDataFromPayloads,
   buildStackTriggerMetaFromEventData,
@@ -104,13 +105,6 @@ import {
   type TriggeredAbility,
   TriggerEvent,
 } from './triggeredAbilities';
-import {
-  checkDelayedTriggers,
-  createDelayedTriggerRegistry,
-  DelayedTriggerTiming,
-  processDelayedTriggers,
-} from './delayedTriggeredAbilities';
-
 // Import modular action handlers
 import {
   executeSacrifice,
@@ -736,81 +730,44 @@ export class RulesEngineAdapter {
       gameId,
     };
     
-    // Execute action based on type
-    let result: EngineResult<GameState>;
-    switch (action.type) {
-      case 'passPriority':
-        result = this.passPriority(gameId, action.playerId);
-        break;
-      case 'castSpell':
-        result = this.castSpellAction(gameId, action);
-        break;
-      case 'playLand':
-        result = this.playLandAction(gameId, action);
-        break;
-      case 'tapForMana':
-        result = this.tapForManaAction(gameId, action);
-        break;
-      case 'activateAbility':
-        result = this.activateAbilityAction(gameId, action);
-        break;
-      case 'declareAttackers':
-        result = executeDeclareAttackers(gameId, action, actionContext);
-        break;
-      case 'declareBlockers':
-        result = executeDeclareBlockers(gameId, action, actionContext);
-        break;
-      case 'resolveStack':
-        result = this.resolveStackTop(gameId);
-        break;
-      case 'advanceTurn':
-      case 'advanceGame':
-        result = advanceGame(gameId, actionContext);
-        break;
-      case 'sacrifice':
-        result = executeSacrifice(gameId, action, actionContext);
-        break;
-      case 'searchLibrary':
-        result = executeSearchLibrary(gameId, action, actionContext);
-        break;
-      case 'payLife':
-        result = this.payLifeAction(gameId, action);
-        break;
-      case 'activateFetchland':
-        result = executeFetchland(gameId, action, actionContext);
-        break;
-      case 'dealCombatDamage':
-        {
+    const result = dispatchRulesEngineAction({
+      currentState,
+      action,
+      handlers: {
+        passPriority: () => this.passPriority(gameId, action.playerId),
+        castSpell: () => this.castSpellAction(gameId, action),
+        playLand: () => this.playLandAction(gameId, action),
+        tapForMana: () => this.tapForManaAction(gameId, action),
+        activateAbility: () => this.activateAbilityAction(gameId, action),
+        declareAttackers: () => executeDeclareAttackers(gameId, action, actionContext),
+        declareBlockers: () => executeDeclareBlockers(gameId, action, actionContext),
+        resolveStack: () => this.resolveStackTop(gameId),
+        advanceGame: () => advanceGame(gameId, actionContext),
+        sacrifice: () => executeSacrifice(gameId, action, actionContext),
+        searchLibrary: () => executeSearchLibrary(gameId, action, actionContext),
+        payLife: () => this.payLifeAction(gameId, action),
+        activateFetchland: () => executeFetchland(gameId, action, actionContext),
+        dealCombatDamage: () => {
           const combatResult = executeCombatDamage(gameId, action, actionContext);
           const triggerResult = checkCombatDamageToPlayerTriggers(
             combatResult.next,
             action.playerId,
             action.attackers || []
           );
-          result = {
+          return {
             next: triggerResult.state,
             log: [
               ...(combatResult.log || []),
               ...(triggerResult.logs || []),
             ],
           };
-        }
-        break;
-      case 'initializeGame':
-        result = initializeGame(gameId, action.players, actionContext);
-        break;
-      case 'drawInitialHand':
-        result = drawInitialHand(gameId, action.playerId, action.handSize || 7, actionContext);
-        break;
-      case 'mulligan':
-        result = processMulligan(gameId, action.playerId, action.keep, actionContext);
-        break;
-      case 'completeMulligan':
-        result = completeMulliganPhase(gameId, actionContext);
-        break;
-      default:
-        result = { next: currentState, log: ['Unknown action type'] };
-    }
+        },
+        initializeGame: () => initializeGame(gameId, action.players, actionContext),
+        drawInitialHand: () => drawInitialHand(gameId, action.playerId, action.handSize || 7, actionContext),
+        mulligan: () => processMulligan(gameId, action.playerId, action.keep, actionContext),
+        completeMulligan: () => completeMulliganPhase(gameId, actionContext),
+      },
+    });
     
     let syncedResultState: GameState = {
       ...result.next,
@@ -853,128 +810,18 @@ export class RulesEngineAdapter {
     };
   }
 
-  private getActivePlayerId(state: GameState): string {
-    const activeIndex = Number.isInteger((state as any).activePlayerIndex)
-      ? Number((state as any).activePlayerIndex)
-      : -1;
-    const players = Array.isArray(state.players) ? state.players : [];
-    const indexedActivePlayer = activeIndex >= 0 ? players[activeIndex] : undefined;
-    return String(indexedActivePlayer?.id || (state as any).turnPlayer || '').trim();
-  }
-
-  private getTurnOrder(state: GameState): string[] {
-    return Array.isArray((state as any).turnOrder)
-      ? (state as any).turnOrder
-          .map((id: unknown) => String(id || '').trim())
-          .filter(Boolean)
-      : [];
-  }
-
-  private getPermanentControllerId(permanent: any): string {
-    return String(permanent?.controller || permanent?.controllerId || '').trim();
-  }
-
   private processControlLossDelayedTriggers(
     gameId: string,
     previousState: GameState,
     nextState: GameState
   ): { state: GameState; log: string[] } {
-    const previousRegistry = ((previousState as any).delayedTriggerRegistry || createDelayedTriggerRegistry()) as ReturnType<typeof createDelayedTriggerRegistry>;
-    const nextRegistry = ((nextState as any).delayedTriggerRegistry || createDelayedTriggerRegistry()) as ReturnType<typeof createDelayedTriggerRegistry>;
-    const watchedTriggers = previousRegistry.triggers.filter(
-      trigger => trigger.timing === DelayedTriggerTiming.WHEN_CONTROL_LOST && String(trigger.watchingPermanentId || '').trim().length > 0
-    );
-
-    if (watchedTriggers.length === 0) {
-      return { state: nextState, log: [] };
-    }
-
-    const watchedPermanentIds = new Set(
-      watchedTriggers
-        .map(trigger => String(trigger.watchingPermanentId || '').trim())
-        .filter(Boolean)
-    );
-    if (watchedPermanentIds.size === 0) {
-      return { state: nextState, log: [] };
-    }
-
-    const previousBattlefield = Array.isArray((previousState as any).battlefield)
-      ? ((previousState as any).battlefield as any[])
-      : [];
-    const nextBattlefield = Array.isArray((nextState as any).battlefield)
-      ? ((nextState as any).battlefield as any[])
-      : [];
-    const nextBattlefieldById = new Map<string, any>(
-      nextBattlefield.map(perm => [String(perm?.id || '').trim(), perm])
-    );
-
-    const eligibleTriggerIds = new Set(previousRegistry.triggers.map(trigger => trigger.id));
-    let workingRegistry = nextRegistry;
-    const firedTriggers = [];
-
-    for (const previousPermanent of previousBattlefield) {
-      const permanentId = String(previousPermanent?.id || '').trim();
-      if (!permanentId || !watchedPermanentIds.has(permanentId)) {
-        continue;
-      }
-
-      const previousControllerId = this.getPermanentControllerId(previousPermanent);
-      if (!previousControllerId) {
-        continue;
-      }
-
-      const nextPermanent = nextBattlefieldById.get(permanentId);
-      const nextControllerId = nextPermanent ? this.getPermanentControllerId(nextPermanent) : '';
-      if (nextPermanent && nextControllerId === previousControllerId) {
-        continue;
-      }
-
-      const delayedCheck = checkDelayedTriggers(workingRegistry, {
-        type: 'control_lost',
-        permanentId,
-        playerId: previousControllerId as PlayerID,
-        eligibleTriggerIds,
-      });
-      if (delayedCheck.triggersToFire.length === 0) {
-        continue;
-      }
-
-      firedTriggers.push(...delayedCheck.triggersToFire);
-      workingRegistry = {
-        ...workingRegistry,
-        triggers: delayedCheck.remainingTriggers,
-        firedTriggerIds: [
-          ...workingRegistry.firedTriggerIds,
-          ...delayedCheck.triggersToFire.map(trigger => trigger.id),
-        ],
-      };
-    }
-
-    if (firedTriggers.length === 0) {
-      return { state: nextState, log: [] };
-    }
-
-    const delayedInstances = processDelayedTriggers(firedTriggers, Date.now());
-    const stackPlacement = putTriggersOnStack(
-      { triggers: delayedInstances },
-      this.getActivePlayerId(nextState),
-      this.getTurnOrder(nextState)
-    );
-
-    let stack = this.stacks.get(gameId) || createEmptyStack();
-    for (const stackObject of stackPlacement.stackObjects) {
-      stack = pushToStack(stack, stackObject).stack;
-    }
-    this.stacks.set(gameId, stack);
-
-    return {
-      state: ({
-        ...nextState,
-        delayedTriggerRegistry: workingRegistry,
-        stack: [...((stack.objects as any[]) || [])] as any,
-      } as any) as GameState,
-      log: firedTriggers.map(trigger => `Delayed trigger fires: ${trigger.sourceName}`),
-    };
+    return processControlLossDelayedTriggersForState({
+      gameId,
+      previousState,
+      nextState,
+      getStack: targetGameId => this.stacks.get(targetGameId),
+      setStack: (targetGameId, stack) => this.stacks.set(targetGameId, stack),
+    });
   }
   
   /**

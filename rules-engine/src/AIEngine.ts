@@ -93,26 +93,15 @@
 
 import type { GameState, PlayerID, BattlefieldPermanent, KnownCardRef } from '../../shared/src';
 import { 
-  getLegalAttackers, 
-  getLegalBlockers,
-  getBlockerCapacity,
   canPermanentAttack,
   canPermanentBlock,
   isCurrentlyCreature,
   isGoaded,
   getGoadedBy,
-  getGoadedAttackTargets,
-  getGoadedAttackers,
 } from './actions/combat';
 import {
-  extractCombatKeywords,
-  getCreaturePower,
-  getCreatureToughness,
-  createCombatCreature,
   canCreatureAttack,
-  canCreatureBlock,
   calculateLethalDamage,
-  type CombatCreature,
   type CombatKeywords,
 } from './combatAutomation';
 import {
@@ -130,11 +119,62 @@ import {
   type DeckArchetypeProfile,
 } from './CardAnalyzer';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
-
-/**
- * Default starting life total in Commander format
- */
-const DEFAULT_COMMANDER_LIFE = 40;
+import {
+  detectActivatedAbility,
+  evaluateActivatedAbilityValue,
+  canActivateAbilityNow,
+  findBestActivatedAbility,
+} from './aiEngineActivatedAbilitySupport';
+import {
+  evaluateDeathTrigger,
+  evaluatePermanentValue,
+  evaluateCombatValue,
+  evaluateTokenValue,
+  evaluateModeValue,
+  evaluateCardValue,
+} from './aiEngineValueSupport';
+import {
+  countOpponentThreats as countOpponentThreatsFromSupport,
+  evaluateSpellValue as evaluateSpellValueFromSupport,
+} from './aiEngineSpellSupport';
+import {
+  assessBattlefieldThreats as assessBattlefieldThreatsFromSupport,
+  getRemovalReason as getRemovalReasonFromSupport,
+  selectAttackTarget as selectAttackTargetFromSupport,
+} from './aiEngineThreatSupport';
+import {
+  getPrimaryArchetypes as getPrimaryArchetypesFromSupport,
+  getCombatDeckModifiers as getCombatDeckModifiersFromSupport,
+  hasPotentialManaSink as hasPotentialManaSinkFromSupport,
+} from './aiEngineDeckSupport';
+import {
+  makeRandomDecision as makeRandomDecisionFromSupport,
+  makeBasicDecision as makeBasicDecisionFromSupport,
+  makeBasicMulliganDecision as makeBasicMulliganDecisionFromSupport,
+} from './aiEngineCoreSupport';
+import {
+  makeTokenCreationDecision as makeTokenCreationDecisionFromSupport,
+  makeModeChoiceDecision as makeModeChoiceDecisionFromSupport,
+  makeDiscardDecision as makeDiscardDecisionFromSupport,
+} from './aiEngineChoiceSupport';
+import {
+  makeTriggeredAbilityDecision as makeTriggeredAbilityDecisionFromSupport,
+  makeDamageAssignmentDecision as makeDamageAssignmentDecisionFromSupport,
+  makeBlockerOrderDecision as makeBlockerOrderDecisionFromSupport,
+} from './aiEngineResponseSupport';
+import { makeTargetDecision as makeTargetDecisionFromSupport } from './aiEngineTargetSupport';
+import {
+  makeBasicAttackDecision as makeBasicAttackDecisionFromSupport,
+  makeBasicBlockDecision as makeBasicBlockDecisionFromSupport,
+} from './aiEngineCombatSupport';
+import { makeBasicCastDecision as makeBasicCastDecisionFromSupport } from './aiEngineCastSupport';
+import {
+  makeAggressiveDecision as makeAggressiveDecisionFromSupport,
+  makeDefensiveDecision as makeDefensiveDecisionFromSupport,
+  makeControlDecision as makeControlDecisionFromSupport,
+  makeComboDecision as makeComboDecisionFromSupport,
+} from './aiEngineStrategySupport';
+import { makeSacrificeDecision as makeSacrificeDecisionFromSupport } from './aiEngineSacrificeSupport';
 
 /**
  * AI Strategy level determines decision-making sophistication
@@ -299,71 +339,18 @@ export class AIEngine {
   }
 
   private getPrimaryArchetypes(config: AIPlayerConfig): readonly SynergyArchetype[] {
-    return config.deckProfile?.primaryArchetypes || [];
+    return getPrimaryArchetypesFromSupport(config);
   }
 
   private getCombatDeckModifiers(
     perm: BattlefieldPermanent,
     config: AIPlayerConfig
   ): { attackBias: number; preserveBias: number } {
-    const archetypes = this.getPrimaryArchetypes(config);
-    if (archetypes.length === 0) {
-      return { attackBias: 0, preserveBias: 0 };
-    }
-
-    const analysis = cardAnalyzer.analyzeCard(perm);
-    const isCommander = Boolean((perm as any).isCommander) || analysis.categories.includes(CardCategory.COMMANDER);
-    const isToken = Boolean((perm as any).isToken);
-    let attackBias = 0;
-    let preserveBias = 0;
-
-    for (const archetype of archetypes) {
-      switch (archetype) {
-        case SynergyArchetype.ARISTOCRATS:
-          if (analysis.details.hasDeathTrigger) attackBias += 10;
-          if (analysis.categories.includes(CardCategory.ARISTOCRAT)) attackBias += 6;
-          if (analysis.categories.includes(CardCategory.SACRIFICE_OUTLET)) preserveBias += 6;
-          if (isToken) attackBias += 5;
-          break;
-        case SynergyArchetype.TOKENS:
-          if (isToken || analysis.categories.includes(CardCategory.TOKEN_GENERATOR)) attackBias += 6;
-          break;
-        case SynergyArchetype.VOLTRON:
-          if (isCommander) {
-            attackBias += 14;
-          } else {
-            preserveBias += 8;
-            attackBias -= 3;
-          }
-          break;
-        case SynergyArchetype.COMBO:
-          if (analysis.comboPotential >= 7) preserveBias += 14;
-          if (analysis.categories.includes(CardCategory.TUTOR) || analysis.categories.includes(CardCategory.DRAW)) preserveBias += 4;
-          break;
-        case SynergyArchetype.SPELLSLINGER:
-        case SynergyArchetype.STAX:
-          if (analysis.details.producesMana || analysis.details.drawsCards || analysis.details.hasActivatedAbility) {
-            preserveBias += 8;
-          }
-          break;
-        case SynergyArchetype.LANDFALL:
-          if (analysis.categories.includes(CardCategory.LANDFALL)) attackBias += 5;
-          if (analysis.categories.includes(CardCategory.RAMP)) preserveBias += 3;
-          break;
-        case SynergyArchetype.GRAVEYARD:
-          if (analysis.details.hasDeathTrigger) attackBias += 5;
-          if (analysis.categories.includes(CardCategory.REANIMATOR)) preserveBias += 5;
-          break;
-      }
-    }
-
-    return { attackBias, preserveBias };
+    return getCombatDeckModifiersFromSupport(perm, config);
   }
 
   private hasPotentialManaSink(gameState: GameState, playerId: PlayerID): boolean {
-    const player = gameState.players.find((entry) => entry.id === playerId) as any;
-    const hand = Array.isArray(player?.hand) ? player.hand : [];
-    return hand.some((card: any) => typeof card === 'object' && card && typeof card.mana_cost === 'string' && card.mana_cost.length > 0);
+    return hasPotentialManaSinkFromSupport(gameState, playerId);
   }
   
   // ============================================================================
@@ -384,79 +371,18 @@ export class AIEngine {
     comboDetected: boolean;
     recommendedTargets: { permanentId: string; playerId: PlayerID; priority: number; reason: string }[];
   } {
-    const battlefield = this.getProcessedBattlefield(gameState);
-    const playerAnalyses = new Map<PlayerID, BattlefieldAnalysis>();
-    const criticalThreats: { permanentId: string; playerId: PlayerID; analysis: CardAnalysis }[] = [];
-    const recommendedTargets: { permanentId: string; playerId: PlayerID; priority: number; reason: string }[] = [];
-    let comboDetected = false;
-    let highestThreat = 0;
-    let highestThreatPlayer: PlayerID | null = null;
-    
-    // Analyze each opponent's battlefield
-    for (const player of gameState.players) {
-      if (player.id === playerId) continue; // Skip self
-      
-      const analysis = cardAnalyzer.analyzeBattlefield(battlefield, player.id, playerId);
-      playerAnalyses.set(player.id, analysis);
-      
-      // Track highest threat player
-      if (analysis.totalThreatLevel > highestThreat) {
-        highestThreat = analysis.totalThreatLevel;
-        highestThreatPlayer = player.id;
-      }
-      
-      // Detect combo setups
-      if (analysis.comboPiecesOnBoard.length >= 2) {
-        comboDetected = true;
-      }
-      
-      // Collect critical threats and recommended removal targets
-      for (const { permanentId, priority } of analysis.removalPriorities) {
-        if (priority >= 6) { // High priority targets
-          const perm = battlefield.find(p => p.id === permanentId);
-          if (perm) {
-            const cardAnalysis = cardAnalyzer.analyzeCard(perm);
-            criticalThreats.push({
-              permanentId,
-              playerId: player.id,
-              analysis: cardAnalysis,
-            });
-            
-            recommendedTargets.push({
-              permanentId,
-              playerId: player.id,
-              priority,
-              reason: this.getRemovalReason(cardAnalysis),
-            });
-          }
-        }
-      }
-    }
-    
-    // Sort recommended targets by priority
-    recommendedTargets.sort((a, b) => b.priority - a.priority);
-    
-    return {
-      playerAnalyses,
-      highestThreatPlayer,
-      criticalThreats,
-      comboDetected,
-      recommendedTargets,
-    };
+    return assessBattlefieldThreatsFromSupport({
+      gameState,
+      playerId,
+      getProcessedBattlefield: this.getProcessedBattlefield.bind(this),
+    });
   }
   
   /**
    * Get a human-readable reason for removing a permanent
    */
   private getRemovalReason(analysis: CardAnalysis): string {
-    if (analysis.comboPotential >= 8) return 'Combo piece - must remove immediately';
-    if (analysis.threatLevel >= ThreatLevel.CRITICAL) return 'Critical threat - will win if left unchecked';
-    if (analysis.threatLevel >= ThreatLevel.HIGH) return 'High threat - significant board presence';
-    if (analysis.categories.includes(CardCategory.ARISTOCRAT)) return 'Aristocrat payoff - drains life';
-    if (analysis.categories.includes(CardCategory.SACRIFICE_OUTLET)) return 'Sacrifice outlet - enables combos';
-    if (analysis.details.drawsCards) return 'Card advantage engine';
-    if (analysis.details.producesMana) return 'Mana acceleration';
-    return 'Threat';
+    return getRemovalReasonFromSupport(analysis);
   }
   
   /**
@@ -798,147 +724,38 @@ export class AIEngine {
    * Make a completely random decision
    */
   private makeRandomDecision(context: AIDecisionContext): AIDecision {
-    const { decisionType, playerId, options } = context;
-    
-    switch (decisionType) {
-      case AIDecisionType.MULLIGAN:
-        return {
-          type: decisionType,
-          playerId,
-          action: { keep: Math.random() > 0.5 },
-          reasoning: 'Random decision',
-          confidence: 0.5,
-        };
-      
-      case AIDecisionType.DECLARE_ATTACKERS:
-        // Use getLegalAttackers to get only valid attackers
-        // This ensures we only attack with creatures that:
-        // - Are currently creatures (not enchantments, etc.)
-        // - Are untapped
-        // - Don't have defender
-        // - Don't have summoning sickness (or have haste)
-        const legalAttackerIds = getLegalAttackers(context.gameState, playerId);
-        // Attack with ~70% of legal attackers on average (random selection per creature)
-        // This ensures attacks happen frequently while still being unpredictable
-        const randomAttackerIds = legalAttackerIds.filter(() => Math.random() > 0.3);
-        
-        // Determine target player using threat assessment
-        const targetPlayerId = this.selectAttackTarget(context.gameState, playerId);
-        
-        const randomAttackers = randomAttackerIds.map(id => ({
-          creatureId: id,
-          defendingPlayerId: targetPlayerId,
-        }));
-        
-        return {
-          type: decisionType,
-          playerId,
-          action: { attackers: randomAttackers },
-          reasoning: `Random attackers (${randomAttackers.length}/${legalAttackerIds.length} legal)`,
-          confidence: 0.3,
-        };
-      
-      case AIDecisionType.PASS_PRIORITY:
-        return {
-          type: decisionType,
-          playerId,
-          action: { pass: true },
-          reasoning: 'Random pass',
-          confidence: 0.5,
-        };
-      
-      default:
-        return {
-          type: decisionType,
-          playerId,
-          action: {},
-          reasoning: 'No action available',
-          confidence: 0,
-        };
-    }
+    return makeRandomDecisionFromSupport(context, {
+      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
+    });
   }
   
   /**
    * Make a basic heuristic-based decision
    */
   private makeBasicDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { decisionType, playerId, gameState } = context;
-    
-    switch (decisionType) {
-      case AIDecisionType.MULLIGAN:
-        return this.makeBasicMulliganDecision(context, config);
-      
-      case AIDecisionType.DECLARE_ATTACKERS:
-        return this.makeBasicAttackDecision(context, config);
-      
-      case AIDecisionType.DECLARE_BLOCKERS:
-        return this.makeBasicBlockDecision(context, config);
-      
-      case AIDecisionType.CAST_SPELL:
-        return this.makeBasicCastDecision(context, config);
-      
-      case AIDecisionType.SACRIFICE:
-        return this.makeSacrificeDecision(context, config);
-      
-      case AIDecisionType.SELECT_TARGET:
-        return this.makeTargetDecision(context, config);
-      
-      case AIDecisionType.TRIGGERED_ABILITY:
-        return this.makeTriggeredAbilityDecision(context, config);
-      
-      case AIDecisionType.ASSIGN_DAMAGE:
-        return this.makeDamageAssignmentDecision(context, config);
-      
-      case AIDecisionType.ORDER_BLOCKERS:
-        return this.makeBlockerOrderDecision(context, config);
-      
-      case AIDecisionType.CREATE_TOKEN:
-        return this.makeTokenCreationDecision(context, config);
-      
-      case AIDecisionType.CHOOSE_MODE:
-        return this.makeModeChoiceDecision(context, config);
-      
-      case AIDecisionType.DISCARD:
-        return this.makeDiscardDecision(context, config);
-      
-      case AIDecisionType.ACTIVATE_ABILITY:
-        return this.makeActivatedAbilityDecision(context, config);
-      
-      default:
-        return this.makeRandomDecision(context);
-    }
+    return makeBasicDecisionFromSupport(context, config, {
+      makeBasicMulliganDecision: (ctx) => this.makeBasicMulliganDecision(ctx, config),
+      makeBasicAttackDecision: (ctx, cfg) => this.makeBasicAttackDecision(ctx, cfg),
+      makeBasicBlockDecision: (ctx, cfg) => this.makeBasicBlockDecision(ctx, cfg),
+      makeBasicCastDecision: (ctx, cfg) => this.makeBasicCastDecision(ctx, cfg),
+      makeSacrificeDecision: (ctx, cfg) => this.makeSacrificeDecision(ctx, cfg),
+      makeTargetDecision: (ctx, cfg) => this.makeTargetDecision(ctx, cfg),
+      makeTriggeredAbilityDecision: (ctx, cfg) => this.makeTriggeredAbilityDecision(ctx, cfg),
+      makeDamageAssignmentDecision: (ctx, cfg) => this.makeDamageAssignmentDecision(ctx, cfg),
+      makeBlockerOrderDecision: (ctx, cfg) => this.makeBlockerOrderDecision(ctx, cfg),
+      makeTokenCreationDecision: (ctx, cfg) => this.makeTokenCreationDecision(ctx, cfg),
+      makeModeChoiceDecision: (ctx, cfg) => this.makeModeChoiceDecision(ctx, cfg),
+      makeDiscardDecision: (ctx, cfg) => this.makeDiscardDecision(ctx, cfg),
+      makeActivatedAbilityDecision: (ctx, cfg) => this.makeActivatedAbilityDecision(ctx, cfg),
+      makeRandomDecision: (ctx) => this.makeRandomDecision(ctx),
+    });
   }
   
   /**
    * Basic mulligan decision: keep if hand has 2-5 lands
    */
   private makeBasicMulliganDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const player = context.gameState.players.find(p => p.id === context.playerId);
-    if (!player || !player.hand) {
-      return {
-        type: AIDecisionType.MULLIGAN,
-        playerId: context.playerId,
-        action: { keep: false },
-        reasoning: 'No hand found',
-        confidence: 0,
-      };
-    }
-    
-    const landCount = player.hand.filter(card => 
-      card.types?.includes('Land')
-    ).length;
-    
-    const handSize = player.hand.length;
-    // Keep if we have 2-5 lands (good mana curve)
-    const keep = landCount >= 2 && landCount <= 5;
-    
-    return {
-      type: AIDecisionType.MULLIGAN,
-      playerId: context.playerId,
-      action: { keep },
-      reasoning: `Hand has ${landCount} lands (want 2-5)`,
-      confidence: keep ? 0.7 : 0.3,
-    };
+    return makeBasicMulliganDecisionFromSupport(context);
   }
   
   /**
@@ -953,57 +770,12 @@ export class AIEngine {
    * @returns The player ID to attack
    */
   private selectAttackTarget(gameState: GameState, playerId: PlayerID): PlayerID {
-    const opponents = gameState.players.filter(p => p.id !== playerId);
-    if (opponents.length === 0) return playerId;
-    if (opponents.length === 1) return opponents[0].id;
-    
-    // Use battlefield threat assessment
-    const threatAssessment = this.assessBattlefieldThreats(gameState, playerId);
-    
-    // Score each opponent
-    const opponentScores = opponents.map(opp => {
-      const playerAnalysis = threatAssessment.playerAnalyses.get(opp.id);
-      const life = opp.life || 40;
-      
-      let score = 0;
-      
-      // Factor 1: Threat level (most important)
-      // Higher threat = higher priority target
-      if (playerAnalysis) {
-        score += playerAnalysis.totalThreatLevel * 100;
-        
-        // Extra weight for combo threats
-        if (playerAnalysis.comboPiecesOnBoard.length >= 2) {
-          score += 300; // Very high priority to disrupt combos
-        }
-      }
-      
-      // Factor 2: Low life (potential kill)
-      // Prioritize opponents below 20 life
-      if (life <= 10) {
-        score += 200; // Very high priority - potential kill
-      } else if (life <= 20) {
-        score += 100; // High priority - getting close
-      } else if (life <= 30) {
-        score += 50; // Moderate priority
-      }
-      
-      // Factor 3: Board presence
-      // More creatures = higher threat in Commander
-      const battlefield = this.getProcessedBattlefield(gameState);
-      const creatureCount = battlefield.filter((p: any) =>
-        p.controller === opp.id && this.hasPermanentType(p, 'creature')
-      ).length;
-      score += creatureCount * 10;
-      
-      return { playerId: opp.id, score, life };
+    return selectAttackTargetFromSupport({
+      gameState,
+      playerId,
+      getProcessedBattlefield: this.getProcessedBattlefield.bind(this),
+      hasPermanentType: this.hasPermanentType.bind(this),
     });
-    
-    // Sort by score (highest first)
-    opponentScores.sort((a, b) => b.score - a.score);
-    
-    // Return the highest priority target
-    return opponentScores[0].playerId;
   }
   
   /**
@@ -1023,174 +795,14 @@ export class AIEngine {
    * - Hard: Consistently makes optimal attack decisions
    */
   private makeBasicAttackDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const difficulty = config.difficulty ?? 0.5;
-    
-    // Use getLegalAttackers to get all valid attackers
-    const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
-    
-    if (legalAttackerIds.length === 0) {
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId: context.playerId,
-        action: { attackers: [] },
-        reasoning: 'No creatures can legally attack',
-        confidence: 1,
-      };
-    }
-    
-    // Get the player and global battlefield
-    const player = context.gameState.players.find(p => p.id === context.playerId);
-    const globalBattlefield = this.getProcessedBattlefield(context.gameState);
-    
-    // Helper to find a permanent by ID in global battlefield
-    const findPermanent = (id: string) => {
-      return globalBattlefield.find((p: any) => p.id === id);
-    };
-    
-    // If we can't find the player, attack with all legal attackers as a fallback
-    if (!player) {
-      const targetPlayer = this.selectAttackTarget(context.gameState, context.playerId);
-      const attackers = legalAttackerIds.map(id => ({
-        creatureId: id,
-        defendingPlayerId: targetPlayer,
-      }));
-      
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId: context.playerId,
-        action: { attackers },
-        reasoning: `Attacking with ${legalAttackerIds.length} legal creatures`,
-        confidence: 0.6,
-      };
-    }
-    
-    // Get all goaded creatures - these MUST attack (Rule 701.15b)
-    const goadedCreatureIds = getGoadedAttackers(context.gameState, context.playerId);
-    const goadedSet = new Set(goadedCreatureIds);
-    
-    // Get all player IDs for determining valid goad targets
-    const allPlayerIds = context.gameState.players.map(p => p.id);
-    
-    // Build attack targets for goaded creatures
-    const goadedAttackers: Array<{ creatureId: string; defendingPlayerId: string }> = [];
-    for (const goadedId of goadedCreatureIds) {
-      const perm = findPermanent(goadedId);
-      if (!perm) continue;
-      
-      // Get valid targets for this goaded creature
-      const validTargets = getGoadedAttackTargets(perm, allPlayerIds, context.gameState.turn, globalBattlefield as any[]);
-      
-      if (validTargets.length === 0) {
-        // Can't attack (all opponents have protection, etc.)
-        continue;
-      }
-      
-      // Choose target based on AI strategy
-      // For basic AI: attack the player with lowest life
-      const targetPlayer = validTargets.reduce((lowest, current) => {
-        const currentLife = context.gameState.players.find(p => p.id === current)?.life || 40;
-        const lowestLife = context.gameState.players.find(p => p.id === lowest)?.life || 40;
-        return currentLife < lowestLife ? current : lowest;
-      });
-      
-      goadedAttackers.push({
-        creatureId: goadedId,
-        defendingPlayerId: targetPlayer,
-      });
-    }
-    
-    // Evaluate each non-goaded legal attacker for combat value
-    const nonGoadedLegalAttackerIds = legalAttackerIds.filter(id => !goadedSet.has(id));
-    const attackerEvaluations = nonGoadedLegalAttackerIds.map(id => {
-      const perm = findPermanent(id);
-      if (!perm) return { id, value: 0, wantsToGetKilled: false };
-      
-      const evaluation = this.evaluateCombatValue(perm, true);
-      const deckModifiers = this.getCombatDeckModifiers(perm, config);
-      return {
-        id,
-        value: evaluation.combatValue + deckModifiers.attackBias - deckModifiers.preserveBias,
-        wantsToGetKilled: evaluation.wantsToGetKilled,
-        deathBenefit: evaluation.deathBenefit,
-        isCommander: Boolean((perm as any).isCommander),
-        preserveBias: deckModifiers.preserveBias,
-        attackBias: deckModifiers.attackBias,
-      };
+    return makeBasicAttackDecisionFromSupport(context, config, {
+      getProcessedBattlefield: (gameState) => this.getProcessedBattlefield(gameState),
+      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
+      getCombatDeckModifiers: (perm, cfg) => this.getCombatDeckModifiers(perm, cfg),
+      evaluateCombatValue: (perm, isAttacking) => this.evaluateCombatValue(perm, isAttacking),
+      getPrimaryArchetypes: (cfg) => this.getPrimaryArchetypes(cfg),
+      shouldMakeMistake: (difficulty) => this.shouldMakeMistake(difficulty),
     });
-    
-    // ALWAYS attack with creatures that have beneficial death triggers
-    const suicideAttackers = attackerEvaluations
-      .filter(e => e.wantsToGetKilled)
-      .map(e => e.id);
-    
-    // Apply difficulty-based mistakes to attack decisions
-    let regularAttackers = attackerEvaluations
-      .filter(e => !e.wantsToGetKilled && e.value > 0)
-      .sort((a, b) => b.value - a.value)
-      .map(e => e.id);
-
-    const archetypes = this.getPrimaryArchetypes(config);
-    if (archetypes.includes(SynergyArchetype.VOLTRON)) {
-      const preferred = attackerEvaluations
-        .filter(e => e.isCommander || e.attackBias >= e.preserveBias + 5)
-        .sort((a, b) => b.value - a.value)
-        .map(e => e.id);
-      regularAttackers = preferred;
-    }
-
-    if (archetypes.includes(SynergyArchetype.COMBO) || archetypes.includes(SynergyArchetype.SPELLSLINGER)) {
-      regularAttackers = attackerEvaluations
-        .filter(e => !e.wantsToGetKilled && e.attackBias >= e.preserveBias)
-        .sort((a, b) => b.value - a.value)
-        .map(e => e.id);
-    }
-    
-    // DIFFICULTY IMPLEMENTATION: Attack decision mistakes
-    // Example: AI has 3/3, 3/3, 2/2, 1/1 creatures. Optimal = attack with 3/3, 3/3, 2/2
-    if (!archetypes.includes(SynergyArchetype.VOLTRON) &&
-      !archetypes.includes(SynergyArchetype.COMBO) &&
-      !archetypes.includes(SynergyArchetype.SPELLSLINGER) &&
-      this.shouldMakeMistake(difficulty)) {
-      // Randomly choose between two types of mistakes:
-      if (Math.random() < 0.5) {
-        // MISTAKE TYPE A: Too Cautious
-        // Example: Only attack with one 3/3 instead of all good attackers
-        // Result: Misses opportunity to apply pressure, opponent gains time
-        regularAttackers = regularAttackers.slice(0, Math.floor(regularAttackers.length / 2));
-      } else {
-        // MISTAKE TYPE B: Overcommitting  
-        // Example: Attack with ALL creatures including weak 1/1
-        // Result: Unnecessarily trades away creatures, poor resource management
-        regularAttackers = nonGoadedLegalAttackerIds.filter(id => !suicideAttackers.includes(id));
-      }
-    }
-    
-    // Determine attack target for non-goaded attackers
-    // Use threat assessment to select the best target
-    const targetPlayer = this.selectAttackTarget(context.gameState, context.playerId);
-    
-    const voluntaryAttackers = [...suicideAttackers, ...regularAttackers].map(id => ({
-      creatureId: id,
-      defendingPlayerId: targetPlayer,
-    }));
-    
-    const allAttackers = [...goadedAttackers, ...voluntaryAttackers];
-    
-    let reasoning = `Attacking with ${allAttackers.length} creatures`;
-    if (goadedCreatureIds.length > 0) {
-      reasoning += ` (including ${goadedCreatureIds.length} goaded)`;
-    }
-    if (suicideAttackers.length > 0) {
-      reasoning += ` (including ${suicideAttackers.length} with beneficial death triggers)`;
-    }
-    
-    return {
-      type: AIDecisionType.DECLARE_ATTACKERS,
-      playerId: context.playerId,
-      action: { attackers: allAttackers },
-      reasoning,
-      confidence: 0.7,
-    };
   }
   
   /**
@@ -1202,245 +814,12 @@ export class AIEngine {
    * 3. Block all dangerous attackers, not just ones we can kill
    */
   private makeBasicBlockDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    // Use getLegalBlockers to get all valid blockers
-    const legalBlockerIds = getLegalBlockers(context.gameState, context.playerId);
-    
-    if (legalBlockerIds.length === 0) {
-      return {
-        type: AIDecisionType.DECLARE_BLOCKERS,
-        playerId: context.playerId,
-        action: { blockers: [] },
-        reasoning: 'No creatures can legally block',
-        confidence: 1,
-      };
-    }
-    
-    // Get attacking creatures from context
-    const attackingCreatures = context.constraints?.attackers || [];
-    if (attackingCreatures.length === 0) {
-      return {
-        type: AIDecisionType.DECLARE_BLOCKERS,
-        playerId: context.playerId,
-        action: { blockers: [] },
-        reasoning: 'No attackers to block',
-        confidence: 1,
-      };
-    }
-    
-    // Get blockers from global battlefield
-    const globalBattlefield = this.getProcessedBattlefield(context.gameState);
-    const blockerPermanents = globalBattlefield.filter((p: any) => 
-      p.controller === context.playerId && legalBlockerIds.includes(p.id)
-    );
-    
-    if (blockerPermanents.length === 0) {
-      return {
-        type: AIDecisionType.DECLARE_BLOCKERS,
-        playerId: context.playerId,
-        action: { blockers: [] },
-        reasoning: 'No blockers available',
-        confidence: 1,
-      };
-    }
-    
-    // Evaluate each blocker for combat value and death trigger benefits
-    const blockerEvaluations = blockerPermanents.map((perm: BattlefieldPermanent) => {
-      const evaluation = this.evaluateCombatValue(perm, false);
-      const deckModifiers = this.getCombatDeckModifiers(perm, config);
-      return {
-        perm,
-        creature: createCombatCreature(perm),
-        wantsToGetKilled: evaluation.wantsToGetKilled,
-        deathBenefit: evaluation.deathBenefit,
-        baseValue: this.evaluatePermanentValue(perm),
-        preserveBias: deckModifiers.preserveBias,
-        attackBias: deckModifiers.attackBias,
-      };
+    return makeBasicBlockDecisionFromSupport(context, config, {
+      getProcessedBattlefield: (gameState) => this.getProcessedBattlefield(gameState),
+      getCombatDeckModifiers: (perm, cfg) => this.getCombatDeckModifiers(perm, cfg),
+      evaluateCombatValue: (perm, isAttacking) => this.evaluateCombatValue(perm, isAttacking),
+      evaluatePermanentValue: (perm) => this.evaluatePermanentValue(perm),
     });
-    
-    // Convert attackers to combat creatures
-    const attackerCreatures = attackingCreatures.map((a: any) => {
-      if (typeof a === 'object' && a.id) {
-        const processedAttacker = globalBattlefield.find((perm: BattlefieldPermanent) => perm.id === a.id) || a;
-        return createCombatCreature(processedAttacker as BattlefieldPermanent);
-      }
-      return null;
-    }).filter(Boolean) as CombatCreature[];
-    
-    // Get player info for life total
-    const player = context.gameState.players.find(p => p.id === context.playerId);
-    
-    // Calculate total unblocked damage to assess lethality
-    const playerLife = player?.life || DEFAULT_COMMANDER_LIFE;
-    const totalAttackerDamage = attackerCreatures.reduce((sum, a) => sum + a.power, 0);
-    let isLethalIfUnblocked = totalAttackerDamage >= playerLife;
-    
-    // CRITICAL: Check for commander damage lethality
-    // If any attacker is a commander with 21+ power, that's instantly lethal
-    // Get commander damage tracking from game state if available
-    const commanderDamage = (context.gameState as any)?.commanderDamage?.[context.playerId] || {};
-    for (const attacker of attackerCreatures) {
-      // Check if this is a commander (isCommander flag or in command zone)
-      const isCommander = attacker.permanent.isCommander || 
-                          (attacker.permanent.card as any)?.zone === 'command';
-      
-      if (isCommander) {
-        // Calculate total commander damage this attacker would deal
-        const commanderKey = `${attacker.controllerId}-${attacker.name}`;
-        const existingDamage = commanderDamage[commanderKey] || 0;
-        const totalCommanderDamage = existingDamage + attacker.power;
-        
-        // If this commander would deal 21+ total damage, it's lethal
-        if (totalCommanderDamage >= 21) {
-          isLethalIfUnblocked = true;
-          console.log(`[AI] Commander damage lethal threat detected: ${attacker.name} would deal ${totalCommanderDamage} total commander damage (${existingDamage} existing + ${attacker.power} new)`);
-          break;
-        }
-      }
-    }
-    
-    // Sort attackers by threat level (power + keywords + commander damage)
-    const sortedAttackers = [...attackerCreatures].sort((a, b) => {
-      let aThreat = a.power + (a.keywords.trample ? 3 : 0) + (a.keywords.deathtouch ? 4 : 0) + (a.keywords.flying ? 2 : 0);
-      let bThreat = b.power + (b.keywords.trample ? 3 : 0) + (b.keywords.deathtouch ? 4 : 0) + (b.keywords.flying ? 2 : 0);
-      
-      // Commanders get extra threat priority
-      const aIsCommander = a.permanent.isCommander || (a.permanent.card as any)?.zone === 'command';
-      const bIsCommander = b.permanent.isCommander || (b.permanent.card as any)?.zone === 'command';
-      if (aIsCommander) aThreat += 10;
-      if (bIsCommander) bThreat += 10;
-      
-      // Check for near-lethal commander damage
-      if (aIsCommander) {
-        const aCommanderKey = `${a.controllerId}-${a.name}`;
-        const aExistingDamage = commanderDamage[aCommanderKey] || 0;
-        if (aExistingDamage + a.power >= 21) aThreat += 100; // Massive priority for lethal commanders
-      }
-      if (bIsCommander) {
-        const bCommanderKey = `${b.controllerId}-${b.name}`;
-        const bExistingDamage = commanderDamage[bCommanderKey] || 0;
-        if (bExistingDamage + b.power >= 21) bThreat += 100;
-      }
-      
-      return bThreat - aThreat;
-    });
-    
-    const blockAssignments: { blockerId: string; attackerId: string }[] = [];
-    const blockerUsageCount = new Map<string, number>();
-    let blockersWithDeathTriggers = 0;
-    
-    // STRATEGY: Block aggressively, especially with creatures that benefit from dying
-    // or when facing lethal damage
-    for (const attacker of sortedAttackers) {
-      let bestBlocker: typeof blockerEvaluations[0] | null = null;
-      let bestScore = -Infinity;
-      
-      // Evaluate each available blocker for this attacker
-      for (const blockerEval of blockerEvaluations) {
-        const currentAssignments = blockerUsageCount.get(blockerEval.creature.id) || 0;
-        const blockerCapacity = getBlockerCapacity(blockerEval.perm);
-        if (currentAssignments >= blockerCapacity) continue;
-        
-        // Check if blocker can legally block this attacker
-        const validation = canCreatureBlock(blockerEval.creature, attacker, []);
-        if (!validation.legal) continue;
-        
-        // Calculate blocking score
-        let score = 0;
-        
-        const blockerSurvives = blockerEval.creature.toughness > attacker.power;
-        const attackerDies = attacker.toughness <= blockerEval.creature.power || blockerEval.creature.keywords.deathtouch;
-        const blockerDies = !blockerSurvives;
-        
-        // STRONG PREFERENCE: Use blockers with beneficial death triggers
-        if (blockerEval.wantsToGetKilled && blockerDies) {
-          score += 50 + blockerEval.deathBenefit * 5; // Massive bonus!
-        }
-        
-        // Good trades: blocker survives and kills attacker
-        if (blockerSurvives && attackerDies) {
-          score += 30;
-        }
-        
-        // Acceptable trades: both die
-        if (attackerDies && blockerDies && !blockerEval.wantsToGetKilled) {
-          score += 15;
-        }
-        
-        // Block trample creatures to prevent damage going through
-        if (attacker.keywords.trample) {
-          score += 20;
-        }
-        
-        // Block flying creatures with flyers
-        if (attacker.keywords.flying && blockerEval.creature.keywords.flying) {
-          score += 10;
-        }
-        
-        // Block deathtouch creatures to prevent them from killing something else
-        if (attacker.keywords.deathtouch) {
-          score += 15;
-        }
-        
-        // CRITICAL FIX: Block to prevent lethal damage
-        // If attack is lethal, we MUST block to survive
-        if (isLethalIfUnblocked) {
-          score += 100; // Massive bonus when facing lethal - always worth blocking
-        }
-        // Otherwise, chump block big threats even if blocker dies (prevent life loss)
-        else if (attacker.power >= 4 && blockerDies && !attackerDies) {
-          score += 10; // Worth it to prevent 4+ damage
-        }
-        
-        // Avoid sacrificing valuable creatures without benefit (unless lethal)
-        if (blockerDies && !blockerEval.wantsToGetKilled && !attackerDies && !isLethalIfUnblocked) {
-          score -= blockerEval.baseValue * 2; // Penalty based on creature value
-        }
-
-        if (blockerDies && !isLethalIfUnblocked) {
-          score -= blockerEval.preserveBias;
-        }
-        if (!blockerDies && blockerEval.attackBias > 0) {
-          score += Math.min(6, blockerEval.attackBias / 2);
-        }
-        
-        if (score > bestScore) {
-          bestScore = score;
-          bestBlocker = blockerEval;
-        }
-      }
-      
-      // Assign the best blocker if score is acceptable
-      // When facing lethal damage, block even with negative scores to survive
-      const minScoreThreshold = isLethalIfUnblocked ? -50 : 0;
-      if (bestBlocker && bestScore >= minScoreThreshold) {
-        blockAssignments.push({
-          blockerId: bestBlocker.creature.id,
-          attackerId: attacker.id,
-        });
-        blockerUsageCount.set(
-          bestBlocker.creature.id,
-          (blockerUsageCount.get(bestBlocker.creature.id) || 0) + 1
-        );
-        
-        if (bestBlocker.wantsToGetKilled) {
-          blockersWithDeathTriggers++;
-        }
-      }
-    }
-    
-    let reasoning = `Blocking ${blockAssignments.length}/${sortedAttackers.length} attackers`;
-    if (blockersWithDeathTriggers > 0) {
-      reasoning += ` (${blockersWithDeathTriggers} with beneficial death triggers!)`;
-    }
-    
-    return {
-      type: AIDecisionType.DECLARE_BLOCKERS,
-      playerId: context.playerId,
-      action: { blockers: blockAssignments },
-      reasoning,
-      confidence: 0.8,
-    };
   }
   
   /**
@@ -1449,305 +828,30 @@ export class AIEngine {
    * ENHANCED: Better hand management - don't dump entire hand, save removal/interaction
    */
   private makeBasicCastDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { gameState, playerId, options } = context;
-    const player = gameState.players.find(p => p.id === playerId);
-    
-    if (!player || !player.hand || player.hand.length === 0) {
-      return {
-        type: AIDecisionType.CAST_SPELL,
-        playerId,
-        action: { spell: null },
-        reasoning: 'No cards in hand',
-        confidence: 0,
-      };
-    }
-    
-    // Get available mana
-    const manaPool = player.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
-    const totalMana = manaPool.white + manaPool.blue + manaPool.black + 
-                      manaPool.red + manaPool.green + manaPool.colorless;
-    
-    // Filter castable spells based on options or all hand cards
-    const castableCards = (options || player.hand).filter((card: any) => {
-      const cmc = card.cmc || card.mana_value || 0;
-      return cmc <= totalMana;
+    return makeBasicCastDecisionFromSupport(context, config, {
+      evaluateSpellValue: (card, gameState, playerId) => this.evaluateSpellValue(card, gameState, playerId),
+      countOpponentThreats: (gameState, playerId) => this.countOpponentThreats(gameState, playerId),
     });
-    
-    if (castableCards.length === 0) {
-      return {
-        type: AIDecisionType.CAST_SPELL,
-        playerId,
-        action: { spell: null },
-        reasoning: 'No castable spells with available mana',
-        confidence: 0.8,
-      };
-    }
-    
-    const handSize = player.hand.length;
-    const phase = String(gameState.phase || '').toLowerCase();
-    const isMainPhase = phase.includes('main');
-    
-    // Categorize cards by type for better hand management
-    const categorizedCards = castableCards.map((card: any) => {
-      const typeLine = (card.type_line || '').toLowerCase();
-      const oracleText = (card.oracle_text || '').toLowerCase();
-      const value = this.evaluateSpellValue(card, gameState, playerId);
-      
-      let category = 'other';
-      let shouldHold = false;
-      
-      // Removal spells - hold unless there's a good target
-      if (oracleText.includes('destroy target') || oracleText.includes('exile target')) {
-        category = 'removal';
-        // Check if there are threats worth removing
-        const opponentBoardThreats = this.countOpponentThreats(gameState, playerId);
-        shouldHold = opponentBoardThreats === 0; // Hold removal if no threats yet
-      }
-      
-      // Counterspells - ALWAYS hold these for opponent's turn
-      if (oracleText.includes('counter target')) {
-        category = 'counter';
-        shouldHold = true; // Never maindeck counter spells
-      }
-      
-      // Card draw - good to cast when hand is low
-      if (oracleText.includes('draw') && !oracleText.includes('draw a card')) {
-        category = 'draw';
-        shouldHold = handSize > 5; // Hold if hand is already full
-      }
-      
-      // Creatures - generally good to cast
-      if (typeLine.includes('creature')) {
-        category = 'creature';
-        shouldHold = false;
-      }
-      
-      // Ramp - VERY good early, less good late
-      if (oracleText.includes('search your library') && oracleText.includes('land')) {
-        category = 'ramp';
-        const turn = gameState.turn || 1;
-        shouldHold = turn > 8; // Don't ramp late game
-      }
-      
-      // Mana rocks
-      if (typeLine.includes('artifact') && oracleText.includes('add') && oracleText.includes('mana')) {
-        category = 'mana_rock';
-        const turn = gameState.turn || 1;
-        shouldHold = turn > 6; // Don't play mana rocks late
-      }
-      
-      return {
-        card,
-        value,
-        category,
-        shouldHold,
-        cmc: card.cmc || card.mana_value || 0,
-      };
-    });
-    
-    // Filter out cards we should hold
-    const cardsToConsider = categorizedCards.filter(c => !c.shouldHold);
-    
-    if (cardsToConsider.length === 0) {
-      return {
-        type: AIDecisionType.CAST_SPELL,
-        playerId,
-        action: { spell: null },
-        reasoning: 'Holding cards for better timing',
-        confidence: 0.7,
-      };
-    }
-    
-    // Prioritize cards by category and value
-    const priorities: Record<string, number> = {
-      'ramp': 100,        // Ramp is highest priority early
-      'creature': 80,     // Build board presence
-      'draw': 70,         // Refill hand
-      'removal': 60,      // Remove threats (when they exist)
-      'mana_rock': 50,    // Mana acceleration
-      'other': 40,        // Everything else
-      'counter': 0,       // Don't maindeck counters
-    };
-    
-    // Sort by priority + value
-    cardsToConsider.sort((a, b) => {
-      const aPriority = (priorities[a.category] || 40) + a.value;
-      const bPriority = (priorities[b.category] || 40) + b.value;
-      return bPriority - aPriority;
-    });
-    
-    const bestSpell = cardsToConsider[0];
-    
-    // Only cast if value is positive (worth casting)
-    if (bestSpell.value > 0) {
-      return {
-        type: AIDecisionType.CAST_SPELL,
-        playerId,
-        action: { spell: bestSpell.card, targets: [] },
-        reasoning: `Casting ${bestSpell.card.name || 'spell'} [${bestSpell.category}] (value: ${bestSpell.value})`,
-        confidence: Math.min(0.9, 0.5 + bestSpell.value / 20),
-      };
-    }
-    
-    return {
-      type: AIDecisionType.CAST_SPELL,
-      playerId,
-      action: { spell: null },
-      reasoning: 'No valuable spells to cast right now',
-      confidence: 0.6,
-    };
   }
   
   /**
    * Count threatening permanents controlled by opponents
    */
   private countOpponentThreats(gameState: GameState, playerId: PlayerID): number {
-    let threatCount = 0;
-    const battlefield = this.getProcessedBattlefield(gameState);
-    
-    for (const perm of battlefield) {
-      if (perm.controller !== playerId) {
-        // Creatures are threats
-        if (this.hasPermanentType(perm, 'creature')) {
-          const power = getCreaturePower(perm);
-          const toughness = getCreatureToughness(perm);
-          
-          // Big creatures or evasive creatures are bigger threats
-          if (power >= 4 || toughness >= 5) {
-            threatCount += 2;
-          } else if (power >= 2) {
-            threatCount += 1;
-          }
-          
-          // Keywords make them more threatening
-          const keywords = extractCombatKeywords(perm);
-          if (keywords.flying || keywords.trample || keywords.deathtouch) {
-            threatCount += 1;
-          }
-        }
-        
-        // Planeswalkers are threats
-        if (this.hasPermanentType(perm, 'planeswalker')) {
-          threatCount += 2;
-        }
-        
-        // Dangerous enchantments/artifacts
-        if (this.hasPermanentType(perm, 'enchantment') || this.hasPermanentType(perm, 'artifact')) {
-          const oracleText = (perm.card?.oracle_text || '').toLowerCase();
-          if (oracleText.includes('each opponent') || oracleText.includes('damage')) {
-            threatCount += 1;
-          }
-        }
-      }
-    }
-    
-    return threatCount;
+    return countOpponentThreatsFromSupport(gameState, playerId, {
+      getProcessedBattlefield: this.getProcessedBattlefield.bind(this),
+      hasPermanentType: this.hasPermanentType.bind(this),
+    });
   }
-  
-  // AI Spell Evaluation Constants
-  private static readonly COUNTER_SPELL_EMPTY_STACK_PENALTY = -5;
-  private static readonly COUNTER_SPELL_HAS_TARGET_BONUS = 6;
-  private static readonly REMOVAL_SPELL_BONUS = 5;
-  private static readonly CARD_DRAW_VALUE_PER_CARD = 3;
-  private static readonly FLYING_BONUS = 3;
-  private static readonly HASTE_BONUS = 2;
-  private static readonly TRAMPLE_BONUS = 2;
-  private static readonly DEATHTOUCH_BONUS = 3;
-  private static readonly LIFELINK_BONUS = 2;
-  private static readonly VIGILANCE_BONUS = 1;
-  private static readonly MANA_ARTIFACT_EARLY_GAME_BONUS = 8;
-  private static readonly HIGH_CMC_EARLY_PENALTY = -3;
-  private static readonly BUFF_SPELL_NO_CREATURES_PENALTY = -5;
-  private static readonly BUFF_SPELL_WITH_CREATURES_BONUS = 3;
-  private static readonly AURA_NO_TARGET_PENALTY = -10;
   
   /**
    * Evaluate the value of casting a spell in the current game state
    */
   private evaluateSpellValue(card: any, gameState: GameState, playerId: PlayerID): number {
-    let value = 0;
-    const typeLine = (card.type_line || '').toLowerCase();
-    const oracleText = (card.oracle_text || '').toLowerCase();
-    const cmc = card.cmc || card.mana_value || 0;
-    
-    // Base value from card characteristics
-    if (typeLine.includes('creature')) {
-      const power = parseInt(card.power || '0', 10);
-      const toughness = parseInt(card.toughness || '0', 10);
-      value += (power + toughness) * 2;
-      
-      // Keywords increase value
-      if (oracleText.includes('flying')) value += AIEngine.FLYING_BONUS;
-      if (oracleText.includes('haste')) value += AIEngine.HASTE_BONUS;
-      if (oracleText.includes('trample')) value += AIEngine.TRAMPLE_BONUS;
-      if (oracleText.includes('deathtouch')) value += AIEngine.DEATHTOUCH_BONUS;
-      if (oracleText.includes('lifelink')) value += AIEngine.LIFELINK_BONUS;
-      if (oracleText.includes('vigilance')) value += AIEngine.VIGILANCE_BONUS;
-    }
-    
-    if (typeLine.includes('instant') || typeLine.includes('sorcery')) {
-      // Removal spells are valuable
-      if (oracleText.includes('destroy target') || oracleText.includes('exile target')) {
-        value += AIEngine.REMOVAL_SPELL_BONUS;
-      }
-      // Card draw is valuable
-      if (oracleText.includes('draw')) {
-        const drawMatch = oracleText.match(/draw (\d+)/);
-        value += drawMatch ? parseInt(drawMatch[1], 10) * AIEngine.CARD_DRAW_VALUE_PER_CARD : AIEngine.CARD_DRAW_VALUE_PER_CARD;
-      }
-      // Counter spells require timing awareness
-      if (oracleText.includes('counter target')) {
-        // Only valuable if there's something to counter
-        if ((gameState.stack || []).length > 0) {
-          value += AIEngine.COUNTER_SPELL_HAS_TARGET_BONUS;
-        } else {
-          value += AIEngine.COUNTER_SPELL_EMPTY_STACK_PENALTY; // Don't cast counters with empty stack
-        }
-      }
-    }
-    
-    if (typeLine.includes('artifact')) {
-      value += 3;
-      // Mana artifacts are more valuable early
-      if (oracleText.includes('add') && oracleText.includes('mana')) {
-        const turn = gameState.turn || 1;
-        value += Math.max(0, AIEngine.MANA_ARTIFACT_EARLY_GAME_BONUS - turn); // More valuable early game
-      }
-    }
-    
-    if (typeLine.includes('enchantment')) {
-      value += 3;
-      // Auras need targets
-      if (typeLine.includes('aura')) {
-        // Check if we have valid targets
-        const battlefield = this.getProcessedBattlefield(gameState);
-        const hasCreatures = battlefield.some((p: any) => 
-          p.controller === playerId && this.hasPermanentType(p, 'creature')
-        );
-        if (!hasCreatures) {
-          value += AIEngine.AURA_NO_TARGET_PENALTY; // No targets for aura
-        }
-      }
-    }
-    
-    // Penalize high-cost spells early game
-    const turn = gameState.turn || 1;
-    if (cmc > turn + 2) {
-      value += AIEngine.HIGH_CMC_EARLY_PENALTY; // Probably shouldn't cast this yet
-    }
-    
-    // Board state awareness
-    const battlefield = this.getProcessedBattlefield(gameState);
-    const creatureCount = battlefield.filter((p: any) =>
-      p.controller === playerId && this.hasPermanentType(p, 'creature')
-    ).length;
-    
-    // Buff spells more valuable with creatures
-    if (oracleText.includes('+1/+1') || oracleText.includes('+2/+2')) {
-      value += creatureCount > 0 ? AIEngine.BUFF_SPELL_WITH_CREATURES_BONUS : AIEngine.BUFF_SPELL_NO_CREATURES_PENALTY;
-    }
-    
-    return value;
+    return evaluateSpellValueFromSupport(card, gameState, playerId, {
+      getProcessedBattlefield: this.getProcessedBattlefield.bind(this),
+      hasPermanentType: this.hasPermanentType.bind(this),
+    });
   }
   
   /**
@@ -1755,29 +859,10 @@ export class AIEngine {
    * Uses proper combat validation to ensure only legal attackers are selected
    */
   private makeAggressiveDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    // Aggressive AI always attacks with all legal creatures, rarely blocks
-    if (context.decisionType === AIDecisionType.DECLARE_ATTACKERS) {
-      // Use getLegalAttackers to get only valid attackers
-      const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
-      
-      // Determine target player using threat assessment
-      const targetPlayerId = this.selectAttackTarget(context.gameState, context.playerId);
-      
-      const attackers = legalAttackerIds.map(id => ({
-        creatureId: id,
-        defendingPlayerId: targetPlayerId,
-      }));
-      
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId: context.playerId,
-        action: { attackers },
-        reasoning: `Aggressive: attack with all ${attackers.length} legal creatures`,
-        confidence: 0.9,
-      };
-    }
-    
-    return this.makeBasicDecision(context, config);
+    return makeAggressiveDecisionFromSupport(context, config, {
+      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
+      makeBasicDecision: (ctx, cfg) => this.makeBasicDecision(ctx, cfg),
+    });
   }
   
   /**
@@ -1785,51 +870,10 @@ export class AIEngine {
    * Uses proper combat validation to ensure only legal attackers are selected
    */
   private makeDefensiveDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    // Defensive AI attacks cautiously but still applies pressure
-    if (context.decisionType === AIDecisionType.DECLARE_ATTACKERS) {
-      const player = context.gameState.players.find(p => p.id === context.playerId);
-      const life = player?.life || 0;
-      
-      // Attack cautiously if life is above 20 (Commander starts at 40)
-      // or if opponent is very low on life
-      const opponents = context.gameState.players.filter(p => p.id !== context.playerId);
-      const lowestOpponentLife = Math.min(...opponents.map(p => p.life || 40));
-      
-      if (life > 20 || lowestOpponentLife < 15) {
-        // Use getLegalAttackers to get only valid attackers
-        const legalAttackerIds = getLegalAttackers(context.gameState, context.playerId);
-        // Attack with half to two-thirds of legal creatures (defensive but active)
-        const attackRatio = life > 30 ? 0.66 : 0.5;
-        const attackerCount = Math.floor(legalAttackerIds.length * attackRatio);
-        const attackerIds = legalAttackerIds.slice(0, Math.max(1, attackerCount));
-        
-        // Use threat assessment to select target
-        const targetPlayerId = this.selectAttackTarget(context.gameState, context.playerId);
-        
-        const attackers = attackerIds.map(id => ({
-          creatureId: id,
-          defendingPlayerId: targetPlayerId,
-        }));
-        
-        return {
-          type: AIDecisionType.DECLARE_ATTACKERS,
-          playerId: context.playerId,
-          action: { attackers },
-          reasoning: `Defensive: cautious attack with ${attackers.length}/${legalAttackerIds.length} legal creatures`,
-          confidence: 0.6,
-        };
-      }
-      
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId: context.playerId,
-        action: { attackers: [] },
-        reasoning: 'Defensive: preserve life, no attack',
-        confidence: 0.8,
-      };
-    }
-    
-    return this.makeBasicDecision(context, config);
+    return makeDefensiveDecisionFromSupport(context, config, {
+      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
+      makeBasicDecision: (ctx, cfg) => this.makeBasicDecision(ctx, cfg),
+    });
   }
   
   /**
@@ -1838,126 +882,13 @@ export class AIEngine {
    * Attacks only when in a dominant position.
    */
   private makeControlDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { gameState, playerId, decisionType, options } = context;
-    
-    switch (decisionType) {
-      case AIDecisionType.DECLARE_ATTACKERS: {
-        // Control AI attacks when safe to do so or when it has answers
-        const player = gameState.players.find(p => p.id === playerId);
-        const opponents = gameState.players.filter(p => p.id !== playerId);
-        
-        // Check if we have board presence
-        const battlefield = this.getProcessedBattlefield(gameState);
-        const myCreatureCount = battlefield.filter((p: any) =>
-          p.controller === playerId && this.hasPermanentType(p, 'creature')
-        ).length;
-        
-        const opponentCreatureCount = opponents.reduce((sum, opp) => 
-          sum + battlefield.filter((p: any) =>
-            p.controller === opp.id && this.hasPermanentType(p, 'creature')
-          ).length, 0);
-        
-        // Check if any opponent is low on life (potential kill)
-        const lowestOpponentLife = Math.min(...opponents.map(p => p.life || 40));
-        
-        // Attack if we have board parity/advantage OR if opponent is low on life
-        if (myCreatureCount >= opponentCreatureCount || lowestOpponentLife < 20) {
-          const legalAttackerIds = getLegalAttackers(gameState, playerId);
-          // Attack with 50-75% of creatures (keep some back for defense)
-          const attackRatio = myCreatureCount > opponentCreatureCount + 2 ? 0.75 : 0.5;
-          const attackerCount = Math.ceil(legalAttackerIds.length * attackRatio);
-          const attackerIds = legalAttackerIds.slice(0, attackerCount);
-          
-          // Use threat assessment to select target
-          const targetPlayerId = this.selectAttackTarget(gameState, playerId);
-          
-          const attackers = attackerIds.map(id => ({
-            creatureId: id,
-            defendingPlayerId: targetPlayerId,
-          }));
-          
-          return {
-            type: AIDecisionType.DECLARE_ATTACKERS,
-            playerId,
-            action: { attackers },
-            reasoning: `Control: attacking with ${attackers.length}/${legalAttackerIds.length} creatures`,
-            confidence: 0.7,
-          };
-        }
-        
-        return {
-          type: AIDecisionType.DECLARE_ATTACKERS,
-          playerId,
-          action: { attackers: [] },
-          reasoning: 'Control: holding back, need more board presence',
-          confidence: 0.8,
-        };
-      }
-      
-      case AIDecisionType.CAST_SPELL: {
-        const player = gameState.players.find(p => p.id === playerId);
-        const hand = player?.hand || [];
-        
-        // Prioritize holding up mana for counterspells
-        const hasCounterInHand = hand.some((card: any) => 
-          (card.oracle_text || '').toLowerCase().includes('counter target')
-        );
-        
-        // Check if opponent has untapped mana (might cast something)
-        const opponentHasMana = gameState.players.some(p => {
-          if (p.id === playerId) return false;
-          const pool = p.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
-          return pool.white + pool.blue + pool.black + pool.red + pool.green + pool.colorless > 0;
-        });
-        
-        // If we have a counter and opponent might cast, hold mana
-        if (hasCounterInHand && opponentHasMana && (gameState.stack || []).length === 0) {
-          return {
-            type: AIDecisionType.CAST_SPELL,
-            playerId,
-            action: { spell: null },
-            reasoning: 'Control: holding counter spell mana',
-            confidence: 0.8,
-          };
-        }
-        
-        // Otherwise, prioritize removal and card draw
-        const prioritizedSpells = hand
-          .filter((card: any) => {
-            const text = (card.oracle_text || '').toLowerCase();
-            return text.includes('destroy target') || 
-                   text.includes('exile target') ||
-                   text.includes('draw') ||
-                   text.includes('counter target');
-          })
-          .sort((a: any, b: any) => {
-            const aText = (a.oracle_text || '').toLowerCase();
-            const bText = (b.oracle_text || '').toLowerCase();
-            // Prioritize removal > draw > counter (when stack empty)
-            let aScore = 0, bScore = 0;
-            if (aText.includes('destroy') || aText.includes('exile')) aScore += 10;
-            if (bText.includes('destroy') || bText.includes('exile')) bScore += 10;
-            if (aText.includes('draw')) aScore += 5;
-            if (bText.includes('draw')) bScore += 5;
-            return bScore - aScore;
-          });
-        
-        if (prioritizedSpells.length > 0) {
-          return {
-            type: AIDecisionType.CAST_SPELL,
-            playerId,
-            action: { spell: prioritizedSpells[0] },
-            reasoning: `Control: casting high-value spell ${prioritizedSpells[0].name}`,
-            confidence: 0.7,
-          };
-        }
-        
-        return this.makeBasicCastDecision(context, config);
-      }
-      
-      default:
-        return this.makeBasicDecision(context, config);
-    }
+    return makeControlDecisionFromSupport(context, config, {
+      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
+      getProcessedBattlefield: (gameState) => this.getProcessedBattlefield(gameState),
+      hasPermanentType: (perm, type) => this.hasPermanentType(perm, type),
+      makeBasicCastDecision: (ctx, cfg) => this.makeBasicCastDecision(ctx, cfg),
+      makeBasicDecision: (ctx, cfg) => this.makeBasicDecision(ctx, cfg),
+    });
   }
   
   /**
@@ -1965,170 +896,12 @@ export class AIEngine {
    * Focuses on finding and protecting combo pieces, ramping mana, and drawing cards.
    */
   private makeComboDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { gameState, playerId, decisionType, options } = context;
-    
-    switch (decisionType) {
-      case AIDecisionType.DECLARE_ATTACKERS: {
-        // Combo AI attacks with "vanilla" creatures to apply pressure while protecting combo pieces
-        const player = gameState.players.find(p => p.id === playerId);
-        const life = player?.life || 0;
-        
-        // Attack if life is reasonably safe (>15) or if we have a significant creature advantage
-        const opponents = gameState.players.filter(p => p.id !== playerId);
-        const battlefield = this.getProcessedBattlefield(gameState);
-        const myCreatureCount = battlefield.filter((p: any) =>
-          p.controller === playerId && this.hasPermanentType(p, 'creature')
-        ).length;
-        const maxOpponentCreatures = Math.max(...opponents.map(opp =>
-          battlefield.filter((p: any) =>
-            p.controller === opp.id && this.hasPermanentType(p, 'creature')
-          ).length
-        ));
-        
-        if (life > 15 || myCreatureCount > maxOpponentCreatures + 3) {
-          const legalAttackerIds = getLegalAttackers(gameState, playerId);
-          // Attack with "vanilla" creatures (those without abilities)
-          // Combo pieces typically have valuable abilities in their text
-          const vanillaAttackers = legalAttackerIds.filter(id => {
-            const perm = battlefield.find((p: any) => p.id === id);
-            const text = (perm?.card?.oracle_text || '').toLowerCase();
-            // Attack with creatures that don't have activated abilities or important triggers
-            return !text.includes(':') && !text.includes('whenever') && !text.includes('when');
-          });
-          
-          // If we have no vanilla creatures, attack with a few combo pieces anyway (applying pressure)
-          const attackerIds = vanillaAttackers.length > 0 
-            ? vanillaAttackers 
-            : legalAttackerIds.slice(0, Math.max(1, Math.floor(legalAttackerIds.length * 0.3)));
-          
-          // Use threat assessment to select target
-          const targetPlayerId = this.selectAttackTarget(gameState, playerId);
-          
-          const attackers = attackerIds.map(id => ({
-            creatureId: id,
-            defendingPlayerId: targetPlayerId,
-          }));
-          
-          return {
-            type: AIDecisionType.DECLARE_ATTACKERS,
-            playerId,
-            action: { attackers },
-            reasoning: `Combo: attacking with ${attackers.length} non-essential creatures`,
-            confidence: 0.6,
-          };
-        }
-        
-        return {
-          type: AIDecisionType.DECLARE_ATTACKERS,
-          playerId,
-          action: { attackers: [] },
-          reasoning: 'Combo: preserving creatures (low life or need blockers)',
-          confidence: 0.9,
-        };
-      }
-      
-      case AIDecisionType.CAST_SPELL: {
-        const player = gameState.players.find(p => p.id === playerId);
-        const hand = player?.hand || [];
-        
-        // Prioritize: tutors > card draw > mana ramp > combo pieces
-        const prioritizedSpells = hand.sort((a: any, b: any) => {
-          const aText = (a.oracle_text || '').toLowerCase();
-          const bText = (b.oracle_text || '').toLowerCase();
-          
-          let aScore = 0, bScore = 0;
-          
-          // Tutors (search library) are highest priority
-          if (aText.includes('search your library')) aScore += 20;
-          if (bText.includes('search your library')) bScore += 20;
-          
-          // Card draw
-          if (aText.includes('draw')) {
-            const match = aText.match(/draw (\d+)/);
-            aScore += match ? parseInt(match[1], 10) * 4 : 4;
-          }
-          if (bText.includes('draw')) {
-            const match = bText.match(/draw (\d+)/);
-            bScore += match ? parseInt(match[1], 10) * 4 : 4;
-          }
-          
-          // Mana ramp
-          if (aText.includes('add') && aText.includes('mana')) aScore += 8;
-          if (bText.includes('add') && bText.includes('mana')) bScore += 8;
-          
-          // Cards with combo potential (untap effects, infinite loops)
-          if (aText.includes('untap') || aText.includes('copy')) aScore += 6;
-          if (bText.includes('untap') || bText.includes('copy')) bScore += 6;
-          
-          return bScore - aScore;
-        });
-        
-        // Cast the highest priority spell we can afford
-        const manaPool = player?.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
-        const totalMana = manaPool.white + manaPool.blue + manaPool.black + 
-                          manaPool.red + manaPool.green + manaPool.colorless;
-        
-        const castable = prioritizedSpells.filter((card: any) => 
-          (card.cmc || card.mana_value || 0) <= totalMana
-        );
-        
-        if (castable.length > 0) {
-          return {
-            type: AIDecisionType.CAST_SPELL,
-            playerId,
-            action: { spell: castable[0] },
-            reasoning: `Combo: advancing game plan with ${castable[0].name}`,
-            confidence: 0.8,
-          };
-        }
-        
-        return {
-          type: AIDecisionType.CAST_SPELL,
-          playerId,
-          action: { spell: null },
-          reasoning: 'Combo: saving resources for combo turn',
-          confidence: 0.6,
-        };
-      }
-      
-      case AIDecisionType.SACRIFICE: {
-        // Combo AI tries to avoid sacrificing combo pieces
-        const battlefield = this.getProcessedBattlefield(gameState);
-        const playerPermanents = battlefield.filter((p: any) => p.controller === playerId);
-        
-        // Sort by combo value (sacrifice least valuable first)
-        const sorted = [...playerPermanents].sort((a: any, b: any) => {
-          const aText = (a.card?.oracle_text || '').toLowerCase();
-          const bText = (b.card?.oracle_text || '').toLowerCase();
-          
-          let aValue = 0, bValue = 0;
-          
-          // Combo pieces have activated abilities or important triggers
-          if (aText.includes(':')) aValue += 10;
-          if (bText.includes(':')) bValue += 10;
-          if (aText.includes('whenever') || aText.includes('when')) aValue += 5;
-          if (bText.includes('whenever') || bText.includes('when')) bValue += 5;
-          if (aText.includes('untap')) aValue += 8;
-          if (bText.includes('untap')) bValue += 8;
-          
-          return aValue - bValue; // Sacrifice lowest value first
-        });
-        
-        const sacrificeCount = context.constraints?.count || 1;
-        const sacrificed = sorted.slice(0, sacrificeCount).map((p: any) => p.id);
-        
-        return {
-          type: AIDecisionType.SACRIFICE,
-          playerId,
-          action: { sacrificed },
-          reasoning: `Combo: sacrificing ${sacrificed.length} non-essential permanent(s)`,
-          confidence: 0.7,
-        };
-      }
-      
-      default:
-        return this.makeBasicDecision(context, config);
-    }
+    return makeComboDecisionFromSupport(context, config, {
+      selectAttackTarget: (gameState, playerId) => this.selectAttackTarget(gameState, playerId),
+      getProcessedBattlefield: (gameState) => this.getProcessedBattlefield(gameState),
+      hasPermanentType: (perm, type) => this.hasPermanentType(perm, type),
+      makeBasicDecision: (ctx, cfg) => this.makeBasicDecision(ctx, cfg),
+    });
   }
   
   // ============================================================================
@@ -2140,73 +913,12 @@ export class AIEngine {
    * NOW IMPROVED: Prefers sacrificing creatures with beneficial death triggers!
    */
   private makeSacrificeDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, options, constraints, gameState } = context;
-    const sacrificeCount = constraints?.count || 1;
-    const permanentType = constraints?.type || 'permanent';
-    
-    // Get permanents from global battlefield that can be sacrificed
-    const globalBattlefield = this.getProcessedBattlefield(context.gameState);
-    const playerPermanents = globalBattlefield.filter((p: any) => p.controller === playerId);
-    
-    if (playerPermanents.length === 0) {
-      return {
-        type: AIDecisionType.SACRIFICE,
-        playerId,
-        action: { sacrificed: [] },
-        reasoning: 'No permanents to sacrifice',
-        confidence: 0,
-      };
-    }
-    
-    // Filter to only valid sacrifice targets
-    let validTargets = playerPermanents.filter((perm: BattlefieldPermanent) => {
-      if (permanentType === 'creature') return this.hasPermanentType(perm, 'creature');
-      if (permanentType === 'artifact') return this.hasPermanentType(perm, 'artifact');
-      if (permanentType === 'enchantment') return this.hasPermanentType(perm, 'enchantment');
-      if (permanentType === 'land') return this.hasPermanentType(perm, 'land');
-      return true; // 'permanent' = any
+    return makeSacrificeDecisionFromSupport(context, config, {
+      getProcessedBattlefield: (gameState) => this.getProcessedBattlefield(gameState),
+      hasPermanentType: (perm, type) => this.hasPermanentType(perm, type),
+      selectSacrificeTarget: (candidates, gameState, playerId, preferDeathTriggers) =>
+        this.selectSacrificeTarget(candidates, gameState, playerId, preferDeathTriggers),
     });
-    
-    // Use enhanced sacrifice target selection with CardAnalyzer
-    const sacrificeResults: { id: string; reason: string; priority: number }[] = [];
-    let remainingTargets = [...validTargets];
-    
-    for (let i = 0; i < sacrificeCount && remainingTargets.length > 0; i++) {
-      const result = this.selectSacrificeTarget(remainingTargets, gameState, playerId, true);
-      if (result.creature) {
-        sacrificeResults.push({
-          id: result.creature.id,
-          reason: result.reason,
-          priority: result.priority,
-        });
-        // Remove from remaining using filter (more efficient than splice)
-        const selectedId = result.creature.id;
-        remainingTargets = remainingTargets.filter(t => t.id !== selectedId);
-      }
-    }
-    
-    const sacrificed = sacrificeResults.map(r => r.id);
-    
-    // Build reasoning from selection
-    const withDeathTriggers = sacrificeResults.filter(r => 
-      r.reason.toLowerCase().includes('death') || r.reason.toLowerCase().includes('trigger')
-    ).length;
-    
-    let reasoning = `Sacrificing ${sacrificed.length} ${permanentType}(s)`;
-    if (withDeathTriggers > 0) {
-      reasoning += ` (${withDeathTriggers} with beneficial death triggers!)`;
-    }
-    if (sacrificeResults.length > 0 && sacrificeResults[0].reason) {
-      reasoning += ` - ${sacrificeResults[0].reason}`;
-    }
-    
-    return {
-      type: AIDecisionType.SACRIFICE,
-      playerId,
-      action: { sacrificed },
-      reasoning,
-      confidence: 0.8,
-    };
   }
   
   /**
@@ -2214,60 +926,7 @@ export class AIEngine {
    * Returns the benefit value (positive = beneficial, 0 = none)
    */
   private evaluateDeathTrigger(card: KnownCardRef): number {
-    const oracleText = (card?.oracle_text || '').toLowerCase();
-    let benefit = 0;
-    
-    // Check for "when ~ dies" or "when this creature dies" patterns
-    if (!oracleText.includes('when') || !oracleText.includes('dies')) {
-      return 0;
-    }
-    
-    // Beneficial death triggers:
-    
-    // Ramp/land fetch (e.g., Veteran Explorer, Sakura-Tribe Elder)
-    if ((oracleText.includes('search') && oracleText.includes('land')) ||
-        (oracleText.includes('search your library') && oracleText.includes('basic land'))) {
-      benefit += 8; // Very valuable - ramp is crucial
-    }
-    
-    // Card draw
-    if (oracleText.includes('draw')) {
-      const drawMatch = oracleText.match(/draw (\d+)/);
-      benefit += drawMatch ? parseInt(drawMatch[1], 10) * 3 : 3;
-    }
-    
-    // Token creation
-    if (oracleText.includes('create') && (oracleText.includes('token') || oracleText.includes('creature token'))) {
-      benefit += 4;
-    }
-    
-    // Return to hand (recursion)
-    if (oracleText.includes('return') && oracleText.includes('to') && oracleText.includes('hand')) {
-      benefit += 3;
-    }
-    
-    // Damage to opponents
-    if (oracleText.includes('damage') && (oracleText.includes('opponent') || oracleText.includes('each opponent'))) {
-      benefit += 2;
-    }
-    
-    // Life gain
-    if (oracleText.includes('gain') && oracleText.includes('life')) {
-      benefit += 1;
-    }
-    
-    // Tutor effects (search for specific cards)
-    if (oracleText.includes('search your library') && !oracleText.includes('land')) {
-      benefit += 5;
-    }
-    
-    // Beneficial for all players (symmetric effects like Veteran Explorer)
-    // These are still valuable, but slightly less so
-    if (oracleText.includes('each player')) {
-      benefit = Math.max(1, Math.floor(benefit * 0.7));
-    }
-    
-    return benefit;
+    return evaluateDeathTrigger(card);
   }
 
   /**
@@ -2275,65 +934,9 @@ export class AIEngine {
    * Now includes triggered ability evaluation
    */
   private evaluatePermanentValue(perm: BattlefieldPermanent): number {
-    const card = perm.card as KnownCardRef;
-    let value = 0;
-    
-    // Base value from card characteristics
-    const typeLine = (card?.type_line || '').toLowerCase();
-    const oracleText = (card?.oracle_text || '').toLowerCase();
-    
-    // Creatures: value based on power + toughness
-    if (this.hasPermanentType(perm, 'creature')) {
-      const power = getCreaturePower(perm);
-      const toughness = getCreatureToughness(perm);
-      value += (power + toughness) * 2;
-      
-      // Keyword abilities add value
-      const keywords = extractCombatKeywords(perm);
-      if (keywords.flying) value += 3;
-      if (keywords.deathtouch) value += 4;
-      if (keywords.lifelink) value += 3;
-      if (keywords.trample) value += 2;
-      if (keywords.indestructible) value += 10;
-      if (keywords.doubleStrike) value += 5;
-      
-      // ETB (enters-the-battlefield) triggers add value
-      if (oracleText.includes('when') && oracleText.includes('enters the battlefield')) {
-        if (oracleText.includes('draw')) value += 3;
-        if (oracleText.includes('search')) value += 3;
-        if (oracleText.includes('create')) value += 2;
-        if (oracleText.includes('return') && oracleText.includes('from your graveyard')) value += 3;
-      }
-      
-      // Death triggers - these are special: they DON'T add to the sacrifice value
-      // but they're tracked separately for combat decisions
-      // We don't add them here because we want the creature to be considered low-value
-      // for sacrifice, but high-value for getting killed in combat
-    }
-    
-    // Artifacts: moderate value
-    if (typeLine.includes('artifact')) {
-      value += 3;
-      // Mana artifacts worth more
-      if (oracleText.includes('add') && oracleText.includes('mana')) value += 4;
-    }
-    
-    // Enchantments: moderate value
-    if (typeLine.includes('enchantment')) value += 4;
-    
-    // Lands: low value (basics), higher for non-basics
-    if (typeLine.includes('land')) {
-      const isBasic = typeLine.includes('basic');
-      value += isBasic ? 1 : 3;
-    }
-    
-    // Tokens are less valuable than non-tokens
-    if (perm.isToken) value -= 2;
-    
-    // +1/+1 counters add value
-    value += (perm.counters?.['+1/+1'] || 0) * 2;
-    
-    return Math.max(0, value);
+    return evaluatePermanentValue(perm, {
+      hasPermanentType: this.hasPermanentType.bind(this),
+    });
   }
   
   /**
@@ -2341,292 +944,44 @@ export class AIEngine {
    * This is different from permanent value - it considers the benefit of dying
    */
   private evaluateCombatValue(perm: BattlefieldPermanent, isAttacking: boolean): { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number } {
-    const card = perm.card as KnownCardRef;
-    const power = getCreaturePower(perm);
-    const toughness = getCreatureToughness(perm);
-    
-    // Base combat value from stats
-    let combatValue = power + toughness;
-    
-    // Check for death trigger benefit
-    const deathBenefit = this.evaluateDeathTrigger(card);
-    
-    // If this creature has a beneficial death trigger, we WANT it to die
-    const wantsToGetKilled = deathBenefit > 0;
-    
-    // For creatures with beneficial death triggers:
-    // - When attacking: we want them to die, so increase combat value
-    // - When blocking: we want them to die, so increase combat value
-    // - Small creatures with big death triggers are ideal suicide attackers
-    if (wantsToGetKilled) {
-      // Heavily favor attacking/blocking with creatures that benefit from dying
-      combatValue += deathBenefit * 3;
-      
-      // Extra bonus for small creatures with good death triggers (efficient trades)
-      if (power + toughness <= 2 && deathBenefit >= 5) {
-        combatValue += 10; // Strongly encourage using these in combat
-      }
-    }
-    
-    return { combatValue, wantsToGetKilled, deathBenefit };
+    return evaluateCombatValue(perm);
   }
   
   /**
    * Make a target selection decision
    */
   private makeTargetDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, options, constraints, gameState } = context;
-    const targetCount = constraints?.count || 1;
-    const targetType = constraints?.type || 'any';
-    const spellType = constraints?.spellType as 'destroy' | 'exile' | 'bounce' | undefined;
-    
-    if (!options || options.length === 0) {
-      return {
-        type: AIDecisionType.SELECT_TARGET,
-        playerId,
-        action: { targets: [] },
-        reasoning: 'No valid targets',
-        confidence: 0,
-      };
-    }
-    
-    // For creature targets: use enhanced threat assessment
-    // For player targets: prioritize opponent with lowest life
-    let selectedTargets: string[] = [];
-    let reasoning = '';
-    
-    if (targetType === 'creature' || targetType === 'permanent') {
-      // Convert options to permanents for analysis
-      const permanents = options.filter((opt: any) => 
-        typeof opt === 'object' && opt.id
-      ) as BattlefieldPermanent[];
-      
-      // Use enhanced removal target selection if this is a removal spell
-      if (spellType && permanents.length > 0) {
-        const results: { target: BattlefieldPermanent; reason: string; priority: number }[] = [];
-        let availablePermanents = permanents;
-        
-        for (let i = 0; i < targetCount && availablePermanents.length > 0; i++) {
-          const result = this.selectRemovalTarget(availablePermanents, gameState, playerId, spellType);
-          if (result.target) {
-            results.push(result);
-            // Remove selected target from pool using filter
-            const selectedId = result.target.id;
-            availablePermanents = availablePermanents.filter(p => p.id !== selectedId);
-          }
-        }
-        
-        if (results.length > 0) {
-          selectedTargets = results.map(r => r.target.id);
-          reasoning = results.map(r => r.reason).join('; ');
-        }
-      }
-      
-      // Fallback to threat-based sorting with CardAnalyzer
-      if (selectedTargets.length === 0) {
-        const sorted = [...options].sort((a: any, b: any) => {
-          if (typeof a !== 'object' || typeof b !== 'object') return 0;
-          
-          // Use CardAnalyzer for proper threat assessment
-          const aAnalysis = cardAnalyzer.analyzeCard(a);
-          const bAnalysis = cardAnalyzer.analyzeCard(b);
-          
-          // Prioritize opponent's permanents
-          const aIsOpponent = a.controller !== playerId;
-          const bIsOpponent = b.controller !== playerId;
-          if (aIsOpponent !== bIsOpponent) {
-            return aIsOpponent ? -1 : 1;
-          }
-          
-          // Compare by removal priority
-          return bAnalysis.removalTargetPriority - aAnalysis.removalTargetPriority;
-        });
-        
-        selectedTargets = sorted.slice(0, targetCount).map((t: any) => 
-          typeof t === 'string' ? t : t.id
-        );
-        reasoning = `Selected ${selectedTargets.length} highest-threat target(s)`;
-      }
-    } else if (targetType === 'player') {
-      // Filter options to only include players, then sort by lowest life
-      const playerOptions = options.filter((opt: any) => {
-        const optId = typeof opt === 'string' ? opt : opt.id;
-        return gameState.players.some(p => p.id === optId && p.id !== playerId);
-      });
-      
-      // Sort by life total (ascending - target lowest life first)
-      playerOptions.sort((a: any, b: any) => {
-        const aId = typeof a === 'string' ? a : a.id;
-        const bId = typeof b === 'string' ? b : b.id;
-        const aPlayer = gameState.players.find(p => p.id === aId);
-        const bPlayer = gameState.players.find(p => p.id === bId);
-        return (aPlayer?.life || 0) - (bPlayer?.life || 0);
-      });
-      
-      selectedTargets = playerOptions.slice(0, targetCount).map((p: any) => 
-        typeof p === 'string' ? p : p.id
-      );
-      reasoning = 'Targeting opponent with lowest life';
-    } else {
-      // Default: random selection from provided options
-      const shuffled = [...options].sort(() => Math.random() - 0.5);
-      selectedTargets = shuffled.slice(0, targetCount).map((t: any) =>
-        typeof t === 'string' ? t : t.id
-      );
-      reasoning = 'Random target selection';
-    }
-    
-    return {
-      type: AIDecisionType.SELECT_TARGET,
-      playerId,
-      action: { targets: selectedTargets },
-      reasoning: reasoning || `Selected ${selectedTargets.length} target(s)`,
-      confidence: 0.8,
-    };
+    return makeTargetDecisionFromSupport(
+      context,
+      this.selectRemovalTarget.bind(this)
+    );
   }
   
   /**
    * Make a triggered ability decision (e.g., "may" abilities)
    */
   private makeTriggeredAbilityDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, constraints } = context;
-    const isOptional = constraints?.optional || false;
-    const effectText = constraints?.effect || '';
-    
-    // For "may" abilities, use heuristics to decide
-    if (isOptional) {
-      // Generally beneficial effects: drawing, life gain, creature buffs
-      const beneficial = 
-        effectText.includes('draw') ||
-        effectText.includes('gain') ||
-        effectText.includes('+1/+1') ||
-        effectText.includes('create') ||
-        effectText.includes('search');
-      
-      // Generally harmful effects: discard, sacrifice, lose life
-      const harmful =
-        effectText.includes('discard') ||
-        effectText.includes('sacrifice') ||
-        effectText.includes('lose') ||
-        effectText.includes('damage to you');
-      
-      const accept = beneficial && !harmful;
-      
-      return {
-        type: AIDecisionType.TRIGGERED_ABILITY,
-        playerId,
-        action: { accept, triggered: true },
-        reasoning: accept ? 'Accepting beneficial trigger' : 'Declining harmful/neutral trigger',
-        confidence: 0.7,
-      };
-    }
-    
-    // Non-optional: must resolve
-    return {
-      type: AIDecisionType.TRIGGERED_ABILITY,
-      playerId,
-      action: { accept: true, triggered: true },
-      reasoning: 'Mandatory trigger - must resolve',
-      confidence: 1,
-    };
+    return makeTriggeredAbilityDecisionFromSupport(context);
   }
   
   /**
    * Make a damage assignment decision (for multiple blockers with trample)
    */
   private makeDamageAssignmentDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, constraints, options } = context;
-    const attacker = constraints?.attacker;
-    const blockers = constraints?.blockers || [];
-    const hasTrample = constraints?.trample || false;
-    
-    if (!attacker || blockers.length === 0) {
-      return {
-        type: AIDecisionType.ASSIGN_DAMAGE,
-        playerId,
-        action: { assignments: [], trampleDamage: 0 },
-        reasoning: 'No blockers to assign damage to',
-        confidence: 1,
-      };
-    }
-    
-    // Use combat automation to calculate lethal damage
-    const processedBattlefield = this.getProcessedBattlefield(context.gameState);
-    const processedAttacker = processedBattlefield.find((perm: BattlefieldPermanent) => perm.id === attacker.id) || attacker;
-    const attackerCreature = createCombatCreature(processedAttacker as BattlefieldPermanent);
-    const blockerCreatures = blockers.map((b: BattlefieldPermanent) => {
-      const processedBlocker = processedBattlefield.find((perm: BattlefieldPermanent) => perm.id === b.id) || b;
-      return createCombatCreature(processedBlocker as BattlefieldPermanent);
-    });
-    
-    // Sort blockers by toughness (kill smallest first to maximize trample)
-    blockerCreatures.sort((a: CombatCreature, b: CombatCreature) => a.toughness - b.toughness);
-    
-    const assignments: { blockerId: string; damage: number }[] = [];
-    let remainingPower = attackerCreature.power;
-    
-    for (const blocker of blockerCreatures) {
-      if (remainingPower <= 0) break;
-      
-      const lethalDamage = calculateLethalDamage(attackerCreature, blocker);
-      const assigned = Math.min(remainingPower, lethalDamage);
-      
-      assignments.push({
-        blockerId: blocker.id,
-        damage: assigned,
-      });
-      
-      remainingPower -= assigned;
-    }
-    
-    const trampleDamage = hasTrample ? remainingPower : 0;
-    
-    return {
-      type: AIDecisionType.ASSIGN_DAMAGE,
-      playerId,
-      action: { assignments, trampleDamage },
-      reasoning: `Assigned damage to ${assignments.length} blockers, ${trampleDamage} trample`,
-      confidence: 0.9,
-    };
+    return makeDamageAssignmentDecisionFromSupport(
+      context,
+      this.getProcessedBattlefield.bind(this)
+    );
   }
   
   /**
    * Make a blocker ordering decision
    */
   private makeBlockerOrderDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, options } = context;
-    const blockers = options || [];
-    
-    if (blockers.length === 0) {
-      return {
-        type: AIDecisionType.ORDER_BLOCKERS,
-        playerId,
-        action: { order: [] },
-        reasoning: 'No blockers to order',
-        confidence: 1,
-      };
-    }
-    
-    // Order blockers by toughness ascending (kill smallest first for maximum trample)
-    const processedBattlefield = this.getProcessedBattlefield(context.gameState);
-    const resolvePermanent = (perm: any) => typeof perm === 'object' && perm?.id
-      ? processedBattlefield.find((entry: BattlefieldPermanent) => entry.id === perm.id) || perm
-      : perm;
-    const ordered = [...blockers].sort((a: any, b: any) => {
-      const aToughness = typeof a === 'object' ? getCreatureToughness(resolvePermanent(a)) : 0;
-      const bToughness = typeof b === 'object' ? getCreatureToughness(resolvePermanent(b)) : 0;
-      return aToughness - bToughness;
-    });
-    
-    const order = ordered.map((b: any) => typeof b === 'string' ? b : b.id);
-    
-    return {
-      type: AIDecisionType.ORDER_BLOCKERS,
-      playerId,
-      action: { order },
-      reasoning: 'Ordered blockers by ascending toughness',
-      confidence: 0.8,
-    };
+    return makeBlockerOrderDecisionFromSupport(
+      context,
+      this.getProcessedBattlefield.bind(this)
+    );
   }
   
   /**
@@ -2634,70 +989,14 @@ export class AIEngine {
    * Evaluates token options based on power/toughness and utility
    */
   private makeTokenCreationDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, options, constraints } = context;
-    const tokenType = constraints?.type || 'creature';
-    const count = constraints?.count || 1;
-    
-    let selectedToken = '1/1 Soldier'; // Default creature
-    
-    if (tokenType === 'artifact') {
-      // Prefer Treasure for mana flexibility
-      selectedToken = 'Treasure';
-    } else if (options && options.length > 0) {
-      // Evaluate token options and pick the best one
-      let bestToken = options[0];
-      let bestValue = 0;
-      
-      for (const tokenName of options) {
-        const value = this.evaluateTokenValue(tokenName);
-        if (value > bestValue) {
-          bestValue = value;
-          bestToken = tokenName;
-        }
-      }
-      
-      selectedToken = bestToken;
-    }
-    
-    return {
-      type: AIDecisionType.CREATE_TOKEN,
-      playerId,
-      action: { tokenType: selectedToken, count },
-      reasoning: `Creating ${count}x ${selectedToken}`,
-      confidence: 0.8,
-    };
+    return makeTokenCreationDecisionFromSupport(context, this.evaluateTokenValue.bind(this));
   }
   
   /**
    * Evaluate token value based on name/characteristics
    */
   private evaluateTokenValue(tokenName: string): number {
-    // Parse power/toughness from token name if present
-    const ptMatch = tokenName.match(/(\d+)\/(\d+)/);
-    if (ptMatch) {
-      const power = parseInt(ptMatch[1], 10);
-      const toughness = parseInt(ptMatch[2], 10);
-      let value = power + toughness;
-      
-      // Keywords add value
-      const lowerName = tokenName.toLowerCase();
-      if (lowerName.includes('flying')) value += 2;
-      if (lowerName.includes('deathtouch')) value += 3;
-      if (lowerName.includes('lifelink')) value += 2;
-      if (lowerName.includes('haste')) value += 1;
-      if (lowerName.includes('trample')) value += 1;
-      
-      return value;
-    }
-    
-    // Non-creature tokens (artifacts)
-    const lowerName = tokenName.toLowerCase();
-    if (lowerName.includes('treasure')) return 4; // Mana flexibility
-    if (lowerName.includes('food')) return 3; // Life gain
-    if (lowerName.includes('clue')) return 3; // Card draw
-    if (lowerName.includes('blood')) return 2; // Card filtering
-    
-    return 1; // Unknown token
+    return evaluateTokenValue(tokenName);
   }
   
   /**
@@ -2705,103 +1004,21 @@ export class AIEngine {
    * Analyzes mode text for beneficial vs harmful effects
    */
   private makeModeChoiceDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, options, constraints } = context;
-    const modeCount = constraints?.count || 1;
-    
-    if (!options || options.length === 0) {
-      return {
-        type: AIDecisionType.CHOOSE_MODE,
-        playerId,
-        action: { modes: [] },
-        reasoning: 'No modes available',
-        confidence: 0,
-      };
-    }
-    
-    // Score each mode and pick the best ones
-    const scoredModes = options.map((mode: any) => ({
-      mode,
-      score: this.evaluateModeValue(mode),
-    }));
-    
-    // Sort by score descending
-    scoredModes.sort((a: any, b: any) => b.score - a.score);
-    
-    // Select top N modes
-    const selectedModes = scoredModes.slice(0, modeCount).map((m: any) => m.mode);
-    
-    return {
-      type: AIDecisionType.CHOOSE_MODE,
-      playerId,
-      action: { modes: selectedModes },
-      reasoning: `Selected ${selectedModes.length} highest-value mode(s)`,
-      confidence: 0.7,
-    };
+    return makeModeChoiceDecisionFromSupport(context, this.evaluateModeValue.bind(this));
   }
   
   /**
    * Evaluate the value of a modal option
    */
   private evaluateModeValue(mode: any): number {
-    const modeText = (typeof mode === 'string' ? mode : mode.text || '').toLowerCase();
-    let value = 5; // Base value
-    
-    // Beneficial effects increase value
-    if (modeText.includes('draw')) value += 4;
-    if (modeText.includes('destroy') && !modeText.includes('your')) value += 4;
-    if (modeText.includes('exile') && !modeText.includes('your')) value += 4;
-    if (modeText.includes('counter')) value += 3;
-    if (modeText.includes('gain') && modeText.includes('life')) value += 2;
-    if (modeText.includes('create')) value += 3;
-    if (modeText.includes('+1/+1')) value += 2;
-    if (modeText.includes('search')) value += 3;
-    if (modeText.includes('return') && modeText.includes('hand')) value += 2;
-    if (modeText.includes('damage') && !modeText.includes('to you')) value += 3;
-    
-    // Harmful effects decrease value
-    if (modeText.includes('sacrifice') && modeText.includes('you')) value -= 3;
-    if (modeText.includes('discard') && !modeText.includes('opponent')) value -= 2;
-    if (modeText.includes('lose') && modeText.includes('life') && !modeText.includes('opponent')) value -= 2;
-    if (modeText.includes('damage to you')) value -= 3;
-    
-    return Math.max(0, value);
+    return evaluateModeValue(mode);
   }
   
   /**
    * Make a discard decision
    */
   private makeDiscardDecision(context: AIDecisionContext, config: AIPlayerConfig): AIDecision {
-    const { playerId, constraints } = context;
-    const discardCount = constraints?.count || 1;
-    
-    const player = context.gameState.players.find(p => p.id === playerId);
-    if (!player || !player.hand || player.hand.length === 0) {
-      return {
-        type: AIDecisionType.DISCARD,
-        playerId,
-        action: { discarded: [] },
-        reasoning: 'No cards to discard',
-        confidence: 0,
-      };
-    }
-    
-    // Sort hand by value and discard least valuable cards
-    const handWithValue = player.hand.map((card: any) => ({
-      card,
-      value: this.evaluateCardValue(card),
-    }));
-    
-    handWithValue.sort((a: any, b: any) => a.value - b.value);
-    
-    const discarded = handWithValue.slice(0, discardCount).map((c: any) => c.card.id);
-    
-    return {
-      type: AIDecisionType.DISCARD,
-      playerId,
-      action: { discarded },
-      reasoning: `Discarding ${discarded.length} lowest value card(s)`,
-      confidence: 0.7,
-    };
+    return makeDiscardDecisionFromSupport(context, this.evaluateCardValue.bind(this));
   }
   
   /**
@@ -2809,84 +1026,7 @@ export class AIEngine {
    * ENHANCED: Better evaluation considering card type and abilities
    */
   private evaluateCardValue(card: any): number {
-    let value = 0;
-    const typeLine = (card.type_line || '').toLowerCase();
-    const oracleText = (card.oracle_text || '').toLowerCase();
-    const cmc = card.cmc || card.mana_value || 0;
-    
-    // Base value by card type
-    if (typeLine.includes('land')) {
-      // Lands are valuable but basic lands less so than non-basics
-      value = typeLine.includes('basic') ? 3 : 6;
-    }
-    else if (typeLine.includes('creature')) {
-      // Creatures: value based on CMC and power/toughness
-      const power = parseInt(card.power || '0', 10);
-      const toughness = parseInt(card.toughness || '0', 10);
-      value = 5 + cmc + (power + toughness) / 2;
-      
-      // Creatures with beneficial death triggers are MORE valuable (keep them!)
-      const deathBenefit = this.evaluateDeathTrigger(card);
-      value += deathBenefit * 2;
-    }
-    else if (typeLine.includes('instant')) {
-      // Instants are VERY valuable - flexible answers
-      value = 8 + cmc * 1.5;
-      
-      // Removal is extra valuable
-      if (oracleText.includes('destroy') || oracleText.includes('exile')) {
-        value += 5;
-      }
-      
-      // Counters are extremely valuable
-      if (oracleText.includes('counter target')) {
-        value += 8;
-      }
-    }
-    else if (typeLine.includes('sorcery')) {
-      // Sorceries: moderate value
-      value = 5 + cmc;
-      
-      // Card draw is very valuable
-      if (oracleText.includes('draw')) {
-        value += 6;
-      }
-      
-      // Removal is valuable
-      if (oracleText.includes('destroy') || oracleText.includes('exile')) {
-        value += 4;
-      }
-      
-      // Board wipes are EXTREMELY valuable
-      if (oracleText.includes('destroy all') || oracleText.includes('exile all')) {
-        value += 10;
-      }
-    }
-    else if (typeLine.includes('artifact') || typeLine.includes('enchantment')) {
-      // Artifacts and enchantments: permanent value
-      value = 6 + cmc;
-      
-      // Card draw engines are very valuable
-      if (oracleText.includes('draw')) {
-        value += 5;
-      }
-      
-      // Mana rocks are valuable early, less so late
-      if (oracleText.includes('add') && oracleText.includes('mana')) {
-        value += 3;
-      }
-    }
-    else {
-      // Other card types
-      value = 4 + cmc;
-    }
-    
-    // High CMC cards are harder to cast, slightly reduce value
-    if (cmc >= 7) {
-      value -= 2;
-    }
-    
-    return Math.max(1, value);
+    return evaluateCardValue(card);
   }
 
   /**
@@ -2912,37 +1052,7 @@ export class AIEngine {
    * Returns the ability text if found, null otherwise
    */
   private detectActivatedAbility(perm: BattlefieldPermanent): string | null {
-    const card = perm.card as KnownCardRef;
-    const oracleText = (card?.oracle_text || '').toLowerCase();
-    
-    // Skip if no oracle text
-    if (!oracleText) return null;
-    
-    // Regular expression for activated ability patterns:
-    // Matches: {T}, {Number}{Color}, {Color}, {X}, hybrid costs like {W/U}
-    const ACTIVATED_ABILITY_PATTERN = /\{(?:[0-9xX]+|[wubrgcWUBRGC]|[wubrgWUBRG]\/[wubrgWUBRG]|t)\}[\s,]*:/i;
-    
-    // Check for common activated ability patterns:
-    // 1. {T}: [effect] - tap ability
-    // 2. {cost}: [effect] - other activated abilities
-    // 3. {T}, {cost}: [effect] - tap plus other costs
-    
-    // Tap ability pattern (most common)
-    if (oracleText.includes('{t}:') || oracleText.includes('{t},')) {
-      return card.oracle_text || null;
-    }
-    
-    // Other activated abilities with costs
-    if (ACTIVATED_ABILITY_PATTERN.test(oracleText)) {
-      return card.oracle_text || null;
-    }
-    
-    // Loyalty abilities (planeswalkers)
-    if (oracleText.includes('[+') || oracleText.includes('[-') || oracleText.includes('[0]')) {
-      return card.oracle_text || null;
-    }
-    
-    return null;
+    return detectActivatedAbility(perm);
   }
   
   /**
@@ -2957,184 +1067,10 @@ export class AIEngine {
     playerId: PlayerID,
     config: AIPlayerConfig
   ): number {
-    let value = 0;
-    const lowerText = abilityText.toLowerCase();
-    const card = perm.card as KnownCardRef;
-    const analysis = cardAnalyzer.analyzeCard(perm);
-    const archetypes = this.getPrimaryArchetypes(config);
-    const isOwnTurn = gameState.turnPlayer === playerId;
-    const phase = String(gameState.phase || '').toLowerCase();
-    const step = String(gameState.step || '').toLowerCase();
-    const isMainPhase = phase.includes('main') || step.includes('main');
-    const isPreCombat = isOwnTurn && isMainPhase && (!step || step.includes('precombat') || !step.includes('combat'));
-    const isTapAbility = lowerText.includes('{t}:') || lowerText.includes('{t},');
-    const isPureManaAbility =
-      ((lowerText.includes('add {') && lowerText.includes('mana')) ||
-        lowerText.includes('add {c}') ||
-        lowerText.includes('add {w}') ||
-        lowerText.includes('add {u}') ||
-        lowerText.includes('add {b}') ||
-        lowerText.includes('add {r}') ||
-        lowerText.includes('add {g}')) &&
-      !lowerText.includes('draw') &&
-      !lowerText.includes('search your library') &&
-      !lowerText.includes('create') &&
-      !lowerText.includes('damage');
-    
-    // CARD DRAW: Very high value! Drawing cards is one of the best things you can do
-    if (lowerText.includes('draw') && !lowerText.includes('opponent draws')) {
-      // Count how many cards drawn - handle both word and numeric formats
-      const drawMatch = lowerText.match(/draw (\w+) card/);
-      if (drawMatch) {
-        const countText = drawMatch[1];
-        let drawCount = 1;
-        
-        // Handle numeric values
-        const numericValue = parseInt(countText, 10);
-        if (!isNaN(numericValue)) {
-          drawCount = numericValue;
-        } else {
-          // Handle number words
-          const numberWords: Record<string, number> = {
-            'a': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
-            'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-          };
-          drawCount = numberWords[countText] || 1;
-        }
-        
-        // Each card drawn is worth 15 points (very valuable!)
-        value += drawCount * 15;
-      } else {
-        value += 15; // Default card draw value
-      }
-    }
-    
-    // MANA GENERATION: High value for ramping
-    if ((lowerText.includes('add {') && lowerText.includes('mana')) || 
-        lowerText.includes('add {c}') ||
-        lowerText.includes('add {w}') ||
-        lowerText.includes('add {u}') ||
-        lowerText.includes('add {b}') ||
-        lowerText.includes('add {r}') ||
-        lowerText.includes('add {g}')) {
-      value += 8;
-    }
-    
-    // TUTORING: Very high value
-    if (lowerText.includes('search your library')) {
-      value += 12;
-    }
-    
-    // CREATURE TOKEN CREATION: Good value
-    if (lowerText.includes('create') && lowerText.includes('token')) {
-      value += 6;
-    }
-    
-    // DAMAGE TO OPPONENTS: Moderate value
-    if (lowerText.includes('damage') && (lowerText.includes('opponent') || lowerText.includes('player'))) {
-      value += 5;
-    }
-    
-    // REMOVAL: High value if there are threats
-    if (lowerText.includes('destroy') || lowerText.includes('exile')) {
-      value += 7;
-    }
-    
-    // LIFEGAIN: Low-moderate value
-    if (lowerText.includes('gain') && lowerText.includes('life')) {
-      value += 3;
-    }
-    
-    // BUFF EFFECTS: Moderate value if we have creatures
-    if (lowerText.includes('+1/+1') || lowerText.includes('+2/+2')) {
-      value += 4;
-    }
-    
-    // UNTAP EFFECTS: Moderate value (can enable additional activations)
-    if (lowerText.includes('untap')) {
-      value += 5;
-    }
-    
-    // COST CONSIDERATIONS: Reduce value based on costs
-    
-    // Check if ability requires tapping
-    if (isTapAbility) {
-      // Small penalty for tap cost (creature won't be able to block or attack)
-      value -= 1;
-    }
-    
-    // Check if ability requires sacrificing something
-    if (lowerText.includes('sacrifice')) {
-      // Penalty for sacrifice unless it's self-sacrifice for a good effect
-      if (!lowerText.includes('sacrifice ~') && !lowerText.includes(`sacrifice ${card.name?.toLowerCase()}`)) {
-        value -= 5; // Sacrificing other permanents is costly
-      }
-    }
-    
-    // Check if ability has mana cost
-    // Pattern: {Number} or {Color}
-    const manaCostMatch = lowerText.match(/\{([0-9]+|[wubrg])\}/g);
-    if (manaCostMatch && manaCostMatch.length > 0) {
-      // Count total mana symbols (excluding {T})
-      const manaCost = manaCostMatch.filter(cost => 
-        !cost.includes('t}') && !cost.includes('t,')
-      ).length;
-      // Slight penalty for mana cost
-      value -= manaCost * 0.5;
-    }
-    
-    // NEGATIVE EFFECTS: Reduce value significantly
-    
-    // Opponent gains control (like Humble Defector)
-    if (lowerText.includes('opponent') && lowerText.includes('control')) {
-      // This is actually OK if the benefit is high (e.g., drawing cards first)
-      // But reduce value slightly
-      value -= 3;
-    }
-    
-    // Each opponent gets benefit
-    if (lowerText.includes('each opponent') && (lowerText.includes('draw') || lowerText.includes('create'))) {
-      value -= 4; // Helping opponents is bad
-    }
-
-    if (isPureManaAbility && !this.hasPotentialManaSink(gameState, playerId)) {
-      value -= 12;
-    }
-
-    if (isPreCombat && isTapAbility && archetypes.includes(SynergyArchetype.VOLTRON)) {
-      const isCommander = Boolean((perm as any).isCommander) || analysis.categories.includes(CardCategory.COMMANDER);
-      if (isCommander || analysis.categories.includes(CardCategory.CREATURE)) {
-        value -= isCommander ? 25 : 10;
-      }
-    }
-
-    if (archetypes.includes(SynergyArchetype.COMBO)) {
-      if (analysis.comboPotential >= 7) {
-        value += 8;
-      }
-      if (lowerText.includes('search your library') || lowerText.includes('untap') || lowerText.includes('draw')) {
-        value += 6;
-      }
-      if (isPureManaAbility && analysis.details.producesMana) {
-        value += 4;
-      }
-    }
-
-    if (archetypes.includes(SynergyArchetype.SPELLSLINGER)) {
-      if (lowerText.includes('draw')) value += 4;
-      if (lowerText.includes('add {')) value += 2;
-    }
-
-    if (archetypes.includes(SynergyArchetype.ARISTOCRATS)) {
-      if (lowerText.includes('sacrifice') && analysis.details.hasDeathTrigger) {
-        value += 8;
-      }
-      if (lowerText.includes('create') && lowerText.includes('token')) {
-        value += 3;
-      }
-    }
-    
-    return Math.max(0, value);
+    return evaluateActivatedAbilityValue(perm, abilityText, gameState, playerId, config, {
+      getPrimaryArchetypes: this.getPrimaryArchetypes.bind(this),
+      hasPotentialManaSink: this.hasPotentialManaSink.bind(this),
+    });
   }
   
   /**
@@ -3142,40 +1078,9 @@ export class AIEngine {
    * Returns true if the permanent is untapped and the ability can be activated
    */
   private canActivateAbilityNow(perm: BattlefieldPermanent, gameState: GameState, playerId: PlayerID): boolean {
-    const card = perm.card as KnownCardRef;
-    const oracleText = (card?.oracle_text || '').toLowerCase();
-    
-    // Check if permanent is tapped (can't use tap abilities)
-    if (perm.tapped && oracleText.includes('{t}')) {
-      return false;
-    }
-    
-    // Check for summoning sickness on tap abilities
-    if (perm.summoningSickness && oracleText.includes('{t}')) {
-      // Creatures with summoning sickness can't use tap abilities
-      // unless they have haste
-      if (this.hasPermanentType(perm, 'creature') && !oracleText.includes('haste')) {
-        return false;
-      }
-    }
-    
-    // Check for sorcery-speed restriction
-    if (oracleText.includes('activate only as a sorcery') || 
-        oracleText.includes('activate this ability only any time you could cast a sorcery')) {
-      const phase = String(gameState.phase || '').toLowerCase();
-      const isMainPhase = phase.includes('main');
-      const isOwnTurn = gameState.turnPlayer === playerId;
-      const stackEmpty = !gameState.stack || gameState.stack.length === 0;
-      
-      if (!isMainPhase || !isOwnTurn || !stackEmpty) {
-        return false;
-      }
-    }
-    
-    // Additional restrictions can be added here
-    // For now, assume ability can be activated if it passes above checks
-    
-    return true;
+    return canActivateAbilityNow(perm, gameState, playerId, {
+      hasPermanentType: this.hasPermanentType.bind(this),
+    });
   }
   
   /**
@@ -3187,40 +1092,12 @@ export class AIEngine {
       playerId: PlayerID,
       config: AIPlayerConfig
   ): { permanent: BattlefieldPermanent; abilityText: string; value: number } | null {
-    const battlefield = this.getProcessedBattlefield(gameState);
-    
-    // Get all permanents controlled by this player
-    const myPermanents = battlefield.filter((perm: BattlefieldPermanent) => 
-      perm.controller === playerId
-    );
-    
-    let bestAbility: { permanent: BattlefieldPermanent; abilityText: string; value: number } | null = null;
-    let bestValue = 0;
-    
-    for (const perm of myPermanents) {
-      // Check if permanent has an activated ability
-      const abilityText = this.detectActivatedAbility(perm);
-      if (!abilityText) continue;
-      
-      // Check if ability can be activated now
-      if (!this.canActivateAbilityNow(perm, gameState, playerId)) continue;
-      
-      // Evaluate the ability value
-      const value = this.evaluateActivatedAbilityValue(perm, abilityText, gameState, playerId, config);
-      
-      // Keep track of best ability
-      if (value > bestValue) {
-        bestValue = value;
-        bestAbility = { permanent: perm, abilityText, value };
-      }
-    }
-    
-    // Only return abilities that have positive value
-    if (bestAbility && bestValue > 0) {
-      return bestAbility;
-    }
-    
-    return null;
+    return findBestActivatedAbility(gameState, playerId, config, {
+      getProcessedBattlefield: this.getProcessedBattlefield.bind(this),
+      hasPermanentType: this.hasPermanentType.bind(this),
+      getPrimaryArchetypes: this.getPrimaryArchetypes.bind(this),
+      hasPotentialManaSink: this.hasPotentialManaSink.bind(this),
+    });
   }
   
   /**
