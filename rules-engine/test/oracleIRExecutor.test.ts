@@ -13141,6 +13141,137 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
   });
 
+  it('applies sacrifice for corpus enchantment template (A-Baleful Beholder)', () => {
+    const ir = parseOracleTextToIR('Each opponent sacrifices an enchantment.', 'A-Baleful Beholder');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'p2enchantment',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'e2', name: 'Pacifism', type_line: 'Enchantment — Aura' },
+        },
+        {
+          id: 'p2creature',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'c2', name: 'Hill Giant', type_line: 'Creature — Giant' },
+        },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('Hill Giant');
+    expect(p2.graveyard).toHaveLength(1);
+    expect(String(p2.graveyard[0]?.name || p2.graveyard[0]?.card?.name || '')).toBe('Pacifism');
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+  });
+
+  it('applies sacrifice for target-player enchantment template via selector binding', () => {
+    const ir = parseOracleTextToIR('Target player sacrifices an enchantment.', 'A-Baleful Beholder');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'p2enchantment',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'e2', name: 'Pacifism', type_line: 'Enchantment — Aura' },
+        },
+        {
+          id: 'p2artifact',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'a2', name: 'Sol Ring', type_line: 'Artifact' },
+        },
+      ] as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name)).toBe('Sol Ring');
+    expect(p2.graveyard).toHaveLength(1);
+    expect(String(p2.graveyard[0]?.name || p2.graveyard[0]?.card?.name || '')).toBe('Pacifism');
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+  });
+
+  it('treats optional land sacrifice from Excavating Anurid as pending by default and applies it when forced', () => {
+    const ir = parseOracleTextToIR('When this creature enters, you may sacrifice a land.', 'Excavating Anurid');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'p1land',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'l1', name: 'Forest', type_line: 'Basic Land — Forest' },
+        },
+      ] as any,
+    });
+
+    const skipped = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1Skipped = skipped.state.players.find(p => p.id === 'p1') as any;
+    expect(skipped.pendingOptionalSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(skipped.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(skipped.state.battlefield).toHaveLength(1);
+    expect(p1Skipped.graveyard).toHaveLength(0);
+
+    const forced = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' }, { allowOptional: true });
+    const p1Forced = forced.state.players.find(p => p.id === 'p1') as any;
+    expect(forced.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(forced.state.battlefield).toHaveLength(0);
+    expect(p1Forced.graveyard).toHaveLength(1);
+    expect(String(p1Forced.graveyard[0]?.name || p1Forced.graveyard[0]?.card?.name || '')).toBe('Forest');
+  });
+
+  it("applies optional permanent sacrifice from Baldur's Gate Wilderness when forced", () => {
+    const ir = parseOracleTextToIR('You may sacrifice a permanent.', "Baldur's Gate Wilderness");
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'p1artifact',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'a1', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const forced = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' }, { allowOptional: true });
+    const p1 = forced.state.players.find(p => p.id === 'p1') as any;
+
+    expect(forced.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(forced.state.battlefield).toHaveLength(0);
+    expect(p1.graveyard).toHaveLength(1);
+    expect(String(p1.graveyard[0]?.name || p1.graveyard[0]?.card?.name || '')).toBe('Mind Stone');
+  });
+
   it('applies discard when it is deterministic (discard all cards in hand)', () => {
     const ir = parseOracleTextToIR('Discard two cards.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
