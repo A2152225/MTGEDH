@@ -22,13 +22,14 @@ import { parseOracleTextToIR } from './oracleIRParser';
 import {
   type TriggerEventData,
   buildOracleIRExecutionEventHintFromTriggerData,
-  buildResolutionEventDataFromGameState as buildResolutionEventDataFromGameStateFromModule,
+  buildResolutionEventDataFromGameState,
   buildStackTriggerMetaFromEventData,
   buildTriggerEventDataFromPayloads,
 } from './triggeredAbilitiesEventData';
 export type { TriggerEventData } from './triggeredAbilitiesEventData';
 export {
   buildOracleIRExecutionEventHintFromTriggerData,
+  buildResolutionEventDataFromGameState,
   buildStackTriggerMetaFromEventData,
   buildTriggerEventDataFromPayloads,
 } from './triggeredAbilitiesEventData';
@@ -399,89 +400,6 @@ export interface ResolvedTriggeredAbilityChoice {
   readonly selections?: unknown;
   readonly targetTypes?: readonly string[];
   readonly mayAbilityPrompt?: boolean;
-}
-
-/**
- * Build stack trigger metadata from normalized trigger event context.
- */
-/**
- * Convert trigger-event context into Oracle IR execution hints.
- *
- * This lets trigger resolution feed relational selectors (for example
- * "each of those opponents") into the Oracle IR executor without bespoke
- * per-card plumbing.
- */
-/**
- * Build resolution-time trigger context from current game state.
- *
- * This provides a practical baseline for intervening-if resolution checks,
- * even when full event replay context is unavailable.
- */
-export function buildResolutionEventDataFromGameState(
-  state: GameState,
-  controllerId: string,
-  base?: TriggerEventData
-): TriggerEventData {
-  const normalizeId = (value: unknown): string | undefined => {
-    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
-    const normalized = String(value).trim();
-    return normalized || undefined;
-  };
-
-  const normalizedControllerId = normalizeId(controllerId) ?? normalizeId(base?.sourceControllerId);
-  const normalizedTurnPlayerId = normalizeId((state as any).turnPlayer);
-
-  const battlefield = ((state.battlefield || []) as any[]).map(p => ({
-    id: normalizeId(p?.id) || '',
-    controllerId: normalizeId(p?.controller) || '',
-    types: String((p?.card?.type_line || '') as any)
-      .split(/[\s—-]+/)
-      .map(t => t.trim())
-      .filter(Boolean),
-  }));
-
-  const controller = (state.players || []).find(
-    (p: any) => normalizeId(p?.id) === normalizedControllerId
-  ) as any;
-  const hasValidController = Boolean(controller);
-  const resolvedHand = Array.isArray(controller?.hand)
-    ? controller.hand
-        .map((card: any) => normalizeId(card?.id))
-        .filter((id: string | undefined): id is string => Boolean(id))
-    : Array.isArray(base?.hand)
-      ? [...base.hand]
-      : undefined;
-  const turnStartHandSnapshot = (state as any)?.turnStartHandSnapshot;
-  const resolvedHandAtBeginningOfTurn = normalizedControllerId && turnStartHandSnapshot && Array.isArray(turnStartHandSnapshot[normalizedControllerId])
-    ? turnStartHandSnapshot[normalizedControllerId]
-        .map((id: any) => normalizeId(id))
-        .filter((id: string | undefined): id is string => Boolean(id))
-    : Array.isArray(base?.handAtBeginningOfTurn)
-      ? [...base.handAtBeginningOfTurn]
-      : undefined;
-  const resolvedLifeTotal = (() => {
-    const controllerLife = Number(controller?.life);
-    if (Number.isFinite(controllerLife)) return controllerLife;
-    const baseLife = Number(base?.lifeTotal);
-    return Number.isFinite(baseLife) ? baseLife : undefined;
-  })();
-
-  return {
-    ...base,
-    sourceControllerId: normalizedControllerId,
-    lifeTotal: resolvedLifeTotal,
-    isYourTurn:
-      hasValidController && normalizedTurnPlayerId !== undefined
-        ? normalizedTurnPlayerId === normalizedControllerId
-        : Boolean(base?.isYourTurn),
-    isOpponentsTurn:
-      hasValidController && normalizedTurnPlayerId !== undefined
-        ? normalizedTurnPlayerId !== normalizedControllerId
-        : Boolean(base?.isOpponentsTurn),
-    hand: resolvedHand,
-    handAtBeginningOfTurn: resolvedHandAtBeginningOfTurn,
-    battlefield,
-  };
 }
 
 function extractTriggeredChoiceSelectionId(selection: unknown): string | undefined {
@@ -965,7 +883,7 @@ export function processEventAndExecuteTriggeredOracle(
     if (resolvedInterveningIfClause) {
       const resolutionData =
         options.resolutionEventData ??
-        buildResolutionEventDataFromGameStateFromModule(nextState, ability.controllerId, executionEventData);
+        buildResolutionEventDataFromGameState(nextState, ability.controllerId, executionEventData);
       const stillTrue = evaluateTriggerCondition(resolvedInterveningIfClause, ability.controllerId, resolutionData);
       if (!stillTrue) {
         log.push(`${ability.sourceName} trigger skipped at resolution (intervening-if false)`);
