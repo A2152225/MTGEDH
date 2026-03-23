@@ -13272,6 +13272,350 @@ describe('Oracle IR Executor', () => {
     expect(String(p1.graveyard[0]?.name || p1.graveyard[0]?.card?.name || '')).toBe('Mind Stone');
   });
 
+  it('applies deterministic self-sacrifice for corpus-style "sacrifice this creature" text when source is known', () => {
+    const ir = parseOracleTextToIR('At the beginning of the end step, sacrifice this creature.', 'Impetuous Devils');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'self-sac-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'self-sac-card', name: 'Impetuous Devils', type_line: 'Creature — Devil' },
+        },
+        {
+          id: 'other-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'other-card', name: 'Hill Giant', type_line: 'Creature — Giant' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'self-sac-creature',
+      sourceName: 'Impetuous Devils',
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const names = (result.state.battlefield as any[]).map(p => String((p as any)?.card?.name || ''));
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(names).toContain('Hill Giant');
+    expect(names).not.toContain('Impetuous Devils');
+    expect(String(p1.graveyard[0]?.name || p1.graveyard[0]?.card?.name || '')).toBe('Impetuous Devils');
+  });
+
+  it('keeps self-sacrifice with prevention text as a persisted skip instead of forcing it', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your upkeep, sacrifice this creature unless you pay {U}.',
+      'Phantasmal Forces'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'forces-self',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'forces-card', name: 'Phantasmal Forces', type_line: 'Creature — Illusion' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'forces-self',
+      sourceName: 'Phantasmal Forces',
+    });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'unsupported_object_selector')).toBe(true);
+    expect(((result.state as any).oracleAutomationGaps || []).length).toBeGreaterThan(0);
+    expect(result.state.battlefield).toHaveLength(1);
+  });
+
+  it('applies deterministic "another creature" sacrifice by excluding the source permanent', () => {
+    const ir = parseOracleTextToIR('Whenever this creature attacks, you may sacrifice another creature.', 'Brawl-Bash Ogre');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'brawl-bash-ogre',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'bbo-card', name: 'Brawl-Bash Ogre', type_line: 'Creature — Ogre Warrior' },
+        },
+        {
+          id: 'sac-fodder',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'fodder-card', name: 'Goblin Token', type_line: 'Creature — Goblin' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', sourceId: 'brawl-bash-ogre', sourceName: 'Brawl-Bash Ogre' },
+      { allowOptional: true }
+    );
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const names = (result.state.battlefield as any[]).map(p => String((p as any)?.card?.name || ''));
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(names).toContain('Brawl-Bash Ogre');
+    expect(names).not.toContain('Goblin Token');
+    expect(String(p1.graveyard[0]?.name || p1.graveyard[0]?.card?.name || '')).toBe('Goblin Token');
+  });
+
+  it('skips deterministic "another creature" sacrifice when more than one non-source candidate exists', () => {
+    const ir = parseOracleTextToIR('Whenever this creature attacks, you may sacrifice another creature.', 'Brawl-Bash Ogre');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'brawl-bash-ogre-choice',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'bbo-choice-card', name: 'Brawl-Bash Ogre', type_line: 'Creature — Ogre Warrior' },
+        },
+        {
+          id: 'fodder-one',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'fodder-one-card', name: 'Goblin Token', type_line: 'Creature — Goblin' },
+        },
+        {
+          id: 'fodder-two',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'fodder-two-card', name: 'Bear Cub', type_line: 'Creature — Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', sourceId: 'brawl-bash-ogre-choice', sourceName: 'Brawl-Bash Ogre' },
+      { allowOptional: true }
+    );
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.state.battlefield).toHaveLength(3);
+  });
+
+  it('applies deterministic mixed-type sacrifice when "artifact or creature" leaves one legal option', () => {
+    const ir = parseOracleTextToIR('When this creature enters, you may sacrifice an artifact or creature.', 'Buzzard-Wasp Colony');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'only-artifact',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'only-artifact-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+        {
+          id: 'ignore-land',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'ignore-land-card', name: 'Forest', type_line: 'Basic Land — Forest' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', sourceId: 'buzzard-wasp-colony', sourceName: 'Buzzard-Wasp Colony' },
+      { allowOptional: true }
+    );
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String((result.state.battlefield[0] as any)?.card?.name || '')).toBe('Forest');
+    expect(String(p1.graveyard[0]?.name || p1.graveyard[0]?.card?.name || '')).toBe('Mind Stone');
+  });
+
+  it('skips mixed-type sacrifice when "artifact or creature" still leaves a real choice', () => {
+    const ir = parseOracleTextToIR('When this creature enters, you may sacrifice an artifact or creature.', 'Buzzard-Wasp Colony');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'choice-artifact',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'choice-artifact-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+        {
+          id: 'choice-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'choice-creature-card', name: 'Bear Cub', type_line: 'Creature — Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', sourceName: 'Buzzard-Wasp Colony' },
+      { allowOptional: true }
+    );
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.state.battlefield).toHaveLength(2);
+  });
+
+  it('applies deterministic mixed-type "another artifact or creature" by excluding the source permanent', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this Vehicle attacks, you may sacrifice another artifact or creature.',
+      'Mukotai Soulripper'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'mukotai-soulripper',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'mukotai-card', name: 'Mukotai Soulripper', type_line: 'Artifact — Vehicle' },
+        },
+        {
+          id: 'artifact-fodder',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'artifact-fodder-card', name: 'Servo Token', type_line: 'Artifact Creature — Servo' },
+        },
+        {
+          id: 'safe-land',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'safe-land-card', name: 'Swamp', type_line: 'Basic Land — Swamp' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', sourceId: 'mukotai-soulripper', sourceName: 'Mukotai Soulripper' },
+      { allowOptional: true }
+    );
+    const names = (result.state.battlefield as any[]).map(p => String((p as any)?.card?.name || ''));
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(names).toContain('Mukotai Soulripper');
+    expect(names).toContain('Swamp');
+    expect(names).not.toContain('Servo Token');
+  });
+
+  it('applies subtype-based sacrifice for a Food when it is deterministic', () => {
+    const ir = parseOracleTextToIR('You may sacrifice a Food.', 'Food Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'food-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'food-token-card', name: 'Food', type_line: 'Token Artifact — Food' },
+        },
+        {
+          id: 'non-food-artifact',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'non-food-artifact-card', name: 'Mind Stone', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' }, { allowOptional: true });
+    const names = (result.state.battlefield as any[]).map(p => String((p as any)?.card?.name || ''));
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(names).toContain('Mind Stone');
+    expect(names).not.toContain('Food');
+  });
+
+  it('applies subtype-based sacrifice for a Vampire when it is deterministic', () => {
+    const ir = parseOracleTextToIR('Sacrifice a Vampire.', 'Vampire Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'vampire-perm',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'vampire-card', name: 'Blood Artist', type_line: 'Creature — Vampire' },
+        },
+        {
+          id: 'non-vampire-perm',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'non-vampire-card', name: 'Bear Cub', type_line: 'Creature — Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const names = (result.state.battlefield as any[]).map(p => String((p as any)?.card?.name || ''));
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(names).toContain('Bear Cub');
+    expect(names).not.toContain('Blood Artist');
+  });
+
+  it('skips subtype-based sacrifice when multiple matching subtypes exist', () => {
+    const ir = parseOracleTextToIR('At the beginning of your upkeep, sacrifice a Homunculus.', 'Puppet Conjurer');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'homunculus-one',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'homunculus-one-card', name: 'Homunculus One', type_line: 'Creature — Homunculus' },
+        },
+        {
+          id: 'homunculus-two',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'homunculus-two-card', name: 'Homunculus Two', type_line: 'Creature — Homunculus' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+
+    expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(result.state.battlefield).toHaveLength(2);
+  });
+
   it('applies discard when it is deterministic (discard all cards in hand)', () => {
     const ir = parseOracleTextToIR('Discard two cards.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];

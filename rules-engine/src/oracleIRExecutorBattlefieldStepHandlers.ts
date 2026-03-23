@@ -9,7 +9,7 @@ import {
   permanentMatchesType,
   resolveTapOrUntapTargetIds,
 } from './oracleIRExecutorBattlefieldOps';
-import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
+import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 
 type StepApplyResult = {
@@ -36,8 +36,17 @@ type StepSkipResult = {
 export type BattlefieldStepHandlerResult = StepApplyResult | StepSkipResult;
 
 function parseSacrificeWhat(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
+  | { readonly mode: 'self' }
   | { readonly mode: 'all'; readonly type: ReturnType<typeof parseSimplePermanentTypeFromText> extends infer T ? Exclude<T, null> : never }
-  | { readonly mode: 'count'; readonly count: number; readonly type: ReturnType<typeof parseSimplePermanentTypeFromText> extends infer T ? Exclude<T, null> : never }
+  | {
+      readonly mode: 'count';
+      readonly count: number;
+      readonly type: ReturnType<typeof parseSimplePermanentTypeFromText> extends infer T ? Exclude<T, null> : never;
+      readonly types?: readonly (ReturnType<typeof parseSimplePermanentTypeFromText> extends infer T ? Exclude<T, null> : never)[];
+      readonly subtype?: string;
+      readonly tokenOnly?: boolean;
+      readonly excludeSource?: boolean;
+    }
   | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim();
@@ -45,9 +54,17 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
 
   const cleaned = raw.replace(/[.\s]+$/g, '').trim();
   const lower = cleaned.toLowerCase();
+  const normalized = cleaned.replace(/\u2019/g, "'");
+
+  if (
+    /^(?:it|this creature|this artifact|this enchantment|this aura|this land|this planeswalker|this battle|this permanent|this attraction)$/i.test(
+      normalized
+    )
+  ) {
+    return { mode: 'self' };
+  }
 
   {
-    const normalized = cleaned.replace(/\u2019/g, "'");
     const mentionsOpponentControl =
       /^(?:your\s+)?opponents?['â€™]s?\s+/i.test(normalized) ||
       /^opponent['â€™]s?\s+/i.test(normalized) ||
@@ -71,6 +88,39 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
     return type ? { mode: 'all', type } : null;
   }
 
+  const parseMixedTypes = (text: string):
+    | readonly (ReturnType<typeof parseSimplePermanentTypeFromText> extends infer T ? Exclude<T, null> : never)[]
+    | null => {
+    const parts = text.split(/\s+(?:or|and\/or)\s+/i).map(part => part.trim()).filter(Boolean);
+    if (parts.length <= 1) return null;
+
+    const types: (ReturnType<typeof parseSimplePermanentTypeFromText> extends infer T ? Exclude<T, null> : never)[] = [];
+    for (const part of parts) {
+      const parsed = parseSimplePermanentTypeFromText(part);
+      if (!parsed) return null;
+      if (!types.includes(parsed)) types.push(parsed);
+    }
+
+    return types.length > 1 ? types : null;
+  };
+
+  const mAnother = cleaned.match(/^another\s+(.+)$/i);
+  if (mAnother) {
+    const rest = String(mAnother[1] || '').trim();
+    const mixedTypes = parseMixedTypes(rest);
+    if (mixedTypes) {
+      return { mode: 'count', count: 1, type: mixedTypes[0], types: mixedTypes, excludeSource: true };
+    }
+    if (rest) {
+      const type = parseSimplePermanentTypeFromText(rest);
+      if (type) return { mode: 'count', count: 1, type, excludeSource: true };
+      if (/^[a-z][a-z'-]*$/i.test(rest)) {
+        if (/^token$/i.test(rest)) return { mode: 'count', count: 1, type: 'permanent', tokenOnly: true, excludeSource: true };
+        return { mode: 'count', count: 1, type: 'permanent', subtype: rest.toLowerCase(), excludeSource: true };
+      }
+    }
+  }
+
   const mCount = cleaned.match(/^(a|an|\d+)\s+(.+)$/i);
   if (!mCount) return null;
   const countRaw = String(mCount[1] || '').toLowerCase();
@@ -79,9 +129,22 @@ function parseSacrificeWhat(what: { readonly kind: string; readonly text?: strin
   const count = countRaw === 'a' || countRaw === 'an' ? 1 : parseInt(countRaw, 10);
   if (!Number.isFinite(count) || count <= 0) return null;
 
+  const mixedTypes = parseMixedTypes(rest);
+  if (mixedTypes) {
+    return { mode: 'count', count: Math.max(1, count | 0), type: mixedTypes[0], types: mixedTypes };
+  }
+
   const type = parseSimplePermanentTypeFromText(rest);
-  if (!type) return null;
-  return { mode: 'count', count: Math.max(1, count | 0), type };
+  if (type) {
+    return { mode: 'count', count: Math.max(1, count | 0), type };
+  }
+
+  if (/^[a-z][a-z'-]*$/i.test(rest)) {
+    if (/^token$/i.test(rest)) return { mode: 'count', count: Math.max(1, count | 0), type: 'permanent', tokenOnly: true };
+    return { mode: 'count', count: Math.max(1, count | 0), type: 'permanent', subtype: rest.toLowerCase() };
+  }
+
+  return null;
 }
 
 export function applyTapOrUntapStep(
@@ -173,20 +236,57 @@ export function applySacrificeStep(
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const toRemove: BattlefieldPermanent[] = [];
   let needsChoice = false;
+  const sourceId = String(ctx.sourceId || '').trim();
 
-  for (const playerId of players) {
-    const candidates = battlefield.filter(p => p.controller === playerId && permanentMatchesType(p, parsed.type));
+  if (parsed.mode === 'self') {
+    const selfPermanent = sourceId
+      ? battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId)
+      : undefined;
 
-    if (parsed.mode === 'all') {
+    if (!selfPermanent || !players.includes(selfPermanent.controller)) {
+      return {
+        applied: false,
+        message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+
+    toRemove.push(selfPermanent);
+  }
+
+  if (parsed.mode !== 'self') {
+    for (const playerId of players) {
+      const excludeSource = parsed.mode === 'count' && Boolean(parsed.excludeSource);
+      const allowedTypes = parsed.mode === 'count' && Array.isArray(parsed.types) && parsed.types.length > 0
+        ? parsed.types
+        : [parsed.type];
+      const subtype = parsed.mode === 'count' ? String(parsed.subtype || '').trim().toLowerCase() : '';
+      const tokenOnly = parsed.mode === 'count' && Boolean(parsed.tokenOnly);
+      const candidates = battlefield.filter(p => {
+        if (p.controller !== playerId) return false;
+        if (!allowedTypes.some(type => permanentMatchesType(p, type))) return false;
+        if (tokenOnly && !(p as any)?.isToken) return false;
+        if (subtype) {
+          const typeLineLower = getExecutorTypeLineLower(p);
+          if (!new RegExp(`(^|[^a-z])${subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:s)?($|[^a-z])`, 'i').test(typeLineLower)) {
+            return false;
+          }
+        }
+        if (excludeSource && sourceId && String((p as any)?.id || '').trim() === sourceId) return false;
+        return true;
+      });
+
+      if (parsed.mode === 'all') {
+        toRemove.push(...candidates);
+        continue;
+      }
+
+      if (candidates.length > parsed.count) {
+        needsChoice = true;
+        break;
+      }
       toRemove.push(...candidates);
-      continue;
     }
-
-    if (candidates.length > parsed.count) {
-      needsChoice = true;
-      break;
-    }
-    toRemove.push(...candidates);
   }
 
   if (needsChoice) {
