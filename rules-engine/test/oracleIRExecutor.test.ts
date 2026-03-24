@@ -14624,6 +14624,97 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
   });
 
+  it("applies move_zone for putting target creature card with mana value 4 or less from a graveyard onto the battlefield under your control with a finality counter on it", () => {
+    const ir = parseOracleTextToIR(
+      'Put target creature card with mana value 4 or less from a graveyard onto the battlefield under your control with a finality counter on it.',
+      'Coalstoke Gearhulk'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature - Bear', mana_value: 2 }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'g1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const perm = (result.state.battlefield as any[])[0];
+
+    expect(p2.graveyard).toHaveLength(0);
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String(perm.controller)).toBe('p1');
+    expect(String(perm.owner)).toBe('p2');
+    expect(String(perm.card.id)).toBe('g1');
+    expect(perm.counters).toEqual({ finality: 1 });
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'impossible_action')).toBe(false);
+  });
+
+  it("safe-skips move_zone for a target creature card from a graveyard when the bound card fails a static mana value cap", () => {
+    const ir = parseOracleTextToIR(
+      'Put target creature card with mana value 4 or less from a graveyard onto the battlefield under your control with a finality counter on it.',
+      'Coalstoke Gearhulk'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'g1', name: 'Ancient Brontodon', type_line: 'Creature - Dinosaur', mana_value: 8 }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'g1' });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p2.graveyard.map((card: any) => card.id)).toEqual(['g1']);
+    expect(result.state.battlefield).toHaveLength(0);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'impossible_action')).toBe(false);
+  });
+
   it("preserves Skullbriar counters when moving it from a graveyard back onto the battlefield", () => {
     const ir = parseOracleTextToIR(
       'Put target creature card from a graveyard onto the battlefield under your control.',

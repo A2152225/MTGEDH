@@ -265,7 +265,7 @@ export function applyMoveZoneStep(
     const result = moveTargetedCardFromAnyGraveyard(
       nextState,
       targetObjectId,
-      parsedSingleTargetFromAnyGraveyard.cardType,
+      parsedSingleTargetFromAnyGraveyard,
       step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
       step.to === 'battlefield'
         ? step.battlefieldController?.kind === 'owner_of_moved_cards'
@@ -328,7 +328,7 @@ export function applyMoveZoneStep(
       nextState,
       targetPlayerId,
       targetObjectId,
-      parsedSingleTargetFromTargetPlayerGraveyard.cardType,
+      parsedSingleTargetFromTargetPlayerGraveyard,
       step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
       step.to === 'battlefield'
         ? step.battlefieldController?.kind === 'owner_of_moved_cards'
@@ -506,7 +506,7 @@ export function applyMoveZoneStep(
       nextState,
       controllerId,
       targetObjectId,
-      parsedSingleTargetFromYourGraveyard.cardType,
+      parsedSingleTargetFromYourGraveyard,
       step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
       step.to === 'battlefield' ? controllerId : undefined,
       step.entersTapped,
