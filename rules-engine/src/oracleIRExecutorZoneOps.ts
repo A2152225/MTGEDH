@@ -1,7 +1,28 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
+import { mergeRetainedCountersForBattlefieldEntry } from '../../shared/src/zoneRetainedCounters';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
 
-export type SimpleCardType = 'any' | 'creature' | 'artifact' | 'enchantment' | 'land' | 'instant' | 'sorcery' | 'planeswalker';
+export type SimpleCardType =
+  | 'any'
+  | 'creature'
+  | 'artifact'
+  | 'enchantment'
+  | 'land'
+  | 'instant'
+  | 'sorcery'
+  | 'planeswalker'
+  | 'saga'
+  | 'aura'
+  | 'nonland'
+  | 'instant_or_sorcery'
+  | 'artifact_or_creature'
+  | 'artifact_or_enchantment'
+  | 'creature_or_land'
+  | 'creature_or_planeswalker'
+  | 'artifact_instant_or_sorcery'
+  | 'creature_instant_or_sorcery'
+  | 'non_dragon_creature'
+  | 'legendary_creature';
 
 const stripImpulsePermissionMarkers = stripPlayableFromExileTags;
 
@@ -36,6 +57,27 @@ export function parseSimpleCardTypeFromText(text: string): SimpleCardType | null
     .trim();
 
   if (!lower) return null;
+  if (lower === 'artifact or creature') return 'artifact_or_creature';
+  if (lower === 'artifact or enchantment') return 'artifact_or_enchantment';
+  if (lower === 'creature or land') return 'creature_or_land';
+  if (lower === 'creature or planeswalker') return 'creature_or_planeswalker';
+  if (lower === 'instant or sorcery') return 'instant_or_sorcery';
+  if (lower === 'artifact, instant, or sorcery' || lower === 'artifact, instant or sorcery') {
+    return 'artifact_instant_or_sorcery';
+  }
+  if (
+    lower === 'instant, sorcery, or creature' ||
+    lower === 'instant, sorcery or creature' ||
+    lower === 'creature, instant, or sorcery' ||
+    lower === 'creature, instant or sorcery'
+  ) {
+    return 'creature_instant_or_sorcery';
+  }
+  if (lower === 'saga') return 'saga';
+  if (lower === 'nonland') return 'nonland';
+  if (lower === 'aura') return 'aura';
+  if (lower === 'non-dragon creature') return 'non_dragon_creature';
+  if (lower === 'legendary creature') return 'legendary_creature';
   if (/\bcreature(s)?\b/i.test(lower)) return 'creature';
   if (/\bartifact(s)?\b/i.test(lower)) return 'artifact';
   if (/\benchantment(s)?\b/i.test(lower)) return 'enchantment';
@@ -43,12 +85,28 @@ export function parseSimpleCardTypeFromText(text: string): SimpleCardType | null
   if (/\binstant(s)?\b/i.test(lower)) return 'instant';
   if (/\bsorcery|sorceries\b/i.test(lower)) return 'sorcery';
   if (/\bplaneswalker(s)?\b/i.test(lower)) return 'planeswalker';
+  if (/\bsaga(s)?\b/i.test(lower)) return 'saga';
   return null;
 }
 
 export function cardMatchesType(card: any, type: SimpleCardType): boolean {
-  if (type === 'any') return true;
   const typeLine = String(card?.type_line || '').toLowerCase();
+  if (type === 'any') return true;
+  if (type === 'nonland') return !typeLine.includes('land');
+  if (type === 'aura') return typeLine.includes('aura');
+  if (type === 'instant_or_sorcery') return typeLine.includes('instant') || typeLine.includes('sorcery');
+  if (type === 'artifact_or_creature') return typeLine.includes('artifact') || typeLine.includes('creature');
+  if (type === 'artifact_or_enchantment') return typeLine.includes('artifact') || typeLine.includes('enchantment');
+  if (type === 'creature_or_land') return typeLine.includes('creature') || typeLine.includes('land');
+  if (type === 'creature_or_planeswalker') return typeLine.includes('creature') || typeLine.includes('planeswalker');
+  if (type === 'artifact_instant_or_sorcery') {
+    return typeLine.includes('artifact') || typeLine.includes('instant') || typeLine.includes('sorcery');
+  }
+  if (type === 'creature_instant_or_sorcery') {
+    return typeLine.includes('creature') || typeLine.includes('instant') || typeLine.includes('sorcery');
+  }
+  if (type === 'non_dragon_creature') return typeLine.includes('creature') && !typeLine.includes('dragon');
+  if (type === 'legendary_creature') return typeLine.includes('legendary') && typeLine.includes('creature');
   return typeLine.includes(type);
 }
 
@@ -204,15 +262,14 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
   const cleaned = raw.replace(/[.\s]+$/g, '').trim();
   const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
-  if (!lower.startsWith('target ')) return null;
+  if (!/^(?:up to one\s+)?(?:other\s+)?target\s+/i.test(lower)) return null;
   if (!/\bfrom your graveyard\b/i.test(lower)) return null;
-  if (/\b(and|or)\b/i.test(lower)) return null;
 
-  if (/^target\s+cards?\s+from\s+your\s+graveyard$/i.test(lower)) {
+  if (/^(?:up to one\s+)?(?:other\s+)?target\s+cards?\s+from\s+your\s+graveyard$/i.test(lower)) {
     return { cardType: 'any' };
   }
 
-  const m = cleaned.match(/^target\s+(.+?)\s+cards?\s+from\s+your\s+graveyard$/i);
+  const m = cleaned.match(/^(?:up to one\s+)?(?:other\s+)?target\s+(.+?)\s+cards?\s+from\s+your\s+graveyard$/i);
   if (!m) return null;
 
   const typeText = String(m[1] || '').trim();
@@ -236,15 +293,47 @@ export function parseMoveZoneSingleTargetFromTargetPlayersGraveyard(what: {
   const cleaned = raw.replace(/[.\s]+$/g, '').trim();
   const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
-  if (!lower.startsWith('target ')) return null;
+  if (!/^(?:up to one\s+)?(?:other\s+)?target\s+/i.test(lower)) return null;
   if (!/\bfrom (?:target|that) (?:player|opponent)'s graveyard\b/i.test(lower)) return null;
-  if (/\b(and|or)\b/i.test(lower)) return null;
 
-  if (/^target\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i.test(lower)) {
+  if (/^(?:up to one\s+)?(?:other\s+)?target\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i.test(lower)) {
     return { cardType: 'any' };
   }
 
-  const m = cleaned.match(/^target\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
+  const m = cleaned.match(
+    /^(?:up to one\s+)?(?:other\s+)?target\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i
+  );
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function parseMoveZoneSingleTargetFromAGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!/^(?:up to one\s+)?(?:other\s+)?target\s+/i.test(lower)) return null;
+  if (!/\bfrom a graveyard\b/i.test(lower)) return null;
+
+  if (/^(?:up to one\s+)?(?:other\s+)?target\s+cards?\s+from\s+a\s+graveyard$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^(?:up to one\s+)?(?:other\s+)?target\s+(.+?)\s+cards?\s+from\s+a\s+graveyard$/i);
   if (!m) return null;
 
   const typeText = String(m[1] || '').trim();
@@ -343,7 +432,8 @@ export function putExactMatchingFromGraveyardOntoBattlefieldWithController(
   controllerId: PlayerID,
   count: number,
   cardType: SimpleCardType,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ):
   | { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] }
   | { readonly kind: 'impossible'; readonly available: number }
@@ -357,6 +447,7 @@ export function putExactMatchingFromGraveyardOntoBattlefieldWithController(
     sourcePlayerId,
     controllerId,
     entersTapped,
+    withCounters,
     'gy'
   );
   const updatedPlayers = state.players.map(p =>
@@ -374,9 +465,10 @@ export function moveTargetedCardFromGraveyard(
   playerId: PlayerID,
   targetCardId: string,
   cardType: SimpleCardType,
-  destination: 'hand' | 'exile' | 'battlefield',
+  destination: 'hand' | 'exile' | 'battlefield' | 'library_top' | 'library_bottom',
   battlefieldControllerId?: PlayerID,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] } | { readonly kind: 'impossible' } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'impossible' };
@@ -416,8 +508,21 @@ export function moveTargetedCardFromGraveyard(
     };
   }
 
+  if (destination === 'library_top' || destination === 'library_bottom') {
+    const library = Array.isArray(player.library) ? [...player.library] : [];
+    const nextLibrary = destination === 'library_top' ? [card, ...library] : [...library, card];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), graveyard: kept, library: nextLibrary } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} puts 1 card from graveyard on the ${destination === 'library_top' ? 'top' : 'bottom'} of their library`],
+    };
+  }
+
   const controllerId = battlefieldControllerId || playerId;
-  const newPermanent = createBattlefieldPermanentsFromCards([card], playerId, controllerId, entersTapped, 'gy');
+  const newPermanent = createBattlefieldPermanentsFromCards([card], playerId, controllerId, entersTapped, withCounters, 'gy');
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), graveyard: kept } as any) : p
   );
@@ -426,6 +531,37 @@ export function moveTargetedCardFromGraveyard(
     state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanent] } as any,
     log: [`${controllerId} puts 1 card from ${playerId}'s graveyard onto the battlefield`],
   };
+}
+
+export function moveTargetedCardFromAnyGraveyard(
+  state: GameState,
+  targetCardId: string,
+  cardType: SimpleCardType,
+  destination: 'hand' | 'exile' | 'battlefield' | 'library_top' | 'library_bottom',
+  battlefieldControllerId?: PlayerID,
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
+): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] } | { readonly kind: 'impossible' } {
+  const wantedId = String(targetCardId || '').trim();
+  if (!wantedId) return { kind: 'impossible' };
+
+  for (const player of (state.players || []) as any[]) {
+    const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+    if (graveyard.some((card: any) => String(card?.id || '').trim() === wantedId)) {
+      return moveTargetedCardFromGraveyard(
+        state,
+        player.id as PlayerID,
+        wantedId,
+        cardType,
+        destination,
+        battlefieldControllerId,
+        entersTapped,
+        withCounters
+      );
+    }
+  }
+
+  return { kind: 'impossible' };
 }
 
 export function parseMoveZoneSingleTargetFromYourHand(what: {
@@ -444,7 +580,6 @@ export function parseMoveZoneSingleTargetFromYourHand(what: {
 
   if (!lower.startsWith('target ')) return null;
   if (!/\bfrom your hand\b/i.test(lower)) return null;
-  if (/\b(and|or)\b/i.test(lower)) return null;
 
   if (/^target\s+cards?\s+from\s+your\s+hand$/i.test(lower)) {
     return { cardType: 'any' };
@@ -476,7 +611,6 @@ export function parseMoveZoneSingleTargetFromTargetPlayersHand(what: {
 
   if (!lower.startsWith('target ')) return null;
   if (!/\bfrom (?:target|that) (?:player|opponent)'s hand\b/i.test(lower)) return null;
-  if (/\b(and|or)\b/i.test(lower)) return null;
 
   if (/^target\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+hand$/i.test(lower)) {
     return { cardType: 'any' };
@@ -508,7 +642,6 @@ export function parseMoveZoneSingleTargetFromYourExile(what: {
 
   if (!lower.startsWith('target ')) return null;
   if (!/\bfrom your exile\b/i.test(lower)) return null;
-  if (/\b(and|or)\b/i.test(lower)) return null;
 
   if (/^target\s+cards?\s+from\s+your\s+exile$/i.test(lower)) {
     return { cardType: 'any' };
@@ -540,7 +673,6 @@ export function parseMoveZoneSingleTargetFromTargetPlayersExile(what: {
 
   if (!lower.startsWith('target ')) return null;
   if (!/\bfrom (?:target|that) (?:player|opponent)'s exile\b/i.test(lower)) return null;
-  if (/\b(and|or)\b/i.test(lower)) return null;
 
   if (/^target\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+exile$/i.test(lower)) {
     return { cardType: 'any' };
@@ -563,7 +695,8 @@ export function moveTargetedCardFromHand(
   cardType: SimpleCardType,
   destination: 'graveyard' | 'exile' | 'battlefield',
   battlefieldControllerId?: PlayerID,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] } | { readonly kind: 'impossible' } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'impossible' };
@@ -604,7 +737,7 @@ export function moveTargetedCardFromHand(
   }
 
   const controllerId = battlefieldControllerId || playerId;
-  const newPermanent = createBattlefieldPermanentsFromCards([card], playerId, controllerId, entersTapped, 'hand');
+  const newPermanent = createBattlefieldPermanentsFromCards([card], playerId, controllerId, entersTapped, withCounters, 'hand');
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), hand: kept } as any) : p
   );
@@ -622,7 +755,8 @@ export function moveTargetedCardFromExile(
   cardType: SimpleCardType,
   destination: 'hand' | 'graveyard' | 'battlefield',
   battlefieldControllerId?: PlayerID,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] } | { readonly kind: 'impossible' } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'impossible' };
@@ -663,7 +797,7 @@ export function moveTargetedCardFromExile(
   }
 
   const controllerId = battlefieldControllerId || playerId;
-  const newPermanent = createBattlefieldPermanentsFromCards([card], playerId, controllerId, entersTapped, 'exile');
+  const newPermanent = createBattlefieldPermanentsFromCards([card], playerId, controllerId, entersTapped, withCounters, 'exile');
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), exile: kept } as any) : p
   );
@@ -983,21 +1117,27 @@ function createBattlefieldPermanentsFromCards(
   sourcePlayerId: PlayerID,
   controllerId: PlayerID,
   entersTapped: boolean | undefined,
+  withCounters: Record<string, number> | undefined,
   sourcePrefix: string
 ): BattlefieldPermanent[] {
   return moved.map((card: any, idx: number) => {
     const cardIdHint = String(card?.id || '').trim();
     const base = cardIdHint ? cardIdHint : `${sourcePrefix}-${idx}`;
+    const sourceZone =
+      sourcePrefix === 'gy' ? 'graveyard' : sourcePrefix === 'ex' ? 'exile' : sourcePrefix === 'hand' ? 'hand' : sourcePrefix;
+    const counters = mergeRetainedCountersForBattlefieldEntry(card, sourceZone, withCounters);
+    const battlefieldCard = { ...(card || {}), zone: 'battlefield' } as any;
+    if ('counters' in battlefieldCard) delete battlefieldCard.counters;
     return {
       id: `perm-${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       controller: controllerId,
       owner: sourcePlayerId,
       tapped: Boolean(entersTapped),
       summoningSickness: true,
-      counters: {},
+      counters: counters || {},
       attachments: [],
       modifiers: [],
-      card,
+      card: battlefieldCard,
     } as any;
   });
 }
@@ -1041,9 +1181,10 @@ export function putAllMatchingFromExileOntoBattlefield(
   state: GameState,
   playerId: PlayerID,
   cardType: SimpleCardType,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { state: GameState; log: string[] } {
-  return putAllMatchingFromExileOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped);
+  return putAllMatchingFromExileOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped, withCounters);
 }
 
 export function putAllMatchingFromExileOntoBattlefieldWithController(
@@ -1051,7 +1192,8 @@ export function putAllMatchingFromExileOntoBattlefieldWithController(
   sourcePlayerId: PlayerID,
   controllerId: PlayerID,
   cardType: SimpleCardType,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { state: GameState; log: string[] } {
   const player = state.players.find(p => p.id === sourcePlayerId) as any;
   if (!player) return { state, log: [] };
@@ -1069,7 +1211,7 @@ export function putAllMatchingFromExileOntoBattlefieldWithController(
 
   const nextState = clearPlayableFromExileForCards(state, sourcePlayerId, moved);
   const movedClean = moved.map(stripImpulsePermissionMarkers);
-  const newPermanents = createBattlefieldPermanentsFromCards(movedClean, sourcePlayerId, controllerId, entersTapped, 'ex');
+  const newPermanents = createBattlefieldPermanentsFromCards(movedClean, sourcePlayerId, controllerId, entersTapped, withCounters, 'ex');
 
   const updatedPlayers = nextState.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), exile: kept } as any) : p));
   return {
@@ -1142,9 +1284,10 @@ export function putAllMatchingFromGraveyardOntoBattlefield(
   state: GameState,
   playerId: PlayerID,
   cardType: SimpleCardType,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { state: GameState; log: string[] } {
-  return putAllMatchingFromGraveyardOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped);
+  return putAllMatchingFromGraveyardOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped, withCounters);
 }
 
 export function putAllMatchingFromGraveyardOntoBattlefieldWithController(
@@ -1152,7 +1295,8 @@ export function putAllMatchingFromGraveyardOntoBattlefieldWithController(
   sourcePlayerId: PlayerID,
   controllerId: PlayerID,
   cardType: SimpleCardType,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { state: GameState; log: string[] } {
   const player = state.players.find(p => p.id === sourcePlayerId) as any;
   if (!player) return { state, log: [] };
@@ -1168,7 +1312,7 @@ export function putAllMatchingFromGraveyardOntoBattlefieldWithController(
 
   if (moved.length === 0) return { state, log: [] };
 
-  const newPermanents = createBattlefieldPermanentsFromCards(moved, sourcePlayerId, controllerId, entersTapped, 'gy');
+  const newPermanents = createBattlefieldPermanentsFromCards(moved, sourcePlayerId, controllerId, entersTapped, withCounters, 'gy');
   const updatedPlayers = state.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), graveyard: kept } as any) : p));
   return {
     state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanents] } as any,
@@ -1216,9 +1360,10 @@ export function putAllMatchingFromHandOntoBattlefield(
   state: GameState,
   playerId: PlayerID,
   cardType: SimpleCardType,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { state: GameState; log: string[] } {
-  return putAllMatchingFromHandOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped);
+  return putAllMatchingFromHandOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped, withCounters);
 }
 
 export function putAllMatchingFromHandOntoBattlefieldWithController(
@@ -1226,7 +1371,8 @@ export function putAllMatchingFromHandOntoBattlefieldWithController(
   sourcePlayerId: PlayerID,
   controllerId: PlayerID,
   cardType: SimpleCardType,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  withCounters?: Record<string, number>
 ): { state: GameState; log: string[] } {
   const player = state.players.find(p => p.id === sourcePlayerId) as any;
   if (!player) return { state, log: [] };
@@ -1242,7 +1388,7 @@ export function putAllMatchingFromHandOntoBattlefieldWithController(
 
   if (moved.length === 0) return { state, log: [] };
 
-  const newPermanents = createBattlefieldPermanentsFromCards(moved, sourcePlayerId, controllerId, entersTapped, 'hand');
+  const newPermanents = createBattlefieldPermanentsFromCards(moved, sourcePlayerId, controllerId, entersTapped, withCounters, 'hand');
   const updatedPlayers = state.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), hand: kept } as any) : p));
   return {
     state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanents] } as any,

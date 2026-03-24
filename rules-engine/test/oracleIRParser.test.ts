@@ -884,6 +884,19 @@ describe('Oracle IR Parser', () => {
     expect(move.to).toBe('battlefield');
   });
 
+  it('parses battlefield move-zone counters for corpus reanimation wording', () => {
+    const text = 'Put target creature card from a graveyard onto the battlefield under your control with a corpse counter on it.';
+    const ir = parseOracleTextToIR(text);
+    const steps = ir.abilities[0].steps;
+
+    const move = steps.find(s => s.kind === 'move_zone') as any;
+    expect(move).toBeTruthy();
+    expect(move.to).toBe('battlefield');
+    expect(move.battlefieldController).toEqual({ kind: 'you' });
+    expect(move.entersTapped).toBeUndefined();
+    expect(move.withCounters).toEqual({ corpse: 1 });
+  });
+
   it('parses mill clauses into IR steps', () => {
     const text = 'Each opponent mills two cards.';
     const ir = parseOracleTextToIR(text);

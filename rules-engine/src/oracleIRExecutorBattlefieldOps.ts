@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
+import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
 import type { OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { SimpleBattlefieldSelector, SimplePermanentType } from './oracleIRExecutorBattlefieldParser';
@@ -162,11 +163,11 @@ export function finalizeBattlefieldRemoval(
 
     if (destination === 'graveyard') {
       const gy = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
-      gy.push((perm as any).card);
+      gy.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'graveyard'));
       player.graveyard = gy;
     } else {
       const ex = Array.isArray(player.exile) ? [...player.exile] : [];
-      ex.push((perm as any).card);
+      ex.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
       player.exile = ex;
     }
   }
@@ -242,7 +243,7 @@ export function bounceMatchingBattlefieldPermanentsToOwnersHands(
     const player = players.find(pp => pp.id === ownerId);
     if (!player) continue;
     const hand = Array.isArray(player.hand) ? [...player.hand] : [];
-    hand.push((perm as any).card);
+    hand.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'hand'));
     player.hand = hand;
   }
 

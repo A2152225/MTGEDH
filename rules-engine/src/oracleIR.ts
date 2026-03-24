@@ -304,6 +304,8 @@ export type OracleEffectStep =
       readonly battlefieldController?: OraclePlayerSelector;
       /** If the move puts cards onto the battlefield tapped (deterministic). */
       readonly entersTapped?: boolean;
+      /** Counters the moved permanent enters with (deterministic, battlefield-only). */
+      readonly withCounters?: Record<string, number>;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

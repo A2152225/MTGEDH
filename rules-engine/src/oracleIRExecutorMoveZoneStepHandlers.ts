@@ -8,6 +8,7 @@ import {
   exileAllMatchingFromGraveyard,
   moveAllMatchingFromExile,
   moveAllMatchingFromHand,
+  moveTargetedCardFromAnyGraveyard,
   moveTargetedCardFromGraveyard,
   moveTargetedCardFromHand,
   moveTargetedCardFromExile,
@@ -21,6 +22,7 @@ import {
   parseMoveZoneAllFromTargetPlayersGraveyard,
   parseMoveZoneAllFromTargetPlayersHand,
   parseMoveZoneCountFromTargetPlayersGraveyard,
+  parseMoveZoneSingleTargetFromAGraveyard,
   parseMoveZoneSingleTargetFromTargetPlayersGraveyard,
   parseMoveZoneSingleTargetFromTargetPlayersHand,
   parseMoveZoneSingleTargetFromTargetPlayersExile,
@@ -84,6 +86,17 @@ function getTargetObjectId(ctx: OracleIRExecutionContext): string {
   return String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
 }
 
+function getLibraryPlacement(step: Extract<OracleEffectStep, { kind: 'move_zone' }>): 'top' | 'bottom' | '' {
+  if (step.to !== 'library') return '';
+  const toRaw = String(step.toRaw || '').trim().toLowerCase();
+  const hasTop = /^(?:on\s+)?top of\b/i.test(toRaw);
+  const hasBottom = /^(?:on\s+)?(?:the\s+)?bottom of\b/i.test(toRaw);
+  if (hasTop && hasBottom) return '';
+  if (hasTop) return 'top';
+  if (hasBottom) return 'bottom';
+  return '';
+}
+
 function requiresExplicitControllerOverride(step: Extract<OracleEffectStep, { kind: 'move_zone' }>): boolean {
   return (
     step.to === 'battlefield' &&
@@ -97,7 +110,7 @@ export function applyMoveZoneStep(
   step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
   ctx: OracleIRExecutionContext
 ): MoveZoneStepHandlerResult {
-  if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'graveyard' && step.to !== 'battlefield') {
+  if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'graveyard' && step.to !== 'battlefield' && step.to !== 'library') {
     return {
       applied: false,
       message: `Skipped move zone (unsupported destination): ${step.raw}`,
@@ -123,6 +136,7 @@ export function applyMoveZoneStep(
   const parsedFromGraveyard = parseMoveZoneAllFromYourGraveyard(step.what as any);
   const parsedCountFromGraveyard = parseMoveZoneCountFromYourGraveyard(step.what as any);
   const parsedTargetCountFromGraveyard = parseMoveZoneCountFromTargetPlayersGraveyard(step.what as any);
+  const parsedSingleTargetFromAnyGraveyard = parseMoveZoneSingleTargetFromAGraveyard(step.what as any);
   const parsedSingleTargetFromTargetPlayerGraveyard = parseMoveZoneSingleTargetFromTargetPlayersGraveyard(step.what as any);
   const parsedSingleTargetFromTargetPlayerHand = parseMoveZoneSingleTargetFromTargetPlayersHand(step.what as any);
   const parsedSingleTargetFromTargetPlayerExile = parseMoveZoneSingleTargetFromTargetPlayersExile(step.what as any);
@@ -145,6 +159,7 @@ export function applyMoveZoneStep(
     !parsedFromGraveyard &&
     !parsedCountFromGraveyard &&
     !parsedTargetCountFromGraveyard &&
+    !parsedSingleTargetFromAnyGraveyard &&
     !parsedSingleTargetFromTargetPlayerGraveyard &&
     !parsedSingleTargetFromTargetPlayerHand &&
     !parsedSingleTargetFromTargetPlayerExile &&
@@ -201,21 +216,90 @@ export function applyMoveZoneStep(
         ? returnAllMatchingFromGraveyardToHand(nextState, targetPlayerId, parsedTargetPlayerGy.cardType)
         : step.to === 'battlefield'
           ? step.battlefieldController?.kind === 'owner_of_moved_cards'
-            ? putAllMatchingFromGraveyardOntoBattlefield(nextState, targetPlayerId, parsedTargetPlayerGy.cardType, step.entersTapped)
+            ? putAllMatchingFromGraveyardOntoBattlefield(
+                nextState,
+                targetPlayerId,
+                parsedTargetPlayerGy.cardType,
+                step.entersTapped,
+                step.withCounters
+              )
             : putAllMatchingFromGraveyardOntoBattlefieldWithController(
                 nextState,
                 targetPlayerId,
                 controllerId,
                 parsedTargetPlayerGy.cardType,
-                step.entersTapped
+                step.entersTapped,
+                step.withCounters
               )
           : exileAllMatchingFromGraveyard(nextState, targetPlayerId, parsedTargetPlayerGy.cardType);
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedSingleTargetFromAnyGraveyard) {
+    const targetObjectId = getTargetObjectId(ctx);
+    const libraryPlacement = getLibraryPlacement(step);
+    if (!targetObjectId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield' && !(step.to === 'library' && libraryPlacement)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (step.to === 'battlefield' && requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result = moveTargetedCardFromAnyGraveyard(
+      nextState,
+      targetObjectId,
+      parsedSingleTargetFromAnyGraveyard.cardType,
+      step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
+      step.to === 'battlefield'
+        ? step.battlefieldController?.kind === 'owner_of_moved_cards'
+          ? undefined
+          : controllerId
+        : undefined,
+      step.entersTapped,
+      step.withCounters
+    );
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (target card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            targetObjectId,
+            zone: 'graveyard',
+            scope: 'any_graveyard',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
     return { applied: true, state: result.state, log: result.log };
   }
 
   if (parsedSingleTargetFromTargetPlayerGraveyard) {
     const targetPlayerId = getTargetPlayerId(ctx);
     const targetObjectId = getTargetObjectId(ctx);
+    const libraryPlacement = getLibraryPlacement(step);
     if (!targetPlayerId || !targetObjectId) {
       return {
         applied: false,
@@ -224,7 +308,7 @@ export function applyMoveZoneStep(
       };
     }
 
-    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield') {
+    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield' && !(step.to === 'library' && libraryPlacement)) {
       return {
         applied: false,
         message: `Skipped move zone (unsupported destination): ${step.raw}`,
@@ -245,13 +329,14 @@ export function applyMoveZoneStep(
       targetPlayerId,
       targetObjectId,
       parsedSingleTargetFromTargetPlayerGraveyard.cardType,
-      step.to,
+      step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
       step.to === 'battlefield'
         ? step.battlefieldController?.kind === 'owner_of_moved_cards'
           ? targetPlayerId
           : controllerId
         : undefined,
-      step.entersTapped
+      step.entersTapped,
+      step.withCounters
     );
 
     if (result.kind === 'impossible') {
@@ -312,7 +397,8 @@ export function applyMoveZoneStep(
           ? targetPlayerId
           : controllerId
         : undefined,
-      step.entersTapped
+      step.entersTapped,
+      step.withCounters
     );
 
     if (result.kind === 'impossible') {
@@ -373,7 +459,8 @@ export function applyMoveZoneStep(
           ? targetPlayerId
           : controllerId
         : undefined,
-      step.entersTapped
+      step.entersTapped,
+      step.withCounters
     );
 
     if (result.kind === 'impossible') {
@@ -398,6 +485,7 @@ export function applyMoveZoneStep(
 
   if (parsedSingleTargetFromYourGraveyard) {
     const targetObjectId = getTargetObjectId(ctx);
+    const libraryPlacement = getLibraryPlacement(step);
     if (!targetObjectId) {
       return {
         applied: false,
@@ -406,7 +494,7 @@ export function applyMoveZoneStep(
       };
     }
 
-    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield') {
+    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield' && !(step.to === 'library' && libraryPlacement)) {
       return {
         applied: false,
         message: `Skipped move zone (unsupported destination): ${step.raw}`,
@@ -419,9 +507,10 @@ export function applyMoveZoneStep(
       controllerId,
       targetObjectId,
       parsedSingleTargetFromYourGraveyard.cardType,
-      step.to,
+      step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
       step.to === 'battlefield' ? controllerId : undefined,
-      step.entersTapped
+      step.entersTapped,
+      step.withCounters
     );
 
     if (result.kind === 'impossible') {
@@ -468,7 +557,8 @@ export function applyMoveZoneStep(
       parsedSingleTargetFromYourHand.cardType,
       step.to,
       step.to === 'battlefield' ? controllerId : undefined,
-      step.entersTapped
+      step.entersTapped,
+      step.withCounters
     );
 
     if (result.kind === 'impossible') {
@@ -515,7 +605,8 @@ export function applyMoveZoneStep(
       parsedSingleTargetFromYourExile.cardType,
       step.to,
       step.to === 'battlefield' ? controllerId : undefined,
-      step.entersTapped
+      step.entersTapped,
+      step.withCounters
     );
 
     if (result.kind === 'impossible') {
@@ -578,7 +669,8 @@ export function applyMoveZoneStep(
               step.battlefieldController?.kind === 'owner_of_moved_cards' ? targetPlayerId : controllerId,
               parsedTargetCountFromGraveyard.count,
               parsedTargetCountFromGraveyard.cardType,
-              step.entersTapped
+              step.entersTapped,
+              step.withCounters
             )
           : exileExactMatchingFromGraveyard(
               nextState,
@@ -658,13 +750,20 @@ export function applyMoveZoneStep(
         : step.to === 'graveyard'
           ? moveAllMatchingFromExile(nextState, targetPlayerId, parsedTargetPlayerExile.cardType, 'graveyard')
           : step.battlefieldController?.kind === 'owner_of_moved_cards'
-            ? putAllMatchingFromExileOntoBattlefield(nextState, targetPlayerId, parsedTargetPlayerExile.cardType, step.entersTapped)
+            ? putAllMatchingFromExileOntoBattlefield(
+                nextState,
+                targetPlayerId,
+                parsedTargetPlayerExile.cardType,
+                step.entersTapped,
+                step.withCounters
+              )
             : putAllMatchingFromExileOntoBattlefieldWithController(
                 nextState,
                 targetPlayerId,
                 controllerId,
                 parsedTargetPlayerExile.cardType,
-                step.entersTapped
+                step.entersTapped,
+                step.withCounters
               );
     return { applied: true, state: result.state, log: result.log };
   }
@@ -703,9 +802,16 @@ export function applyMoveZoneStep(
               targetPlayerId,
               controllerId,
               parsedTargetPlayerHand.cardType,
-              step.entersTapped
+              step.entersTapped,
+              step.withCounters
             )
-          : putAllMatchingFromHandOntoBattlefield(nextState, targetPlayerId, parsedTargetPlayerHand.cardType, step.entersTapped)
+          : putAllMatchingFromHandOntoBattlefield(
+              nextState,
+              targetPlayerId,
+              parsedTargetPlayerHand.cardType,
+              step.entersTapped,
+              step.withCounters
+            )
         : moveAllMatchingFromHand(nextState, targetPlayerId, parsedTargetPlayerHand.cardType, step.to);
     return { applied: true, state: result.state, log: result.log };
   }
@@ -734,7 +840,8 @@ export function applyMoveZoneStep(
               controllerId,
               parsedCountFromGraveyard.count,
               parsedCountFromGraveyard.cardType,
-              step.entersTapped
+              step.entersTapped,
+              step.withCounters
             )
           : exileExactMatchingFromGraveyard(
               nextState,
@@ -804,13 +911,20 @@ export function applyMoveZoneStep(
           : step.to === 'graveyard'
             ? moveAllMatchingFromExile(nextState, player.id, parsedEachOpponentsExile.cardType, 'graveyard')
             : step.battlefieldController?.kind === 'owner_of_moved_cards'
-              ? putAllMatchingFromExileOntoBattlefield(nextState, player.id, parsedEachOpponentsExile.cardType, step.entersTapped)
+              ? putAllMatchingFromExileOntoBattlefield(
+                  nextState,
+                  player.id,
+                  parsedEachOpponentsExile.cardType,
+                  step.entersTapped,
+                  step.withCounters
+                )
               : putAllMatchingFromExileOntoBattlefieldWithController(
                   nextState,
                   player.id,
                   controllerId,
                   parsedEachOpponentsExile.cardType,
-                  step.entersTapped
+                  step.entersTapped,
+                  step.withCounters
                 );
       nextState = result.state;
       log.push(...result.log);
@@ -842,13 +956,20 @@ export function applyMoveZoneStep(
           ? returnAllMatchingFromGraveyardToHand(nextState, player.id, parsedEachOpponentsGy.cardType)
           : step.to === 'battlefield'
             ? step.battlefieldController?.kind === 'owner_of_moved_cards'
-              ? putAllMatchingFromGraveyardOntoBattlefield(nextState, player.id, parsedEachOpponentsGy.cardType, step.entersTapped)
+              ? putAllMatchingFromGraveyardOntoBattlefield(
+                  nextState,
+                  player.id,
+                  parsedEachOpponentsGy.cardType,
+                  step.entersTapped,
+                  step.withCounters
+                )
               : putAllMatchingFromGraveyardOntoBattlefieldWithController(
                   nextState,
                   player.id,
                   controllerId,
                   parsedEachOpponentsGy.cardType,
-                  step.entersTapped
+                  step.entersTapped,
+                  step.withCounters
                 )
             : exileAllMatchingFromGraveyard(nextState, player.id, parsedEachOpponentsGy.cardType);
       nextState = result.state;
@@ -879,14 +1000,21 @@ export function applyMoveZoneStep(
       const result =
         step.to === 'battlefield'
           ? step.battlefieldController?.kind === 'you'
-            ? putAllMatchingFromHandOntoBattlefieldWithController(
+          ? putAllMatchingFromHandOntoBattlefieldWithController(
                 nextState,
                 player.id,
                 controllerId,
                 parsedEachOpponentsHand.cardType,
-                step.entersTapped
+                step.entersTapped,
+                step.withCounters
               )
-            : putAllMatchingFromHandOntoBattlefield(nextState, player.id, parsedEachOpponentsHand.cardType, step.entersTapped)
+            : putAllMatchingFromHandOntoBattlefield(
+                nextState,
+                player.id,
+                parsedEachOpponentsHand.cardType,
+                step.entersTapped,
+                step.withCounters
+              )
           : moveAllMatchingFromHand(nextState, player.id, parsedEachOpponentsHand.cardType, step.to);
       nextState = result.state;
       log.push(...result.log);
@@ -915,9 +1043,16 @@ export function applyMoveZoneStep(
                   player.id,
                   controllerId,
                   parsedEachPlayersGy.cardType,
-                  step.entersTapped
+                  step.entersTapped,
+                  step.withCounters
                 )
-              : putAllMatchingFromGraveyardOntoBattlefield(nextState, player.id, parsedEachPlayersGy.cardType, step.entersTapped)
+              : putAllMatchingFromGraveyardOntoBattlefield(
+                  nextState,
+                  player.id,
+                  parsedEachPlayersGy.cardType,
+                  step.entersTapped,
+                  step.withCounters
+                )
             : exileAllMatchingFromGraveyard(nextState, player.id, parsedEachPlayersGy.cardType);
       nextState = result.state;
       log.push(...result.log);
@@ -947,9 +1082,16 @@ export function applyMoveZoneStep(
                   player.id,
                   controllerId,
                   parsedEachPlayersExile.cardType,
-                  step.entersTapped
+                  step.entersTapped,
+                  step.withCounters
                 )
-              : putAllMatchingFromExileOntoBattlefield(nextState, player.id, parsedEachPlayersExile.cardType, step.entersTapped);
+              : putAllMatchingFromExileOntoBattlefield(
+                  nextState,
+                  player.id,
+                  parsedEachPlayersExile.cardType,
+                  step.entersTapped,
+                  step.withCounters
+                );
       nextState = result.state;
       log.push(...result.log);
     }
@@ -970,14 +1112,21 @@ export function applyMoveZoneStep(
       const result =
         step.to === 'battlefield'
           ? step.battlefieldController?.kind === 'you'
-            ? putAllMatchingFromHandOntoBattlefieldWithController(
+          ? putAllMatchingFromHandOntoBattlefieldWithController(
                 nextState,
                 player.id,
                 controllerId,
                 parsedEachPlayersHand.cardType,
-                step.entersTapped
+                step.entersTapped,
+                step.withCounters
               )
-            : putAllMatchingFromHandOntoBattlefield(nextState, player.id, parsedEachPlayersHand.cardType, step.entersTapped)
+            : putAllMatchingFromHandOntoBattlefield(
+                nextState,
+                player.id,
+                parsedEachPlayersHand.cardType,
+                step.entersTapped,
+                step.withCounters
+              )
           : moveAllMatchingFromHand(nextState, player.id, parsedEachPlayersHand.cardType, step.to);
       nextState = result.state;
       log.push(...result.log);
@@ -1002,7 +1151,8 @@ export function applyMoveZoneStep(
         nextState,
         controllerId,
         parsedFromGraveyard.cardType,
-        step.entersTapped
+        step.entersTapped,
+        step.withCounters
       );
       return { applied: true, state: result.state, log: result.log };
     }
@@ -1033,9 +1183,16 @@ export function applyMoveZoneStep(
               controllerId,
               controllerId,
               parsedFromExile.cardType,
-              step.entersTapped
+              step.entersTapped,
+              step.withCounters
             )
-          : putAllMatchingFromExileOntoBattlefield(nextState, controllerId, parsedFromExile.cardType, step.entersTapped);
+          : putAllMatchingFromExileOntoBattlefield(
+              nextState,
+              controllerId,
+              parsedFromExile.cardType,
+              step.entersTapped,
+              step.withCounters
+            );
       return { applied: true, state: result.state, log: result.log };
     }
 
@@ -1056,7 +1213,13 @@ export function applyMoveZoneStep(
 
   const result =
     step.to === 'battlefield'
-      ? putAllMatchingFromHandOntoBattlefield(nextState, controllerId, parsedFromHand!.cardType, step.entersTapped)
+      ? putAllMatchingFromHandOntoBattlefield(
+          nextState,
+          controllerId,
+          parsedFromHand!.cardType,
+          step.entersTapped,
+          step.withCounters
+        )
       : moveAllMatchingFromHand(nextState, controllerId, parsedFromHand!.cardType, step.to);
 
   return { applied: true, state: result.state, log: result.log };

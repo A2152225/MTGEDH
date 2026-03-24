@@ -855,7 +855,10 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           const stackItem = {
             id: `stack_${Date.now()}_${commanderId}`,
             controller: pid,
-            card: { ...commanderCard, zone: "stack", isCommander: true },
+            source: 'command',
+            fromZone: 'command',
+            castSourceZone: 'command',
+            card: { ...commanderCard, zone: "stack", isCommander: true, source: 'command', fromZone: 'command', castSourceZone: 'command' },
             targets: [],
           };
           debug(2, `[castCommander] Calling game.pushStack with item:`, stackItem);
@@ -868,7 +871,10 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           game.state.stack.push({
             id: `stack_${Date.now()}_${commanderId}`,
             controller: pid,
-            card: { ...commanderCard, zone: "stack", isCommander: true },
+            source: 'command',
+            fromZone: 'command',
+            castSourceZone: 'command',
+            card: { ...commanderCard, zone: "stack", isCommander: true, source: 'command', fromZone: 'command', castSourceZone: 'command' },
             targets: [],
           } as any);
           debug(2, `[castCommander] Successfully pushed to stack (fallback), stack length: ${game.state.stack.length}`);

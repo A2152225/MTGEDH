@@ -1,6 +1,10 @@
 import type { OracleEffectStep, OraclePlayerSelector, OracleZone } from './oracleIR';
-import { inferZoneFromDestination, splitSacrificeObjectAndCondition } from './oracleIRParserSacrificeHelpers';
-import { normalizeOracleText, parseObjectSelector, parsePlayerSelector } from './oracleIRParserUtils';
+import {
+  inferZoneFromDestination,
+  normalizeCounterName,
+  splitSacrificeObjectAndCondition,
+} from './oracleIRParserSacrificeHelpers';
+import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -22,6 +26,28 @@ function parseBattlefieldController(to: OracleZone, toRaw: string): OraclePlayer
   return undefined;
 }
 
+function parseMoveZoneBattlefieldCounters(to: OracleZone, toRaw: string): Record<string, number> | undefined {
+  if (to !== 'battlefield') return undefined;
+
+  const normalized = normalizeOracleText(toRaw).trim();
+  if (!/\bwith\b/i.test(normalized) || !/\bcounters?\b/i.test(normalized)) return undefined;
+
+  const match = normalized.match(/\bwith\s+(a|an|\d+|x|[a-z]+)\s+([^,.]+?)\s+counters?\s+on\s+it\b/i);
+  if (!match) return undefined;
+  if (/\bof your choice\b/i.test(match[0])) return undefined;
+
+  const qty = parseQuantity(String(match[1] || '').trim());
+  if (qty.kind !== 'number') return undefined;
+
+  const amount = Math.max(0, qty.value | 0);
+  if (amount <= 0) return undefined;
+
+  const counterName = normalizeCounterName(String(match[2] || ''));
+  if (!counterName) return undefined;
+
+  return { [counterName]: amount };
+}
+
 function parseMoveZoneStep(args: {
   whatRaw: string;
   toRaw: string;
@@ -33,7 +59,8 @@ function parseMoveZoneStep(args: {
   const to = inferZoneFromDestination(toRaw);
   const battlefieldController = parseBattlefieldController(to, toRaw);
   const entersTapped = to === 'battlefield' && !/\buntapped\b/i.test(toRaw) && /\btapped\b/i.test(toRaw) ? true : undefined;
-  return withMeta({ kind: 'move_zone', what, to, toRaw, battlefieldController, entersTapped, raw: rawClause });
+  const withCounters = parseMoveZoneBattlefieldCounters(to, toRaw);
+  return withMeta({ kind: 'move_zone', what, to, toRaw, battlefieldController, entersTapped, withCounters, raw: rawClause });
 }
 
 export function tryParseZoneAndRemovalClause(args: {
@@ -85,7 +112,7 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
-  const returnMatch = clause.match(/^return\s+(.+?)\s+to\s+(.+)$/i);
+  const returnMatch = clause.match(/^return\s+(.+)\s+to\s+(.+)$/i);
   if (returnMatch) {
     return parseMoveZoneStep({
       whatRaw: String(returnMatch[1] || '').trim(),
@@ -100,6 +127,16 @@ export function tryParseZoneAndRemovalClause(args: {
     return parseMoveZoneStep({
       whatRaw: String(putIntoMatch[1] || '').trim(),
       toRaw: String(putIntoMatch[2] || '').trim(),
+      rawClause,
+      withMeta,
+    });
+  }
+
+  const putOnLibraryMatch = clause.match(/^put\s+(.+?)\s+on\s+(.+?library)$/i);
+  if (putOnLibraryMatch) {
+    return parseMoveZoneStep({
+      whatRaw: String(putOnLibraryMatch[1] || '').trim(),
+      toRaw: String(putOnLibraryMatch[2] || '').trim(),
       rawClause,
       withMeta,
     });

@@ -145,7 +145,7 @@ export function inferZoneFromDestination(destination: string): OracleZone {
   if (/\bbattlefields?\b/.test(s)) return 'battlefield';
   if (/\bgraveyards?\b/.test(s)) return 'graveyard';
   if (/\bexile\b/.test(s)) return 'exile';
-  if (/\blibraries?\b/.test(s)) return 'library';
+  if (/\blibrar(?:y|ies)\b/.test(s)) return 'library';
   if (/\bstacks?\b/.test(s)) return 'stack';
   if (/\bcommand\b/.test(s) || /\bcommander zone\b/.test(s)) return 'command';
   return 'unknown';

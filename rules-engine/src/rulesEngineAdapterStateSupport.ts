@@ -1,4 +1,5 @@
 import type { GameState } from '../../shared/src';
+import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
 import type { EngineResult } from './index';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { GameEndReason, WinCondition } from './types/gameFlow';
@@ -40,7 +41,7 @@ export function movePermanentToGraveyard(state: GameState, permanent: any): Game
     if (player.id === ownerId) {
       return {
         ...player,
-        graveyard: [...(player.graveyard || []), permanent.card || permanent],
+        graveyard: [...(player.graveyard || []), buildZoneObjectWithRetainedCounters(permanent.card || permanent, permanent, 'graveyard')],
       };
     }
 

@@ -1,4 +1,5 @@
 import type { PlayerID } from "../../../../shared/src";
+import { buildZoneObjectWithRetainedCounters } from "../../../../shared/src/zoneRetainedCounters";
 import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
 import { uid, parsePT, parseWordNumber } from "../utils";
@@ -900,7 +901,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         if (owner) {
           const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
           (ownerZone as any).commandZone = Array.isArray((ownerZone as any).commandZone) ? (ownerZone as any).commandZone : [];
-          (ownerZone as any).commandZone.push({ ...card, zone: 'command' });
+          (ownerZone as any).commandZone.push(buildZoneObjectWithRetainedCounters(card, perm, 'command'));
           (ownerZone as any).commandZoneCount = (ownerZone as any).commandZone.length;
         }
       } catch {
@@ -943,6 +944,9 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         mana_cost: card.mana_cost,
         power: card.power,
         toughness: card.toughness,
+        ...(buildZoneObjectWithRetainedCounters(card, perm, 'command')?.counters
+          ? { counters: buildZoneObjectWithRetainedCounters(card, perm, 'command').counters }
+          : {}),
       } as any,
     } as any);
     debug(2, `[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - queued commander zone choice step`);
@@ -965,7 +969,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
     (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
     if (card) {
-      (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+      (ownerZone as any).graveyard.push(buildZoneObjectWithRetainedCounters(card, perm, 'graveyard'));
       recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true, controllerId: String(controller) });
       (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
     }
@@ -1113,6 +1117,9 @@ export function movePermanentToExile(
         mana_cost: card.mana_cost,
         power: card.power,
         toughness: card.toughness,
+        ...(buildZoneObjectWithRetainedCounters(card, perm, 'command')?.counters
+          ? { counters: buildZoneObjectWithRetainedCounters(card, perm, 'command').counters }
+          : {}),
       } as any,
     } as any);
     debug(2, `[movePermanentToExile] Commander ${card.name} would go to exile - queued commander zone choice step`);
@@ -1135,7 +1142,7 @@ export function movePermanentToExile(
     ...(options?.exiledWithSourceId ? { exiledWithSourceId: options.exiledWithSourceId } : {}),
     ...(options?.exiledWithOracleId ? { exiledWithOracleId: options.exiledWithOracleId } : {}),
     ...(options?.exiledWithSourceName ? { exiledWithSourceName: options.exiledWithSourceName } : {}),
-    zone: "exile"
+    ...buildZoneObjectWithRetainedCounters(card, perm, 'exile'),
   };
   (z as any).exile = (z as any).exile || [];
   (z as any).exile.push(kc);
@@ -1328,7 +1335,7 @@ export function runSBA(ctx: GameContext) {
           (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
           const card = (destroyed as any).card;
           if (card) {
-            (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+            (ownerZone as any).graveyard.push(buildZoneObjectWithRetainedCounters(card, destroyed, 'graveyard'));
             recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true, controllerId: String((destroyed as any).controller || owner) });
             (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
           }
@@ -1404,7 +1411,7 @@ export function runSBA(ctx: GameContext) {
             (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
             const card = (removed as any).card;
             if (card) {
-              (ownerZone as any).graveyard.push({ ...card, zone: "graveyard" });
+              (ownerZone as any).graveyard.push(buildZoneObjectWithRetainedCounters(card, removed, 'graveyard'));
               recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true, controllerId: String((removed as any).controller || owner) });
               (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
             }

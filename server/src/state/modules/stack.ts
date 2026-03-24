@@ -1,4 +1,5 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
+import { buildZoneObjectWithRetainedCounters, mergeRetainedCountersForBattlefieldEntry } from "../../../../shared/src/zoneRetainedCounters.js";
 import type { GameContext } from "../context.js";
 import { uid, parsePT, addEnergyCounters, addTokenCounters, triggerLifeGainEffects, calculateAllPTBonuses, cardManaValue, calculateVariablePT } from "../utils.js";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, detectSpellLandBonus, applyTemporaryLandBonus, processLifeChange, applyMillReplacements } from "./game-state-effects.js";
@@ -5947,6 +5948,9 @@ function executeTriggerEffect(
                 mana_cost: card.mana_cost,
                 power: card.power,
                 toughness: card.toughness,
+                ...(buildZoneObjectWithRetainedCounters(card, targetPerm, 'command')?.counters
+                  ? { counters: buildZoneObjectWithRetainedCounters(card, targetPerm, 'command').counters }
+                  : {}),
               } as any,
             } as any);
             debug(2, `[executeTriggerEffect] Commander ${card.name} destroyed - queued commander zone choice step`);
@@ -5955,8 +5959,7 @@ function executeTriggerEffect(
             const ownerZones = state.zones?.[targetPerm.owner];
             if (ownerZones) {
               ownerZones.graveyard = ownerZones.graveyard || [];
-              targetPerm.card.zone = 'graveyard';
-              ownerZones.graveyard.push(targetPerm.card);
+              ownerZones.graveyard.push(buildZoneObjectWithRetainedCounters(targetPerm.card, targetPerm, 'graveyard'));
               recordCardPutIntoGraveyardThisTurn(ctx, String(targetPerm.owner), targetPerm.card, {
                 fromBattlefield: true,
                 controllerId: String((targetPerm as any).controller || targetPerm.owner),
@@ -6032,6 +6035,9 @@ function executeTriggerEffect(
                 mana_cost: card.mana_cost,
                 power: card.power,
                 toughness: card.toughness,
+                ...(buildZoneObjectWithRetainedCounters(card, targetPerm, 'command')?.counters
+                  ? { counters: buildZoneObjectWithRetainedCounters(card, targetPerm, 'command').counters }
+                  : {}),
               } as any,
             } as any);
             debug(2, `[executeTriggerEffect] Commander ${card.name} would go to hand - queued commander zone choice step`);
@@ -6040,8 +6046,7 @@ function executeTriggerEffect(
             const ownerZones = state.zones?.[owner];
             if (ownerZones) {
               ownerZones.hand = ownerZones.hand || [];
-              card.zone = 'hand';
-              ownerZones.hand.push(card);
+              ownerZones.hand.push(buildZoneObjectWithRetainedCounters(card, targetPerm, 'hand'));
               ownerZones.handCount = ownerZones.hand.length;
             }
             debug(2, `[executeTriggerEffect] Returned ${card?.name || targetPerm.id} to owner's hand`);
@@ -8000,9 +8005,14 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Apply counter modifiers (Doubling Season, Vorinclex, etc.) to ETB counters
     // Need to create a temporary permanent to apply modifiers
+    const retainedEntryCounters = mergeRetainedCountersForBattlefieldEntry(
+      effectiveCard,
+      String((item as any).source || (effectiveCard as any)?.castSourceZone || 'hand'),
+      initialCounters
+    ) || {};
     const tempPerm = { id: newPermId, controller, counters: {} };
     state.battlefield.push(tempPerm as any);
-    const modifiedCounters = applyCounterModifications(state, newPermId, initialCounters);
+    const modifiedCounters = applyCounterModifications(state, newPermId, retainedEntryCounters);
     state.battlefield.pop(); // Remove temp permanent
     
     const newPermanent: any = {
@@ -8021,7 +8031,11 @@ export function resolveTopOfStack(ctx: GameContext) {
         zone: "battlefield",
         power: "2",
         toughness: "2",
-      } : { ...effectiveCard, zone: "battlefield" },
+      } : (() => {
+        const nextCard: any = { ...effectiveCard, zone: "battlefield" };
+        if ('counters' in nextCard) delete nextCard.counters;
+        return nextCard;
+      })(),
       // Preserve isCommander flag from stack item if it exists
       isCommander: (item as any).card?.isCommander || (effectiveCard as any).isCommander || false,
     };
@@ -9968,6 +9982,9 @@ export function resolveTopOfStack(ctx: GameContext) {
               mana_cost: targetCard.mana_cost,
               power: targetCard.power,
               toughness: targetCard.toughness,
+              ...(buildZoneObjectWithRetainedCounters(targetCard, targetPerm, 'command')?.counters
+                ? { counters: buildZoneObjectWithRetainedCounters(targetCard, targetPerm, 'command').counters }
+                : {}),
             } as any,
           } as any);
           debug(2, `[resolveTopOfStack] Chaos Warp: Commander ${targetCard.name} would go to library - queued commander zone choice step`);

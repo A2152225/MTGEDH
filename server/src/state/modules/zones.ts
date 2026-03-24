@@ -5,6 +5,7 @@
 // Exports a complete set of named helpers used throughout the server state surface.
 
 import type { PlayerID, KnownCardRef } from "../../../../shared/src/types.js";
+import { buildZoneObjectWithRetainedCounters } from "../../../../shared/src/zoneRetainedCounters.js";
 import type { GameContext } from "../context.js";
 import { uid } from "../utils.js";
 import { checkEmptyLibraryDraw, hasDrawWinReplacement, hasCantLoseEffect } from "./game-state-effects.js";
@@ -765,6 +766,9 @@ export function movePermanentToLibrary(
         mana_cost: cardAny.mana_cost,
         power: cardAny.power,
         toughness: cardAny.toughness,
+        ...(buildZoneObjectWithRetainedCounters(cardAny, perm, 'command')?.counters
+          ? { counters: buildZoneObjectWithRetainedCounters(cardAny, perm, 'command').counters }
+          : {}),
       } as any,
     } as any);
     debug(2, `[movePermanentToLibrary] Commander ${cardAny.name || 'Unknown'} would go to library (${position}) - queued commander zone choice step`);
@@ -875,6 +879,9 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
         mana_cost: card.mana_cost,
         power: card.power,
         toughness: card.toughness,
+        ...(buildZoneObjectWithRetainedCounters(card, perm, 'command')?.counters
+          ? { counters: buildZoneObjectWithRetainedCounters(card, perm, 'command').counters }
+          : {}),
       } as any,
     } as any);
     debug(2, `[movePermanentToHand] Commander ${card.name} would go to hand - queued commander zone choice step`);
