@@ -76,10 +76,13 @@ export function normalizeImpulsePermissionClause(
       "(?:they|that player|that opponent|defending player|the defending player|he or she|its controller|its owner|that [a-z0-9][a-z0-9 -]*'s (?:controller|owner))";
 
     clauseToParse = clauseToParse
-      .replace(new RegExp(`^${explicitSubjectRef} may\\b`, 'i'), 'You may')
-      .replace(new RegExp(`^((?:until|through)\\b[^,]*,),\\s*${explicitSubjectRef} may\\b`, 'i'), '$1 you may')
-      .replace(new RegExp(`^(during your next turn,?)\\s*${explicitSubjectRef} may\\b`, 'i'), '$1 you may')
-      .replace(new RegExp(`^((?:for as long as|as long as)\\b[^,]*,),\\s*${explicitSubjectRef} may\\b`, 'i'), '$1 you may');
+      .replace(new RegExp(`^${explicitSubjectRef} (?:may|can)\\b`, 'i'), 'You may')
+      .replace(new RegExp(`^((?:until|through)\\b[^,]*,),\\s*${explicitSubjectRef} (?:may|can)\\b`, 'i'), '$1 you may')
+      .replace(new RegExp(`^(during your next turn,?)\\s*${explicitSubjectRef} (?:may|can)\\b`, 'i'), '$1 you may')
+      .replace(
+        new RegExp(`^((?:for as long as|as long as)\\b[^,]*,),\\s*${explicitSubjectRef} (?:may|can)\\b`, 'i'),
+        '$1 you may'
+      );
   }
 
   clauseToParse = clauseToParse.replace(/^you may look at and (play|cast)\b/i, 'You may $1');
