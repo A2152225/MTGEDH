@@ -81,6 +81,39 @@ export function parseMoveZoneAllFromYourGraveyard(what: { readonly kind: string;
   return { cardType: parsed };
 }
 
+export function parseMoveZoneAllFromTargetPlayersGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!lower.startsWith('all ')) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+  if (!/\bfrom (?:target|that) (?:player|opponent)'s graveyard\b/i.test(lower)) return null;
+
+  if (/^all\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^all\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
 export function parseMoveZoneCountFromYourGraveyard(what: {
   readonly kind: string;
   readonly text?: string;
@@ -117,6 +150,108 @@ export function parseMoveZoneCountFromYourGraveyard(what: {
   const parsed = parseSimpleCardTypeFromText(typeText);
   if (!parsed) return null;
   return { count, cardType: parsed };
+}
+
+export function parseMoveZoneCountFromTargetPlayersGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly count: number; readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (lower.startsWith('all ')) return null;
+  if (!/\bfrom (?:target|that) (?:player|opponent)'s graveyard\b/i.test(lower)) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+
+  let m = cleaned.match(/^([a-z0-9]+)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
+  if (m) {
+    const count = parseSmallNumberWord(String(m[1] || ''));
+    if (count === null || count <= 0) return null;
+    return { count, cardType: 'any' };
+  }
+
+  m = cleaned.match(/^([a-z0-9]+)\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
+  if (!m) return null;
+
+  const count = parseSmallNumberWord(String(m[1] || ''));
+  if (count === null || count <= 0) return null;
+
+  const typeText = String(m[2] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { count, cardType: parsed };
+}
+
+export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!lower.startsWith('target ')) return null;
+  if (!/\bfrom your graveyard\b/i.test(lower)) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+
+  if (/^target\s+cards?\s+from\s+your\s+graveyard$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^target\s+(.+?)\s+cards?\s+from\s+your\s+graveyard$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function parseMoveZoneSingleTargetFromTargetPlayersGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!lower.startsWith('target ')) return null;
+  if (!/\bfrom (?:target|that) (?:player|opponent)'s graveyard\b/i.test(lower)) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+
+  if (/^target\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^target\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+graveyard$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
 }
 
 type ExactGraveyardSelection =
@@ -234,6 +369,311 @@ export function putExactMatchingFromGraveyardOntoBattlefieldWithController(
   };
 }
 
+export function moveTargetedCardFromGraveyard(
+  state: GameState,
+  playerId: PlayerID,
+  targetCardId: string,
+  cardType: SimpleCardType,
+  destination: 'hand' | 'exile' | 'battlefield',
+  battlefieldControllerId?: PlayerID,
+  entersTapped?: boolean
+): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] } | { readonly kind: 'impossible' } {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { kind: 'impossible' };
+
+  const wantedId = String(targetCardId || '').trim();
+  if (!wantedId) return { kind: 'impossible' };
+
+  const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+  const index = graveyard.findIndex(card => String((card as any)?.id || '').trim() === wantedId);
+  if (index < 0) return { kind: 'impossible' };
+
+  const card = graveyard[index];
+  if (!cardMatchesType(card, cardType)) return { kind: 'impossible' };
+
+  const kept = graveyard.filter((_: any, i: number) => i !== index);
+  if (destination === 'hand') {
+    const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), graveyard: kept, hand: [...hand, card] } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} returns 1 card from graveyard to hand`],
+    };
+  }
+
+  if (destination === 'exile') {
+    const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), graveyard: kept, exile: [...exile, card] } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} exiles 1 card from graveyard`],
+    };
+  }
+
+  const controllerId = battlefieldControllerId || playerId;
+  const newPermanent = createBattlefieldPermanentsFromCards([card], playerId, controllerId, entersTapped, 'gy');
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId ? ({ ...(p as any), graveyard: kept } as any) : p
+  );
+  return {
+    kind: 'applied',
+    state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanent] } as any,
+    log: [`${controllerId} puts 1 card from ${playerId}'s graveyard onto the battlefield`],
+  };
+}
+
+export function parseMoveZoneSingleTargetFromYourHand(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!lower.startsWith('target ')) return null;
+  if (!/\bfrom your hand\b/i.test(lower)) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+
+  if (/^target\s+cards?\s+from\s+your\s+hand$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^target\s+(.+?)\s+cards?\s+from\s+your\s+hand$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function parseMoveZoneSingleTargetFromTargetPlayersHand(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!lower.startsWith('target ')) return null;
+  if (!/\bfrom (?:target|that) (?:player|opponent)'s hand\b/i.test(lower)) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+
+  if (/^target\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+hand$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^target\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+hand$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function parseMoveZoneSingleTargetFromYourExile(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!lower.startsWith('target ')) return null;
+  if (!/\bfrom your exile\b/i.test(lower)) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+
+  if (/^target\s+cards?\s+from\s+your\s+exile$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^target\s+(.+?)\s+cards?\s+from\s+your\s+exile$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function parseMoveZoneSingleTargetFromTargetPlayersExile(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!lower.startsWith('target ')) return null;
+  if (!/\bfrom (?:target|that) (?:player|opponent)'s exile\b/i.test(lower)) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+
+  if (/^target\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+exile$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^target\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+exile$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function moveTargetedCardFromHand(
+  state: GameState,
+  playerId: PlayerID,
+  targetCardId: string,
+  cardType: SimpleCardType,
+  destination: 'graveyard' | 'exile' | 'battlefield',
+  battlefieldControllerId?: PlayerID,
+  entersTapped?: boolean
+): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] } | { readonly kind: 'impossible' } {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { kind: 'impossible' };
+
+  const wantedId = String(targetCardId || '').trim();
+  if (!wantedId) return { kind: 'impossible' };
+
+  const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+  const index = hand.findIndex(card => String((card as any)?.id || '').trim() === wantedId);
+  if (index < 0) return { kind: 'impossible' };
+
+  const card = hand[index];
+  if (!cardMatchesType(card, cardType)) return { kind: 'impossible' };
+
+  const kept = hand.filter((_: any, i: number) => i !== index);
+  if (destination === 'graveyard') {
+    const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), hand: kept, graveyard: [...graveyard, card] } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} puts 1 card from hand to graveyard`],
+    };
+  }
+
+  if (destination === 'exile') {
+    const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), hand: kept, exile: [...exile, card] } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} exiles 1 card from hand`],
+    };
+  }
+
+  const controllerId = battlefieldControllerId || playerId;
+  const newPermanent = createBattlefieldPermanentsFromCards([card], playerId, controllerId, entersTapped, 'hand');
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId ? ({ ...(p as any), hand: kept } as any) : p
+  );
+  return {
+    kind: 'applied',
+    state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanent] } as any,
+    log: [`${controllerId} puts 1 card from ${playerId}'s hand onto the battlefield`],
+  };
+}
+
+export function moveTargetedCardFromExile(
+  state: GameState,
+  playerId: PlayerID,
+  targetCardId: string,
+  cardType: SimpleCardType,
+  destination: 'hand' | 'graveyard' | 'battlefield',
+  battlefieldControllerId?: PlayerID,
+  entersTapped?: boolean
+): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[] } | { readonly kind: 'impossible' } {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { kind: 'impossible' };
+
+  const wantedId = String(targetCardId || '').trim();
+  if (!wantedId) return { kind: 'impossible' };
+
+  const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+  const index = exile.findIndex(card => String((card as any)?.id || '').trim() === wantedId);
+  if (index < 0) return { kind: 'impossible' };
+
+  const card = exile[index];
+  if (!cardMatchesType(card, cardType)) return { kind: 'impossible' };
+
+  const kept = exile.filter((_: any, i: number) => i !== index);
+  if (destination === 'hand') {
+    const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), exile: kept, hand: [...hand, card] } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} returns 1 card from exile to hand`],
+    };
+  }
+
+  if (destination === 'graveyard') {
+    const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), exile: kept, graveyard: [...graveyard, card] } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} puts 1 card from exile to graveyard`],
+    };
+  }
+
+  const controllerId = battlefieldControllerId || playerId;
+  const newPermanent = createBattlefieldPermanentsFromCards([card], playerId, controllerId, entersTapped, 'exile');
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId ? ({ ...(p as any), exile: kept } as any) : p
+  );
+  return {
+    kind: 'applied',
+    state: { ...state, players: updatedPlayers as any, battlefield: [...(state.battlefield || []), ...newPermanent] } as any,
+    log: [`${controllerId} puts 1 card from ${playerId}'s exile onto the battlefield`],
+  };
+}
+
 export function parseMoveZoneAllFromYourHand(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
   | { readonly cardType: SimpleCardType }
   | null {
@@ -282,6 +722,69 @@ export function parseMoveZoneAllFromYourExile(what: { readonly kind: string; rea
   }
 
   const m = cleaned.match(/^all\s+(.+?)\s+cards?\s+from\s+your\s+exile$/i);
+  if (!m) return null;
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function parseMoveZoneAllFromTargetPlayersHand(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!lower.startsWith('all ')) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+  if (!/\bfrom (?:target|that) (?:player|opponent)'s hand\b/i.test(lower)) return null;
+
+  if (/^all\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+hand$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^all\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+hand$/i);
+  if (!m) return null;
+
+  const typeText = String(m[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function parseMoveZoneAllFromTargetPlayersExile(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
+
+  if (!lower.startsWith('all ')) return null;
+  if (/\b(and|or)\b/i.test(lower)) return null;
+  if (!/\bfrom (?:target|that) (?:player|opponent)'s exile\b/i.test(lower)) return null;
+
+  if (/^all\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+exile$/i.test(lower)) {
+    return { cardType: 'any' };
+  }
+
+  const m = cleaned.match(/^all\s+(.+?)\s+cards?\s+from\s+(?:target|that)\s+(?:player|opponent)'s\s+exile$/i);
   if (!m) return null;
   const typeText = String(m[1] || '').trim();
   if (!typeText) return null;

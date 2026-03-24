@@ -8,12 +8,25 @@ import {
   exileAllMatchingFromGraveyard,
   moveAllMatchingFromExile,
   moveAllMatchingFromHand,
+  moveTargetedCardFromGraveyard,
+  moveTargetedCardFromHand,
+  moveTargetedCardFromExile,
   parseMoveZoneAllFromEachOpponentsExile,
   parseMoveZoneAllFromEachOpponentsGraveyard,
   parseMoveZoneAllFromEachOpponentsHand,
   parseMoveZoneAllFromEachPlayersExile,
   parseMoveZoneAllFromEachPlayersGraveyard,
   parseMoveZoneAllFromEachPlayersHand,
+  parseMoveZoneAllFromTargetPlayersExile,
+  parseMoveZoneAllFromTargetPlayersGraveyard,
+  parseMoveZoneAllFromTargetPlayersHand,
+  parseMoveZoneCountFromTargetPlayersGraveyard,
+  parseMoveZoneSingleTargetFromTargetPlayersGraveyard,
+  parseMoveZoneSingleTargetFromTargetPlayersHand,
+  parseMoveZoneSingleTargetFromTargetPlayersExile,
+  parseMoveZoneSingleTargetFromYourGraveyard,
+  parseMoveZoneSingleTargetFromYourHand,
+  parseMoveZoneSingleTargetFromYourExile,
   parseMoveZoneAllFromYourExile,
   parseMoveZoneAllFromYourGraveyard,
   parseMoveZoneAllFromYourHand,
@@ -63,6 +76,14 @@ function getOpponents(state: GameState, controllerId: PlayerID): any[] {
   return hasValidController ? players.filter(p => p?.id && p.id !== controllerId) : [];
 }
 
+function getTargetPlayerId(ctx: OracleIRExecutionContext): PlayerID | '' {
+  return (String(ctx.selectorContext?.targetPlayerId || ctx.selectorContext?.targetOpponentId || '').trim() || '') as PlayerID | '';
+}
+
+function getTargetObjectId(ctx: OracleIRExecutionContext): string {
+  return String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
+}
+
 function requiresExplicitControllerOverride(step: Extract<OracleEffectStep, { kind: 'move_zone' }>): boolean {
   return (
     step.to === 'battlefield' &&
@@ -101,6 +122,13 @@ export function applyMoveZoneStep(
 
   const parsedFromGraveyard = parseMoveZoneAllFromYourGraveyard(step.what as any);
   const parsedCountFromGraveyard = parseMoveZoneCountFromYourGraveyard(step.what as any);
+  const parsedTargetCountFromGraveyard = parseMoveZoneCountFromTargetPlayersGraveyard(step.what as any);
+  const parsedSingleTargetFromTargetPlayerGraveyard = parseMoveZoneSingleTargetFromTargetPlayersGraveyard(step.what as any);
+  const parsedSingleTargetFromTargetPlayerHand = parseMoveZoneSingleTargetFromTargetPlayersHand(step.what as any);
+  const parsedSingleTargetFromTargetPlayerExile = parseMoveZoneSingleTargetFromTargetPlayersExile(step.what as any);
+  const parsedSingleTargetFromYourGraveyard = parseMoveZoneSingleTargetFromYourGraveyard(step.what as any);
+  const parsedSingleTargetFromYourHand = parseMoveZoneSingleTargetFromYourHand(step.what as any);
+  const parsedSingleTargetFromYourExile = parseMoveZoneSingleTargetFromYourExile(step.what as any);
   const parsedFromHand = parseMoveZoneAllFromYourHand(step.what as any);
   const parsedFromExile = parseMoveZoneAllFromYourExile(step.what as any);
   const parsedEachPlayersGy = parseMoveZoneAllFromEachPlayersGraveyard(step.what as any);
@@ -109,10 +137,20 @@ export function applyMoveZoneStep(
   const parsedEachOpponentsGy = parseMoveZoneAllFromEachOpponentsGraveyard(step.what as any);
   const parsedEachOpponentsHand = parseMoveZoneAllFromEachOpponentsHand(step.what as any);
   const parsedEachOpponentsExile = parseMoveZoneAllFromEachOpponentsExile(step.what as any);
+  const parsedTargetPlayerHand = parseMoveZoneAllFromTargetPlayersHand(step.what as any);
+  const parsedTargetPlayerExile = parseMoveZoneAllFromTargetPlayersExile(step.what as any);
+  const parsedTargetPlayerGy = parseMoveZoneAllFromTargetPlayersGraveyard(step.what as any);
 
   if (
     !parsedFromGraveyard &&
     !parsedCountFromGraveyard &&
+    !parsedTargetCountFromGraveyard &&
+    !parsedSingleTargetFromTargetPlayerGraveyard &&
+    !parsedSingleTargetFromTargetPlayerHand &&
+    !parsedSingleTargetFromTargetPlayerExile &&
+    !parsedSingleTargetFromYourGraveyard &&
+    !parsedSingleTargetFromYourHand &&
+    !parsedSingleTargetFromYourExile &&
     !parsedFromHand &&
     !parsedFromExile &&
     !parsedEachPlayersGy &&
@@ -120,13 +158,556 @@ export function applyMoveZoneStep(
     !parsedEachPlayersExile &&
     !parsedEachOpponentsGy &&
     !parsedEachOpponentsHand &&
-    !parsedEachOpponentsExile
+    !parsedEachOpponentsExile &&
+    !parsedTargetPlayerHand &&
+    !parsedTargetPlayerExile &&
+    !parsedTargetPlayerGy
   ) {
     return {
       applied: false,
       message: `Skipped move zone (unsupported selector): ${step.raw}`,
       reason: 'unsupported_selector',
     };
+  }
+
+  if (parsedTargetPlayerGy) {
+    const targetPlayerId = getTargetPlayerId(ctx);
+    if (!targetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'exile' && step.to !== 'hand' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result =
+      step.to === 'hand'
+        ? returnAllMatchingFromGraveyardToHand(nextState, targetPlayerId, parsedTargetPlayerGy.cardType)
+        : step.to === 'battlefield'
+          ? step.battlefieldController?.kind === 'owner_of_moved_cards'
+            ? putAllMatchingFromGraveyardOntoBattlefield(nextState, targetPlayerId, parsedTargetPlayerGy.cardType, step.entersTapped)
+            : putAllMatchingFromGraveyardOntoBattlefieldWithController(
+                nextState,
+                targetPlayerId,
+                controllerId,
+                parsedTargetPlayerGy.cardType,
+                step.entersTapped
+              )
+          : exileAllMatchingFromGraveyard(nextState, targetPlayerId, parsedTargetPlayerGy.cardType);
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedSingleTargetFromTargetPlayerGraveyard) {
+    const targetPlayerId = getTargetPlayerId(ctx);
+    const targetObjectId = getTargetObjectId(ctx);
+    if (!targetPlayerId || !targetObjectId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (step.to === 'battlefield' && requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result = moveTargetedCardFromGraveyard(
+      nextState,
+      targetPlayerId,
+      targetObjectId,
+      parsedSingleTargetFromTargetPlayerGraveyard.cardType,
+      step.to,
+      step.to === 'battlefield'
+        ? step.battlefieldController?.kind === 'owner_of_moved_cards'
+          ? targetPlayerId
+          : controllerId
+        : undefined,
+      step.entersTapped
+    );
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (target card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            targetObjectId,
+            targetPlayerId,
+            zone: 'graveyard',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedSingleTargetFromTargetPlayerHand) {
+    const targetPlayerId = getTargetPlayerId(ctx);
+    const targetObjectId = getTargetObjectId(ctx);
+    if (!targetPlayerId || !targetObjectId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'graveyard' && step.to !== 'exile' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (step.to === 'battlefield' && requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result = moveTargetedCardFromHand(
+      nextState,
+      targetPlayerId,
+      targetObjectId,
+      parsedSingleTargetFromTargetPlayerHand.cardType,
+      step.to,
+      step.to === 'battlefield'
+        ? step.battlefieldController?.kind === 'owner_of_moved_cards'
+          ? targetPlayerId
+          : controllerId
+        : undefined,
+      step.entersTapped
+    );
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (target card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            targetObjectId,
+            targetPlayerId,
+            zone: 'hand',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedSingleTargetFromTargetPlayerExile) {
+    const targetPlayerId = getTargetPlayerId(ctx);
+    const targetObjectId = getTargetObjectId(ctx);
+    if (!targetPlayerId || !targetObjectId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'hand' && step.to !== 'graveyard' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (step.to === 'battlefield' && requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result = moveTargetedCardFromExile(
+      nextState,
+      targetPlayerId,
+      targetObjectId,
+      parsedSingleTargetFromTargetPlayerExile.cardType,
+      step.to,
+      step.to === 'battlefield'
+        ? step.battlefieldController?.kind === 'owner_of_moved_cards'
+          ? targetPlayerId
+          : controllerId
+        : undefined,
+      step.entersTapped
+    );
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (target card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            targetObjectId,
+            targetPlayerId,
+            zone: 'exile',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedSingleTargetFromYourGraveyard) {
+    const targetObjectId = getTargetObjectId(ctx);
+    if (!targetObjectId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    const result = moveTargetedCardFromGraveyard(
+      nextState,
+      controllerId,
+      targetObjectId,
+      parsedSingleTargetFromYourGraveyard.cardType,
+      step.to,
+      step.to === 'battlefield' ? controllerId : undefined,
+      step.entersTapped
+    );
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (target card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            targetObjectId,
+            zone: 'graveyard',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedSingleTargetFromYourHand) {
+    const targetObjectId = getTargetObjectId(ctx);
+    if (!targetObjectId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'graveyard' && step.to !== 'exile' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    const result = moveTargetedCardFromHand(
+      nextState,
+      controllerId,
+      targetObjectId,
+      parsedSingleTargetFromYourHand.cardType,
+      step.to,
+      step.to === 'battlefield' ? controllerId : undefined,
+      step.entersTapped
+    );
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (target card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            targetObjectId,
+            zone: 'hand',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedSingleTargetFromYourExile) {
+    const targetObjectId = getTargetObjectId(ctx);
+    if (!targetObjectId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'hand' && step.to !== 'graveyard' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    const result = moveTargetedCardFromExile(
+      nextState,
+      controllerId,
+      targetObjectId,
+      parsedSingleTargetFromYourExile.cardType,
+      step.to,
+      step.to === 'battlefield' ? controllerId : undefined,
+      step.entersTapped
+    );
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (target card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            targetObjectId,
+            zone: 'exile',
+            destination: step.to,
+          },
+        },
+      };
+    }
+
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedTargetCountFromGraveyard) {
+    const targetPlayerId = getTargetPlayerId(ctx);
+    if (!targetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (step.to === 'battlefield' && requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result =
+      step.to === 'hand'
+        ? returnExactMatchingFromGraveyardToHand(
+            nextState,
+            targetPlayerId,
+            parsedTargetCountFromGraveyard.count,
+            parsedTargetCountFromGraveyard.cardType
+          )
+        : step.to === 'battlefield'
+          ? putExactMatchingFromGraveyardOntoBattlefieldWithController(
+              nextState,
+              targetPlayerId,
+              step.battlefieldController?.kind === 'owner_of_moved_cards' ? targetPlayerId : controllerId,
+              parsedTargetCountFromGraveyard.count,
+              parsedTargetCountFromGraveyard.cardType,
+              step.entersTapped
+            )
+          : exileExactMatchingFromGraveyard(
+              nextState,
+              targetPlayerId,
+              parsedTargetCountFromGraveyard.count,
+              parsedTargetCountFromGraveyard.cardType
+            );
+
+    if (result.kind === 'player_choice_required') {
+      return {
+        applied: false,
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            requiredCount: parsedTargetCountFromGraveyard.count,
+            availableCount: result.available,
+            zone: 'graveyard',
+            destination: step.to,
+            targetPlayerId,
+          },
+        },
+      };
+    }
+
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (not enough matching cards): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            requiredCount: parsedTargetCountFromGraveyard.count,
+            availableCount: result.available,
+            zone: 'graveyard',
+            destination: step.to,
+            targetPlayerId,
+          },
+        },
+      };
+    }
+
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedTargetPlayerExile) {
+    const targetPlayerId = getTargetPlayerId(ctx);
+    if (!targetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'hand' && step.to !== 'graveyard' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result =
+      step.to === 'hand'
+        ? moveAllMatchingFromExile(nextState, targetPlayerId, parsedTargetPlayerExile.cardType, 'hand')
+        : step.to === 'graveyard'
+          ? moveAllMatchingFromExile(nextState, targetPlayerId, parsedTargetPlayerExile.cardType, 'graveyard')
+          : step.battlefieldController?.kind === 'owner_of_moved_cards'
+            ? putAllMatchingFromExileOntoBattlefield(nextState, targetPlayerId, parsedTargetPlayerExile.cardType, step.entersTapped)
+            : putAllMatchingFromExileOntoBattlefieldWithController(
+                nextState,
+                targetPlayerId,
+                controllerId,
+                parsedTargetPlayerExile.cardType,
+                step.entersTapped
+              );
+    return { applied: true, state: result.state, log: result.log };
+  }
+
+  if (parsedTargetPlayerHand) {
+    const targetPlayerId = getTargetPlayerId(ctx);
+    if (!targetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    if (step.to !== 'exile' && step.to !== 'graveyard' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    if (requiresExplicitControllerOverride(step)) {
+      return {
+        applied: false,
+        message: `Skipped move zone (battlefield requires explicit control override): ${step.raw}`,
+        reason: 'battlefield_requires_explicit_control_override',
+      };
+    }
+
+    const result =
+      step.to === 'battlefield'
+        ? step.battlefieldController?.kind === 'you'
+          ? putAllMatchingFromHandOntoBattlefieldWithController(
+              nextState,
+              targetPlayerId,
+              controllerId,
+              parsedTargetPlayerHand.cardType,
+              step.entersTapped
+            )
+          : putAllMatchingFromHandOntoBattlefield(nextState, targetPlayerId, parsedTargetPlayerHand.cardType, step.entersTapped)
+        : moveAllMatchingFromHand(nextState, targetPlayerId, parsedTargetPlayerHand.cardType, step.to);
+    return { applied: true, state: result.state, log: result.log };
   }
 
   if (parsedCountFromGraveyard) {

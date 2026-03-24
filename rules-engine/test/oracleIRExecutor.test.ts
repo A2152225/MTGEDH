@@ -11599,6 +11599,53 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
   });
 
+  it("applies move_zone for exiling all cards from target player's graveyard when targetPlayerId is bound", () => {
+    const ir = parseOracleTextToIR("Exile all cards from target player's graveyard.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'p1g1', name: 'Opt', type_line: 'Instant' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'p2g1', name: 'Shock', type_line: 'Instant' },
+            { id: 'p2g2', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+          ],
+          exile: [{ id: 'p2e0', name: 'Existing', type_line: 'Sorcery' }],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' },
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['p1g1']);
+    expect(p1.exile || []).toHaveLength(0);
+    expect(p2.graveyard).toHaveLength(0);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2e0', 'p2g1', 'p2g2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
   it("skips move_zone for exiling all cards from target player's graveyard", () => {
     const ir = parseOracleTextToIR("Exile all cards from target player's graveyard.", 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -11744,6 +11791,100 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
   });
 
+  it("applies move_zone for exiling all cards from target opponent's graveyard when targetOpponentId is bound", () => {
+    const ir = parseOracleTextToIR("Exile all cards from target opponent's graveyard.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'p1g1', name: 'Opt', type_line: 'Instant' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'p2g1', name: 'Shock', type_line: 'Instant' },
+            { id: 'p2g2', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+          ],
+          exile: [{ id: 'p2e0', name: 'Existing', type_line: 'Sorcery' }],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' },
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['p1g1']);
+    expect(p1.exile || []).toHaveLength(0);
+    expect(p2.graveyard).toHaveLength(0);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2e0', 'p2g1', 'p2g2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("applies move_zone for exiling all cards from target player's hand when targetPlayerId is bound", () => {
+    const ir = parseOracleTextToIR("Exile all cards from target player's hand.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [{ id: 'p1h1', name: 'Opt', type_line: 'Instant' }],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [
+            { id: 'p2h1', name: 'Shock', type_line: 'Instant' },
+            { id: 'p2h2', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+          ],
+          graveyard: [],
+          exile: [{ id: 'p2e0', name: 'Existing', type_line: 'Sorcery' }],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' },
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p1.hand.map((c: any) => c.id)).toEqual(['p1h1']);
+    expect(p1.exile || []).toHaveLength(0);
+    expect(p2.hand).toHaveLength(0);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2e0', 'p2h1', 'p2h2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
   it("skips move_zone for exiling all cards from target opponent's graveyard", () => {
     const ir = parseOracleTextToIR("Exile all cards from target opponent's graveyard.", 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -11780,6 +11921,377 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
     expect(p2.graveyard).toHaveLength(1);
     expect(p2.exile || []).toHaveLength(0);
+  });
+
+  it("applies move_zone for returning all creature cards from target opponent's exile to their owners' hands when targetOpponentId is bound", () => {
+    const ir = parseOracleTextToIR(
+      "Return all creature cards from target opponent's exile to their owners' hands.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [{ id: 'p1e1', name: 'Opt', type_line: 'Instant' }],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [{ id: 'p2h0', name: 'Existing', type_line: 'Sorcery' }],
+          graveyard: [],
+          exile: [
+            { id: 'p2e1', name: 'Shock', type_line: 'Instant' },
+            { id: 'p2e2', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+          ],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' },
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['p1e1']);
+    expect(p1.hand || []).toHaveLength(0);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2e1']);
+    expect(p2.hand.map((c: any) => c.id)).toEqual(['p2h0', 'p2e2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("applies move_zone for putting all creature cards from target opponent's graveyard onto the battlefield under your control when targetOpponentId is bound", () => {
+    const ir = parseOracleTextToIR(
+      "Put all creature cards from target opponent's graveyard onto the battlefield under your control.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+    const move = steps.find(s => s.kind === 'move_zone') as any;
+
+    expect(move?.to).toBe('battlefield');
+    expect(move?.battlefieldController?.kind).toBe('you');
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'p1g1', name: 'Opt', type_line: 'Instant' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'p2g1', name: 'Shock', type_line: 'Instant' },
+            { id: 'p2g2', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' },
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const perm = (result.state.battlefield as any[])[0];
+
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['p1g1']);
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['p2g1']);
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String(perm.controller)).toBe('p1');
+    expect(String(perm.owner)).toBe('p2');
+    expect(String(perm?.card?.id)).toBe('p2g2');
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("applies move_zone for putting all creature cards from target player's exile onto the battlefield under their owners' control when targetPlayerId is bound", () => {
+    const ir = parseOracleTextToIR(
+      "Put all creature cards from target player's exile onto the battlefield under their owners' control.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+    const move = steps.find(s => s.kind === 'move_zone') as any;
+
+    expect(move?.to).toBe('battlefield');
+    expect(move?.battlefieldController?.kind).toBe('owner_of_moved_cards');
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [{ id: 'p1e1', name: 'Opt', type_line: 'Instant' }],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'p2e1', name: 'Shock', type_line: 'Instant' },
+            { id: 'p2e2', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+          ],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' },
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const perm = (result.state.battlefield as any[])[0];
+
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['p1e1']);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['p2e1']);
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String(perm.controller)).toBe('p2');
+    expect(String(perm.owner)).toBe('p2');
+    expect(String(perm?.card?.id)).toBe('p2e2');
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("applies move_zone for returning two creature cards from target opponent's graveyard to their hand when exactly two match", () => {
+    const ir = parseOracleTextToIR(
+      "Return two creature cards from target opponent's graveyard to their hand.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [{ id: 'p2h0', name: 'Existing', type_line: 'Sorcery' }],
+          graveyard: [
+            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+            { id: 'p2g2', name: 'Silvercoat Lion', type_line: 'Creature ï¿½ Cat' },
+            { id: 'p2g3', name: 'Shock', type_line: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['p2g3']);
+    expect(p2.hand.map((c: any) => c.id)).toEqual(['p2h0', 'p2g1', 'p2g2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("skips move_zone for returning two creature cards from target opponent's graveyard when more than two match", () => {
+    const ir = parseOracleTextToIR(
+      "Return two creature cards from target opponent's graveyard to their hand.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [{ id: 'p2h0', name: 'Existing', type_line: 'Sorcery' }],
+          graveyard: [
+            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+            { id: 'p2g2', name: 'Silvercoat Lion', type_line: 'Creature ï¿½ Cat' },
+            { id: 'p2g3', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' },
+          ],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['p2g1', 'p2g2', 'p2g3']);
+    expect(p2.hand.map((c: any) => c.id)).toEqual(['p2h0']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.automationGaps.some((gap: any) => gap.reasonCode === 'player_choice_required')).toBe(true);
+  });
+
+  it("applies move_zone for putting two creature cards from target opponent's graveyard onto the battlefield under their owners' control when exactly two match", () => {
+    const ir = parseOracleTextToIR(
+      "Put two creature cards from target opponent's graveyard onto the battlefield under their owners' control.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+    const move = steps.find(s => s.kind === 'move_zone') as any;
+
+    expect(move?.to).toBe('battlefield');
+    expect(move?.battlefieldController?.kind).toBe('owner_of_moved_cards');
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+            { id: 'p2g2', name: 'Silvercoat Lion', type_line: 'Creature ï¿½ Cat' },
+            { id: 'p2g3', name: 'Shock', type_line: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const battlefield = result.state.battlefield as any[];
+
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['p2g3']);
+    expect(battlefield).toHaveLength(2);
+    expect(battlefield.map((perm: any) => String(perm.owner))).toEqual(['p2', 'p2']);
+    expect(battlefield.map((perm: any) => String(perm.controller))).toEqual(['p2', 'p2']);
+    expect(battlefield.map((perm: any) => String(perm.card?.id))).toEqual(['p2g1', 'p2g2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("skips move_zone for putting two creature cards from target opponent's graveyard onto the battlefield without explicit control override", () => {
+    const ir = parseOracleTextToIR(
+      "Put two creature cards from target opponent's graveyard onto the battlefield.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'p2g1', name: 'Hill Giant', type_line: 'Creature ï¿½ Giant' },
+            { id: 'p2g2', name: 'Silvercoat Lion', type_line: 'Creature ï¿½ Cat' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' },
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['p2g1', 'p2g2']);
+    expect(result.state.battlefield).toHaveLength(0);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(
+      result.automationGaps.some((gap: any) => gap.reasonCode === 'battlefield_requires_explicit_control_override')
+    ).toBe(true);
   });
 
   it("applies move_zone for exiling all creature cards from each opponent's graveyard", () => {
@@ -12770,6 +13282,37 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
   });
 
+  it('applies move_zone for put-into when target creature card from your graveyard is bound', () => {
+    const ir = parseOracleTextToIR('Put target creature card from your graveyard into your hand.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' },
+            { id: 'g2', name: 'Shock', type_line: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'g1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(p1.hand.map((c: any) => c.id)).toEqual(['g1']);
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['g2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
   it('applies move_zone for exiling all creature cards from your hand', () => {
     const ir = parseOracleTextToIR('Exile all creature cards from your hand.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -12828,6 +13371,37 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
   });
 
+  it('applies move_zone for hand moves when target creature card from your hand is bound', () => {
+    const ir = parseOracleTextToIR('Exile target creature card from your hand.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [
+            { id: 'h1', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' },
+            { id: 'h2', name: 'Shock', type_line: 'Instant' },
+          ],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'h1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(p1.hand.map((c: any) => c.id)).toEqual(['h2']);
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['h1']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
   it('skips move_zone when it is targeting-dependent or otherwise unsupported', () => {
     const ir = parseOracleTextToIR('Return target creature card from your graveyard to your hand.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -12852,6 +13426,71 @@ describe('Oracle IR Executor', () => {
     expect(p1.hand).toHaveLength(0);
     expect(p1.graveyard).toHaveLength(1);
     expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+  });
+
+  it('applies move_zone for return when target creature card from your graveyard is bound', () => {
+    const ir = parseOracleTextToIR('Return target creature card from your graveyard to your hand.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' },
+            { id: 'g2', name: 'Shock', type_line: 'Instant' },
+          ],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'g1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(p1.hand.map((c: any) => c.id)).toEqual(['g1']);
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['g2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it('applies move_zone for battlefield move when target creature card from your graveyard is bound', () => {
+    const ir = parseOracleTextToIR('Put target creature card from your graveyard onto the battlefield.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' },
+            { id: 'g2', name: 'Shock', type_line: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'g1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const perm = (result.state.battlefield as any[])[0];
+
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['g2']);
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String(perm.controller)).toBe('p1');
+    expect(String(perm.owner)).toBe('p1');
+    expect(String(perm?.card?.id)).toBe('g1');
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
   });
 
   it('skips move_zone for exile-from-graveyard when it is targeting-dependent', () => {
@@ -12879,6 +13518,378 @@ describe('Oracle IR Executor', () => {
     expect(p1.exile).toHaveLength(0);
     expect(p1.graveyard).toHaveLength(1);
     expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+  });
+
+  it('applies move_zone for exile-from-graveyard when target creature card is bound', () => {
+    const ir = parseOracleTextToIR('Exile target creature card from your graveyard.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' },
+            { id: 'g2', name: 'Shock', type_line: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'g1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['g1']);
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['g2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it('applies move_zone for return-from-exile when target creature card is bound', () => {
+    const ir = parseOracleTextToIR('Return target creature card from your exile to your hand.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'e1', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' },
+            { id: 'e2', name: 'Shock', type_line: 'Instant' },
+          ],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'e1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(p1.hand.map((c: any) => c.id)).toEqual(['e1']);
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['e2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it('applies move_zone for exile-to-battlefield when target creature card is bound', () => {
+    const ir = parseOracleTextToIR('Put target creature card from your exile onto the battlefield.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'e1', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' },
+            { id: 'e2', name: 'Shock', type_line: 'Instant' },
+          ],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'e1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const perm = (result.state.battlefield as any[])[0];
+
+    expect(p1.exile.map((c: any) => c.id)).toEqual(['e2']);
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String(perm.controller)).toBe('p1');
+    expect(String(perm.owner)).toBe('p1');
+    expect(String(perm?.card?.id)).toBe('e1');
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("applies move_zone for returning target creature card from target opponent's graveyard to their hand when bindings are present", () => {
+    const ir = parseOracleTextToIR("Return target creature card from target opponent's graveyard to their hand.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature Ã¯Â¿Â½ Bear' },
+            { id: 'g2', name: 'Shock', type_line: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'g1',
+      selectorContext: { targetOpponentId: 'p2' } as any,
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p2.hand.map((c: any) => c.id)).toEqual(['g1']);
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['g2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("applies move_zone for exiling target creature card from target player's hand when bindings are present", () => {
+    const ir = parseOracleTextToIR("Exile target creature card from target player's hand.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [
+            { id: 'h1', name: 'Grizzly Bears', type_line: 'Creature Ã¯Â¿Â½ Bear' },
+            { id: 'h2', name: 'Shock', type_line: 'Instant' },
+          ],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'h1',
+      selectorContext: { targetPlayerId: 'p2' } as any,
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p2.hand.map((c: any) => c.id)).toEqual(['h2']);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['h1']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("applies move_zone for returning target creature card from target opponent's exile to their hand when bindings are present", () => {
+    const ir = parseOracleTextToIR("Return target creature card from target opponent's exile to their hand.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'e1', name: 'Grizzly Bears', type_line: 'Creature Ã¯Â¿Â½ Bear' },
+            { id: 'e2', name: 'Shock', type_line: 'Instant' },
+          ],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'e1',
+      selectorContext: { targetOpponentId: 'p2' } as any,
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p2.hand.map((c: any) => c.id)).toEqual(['e1']);
+    expect(p2.exile.map((c: any) => c.id)).toEqual(['e2']);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("applies move_zone for putting target creature card from target opponent's graveyard onto the battlefield under your control when bindings are present", () => {
+    const ir = parseOracleTextToIR(
+      "Put target creature card from target opponent's graveyard onto the battlefield under your control.",
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'g1', name: 'Grizzly Bears', type_line: 'Creature Ã¯Â¿Â½ Bear' },
+            { id: 'g2', name: 'Shock', type_line: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'g1',
+      selectorContext: { targetOpponentId: 'p2' } as any,
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const perm = (result.state.battlefield as any[])[0];
+
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['g2']);
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(String(perm.controller)).toBe('p1');
+    expect(String(perm.owner)).toBe('p2');
+    expect(String(perm?.card?.id)).toBe('g1');
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it("skips move_zone for putting target creature card from target opponent's graveyard onto the battlefield without explicit control override", () => {
+    const ir = parseOracleTextToIR("Put target creature card from target opponent's graveyard onto the battlefield.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'g1',
+      selectorContext: { targetOpponentId: 'p2' } as any,
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(p2.graveyard.map((c: any) => c.id)).toEqual(['g1']);
+    expect(result.state.battlefield).toHaveLength(0);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+  });
+
+  it("skips move_zone for target player's graveyard card when the bound card is unavailable in that zone", () => {
+    const ir = parseOracleTextToIR("Exile target creature card from target player's graveyard.", 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature ï¿½ Bear' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'g1',
+      selectorContext: { targetPlayerId: 'p2' } as any,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard.map((c: any) => c.id)).toEqual(['g1']);
+    expect(p2.graveyard).toHaveLength(0);
   });
 
   it('applies sacrifice when it is deterministic (each opponent sacrifices a creature if they have <= 1 creature)', () => {
