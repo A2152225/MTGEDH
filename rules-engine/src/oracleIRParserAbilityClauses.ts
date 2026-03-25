@@ -75,6 +75,35 @@ function splitConservativeModifyPtGrantedDiesTriggerClause(args: {
   return [first, second];
 }
 
+function splitConservativeGrantedDiesTriggerSetBasePtClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const normalized = normalizeOracleText(rawClause).trim();
+  if (!normalized || !/\band\s+has\s+/i.test(normalized) || !/\bgains?\s+"/i.test(normalized)) return null;
+
+  const match = normalized.match(
+    /^(until end of turn,\s+)?(.+?)\s+gains?\s+("when\s+(?:this creature|this permanent|it)\s+dies,\s+.+")\s+and\s+has\s+(?:the\s+)?base power and toughness\s+(\d+)\s*\/\s*(\d+)$/i
+  );
+  if (!match) return null;
+
+  const durationPrefix = String(match[1] || '');
+  const targetText = String(match[2] || '').trim();
+  const quotedTrigger = String(match[3] || '').trim();
+  const power = String(match[4] || '').trim();
+  const toughness = String(match[5] || '').trim();
+  if (!targetText || !quotedTrigger || !power || !toughness) return null;
+
+  const first = `${durationPrefix}${targetText} gains ${quotedTrigger}`.trim();
+  const second = `${durationPrefix}${targetText} has base power and toughness ${power}/${toughness}`.trim();
+  const firstStep = parseEffectClauseToStep(first);
+  const secondStep = parseEffectClauseToStep(second);
+  if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
+
+  return [first, second];
+}
+
 export function buildAbilityClauses(args: {
   effectText: string;
   cardName?: string;
@@ -101,6 +130,7 @@ export function buildAbilityClauses(args: {
 
   return combinedClauses.flatMap(clause =>
     splitConservativeSacrificeLeadClause({ rawClause: clause, cardName, parseEffectClauseToStep }) ??
+    splitConservativeGrantedDiesTriggerSetBasePtClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeModifyPtGrantedDiesTriggerClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCreateTokenLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??

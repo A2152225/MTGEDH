@@ -96,6 +96,13 @@ describe('Oracle Text Parser', () => {
       );
       expect(result).toBeNull();
     });
+
+    it("does not treat Bronzehide Lion's quoted granted ability sentence as an activated ability", () => {
+      const result = parseActivatedAbility(
+        `Return it to the battlefield. It's an Aura enchantment with enchant creature you control and "{G}{W}: Return this card to its owner's hand." and it loses all other abilities.`
+      );
+      expect(result).toBeNull();
+    });
   });
 
   describe('parseTriggeredAbility', () => {
@@ -649,6 +656,20 @@ describe('Oracle Text Parser', () => {
       expect(triggeredAbilities[0].text).toContain('you may sacrifice');
       expect(triggeredAbilities[0].text).toContain('Whenever you do');
       expect(triggeredAbilities[0].text).toContain('draw a card');
+    });
+
+    it('splits repeated leading trigger keywords into separate triggered abilities', () => {
+      const text =
+        'When you cycle this card and when this creature dies, you may exile target card from a graveyard.';
+      const result = parseOracleText(text, 'Grixis Sojourners');
+
+      const triggeredAbilities = result.abilities.filter(a => a.type === AbilityType.TRIGGERED);
+      expect(triggeredAbilities).toHaveLength(2);
+      expect(triggeredAbilities.map(a => a.triggerCondition)).toEqual([
+        'you cycle this card',
+        'this creature dies',
+      ]);
+      expect(triggeredAbilities.every(a => a.effect === 'you may exile target card from a graveyard.')).toBe(true);
     });
   });
 });

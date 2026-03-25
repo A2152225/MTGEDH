@@ -67,6 +67,8 @@ export interface OracleIRExecutionContext {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;
+  /** Deterministic die-roll override for tests or pre-resolved event context. */
+  readonly dieRollResult?: number;
   /** Source provenance for the resolving object when known. */
   readonly castFromZone?: string;
   /** Source provenance for the resolving object when known. */

@@ -32,18 +32,64 @@ export function tryParseChooseModeBlock(
   parseModeEffectSteps: (effectText: string) => readonly OracleEffectStep[]
 ): (OracleEffectStep & { kind: 'choose_mode' }) | null {
   const normalized = normalizeOracleText(effectText);
-  const firstBulletIndex = normalized.search(/[\u2022Ã¢â‚¬Â¢]\s+/);
+  const firstBulletIndex = normalized.search(/[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]\s+/);
   if (firstBulletIndex < 0) return null;
 
   const headerText = normalized.slice(0, firstBulletIndex).trim();
   const bodyText = normalized.slice(firstBulletIndex).trim();
-  if (!CHOOSE_MODE_HEADER_RE.test(headerText) || !/[\u2022Ã¢â‚¬Â¢]/.test(bodyText)) return null;
+  if (!/[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]/.test(bodyText)) return null;
 
   const rawBullets = bodyText
-    .split(/\n?\s*[\u2022Ã¢â‚¬Â¢]\s+/)
+    .split(/\n?\s*[\u2022ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢]\s+/)
     .map(b => b.trim())
     .filter(Boolean);
   if (rawBullets.length === 0) return null;
+
+  const tieredMatch = headerText.match(/^Tiered\s*\([^)]*\)\s*\n([\s\S]+)$/i);
+  if (tieredMatch) {
+    const sharedEffectText = String(tieredMatch[1] || '').trim();
+    if (!sharedEffectText) return null;
+    const tieredTargetText = String(
+      sharedEffectText.match(/^(?:Until end of turn,\s+)?(.+?)\s+gains?\s+"/i)?.[1] || 'target creature you control'
+    ).trim();
+
+    const modes = rawBullets.map((bulletText, idx) => {
+      const bulletMatch = bulletText.match(
+        /^(.+?)\s*-\s*(\{[^}]+\}|[^-]+?)\s*-\s*(\d+)\s*\/\s*(\d+)\.?\s*$/i
+      );
+      const label = String(bulletMatch?.[1] || `Mode ${idx + 1}`).trim();
+      const power = Number.parseInt(String(bulletMatch?.[3] || ''), 10);
+      const toughness = Number.parseInt(String(bulletMatch?.[4] || ''), 10);
+      const modeEffectText = Number.isFinite(power) && Number.isFinite(toughness)
+        ? sharedEffectText
+          .replace(
+            /\s+and\s+has\s+the\s+chosen\s+base\s+power\s+and\s+toughness\b/i,
+            `. Until end of turn, ${tieredTargetText} has base power and toughness ${power}/${toughness}`
+          )
+          .replace(
+            /\bchosen\s+base\s+power\s+and\s+toughness\b/i,
+            `base power and toughness ${power}/${toughness}`
+          )
+        : sharedEffectText;
+
+      return {
+        label,
+        raw: bulletText,
+        steps: [...parseModeEffectSteps(modeEffectText)],
+      };
+    });
+
+    return {
+      kind: 'choose_mode',
+      minModes: 1,
+      maxModes: 1,
+      canRepeatModes: false,
+      modes,
+      raw: normalized.slice(0, 300),
+    };
+  }
+
+  if (!CHOOSE_MODE_HEADER_RE.test(headerText)) return null;
 
   let minModes = 1;
   let maxModes = 1;

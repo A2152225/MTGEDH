@@ -127,11 +127,22 @@ function isGrantedQuotedActivatedAbilityLine(text: string): boolean {
   return /\b(?:has|have|gains?)\s+"[^"]+:\s*[^"]+"\s*\.?$/i.test(normalized);
 }
 
+function firstColonIsInsideQuotes(text: string): boolean {
+  const normalized = String(text || '').replace(/\u2019/g, "'");
+  const colonIndex = normalized.indexOf(':');
+  if (colonIndex < 0) return false;
+
+  const lastQuoteBeforeColon = normalized.lastIndexOf('"', colonIndex);
+  if (lastQuoteBeforeColon < 0) return false;
+  const nextQuoteAfterColon = normalized.indexOf('"', colonIndex);
+  return nextQuoteAfterColon > colonIndex;
+}
+
 /**
  * Parse an activated ability from oracle text line
  */
 export function parseActivatedAbility(text: string): ParsedAbility | null {
-  if (isGrantedQuotedActivatedAbilityLine(text)) {
+  if (isGrantedQuotedActivatedAbilityLine(text) || firstColonIsInsideQuotes(text)) {
     return null;
   }
 
@@ -284,6 +295,32 @@ function splitMixedStandaloneAndTriggeredLine(text: string): string[] {
   }
 
   return [firstSentence, remainder];
+}
+
+function splitRepeatedTriggeredLead(text: string): string[] {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return [];
+
+  const match = trimmed.match(/^(When|Whenever)\s+([\s\S]+?),\s+([\s\S]+)$/i);
+  if (!match) return [trimmed];
+
+  const firstKeyword = String(match[1] || '').trim();
+  const leadBody = String(match[2] || '').trim();
+  const effect = String(match[3] || '').trim();
+  if (!leadBody || !effect) return [trimmed];
+
+  const segments = leadBody
+    .split(/\s+and\s+(?=(?:when|whenever)\b)/i)
+    .map(segment => segment.trim())
+    .filter(Boolean);
+  if (segments.length <= 1) return [trimmed];
+
+  return segments.map((segment, index) => {
+    const normalizedLead = index === 0
+      ? `${firstKeyword} ${segment}`
+      : segment.replace(/^(when|whenever)\b/i, keyword => keyword[0].toUpperCase() + keyword.slice(1).toLowerCase());
+    return `${normalizedLead}, ${effect}`;
+  });
 }
 
 function splitWhenWheneverTriggeredLine(text: string): {
@@ -642,7 +679,9 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
   
   // Shared preprocessing preserves ability boundaries, keeps modal bullet blocks
   // intact, and merges sentence fragments that continue a prior instruction.
-  const lines = splitOracleTextIntoParseLines(normalizedText).flatMap(splitMixedStandaloneAndTriggeredLine);
+  const lines = splitOracleTextIntoParseLines(normalizedText)
+    .flatMap(splitMixedStandaloneAndTriggeredLine)
+    .flatMap(splitRepeatedTriggeredLead);
   
   for (const line of lines) {
     const trimmed = line.trim();

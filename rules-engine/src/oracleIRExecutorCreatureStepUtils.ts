@@ -123,6 +123,36 @@ export function applyTemporaryPowerToughnessModifier(
   return { ...(state as any), battlefield } as any;
 }
 
+export function applyTemporarySetBasePowerToughness(
+  state: GameState,
+  creatureId: string,
+  ctx: OracleIRExecutionContext,
+  power: number,
+  toughness: number
+): GameState | null {
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const index = battlefield.findIndex(permanent => permanent.id === creatureId);
+  if (index < 0) return null;
+
+  const permanent: any = battlefield[index] as any;
+  const modifiers = Array.isArray(permanent.modifiers) ? [...permanent.modifiers] : [];
+  modifiers.push({
+    type: 'setPowerToughness',
+    setPower: power,
+    setToughness: toughness,
+    sourceId: ctx.sourceId,
+    duration: 'end_of_turn',
+  } as any);
+
+  battlefield[index] = {
+    ...permanent,
+    modifiers,
+    effectivePower: undefined,
+    effectiveToughness: undefined,
+  } as any;
+  return { ...(state as any), battlefield } as any;
+}
+
 export function resolveGoadTargetCreatureIds(
   state: GameState,
   target: OracleObjectSelector,

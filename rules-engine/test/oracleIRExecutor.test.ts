@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { GameState } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import { DelayedTriggerTiming, checkDelayedTriggers, processDelayedTriggers } from '../src/delayedTriggeredAbilities';
+import { applyStaticAbilitiesToBattlefield } from '../src/staticAbilities';
 import {
   executeTriggeredAbilityEffectWithOracleIR,
   parseTriggeredAbilitiesFromText,
@@ -4661,6 +4662,56 @@ describe('Oracle IR Executor', () => {
     expect((result.state as any).playableFromExile?.p2?.p2land78).toBe(10);
     expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
     expect(result.skippedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(false);
+  });
+
+  it("applies Vincent's Limit Break by resolving the chosen tiered body and temporary dies trigger", () => {
+    const oracleText =
+      "Tiered (Choose one additional cost.)\n"
+      + "Until end of turn, target creature you control gains \"When this creature dies, return it to the battlefield tapped under its owner's control\" and has the chosen base power and toughness.\n"
+      + "\u2022 Galian Beast - {0} - 3/2.\n"
+      + "\u2022 Death Gigas - {1} - 5/2.\n"
+      + "\u2022 Hellmasker - {3} - 7/2.";
+    const ir = parseOracleTextToIR(oracleText, "Vincent's Limit Break");
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'creature1',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'bear-cub',
+            name: 'Bear Cub',
+            type_line: 'Creature - Bear',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: "Vincent's Limit Break",
+        targetCreatureId: 'creature1',
+      },
+      {
+        selectedModeIds: ['Death Gigas'],
+      }
+    );
+
+    const processed = applyStaticAbilitiesToBattlefield(result.state.battlefield as any);
+    const creature = processed.find((perm: any) => perm.id === 'creature1') as any;
+
+    expect(result.appliedSteps.some(step => step.kind === 'choose_mode')).toBe(true);
+    expect(result.appliedSteps.some(step => step.kind === 'set_base_pt')).toBe(true);
+    expect(creature?.effectivePower).toBe(5);
+    expect(creature?.effectiveToughness).toBe(2);
+    expect((result.state as any).delayedTriggerRegistry).toBeTruthy();
   });
 
   it('applies impulse_exile_top when permission uses "through their next turn" with controller play-permission (target player)', () => {
@@ -22918,6 +22969,218 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(p1.library || []).toEqual([]);
   });
 
+  it("applies Wizard's Spellbook 10-19 branch by paying {1} for the copied spell", () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.6);
+    try {
+      const ir = parseOracleTextToIR(
+        "{T}: Exile target instant or sorcery card from a graveyard. Roll a d20. Activate only as a sorcery.\n1-9 | Copy that card. You may cast the copy.\n10-19 | Copy that card. You may cast the copy by paying {1} rather than paying its mana cost.\n20 | Copy each card exiled with this artifact. You may cast any number of the copies without paying their mana costs.",
+        "Wizard's Spellbook"
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+
+      const result = applyOracleIRStepsToGameState(
+        makeState({
+          players: [
+            {
+              id: 'p1',
+              name: 'P1',
+              seat: 0,
+              life: 40,
+              library: [
+                { id: 'spellbook-draw-1', name: 'Plains', type_line: 'Basic Land - Plains' },
+                { id: 'spellbook-draw-2', name: 'Island', type_line: 'Basic Land - Island' },
+              ],
+              hand: [],
+              graveyard: [],
+              exile: [],
+            } as any,
+            {
+              id: 'p2',
+              name: 'P2',
+              seat: 1,
+              life: 40,
+              library: [],
+              hand: [],
+              graveyard: [
+                {
+                  id: 'spellbook-target',
+                  name: 'Treasure Cruise',
+                  type_line: 'Sorcery',
+                  mana_cost: '{7}{U}',
+                  oracle_text: 'Draw two cards.',
+                },
+              ],
+              exile: [],
+            } as any,
+          ],
+          manaPool: {
+            p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 },
+          } as any,
+        } as any),
+        steps,
+        {
+          controllerId: 'p1',
+          sourceId: 'wizards-spellbook',
+          sourceName: "Wizard's Spellbook",
+          targetPermanentId: 'spellbook-target',
+        },
+        { allowOptional: true }
+      );
+
+      const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+      const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+      expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'roll_die', 'copy_spell', 'die_roll_results']);
+      expect((p2.exile || []).map((card: any) => card.id)).toEqual(['spellbook-target']);
+      expect((p1.hand || []).map((card: any) => card.id)).toEqual(['spellbook-draw-1', 'spellbook-draw-2']);
+      expect((result.state as any).manaPool?.p1?.colorless).toBe(0);
+      expect((result.state as any).lastDieRollByPlayer?.p1?.result).toBe(13);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("applies Wizard's Spellbook 20 branch by replaying each linked exiled card for free", () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    try {
+      const ir = parseOracleTextToIR(
+        "{T}: Exile target instant or sorcery card from a graveyard. Roll a d20. Activate only as a sorcery.\n1-9 | Copy that card. You may cast the copy.\n10-19 | Copy that card. You may cast the copy by paying {1} rather than paying its mana cost.\n20 | Copy each card exiled with this artifact. You may cast any number of the copies without paying their mana costs.",
+        "Wizard's Spellbook"
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+
+      const result = applyOracleIRStepsToGameState(
+        makeState({
+          players: [
+            {
+              id: 'p1',
+              name: 'P1',
+              seat: 0,
+              life: 40,
+              library: [
+                { id: 'spellbook-free-1', name: 'Forest', type_line: 'Basic Land - Forest' },
+                { id: 'spellbook-free-2', name: 'Mountain', type_line: 'Basic Land - Mountain' },
+                { id: 'spellbook-free-3', name: 'Swamp', type_line: 'Basic Land - Swamp' },
+              ],
+              hand: [],
+              graveyard: [],
+              exile: [
+                {
+                  id: 'spellbook-old-exile',
+                  name: 'Think Twice',
+                  type_line: 'Instant',
+                  mana_cost: '{1}{U}',
+                  oracle_text: 'Draw a card.',
+                  exiledBy: 'wizards-spellbook',
+                },
+              ],
+            } as any,
+            {
+              id: 'p2',
+              name: 'P2',
+              seat: 1,
+              life: 40,
+              library: [],
+              hand: [],
+              graveyard: [
+                {
+                  id: 'spellbook-new-target',
+                  name: 'Divination',
+                  type_line: 'Sorcery',
+                  mana_cost: '{2}{U}',
+                  oracle_text: 'Draw two cards.',
+                },
+              ],
+              exile: [],
+            } as any,
+          ],
+        } as any),
+        steps,
+        {
+          controllerId: 'p1',
+          sourceId: 'wizards-spellbook',
+          sourceName: "Wizard's Spellbook",
+          targetPermanentId: 'spellbook-new-target',
+        },
+        { allowOptional: true }
+      );
+
+      const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+      const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+      expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'roll_die', 'copy_spell', 'die_roll_results']);
+      expect((p1.exile || []).map((card: any) => card.id)).toEqual(['spellbook-old-exile']);
+      expect((p2.exile || []).map((card: any) => card.id)).toEqual(['spellbook-new-target']);
+      expect((p1.hand || []).map((card: any) => card.id)).toEqual([
+        'spellbook-free-1',
+        'spellbook-free-2',
+        'spellbook-free-3',
+      ]);
+      expect((result.state as any).lastDieRollByPlayer?.p1?.result).toBe(20);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("applies The Many Deeds of Belzenlok by exiling the Saga and replaying the chosen chapter ability", () => {
+    const ir = parseOracleTextToIR(
+      'I — Exile up to one target Saga card from a graveyard. Copy its chapter I ability.\nII — Exile up to one target Saga card from a graveyard. Copy its chapter II ability.\nIII — Exile up to one target Saga card from a graveyard. Copy its chapter III ability.',
+      'The Many Deeds of Belzenlok'
+    );
+    const steps = ir.abilities[1]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [
+              { id: 'belzenlok-draw-1', name: 'Plains', type_line: 'Basic Land - Plains' },
+              { id: 'belzenlok-draw-2', name: 'Island', type_line: 'Basic Land - Island' },
+              { id: 'belzenlok-draw-3', name: 'Swamp', type_line: 'Basic Land - Swamp' },
+            ],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              {
+                id: 'belzenlok-saga',
+                name: 'Test Saga',
+                type_line: 'Enchantment - Saga',
+                oracle_text: 'I — Draw a card.\nII — Draw two cards.\nIII — Gain 3 life.',
+              },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'many-deeds',
+        sourceName: 'The Many Deeds of Belzenlok',
+        targetPermanentId: 'belzenlok-saga',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'draw', 'copy_chapter_ability']);
+    expect((p2.exile || []).map((card: any) => card.id)).toEqual(['belzenlok-saga']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['belzenlok-draw-1', 'belzenlok-draw-2']);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['belzenlok-draw-3']);
+  });
+
   it("applies Summoner's Sending by creating the token, scheduling its exile, and using the exiled card's mana value for counters", () => {
     const ir = parseOracleTextToIR(
       "Exile target creature card from a graveyard. Create a tapped 2/2 black Zombie creature token. At the beginning of the next end step, exile that token. Put X +1/+1 counters on it, where X is the exiled card's mana value.",
@@ -38812,6 +39075,78 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(returned?.colors).toEqual(expect.arrayContaining(['G', 'B']));
   });
 
+  it('applies Bronzehide Lion by returning it as an Aura attached to a creature you control', () => {
+    const text =
+      `When Bronzehide Lion dies, return it to the battlefield. It's an Aura enchantment with enchant creature you control and "{G}{W}: Return this card to its owner's hand." and it loses all other abilities.`;
+    const abilities = parseTriggeredAbilitiesFromText(text, 'bronzehide-card', 'p1', 'Bronzehide Lion');
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              {
+                id: 'bronzehide-card',
+                name: 'Bronzehide Lion',
+                type_line: 'Creature - Cat',
+                oracle_text:
+                  '{1}{G}{W}: Bronzehide Lion gains indestructible until end of turn.\nWhen Bronzehide Lion dies, return it to the battlefield. It\'s an Aura enchantment with enchant creature you control and "{G}{W}: Return this card to its owner\'s hand." and it loses all other abilities.',
+                power: '3',
+                toughness: '3',
+              },
+            ],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'friendly-bear',
+            controller: 'p1',
+            owner: 'p1',
+            attachments: [],
+            attachedTo: undefined,
+            card: {
+              id: 'friendly-bear-card',
+              name: 'Grizzly Bears',
+              type_line: 'Creature - Bear',
+              power: '2',
+              toughness: '2',
+            },
+          } as any,
+        ],
+      }),
+      abilities[0],
+      {
+        sourceId: 'bronzehide-card',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'bronzehide-card',
+        chosenObjectIds: ['bronzehide-card'],
+      } as any
+    );
+
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'bronzehide-card'
+    ) as any;
+    const host = (resolved.state.battlefield || []).find((perm: any) => perm?.id === 'friendly-bear') as any;
+    const p1 = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect(returned?.card?.type_line).toBe('Enchantment - Aura');
+    expect(returned?.card?.oracle_text).toBe(
+      `Enchant creature you control\n{G}{W}: Return this card to its owner's hand.`
+    );
+    expect(returned?.attachedTo).toBe('friendly-bear');
+    expect(host?.attachments).toContain(returned?.id);
+    expect((p1.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect(String(returned?.card?.oracle_text || '')).not.toContain('gains indestructible');
+    expect(resolved.appliedSteps.map(step => step.kind)).toEqual(['move_zone']);
+  });
+
   it("applies Lim-Dul the Necromancer by returning the card as a Zombie when the payment condition succeeds", () => {
     const resolved = executeTriggeredAbilityEffectWithOracleIR(
       makeState({
@@ -43369,6 +43704,155 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect((p1.hand || []).map((entry: any) => entry.id)).toEqual(['corpse-top-1']);
     expect((p1.graveyard || []).map((entry: any) => entry.id)).toEqual(['corpse-top-2', 'corpse-top-3']);
     expect((p1.library || []).map((entry: any) => entry.id)).toEqual(['corpse-top-4']);
+  });
+
+  it('applies Abyssal Harvester only to a creature card put into a graveyard this turn', () => {
+    const ir = parseOracleTextToIR(
+      '{T}: Exile target creature card from a graveyard that was put there this turn.',
+      'Abyssal Harvester'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 7,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'abyssal-old',
+              name: 'Silvercoat Lion',
+              type_line: 'Creature - Cat',
+              putIntoGraveyardTurn: 6,
+            },
+            {
+              id: 'abyssal-fresh',
+              name: 'Runeclaw Bear',
+              type_line: 'Creature - Bear',
+              putIntoGraveyardTurn: 7,
+            },
+          ],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const staleResult = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Abyssal Harvester',
+      targetPermanentId: 'abyssal-old',
+    });
+    expect(staleResult.appliedSteps).toHaveLength(0);
+    expect(((staleResult.state.players[1] as any).graveyard || []).map((entry: any) => entry.id)).toEqual([
+      'abyssal-old',
+      'abyssal-fresh',
+    ]);
+    expect((staleResult.state.players[1] as any).exile || []).toEqual([]);
+
+    const freshResult = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Abyssal Harvester',
+      targetPermanentId: 'abyssal-fresh',
+    });
+    expect(freshResult.appliedSteps.map(step => step.kind)).toEqual(['move_zone']);
+    expect(((freshResult.state.players[1] as any).graveyard || []).map((entry: any) => entry.id)).toEqual(['abyssal-old']);
+    expect(((freshResult.state.players[1] as any).exile || []).map((entry: any) => entry.id)).toEqual(['abyssal-fresh']);
+  });
+
+  it('applies Urborg Scavengers by exiling the target, adding a counter, and projecting linked keyword abilities', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this creature enters or attacks, exile target card from a graveyard. Put a +1/+1 counter on this creature.\nThis creature has flying as long as a card exiled with it has flying. The same is true for first strike, double strike, deathtouch, haste, hexproof, indestructible, lifelink, menace, reach, trample, and vigilance.',
+      'Urborg Scavengers'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'urborg-target',
+              name: 'Aerial Baloth',
+              type_line: 'Creature - Beast',
+              oracle_text: 'Flying, trample',
+              keywords: ['Flying', 'Trample'],
+            },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'urborg-source',
+          owner: 'p1',
+          controller: 'p1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          attachments: [],
+          modifiers: [],
+          card: {
+            id: 'urborg-source-card',
+            name: 'Urborg Scavengers',
+            type_line: 'Creature - Spirit',
+            oracle_text:
+              'Whenever this creature enters or attacks, exile target card from a graveyard. Put a +1/+1 counter on this creature.\nThis creature has flying as long as a card exiled with it has flying. The same is true for first strike, double strike, deathtouch, haste, hexproof, indestructible, lifelink, menace, reach, trample, and vigilance.',
+          },
+        } as any,
+      ],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'urborg-source',
+        sourceName: 'Urborg Scavengers',
+        targetPermanentId: 'urborg-target',
+      },
+      { allowOptional: true }
+    );
+
+    const source = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'urborg-source') as any;
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'add_counter']);
+    expect(source?.counters).toEqual({ '+1/+1': 1 });
+    expect(source?.grantedAbilities || []).toEqual(expect.arrayContaining(['flying', 'trample']));
+    expect((p2.exile || []).map((card: any) => card.id)).toEqual(['urborg-target']);
+    expect((p2.graveyard || []).map((card: any) => card.id)).toEqual([]);
   });
 
   it('applies Klothys land branch with an explicit mana choice', () => {

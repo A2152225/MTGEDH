@@ -4,6 +4,7 @@ import { getLeaveBattlefieldDestination } from '../../shared/src/leaveBattlefiel
 import type { OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { SimpleBattlefieldSelector, SimplePermanentType } from './oracleIRExecutorBattlefieldParser';
+import { stampCardPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 
 export function resolveTapOrUntapTargetIds(
@@ -175,7 +176,7 @@ export function finalizeBattlefieldRemoval(
 
     if (actualDestination === 'graveyard') {
       const gy = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
-      gy.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'graveyard'));
+      gy.push(stampCardPutIntoGraveyardThisTurn(state, buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'graveyard')));
       player.graveyard = gy;
     } else {
       const ex = Array.isArray(player.exile) ? [...player.exile] : [];

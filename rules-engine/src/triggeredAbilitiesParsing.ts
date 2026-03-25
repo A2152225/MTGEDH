@@ -68,10 +68,11 @@ export function parseTriggeredAbilitiesFromText(
       String(parsedAbility.triggerCondition || '').trim(),
       cardName
     );
-    let effect = String(parsedAbility.effect || '').trim().toLowerCase();
+    let effect = String(parsedAbility.effect || '').trim();
+    const normalizedEffect = effect.toLowerCase();
 
     const eventInfo = detectTriggeredAbilityEvent(triggerCondition, TriggerEvent);
-    const optional = effect.includes('you may') || effect.includes('may have');
+    const optional = normalizedEffect.includes('you may') || normalizedEffect.includes('may have');
 
     let interveningIf = parsedAbility.interveningIf;
 

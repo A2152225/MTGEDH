@@ -697,6 +697,105 @@ function mergeBattlefieldEntryCharacteristicFollowups(steps: readonly OracleEffe
   return merged;
 }
 
+function parseBattlefieldEntryAuraRewriteFollowup(rawClause: string): {
+  readonly attachedTo: Extract<OracleEffectStep, { kind: 'move_zone' }>['battlefieldAttachedTo'];
+  readonly setTypeLine: string;
+  readonly setOracleText: string;
+  readonly loseAllAbilities: true;
+} | null {
+  const normalized = normalizeOracleText(rawClause).replace(/[.]+$/g, '').trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^it(?:'s| is)\s+an?\s+aura enchantment with enchant ([^"]+?) and "([^"]+)" and it loses all other abilities$/i
+  );
+  if (!match) return null;
+
+  const enchantTarget = String(match[1] || '').trim();
+  const grantedAbility = String(match[2] || '').trim();
+  if (!enchantTarget || !grantedAbility) return null;
+
+  return {
+    attachedTo: parseObjectSelector(`a ${enchantTarget}`),
+    setTypeLine: 'Enchantment - Aura',
+    setOracleText: `Enchant ${enchantTarget}\n${grantedAbility}`,
+    loseAllAbilities: true,
+  };
+}
+
+function mergeBattlefieldEntryAuraRewriteIntoMoveZone(
+  step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+  parsed: ReturnType<typeof parseBattlefieldEntryAuraRewriteFollowup>,
+  rawClause: string
+): Extract<OracleEffectStep, { kind: 'move_zone' }> | null {
+  if (step.to !== 'battlefield' || !parsed) return null;
+  if (step.battlefieldSetTypeLine || step.battlefieldSetOracleText) return null;
+
+  return {
+    ...step,
+    battlefieldAttachedTo: step.battlefieldAttachedTo || parsed.attachedTo,
+    battlefieldSetTypeLine: parsed.setTypeLine,
+    battlefieldSetOracleText: parsed.setOracleText,
+    battlefieldLoseAllAbilities: true,
+    raw: `${String(step.raw || '').trim()}. ${String(rawClause || '').trim()}`.trim(),
+  };
+}
+
+function mergeBattlefieldEntryAuraRewriteFollowups(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const merged: OracleEffectStep[] = [];
+
+  for (let i = 0; i < steps.length; i += 1) {
+    const current = steps[i];
+    const next = steps[i + 1];
+
+    if (next?.kind === 'unknown') {
+      const parsed = parseBattlefieldEntryAuraRewriteFollowup(next.raw);
+      if (parsed) {
+        if (current?.kind === 'move_zone') {
+          const mergedMove = mergeBattlefieldEntryAuraRewriteIntoMoveZone(current, parsed, next.raw);
+          if (mergedMove) {
+            merged.push(mergedMove);
+            i += 1;
+            continue;
+          }
+        }
+
+        if (current?.kind === 'conditional') {
+          const innerSteps = [...current.steps];
+          const lastStep = innerSteps[innerSteps.length - 1];
+          if (lastStep?.kind === 'move_zone') {
+            const mergedMove = mergeBattlefieldEntryAuraRewriteIntoMoveZone(lastStep, parsed, next.raw);
+            if (mergedMove) {
+              innerSteps[innerSteps.length - 1] = mergedMove;
+              merged.push({
+                ...current,
+                steps: innerSteps,
+                raw: `${String(current.raw || '').trim()}. ${String(next.raw || '').trim()}`.trim(),
+              });
+              i += 1;
+              continue;
+            }
+          }
+        }
+
+        if (current?.kind === 'schedule_delayed_trigger') {
+          merged.push({
+            ...current,
+            effect: `${String(current.effect || '').trim()}. ${String(next.raw || '').trim()}`.trim(),
+            raw: `${String(current.raw || '').trim()}. ${String(next.raw || '').trim()}`.trim(),
+          });
+          i += 1;
+          continue;
+        }
+      }
+    }
+
+    merged.push(current);
+  }
+
+  return merged;
+}
+
 function parseReturnFromYourGraveyardToHandClause(
   rawClause: string
 ): Extract<OracleEffectStep, { kind: 'move_zone' }> | null {
@@ -927,6 +1026,15 @@ export function mergeBattlefieldEntryCharacteristicFollowupAbilities(
   return abilities.map(ability => ({
     ...ability,
     steps: mergeBattlefieldEntryCharacteristicFollowups(ability.steps),
+  }));
+}
+
+export function mergeBattlefieldEntryAuraRewriteFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map(ability => ({
+    ...ability,
+    steps: mergeBattlefieldEntryAuraRewriteFollowups(ability.steps),
   }));
 }
 
@@ -1574,6 +1682,362 @@ export function expandCopySpellUnknownAbilities(
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
   });
+}
+
+function parseCopyChapterAbilityUnknownStep(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>
+): OracleEffectStep | null {
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(/^copy its chapter (i|ii|iii|iv|v|vi|vii|viii|ix|x) ability$/i);
+  if (!match) return null;
+
+  const roman = String(match[1] || '').trim().toUpperCase();
+  const chapterMap: Record<string, number> = {
+    I: 1,
+    II: 2,
+    III: 3,
+    IV: 4,
+    V: 5,
+    VI: 6,
+    VII: 7,
+    VIII: 8,
+    IX: 9,
+    X: 10,
+  };
+  const chapter = chapterMap[roman];
+  if (!chapter) return null;
+
+  return {
+    kind: 'copy_chapter_ability',
+    subject: 'last_moved_card',
+    chapter,
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: String(step.raw || '').trim(),
+  };
+}
+
+export function expandCopyChapterAbilityUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps = ability.steps.map((step) => {
+      if (step.kind !== 'unknown') return step;
+      const expanded = parseCopyChapterAbilityUnknownStep(step);
+      if (!expanded) return step;
+      changed = true;
+      return expanded;
+    });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+type DieRollResultBand = {
+  readonly min: number;
+  readonly max: number;
+  readonly raw: string;
+  readonly steps: readonly OracleEffectStep[];
+};
+
+function buildDieRollBand(
+  min: number,
+  max: number,
+  effectText: string,
+  raw: string
+): DieRollResultBand | null {
+  if (/^Copy that card\.\s*You may cast the copy\.?$/i.test(effectText)) {
+    return {
+      min,
+      max,
+      raw,
+      steps: [
+        {
+          kind: 'copy_spell',
+          subject: 'last_moved_card',
+          castCost: 'mana_cost',
+          optional: true,
+          raw: effectText,
+        },
+      ],
+    };
+  }
+
+  if (/^Copy that card\.\s*You may cast the copy by paying \{1\} rather than paying its mana cost\.?$/i.test(effectText)) {
+    return {
+      min,
+      max,
+      raw,
+      steps: [
+        {
+          kind: 'copy_spell',
+          subject: 'last_moved_card',
+          castCost: '{1}',
+          optional: true,
+          raw: effectText,
+        },
+      ],
+    };
+  }
+
+  if (
+    /^Copy each card exiled with this artifact\.\s*You may cast any number of the copies without paying their mana costs\.?$/i.test(
+      effectText
+    )
+  ) {
+    return {
+      min,
+      max,
+      raw,
+      steps: [
+        {
+          kind: 'copy_spell',
+          subject: 'linked_exiled_cards',
+          withoutPayingManaCost: true,
+          optional: true,
+          raw: effectText,
+        },
+      ],
+    };
+  }
+
+  return null;
+}
+
+function parseDieRollBandAbility(ability: OracleIRAbility): DieRollResultBand | null {
+  if (ability.type !== 'static') return null;
+
+  const rawText = String(ability.text || '').trim();
+  const match = rawText.match(/^(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?\s*\|\s*([\s\S]+)$/);
+  if (!match) return null;
+
+  const min = Number.parseInt(String(match[1] || ''), 10);
+  const max = Number.parseInt(String(match[2] || match[1] || ''), 10);
+  const effectText = String(match[3] || '').trim();
+  if (!Number.isFinite(min) || !Number.isFinite(max) || !effectText) return null;
+  return buildDieRollBand(min, max, effectText, rawText);
+}
+
+function rewriteInlineDieRollTableAbility(ability: OracleIRAbility): OracleIRAbility {
+  if (ability.type !== 'activated') return ability;
+
+  const steps = ability.steps;
+  const rollIndex = steps.findIndex(
+    step => step.kind === 'unknown' && /^Roll a d20$/i.test(String(step.raw || '').trim())
+  );
+  if (rollIndex < 0) return ability;
+  if (
+    steps[rollIndex + 1]?.kind !== 'unknown' ||
+    !/^Activate only as a sorcery$/i.test(String(steps[rollIndex + 1]?.raw || '').trim())
+  ) {
+    return ability;
+  }
+
+  const bands: DieRollResultBand[] = [];
+  let cursor = rollIndex + 2;
+  while (cursor + 1 < steps.length) {
+    const copyClause = steps[cursor];
+    const castClause = steps[cursor + 1];
+    if (copyClause?.kind !== 'unknown' || castClause?.kind !== 'unknown' || !castClause.optional) break;
+
+    const rangeMatch = String(copyClause.raw || '').trim().match(/^(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?\s*\|\s*(.+)$/);
+    if (!rangeMatch) break;
+
+    const min = Number.parseInt(String(rangeMatch[1] || ''), 10);
+    const max = Number.parseInt(String(rangeMatch[2] || rangeMatch[1] || ''), 10);
+    const copyText = String(rangeMatch[3] || '').trim();
+    const castText = String(castClause.raw || '').trim();
+    const band = buildDieRollBand(min, max, `${copyText}. ${castText}`, `${String(copyClause.raw || '').trim()}. ${castText}`);
+    if (!band) break;
+
+    bands.push(band);
+    cursor += 2;
+  }
+
+  if (bands.length === 0) return ability;
+
+  return {
+    ...ability,
+    steps: [
+      ...steps.slice(0, rollIndex),
+      {
+        kind: 'roll_die',
+        who: { kind: 'you' },
+        sides: 20,
+        raw: 'Roll a d20',
+      },
+      {
+        kind: 'die_roll_results',
+        who: { kind: 'you' },
+        sides: 20,
+        results: bands,
+        raw: bands.map(band => band.raw).join('\n'),
+      },
+      ...steps.slice(cursor),
+    ],
+  };
+}
+
+export function mergeDieRollResultTableAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  const mergedInline = abilities.map(rewriteInlineDieRollTableAbility);
+  const merged: OracleIRAbility[] = [];
+
+  for (let i = 0; i < mergedInline.length; i += 1) {
+    const current = mergedInline[i];
+    const rollAbility = mergedInline[i + 1];
+    if (
+      current?.type !== 'activated' ||
+      rollAbility?.type !== 'static' ||
+      !/^Roll a d20\.\s*Activate only as a sorcery\.?$/i.test(String(rollAbility.text || '').trim())
+    ) {
+      merged.push(current);
+      continue;
+    }
+
+    const bands: DieRollResultBand[] = [];
+    let cursor = i + 2;
+    while (cursor < mergedInline.length) {
+      const band = parseDieRollBandAbility(mergedInline[cursor]);
+      if (!band) break;
+      bands.push(band);
+      cursor += 1;
+    }
+
+    if (bands.length === 0) {
+      merged.push(current);
+      continue;
+    }
+
+    merged.push({
+      ...current,
+      text: [current.text, rollAbility.text, ...bands.map(band => band.raw)].join('\n'),
+      effectText: [current.effectText, rollAbility.effectText, ...bands.map(band => band.raw)].join('\n'),
+      steps: [
+        ...current.steps,
+        {
+          kind: 'roll_die',
+          who: { kind: 'you' },
+          sides: 20,
+          raw: 'Roll a d20',
+        },
+        {
+          kind: 'die_roll_results',
+          who: { kind: 'you' },
+          sides: 20,
+          results: bands,
+          raw: bands.map(band => band.raw).join('\n'),
+        },
+      ],
+    });
+    i = cursor - 1;
+  }
+
+  return merged;
+}
+
+function parseCopySagaChapterAbilityStep(
+  step: OracleEffectStep
+): Extract<OracleEffectStep, { kind: 'copy_saga_chapter_ability' }> | null {
+  if (step.kind !== 'unknown') return null;
+
+  const match = String(step.raw || '').trim().match(/^Copy its chapter (I|II|III|IV|V|VI|VII|VIII|IX|X) ability$/i);
+  if (!match) return null;
+
+  const chapterMap: Record<string, number> = {
+    I: 1,
+    II: 2,
+    III: 3,
+    IV: 4,
+    V: 5,
+    VI: 6,
+    VII: 7,
+    VIII: 8,
+    IX: 9,
+    X: 10,
+  };
+  const chapterNumber = chapterMap[String(match[1] || '').trim().toUpperCase()];
+  if (!Number.isFinite(chapterNumber)) return null;
+
+  return {
+    kind: 'copy_saga_chapter_ability',
+    subject: 'last_moved_card',
+    chapterNumber,
+    raw: String(step.raw || '').trim(),
+  };
+}
+
+export function mergeSagaChapterCopyFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  const merged: OracleIRAbility[] = [];
+
+  for (let i = 0; i < abilities.length; i += 1) {
+    const current = abilities[i];
+    const next = abilities[i + 1];
+    const currentSteps = Array.isArray(current?.steps) ? current.steps : [];
+    const nextSteps = Array.isArray(next?.steps) ? next.steps : [];
+    const chapterCopyStep =
+      nextSteps.length === 1
+        ? ((nextSteps[0] as OracleEffectStep).kind === 'copy_chapter_ability'
+            ? (nextSteps[0] as Extract<OracleEffectStep, { kind: 'copy_chapter_ability' }>)
+            : null)
+        : null;
+
+    if (!current || !chapterCopyStep || currentSteps.length === 0) {
+      merged.push(current);
+      continue;
+    }
+
+    merged.push({
+      ...current,
+      text: `${String(current.text || '').trim()} ${String(next.text || '').trim()}`.trim(),
+      effectText: `${String(current.effectText || '').trim()} ${String(next.effectText || '').trim()}`.trim(),
+      steps: [...currentSteps, chapterCopyStep],
+    });
+    i += 1;
+  }
+
+  return merged;
+}
+
+export function mergeCopyChapterAbilityFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  const merged: OracleIRAbility[] = [];
+
+  for (let i = 0; i < abilities.length; i += 1) {
+    const current = abilities[i];
+    const next = abilities[i + 1];
+    const currentSteps = current?.steps || [];
+    const nextSteps = next?.steps || [];
+
+    if (
+      currentSteps.length === 1 &&
+      currentSteps[0]?.kind === 'move_zone' &&
+      nextSteps.length === 1 &&
+      nextSteps[0]?.kind === 'copy_chapter_ability' &&
+      current?.type === next?.type
+    ) {
+      merged.push({
+        ...current,
+        text: `${String(current.text || '').trim()} ${String(next.text || '').trim()}`.trim(),
+        effectText: `${String(current.effectText || '').trim()} ${String(next.effectText || '').trim()}`.trim(),
+        steps: [...currentSteps, ...nextSteps],
+      });
+      i += 1;
+      continue;
+    }
+
+    merged.push(current);
+  }
+
+  return merged;
 }
 
 function parseCopyPermanentUnknownStep(

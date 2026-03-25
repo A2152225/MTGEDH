@@ -105,13 +105,35 @@ export function calculateEffectivePT(
     return { power: 0, toughness: 0, grantedAbilities: [], removedAbilities: [] };
   }
 
-  let power = parseInt(String(card.power || '0')) || 0;
-  let toughness = parseInt(String(card.toughness || '0')) || 0;
+  let power = typeof permanent.basePower === 'number'
+    ? permanent.basePower
+    : (parseInt(String(card.power || '0')) || 0);
+  let toughness = typeof permanent.baseToughness === 'number'
+    ? permanent.baseToughness
+    : (parseInt(String(card.toughness || '0')) || 0);
+
+  const ptSetters = Array.isArray(permanent.modifiers)
+    ? permanent.modifiers.filter(mod => String((mod as any)?.type || '') === 'setPowerToughness')
+    : [];
+  const lastPtSetter = ptSetters.length > 0 ? ptSetters[ptSetters.length - 1] as any : null;
+  if (lastPtSetter) {
+    if (typeof lastPtSetter.setPower === 'number') power = lastPtSetter.setPower;
+    if (typeof lastPtSetter.setToughness === 'number') toughness = lastPtSetter.setToughness;
+  }
 
   const plusCounters = permanent.counters?.['+1/+1'] || 0;
   const minusCounters = permanent.counters?.['-1/-1'] || 0;
   power += plusCounters - minusCounters;
   toughness += plusCounters - minusCounters;
+
+  if (Array.isArray(permanent.modifiers)) {
+    for (const mod of permanent.modifiers) {
+      if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
+        power += mod.power || 0;
+        toughness += mod.toughness || 0;
+      }
+    }
+  }
 
   const grantedAbilities = Array.isArray((permanent as any).grantedAbilities)
     ? Array.from(new Set(

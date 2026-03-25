@@ -190,7 +190,8 @@ function resolveGraveyardPermissionTargets(
 
   const criteria = buildGraveyardPermissionCriteria(selectorText);
   if (!criteria) return { cards: [], reason: 'unsupported_selector' };
-  return { cards: graveyard.filter((card: any) => cardMatchesMoveZoneSingleTargetCriteria(card, criteria)) };
+  const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
+  return { cards: graveyard.filter((card: any) => cardMatchesMoveZoneSingleTargetCriteria(card, criteria, undefined, currentTurn)) };
 }
 
 function resolveExilePermissionTargets(
@@ -212,12 +213,13 @@ function resolveExilePermissionTargets(
   if (!criteria) return { cards: [], reason: 'unsupported_selector' };
 
   const matches: any[] = [];
+  const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
   for (const owner of state.players as any[]) {
     const exile = Array.isArray(owner?.exile) ? owner.exile : [];
     for (const card of exile) {
       if (!isCardExiledWithSource(card, sourceId)) continue;
       if (ownOnly && String(owner?.id || '').trim() !== playerId) continue;
-      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria)) continue;
+      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, undefined, currentTurn)) continue;
       matches.push(card);
     }
   }

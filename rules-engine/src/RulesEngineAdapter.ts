@@ -390,6 +390,7 @@ export class RulesEngineAdapter {
     const ignoresManaCost = Boolean((sourceCard as any)?.withoutPayingManaCost);
     const derivedManaCostInput =
       action.manaCost ??
+      (fromZone === 'exile' ? (sourceCard as any)?.exileCastCost : undefined) ??
       (fromZone === 'graveyard' && (sourceCard as any)?.graveyardCastCost === 'mana_cost'
         ? ((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost)
         : undefined);
@@ -983,6 +984,8 @@ export class RulesEngineAdapter {
       ? {}
       : action.manaCost
         ? this.parseManaCostString(action.manaCost)
+        : fromZone === 'exile' && (sourceCard as any)?.exileCastCost
+          ? this.parseManaCostString((sourceCard as any)?.exileCastCost)
         : fromZone === 'graveyard' && (sourceCard as any)?.graveyardCastCost === 'mana_cost'
           ? this.parseManaCostString((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost)
         : {};

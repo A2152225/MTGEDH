@@ -98,12 +98,25 @@ export function normalizeOracleTextSelfReferences(oracleText: string, cardName?:
   }, oracleText);
 }
 
+function isDieRollResultsTableLine(line: string): boolean {
+  const normalized = line.trim();
+  if (!normalized) return false;
+  return /^\d+(?:\s*[\u2013\u2014-]\s*\d+|\+)?\s*\|/i.test(normalized);
+}
+
 export function splitOracleTextIntoParseLines(oracleText: string): string[] {
   const rawLines = oracleText.split(/\n+/).map(line => line.trim()).filter(Boolean);
   const abilityLines: string[] = [];
 
-  for (const raw of rawLines) {
-    if (/^[\u2022•]\s+/.test(raw) && abilityLines.length > 0) {
+  for (let index = 0; index < rawLines.length; index += 1) {
+    let raw = rawLines[index];
+    if (/^Tiered\s*\(/i.test(raw) && index + 1 < rawLines.length && !/^[\u2022â€¢]\s+/.test(rawLines[index + 1])) {
+      raw = `${raw}\n${rawLines[index + 1]}`;
+      index += 1;
+    }
+    if (isDieRollResultsTableLine(raw) && abilityLines.length > 0) {
+      abilityLines[abilityLines.length - 1] = `${abilityLines[abilityLines.length - 1]}\n${raw}`;
+    } else if (/^[\u2022â€¢]\s+/.test(raw) && abilityLines.length > 0) {
       abilityLines[abilityLines.length - 1] = `${abilityLines[abilityLines.length - 1]}\n${raw}`;
     } else {
       abilityLines.push(raw);
@@ -112,8 +125,9 @@ export function splitOracleTextIntoParseLines(oracleText: string): string[] {
 
   const lines: string[] = [];
   for (const abilityLine of abilityLines) {
-    const isModalBulletBlock = /\n\s*[\u2022•]\s+/.test(abilityLine);
-    if (isModalBulletBlock) {
+    const isModalBulletBlock = /\n\s*[\u2022â€¢]\s+/.test(abilityLine);
+    const hasDieRollResultsTable = /\n\s*\d+(?:\s*[\u2013\u2014-]\s*\d+|\+)?\s*\|/i.test(abilityLine);
+    if (isModalBulletBlock || hasDieRollResultsTable) {
       lines.push(abilityLine);
       continue;
     }

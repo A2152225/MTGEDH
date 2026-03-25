@@ -1,7 +1,13 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
 import { cardHasCreatureType, isValidCreatureType } from '../../shared/src/creatureTypes';
 import { mergeRetainedCountersForBattlefieldEntry } from '../../shared/src/zoneRetainedCounters';
-import { getCardManaValue, isCardExiledWithSource } from './oracleIRExecutorPlayerUtils';
+import {
+  getCardManaValue,
+  getCurrentTurnNumber,
+  isCardExiledWithSource,
+  stampCardPutIntoGraveyardThisTurn,
+  stampCardsPutIntoGraveyardThisTurn,
+} from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
 
@@ -41,9 +47,16 @@ export type MoveZoneSingleTargetCriteria = {
   readonly colorsAllOf?: readonly string[];
   readonly noAbilities?: boolean;
   readonly requiredCounter?: string;
+  readonly putIntoGraveyardThisTurn?: boolean;
 };
 
 type BattlefieldAttachmentTarget = BattlefieldPermanent;
+
+type BattlefieldEntryCardOverrides = {
+  readonly setTypeLine?: string;
+  readonly setOracleText?: string;
+  readonly loseAllAbilities?: boolean;
+};
 
 const stripImpulsePermissionMarkers = stripPlayableFromExileTags;
 const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
@@ -398,6 +411,18 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
   return null;
 }
 
+function stripPutIntoGraveyardThisTurnQualifier(raw: string): {
+  readonly selectorText: string;
+  readonly putIntoGraveyardThisTurn: boolean;
+} {
+  const cleaned = String(raw || '').replace(/[.\s]+$/g, '').trim();
+  const selectorText = cleaned.replace(/\s+that\s+was\s+put\s+there(?:\s+from\s+anywhere)?\s+this\s+turn$/i, '').trim();
+  return {
+    selectorText,
+    putIntoGraveyardThisTurn: selectorText !== cleaned,
+  };
+}
+
 function normalizeCardNameForCriteria(value: string | undefined): string {
   return String(value || '')
     .replace(/\u2019/g, "'")
@@ -410,7 +435,8 @@ function normalizeCardNameForCriteria(value: string | undefined): string {
 export function cardMatchesMoveZoneSingleTargetCriteria(
   card: any,
   criteria: MoveZoneSingleTargetCriteria,
-  referenceCardName?: string
+  referenceCardName?: string,
+  currentTurn?: number
 ): boolean {
   if (!cardMatchesType(card, criteria.cardType)) return false;
   if (criteria.requiresHistoric && !cardMatchesHistoric(card)) return false;
@@ -457,6 +483,13 @@ export function cardMatchesMoveZoneSingleTargetCriteria(
     );
     const cardName = normalizeCardNameForCriteria(String(card?.name || ''));
     if (excludedName && cardName && excludedName === cardName) return false;
+  }
+
+  if (criteria.putIntoGraveyardThisTurn) {
+    const putIntoGraveyardTurn = Number((card as any)?.putIntoGraveyardTurn);
+    if (!Number.isFinite(putIntoGraveyardTurn) || !Number.isFinite(currentTurn) || putIntoGraveyardTurn !== currentTurn) {
+      return false;
+    }
   }
 
   return true;
@@ -673,7 +706,8 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
   const raw = String((what as any).text || '').trim();
   if (!raw) return null;
 
-  const withCounter = parseTrailingZoneCounterRequirement(raw, 'from your graveyard');
+  const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
+  const withCounter = parseTrailingZoneCounterRequirement(withTurn.selectorText, 'from your graveyard');
   const cleaned = withCounter.selectorText;
   const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
@@ -691,7 +725,11 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
   if (!typeText) return null;
   const parsed = parseMoveZoneSingleTargetCriteria(typeText);
   if (!parsed) return null;
-  return withCounter.requiredCounter ? { ...parsed, requiredCounter: withCounter.requiredCounter } : parsed;
+  return {
+    ...parsed,
+    ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
+    ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+  };
 }
 
 export function parseMoveZoneRandomSingleFromYourGraveyard(what: {
@@ -752,9 +790,10 @@ export function selectRandomMatchingCardIdFromGraveyard(
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { kind: 'missing_player' };
 
+  const currentTurn = getCurrentTurnNumber(state);
   const graveyard = Array.isArray(player.graveyard) ? player.graveyard : [];
   const matches = graveyard.filter((card: any) =>
-    cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName)
+    cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn)
   );
   if (matches.length <= 0) return { kind: 'impossible' };
 
@@ -774,7 +813,8 @@ export function parseMoveZoneSingleTargetFromTargetPlayersGraveyard(what: {
   const raw = String((what as any).text || '').trim();
   if (!raw) return null;
 
-  const withCounter = parseTrailingZoneCounterRequirement(raw, "from (?:target|that) (?:player|opponent)'s graveyard");
+  const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
+  const withCounter = parseTrailingZoneCounterRequirement(withTurn.selectorText, "from (?:target|that) (?:player|opponent)'s graveyard");
   const cleaned = withCounter.selectorText;
   const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
@@ -792,7 +832,11 @@ export function parseMoveZoneSingleTargetFromTargetPlayersGraveyard(what: {
   if (!typeText) return null;
   const parsed = parseMoveZoneSingleTargetCriteria(typeText);
   if (!parsed) return null;
-  return withCounter.requiredCounter ? { ...parsed, requiredCounter: withCounter.requiredCounter } : parsed;
+  return {
+    ...parsed,
+    ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
+    ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+  };
 }
 
 export function parseMoveZoneSingleTargetFromAGraveyard(what: {
@@ -806,7 +850,8 @@ export function parseMoveZoneSingleTargetFromAGraveyard(what: {
   const raw = String((what as any).text || '').trim();
   if (!raw) return null;
 
-  const withCounter = parseTrailingZoneCounterRequirement(raw, 'from a graveyard');
+  const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
+  const withCounter = parseTrailingZoneCounterRequirement(withTurn.selectorText, 'from a graveyard');
   const cleaned = withCounter.selectorText;
   const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
@@ -824,7 +869,11 @@ export function parseMoveZoneSingleTargetFromAGraveyard(what: {
   if (!typeText) return null;
   const parsed = parseMoveZoneSingleTargetCriteria(typeText);
   if (!parsed) return null;
-  return withCounter.requiredCounter ? { ...parsed, requiredCounter: withCounter.requiredCounter } : parsed;
+  return {
+    ...parsed,
+    ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
+    ...(withTurn.putIntoGraveyardThisTurn ? { putIntoGraveyardThisTurn: true } : {}),
+  };
 }
 
 type ExactGraveyardSelection =
@@ -967,7 +1016,8 @@ export function moveTargetedCardFromGraveyard(
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string,
-  referenceCardName?: string
+  referenceCardName?: string,
+  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
@@ -986,7 +1036,9 @@ export function moveTargetedCardFromGraveyard(
   if (index < 0) return { kind: 'impossible' };
 
   const card = graveyard[index];
-  if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName)) return { kind: 'impossible' };
+  if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, getCurrentTurnNumber(state))) {
+    return { kind: 'impossible' };
+  }
 
   const kept = graveyard.filter((_: any, i: number) => i !== index);
   if (destination === 'hand') {
@@ -1033,7 +1085,10 @@ export function moveTargetedCardFromGraveyard(
   const attachmentTarget = attachedToBattlefieldPermanentId
     ? getBattlefieldAttachmentTarget(state, attachedToBattlefieldPermanentId)
     : undefined;
-  if (attachedToBattlefieldPermanentId && (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget))) {
+  if (
+    attachedToBattlefieldPermanentId &&
+    (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget, battlefieldEntryOverrides))
+  ) {
     return { kind: 'impossible' };
   }
 
@@ -1045,7 +1100,8 @@ export function moveTargetedCardFromGraveyard(
     entersFaceDown,
     withCounters,
     'gy',
-    attachmentTarget
+    attachmentTarget,
+    battlefieldEntryOverrides
   );
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), graveyard: kept } as any) : p
@@ -1069,7 +1125,8 @@ export function moveTargetedCardFromAnyGraveyard(
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string,
-  referenceCardName?: string
+  referenceCardName?: string,
+  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
@@ -1094,7 +1151,8 @@ export function moveTargetedCardFromAnyGraveyard(
         entersFaceDown,
         withCounters,
         attachedToBattlefieldPermanentId,
-        referenceCardName
+        referenceCardName,
+        battlefieldEntryOverrides
       );
     }
   }
@@ -1310,6 +1368,7 @@ export function findCardsExiledWithSource(
   if (!wantedSourceId) return [];
 
   const matches: { playerId: PlayerID; cardId: string; card: any }[] = [];
+  const currentTurn = getCurrentTurnNumber(state);
   for (const player of state.players as any[]) {
     const playerId = String(player?.id || '').trim() as PlayerID;
     if (!playerId) continue;
@@ -1319,7 +1378,7 @@ export function findCardsExiledWithSource(
       const cardId = String(card?.id || card?.cardId || '').trim();
       if (!cardId) continue;
       if (!isCardExiledWithSource(card, wantedSourceId)) continue;
-      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria)) continue;
+      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, undefined, currentTurn)) continue;
       matches.push({ playerId, cardId, card });
     }
   }
@@ -1368,7 +1427,8 @@ export function moveTargetedCardFromHand(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
-  attachedToBattlefieldPermanentId?: string
+  attachedToBattlefieldPermanentId?: string,
+  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
@@ -1391,8 +1451,9 @@ export function moveTargetedCardFromHand(
   const kept = hand.filter((_: any, i: number) => i !== index);
   if (destination === 'graveyard') {
     const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+    const movedCard = stampCardPutIntoGraveyardThisTurn(state, card);
     const updatedPlayers = state.players.map(p =>
-      p.id === playerId ? ({ ...(p as any), hand: kept, graveyard: [...graveyard, card] } as any) : p
+      p.id === playerId ? ({ ...(p as any), hand: kept, graveyard: [...graveyard, movedCard] } as any) : p
     );
     return {
       kind: 'applied',
@@ -1417,7 +1478,10 @@ export function moveTargetedCardFromHand(
   const attachmentTarget = attachedToBattlefieldPermanentId
     ? getBattlefieldAttachmentTarget(state, attachedToBattlefieldPermanentId)
     : undefined;
-  if (attachedToBattlefieldPermanentId && (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget))) {
+  if (
+    attachedToBattlefieldPermanentId &&
+    (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget, battlefieldEntryOverrides))
+  ) {
     return { kind: 'impossible' };
   }
 
@@ -1429,7 +1493,8 @@ export function moveTargetedCardFromHand(
     entersFaceDown,
     withCounters,
     'hand',
-    attachmentTarget
+    attachmentTarget,
+    battlefieldEntryOverrides
   );
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), hand: kept } as any) : p
@@ -1452,7 +1517,8 @@ export function moveTargetedCardFromExile(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
-  attachedToBattlefieldPermanentId?: string
+  attachedToBattlefieldPermanentId?: string,
+  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
@@ -1487,8 +1553,9 @@ export function moveTargetedCardFromExile(
 
   if (destination === 'graveyard') {
     const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+    const movedCard = stampCardPutIntoGraveyardThisTurn(state, card);
     const updatedPlayers = state.players.map(p =>
-      p.id === playerId ? ({ ...(p as any), exile: kept, graveyard: [...graveyard, card] } as any) : p
+      p.id === playerId ? ({ ...(p as any), exile: kept, graveyard: [...graveyard, movedCard] } as any) : p
     );
     return {
       kind: 'applied',
@@ -1501,7 +1568,10 @@ export function moveTargetedCardFromExile(
   const attachmentTarget = attachedToBattlefieldPermanentId
     ? getBattlefieldAttachmentTarget(state, attachedToBattlefieldPermanentId)
     : undefined;
-  if (attachedToBattlefieldPermanentId && (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget))) {
+  if (
+    attachedToBattlefieldPermanentId &&
+    (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget, battlefieldEntryOverrides))
+  ) {
     return { kind: 'impossible' };
   }
 
@@ -1513,7 +1583,8 @@ export function moveTargetedCardFromExile(
     entersFaceDown,
     withCounters,
     'exile',
-    attachmentTarget
+    attachmentTarget,
+    battlefieldEntryOverrides
   );
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), exile: kept } as any) : p
@@ -1838,7 +1909,8 @@ function createBattlefieldPermanentsFromCards(
   entersFaceDown: boolean | undefined,
   withCounters: Record<string, number> | undefined,
   sourcePrefix: string,
-  attachmentTarget?: BattlefieldAttachmentTarget
+  attachmentTarget?: BattlefieldAttachmentTarget,
+  entryOverrides?: BattlefieldEntryCardOverrides
 ): BattlefieldPermanent[] {
   return moved.map((card: any, idx: number) => {
     const cardIdHint = String(card?.id || '').trim();
@@ -1846,7 +1918,10 @@ function createBattlefieldPermanentsFromCards(
     const sourceZone =
       sourcePrefix === 'gy' ? 'graveyard' : sourcePrefix === 'ex' ? 'exile' : sourcePrefix === 'hand' ? 'hand' : sourcePrefix;
     const counters = mergeRetainedCountersForBattlefieldEntry(card, sourceZone, withCounters);
-    const faceUpCard = { ...(card || {}), zone: 'battlefield', enteredFromZone: sourceZone } as any;
+    const faceUpCard = applyBattlefieldEntryCardOverrides(
+      { ...(card || {}), zone: 'battlefield', enteredFromZone: sourceZone } as any,
+      entryOverrides
+    );
     if ('counters' in faceUpCard) delete faceUpCard.counters;
     if ('damageSourceIds' in faceUpCard) delete faceUpCard.damageSourceIds;
 
@@ -1911,12 +1986,35 @@ function getCardOracleTextLower(card: any): string {
     .toLowerCase();
 }
 
-function canCardEnterAttachedToTarget(card: any, controllerId: PlayerID, target: BattlefieldAttachmentTarget): boolean {
+function applyBattlefieldEntryCardOverrides(card: any, overrides?: BattlefieldEntryCardOverrides): any {
+  if (!card || !overrides) return card;
+
+  const nextCard = { ...(card as any) };
+  if (overrides.loseAllAbilities) {
+    nextCard.oracle_text = '';
+    nextCard.keywords = [];
+  }
+  if (String(overrides.setTypeLine || '').trim()) {
+    nextCard.type_line = String(overrides.setTypeLine).trim();
+  }
+  if (typeof overrides.setOracleText === 'string') {
+    nextCard.oracle_text = overrides.setOracleText;
+  }
+  return nextCard;
+}
+
+function canCardEnterAttachedToTarget(
+  card: any,
+  controllerId: PlayerID,
+  target: BattlefieldAttachmentTarget,
+  entryOverrides?: BattlefieldEntryCardOverrides
+): boolean {
   if (!card || !target) return false;
-  if (!getCardTypeLineLower(card).includes('aura')) return false;
+  const candidateCard = applyBattlefieldEntryCardOverrides(card, entryOverrides);
+  if (!getCardTypeLineLower(candidateCard).includes('aura')) return false;
   if (!hasExecutorClass(target, 'creature')) return false;
 
-  const oracleTextLower = getCardOracleTextLower(card);
+  const oracleTextLower = getCardOracleTextLower(candidateCard);
   if (!/\benchant creature\b/i.test(oracleTextLower)) return false;
   if (/\benchant creature you control\b/i.test(oracleTextLower) && target.controller !== controllerId) return false;
   return true;
@@ -1975,8 +2073,11 @@ export function moveAllMatchingFromExile(
   const movedClean = moved.map(stripImpulsePermissionMarkers);
 
   const nextPlayer: any = { ...(player as any), exile: kept };
-  if (destination === 'hand') nextPlayer.hand = [...hand, ...movedClean];
-  else nextPlayer.graveyard = [...graveyard, ...movedClean];
+  if (destination === 'hand') {
+    nextPlayer.hand = [...hand, ...movedClean];
+  } else {
+    nextPlayer.graveyard = [...graveyard, ...stampCardsPutIntoGraveyardThisTurn(state, movedClean)];
+  }
 
   const updatedPlayers = nextState.players.map(p => (p.id === playerId ? nextPlayer : p));
   return {
@@ -2092,7 +2193,9 @@ export function returnTargetAndSameNamedCardsFromYourGraveyardToHand(
   const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
   const targetCard = graveyard.find((card: any) => String(card?.id || '').trim() === wantedId);
   if (!targetCard) return { kind: 'impossible' };
-  if (!cardMatchesMoveZoneSingleTargetCriteria(targetCard, criteria)) return { kind: 'impossible' };
+  if (!cardMatchesMoveZoneSingleTargetCriteria(targetCard, criteria, undefined, getCurrentTurnNumber(state))) {
+    return { kind: 'impossible' };
+  }
 
   const targetName = normalizeCardNameForCriteria(String((targetCard as any)?.name || ''));
   if (!targetName) return { kind: 'impossible' };
@@ -2233,8 +2336,11 @@ export function moveAllMatchingFromHand(
   if (moved.length === 0) return { state, log: [] };
 
   const nextPlayer: any = { ...(player as any), hand: kept };
-  if (destination === 'graveyard') nextPlayer.graveyard = [...graveyard, ...moved];
-  else nextPlayer.exile = [...exile, ...moved];
+  if (destination === 'graveyard') {
+    nextPlayer.graveyard = [...graveyard, ...stampCardsPutIntoGraveyardThisTurn(state, moved)];
+  } else {
+    nextPlayer.exile = [...exile, ...moved];
+  }
 
   const updatedPlayers = state.players.map(p => (p.id === playerId ? nextPlayer : p));
   const verb = destination === 'graveyard' ? 'puts' : 'exiles';

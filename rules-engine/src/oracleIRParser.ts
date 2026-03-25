@@ -24,13 +24,17 @@ import {
   parseLeadingImpulsePermissionCondition,
 } from './oracleIRParserImpulseClauseUtils';
 import { tryParseLifeAndCombatClause } from './oracleIRParserLifeAndCombatClauses';
-import { tryParseTemporaryModifyPtClause } from './oracleIRParserModifyPtClauses';
+import {
+  tryParseTemporaryModifyPtClause,
+  tryParseTemporarySetBasePtClause,
+} from './oracleIRParserModifyPtClauses';
 import { tryParseExileTopOnly as tryParseExileTopOnlyFromModule } from './oracleIRParserExileTopOnly';
 import {
   expandCreateEmblemUnknownAbilities,
   applyGlobalImpulseUpgrades,
   expandChoiceUnknownAbilities,
   expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities,
+  expandCopyChapterAbilityUnknownAbilities,
   expandCopyPermanentUnknownAbilities,
   expandCopySpellUnknownAbilities,
   expandDeterministicMoveZoneFollowupAbilities,
@@ -40,6 +44,7 @@ import {
   expandKeywordActionUnknownAbilities,
   expandMixedBattlefieldAndGraveyardExileAbilities,
   expandMoveZoneCopiedSpellAbilities,
+  mergeDieRollResultTableAbilities,
   expandOtherwiseConditionalUnknownAbilities,
   expandLeaveBattlefieldReplacementUnknownAbilities,
   expandPreventDamageUnknownAbilities,
@@ -47,12 +52,15 @@ import {
   expandSimpleConditionalUnknownAbilities,
   expandMoveZoneAttachUnknownAbilities,
   mergeBattlefieldEntryCharacteristicFollowupAbilities,
+  mergeBattlefieldEntryAuraRewriteFollowupAbilities,
+  mergeCopyChapterAbilityFollowupAbilities,
   mergeExilePermissionCastCounterFollowupAbilities,
   mergeDeterministicGraveyardPermissionFollowupAbilities,
   mergeDeterministicKeywordFollowupAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
   mergeLookSelectTopFollowupAbilities,
   mergeRevealFollowupAbilities,
+  mergeSagaChapterCopyFollowupAbilities,
 } from './oracleIRParserPostprocess';
 import { buildAbilityClauses } from './oracleIRParserAbilityClauses';
 import {
@@ -116,6 +124,11 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   }
 
   // Temporary P/T modification (composable: target + base delta + duration + optional scaler)
+  {
+    const parsed = tryParseTemporarySetBasePtClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
   {
     const parsed = tryParseTemporaryModifyPtClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
@@ -1106,16 +1119,20 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
 
   let abilities = parsed.abilities.map(ability => parseAbilityToIRAbility(ability, cardName));
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
+  abilities = mergeDieRollResultTableAbilities(abilities);
   abilities = mergeRevealFollowupAbilities(abilities);
   abilities = mergeLookSelectTopFollowupAbilities(abilities);
+  abilities = mergeCopyChapterAbilityFollowupAbilities(abilities);
   abilities = expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities(abilities);
   abilities = mergeConditionalMoveZoneCounterFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
+  abilities = mergeBattlefieldEntryAuraRewriteFollowupAbilities(abilities);
   abilities = expandDeterministicMoveZoneFollowupAbilities(abilities);
   abilities = expandMoveZoneCopiedSpellAbilities(abilities);
   abilities = expandMixedBattlefieldAndGraveyardExileAbilities(abilities);
   abilities = expandPayManaUnknownAbilities(abilities);
   abilities = expandChoiceUnknownAbilities(abilities);
+  abilities = expandCopyChapterAbilityUnknownAbilities(abilities);
   abilities = expandLeaveBattlefieldReplacementUnknownAbilities(abilities);
   abilities = expandCopySpellUnknownAbilities(abilities);
   abilities = expandCopyPermanentUnknownAbilities(abilities);
@@ -1128,10 +1145,13 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeExilePermissionCastCounterFollowupAbilities(abilities);
   abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
+  abilities = mergeBattlefieldEntryAuraRewriteFollowupAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
   abilities = mergeDeterministicKeywordFollowupAbilities(abilities);
+  abilities = mergeSagaChapterCopyFollowupAbilities(abilities);
   abilities = expandMoveZoneAttachUnknownAbilities(abilities);
   abilities = expandCreateEmblemUnknownAbilities(abilities, cardName);
+  abilities = mergeDieRollResultTableAbilities(abilities);
   abilities = abilities.map(wrapTriggeredInterveningIfAbility);
 
   return {

@@ -163,6 +163,20 @@ function annotateExiledCardsWithSource(params: {
 }
 
 const CARD_TYPE_WORDS = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery'] as const;
+const LINKED_EXILE_SHARED_KEYWORDS = [
+  'flying',
+  'first strike',
+  'double strike',
+  'deathtouch',
+  'haste',
+  'hexproof',
+  'indestructible',
+  'lifelink',
+  'menace',
+  'reach',
+  'trample',
+  'vigilance',
+] as const;
 
 function getCardTypesFromTypeLine(card: any): readonly string[] {
   const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
@@ -177,6 +191,42 @@ function getCardTypesFromTypeLine(card: any): readonly string[] {
   return found;
 }
 
+function cardHasLinkedKeyword(card: any, keyword: string): boolean {
+  const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+  if (!normalizedKeyword) return false;
+
+  const oracleText = String(card?.oracle_text || card?.card?.oracle_text || '').toLowerCase();
+  const printedKeywords = Array.isArray(card?.keywords) ? card.keywords : Array.isArray(card?.card?.keywords) ? card.card.keywords : [];
+  const grantedAbilities = Array.isArray(card?.grantedAbilities) ? card.grantedAbilities : Array.isArray(card?.card?.grantedAbilities) ? card.card.grantedAbilities : [];
+
+  return (
+    oracleText.includes(normalizedKeyword) ||
+    printedKeywords.some((entry: unknown) => String(entry || '').trim().toLowerCase() === normalizedKeyword) ||
+    grantedAbilities.some((entry: unknown) => String(entry || '').trim().toLowerCase() === normalizedKeyword)
+  );
+}
+
+function parseSharedLinkedExileKeywords(sourceText: string): readonly string[] {
+  const normalized = String(sourceText || '').toLowerCase();
+  if (!normalized.includes('this creature has flying as long as a card exiled with it has flying')) return [];
+
+  const keywords = new Set<string>(['flying']);
+  const sameIsTrueMatch = normalized.match(/the same is true for ([^.]+)/i);
+  if (sameIsTrueMatch) {
+    const parts = String(sameIsTrueMatch[1] || '')
+      .split(/,\s*|\s+and\s+/i)
+      .map(part => part.trim().toLowerCase())
+      .filter(Boolean);
+    for (const part of parts) {
+      if ((LINKED_EXILE_SHARED_KEYWORDS as readonly string[]).includes(part)) {
+        keywords.add(part);
+      }
+    }
+  }
+
+  return [...keywords];
+}
+
 function projectLinkedExileStaticText(params: {
   state: GameState;
   movedCards?: readonly any[];
@@ -185,11 +235,10 @@ function projectLinkedExileStaticText(params: {
   const sourceId = String(params.ctx.sourceId || '').trim();
   let movedCards = Array.isArray(params.movedCards) ? params.movedCards : [];
   if (!sourceId) return params.state;
+  const linkedMatches = findCardsExiledWithSource(params.state, sourceId, { cardType: 'any' });
   if (movedCards.length !== 1) {
-    const linkedMatches = findCardsExiledWithSource(params.state, sourceId, { cardType: 'any' });
     movedCards = linkedMatches.length === 1 ? [linkedMatches[0].card] : [];
   }
-  if (movedCards.length !== 1) return params.state;
 
   const battlefield = Array.isArray((params.state as any).battlefield) ? ((params.state as any).battlefield as any[]) : [];
   const sourcePermanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId);
@@ -197,6 +246,41 @@ function projectLinkedExileStaticText(params: {
 
   const sourceText = `${String((sourcePermanent as any)?.oracle_text || '').trim()}\n${String((sourcePermanent as any)?.card?.oracle_text || '').trim()}`
     .toLowerCase();
+  const sharedKeywords = parseSharedLinkedExileKeywords(sourceText);
+  if (sharedKeywords.length > 0) {
+    const linkedCards = linkedMatches.map(match => match.card);
+    const projectedKeywords = sharedKeywords.filter(keyword =>
+      linkedCards.some(card => cardHasLinkedKeyword(card, keyword))
+    );
+    const previousProjected = Array.isArray((sourcePermanent as any)?.linkedExileGrantedAbilities)
+      ? (sourcePermanent as any).linkedExileGrantedAbilities
+          .map((entry: unknown) => String(entry || '').trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+    const existingGranted = Array.isArray((sourcePermanent as any)?.grantedAbilities)
+      ? (sourcePermanent as any).grantedAbilities
+          .map((entry: unknown) => String(entry || '').trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+    const retainedGranted = existingGranted.filter((entry: string) => !previousProjected.includes(entry));
+    const nextGranted = Array.from(new Set([...retainedGranted, ...projectedKeywords]));
+    const nextBattlefield = battlefield.map((perm: any) =>
+      String((perm as any)?.id || '').trim() === sourceId
+        ? ({
+            ...perm,
+            linkedExileGrantedAbilities: projectedKeywords,
+            grantedAbilities: nextGranted,
+          } as any)
+        : perm
+    );
+
+    return {
+      ...(params.state as any),
+      battlefield: nextBattlefield as any,
+    } as GameState;
+  }
+
+  if (movedCards.length !== 1) return params.state;
   if (!sourceText.includes("has protection from each of the exiled card's card types")) {
     return params.state;
   }
@@ -359,10 +443,11 @@ function resolveUniqueChosenGraveyardTargetId(
   }
 
   const graveyard = Array.isArray(player.graveyard) ? player.graveyard : [];
+  const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
   const matches = graveyard.filter((card: any) => {
     const cardId = String(card?.id || '').trim();
     if (!cardId || !chosen.has(cardId) || excluded.has(cardId)) return false;
-    return cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName);
+    return cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn);
   });
 
   return matches.length === 1 ? String((matches[0] as any)?.id || '').trim() : '';
@@ -385,12 +470,13 @@ function resolveUniqueChosenAnyGraveyardTargetId(
   }
 
   const matches: any[] = [];
+  const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
   for (const player of state.players || []) {
     const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
     for (const card of graveyard) {
       const cardId = String((card as any)?.id || '').trim();
       if (!cardId || !chosen.has(cardId) || excluded.has(cardId)) continue;
-      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName)) continue;
+      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn)) continue;
       matches.push(card);
     }
   }
@@ -637,6 +723,17 @@ export function applyMoveZoneStep(
   let effectiveWithCounters = step.withCounters;
   let effectiveBattlefieldAddTypes = step.battlefieldAddTypes;
   let effectiveBattlefieldAddColors = step.battlefieldAddColors;
+  const battlefieldEntryOverrides =
+    step.to === 'battlefield' &&
+    (step.battlefieldSetTypeLine || step.battlefieldSetOracleText || step.battlefieldLoseAllAbilities)
+      ? {
+          ...(step.battlefieldSetTypeLine ? { setTypeLine: step.battlefieldSetTypeLine } : {}),
+          ...(typeof step.battlefieldSetOracleText === 'string'
+            ? { setOracleText: step.battlefieldSetOracleText }
+            : {}),
+          ...(step.battlefieldLoseAllAbilities ? { loseAllAbilities: true } : {}),
+        }
+      : undefined;
 
   if (step.withCounters && step.withCountersCondition) {
     const conditionEvaluation = evaluateConditionalWrapperCondition({
@@ -987,7 +1084,9 @@ export function applyMoveZoneStep(
         step.to === 'battlefield' && step.battlefieldController?.kind === 'you' ? controllerId : undefined,
         step.entersTapped,
         step.entersFaceDown,
-        effectiveWithCounters
+        effectiveWithCounters,
+        undefined,
+        battlefieldEntryOverrides
       );
       if (result.kind === 'impossible') {
         return {
@@ -1052,7 +1151,9 @@ export function applyMoveZoneStep(
             step.entersTapped,
             step.entersFaceDown,
             effectiveWithCounters,
-            attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
+            attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+            undefined,
+            battlefieldEntryOverrides
           )
         : contextualBoundCardZone.zone === 'hand'
           ? moveTargetedCardFromHand(
@@ -1065,7 +1166,8 @@ export function applyMoveZoneStep(
               step.entersTapped,
               step.entersFaceDown,
               effectiveWithCounters,
-              attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
+              attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+              battlefieldEntryOverrides
             )
           : moveTargetedCardFromExile(
               nextState,
@@ -1077,7 +1179,8 @@ export function applyMoveZoneStep(
               step.entersTapped,
               step.entersFaceDown,
               effectiveWithCounters,
-              attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
+              attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+              battlefieldEntryOverrides
             );
 
     if (result.kind === 'impossible') {
@@ -1124,7 +1227,9 @@ export function applyMoveZoneStep(
             step.entersTapped,
             step.entersFaceDown,
             effectiveWithCounters,
-            attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
+            attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+            undefined,
+            battlefieldEntryOverrides
           )
         : sourceCardZone.zone === 'hand'
           ? moveTargetedCardFromHand(
@@ -1137,7 +1242,8 @@ export function applyMoveZoneStep(
               step.entersTapped,
               step.entersFaceDown,
               effectiveWithCounters,
-              attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
+              attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+              battlefieldEntryOverrides
             )
           : moveTargetedCardFromExile(
               nextState,
@@ -1149,7 +1255,8 @@ export function applyMoveZoneStep(
               step.entersTapped,
               step.entersFaceDown,
               effectiveWithCounters,
-              attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
+              attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+              battlefieldEntryOverrides
             );
 
     if (result.kind === 'impossible') {
@@ -1295,7 +1402,8 @@ export function applyMoveZoneStep(
       step.entersFaceDown,
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
-      ctx.sourceName
+      ctx.sourceName,
+      battlefieldEntryOverrides
     );
 
     if (result.kind === 'impossible') {
@@ -1358,7 +1466,8 @@ export function applyMoveZoneStep(
       step.entersFaceDown,
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
-      ctx.sourceName
+      ctx.sourceName,
+      battlefieldEntryOverrides
     );
 
     if (result.kind === 'impossible') {
@@ -1442,7 +1551,9 @@ export function applyMoveZoneStep(
       step.entersTapped,
       step.entersFaceDown,
       effectiveWithCounters,
-      attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
+      attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+      undefined,
+      battlefieldEntryOverrides
     );
 
     if (result.kind === 'impossible') {
@@ -1506,7 +1617,8 @@ export function applyMoveZoneStep(
       step.entersTapped,
       step.entersFaceDown,
       effectiveWithCounters,
-      attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
+      attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+      battlefieldEntryOverrides
     );
 
     if (result.kind === 'impossible') {
@@ -1570,7 +1682,8 @@ export function applyMoveZoneStep(
       step.entersTapped,
       step.entersFaceDown,
       effectiveWithCounters,
-      attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
+      attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+      battlefieldEntryOverrides
     );
 
     if (result.kind === 'impossible') {
@@ -1633,7 +1746,8 @@ export function applyMoveZoneStep(
       step.entersFaceDown,
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
-      ctx.sourceName
+      ctx.sourceName,
+      battlefieldEntryOverrides
     );
 
     if (result.kind === 'impossible') {
@@ -1682,7 +1796,9 @@ export function applyMoveZoneStep(
       step.to === 'battlefield' ? controllerId : undefined,
       step.entersTapped,
       step.entersFaceDown,
-      effectiveWithCounters
+      effectiveWithCounters,
+      undefined,
+      battlefieldEntryOverrides
     );
 
     if (result.kind === 'impossible') {
@@ -1731,7 +1847,9 @@ export function applyMoveZoneStep(
       step.to === 'battlefield' ? controllerId : undefined,
       step.entersTapped,
       step.entersFaceDown,
-      effectiveWithCounters
+      effectiveWithCounters,
+      undefined,
+      battlefieldEntryOverrides
     );
 
     if (result.kind === 'impossible') {

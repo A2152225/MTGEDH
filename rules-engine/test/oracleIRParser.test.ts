@@ -1302,6 +1302,24 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(move.battlefieldAddTypes).toEqual(['Angel']);
   });
 
+  it('merges Bronzehide Lion return-time Aura rewrite onto the battlefield move-zone step', () => {
+    const text =
+      `When Bronzehide Lion dies, return it to the battlefield. It's an Aura enchantment with enchant creature you control and "{G}{W}: Return this card to its owner's hand." and it loses all other abilities.`;
+    const ir = parseOracleTextToIR(text, 'Bronzehide Lion');
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    const move = steps[0] as any;
+    expect(move.kind).toBe('move_zone');
+    expect(move.to).toBe('battlefield');
+    expect(move.battlefieldAttachedTo).toEqual({ kind: 'raw', text: 'a creature you control' });
+    expect(move.battlefieldSetTypeLine).toBe('Enchantment - Aura');
+    expect(move.battlefieldSetOracleText).toBe(
+      `Enchant creature you control\n{G}{W}: Return this card to its owner's hand.`
+    );
+    expect(move.battlefieldLoseAllAbilities).toBe(true);
+  });
+
   it('merges delayed return characteristic rewrites into the delayed effect text', () => {
     const text =
       "Whenever a creature you don't control dies, return it to the battlefield under your control with an additional +1/+1 counter on it at the beginning of the next end step. That creature is a black Zombie in addition to its other colors and types.";
@@ -1335,6 +1353,35 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       amount: { kind: 'x' },
       counter: '+1/+1',
       target: { kind: 'raw', text: 'each of those Zombies' },
+    });
+  });
+
+  it('parses Abyssal Harvester with the graveyard this-turn qualifier intact', () => {
+    const text = '{T}: Exile target creature card from a graveyard that was put there this turn.';
+    const ir = parseOracleTextToIR(text, 'Abyssal Harvester');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'move_zone',
+      to: 'exile',
+      what: { kind: 'raw', text: 'target creature card from a graveyard that was put there this turn' },
+    });
+  });
+
+  it('parses Urborg Scavengers as trigger exile plus counter with linked-exile static follow-ups', () => {
+    const text =
+      'Whenever this creature enters or attacks, exile target card from a graveyard. Put a +1/+1 counter on this creature.\nThis creature has flying as long as a card exiled with it has flying. The same is true for first strike, double strike, deathtouch, haste, hexproof, indestructible, lifelink, menace, reach, trample, and vigilance.';
+    const ir = parseOracleTextToIR(text, 'Urborg Scavengers');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature enters or attacks',
+    });
+    expect((ir.abilities[0].steps as any[]).map(step => step.kind)).toEqual(['move_zone', 'add_counter']);
+    expect((ir.abilities[1].steps as any[])[0]).toMatchObject({
+      kind: 'unknown',
+      raw: 'This creature has flying as long as a card exiled with it has flying',
     });
   });
 
@@ -6965,10 +7012,10 @@ This creature has protection from each of the exiled card's card types. (Artifac
     ]);
   });
 
-  it('parses Psionic Ritual into exile plus copied-spell replay steps', () => {
-    const ir = parseOracleTextToIR(
-      'Exile target instant or sorcery card from a graveyard and copy it. You may cast the copy without paying its mana cost.',
-      'Psionic Ritual'
+    it('parses Psionic Ritual into exile plus copied-spell replay steps', () => {
+      const ir = parseOracleTextToIR(
+        'Exile target instant or sorcery card from a graveyard and copy it. You may cast the copy without paying its mana cost.',
+        'Psionic Ritual'
     );
 
     expect(ir.abilities[0]?.steps).toEqual([
@@ -6982,12 +7029,73 @@ This creature has protection from each of the exiled card's card types. (Artifac
         subject: 'last_moved_card',
         optional: true,
         withoutPayingManaCost: true,
-      }),
-    ]);
-  });
+        }),
+      ]);
+    });
 
-  it('parses Ashcloud Phoenix into a face-down battlefield return step', () => {
-    const ir = parseOracleTextToIR(
+    it("parses Wizard's Spellbook into exile, roll_die, and die-roll result branches", () => {
+      const ir = parseOracleTextToIR(
+        "{T}: Exile target instant or sorcery card from a graveyard. Roll a d20. Activate only as a sorcery.\n1-9 | Copy that card. You may cast the copy.\n10-19 | Copy that card. You may cast the copy by paying {1} rather than paying its mana cost.\n20 | Copy each card exiled with this artifact. You may cast any number of the copies without paying their mana costs.",
+        "Wizard's Spellbook"
+      );
+
+      expect(ir.abilities).toHaveLength(1);
+      expect(ir.abilities[0]?.type).toBe('activated');
+      expect(ir.abilities[0]?.steps).toEqual([
+        expect.objectContaining({
+          kind: 'move_zone',
+          to: 'exile',
+          what: { kind: 'raw', text: 'target instant or sorcery card from a graveyard' },
+        }),
+        expect.objectContaining({
+          kind: 'roll_die',
+          sides: 20,
+          who: { kind: 'you' },
+        }),
+        expect.objectContaining({
+          kind: 'die_roll_results',
+          sides: 20,
+          who: { kind: 'you' },
+          results: [
+            expect.objectContaining({
+              min: 1,
+              max: 9,
+              steps: [expect.objectContaining({ kind: 'copy_spell', subject: 'last_moved_card', castCost: 'mana_cost' })],
+            }),
+            expect.objectContaining({
+              min: 10,
+              max: 19,
+              steps: [expect.objectContaining({ kind: 'copy_spell', subject: 'last_moved_card', castCost: '{1}' })],
+            }),
+            expect.objectContaining({
+              min: 20,
+              max: 20,
+              steps: [expect.objectContaining({ kind: 'copy_spell', subject: 'linked_exiled_cards', withoutPayingManaCost: true })],
+            }),
+          ],
+        }),
+      ]);
+    });
+
+    it("parses The Many Deeds of Belzenlok into merged move-zone plus copied chapter abilities", () => {
+      const ir = parseOracleTextToIR(
+        'I — Exile up to one target Saga card from a graveyard. Copy its chapter I ability.\nII — Exile up to one target Saga card from a graveyard. Copy its chapter II ability.\nIII — Exile up to one target Saga card from a graveyard. Copy its chapter III ability.',
+        'The Many Deeds of Belzenlok'
+      );
+
+      expect(ir.abilities).toHaveLength(3);
+      expect(ir.abilities.map((ability) => ability.steps.map((step) => step.kind))).toEqual([
+        ['move_zone', 'copy_chapter_ability'],
+        ['move_zone', 'copy_chapter_ability'],
+        ['move_zone', 'copy_chapter_ability'],
+      ]);
+      expect((ir.abilities[0]?.steps[1] as any)?.chapter).toBe(1);
+      expect((ir.abilities[1]?.steps[1] as any)?.chapter).toBe(2);
+      expect((ir.abilities[2]?.steps[1] as any)?.chapter).toBe(3);
+    });
+
+    it('parses Ashcloud Phoenix into a face-down battlefield return step', () => {
+      const ir = parseOracleTextToIR(
       'When this creature dies, return it to the battlefield face down under your control.',
       'Ashcloud Phoenix'
     );
@@ -7046,6 +7154,67 @@ This creature has protection from each of the exiled card's card types. (Artifac
         target: { kind: 'raw', text: 'it' },
       }),
     ]);
+  });
+
+  it("parses Vincent's Limit Break as a tiered choose_mode with temporary dies and base P/T modes", () => {
+    const oracleText =
+      "Tiered (Choose one additional cost.)\n"
+      + "Until end of turn, target creature you control gains \"When this creature dies, return it to the battlefield tapped under its owner's control\" and has the chosen base power and toughness.\n"
+      + "\u2022 Galian Beast - {0} - 3/2.\n"
+      + "\u2022 Death Gigas - {1} - 5/2.\n"
+      + "\u2022 Hellmasker - {3} - 7/2.";
+
+    const ir = parseOracleTextToIR(oracleText, "Vincent's Limit Break");
+    const chooseModeStep = ir.abilities[0]?.steps[0] as any;
+
+    expect(chooseModeStep.kind).toBe('choose_mode');
+    expect(chooseModeStep.minModes).toBe(1);
+    expect(chooseModeStep.maxModes).toBe(1);
+    expect(chooseModeStep.modes.map((mode: any) => mode.label)).toEqual([
+      'Galian Beast',
+      'Death Gigas',
+      'Hellmasker',
+    ]);
+    expect(chooseModeStep.modes[0]?.steps.map((step: any) => step.kind)).toEqual([
+      'grant_temporary_dies_trigger',
+      'set_base_pt',
+    ]);
+    expect(chooseModeStep.modes[1]?.steps[1]).toMatchObject({
+      kind: 'set_base_pt',
+      power: 5,
+      toughness: 2,
+      target: { kind: 'raw', text: 'target creature you control' },
+    });
+  });
+
+  it('parses Grixis Sojourners as two triggered exile abilities plus cycling', () => {
+    const oracleText =
+      'When you cycle this card and when this creature dies, you may exile target card from a graveyard.\n'
+      + 'Cycling {2}{B} ({2}{B}, Discard this card: Draw a card.)';
+
+    const ir = parseOracleTextToIR(oracleText, 'Grixis Sojourners');
+
+    expect(ir.abilities).toHaveLength(3);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'you cycle this card',
+    });
+    expect(ir.abilities[1]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature dies',
+    });
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'target card from a graveyard' },
+      to: 'exile',
+      optional: true,
+    });
+    expect(ir.abilities[1]?.steps[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'target card from a graveyard' },
+      to: 'exile',
+      optional: true,
+    });
   });
 
 });

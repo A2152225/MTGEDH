@@ -89,3 +89,33 @@ export function tryParseTemporaryModifyPtClause(params: {
   if (condition) step.condition = condition;
   return withMeta(step as OracleEffectStep);
 }
+
+export function tryParseTemporarySetBasePtClause(params: {
+  clause: string;
+  rawClause: string;
+  withMeta: <T extends OracleEffectStep>(step: T) => T;
+}): OracleEffectStep | null {
+  const { clause, rawClause, withMeta } = params;
+
+  const match = clause.match(
+    /^(?:until end of turn,\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|enchanted\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+has\s+(?:the\s+)?base power and toughness\s+(\d+)\s*\/\s*(\d+)(?:\s+until end of turn)?$/i
+  );
+  if (!match) return null;
+
+  const targetRaw = String(match[1] || '').trim().toLowerCase();
+  const power = Number.parseInt(String(match[2] || ''), 10);
+  const toughness = Number.parseInt(String(match[3] || ''), 10);
+  if (!Number.isFinite(power) || !Number.isFinite(toughness)) return null;
+
+  return withMeta({
+    kind: 'set_base_pt',
+    target:
+      targetRaw === 'the creature'
+        ? { kind: 'equipped_creature' }
+        : { kind: 'raw', text: targetRaw },
+    power,
+    toughness,
+    duration: 'end_of_turn',
+    raw: rawClause,
+  });
+}

@@ -9,7 +9,14 @@ import {
   evaluateConditionalWrapperCondition,
   resolveConditionalReferenceAmount,
 } from './oracleIRExecutorConditionalStepSupport';
-import { prepareCopiedSpellExecutionContext } from './oracleIRExecutorCopySpellSupport';
+import {
+  getCopiedChapterAbilityReplaySteps,
+  getCopiedSpellReplaySteps,
+  payCopiedSpellCastCost,
+  prepareCopiedSpellExecutionContext,
+  resolveCopiedSpellSourceCards,
+} from './oracleIRExecutorCopySpellSupport';
+import { performDieRoll } from './dieRoll';
 import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
 import { applyChooseModeStep } from './oracleIRExecutorChooseModeStepHandlers';
 import {
@@ -46,6 +53,7 @@ import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import {
   applyModifyPtPerRevealedStep,
+  applySetBasePtStep,
   applyModifyPtStep,
 } from './oracleIRExecutorModifyPtStepHandlers';
 import { applyMoveZoneStep } from './oracleIRExecutorMoveZoneStepHandlers';
@@ -65,7 +73,6 @@ import {
   applyScryStep,
   applySurveilStep,
 } from './oracleIRExecutorPlayerStepHandlers';
-import { parseOracleTextToIR } from './oracleIRParser';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
 import { applySkipNextDrawStep } from './oracleIRExecutorTurnStepHandlers';
 import type {
@@ -80,6 +87,19 @@ type RecurseExecutor = (
   ctx: OracleIRExecutionContext,
   options: OracleIRExecutionOptions
 ) => OracleIRExecutionResult;
+
+function getLastDieRollResultForPlayer(state: GameState, playerId: PlayerID): number | null {
+  const playerRoll = (state as any)?.lastDieRollByPlayer?.[playerId];
+  if (typeof playerRoll === 'number' && Number.isFinite(playerRoll)) return playerRoll;
+  if (Number.isFinite(Number(playerRoll?.result))) return Number(playerRoll.result);
+
+  const globalLast = (state as any)?.lastDieRoll;
+  if (String(globalLast?.playerId || '').trim() === String(playerId || '').trim() && Number.isFinite(Number(globalLast?.result))) {
+    return Number(globalLast.result);
+  }
+
+  return null;
+}
 
 export function applyOracleIRStepsToGameStateImpl(
   state: GameState,
@@ -273,6 +293,96 @@ export function applyOracleIRStepsToGameStateImpl(
         });
         break;
       }
+      case 'roll_die': {
+        const players = step.who.kind === 'you' && controllerId ? [controllerId] : [];
+        if (players.length !== 1) {
+          recordSkippedStep(
+            step,
+            `Skipped roll die step (unsupported player selector): ${step.raw}`,
+            'unsupported_player_selector',
+            {
+              classification: 'ambiguous',
+            }
+          );
+          break;
+        }
+
+        const forcedResult = Number(currentCtx.dieRollResult);
+        const rolled =
+          Number.isFinite(forcedResult) && forcedResult >= 1 && forcedResult <= step.sides
+            ? { result: forcedResult }
+            : performDieRoll(players[0], step.sides);
+        const timestamp = Date.now();
+        const stateAny: any = nextState as any;
+        stateAny.lastDieRoll = {
+          playerId: players[0],
+          sides: step.sides,
+          result: rolled.result,
+          timestamp,
+        };
+        stateAny.lastDieRollByPlayer = stateAny.lastDieRollByPlayer || {};
+        stateAny.lastDieRollByPlayer[players[0]] = {
+          sides: step.sides,
+          result: rolled.result,
+          timestamp,
+        };
+        stateAny.dieRollsThisTurn = stateAny.dieRollsThisTurn || {};
+        stateAny.dieRollsThisTurn[players[0]] = Array.isArray(stateAny.dieRollsThisTurn[players[0]])
+          ? [...stateAny.dieRollsThisTurn[players[0]], { sides: step.sides, result: rolled.result, timestamp }]
+          : [{ sides: step.sides, result: rolled.result, timestamp }];
+        nextState = stateAny as GameState;
+        setLastStepOutcome(step, 'applied');
+        log.push(`[oracle-ir] ${players[0]} rolled d${step.sides}: ${rolled.result}`);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'die_roll_results': {
+        const players = step.who.kind === 'you' && controllerId ? [controllerId] : [];
+        if (players.length !== 1) {
+          recordSkippedStep(
+            step,
+            `Skipped die-roll result table (unsupported player selector): ${step.raw}`,
+            'unsupported_player_selector',
+            {
+              classification: 'ambiguous',
+            }
+          );
+          break;
+        }
+
+        const rolled = getLastDieRollResultForPlayer(nextState, players[0]);
+        if (!Number.isFinite(rolled)) {
+          recordSkippedStep(
+            step,
+            `Skipped die-roll result table (no die roll result available): ${step.raw}`,
+            'failed_to_apply',
+            {
+              classification: 'invalid_input',
+            }
+          );
+          break;
+        }
+
+        const band = step.results.find(resultBand => rolled >= resultBand.min && rolled <= resultBand.max);
+        if (!band) {
+          setLastStepOutcome(step, 'applied');
+          log.push(`[oracle-ir] No die-roll branch matched result ${rolled}`);
+          appliedSteps.push(step);
+          break;
+        }
+
+        const branchResult = recurse(nextState, band.steps, currentCtx, options);
+        nextState = branchResult.state;
+        setLastStepOutcome(step, 'applied');
+        log.push(`[oracle-ir] Applied die-roll branch ${band.min}-${band.max} for result ${rolled}`);
+        log.push(...branchResult.log);
+        appliedSteps.push(...branchResult.appliedSteps);
+        skippedSteps.push(...branchResult.skippedSteps);
+        appliedSteps.push(step);
+        automationGaps.push(...branchResult.automationGaps);
+        pendingOptionalSteps.push(...branchResult.pendingOptionalSteps);
+        break;
+      }
       case 'draw': {
         const result = applyDrawStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -462,6 +572,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyModifyPtStepResult(step, result);
         break;
       }
+      case 'set_base_pt': {
+        const result = applySetBasePtStep(nextState, step, currentCtx);
+        applyModifyPtStepResult(step, result);
+        break;
+      }
       case 'modify_pt_per_revealed': {
         const result = applyModifyPtPerRevealedStep(nextState, step, currentCtx, lastRevealedCardCount);
         applyModifyPtStepResult(step, result);
@@ -614,41 +729,129 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
-      case 'copy_spell': {
-        if (step.subject === 'last_moved_card') {
-          if (lastMovedCards.length !== 1) {
-            recordSkippedStep(
-              step,
-              `Skipped copy spell step (no copied moved card available): ${step.raw}`,
-              'invalid_copy_spell_source',
-              {
-                classification: 'invalid_input',
-              }
-            );
-            break;
-          }
-
-          const movedCard = lastMovedCards[0] as any;
-          const copiedSpellText = String(movedCard?.oracle_text || movedCard?.card?.oracle_text || '').trim();
-          if (!copiedSpellText) {
-            recordSkippedStep(
-              step,
-              `Skipped copy spell step (copied spell text unavailable): ${step.raw}`,
-              'invalid_copy_spell_source',
-              {
-                classification: 'invalid_input',
-              }
-            );
-            break;
-          }
-
-          const copiedSpellIr = parseOracleTextToIR(
-            copiedSpellText,
-            String(movedCard?.name || movedCard?.card?.name || 'Copied Spell')
+      case 'copy_chapter_ability': {
+        if (lastMovedCards.length !== 1) {
+          recordSkippedStep(
+            step,
+            `Skipped copied chapter ability (no moved Saga card available): ${step.raw}`,
+            'invalid_copy_spell_source',
+            {
+              classification: 'invalid_input',
+            }
           );
-          const replayableSteps = copiedSpellIr.abilities
-            .flatMap((ability) => ability.steps)
-            .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell' && candidate.kind !== 'unknown');
+          break;
+        }
+
+        const movedCard = lastMovedCards[0] as any;
+        const replayableSteps = getCopiedChapterAbilityReplaySteps(movedCard, step.chapter);
+        if (replayableSteps.length === 0) {
+          recordSkippedStep(
+            step,
+            `Skipped copied chapter ability (no deterministic chapter steps): ${step.raw}`,
+            'invalid_copy_spell_source',
+            {
+              classification: 'invalid_input',
+            }
+          );
+          break;
+        }
+
+        const replayCtx: OracleIRExecutionContext = {
+          ...currentCtx,
+          sourceId: String(movedCard?.id || movedCard?.card?.id || currentCtx.sourceId || '').trim() || currentCtx.sourceId,
+          sourceName: String(movedCard?.name || movedCard?.card?.name || currentCtx.sourceName || '').trim() || currentCtx.sourceName,
+          castFromZone: undefined,
+          enteredFromZone: undefined,
+        };
+
+        const replayResult = recurse(nextState, replayableSteps, replayCtx, options);
+        nextState = replayResult.state;
+        setLastStepOutcome(step, 'applied');
+        log.push(
+          `[oracle-ir] Replayed copied chapter ${step.chapter} ability from ${String(movedCard?.name || movedCard?.card?.name || 'copied Saga')}`
+        );
+        log.push(...replayResult.log);
+        appliedSteps.push(...replayResult.appliedSteps);
+        skippedSteps.push(...replayResult.skippedSteps);
+        appliedSteps.push(step);
+        automationGaps.push(...replayResult.automationGaps);
+        pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+        break;
+      }
+      case 'copy_spell': {
+        if (step.subject === 'this_spell') {
+          const replaySourceSteps = Array.isArray(currentCtx.copyReplaySteps) ? currentCtx.copyReplaySteps : steps.slice(0, stepIndex);
+          const replayableSteps = replaySourceSteps
+            .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell');
+          if (replayableSteps.length === 0) {
+            recordSkippedStep(
+              step,
+              `Skipped copy spell step (no replayable spell steps): ${step.raw}`,
+              'invalid_copy_spell_source',
+              {
+                classification: 'invalid_input',
+              }
+            );
+            break;
+          }
+
+          const preparedCopy = prepareCopiedSpellExecutionContext({
+            state: nextState,
+            replaySteps: replayableSteps,
+            ctx: currentCtx,
+          });
+          if (preparedCopy.requiresChoice) {
+            recordSkippedStep(
+              step,
+              `Skipped copied spell retargeting (requires player choice): ${step.raw}`,
+              'player_choice_required',
+              {
+                classification: 'player_choice',
+                metadata: {
+                  candidateCount: Number(preparedCopy.candidateCount || 0),
+                },
+              }
+            );
+            break;
+          }
+
+          const replayResult = recurse(nextState, replayableSteps, preparedCopy.ctx, options);
+          nextState = replayResult.state;
+          setLastStepOutcome(step, 'applied');
+          log.push(...preparedCopy.log);
+          log.push(...replayResult.log);
+          appliedSteps.push(step);
+          automationGaps.push(...replayResult.automationGaps);
+          pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+          break;
+        }
+
+        const sourceResolution = resolveCopiedSpellSourceCards({
+          state: nextState,
+          step,
+          ctx: currentCtx,
+          lastMovedCards,
+        });
+        if (!sourceResolution.cards || sourceResolution.cards.length === 0) {
+          recordSkippedStep(
+            step,
+            `Skipped copy spell step (copied source unavailable): ${step.raw}`,
+            'invalid_copy_spell_source',
+            {
+              classification: 'invalid_input',
+            }
+          );
+          break;
+        }
+
+        let workingState = nextState;
+        const combinedLog: string[] = [];
+        const combinedGaps: OracleAutomationGap[] = [];
+        const combinedPendingOptionalSteps: OracleEffectStep[] = [];
+        let appliedCopyCount = 0;
+
+        for (const copiedCard of sourceResolution.cards) {
+          const replayableSteps = getCopiedSpellReplaySteps(copiedCard);
           if (replayableSteps.length === 0) {
             recordSkippedStep(
               step,
@@ -658,20 +861,44 @@ export function applyOracleIRStepsToGameStateImpl(
                 classification: 'invalid_input',
               }
             );
-            break;
+            continue;
           }
+
+          const payment = payCopiedSpellCastCost({
+            state: workingState,
+            controllerId,
+            card: copiedCard,
+            step,
+          });
+          if (payment.reason) {
+            recordSkippedStep(
+              step,
+              payment.reason === 'cannot_pay'
+                ? `Skipped copy spell step (cannot pay copied spell cost): ${step.raw}`
+                : `Skipped copy spell step (unsupported copied spell cost): ${step.raw}`,
+              payment.reason === 'cannot_pay' ? 'failed_to_apply' : 'invalid_copy_spell_source',
+              {
+                classification: payment.reason === 'cannot_pay' ? 'invalid_input' : 'ambiguous',
+                persist: false,
+              }
+            );
+            continue;
+          }
+
+          workingState = payment.state;
+          combinedLog.push(...payment.log);
 
           const replayCtx: OracleIRExecutionContext = {
             ...currentCtx,
-            sourceId: String(movedCard?.id || movedCard?.card?.id || currentCtx.sourceId || '').trim() || currentCtx.sourceId,
-            sourceName: String(movedCard?.name || movedCard?.card?.name || currentCtx.sourceName || '').trim() || currentCtx.sourceName,
+            sourceId: String(copiedCard?.id || copiedCard?.card?.id || currentCtx.sourceId || '').trim() || currentCtx.sourceId,
+            sourceName: String(copiedCard?.name || copiedCard?.card?.name || currentCtx.sourceName || '').trim() || currentCtx.sourceName,
             castFromZone: undefined,
             enteredFromZone: undefined,
             copyReplaySteps: replayableSteps,
           };
 
           const replayResult = recurse(
-            nextState,
+            workingState,
             replayableSteps,
             replayCtx,
             {
@@ -679,59 +906,22 @@ export function applyOracleIRStepsToGameStateImpl(
               allowOptional: step.optional ? options.allowOptional : true,
             }
           );
-          nextState = replayResult.state;
-          setLastStepOutcome(step, 'applied');
-          log.push(`[oracle-ir] Replayed copied spell from ${String(movedCard?.name || movedCard?.card?.name || 'copied card')}`);
-          log.push(...replayResult.log);
-          appliedSteps.push(step);
-          automationGaps.push(...replayResult.automationGaps);
-          pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
-          break;
+          workingState = replayResult.state;
+          combinedLog.push(`[oracle-ir] Replayed copied spell from ${String(copiedCard?.name || copiedCard?.card?.name || 'copied card')}`);
+          combinedLog.push(...replayResult.log);
+          combinedGaps.push(...replayResult.automationGaps);
+          combinedPendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+          appliedCopyCount += 1;
         }
 
-        const replaySourceSteps = Array.isArray(currentCtx.copyReplaySteps) ? currentCtx.copyReplaySteps : steps.slice(0, stepIndex);
-        const replayableSteps = replaySourceSteps
-          .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell');
-        if (replayableSteps.length === 0) {
-          recordSkippedStep(
-            step,
-            `Skipped copy spell step (no replayable spell steps): ${step.raw}`,
-            'invalid_copy_spell_source',
-            {
-              classification: 'invalid_input',
-            }
-          );
-          break;
-        }
+        if (appliedCopyCount === 0) break;
 
-        const preparedCopy = prepareCopiedSpellExecutionContext({
-          state: nextState,
-          replaySteps: replayableSteps,
-          ctx: currentCtx,
-        });
-        if (preparedCopy.requiresChoice) {
-          recordSkippedStep(
-            step,
-            `Skipped copied spell retargeting (requires player choice): ${step.raw}`,
-            'player_choice_required',
-            {
-              classification: 'player_choice',
-              metadata: {
-                candidateCount: Number(preparedCopy.candidateCount || 0),
-              },
-            }
-          );
-          break;
-        }
-
-        const replayResult = recurse(nextState, replayableSteps, preparedCopy.ctx, options);
-        nextState = replayResult.state;
+        nextState = workingState;
         setLastStepOutcome(step, 'applied');
-        log.push(...preparedCopy.log);
-        log.push(...replayResult.log);
+        log.push(...combinedLog);
         appliedSteps.push(step);
-        automationGaps.push(...replayResult.automationGaps);
-        pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+        automationGaps.push(...combinedGaps);
+        pendingOptionalSteps.push(...combinedPendingOptionalSteps);
         break;
       }
       case 'schedule_delayed_trigger': {

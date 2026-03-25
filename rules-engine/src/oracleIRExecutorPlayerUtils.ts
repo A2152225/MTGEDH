@@ -6,8 +6,24 @@ import { stripPlayableFromGraveyardTags } from './playableFromGraveyard';
 import { parseManaSymbols } from './types/numbers';
 import { addMana, createEmptyManaPool, ManaType } from './types/mana';
 
+export function getCurrentTurnNumber(state: GameState): number {
+  return Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
+}
+
+export function stampCardPutIntoGraveyardThisTurn(state: GameState, card: any): any {
+  return {
+    ...(card || {}),
+    zone: 'graveyard',
+    putIntoGraveyardTurn: getCurrentTurnNumber(state),
+  };
+}
+
+export function stampCardsPutIntoGraveyardThisTurn(state: GameState, cards: readonly any[]): any[] {
+  return (Array.isArray(cards) ? cards : []).map(card => stampCardPutIntoGraveyardThisTurn(state, card));
+}
+
 export function getPlayableUntilTurnForImpulseDuration(state: GameState, duration: any): number | null {
-  const turnNumber = Number((state as any).turnNumber ?? 0) || 0;
+  const turnNumber = getCurrentTurnNumber(state);
   const d = String(duration || '').trim();
   if (!d) return null;
 
@@ -643,11 +659,11 @@ export function lookSelectTopCardsForPlayer(
   if (destination === 'hand') {
     hand.push(...chosen);
   } else {
-    graveyard.push(...chosen);
+    graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, chosen));
   }
 
   if (restDestination === 'graveyard') {
-    graveyard.push(...rest);
+    graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, rest));
   } else if (rest.length > 0) {
     const reorderedRest = restToTop ? rest : [...rest].reverse();
     library.unshift(...reorderedRest);
@@ -806,7 +822,7 @@ export function discardCardsForPlayer(
   }
 
   const discarded = hand.splice(0, hand.length);
-  graveyard.push(...discarded);
+  graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, discarded));
 
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, hand, graveyard } : p));
   log.push(`${playerId} discards ${discarded.length} card(s)`);
@@ -830,7 +846,7 @@ export function millCardsForPlayer(
 
   const actual = Math.min(n, library.length);
   const milled = library.splice(0, actual);
-  graveyard.push(...milled);
+  graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, milled));
 
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, library, graveyard } : p));
   log.push(`${playerId} mills ${actual} card(s)`);

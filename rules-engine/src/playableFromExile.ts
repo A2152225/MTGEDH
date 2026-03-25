@@ -2,7 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 
 export function stripPlayableFromExileTags(card: any): any {
   if (!card || typeof card !== 'object') return card;
-  const { canBePlayedBy, playableUntilTurn, withoutPayingManaCost, ...rest } = card as any;
+  const { canBePlayedBy, playableUntilTurn, withoutPayingManaCost, exileCastCost, ...rest } = card as any;
   return rest;
 }
 

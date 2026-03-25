@@ -45,6 +45,7 @@ export interface KnownCardRef {
   layout?: string; // card layout type (e.g., 'transform', 'modal_dfc', 'split')
   colors?: readonly string[]; // color identifiers ('W', 'U', 'B', 'R', 'G')
   cmc?: number; // converted mana cost
+  putIntoGraveyardTurn?: number;
 }
 
 /* Hidden card representation for face-down and private zones */
@@ -62,6 +63,7 @@ export interface HiddenCardRef {
   power?: string | number;
   toughness?: string | number;
   loyalty?: string | number; // for planeswalkers - starting loyalty value
+  putIntoGraveyardTurn?: number;
 }
 
 /* Generic CardRef used across the app */
@@ -175,6 +177,8 @@ export interface PermanentModifier {
   readonly type: 'powerToughness' | 'POWER_TOUGHNESS' | 'ability' | 'ABILITY' | string;
   readonly power?: number;
   readonly toughness?: number;
+  readonly setPower?: number;
+  readonly setToughness?: number;
   readonly ability?: string;
   readonly sourceId?: string;
   readonly duration?: 'permanent' | 'end_of_turn' | 'end_of_combat';

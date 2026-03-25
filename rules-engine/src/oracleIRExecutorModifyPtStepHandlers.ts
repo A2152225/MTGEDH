@@ -4,6 +4,7 @@ import type { OracleEffectStep } from './oracleIR';
 import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
 import {
   applyTemporaryPowerToughnessModifier,
+  applyTemporarySetBasePowerToughness,
   resolveSingleCreatureTargetId,
   resolveTrepanationBoostTargetCreatureId,
 } from './oracleIRExecutorCreatureStepUtils';
@@ -200,5 +201,41 @@ export function applyModifyPtPerRevealedStep(
     kind: 'applied',
     state: nextState,
     log: [`${targetCreatureId} gets +${powerBonus}/+${toughnessBonus} until end of turn`],
+  };
+}
+
+export function applySetBasePtStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'set_base_pt' }>,
+  ctx: OracleIRExecutionContext
+): ModifyPtStepHandlerResult {
+  const targetCreatureId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  if (!targetCreatureId) {
+    return {
+      kind: 'recorded_skip',
+      message: `Skipped base P/T setter (no deterministic creature target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const nextState = applyTemporarySetBasePowerToughness(
+    state,
+    targetCreatureId,
+    ctx,
+    step.power | 0,
+    step.toughness | 0
+  );
+  if (!nextState) {
+    return {
+      kind: 'recorded_skip',
+      message: `Skipped base P/T setter (target not on battlefield): ${step.raw}`,
+      reason: 'target_not_on_battlefield',
+    };
+  }
+
+  return {
+    kind: 'applied',
+    state: nextState,
+    log: [`${targetCreatureId} has base power and toughness ${step.power}/${step.toughness} until end of turn`],
   };
 }

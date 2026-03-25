@@ -213,6 +213,15 @@ describe('Trigger Parsing', () => {
       expect(String(abilities[0].effect || '')).toContain('with a flying counter on it');
     });
 
+    it('preserves quoted mana symbols in triggered effects', () => {
+      const oracleText =
+        `When Bronzehide Lion dies, return it to the battlefield. It's an Aura enchantment with enchant creature you control and "{G}{W}: Return this card to its owner's hand." and it loses all other abilities.`;
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Bronzehide Lion');
+
+      expect(abilities).toHaveLength(1);
+      expect(String(abilities[0].effect || '')).toContain('"{G}{W}: Return this card to its owner\'s hand."');
+    });
+
     it('preserves controlled-creature dies filters with ownership exclusions', () => {
       const oracleText =
         "Whenever a creature you control but don't own dies, return it to the battlefield under its owner's control and you draw a card.";

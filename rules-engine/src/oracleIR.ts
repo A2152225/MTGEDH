@@ -62,6 +62,28 @@ export type OracleZone =
 
 export type OracleEffectStep =
   | {
+      readonly kind: 'roll_die';
+      readonly who: OraclePlayerSelector;
+      readonly sides: number;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'die_roll_results';
+      readonly who: OraclePlayerSelector;
+      readonly sides: number;
+      readonly results: readonly {
+        readonly min: number;
+        readonly max: number;
+        readonly raw: string;
+        readonly steps: readonly OracleEffectStep[];
+      }[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'draw';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
@@ -253,6 +275,16 @@ export type OracleEffectStep =
   | {
       readonly kind: 'goad';
       readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'set_base_pt';
+      readonly target: OracleObjectSelector;
+      readonly power: number;
+      readonly toughness: number;
+      readonly duration: 'end_of_turn';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -467,6 +499,12 @@ export type OracleEffectStep =
       readonly battlefieldAddTypes?: readonly string[];
       /** Optional deterministic condition gating battlefield-entry type/color changes. */
       readonly battlefieldCharacteristicsCondition?: OracleClauseCondition;
+      /** Override the moved card's visible type line as it enters the battlefield. */
+      readonly battlefieldSetTypeLine?: string;
+      /** Override the moved card's rules text as it enters the battlefield. */
+      readonly battlefieldSetOracleText?: string;
+      /** Clear the moved card's printed abilities before applying battlefield overrides. */
+      readonly battlefieldLoseAllAbilities?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -519,10 +557,32 @@ export type OracleEffectStep =
        * can be inferred.
        */
       readonly kind: 'copy_spell';
-      readonly subject: 'this_spell' | 'last_moved_card';
+      readonly subject: 'this_spell' | 'last_moved_card' | 'linked_exiled_cards';
       readonly withoutPayingManaCost?: boolean;
+      /** Alternative cast cost to use instead of the copied card's mana cost. */
+      readonly castCost?: 'mana_cost' | string;
       /** Whether the copy may choose new target(s) for deterministic replay. */
       readonly allowNewTargets?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Copy a specific chapter ability from the last moved Saga card and
+       * resolve its deterministic instructions.
+       */
+      readonly kind: 'copy_chapter_ability';
+      readonly subject: 'last_moved_card';
+      readonly chapter: number;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'copy_saga_chapter_ability';
+      readonly subject: 'last_moved_card';
+      readonly chapterNumber: number;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
