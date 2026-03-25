@@ -107,6 +107,22 @@ function battlefieldObjectHasType(object: any, typeName: string): boolean {
 }
 
 function cardHasType(card: any, typeName: string): boolean {
+  if (typeName === 'permanent') {
+    return (
+      matchesTypeLine(card?.type_line, 'artifact') ||
+      matchesTypeLine(card?.type_line, 'battle') ||
+      matchesTypeLine(card?.type_line, 'creature') ||
+      matchesTypeLine(card?.type_line, 'enchantment') ||
+      matchesTypeLine(card?.type_line, 'land') ||
+      matchesTypeLine(card?.type_line, 'planeswalker') ||
+      matchesTypeLine(card?.cardType, 'artifact') ||
+      matchesTypeLine(card?.cardType, 'battle') ||
+      matchesTypeLine(card?.cardType, 'creature') ||
+      matchesTypeLine(card?.cardType, 'enchantment') ||
+      matchesTypeLine(card?.cardType, 'land') ||
+      matchesTypeLine(card?.cardType, 'planeswalker')
+    );
+  }
   return matchesTypeLine(card?.type_line, typeName) || matchesTypeLine(card?.cardType, typeName);
 }
 
@@ -216,14 +232,15 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   {
-    const exiledThisWayMatch = normalizedRaw.match(/^(.*?)\s+card\s+(?:was exiled|is put into exile)\s+this way$/i);
+    const exiledThisWayMatch = normalizedRaw.match(/^(.*?)\s+card\s+(?:was exiled|is exiled|is put into exile)\s+this way$/i);
     if (exiledThisWayMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
       if (lastActionOutcome?.stepKind !== 'move_zone') return null;
 
-      const descriptor = String(exiledThisWayMatch[1] || '').trim().toLowerCase().replace(/^an?\s+/i, '').trim();
+      const rawDescriptor = String(exiledThisWayMatch[1] || '').trim().toLowerCase();
+      const descriptor = rawDescriptor.replace(/^an?\s+/i, '').trim();
       const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
-      if (!descriptor) return movedCards.length > 0;
+      if (!descriptor || rawDescriptor === 'a' || rawDescriptor === 'an') return movedCards.length > 0;
       return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
     }
   }

@@ -231,6 +231,7 @@ export function applyDamageClearing<T extends {
   id: string; 
   markedDamage?: number;
   damage?: number;
+  damageSourceIds?: readonly string[];
   counters?: Record<string, number>;
 }>(
   battlefield: readonly T[]
@@ -245,12 +246,20 @@ export function applyDamageClearing<T extends {
         ...permanent,
         markedDamage: 0,
         damage: 0,
+        damageSourceIds: [],
         counters: permanent.counters 
           ? { ...permanent.counters, damage: 0 }
           : undefined,
       };
     }
-    
+
+    if (Array.isArray(permanent.damageSourceIds) && permanent.damageSourceIds.length > 0) {
+      return {
+        ...permanent,
+        damageSourceIds: [],
+      };
+    }
+
     return permanent;
   });
 }

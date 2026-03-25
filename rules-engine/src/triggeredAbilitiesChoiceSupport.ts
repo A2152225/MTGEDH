@@ -163,6 +163,56 @@ export function buildEnrichedTriggerExecutionEventData(
       .map((player: any) => normalizeTriggerContextId(player?.id))
       .filter((id: string | undefined): id is string => Boolean(id))
   );
+  const findObjectById = (id: string | undefined): any => {
+    const normalizedId = normalizeTriggerContextId(id);
+    if (!normalizedId) return undefined;
+
+    const battlefieldMatch = ((state.battlefield || []) as any[]).find(
+      perm => normalizeTriggerContextId(perm?.id) === normalizedId
+    );
+    if (battlefieldMatch) return battlefieldMatch;
+
+    for (const player of state.players || []) {
+      for (const zoneName of ['graveyard', 'hand', 'exile', 'library'] as const) {
+        const zone = Array.isArray((player as any)?.[zoneName]) ? (player as any)[zoneName] : [];
+        const match = zone.find((card: any) => normalizeTriggerContextId(card?.id) === normalizedId);
+        if (match) return match;
+      }
+    }
+
+    return undefined;
+  };
+  const inferDamageSourceIds = (): readonly string[] | undefined => {
+    if (Array.isArray(normalizedEventData.damagedByPermanentIds) && normalizedEventData.damagedByPermanentIds.length > 0) {
+      return normalizedEventData.damagedByPermanentIds;
+    }
+
+    const referencedObject = findObjectById(
+      normalizedEventData.targetPermanentId ??
+      normalizedEventData.sourceId ??
+      eventData?.targetPermanentId ??
+      eventData?.sourceId
+    );
+    if (!Array.isArray((referencedObject as any)?.damageSourceIds) || (referencedObject as any).damageSourceIds.length === 0) {
+      return undefined;
+    }
+
+    return (referencedObject as any).damageSourceIds
+      .map((id: unknown) => normalizeTriggerContextId(id))
+      .filter((id: string | undefined): id is string => Boolean(id));
+  };
+  const inferSourceAttachedToPermanentIds = (): readonly string[] | undefined => {
+    if (
+      Array.isArray(normalizedEventData.sourceAttachedToPermanentIds) &&
+      normalizedEventData.sourceAttachedToPermanentIds.length > 0
+    ) {
+      return normalizedEventData.sourceAttachedToPermanentIds;
+    }
+
+    const sourcePermanent = findObjectById(ability.sourceId);
+    const attachedToId = normalizeTriggerContextId(sourcePermanent?.attachedTo ?? sourcePermanent?.enchanting);
+    return attachedToId ? [attachedToId] : undefined;
+  };
 
   const inferredTargetPermanentId = (() => {
     const explicit = normalizeTriggerContextId(normalizedEventData.targetPermanentId ?? eventData?.targetPermanentId);
@@ -183,9 +233,17 @@ export function buildEnrichedTriggerExecutionEventData(
     if (!permanent) return undefined;
     return Boolean((permanent as any)?.tapped) ? 'untap' : 'tap';
   })();
+  const inferredDamagedByPermanentIds = inferDamageSourceIds();
+  const inferredSourceAttachedToPermanentIds = inferSourceAttachedToPermanentIds();
 
   const hasBaseEventData = Boolean(eventData) || Object.keys(normalizedEventData).length > 0;
-  if (!hasBaseEventData && !inferredTargetPermanentId && !inferredTapOrUntapChoice) {
+  if (
+    !hasBaseEventData &&
+    !inferredTargetPermanentId &&
+    !inferredTapOrUntapChoice &&
+    !inferredDamagedByPermanentIds &&
+    !inferredSourceAttachedToPermanentIds
+  ) {
     return undefined;
   }
 
@@ -194,6 +252,10 @@ export function buildEnrichedTriggerExecutionEventData(
     ...normalizedEventData,
     ...(inferredTargetPermanentId ? { targetPermanentId: inferredTargetPermanentId } : {}),
     ...(inferredTapOrUntapChoice ? { tapOrUntapChoice: inferredTapOrUntapChoice } : {}),
+    ...(inferredDamagedByPermanentIds ? { damagedByPermanentIds: inferredDamagedByPermanentIds } : {}),
+    ...(inferredSourceAttachedToPermanentIds
+      ? { sourceAttachedToPermanentIds: inferredSourceAttachedToPermanentIds }
+      : {}),
   } as TriggerEventData;
 }
 

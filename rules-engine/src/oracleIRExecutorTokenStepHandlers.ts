@@ -9,7 +9,11 @@ import {
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
-import { attachExistingBattlefieldPermanentToTarget } from './oracleIRExecutorZoneOps';
+import {
+  attachExistingBattlefieldPermanentToTarget,
+  findCardsExiledWithSource,
+  parseMoveZoneSingleTargetFromLinkedExile,
+} from './oracleIRExecutorZoneOps';
 import { getCardManaValue, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 
 type StepApplyResult = {
@@ -22,9 +26,10 @@ type StepApplyResult = {
 type StepSkipResult = {
   readonly applied: false;
   readonly message: string;
-  readonly reason: 'unknown_amount' | 'unsupported_player_selector';
+  readonly reason: 'unknown_amount' | 'unsupported_player_selector' | 'player_choice_required' | 'impossible_action';
   readonly options?: {
-    readonly classification?: 'ambiguous';
+    readonly classification?: 'ambiguous' | 'player_choice';
+    readonly metadata?: Record<string, string | number | boolean | null | readonly string[]>;
   };
 };
 
@@ -111,6 +116,375 @@ function resolveTokenAmount(
   return null;
 }
 
+function normalizeReferenceText(value: string | undefined): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/[.\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
+  const chosen = Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of chosen) {
+    const normalized = String(candidate || '').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function splitCopyTokenReference(tokenHint: string): {
+  readonly referenceText: string;
+  readonly exceptionText: string;
+} | null {
+  const raw = String(tokenHint || '').trim();
+  if (!/^copy of\b/i.test(raw)) return null;
+
+  const body = raw.replace(/^copy of\s+/i, '').trim();
+  if (!body) return null;
+
+  const exceptMatch = body.match(/^(.*?),\s*except\s+(.+)$/i);
+  if (!exceptMatch) {
+    return {
+      referenceText: body.replace(/[.\s]+$/g, '').trim(),
+      exceptionText: '',
+    };
+  }
+
+  return {
+    referenceText: String(exceptMatch[1] || '').replace(/[.\s]+$/g, '').trim(),
+    exceptionText: String(exceptMatch[2] || '').replace(/[.\s]+$/g, '').trim(),
+  };
+}
+
+type CopyTokenOverrides = {
+  readonly power?: number;
+  readonly toughness?: number;
+  readonly colors?: readonly string[];
+  readonly addCardTypes?: readonly string[];
+  readonly addSubtypes?: readonly string[];
+  readonly addAbilities?: readonly string[];
+  readonly removeLegendary?: boolean;
+};
+
+const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
+  white: 'W',
+  blue: 'U',
+  black: 'B',
+  red: 'R',
+  green: 'G',
+};
+
+function dedupeStrings(values: readonly string[]): readonly string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = String(value || '').trim();
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrides {
+  const normalized = normalizeReferenceText(exceptionText);
+  if (!normalized) return {};
+
+  const ptCreatureMatch = normalized.match(
+    /^(?:it's|it is|the token is)\s+a\s+(\d+)\/(\d+)\s+(.+?)\s+creature(?:\s+with\s+(.+?))?(?:\s+in addition to its other types)?$/
+  );
+  if (ptCreatureMatch) {
+    const descriptorWords = String(ptCreatureMatch[3] || '')
+      .split(/\s+/g)
+      .map(word => word.trim())
+      .filter(Boolean);
+    const colors: string[] = [];
+    const subtypeWords: string[] = [];
+    for (const word of descriptorWords) {
+      const color = COLOR_WORD_TO_SYMBOL[word];
+      if (color) colors.push(color);
+      else if (word !== 'and') subtypeWords.push(word);
+    }
+
+    const abilities = String(ptCreatureMatch[4] || '')
+      .split(/\s*,\s*|\s+and\s+/gi)
+      .map(part => part.trim())
+      .filter(Boolean)
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1));
+
+    return {
+      power: Number.parseInt(String(ptCreatureMatch[1] || ''), 10),
+      toughness: Number.parseInt(String(ptCreatureMatch[2] || ''), 10),
+      ...(colors.length > 0 ? { colors: dedupeStrings(colors) } : {}),
+      addCardTypes: ['Creature'],
+      ...(subtypeWords.length > 0
+        ? {
+            addSubtypes: dedupeStrings(
+              subtypeWords.map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            ),
+          }
+        : {}),
+      ...(abilities.length > 0 ? { addAbilities: dedupeStrings(abilities) } : {}),
+    };
+  }
+
+  if (/isn't legendary/i.test(exceptionText)) {
+    return { removeLegendary: true };
+  }
+
+  return {};
+}
+
+function splitTypeLine(typeLine: string): {
+  readonly supertypes: readonly string[];
+  readonly cardTypes: readonly string[];
+  readonly subtypes: readonly string[];
+} {
+  const normalized = String(typeLine || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return { supertypes: [], cardTypes: [], subtypes: [] };
+
+  const dashSplit = normalized.split(/\s+(?:\u2014|-)\s+/);
+  const main = String(dashSplit[0] || '').trim();
+  const subtypePart = String(dashSplit[1] || '').trim();
+  const mainWords = main.split(/\s+/g).filter(Boolean);
+  const supertypeSet = new Set(['Basic', 'Legendary', 'Ongoing', 'Snow', 'World']);
+  const cardTypeSet = new Set([
+    'Artifact',
+    'Battle',
+    'Creature',
+    'Enchantment',
+    'Instant',
+    'Kindred',
+    'Land',
+    'Planeswalker',
+    'Sorcery',
+    'Tribal',
+  ]);
+
+  const supertypes: string[] = [];
+  const cardTypes: string[] = [];
+  for (const word of mainWords) {
+    if (supertypeSet.has(word)) supertypes.push(word);
+    else if (cardTypeSet.has(word)) cardTypes.push(word);
+  }
+
+  const subtypes = subtypePart ? subtypePart.split(/\s+/g).filter(Boolean) : [];
+  return { supertypes, cardTypes, subtypes };
+}
+
+function buildTypeLine(parts: {
+  readonly supertypes: readonly string[];
+  readonly cardTypes: readonly string[];
+  readonly subtypes: readonly string[];
+}): string {
+  const main = [...parts.supertypes, ...parts.cardTypes].filter(Boolean).join(' ').trim();
+  const subtypeText = [...parts.subtypes].filter(Boolean).join(' ').trim();
+  if (main && subtypeText) return `${main} \u2014 ${subtypeText}`;
+  return main || subtypeText || 'Token';
+}
+
+function readNumericCharacteristic(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+function createCopiedTokenPermanent(params: {
+  readonly sourceObject: any;
+  readonly controllerId: PlayerID;
+  readonly sourceId?: string;
+  readonly sourceName?: string;
+  readonly entersTapped?: boolean;
+  readonly withCounters?: Record<string, number>;
+  readonly overrides: CopyTokenOverrides;
+}): BattlefieldPermanent {
+  const tokenId = `token-copy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const sourceObject = params.sourceObject || {};
+  const baseCard = { ...(sourceObject?.card || sourceObject || {}) } as any;
+  const originalTypeLine = String(
+    baseCard?.type_line || sourceObject?.type_line || sourceObject?.cardType || 'Token'
+  ).trim();
+  const split = splitTypeLine(originalTypeLine);
+  const supertypes = params.overrides.removeLegendary
+    ? split.supertypes.filter(type => type.toLowerCase() !== 'legendary')
+    : split.supertypes;
+  const cardTypes = dedupeStrings([...(split.cardTypes || []), ...(params.overrides.addCardTypes || [])]);
+  const subtypes = dedupeStrings([...(split.subtypes || []), ...(params.overrides.addSubtypes || [])]);
+  const typeLine = buildTypeLine({ supertypes, cardTypes, subtypes });
+
+  const keywordSource = [
+    ...(Array.isArray(baseCard?.keywords) ? baseCard.keywords : []),
+    ...(Array.isArray(sourceObject?.keywords) ? sourceObject.keywords : []),
+  ].map((keyword: unknown) => String(keyword || '').trim()).filter(Boolean);
+  const keywords = dedupeStrings([...(keywordSource as string[]), ...((params.overrides.addAbilities || []) as string[])]);
+
+  const oracleLines = [
+    String(baseCard?.oracle_text || sourceObject?.oracle_text || '').trim(),
+    ...((params.overrides.addAbilities || []) as readonly string[]),
+  ].filter(Boolean);
+
+  const originalColors = Array.isArray(baseCard?.colors)
+    ? baseCard.colors
+    : Array.isArray(sourceObject?.colors)
+      ? sourceObject.colors
+      : [];
+  const colors = params.overrides.colors && params.overrides.colors.length > 0
+    ? [...params.overrides.colors]
+    : [...originalColors];
+
+  const power = params.overrides.power ?? readNumericCharacteristic(
+    sourceObject?.basePower,
+    sourceObject?.power,
+    baseCard?.power
+  );
+  const toughness = params.overrides.toughness ?? readNumericCharacteristic(
+    sourceObject?.baseToughness,
+    sourceObject?.toughness,
+    baseCard?.toughness
+  );
+
+  const tokenCard = {
+    ...baseCard,
+    id: tokenId,
+    type_line: typeLine,
+    oracle_text: oracleLines.join('\n'),
+    ...(keywords.length > 0 ? { keywords: [...keywords] } : {}),
+    ...(colors.length > 0 ? { colors: [...colors] } : {}),
+    ...(power !== undefined ? { power: String(power) } : {}),
+    ...(toughness !== undefined ? { toughness: String(toughness) } : {}),
+    isToken: true,
+    zone: 'battlefield',
+  } as any;
+
+  return {
+    id: tokenId,
+    controller: params.controllerId,
+    owner: params.controllerId,
+    ownerId: params.controllerId,
+    tapped: Boolean(params.entersTapped),
+    summoningSickness: cardTypes.some(type => String(type).toLowerCase() === 'creature'),
+    counters: params.withCounters || {},
+    attachedTo: undefined,
+    attachments: [],
+    modifiers: [],
+    cardType: typeLine,
+    type_line: typeLine,
+    name: String(tokenCard?.name || sourceObject?.name || 'Token'),
+    manaCost: tokenCard?.mana_cost ?? tokenCard?.manaCost,
+    ...(power !== undefined ? { power } : {}),
+    ...(toughness !== undefined ? { toughness } : {}),
+    ...(power !== undefined ? { basePower: power } : {}),
+    ...(toughness !== undefined ? { baseToughness: toughness } : {}),
+    oracle_text: tokenCard.oracle_text,
+    card: tokenCard,
+    isToken: true,
+    ...(params.sourceId ? { createdBySourceId: String(params.sourceId).trim() } : {}),
+    ...(params.sourceName ? { createdBySourceName: String(params.sourceName).trim() } : {}),
+  } as BattlefieldPermanent;
+}
+
+type CopySourceResolution =
+  | { readonly kind: 'resolved'; readonly sourceObject: any }
+  | { readonly kind: 'player_choice_required'; readonly availableIds: readonly string[] }
+  | { readonly kind: 'unavailable' };
+
+function resolveCopyTokenSource(
+  state: GameState,
+  tokenHint: string,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime
+): CopySourceResolution | null {
+  const parsed = splitCopyTokenReference(tokenHint);
+  if (!parsed) return null;
+
+  const referenceText = normalizeReferenceText(parsed.referenceText);
+  const chosenObjectIds = getChosenObjectIds(ctx);
+  const movedCards = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+
+  if (
+    referenceText === 'it' ||
+    referenceText === 'that card' ||
+    referenceText === 'the exiled card'
+  ) {
+    if (chosenObjectIds.length > 0) {
+      const explicit = movedCards.filter(card => chosenObjectIds.includes(String((card as any)?.id || '').trim()));
+      if (explicit.length === 1) return { kind: 'resolved', sourceObject: explicit[0] };
+      if (explicit.length > 1) {
+        return {
+          kind: 'player_choice_required',
+          availableIds: explicit.map(card => String((card as any)?.id || '').trim()).filter(Boolean),
+        };
+      }
+    }
+    if (movedCards.length === 1) return { kind: 'resolved', sourceObject: movedCards[0] };
+    if (movedCards.length > 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: movedCards.map(card => String((card as any)?.id || '').trim()).filter(Boolean),
+      };
+    }
+    return { kind: 'unavailable' };
+  }
+
+  if (
+    referenceText === 'that creature' ||
+    referenceText === 'that permanent'
+  ) {
+    const battlefieldIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
+      ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
+      : [];
+    const candidateIds = chosenObjectIds.length > 0
+      ? battlefieldIds.filter(id => chosenObjectIds.includes(id))
+      : battlefieldIds;
+    if (candidateIds.length !== 1) {
+      return candidateIds.length > 1
+        ? { kind: 'player_choice_required', availableIds: candidateIds }
+        : { kind: 'unavailable' };
+    }
+    const permanent = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === candidateIds[0]);
+    return permanent ? { kind: 'resolved', sourceObject: permanent } : { kind: 'unavailable' };
+  }
+
+  if (referenceText === 'equipped creature') {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const sourcePermanent = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === sourceId) as any;
+    const attachedTo = String(sourcePermanent?.attachedTo || '').trim();
+    if (!attachedTo) return { kind: 'unavailable' };
+    const equippedCreature = (state.battlefield || []).find(perm => String((perm as any)?.id || '').trim() === attachedTo);
+    return equippedCreature ? { kind: 'resolved', sourceObject: equippedCreature } : { kind: 'unavailable' };
+  }
+
+  if (/\bexiled with this\b/i.test(parsed.referenceText)) {
+    const criteria = parseMoveZoneSingleTargetFromLinkedExile({ kind: 'raw', text: parsed.referenceText });
+    const sourceId = String(ctx.sourceId || '').trim();
+    if (!criteria || !sourceId) return { kind: 'unavailable' };
+    const matches = findCardsExiledWithSource(state, sourceId, criteria);
+    if (matches.length === 0) return { kind: 'unavailable' };
+    const selectedMatches = chosenObjectIds.length > 0
+      ? matches.filter(match => chosenObjectIds.includes(match.cardId))
+      : matches;
+    if (selectedMatches.length !== 1) {
+      return {
+        kind: 'player_choice_required',
+        availableIds: matches.map(match => match.cardId),
+      };
+    }
+    return { kind: 'resolved', sourceObject: selectedMatches[0].card };
+  }
+
+  return { kind: 'unavailable' };
+}
+
 function addTokensToBattlefield(
   state: GameState,
   controllerId: PlayerID,
@@ -118,10 +492,61 @@ function addTokensToBattlefield(
   tokenHint: string,
   clauseRaw: string,
   ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime,
   entersTapped?: boolean,
   withCounters?: Record<string, number>
-): { state: GameState; log: string[]; createdTokenIds: string[] } {
+): StepApplyResult | StepSkipResult {
   const hasOverrides = Boolean(entersTapped) || (withCounters && Object.keys(withCounters).length > 0);
+  const copySource = resolveCopyTokenSource(state, tokenHint, ctx, runtime);
+  if (copySource) {
+    if (copySource.kind === 'player_choice_required') {
+      return {
+        applied: false,
+        message: `Skipped token creation (copy source requires player choice): ${clauseRaw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            availableCopySources: copySource.availableIds,
+          },
+        },
+      };
+    }
+    if (copySource.kind === 'unavailable') {
+      return {
+        applied: false,
+        message: `Skipped token creation (copy source unavailable): ${clauseRaw}`,
+        reason: 'impossible_action',
+      };
+    }
+
+    const copyParts = splitCopyTokenReference(tokenHint);
+    const overrides = parseCopyTokenOverrides(copyParts?.exceptionText || '');
+    const count = Math.max(1, amount | 0);
+    const copiedTokens: BattlefieldPermanent[] = [];
+    for (let idx = 0; idx < count; idx += 1) {
+      copiedTokens.push(
+        createCopiedTokenPermanent({
+          sourceObject: copySource.sourceObject,
+          controllerId,
+          sourceId: ctx.sourceId,
+          sourceName: ctx.sourceName,
+          entersTapped,
+          withCounters,
+          overrides,
+        })
+      );
+    }
+    return {
+      applied: true,
+      state: {
+        ...state,
+        battlefield: [...(state.battlefield || []), ...copiedTokens],
+      },
+      log: [`Created ${count} token copy/copies of ${String((copySource.sourceObject as any)?.name || (copySource.sourceObject as any)?.card?.name || 'object')}`],
+      createdTokenIds: copiedTokens.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
+    };
+  }
 
   const normalizeTokenLookupText = (value: string): string =>
     String(value || '')
@@ -168,6 +593,7 @@ function addTokensToBattlefield(
       if (result) {
         const tokensToAdd = result.tokens.map(token => token.token);
         return {
+          applied: true,
           state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
           log: [...result.log],
           createdTokenIds: tokensToAdd.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
@@ -178,7 +604,7 @@ function addTokensToBattlefield(
 
   const tokenParse = parseTokenCreationFromText(clauseRaw);
   if (!tokenParse) {
-    return { state, log: ['Token creation not recognized'], createdTokenIds: [] };
+    return { applied: true, state, log: ['Token creation not recognized'], createdTokenIds: [] };
   }
 
   const count = Math.max(1, amount | 0);
@@ -197,6 +623,7 @@ function addTokensToBattlefield(
       if (commonParsed) {
         const tokensToAdd = commonParsed.tokens.map(token => token.token);
         return {
+          applied: true,
           state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
           log: [...commonParsed.log],
           createdTokenIds: tokensToAdd.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
@@ -222,6 +649,7 @@ function addTokensToBattlefield(
 
   const tokensToAdd = created.tokens.map(token => token.token);
   return {
+    applied: true,
     state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
     log: [...created.log],
     createdTokenIds: tokensToAdd.map(token => String((token as any)?.id || '').trim()).filter(Boolean),
@@ -322,9 +750,11 @@ export function applyCreateTokenStep(
       step.token,
       step.raw,
       ctx,
+      runtime,
       step.entersTapped,
       step.withCounters
     );
+    if (!result.applied) return result;
     nextState = result.state;
     log.push(...result.log);
     allCreatedTokenIds.push(...result.createdTokenIds);

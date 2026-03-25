@@ -20,6 +20,22 @@ function normalizeCounters(raw: any): Record<string, number> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function normalizeIdList(raw: any): string[] | undefined {
+  const values = Array.isArray(raw) ? raw : [raw];
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    if (typeof value !== 'string' && typeof value !== 'number') continue;
+    const normalized = String(value).trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+
+  return out.length > 0 ? out : undefined;
+}
+
 export function hasZoneRetainedCountersAbility(obj: any): boolean {
   const oracleText = getOracleText(obj).toLowerCase();
   if (oracleText.includes("counters remain on it as it moves to any zone other than a player's hand or library")) {
@@ -31,6 +47,12 @@ export function hasZoneRetainedCountersAbility(obj: any): boolean {
 
 export function buildZoneObjectWithRetainedCounters(card: any, source: any, destinationZone: string): any {
   const nextCard = { ...(card || {}), zone: destinationZone };
+  const damageSourceIds = normalizeIdList((source as any)?.damageSourceIds ?? (card as any)?.damageSourceIds);
+  if (damageSourceIds) {
+    nextCard.damageSourceIds = damageSourceIds;
+  } else if ('damageSourceIds' in nextCard) {
+    delete nextCard.damageSourceIds;
+  }
 
   if (!hasZoneRetainedCountersAbility(source)) {
     return nextCard;

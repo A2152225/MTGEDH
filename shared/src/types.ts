@@ -314,6 +314,25 @@ export interface TemporaryEffect {
   sourceName?: string;           // Name of the source
 }
 
+export interface DamagePreventionEffect {
+  id: string;
+  description: string;
+  sourceId?: string;
+  sourceName?: string;
+  controllerId?: PlayerID;
+  targetSourceId: string;
+  colors?: readonly string[];
+  expiresAtTurn?: number;
+}
+
+export interface SkipNextDrawStepEffect {
+  id: string;
+  playerId: PlayerID;
+  sourceId?: string;
+  sourceName?: string;
+  remainingSkips: number;
+}
+
 /* Stack item */
 export interface StackItem {
   id: string;
@@ -614,6 +633,10 @@ export interface GameState {
    * unbounded growth in long-running games.
    */
   oracleAutomationGaps?: readonly OracleAutomationGap[];
+  /** Temporary source-based damage prevention effects such as Mourner's Shield. */
+  damagePreventionEffects?: readonly DamagePreventionEffect[];
+  /** One-shot "skip your next draw step" effects waiting to be consumed. */
+  skipNextDrawStepEffects?: readonly SkipNextDrawStepEffect[];
 }
 
 /* Player protection state for effects like Teferi's Protection */

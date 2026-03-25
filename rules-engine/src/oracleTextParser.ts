@@ -121,10 +121,20 @@ const LOYALTY_ABILITY_PATTERN = /^([+−-]?\d+|0)\s*:\s*([\s\S]+)$/;
  */
 const KEYWORD_COST_PATTERN = /^(Equip|Cycling|Kicker|Entwine|Flashback|Unearth|Evoke|Emerge|Escalate|Escape|Foretell|Ward|Craft|Overload|Bestow|Dash|Embalm|Eternalize|Morph|Megamorph|Mutate|Ninjutsu|Prototype|Prowl|Spectacle|Suspend|Transfigure|Transmute|Warp|Blitz|Channel|Disturb|Encore|Madness|Miracle|Outlast|Reconfigure|Reinforce|Scavenge|Squad|Sunburst|Umbra armor|Backup|Bargain|Boast|Buyback|Casualty|Cleave|Conspire|Convoke|Crew|Delve|Demonstrate|Devour|Dredge|Echo|Enlist|Epic|Exploit|Extort|Fabricate|Fading|Fortify|Fuse|Graft|Haunt|Hideaway|Improvise|Incubate|Jump-start|Landfall|Level up|Living weapon|Meld|Modular|Monstrosity|Offering|Overrun|Persist|Phasing|Populate|Proliferate|Radiance|Raid|Ravenous|Replicate|Retrace|Riot|Saga|Sneak|Soulbond|Splice|Split second|Storm|Strive|Sunburst|Surge|Undying|Unleash|Vanishing)\s+(.+)$/i;
 
+function isGrantedQuotedActivatedAbilityLine(text: string): boolean {
+  const normalized = String(text || '').replace(/\u2019/g, "'").trim();
+  if (!normalized.includes(':')) return false;
+  return /\b(?:has|have|gains?)\s+"[^"]+:\s*[^"]+"\s*\.?$/i.test(normalized);
+}
+
 /**
  * Parse an activated ability from oracle text line
  */
 export function parseActivatedAbility(text: string): ParsedAbility | null {
+  if (isGrantedQuotedActivatedAbilityLine(text)) {
+    return null;
+  }
+
   // Check for planeswalker loyalty ability first
   const loyaltyMatch = text.match(LOYALTY_ABILITY_PATTERN);
   if (loyaltyMatch) {
@@ -237,7 +247,7 @@ function stripLeadingTriggeredAbilityLabel(text: string): string {
   if (!trimmed) return trimmed;
 
   return trimmed.replace(
-    /^[a-z][a-z0-9' ,/+-]*\s+[\u2014-]\s+(?=(?:when|whenever|at(?:\s+the\s+beginning)?)\b)/i,
+    /^[a-z][a-z0-9' ,/+-]*\s+[\u2014\-?]\s+(?=(?:when|whenever|at(?:\s+the\s+beginning)?)\b)/i,
     ''
   );
 }
@@ -758,6 +768,7 @@ export function hasActivatedAbility(oracleText: string): boolean {
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.includes(':') && 
+        !isGrantedQuotedActivatedAbilityLine(trimmed) &&
         !trimmed.startsWith('(') &&
         !/^(when|whenever|at\s+the\s+beginning)/i.test(trimmed)) {
       return true;

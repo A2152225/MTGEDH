@@ -16,6 +16,7 @@ import {
   drawCardsForPlayer,
   getCardManaValue,
   millCardsForPlayer,
+  lookSelectTopCardsForPlayer,
   quantityToNumber,
   resolvePlayers,
   getPlayableUntilTurnForImpulseDuration,
@@ -696,6 +697,54 @@ export function applySurveilStep(
     applied: true,
     state,
     log: [`Surveil ${amount} (no cards in library): ${step.raw}`],
+  };
+}
+
+export function applyLookSelectTopStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_select_top' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const amount = quantityToNumber(step.amount);
+  const choose = quantityToNumber(step.choose);
+  if (amount === null || choose === null) {
+    return {
+      applied: false,
+      message: `Skipped look-select-top (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped look-select-top (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  for (const playerId of players) {
+    const result = lookSelectTopCardsForPlayer(
+      nextState,
+      playerId,
+      amount,
+      choose,
+      step.destination,
+      step.restDestination,
+      Boolean(step.restToTop)
+    );
+    nextState = result.state;
+    log.push(...result.log);
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log,
   };
 }
 

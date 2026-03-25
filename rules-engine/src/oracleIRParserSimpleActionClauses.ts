@@ -58,6 +58,19 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const skipNextDrawStep = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+(?:your|their|his or her)\\s+next\\s+draw\\s+step\\b`, 'i')
+    );
+    if (skipNextDrawStep) {
+      return withMeta({
+        kind: 'skip_next_draw_step',
+        who: parsePlayerSelector(skipNextDrawStep[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const addCounters = clause.match(new RegExp(`^put\\s+(${COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+on\\s+(.+)$`, 'i'));
     if (addCounters && !/\bonto\s+the\s+battlefield\b/i.test(clause)) {
       return withMeta({
@@ -116,6 +129,41 @@ export function tryParseSimpleActionClause(args: {
         kind: 'investigate',
         who: parsePlayerSelector(investigate[1]),
         amount: { kind: 'number', value: 1 },
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const skipNextDrawStep = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}skip(?:s)?\\s+(?:your|their|his or her|its)\\s+next\\s+draw\\s+step\\b`, 'i')
+    );
+    if (skipNextDrawStep) {
+      return withMeta({
+        kind: 'skip_next_draw_step',
+        who: parsePlayerSelector(skipNextDrawStep[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const suspectMatch = clause.match(/^suspect\s+(.+)$/i);
+    if (suspectMatch) {
+      return withMeta({
+        kind: 'suspect',
+        target: parseObjectSelector(String(suspectMatch[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const turnFaceUpMatch = clause.match(/^turn\s+(.+?)\s+face up$/i);
+    if (turnFaceUpMatch) {
+      return withMeta({
+        kind: 'turn_face_up',
+        target: parseObjectSelector(String(turnFaceUpMatch[1] || '').trim()),
         raw: rawClause,
       });
     }

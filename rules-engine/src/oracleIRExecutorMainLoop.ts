@@ -18,13 +18,16 @@ import {
   applyExileStep,
   applyGrantLeaveBattlefieldReplacementStep,
   applyGrantTemporaryDiesTriggerStep,
+  applyCopyPermanentStep,
   applyRemoveCounterStep,
   applySacrificeStep,
   applyScheduleDelayedBattlefieldActionStep,
   applyScheduleDelayedTriggerStep,
+  applySuspectStep,
   applyTapOrUntapStep,
+  applyTurnFaceUpStep,
 } from './oracleIRExecutorBattlefieldStepHandlers';
-import { applyDealDamageStep } from './oracleIRExecutorDamageStepHandlers';
+import { applyDealDamageStep, applyPreventDamageStep } from './oracleIRExecutorDamageStepHandlers';
 import {
   applyExileTopStep,
   applyGrantExilePermissionStep,
@@ -56,12 +59,15 @@ import {
   evaluateUnlessPaysLifeStep,
   applyGainLifeStep,
   applyLoseLifeStep,
+  applyLookSelectTopStep,
   applyMillStep,
   applyPayManaStep,
   applyScryStep,
   applySurveilStep,
 } from './oracleIRExecutorPlayerStepHandlers';
+import { parseOracleTextToIR } from './oracleIRParser';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
+import { applySkipNextDrawStep } from './oracleIRExecutorTurnStepHandlers';
 import type {
   OracleIRExecutionContext,
   OracleIRExecutionOptions,
@@ -96,8 +102,10 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastExiledCardCount = 0;
   let lastExiledCards: any[] = Array.isArray(ctx.lastExiledCards) ? [...ctx.lastExiledCards] : [];
   let lastGrantedGraveyardCards: any[] = [];
-  let lastMovedCards: any[] = [];
-  let lastMovedBattlefieldPermanentIds: string[] = [];
+  let lastMovedCards: any[] = Array.isArray(ctx.lastMovedCards) ? [...ctx.lastMovedCards] : [];
+  let lastMovedBattlefieldPermanentIds: string[] = Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
+    ? [...ctx.lastMovedBattlefieldPermanentIds]
+    : [];
   let lastCreatedTokenIds: string[] = [];
   let lastGoadedCreatures: BattlefieldPermanent[] = [];
   let lastSacrificedCreaturesPowerTotal = 0;
@@ -270,6 +278,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'skip_next_draw_step': {
+        const result = applySkipNextDrawStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'grant_graveyard_permission': {
         const result = applyGrantGraveyardPermissionStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
@@ -369,6 +382,30 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'suspect': {
+        const result = applySuspectStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+          lastMovedCards,
+        });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'turn_face_up': {
+        const result = applyTurnFaceUpStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+          lastMovedCards,
+        });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'copy_permanent': {
+        const result = applyCopyPermanentStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+          lastMovedCards,
+        });
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'scry': {
         const result = applyScryStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
@@ -378,6 +415,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'surveil': {
         const result = applySurveilStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'look_select_top': {
+        const result = applyLookSelectTopStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
@@ -487,6 +529,11 @@ export function applyOracleIRStepsToGameStateImpl(
         });
         break;
       }
+      case 'prevent_damage': {
+        const result = applyPreventDamageStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'tap_or_untap': {
         const result = applyTapOrUntapStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -504,6 +551,7 @@ export function applyOracleIRStepsToGameStateImpl(
         });
         applyHandledStepResult(step, result, (appliedResult) => {
           lastMovedCards = Array.isArray(appliedResult.lastMovedCards) ? [...appliedResult.lastMovedCards] : lastMovedCards;
+          currentCtx = { ...currentCtx, lastMovedCards };
         });
         break;
       }
@@ -516,6 +564,11 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedBattlefieldPermanentIds = Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
             ? [...appliedResult.lastMovedBattlefieldPermanentIds]
             : [];
+          currentCtx = {
+            ...currentCtx,
+            lastMovedCards,
+            lastMovedBattlefieldPermanentIds,
+          };
         });
         break;
       }
@@ -562,6 +615,80 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'copy_spell': {
+        if (step.subject === 'last_moved_card') {
+          if (lastMovedCards.length !== 1) {
+            recordSkippedStep(
+              step,
+              `Skipped copy spell step (no copied moved card available): ${step.raw}`,
+              'invalid_copy_spell_source',
+              {
+                classification: 'invalid_input',
+              }
+            );
+            break;
+          }
+
+          const movedCard = lastMovedCards[0] as any;
+          const copiedSpellText = String(movedCard?.oracle_text || movedCard?.card?.oracle_text || '').trim();
+          if (!copiedSpellText) {
+            recordSkippedStep(
+              step,
+              `Skipped copy spell step (copied spell text unavailable): ${step.raw}`,
+              'invalid_copy_spell_source',
+              {
+                classification: 'invalid_input',
+              }
+            );
+            break;
+          }
+
+          const copiedSpellIr = parseOracleTextToIR(
+            copiedSpellText,
+            String(movedCard?.name || movedCard?.card?.name || 'Copied Spell')
+          );
+          const replayableSteps = copiedSpellIr.abilities
+            .flatMap((ability) => ability.steps)
+            .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell' && candidate.kind !== 'unknown');
+          if (replayableSteps.length === 0) {
+            recordSkippedStep(
+              step,
+              `Skipped copy spell step (no deterministic copied spell steps): ${step.raw}`,
+              'invalid_copy_spell_source',
+              {
+                classification: 'invalid_input',
+              }
+            );
+            break;
+          }
+
+          const replayCtx: OracleIRExecutionContext = {
+            ...currentCtx,
+            sourceId: String(movedCard?.id || movedCard?.card?.id || currentCtx.sourceId || '').trim() || currentCtx.sourceId,
+            sourceName: String(movedCard?.name || movedCard?.card?.name || currentCtx.sourceName || '').trim() || currentCtx.sourceName,
+            castFromZone: undefined,
+            enteredFromZone: undefined,
+            copyReplaySteps: replayableSteps,
+          };
+
+          const replayResult = recurse(
+            nextState,
+            replayableSteps,
+            replayCtx,
+            {
+              ...options,
+              allowOptional: step.optional ? options.allowOptional : true,
+            }
+          );
+          nextState = replayResult.state;
+          setLastStepOutcome(step, 'applied');
+          log.push(`[oracle-ir] Replayed copied spell from ${String(movedCard?.name || movedCard?.card?.name || 'copied card')}`);
+          log.push(...replayResult.log);
+          appliedSteps.push(step);
+          automationGaps.push(...replayResult.automationGaps);
+          pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+          break;
+        }
+
         const replaySourceSteps = Array.isArray(currentCtx.copyReplaySteps) ? currentCtx.copyReplaySteps : steps.slice(0, stepIndex);
         const replayableSteps = replaySourceSteps
           .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell');

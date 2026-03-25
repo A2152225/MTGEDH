@@ -67,6 +67,12 @@ function parseMoveZoneBattlefieldCounters(to: OracleZone, toRaw: string): Record
   return { [counterName]: amount };
 }
 
+function parseMoveZoneEntersFaceDown(to: OracleZone, toRaw: string): boolean | undefined {
+  if (to !== 'battlefield') return undefined;
+  const normalized = normalizeOracleText(toRaw).toLowerCase();
+  return /\bface down\b/i.test(normalized) ? true : undefined;
+}
+
 function parseMoveZoneBattlefieldAttachment(to: OracleZone, toRaw: string) {
   if (to !== 'battlefield') return undefined;
 
@@ -101,6 +107,7 @@ function parseMoveZoneStep(args: {
   const battlefieldAttachedTo = parseMoveZoneBattlefieldAttachment(to, effectiveToRaw);
   const entersTapped =
     to === 'battlefield' && !/\buntapped\b/i.test(effectiveToRaw) && /\btapped\b/i.test(effectiveToRaw) ? true : undefined;
+  const entersFaceDown = parseMoveZoneEntersFaceDown(to, effectiveToRaw);
   const withCounters = parseMoveZoneBattlefieldCounters(to, effectiveToRaw);
   let moveStep: OracleEffectStep = withMeta({
     kind: 'move_zone',
@@ -110,6 +117,7 @@ function parseMoveZoneStep(args: {
     battlefieldController,
     battlefieldAttachedTo,
     entersTapped,
+    entersFaceDown,
     withCounters,
     raw: rawClause,
   });

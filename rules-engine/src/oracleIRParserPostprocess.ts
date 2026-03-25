@@ -362,6 +362,95 @@ export function mergeRevealFollowupAbilities(abilities: readonly OracleIRAbility
   return merged;
 }
 
+function parseLookSelectTopPrimaryStep(params: {
+  lookRaw: string;
+  moveRaw: string;
+  sequence?: 'then';
+  optional?: boolean;
+}): OracleEffectStep | null {
+  const normalizedLook = normalizeOracleText(String(params.lookRaw || '')).replace(/[.]+$/g, '').trim();
+  const normalizedMove = normalizeOracleText(String(params.moveRaw || '')).replace(/[.]+$/g, '').trim();
+  if (!normalizedLook || !normalizedMove) return null;
+
+  const lookMatch = normalizedLook.match(/^look at the top (a|an|\d+|x|[a-z]+) cards? of your library$/i);
+  if (!lookMatch) return null;
+
+  const moveMatch = normalizedMove.match(
+    /^(?:then\s+)?put (a|an|\d+|x|[a-z]+)(?: of (?:those cards|them))? into your hand and the rest into your graveyard$/i
+  );
+  if (!moveMatch) return null;
+
+  return {
+    kind: 'look_select_top',
+    who: { kind: 'you' },
+    amount: parseQuantity(String(lookMatch[1] || '').trim()),
+    choose: parseQuantity(String(moveMatch[1] || '').trim()),
+    destination: 'hand',
+    restDestination: 'graveyard',
+    ...(params.optional ? { optional: true } : {}),
+    ...(params.sequence ? { sequence: params.sequence } : {}),
+    raw: `${normalizedLook}. ${normalizedMove}`.trim(),
+  };
+}
+
+function parseLookSelectTopFollowupPair(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined
+): OracleEffectStep | null {
+  if (current.kind !== 'unknown' || next?.kind !== 'move_zone') return null;
+
+  const conditionalMatch = normalizeOracleText(String(current.raw || '')).match(/^if\s+([^,]+),\s*(look at the top .+)$/i);
+  if (conditionalMatch) {
+    const nested = parseLookSelectTopPrimaryStep({
+      lookRaw: String(conditionalMatch[2] || '').trim(),
+      moveRaw: String(next.raw || '').trim(),
+      sequence: current.sequence,
+      optional: current.optional,
+    });
+    if (!nested) return null;
+
+    return {
+      kind: 'conditional',
+      condition: {
+        kind: 'if',
+        raw: normalizeLeadingConditionalCondition(String(conditionalMatch[1] || '').trim()),
+      },
+      steps: [nested],
+      raw: `${normalizeOracleText(String(current.raw || '')).trim()}. ${normalizeOracleText(String(next.raw || '')).trim()}`.trim(),
+    };
+  }
+
+  return parseLookSelectTopPrimaryStep({
+    lookRaw: String(current.raw || '').trim(),
+    moveRaw: String(next.raw || '').trim(),
+    sequence: current.sequence,
+    optional: current.optional,
+  });
+}
+
+export function mergeLookSelectTopFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const merged: OracleEffectStep[] = [];
+
+    for (let i = 0; i < ability.steps.length; i += 1) {
+      const current = ability.steps[i];
+      const next = ability.steps[i + 1];
+      const combined = parseLookSelectTopFollowupPair(current, next);
+      if (combined) {
+        merged.push(combined);
+        i += 1;
+        continue;
+      }
+
+      merged.push(current);
+    }
+
+    return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
+  });
+}
+
 function parseConditionalBattlefieldEntryCounters(rawClause: string): {
   readonly condition: OracleClauseCondition;
   readonly withCounters: Record<string, number>;
@@ -850,6 +939,149 @@ export function expandDeterministicMoveZoneFollowupAbilities(
   }));
 }
 
+function stripCopyItSuffix(step: Extract<OracleEffectStep, { kind: 'move_zone' }>): OracleEffectStep {
+  const raw = String(step.raw || '').replace(/\s+and copy it\.?$/i, '').trim();
+  const what =
+    step.what.kind === 'raw'
+      ? {
+          ...step.what,
+          text: String(step.what.text || '').replace(/\s+and copy it$/i, '').trim(),
+        }
+      : step.what;
+
+  return {
+    ...step,
+    what,
+    raw,
+  };
+}
+
+export function expandMoveZoneCopiedSpellAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps: OracleEffectStep[] = [];
+
+    for (let i = 0; i < ability.steps.length; i += 1) {
+      const current = ability.steps[i];
+      const next = ability.steps[i + 1];
+
+      if (
+        current?.kind === 'move_zone' &&
+        /\band copy it\.?$/i.test(String(current.raw || '')) &&
+        next?.kind === 'unknown' &&
+        /^you may cast the copy without paying its mana cost$/i.test(normalizeOracleText(String(next.raw || '')).replace(/[.]+$/g, '').trim())
+      ) {
+        expandedSteps.push(stripCopyItSuffix(current));
+        expandedSteps.push({
+          kind: 'copy_spell',
+          subject: 'last_moved_card',
+          withoutPayingManaCost: true,
+          optional: true,
+          raw: `${String(current.raw || '').trim()}. ${String(next.raw || '').trim()}`.trim(),
+        });
+        changed = true;
+        i += 1;
+        continue;
+      }
+
+      expandedSteps.push(current);
+    }
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+function parseLookTopChooseOneToHandRestToGraveyardBody(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  bodyClause: string
+): readonly OracleEffectStep[] | null {
+  const normalized = normalizeOracleText(String(bodyClause || ''))
+    .replace(/[.]+$/g, '')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^look at the top (a|an|\d+|x|[a-z]+) cards? of your library,\s*then put one of those cards into your hand and the rest into your graveyard$/i
+  );
+  if (!match) return null;
+
+  const amount = parseQuantity(String(match[1] || '').trim());
+  if (amount.kind !== 'number') return null;
+
+  const lookedAtCount = Math.max(0, amount.value | 0);
+  const milledCount = Math.max(0, lookedAtCount - 1);
+
+  const drawStep: OracleEffectStep = {
+    kind: 'draw',
+    who: { kind: 'you' },
+    amount: { kind: 'number', value: lookedAtCount > 0 ? 1 : 0 },
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+
+  const millStep: OracleEffectStep = {
+    kind: 'mill',
+    who: { kind: 'you' },
+    amount: { kind: 'number', value: milledCount },
+    raw: normalized,
+  };
+
+  return milledCount > 0 ? [drawStep, millStep] : [drawStep];
+}
+
+function expandConditionalLookTopChooseOneToHandRestToGraveyardStep(
+  step: OracleEffectStep
+): OracleEffectStep {
+  if (step.kind !== 'conditional') return step;
+
+  let changed = false;
+  const expandedSteps: OracleEffectStep[] = [];
+
+  for (let i = 0; i < step.steps.length; i += 1) {
+    const current = step.steps[i];
+    const next = step.steps[i + 1];
+
+    if (current?.kind === 'unknown' && next?.kind === 'move_zone') {
+      const deterministic = parseLookTopChooseOneToHandRestToGraveyardBody(
+        current,
+        `${String(current.raw || '').trim()}, ${String(next.raw || '').trim()}`.trim()
+      );
+      if (deterministic && deterministic.length > 0) {
+        expandedSteps.push(...deterministic);
+        changed = true;
+        i += 1;
+        continue;
+      }
+    }
+
+    const nested = current.kind === 'conditional'
+      ? expandConditionalLookTopChooseOneToHandRestToGraveyardStep(current)
+      : current;
+    if (nested !== current) changed = true;
+    expandedSteps.push(nested);
+  }
+
+  return changed ? { ...step, steps: expandedSteps } : step;
+}
+
+export function expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps = ability.steps.map((step) => {
+      if (step.kind !== 'conditional') return step;
+      const expanded = expandConditionalLookTopChooseOneToHandRestToGraveyardStep(step);
+      if (expanded !== step) changed = true;
+      return expanded;
+    });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
 function parseDeterministicUnknownBodySteps(
   step: Extract<OracleEffectStep, { kind: 'unknown' }>,
   body: string
@@ -883,6 +1115,9 @@ function parseDeterministicUnknownBodySteps(
   };
 
   const bodyClause = String(normalizedBody.clause || '').trim();
+  const lookTopDistribution = parseLookTopChooseOneToHandRestToGraveyardBody(step, bodyClause);
+  if (lookTopDistribution && lookTopDistribution.length > 0) return lookTopDistribution;
+
   const andParts = bodyClause.split(/\s+and\s+/i).map(part => part.trim()).filter(Boolean);
   if (andParts.length > 1) {
     const parsed = andParts.flatMap(part => parseSingleClause(part) || []);
@@ -1332,6 +1567,88 @@ export function expandCopySpellUnknownAbilities(
     const expandedSteps = ability.steps.map((step) => {
       if (step.kind !== 'unknown') return step;
       const expanded = parseCopySpellUnknownStep(step);
+      if (!expanded) return step;
+      changed = true;
+      return expanded;
+    });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+function parseCopyPermanentUnknownStep(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  abilityText: string
+): OracleEffectStep | null {
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^(this creature|this permanent)\s+becomes a copy of\s+(that card|it|the exiled card),\s+except it has this ability$/i
+  );
+  if (!match) return null;
+
+  return {
+    kind: 'copy_permanent',
+    target: parseObjectSelector(String(match[1] || '').trim()),
+    source: parseObjectSelector(String(match[2] || '').trim()),
+    retainAbilityText: String(abilityText || '').trim() || undefined,
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+}
+
+export function expandCopyPermanentUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps = ability.steps.map((step) => {
+      if (step.kind !== 'unknown') return step;
+      const expanded = parseCopyPermanentUnknownStep(step, String(ability.text || '').trim());
+      if (!expanded) return step;
+      changed = true;
+      return expanded;
+    });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+function parsePreventDamageUnknownStep(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>
+): OracleEffectStep | null {
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^prevent all damage that would be dealt this turn by (target source(?: of your choice)?) that shares a color with the exiled card$/i
+  );
+  if (!match) return null;
+
+  return {
+    kind: 'prevent_damage',
+    amount: 'all',
+    target: parseObjectSelector(String(match[1] || '').trim()),
+    duration: 'this_turn',
+    sharesColorWithLinkedExiledCard: true,
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+}
+
+export function expandPreventDamageUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps = ability.steps.map((step) => {
+      if (step.kind !== 'unknown') return step;
+      const expanded = parsePreventDamageUnknownStep(step);
       if (!expanded) return step;
       changed = true;
       return expanded;

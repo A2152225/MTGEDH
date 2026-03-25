@@ -28,7 +28,7 @@ function splitConservativeActionConjunctionClause(args: {
   if (!normalized || !/\band\b/i.test(normalized)) return null;
 
   const splitMatch = normalized.match(
-    /^(.*?)\s+and\s+((?:you|each player|each opponent|target player|target opponent|that player|that opponent|this permanent|this creature|that creature|it|they)\b.+)$/i
+    /^(.*?)\s+and\s+((?:you|each player|each opponent|target player|target opponent|that player|that opponent|this permanent|this creature|that creature|it|they|suspect|create|draw|discard|exile|return|put|destroy|gain|lose|deal|tap|untap|mill|surveil|scry|investigate|populate|goad)\b.+)$/i
   );
   if (!splitMatch) return null;
 
@@ -36,6 +36,38 @@ function splitConservativeActionConjunctionClause(args: {
   const second = String(splitMatch[2] || '').trim();
   if (!first || !second) return null;
 
+  const firstStep = parseEffectClauseToStep(first);
+  const secondStep = parseEffectClauseToStep(second);
+  if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
+
+  return [first, second];
+}
+
+function splitConservativeModifyPtGrantedDiesTriggerClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const normalized = normalizeOracleText(rawClause).trim();
+  if (!normalized || !/\bgets\b/i.test(normalized) || !/\band gains?\s+"/i.test(normalized)) return null;
+
+  const match = normalized.match(
+    /^(until end of turn,\s+)?(.+?)\s+gets\s+(.+?)\s+and\s+gains?\s+("when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+.+")$/i
+  );
+  if (!match) return null;
+
+  const durationPrefix = String(match[1] || '');
+  const targetText = String(match[2] || '').trim();
+  const modifyText = String(match[3] || '').trim();
+  const quotedTrigger = String(match[4] || '').trim();
+  if (!targetText || !modifyText || !quotedTrigger) return null;
+  const normalizedTargetText = targetText.replace(/^another\s+/i, '').trim();
+  if (!normalizedTargetText) return null;
+
+  const first = durationPrefix
+    ? `${normalizedTargetText} gets ${modifyText} until end of turn`
+    : `${normalizedTargetText} gets ${modifyText}`;
+  const second = `${durationPrefix}${normalizedTargetText} gains ${quotedTrigger}`.trim();
   const firstStep = parseEffectClauseToStep(first);
   const secondStep = parseEffectClauseToStep(second);
   if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
@@ -69,6 +101,7 @@ export function buildAbilityClauses(args: {
 
   return combinedClauses.flatMap(clause =>
     splitConservativeSacrificeLeadClause({ rawClause: clause, cardName, parseEffectClauseToStep }) ??
+    splitConservativeModifyPtGrantedDiesTriggerClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCreateTokenLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeExileFromLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??

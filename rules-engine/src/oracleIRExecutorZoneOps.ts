@@ -65,6 +65,18 @@ function normalizeCardColor(value: string | undefined): string | null {
   return null;
 }
 
+function cardRepresentsPermanent(card: any): boolean {
+  const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+  return (
+    typeLine.includes('artifact') ||
+    typeLine.includes('battle') ||
+    typeLine.includes('creature') ||
+    typeLine.includes('enchantment') ||
+    typeLine.includes('land') ||
+    typeLine.includes('planeswalker')
+  );
+}
+
 function getCardOracleText(card: any): string {
   return String(card?.oracle_text || card?.oracleText || card?.text || card?.card?.oracle_text || card?.card?.oracleText || '').trim();
 }
@@ -234,14 +246,7 @@ export function cardMatchesType(card: any, type: SimpleCardType): boolean {
   const typeLine = getExecutorTypeLineLower(card);
   if (type === 'any') return true;
   if (type === 'permanent') {
-    return (
-      typeLine.includes('artifact') ||
-      typeLine.includes('battle') ||
-      typeLine.includes('creature') ||
-      typeLine.includes('enchantment') ||
-      typeLine.includes('land') ||
-      typeLine.includes('planeswalker')
-    );
+    return cardRepresentsPermanent(card);
   }
   if (type === 'nonland') return !typeLine.includes('land');
   if (type === 'aura') return typeLine.includes('aura');
@@ -912,6 +917,7 @@ export function putExactMatchingFromGraveyardOntoBattlefieldWithController(
   count: number,
   cardType: SimpleCardType,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string
 ):
@@ -934,6 +940,7 @@ export function putExactMatchingFromGraveyardOntoBattlefieldWithController(
     sourcePlayerId,
     controllerId,
     entersTapped,
+    entersFaceDown,
     withCounters,
     'gy',
     attachmentTarget
@@ -957,6 +964,7 @@ export function moveTargetedCardFromGraveyard(
   destination: 'hand' | 'exile' | 'battlefield' | 'library_top' | 'library_bottom',
   battlefieldControllerId?: PlayerID,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string,
   referenceCardName?: string
@@ -1034,6 +1042,7 @@ export function moveTargetedCardFromGraveyard(
     playerId,
     controllerId,
     entersTapped,
+    entersFaceDown,
     withCounters,
     'gy',
     attachmentTarget
@@ -1057,6 +1066,7 @@ export function moveTargetedCardFromAnyGraveyard(
   destination: 'hand' | 'exile' | 'battlefield' | 'library_top' | 'library_bottom',
   battlefieldControllerId?: PlayerID,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string,
   referenceCardName?: string
@@ -1081,6 +1091,7 @@ export function moveTargetedCardFromAnyGraveyard(
         destination,
         battlefieldControllerId,
         entersTapped,
+        entersFaceDown,
         withCounters,
         attachedToBattlefieldPermanentId,
         referenceCardName
@@ -1355,6 +1366,7 @@ export function moveTargetedCardFromHand(
   destination: 'graveyard' | 'exile' | 'battlefield',
   battlefieldControllerId?: PlayerID,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string
 ): {
@@ -1414,6 +1426,7 @@ export function moveTargetedCardFromHand(
     playerId,
     controllerId,
     entersTapped,
+    entersFaceDown,
     withCounters,
     'hand',
     attachmentTarget
@@ -1437,6 +1450,7 @@ export function moveTargetedCardFromExile(
   destination: 'hand' | 'graveyard' | 'battlefield',
   battlefieldControllerId?: PlayerID,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string
 ): {
@@ -1496,6 +1510,7 @@ export function moveTargetedCardFromExile(
     playerId,
     controllerId,
     entersTapped,
+    entersFaceDown,
     withCounters,
     'exile',
     attachmentTarget
@@ -1820,6 +1835,7 @@ function createBattlefieldPermanentsFromCards(
   sourcePlayerId: PlayerID,
   controllerId: PlayerID,
   entersTapped: boolean | undefined,
+  entersFaceDown: boolean | undefined,
   withCounters: Record<string, number> | undefined,
   sourcePrefix: string,
   attachmentTarget?: BattlefieldAttachmentTarget
@@ -1830,9 +1846,11 @@ function createBattlefieldPermanentsFromCards(
     const sourceZone =
       sourcePrefix === 'gy' ? 'graveyard' : sourcePrefix === 'ex' ? 'exile' : sourcePrefix === 'hand' ? 'hand' : sourcePrefix;
     const counters = mergeRetainedCountersForBattlefieldEntry(card, sourceZone, withCounters);
-    const battlefieldCard = { ...(card || {}), zone: 'battlefield', enteredFromZone: sourceZone } as any;
-    if ('counters' in battlefieldCard) delete battlefieldCard.counters;
-    return {
+    const faceUpCard = { ...(card || {}), zone: 'battlefield', enteredFromZone: sourceZone } as any;
+    if ('counters' in faceUpCard) delete faceUpCard.counters;
+    if ('damageSourceIds' in faceUpCard) delete faceUpCard.damageSourceIds;
+
+    const basePermanent = {
       id: `perm-${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       controller: controllerId,
       owner: sourcePlayerId,
@@ -1844,7 +1862,33 @@ function createBattlefieldPermanentsFromCards(
       ...(attachmentTarget ? { attachedTo: attachmentTarget.id } : {}),
       attachments: [],
       modifiers: [],
-      card: battlefieldCard,
+    } as any;
+
+    if (entersFaceDown) {
+      const hiddenCard = {
+        id: String(card?.id || base),
+        faceDown: true,
+        zone: 'battlefield',
+        visibility: 'public',
+        power: '2',
+        toughness: '2',
+      } as any;
+
+      return {
+        ...basePermanent,
+        basePower: 2,
+        baseToughness: 2,
+        power: 2,
+        toughness: 2,
+        effectiveTypes: ['Creature'],
+        card: hiddenCard,
+        faceUpCard,
+      } as any;
+    }
+
+    return {
+      ...basePermanent,
+      card: faceUpCard,
     } as any;
   });
 }
@@ -1946,9 +1990,18 @@ export function putAllMatchingFromExileOntoBattlefield(
   playerId: PlayerID,
   cardType: SimpleCardType,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
-  return putAllMatchingFromExileOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped, withCounters);
+  return putAllMatchingFromExileOntoBattlefieldWithController(
+    state,
+    playerId,
+    playerId,
+    cardType,
+    entersTapped,
+    entersFaceDown,
+    withCounters
+  );
 }
 
 export function putAllMatchingFromExileOntoBattlefieldWithController(
@@ -1957,6 +2010,7 @@ export function putAllMatchingFromExileOntoBattlefieldWithController(
   controllerId: PlayerID,
   cardType: SimpleCardType,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   const player = state.players.find(p => p.id === sourcePlayerId) as any;
@@ -1975,7 +2029,15 @@ export function putAllMatchingFromExileOntoBattlefieldWithController(
 
   const nextState = clearPlayableFromExileForCards(state, sourcePlayerId, moved);
   const movedClean = moved.map(stripImpulsePermissionMarkers);
-  const newPermanents = createBattlefieldPermanentsFromCards(movedClean, sourcePlayerId, controllerId, entersTapped, withCounters, 'ex');
+  const newPermanents = createBattlefieldPermanentsFromCards(
+    movedClean,
+    sourcePlayerId,
+    controllerId,
+    entersTapped,
+    entersFaceDown,
+    withCounters,
+    'ex'
+  );
 
   const updatedPlayers = nextState.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), exile: kept } as any) : p));
   return {
@@ -2093,9 +2155,18 @@ export function putAllMatchingFromGraveyardOntoBattlefield(
   playerId: PlayerID,
   cardType: SimpleCardType,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
-  return putAllMatchingFromGraveyardOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped, withCounters);
+  return putAllMatchingFromGraveyardOntoBattlefieldWithController(
+    state,
+    playerId,
+    playerId,
+    cardType,
+    entersTapped,
+    entersFaceDown,
+    withCounters
+  );
 }
 
 export function putAllMatchingFromGraveyardOntoBattlefieldWithController(
@@ -2104,6 +2175,7 @@ export function putAllMatchingFromGraveyardOntoBattlefieldWithController(
   controllerId: PlayerID,
   cardType: SimpleCardType,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   const player = state.players.find(p => p.id === sourcePlayerId) as any;
@@ -2120,7 +2192,15 @@ export function putAllMatchingFromGraveyardOntoBattlefieldWithController(
 
   if (moved.length === 0) return { state, log: [], movedPermanentIds: [] };
 
-  const newPermanents = createBattlefieldPermanentsFromCards(moved, sourcePlayerId, controllerId, entersTapped, withCounters, 'gy');
+  const newPermanents = createBattlefieldPermanentsFromCards(
+    moved,
+    sourcePlayerId,
+    controllerId,
+    entersTapped,
+    entersFaceDown,
+    withCounters,
+    'gy'
+  );
   const updatedPlayers = state.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), graveyard: kept } as any) : p));
   return {
     state: addBattlefieldPermanentsToState({ ...state, players: updatedPlayers as any } as any, newPermanents),
@@ -2170,9 +2250,18 @@ export function putAllMatchingFromHandOntoBattlefield(
   playerId: PlayerID,
   cardType: SimpleCardType,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
-  return putAllMatchingFromHandOntoBattlefieldWithController(state, playerId, playerId, cardType, entersTapped, withCounters);
+  return putAllMatchingFromHandOntoBattlefieldWithController(
+    state,
+    playerId,
+    playerId,
+    cardType,
+    entersTapped,
+    entersFaceDown,
+    withCounters
+  );
 }
 
 export function putAllMatchingFromHandOntoBattlefieldWithController(
@@ -2181,6 +2270,7 @@ export function putAllMatchingFromHandOntoBattlefieldWithController(
   controllerId: PlayerID,
   cardType: SimpleCardType,
   entersTapped?: boolean,
+  entersFaceDown?: boolean,
   withCounters?: Record<string, number>
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   const player = state.players.find(p => p.id === sourcePlayerId) as any;
@@ -2197,7 +2287,15 @@ export function putAllMatchingFromHandOntoBattlefieldWithController(
 
   if (moved.length === 0) return { state, log: [], movedPermanentIds: [] };
 
-  const newPermanents = createBattlefieldPermanentsFromCards(moved, sourcePlayerId, controllerId, entersTapped, withCounters, 'hand');
+  const newPermanents = createBattlefieldPermanentsFromCards(
+    moved,
+    sourcePlayerId,
+    controllerId,
+    entersTapped,
+    entersFaceDown,
+    withCounters,
+    'hand'
+  );
   const updatedPlayers = state.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), hand: kept } as any) : p));
   return {
     state: addBattlefieldPermanentsToState({ ...state, players: updatedPlayers as any } as any, newPermanents),

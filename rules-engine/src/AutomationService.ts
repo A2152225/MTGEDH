@@ -18,6 +18,7 @@
  */
 
 import type { GameState, BattlefieldPermanent, StackItem, PlayerRef, ManaPool } from '../../shared/src';
+import { previewPreventedDamage } from './oracleIRDamagePrevention';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { clearEndOfTurnWinLossEffects } from './winEffectCards';
 
@@ -541,14 +542,38 @@ export function applyCombatDamage(
 ): { state: GameState; log: string[] } {
   let updatedState = { ...state };
   const log: string[] = [];
+  const appendDamageSourceId = (permanent: any, sourceId: string | undefined): any => {
+    const normalizedSourceId = String(sourceId || '').trim();
+    if (!normalizedSourceId) return permanent;
+
+    const damageSourceIds = Array.isArray((permanent as any)?.damageSourceIds)
+      ? (permanent as any).damageSourceIds
+          .map((id: unknown) => String(id || '').trim())
+          .filter(Boolean)
+      : [];
+    if (damageSourceIds.includes(normalizedSourceId)) return permanent;
+
+    return {
+      ...permanent,
+      damageSourceIds: [...damageSourceIds, normalizedSourceId],
+    };
+  };
   
   for (const assignment of assignments) {
+    const prevention = previewPreventedDamage(updatedState, assignment.damage, assignment.sourceId);
+    const finalDamage = prevention.remainingDamage;
+    log.push(...prevention.log);
+    if (finalDamage <= 0) {
+      log.push(`${assignment.sourceName || assignment.sourceId} has all damage prevented`);
+      continue;
+    }
+
     if (assignment.targetType === 'player') {
       // Damage to player
       const updatedPlayers = updatedState.players.map(p => {
         if (p.id === assignment.targetId) {
-          const newLife = (p.life || 0) - assignment.damage;
-          log.push(`${assignment.sourceName} deals ${assignment.damage} damage to ${p.name} (${newLife} life)`);
+          const newLife = (p.life || 0) - finalDamage;
+          log.push(`${assignment.sourceName} deals ${finalDamage} damage to ${p.name} (${newLife} life)`);
           return { ...p, life: newLife };
         }
         return p;
@@ -559,9 +584,9 @@ export function applyCombatDamage(
       const updatedBattlefield = (updatedState.battlefield || []).map((p: BattlefieldPermanent) => {
         if (p.id === assignment.targetId) {
           const currentDamage = (p as any).damage || 0;
-          const newDamage = currentDamage + assignment.damage;
-          log.push(`${assignment.sourceName} deals ${assignment.damage} damage to ${(p.card as any)?.name}`);
-          return { ...p, damage: newDamage } as any;
+          const newDamage = currentDamage + finalDamage;
+          log.push(`${assignment.sourceName} deals ${finalDamage} damage to ${(p.card as any)?.name}`);
+          return appendDamageSourceId({ ...p, damage: newDamage } as any, assignment.sourceId) as any;
         }
         return p;
       });
@@ -571,8 +596,8 @@ export function applyCombatDamage(
       const updatedBattlefield = (updatedState.battlefield || []).map((p: BattlefieldPermanent) => {
         if (p.id === assignment.targetId) {
           const currentLoyalty = p.loyalty || 0;
-          const newLoyalty = Math.max(0, currentLoyalty - assignment.damage);
-          log.push(`${assignment.sourceName} deals ${assignment.damage} damage to ${(p.card as any)?.name} (${newLoyalty} loyalty)`);
+          const newLoyalty = Math.max(0, currentLoyalty - finalDamage);
+          log.push(`${assignment.sourceName} deals ${finalDamage} damage to ${(p.card as any)?.name} (${newLoyalty} loyalty)`);
           return { ...p, loyalty: newLoyalty };
         }
         return p;
@@ -581,15 +606,15 @@ export function applyCombatDamage(
     }
     
     // Apply lifelink
-    if (assignment.hasLifelink && assignment.damage > 0) {
+    if (assignment.hasLifelink && finalDamage > 0) {
       const source = (updatedState.battlefield || []).find(
         (p: BattlefieldPermanent) => p.id === assignment.sourceId
       );
       if (source) {
         const updatedPlayers = updatedState.players.map(p => {
           if (p.id === source.controller) {
-            const newLife = (p.life || 0) + assignment.damage;
-            log.push(`${p.name} gains ${assignment.damage} life from lifelink`);
+            const newLife = (p.life || 0) + finalDamage;
+            log.push(`${p.name} gains ${finalDamage} life from lifelink`);
             return { ...p, life: newLife };
           }
           return p;

@@ -73,6 +73,17 @@ export function resolveSingleCreatureTargetId(
     return sourceId;
   }
 
+  if (targetText === 'enchanted creature' && sourceId) {
+    const sourcePermanent = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === sourceId) as any;
+    const attachedToId = String(sourcePermanent?.attachedTo || '').trim();
+    if (
+      attachedToId &&
+      creatures.some(permanent => String((permanent as any)?.id || '').trim() === attachedToId)
+    ) {
+      return attachedToId;
+    }
+  }
+
   return undefined;
 }
 

@@ -162,6 +162,76 @@ function annotateExiledCardsWithSource(params: {
   };
 }
 
+const CARD_TYPE_WORDS = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery'] as const;
+
+function getCardTypesFromTypeLine(card: any): readonly string[] {
+  const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+  if (!typeLine) return [];
+
+  const found: string[] = [];
+  for (const typeWord of CARD_TYPE_WORDS) {
+    if (typeLine.includes(typeWord) && !found.includes(typeWord)) {
+      found.push(typeWord);
+    }
+  }
+  return found;
+}
+
+function projectLinkedExileStaticText(params: {
+  state: GameState;
+  movedCards?: readonly any[];
+  ctx: OracleIRExecutionContext;
+}): GameState {
+  const sourceId = String(params.ctx.sourceId || '').trim();
+  let movedCards = Array.isArray(params.movedCards) ? params.movedCards : [];
+  if (!sourceId) return params.state;
+  if (movedCards.length !== 1) {
+    const linkedMatches = findCardsExiledWithSource(params.state, sourceId, { cardType: 'any' });
+    movedCards = linkedMatches.length === 1 ? [linkedMatches[0].card] : [];
+  }
+  if (movedCards.length !== 1) return params.state;
+
+  const battlefield = Array.isArray((params.state as any).battlefield) ? ((params.state as any).battlefield as any[]) : [];
+  const sourcePermanent = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === sourceId);
+  if (!sourcePermanent) return params.state;
+
+  const sourceText = `${String((sourcePermanent as any)?.oracle_text || '').trim()}\n${String((sourcePermanent as any)?.card?.oracle_text || '').trim()}`
+    .toLowerCase();
+  if (!sourceText.includes("has protection from each of the exiled card's card types")) {
+    return params.state;
+  }
+
+  const projectedTypes = getCardTypesFromTypeLine(movedCards[0]);
+  if (projectedTypes.length === 0) return params.state;
+
+  const existingGranted = Array.isArray((sourcePermanent as any)?.grantedAbilities)
+    ? (sourcePermanent as any).grantedAbilities
+        .map((entry: unknown) => String(entry || '').trim())
+        .filter(Boolean)
+    : [];
+  const nextGranted = [...existingGranted];
+  for (const typeWord of projectedTypes) {
+    const grantedText = `protection from ${typeWord}`;
+    if (!nextGranted.some((entry: string) => entry.toLowerCase() === grantedText)) {
+      nextGranted.push(grantedText);
+    }
+  }
+
+  const nextBattlefield = battlefield.map((perm: any) =>
+    String((perm as any)?.id || '').trim() === sourceId
+      ? ({
+          ...perm,
+          grantedAbilities: nextGranted,
+        } as any)
+      : perm
+  );
+
+  return {
+    ...(params.state as any),
+    battlefield: nextBattlefield as any,
+  } as GameState;
+}
+
 function getControllerId(ctx: OracleIRExecutionContext): PlayerID {
   return (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
 }
@@ -638,6 +708,11 @@ export function applyMoveZoneStep(
       });
       nextState = annotated.state;
       nextMovedCards = annotated.movedCards;
+      nextState = projectLinkedExileStaticText({
+        state: nextState,
+        movedCards: nextMovedCards,
+        ctx,
+      });
     }
 
     return buildAppliedResult({ ...result, state: nextState, movedCards: nextMovedCards });
@@ -911,6 +986,7 @@ export function applyMoveZoneStep(
         step.to === 'battlefield' ? 'battlefield' : step.to,
         step.to === 'battlefield' && step.battlefieldController?.kind === 'you' ? controllerId : undefined,
         step.entersTapped,
+        step.entersFaceDown,
         effectiveWithCounters
       );
       if (result.kind === 'impossible') {
@@ -974,6 +1050,7 @@ export function applyMoveZoneStep(
             destination as any,
             contextualBattlefieldControllerId,
             step.entersTapped,
+            step.entersFaceDown,
             effectiveWithCounters,
             attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
           )
@@ -986,6 +1063,7 @@ export function applyMoveZoneStep(
               destination as any,
               contextualBattlefieldControllerId,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
             )
@@ -997,6 +1075,7 @@ export function applyMoveZoneStep(
               destination as any,
               contextualBattlefieldControllerId,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
             );
@@ -1043,6 +1122,7 @@ export function applyMoveZoneStep(
             destination as any,
             battlefieldControllerId,
             step.entersTapped,
+            step.entersFaceDown,
             effectiveWithCounters,
             attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
           )
@@ -1055,6 +1135,7 @@ export function applyMoveZoneStep(
               destination as any,
               battlefieldControllerId,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
             )
@@ -1066,6 +1147,7 @@ export function applyMoveZoneStep(
               destination as any,
               battlefieldControllerId,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
             );
@@ -1118,6 +1200,7 @@ export function applyMoveZoneStep(
                 targetPlayerId,
                 parsedTargetPlayerGy.cardType,
                 step.entersTapped,
+                step.entersFaceDown,
                 effectiveWithCounters
               )
             : putAllMatchingFromGraveyardOntoBattlefieldWithController(
@@ -1126,6 +1209,7 @@ export function applyMoveZoneStep(
                 controllerId,
                 parsedTargetPlayerGy.cardType,
                 step.entersTapped,
+                step.entersFaceDown,
                 effectiveWithCounters
               )
           : exileAllMatchingFromGraveyard(nextState, targetPlayerId, parsedTargetPlayerGy.cardType);
@@ -1208,6 +1292,7 @@ export function applyMoveZoneStep(
       step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
       step.to === 'battlefield' ? controllerId : undefined,
       step.entersTapped,
+      step.entersFaceDown,
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       ctx.sourceName
@@ -1270,6 +1355,7 @@ export function applyMoveZoneStep(
           : controllerId
         : undefined,
       step.entersTapped,
+      step.entersFaceDown,
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       ctx.sourceName
@@ -1354,6 +1440,7 @@ export function applyMoveZoneStep(
           : controllerId
         : undefined,
       step.entersTapped,
+      step.entersFaceDown,
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
     );
@@ -1417,6 +1504,7 @@ export function applyMoveZoneStep(
           : controllerId
         : undefined,
       step.entersTapped,
+      step.entersFaceDown,
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
     );
@@ -1480,6 +1568,7 @@ export function applyMoveZoneStep(
           : controllerId
         : undefined,
       step.entersTapped,
+      step.entersFaceDown,
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
     );
@@ -1541,6 +1630,7 @@ export function applyMoveZoneStep(
       step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
       step.to === 'battlefield' ? controllerId : undefined,
       step.entersTapped,
+      step.entersFaceDown,
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       ctx.sourceName
@@ -1591,6 +1681,7 @@ export function applyMoveZoneStep(
       step.to,
       step.to === 'battlefield' ? controllerId : undefined,
       step.entersTapped,
+      step.entersFaceDown,
       effectiveWithCounters
     );
 
@@ -1639,6 +1730,7 @@ export function applyMoveZoneStep(
       step.to,
       step.to === 'battlefield' ? controllerId : undefined,
       step.entersTapped,
+      step.entersFaceDown,
       effectiveWithCounters
     );
 
@@ -1703,6 +1795,7 @@ export function applyMoveZoneStep(
               parsedTargetCountFromGraveyard.count,
               parsedTargetCountFromGraveyard.cardType,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
             )
@@ -1789,6 +1882,7 @@ export function applyMoveZoneStep(
                 targetPlayerId,
                 parsedTargetPlayerExile.cardType,
                 step.entersTapped,
+                step.entersFaceDown,
                 effectiveWithCounters
               )
             : putAllMatchingFromExileOntoBattlefieldWithController(
@@ -1797,6 +1891,7 @@ export function applyMoveZoneStep(
                 controllerId,
                 parsedTargetPlayerExile.cardType,
                 step.entersTapped,
+                step.entersFaceDown,
                 effectiveWithCounters
               );
     return finalizeAppliedResult(result);
@@ -1837,6 +1932,7 @@ export function applyMoveZoneStep(
               controllerId,
               parsedTargetPlayerHand.cardType,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters
             )
           : putAllMatchingFromHandOntoBattlefield(
@@ -1844,6 +1940,7 @@ export function applyMoveZoneStep(
               targetPlayerId,
               parsedTargetPlayerHand.cardType,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters
             )
         : moveAllMatchingFromHand(nextState, targetPlayerId, parsedTargetPlayerHand.cardType, step.to);
@@ -1875,6 +1972,7 @@ export function applyMoveZoneStep(
               parsedCountFromGraveyard.count,
               parsedCountFromGraveyard.cardType,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
             )
@@ -1951,6 +2049,7 @@ export function applyMoveZoneStep(
                   player.id,
                   parsedEachOpponentsExile.cardType,
                   step.entersTapped,
+                  step.entersFaceDown,
                   effectiveWithCounters
                 )
               : putAllMatchingFromExileOntoBattlefieldWithController(
@@ -1959,6 +2058,7 @@ export function applyMoveZoneStep(
                   controllerId,
                   parsedEachOpponentsExile.cardType,
                   step.entersTapped,
+                  step.entersFaceDown,
                   effectiveWithCounters
                 );
       nextState = result.state;
@@ -1996,6 +2096,7 @@ export function applyMoveZoneStep(
                   player.id,
                   parsedEachOpponentsGy.cardType,
                   step.entersTapped,
+                  step.entersFaceDown,
                   effectiveWithCounters
                 )
               : putAllMatchingFromGraveyardOntoBattlefieldWithController(
@@ -2004,6 +2105,7 @@ export function applyMoveZoneStep(
                   controllerId,
                   parsedEachOpponentsGy.cardType,
                   step.entersTapped,
+                  step.entersFaceDown,
                   effectiveWithCounters
                 )
             : exileAllMatchingFromGraveyard(nextState, player.id, parsedEachOpponentsGy.cardType);
@@ -2041,6 +2143,7 @@ export function applyMoveZoneStep(
                 controllerId,
                 parsedEachOpponentsHand.cardType,
                 step.entersTapped,
+                step.entersFaceDown,
                 effectiveWithCounters
               )
             : putAllMatchingFromHandOntoBattlefield(
@@ -2048,6 +2151,7 @@ export function applyMoveZoneStep(
                 player.id,
                 parsedEachOpponentsHand.cardType,
                 step.entersTapped,
+                step.entersFaceDown,
                 effectiveWithCounters
               )
           : moveAllMatchingFromHand(nextState, player.id, parsedEachOpponentsHand.cardType, step.to);
@@ -2079,6 +2183,7 @@ export function applyMoveZoneStep(
                   controllerId,
                   parsedEachPlayersGy.cardType,
                   step.entersTapped,
+                  step.entersFaceDown,
                   effectiveWithCounters
                 )
               : putAllMatchingFromGraveyardOntoBattlefield(
@@ -2086,6 +2191,7 @@ export function applyMoveZoneStep(
                   player.id,
                   parsedEachPlayersGy.cardType,
                   step.entersTapped,
+                  step.entersFaceDown,
                   effectiveWithCounters
                 )
             : exileAllMatchingFromGraveyard(nextState, player.id, parsedEachPlayersGy.cardType);
@@ -2118,6 +2224,7 @@ export function applyMoveZoneStep(
                   controllerId,
                   parsedEachPlayersExile.cardType,
                   step.entersTapped,
+                  step.entersFaceDown,
                   effectiveWithCounters
                 )
               : putAllMatchingFromExileOntoBattlefield(
@@ -2125,6 +2232,7 @@ export function applyMoveZoneStep(
                   player.id,
                   parsedEachPlayersExile.cardType,
                   step.entersTapped,
+                  step.entersFaceDown,
                   effectiveWithCounters
                 );
       nextState = result.state;
@@ -2153,6 +2261,7 @@ export function applyMoveZoneStep(
                 controllerId,
                 parsedEachPlayersHand.cardType,
                 step.entersTapped,
+                step.entersFaceDown,
                 effectiveWithCounters
               )
             : putAllMatchingFromHandOntoBattlefield(
@@ -2160,6 +2269,7 @@ export function applyMoveZoneStep(
                 player.id,
                 parsedEachPlayersHand.cardType,
                 step.entersTapped,
+                step.entersFaceDown,
                 effectiveWithCounters
               )
           : moveAllMatchingFromHand(nextState, player.id, parsedEachPlayersHand.cardType, step.to);
@@ -2187,6 +2297,7 @@ export function applyMoveZoneStep(
         controllerId,
         parsedFromGraveyard.cardType,
         step.entersTapped,
+        step.entersFaceDown,
         effectiveWithCounters
       );
       return finalizeAppliedResult(result);
@@ -2219,6 +2330,7 @@ export function applyMoveZoneStep(
               controllerId,
               parsedFromExile.cardType,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters
             )
           : putAllMatchingFromExileOntoBattlefield(
@@ -2226,6 +2338,7 @@ export function applyMoveZoneStep(
               controllerId,
               parsedFromExile.cardType,
               step.entersTapped,
+              step.entersFaceDown,
               effectiveWithCounters
             );
       return finalizeAppliedResult(result);
@@ -2253,6 +2366,7 @@ export function applyMoveZoneStep(
           controllerId,
           parsedFromHand!.cardType,
           step.entersTapped,
+          step.entersFaceDown,
           effectiveWithCounters
         )
       : moveAllMatchingFromHand(nextState, controllerId, parsedFromHand!.cardType, step.to);

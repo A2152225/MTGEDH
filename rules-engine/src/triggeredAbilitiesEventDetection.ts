@@ -16,7 +16,7 @@ export function detectTriggeredAbilityEvent<T extends string>(
 
   if (isDiesStyleTrigger) {
     const isControlledCreatureDiesTrigger =
-      /^(?:(?:one or more|another)\s+)?(?:a|an)?\s*(?:nontoken\s+)?creatures?\s+you control(?:\s+but\s+(?:don't|dont|do not)\s+own)?(?:\s+(?:without\s+[^,]+|with\s+[^,]+(?:\s+on\s+it)?))?\s+dies?$/i.test(
+      /^(?:(?:one or more|another)\s+)?(?:a|an)?\s*(?:(?:[^,]+?)\s+)?creatures?\s+you control(?:\s+but\s+(?:don't|dont|do not)\s+own)?(?:\s+(?:without\s+[^,]+|with\s+[^,]+(?:\s+on\s+it)?))?\s+dies?$/i.test(
         text
       );
 
@@ -29,6 +29,9 @@ export function detectTriggeredAbilityEvent<T extends string>(
       text.includes('enchanted land') ||
       text.includes('enchanted permanent')
     ) {
+      return { event: triggerEventValues.DIES, filter: text };
+    }
+    if (text.includes('dealt damage by')) {
       return { event: triggerEventValues.DIES, filter: text };
     }
     if (isControlledCreatureDiesTrigger) {

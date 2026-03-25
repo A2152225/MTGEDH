@@ -393,6 +393,37 @@ describe('Turn Actions', () => {
     expect(player?.library?.length).toBe(1);
   });
 
+  it('should consume a pending skip-next-draw-step effect instead of drawing', () => {
+    const gameStates = new Map<string, GameState>();
+    const context = createMockContext(gameStates);
+
+    const state: GameState = {
+      players: [
+        {
+          id: 'player1',
+          library: [{ id: 'card1', name: 'Forest' }, { id: 'card2', name: 'Island' }],
+          hand: [],
+        },
+      ],
+      skipNextDrawStepEffects: [
+        {
+          id: 'skip-draw-1',
+          playerId: 'player1',
+          sourceName: 'Molten Firebird',
+          remainingSkips: 1,
+        },
+      ],
+    } as any;
+
+    const result = executeDrawStep(state, 'player1', context, 'test-game');
+    const player = result.state.players.find(p => p.id === 'player1');
+
+    expect(player?.hand?.length).toBe(0);
+    expect(player?.library?.length).toBe(2);
+    expect((result.state as any).skipNextDrawStepEffects || []).toEqual([]);
+    expect(result.logs.some(log => log.includes('Molten Firebird'))).toBe(true);
+  });
+
   it('should turn an empty-library draw into a win with Laboratory Maniac', () => {
     const gameStates = new Map<string, GameState>();
     const context = createMockContext(gameStates);

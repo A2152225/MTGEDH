@@ -2,20 +2,27 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
+  createSourceColorDamagePreventionEffect,
+  previewPreventedDamage,
+  registerDamagePreventionEffect,
+} from './oracleIRDamagePrevention';
+import {
   normalizeRepeatedEachAllInList,
   parseDeterministicMixedDamageTarget,
   parseSimpleBattlefieldSelector,
 } from './oracleIRExecutorBattlefieldParser';
 import { permanentMatchesSelector } from './oracleIRExecutorBattlefieldOps';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
+import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import {
-  addDamageToPermanentLikeCreature,
+  addDamageToPermanentLikeCreatureFromSource,
   getExcessDamageToPermanent,
   hasExecutorClass,
   removeDefenseCountersFromBattle,
   removeLoyaltyFromPlaneswalker,
 } from './oracleIRExecutorPermanentUtils';
 import { adjustLife, getCardManaValue, quantityToNumber, resolvePlayers, resolvePlayersFromDamageTarget } from './oracleIRExecutorPlayerUtils';
+import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -34,6 +41,23 @@ type StepSkipResult = {
 };
 
 export type DamageStepHandlerResult = StepApplyResult | StepSkipResult;
+
+type PreventionStepApplyResult = {
+  readonly applied: true;
+  readonly state: GameState;
+  readonly log: readonly string[];
+};
+
+type PreventionStepSkipResult = {
+  readonly applied: false;
+  readonly message: string;
+  readonly reason: 'impossible_action' | 'unsupported_target' | 'missing_linked_card';
+  readonly options?: {
+    readonly classification?: 'ambiguous' | 'invalid_input';
+  };
+};
+
+export type PreventDamageStepHandlerResult = PreventionStepApplyResult | PreventionStepSkipResult;
 
 type DamageRuntime = {
   readonly lastMovedCards?: readonly any[];
@@ -80,12 +104,15 @@ function applyDamageToMatchingBattlefield(
   matcher: (permanent: any) => boolean
 ): { state: GameState; excessDamageDealtThisWay: number } {
   let excessDamageThisStep = 0;
+  const sourcePermanentId = String(ctx.sourceId || '').trim() || undefined;
 
   const updatedBattlefield = (state.battlefield || []).map(permanent => {
     if (!matcher(permanent)) return permanent as any;
     excessDamageThisStep += getExcessDamageToPermanent(permanent as any, amount);
     if (hasExecutorClass(permanent as any, 'battle')) return removeDefenseCountersFromBattle(permanent as any, amount);
-    if (hasExecutorClass(permanent as any, 'creature')) return addDamageToPermanentLikeCreature(permanent as any, amount);
+    if (hasExecutorClass(permanent as any, 'creature')) {
+      return addDamageToPermanentLikeCreatureFromSource(permanent as any, amount, sourcePermanentId);
+    }
     if (hasExecutorClass(permanent as any, 'planeswalker')) return removeLoyaltyFromPlaneswalker(permanent as any, amount);
     return permanent as any;
   }) as any;
@@ -94,6 +121,36 @@ function applyDamageToMatchingBattlefield(
     state: { ...(state as any), battlefield: updatedBattlefield } as any,
     excessDamageDealtThisWay: Math.max(0, excessDamageThisStep),
   };
+}
+
+function resolvePreventionTargetSourceId(state: GameState, ctx: OracleIRExecutionContext): string | null {
+  const directTargetId = String(ctx.targetPermanentId || '').trim();
+  if (directTargetId) return directTargetId;
+
+  const chosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [];
+  if (chosenObjectIds.length === 1) {
+    const chosenId = String(chosenObjectIds[0] || '').trim();
+    if (chosenId) return chosenId;
+  }
+
+  return null;
+}
+
+function findSourceObject(state: GameState, sourceId: string): any | null {
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!normalizedSourceId) return null;
+
+  const battlefieldMatch = (state.battlefield || []).find(
+    (permanent: any) => String((permanent as any)?.id || '').trim() === normalizedSourceId
+  );
+  if (battlefieldMatch) return battlefieldMatch;
+
+  const stackMatch = (state.stack || []).find(
+    (item: any) => String((item as any)?.id || '').trim() === normalizedSourceId
+  );
+  if (stackMatch) return stackMatch;
+
+  return null;
 }
 
 function resolveMixedDamagePlayers(
@@ -141,13 +198,21 @@ export function applyDealDamageStep(
 
   let nextState = state;
   const log: string[] = [];
+  const damageSourceId = String(ctx.sourceId || '').trim() || undefined;
+  const prevention = previewPreventedDamage(nextState, amount, damageSourceId);
+  log.push(...prevention.log);
+  const finalAmount = prevention.remainingDamage;
+  if (finalAmount <= 0) {
+    log.push(`All damage was prevented: ${step.raw}`);
+    return { applied: true, state: nextState, log, excessDamageDealtThisWay: 0 };
+  }
 
   const players = resolvePlayersFromDamageTarget(nextState, step.target as any, ctx);
   if (players.length > 0) {
     for (const playerId of players) {
-      const result = adjustLife(nextState, playerId, -amount);
+      const result = adjustLife(nextState, playerId, -finalAmount);
       nextState = result.state;
-      log.push(`${playerId} is dealt ${amount} damage`);
+      log.push(`${playerId} is dealt ${finalAmount} damage`);
     }
 
     return { applied: true, state: nextState, log, excessDamageDealtThisWay: 0 };
@@ -159,11 +224,11 @@ export function applyDealDamageStep(
     if (singleCreatureId) {
       const result = applyDamageToMatchingBattlefield(
         nextState,
-        amount,
+        finalAmount,
         ctx,
         permanent => String((permanent as any)?.id || '').trim() === singleCreatureId
       );
-      log.push(`Dealt ${amount} damage to ${rawText}`);
+      log.push(`Dealt ${finalAmount} damage to ${rawText}`);
       return {
         applied: true,
         state: result.state,
@@ -175,16 +240,16 @@ export function applyDealDamageStep(
     const mixed = parseDeterministicMixedDamageTarget(rawText);
     if (mixed) {
       for (const playerId of resolveMixedDamagePlayers(nextState, mixed.players, ctx)) {
-        const result = adjustLife(nextState, playerId, -amount);
+        const result = adjustLife(nextState, playerId, -finalAmount);
         nextState = result.state;
-        log.push(`${playerId} is dealt ${amount} damage`);
+        log.push(`${playerId} is dealt ${finalAmount} damage`);
       }
 
       let excessDamageDealtThisWay = 0;
       for (const selector of mixed.selectors) {
         const result = applyDamageToMatchingBattlefield(
           nextState,
-          amount,
+          finalAmount,
           ctx,
           permanent => permanentMatchesSelector(permanent as any, selector, ctx)
         );
@@ -192,7 +257,7 @@ export function applyDealDamageStep(
         excessDamageDealtThisWay += result.excessDamageDealtThisWay;
       }
 
-      log.push(`Dealt ${amount} damage to ${rawText}`);
+      log.push(`Dealt ${finalAmount} damage to ${rawText}`);
       return {
         applied: true,
         state: nextState,
@@ -221,11 +286,11 @@ export function applyDealDamageStep(
 
       const result = applyDamageToMatchingBattlefield(
         nextState,
-        amount,
+        finalAmount,
         ctx,
         permanent => permanentMatchesSelector(permanent as any, selector, ctx)
       );
-      log.push(`Dealt ${amount} damage to ${normalized}`);
+      log.push(`Dealt ${finalAmount} damage to ${normalized}`);
       return {
         applied: true,
         state: result.state,
@@ -239,5 +304,86 @@ export function applyDealDamageStep(
     applied: false,
     message: `Skipped deal damage (unsupported target): ${step.raw}`,
     reason: 'unsupported_target',
+  };
+}
+
+export function applyPreventDamageStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'prevent_damage' }>,
+  ctx: OracleIRExecutionContext
+): PreventDamageStepHandlerResult {
+  const targetSourceId = resolvePreventionTargetSourceId(state, ctx);
+  if (!targetSourceId) {
+    return {
+      applied: false,
+      message: `Skipped prevent damage (target source unavailable): ${step.raw}`,
+      reason: 'unsupported_target',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const targetSource = findSourceObject(state, targetSourceId);
+  if (!targetSource) {
+    return {
+      applied: false,
+      message: `Skipped prevent damage (target source unavailable): ${step.raw}`,
+      reason: 'unsupported_target',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  let linkedColors: readonly string[] = [];
+  if (step.sharesColorWithLinkedExiledCard) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const linkedMatches = sourceId
+      ? findCardsExiledWithSource(state, sourceId, { cardType: 'any' })
+      : [];
+    if (linkedMatches.length !== 1) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (linked exiled card unavailable): ${step.raw}`,
+        reason: 'missing_linked_card',
+      };
+    }
+
+    linkedColors = getColorsFromObject(linkedMatches[0].card)
+      .map((color) => String(color || '').trim().toUpperCase())
+      .filter(Boolean);
+    if (linkedColors.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (linked exiled card has no known colors): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { classification: 'invalid_input' },
+      };
+    }
+
+    const targetColors = getColorsFromObject(targetSource)
+      .map((color) => String(color || '').trim().toUpperCase())
+      .filter(Boolean);
+    if (!linkedColors.some((color) => targetColors.includes(color))) {
+      return {
+        applied: false,
+        message: `Skipped prevent damage (target source does not share a linked color): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { classification: 'invalid_input' },
+      };
+    }
+  }
+
+  const effect = createSourceColorDamagePreventionEffect({
+    state,
+    sourceId: ctx.sourceId,
+    sourceName: ctx.sourceName,
+    controllerId: ctx.controllerId,
+    targetSourceId,
+    colors: linkedColors,
+    description: `Prevent all damage this turn by ${targetSourceId}`,
+  });
+
+  return {
+    applied: true,
+    state: registerDamagePreventionEffect(state, effect),
+    log: [`Prevent all damage this turn by ${targetSourceId}`],
   };
 }

@@ -266,6 +266,37 @@ describe('Trigger Parsing', () => {
       expect(orbAbilities[0].event).toBe(TriggerEvent.DIES);
       expect(orbAbilities[0].triggerFilter).toBe('equipped creature dies');
     });
+
+    it('preserves damage-provenance dies filters for Dread Slaver, Soul Collector, and Scythe of the Wretched', () => {
+      const dreadAbilities = parseTriggeredAbilitiesFromText(
+        'Whenever a creature dealt damage by this creature this turn dies, return it to the battlefield under your control.',
+        'dread-slaver',
+        'player-1',
+        'Dread Slaver'
+      );
+      const soulAbilities = parseTriggeredAbilitiesFromText(
+        'Whenever a creature dealt damage by this creature this turn dies, return that card to the battlefield under your control.',
+        'soul-collector',
+        'player-1',
+        'Soul Collector'
+      );
+      const scytheAbilities = parseTriggeredAbilitiesFromText(
+        'Whenever a creature dealt damage by equipped creature this turn dies, return that card to the battlefield under your control.',
+        'scythe',
+        'player-1',
+        'Scythe of the Wretched'
+      );
+
+      expect(dreadAbilities).toHaveLength(1);
+      expect(dreadAbilities[0].event).toBe(TriggerEvent.DIES);
+      expect(dreadAbilities[0].triggerFilter).toBe('a creature dealt damage by this creature this turn dies');
+      expect(soulAbilities).toHaveLength(1);
+      expect(soulAbilities[0].event).toBe(TriggerEvent.DIES);
+      expect(soulAbilities[0].triggerFilter).toBe('a creature dealt damage by this creature this turn dies');
+      expect(scytheAbilities).toHaveLength(1);
+      expect(scytheAbilities[0].event).toBe(TriggerEvent.DIES);
+      expect(scytheAbilities[0].triggerFilter).toBe('a creature dealt damage by equipped creature this turn dies');
+    });
     
     it('should detect optional triggers with "you may"', () => {
       const oracleText = 'Whenever this creature attacks, you may draw a card.';
@@ -1806,6 +1837,37 @@ describe('Trigger Parsing', () => {
       expect(tokenDeath).toHaveLength(0);
     });
 
+    it('processEvent supports face-down controlled-creature dies filters from Yarus', () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        "Whenever a face-down creature you control dies, return it to the battlefield face down under its owner's control if it's a permanent card, then turn it face up.",
+        'yarus',
+        'p1',
+        'Yarus, Roar of the Old Gods'
+      );
+
+      const faceDownMatch = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, abilities, {
+        sourceId: 'morphed-creature',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'morphed-creature',
+        permanentTypes: ['Creature'],
+        sourceIsFaceDown: true,
+      } as any);
+
+      const faceUpMiss = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, abilities, {
+        sourceId: 'face-up-creature',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'face-up-creature',
+        permanentTypes: ['Creature'],
+        sourceIsFaceDown: false,
+      } as any);
+
+      expect(abilities[0]?.triggerFilter).toBe('a face-down creature you control dies');
+      expect(faceDownMatch).toHaveLength(1);
+      expect(faceUpMiss).toHaveLength(0);
+    });
+
     it('processEvent supports one-or-more controlled die wording from Liesa, Forgotten Archangel', () => {
       const abilities = parseTriggeredAbilitiesFromText(
         "Whenever one or more nontoken creatures you control die, return those cards to their owner's hand at the beginning of the next end step.",
@@ -1936,6 +1998,81 @@ describe('Trigger Parsing', () => {
       expect(enchantedMatch).toHaveLength(1);
       expect(enchantedMiss).toHaveLength(0);
       expect(equippedMatch).toHaveLength(1);
+    });
+
+    it('processEvent supports damage-provenance dies filters from Dread Slaver and Soul Collector', () => {
+      const dreadAbilities = parseTriggeredAbilitiesFromText(
+        'Whenever a creature dealt damage by this creature this turn dies, return it to the battlefield under your control.',
+        'dread-slaver',
+        'p1',
+        'Dread Slaver'
+      );
+      const soulAbilities = parseTriggeredAbilitiesFromText(
+        'Whenever a creature dealt damage by this creature this turn dies, return that card to the battlefield under your control.',
+        'soul-collector',
+        'p1',
+        'Soul Collector'
+      );
+
+      const dreadMatch = processEvent(TriggerEvent.DIES, dreadAbilities, {
+        sourceId: 'dead-bear',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-bear',
+        permanentTypes: ['Creature'],
+        damagedByPermanentIds: ['dread-slaver'],
+      } as any);
+      const dreadMiss = processEvent(TriggerEvent.DIES, dreadAbilities, {
+        sourceId: 'dead-bear',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-bear',
+        permanentTypes: ['Creature'],
+        damagedByPermanentIds: ['other-creature'],
+      } as any);
+      const soulMatch = processEvent(TriggerEvent.DIES, soulAbilities, {
+        sourceId: 'dead-wolf',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-wolf',
+        permanentTypes: ['Creature'],
+        damagedByPermanentIds: ['soul-collector'],
+      } as any);
+
+      expect(dreadMatch).toHaveLength(1);
+      expect(dreadMiss).toHaveLength(0);
+      expect(soulMatch).toHaveLength(1);
+    });
+
+    it('processEvent supports equipped-creature damage provenance filters from Scythe of the Wretched', () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        'Whenever a creature dealt damage by equipped creature this turn dies, return that card to the battlefield under your control.',
+        'scythe',
+        'p1',
+        'Scythe of the Wretched'
+      );
+
+      const match = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'dead-knight',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-knight',
+        permanentTypes: ['Creature'],
+        damagedByPermanentIds: ['equipped-attacker'],
+        sourceAttachedToPermanentIds: ['equipped-attacker'],
+      } as any);
+      const miss = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'dead-knight',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-knight',
+        permanentTypes: ['Creature'],
+        damagedByPermanentIds: ['different-attacker'],
+        sourceAttachedToPermanentIds: ['equipped-attacker'],
+      } as any);
+
+      expect(match).toHaveLength(1);
+      expect(miss).toHaveLength(0);
     });
 
     it.each([

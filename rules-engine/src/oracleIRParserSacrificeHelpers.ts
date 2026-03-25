@@ -337,9 +337,7 @@ export function tryParseLeadingConditionalStep(args: {
   if (innerClauses.length <= 0) return null;
 
   const innerSteps = innerClauses.map(part => parseEffectClauseToStep(part));
-  const hasSacrificeWrapperShape =
-    innerSteps.length > 1 && innerSteps.some(step => step.kind === 'sacrifice');
-  if (!hasSacrificeWrapperShape) return null;
+  if (innerSteps.every(step => step.kind === 'unknown')) return null;
 
   const step: {
     kind: 'conditional';

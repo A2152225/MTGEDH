@@ -173,6 +173,67 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(deathSteps[1].steps[0].to).toBe('hand');
   });
 
+  it('parses Ardyn, the Usurper into exile plus conditional copy-token follow-up steps', () => {
+    const text =
+      "Starscourge — At the beginning of combat on your turn, exile up to one target creature card from a graveyard. If a card is exiled this way, create a token that's a copy of it, except it's a 1/1 black Spirit creature in addition to its other types.";
+
+    const ir = parseOracleTextToIR(text, 'Ardyn, the Usurper');
+    const steps = ir.abilities[0]?.steps as any[];
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.type).toBe('triggered');
+    expect(steps).toHaveLength(2);
+    expect(steps[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'up to one target creature card from a graveyard' },
+      to: 'exile',
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'a card is exiled this way' },
+      steps: [
+        expect.objectContaining({
+          kind: 'create_token',
+          token: "copy of it, except it's a 1/1 black Spirit creature in addition to its other types",
+        }),
+      ],
+    });
+  });
+
+  it('parses Dino DNA token-copy activation into a create_token step linked to exiled cards', () => {
+    const text = `Imprint — {1}, {T}: Exile target creature card from a graveyard.
+{6}, {T}: Create a token that's a copy of a creature card exiled with Dino DNA, except it's a 6/6 green Dinosaur creature with trample in addition to its other types. Activate only as a sorcery.`;
+
+    const ir = parseOracleTextToIR(text, 'Dino DNA');
+    const steps = ir.abilities[1]?.steps as any[];
+
+    expect(ir.abilities[1]?.type).toBe('activated');
+    expect(steps[0]).toMatchObject({
+      kind: 'create_token',
+      token: "copy of a creature card exiled with this permanent, except it's a 6/6 green Dinosaur creature with trample in addition to its other types",
+    });
+  });
+
+  it('parses Dimir Doppelganger into exile plus copy-permanent follow-up steps', () => {
+    const text =
+      '{1}{U}{B}: Exile target creature card from a graveyard. This creature becomes a copy of that card, except it has this ability.';
+
+    const ir = parseOracleTextToIR(text, 'Dimir Doppelganger');
+    const steps = ir.abilities[0]?.steps as any[];
+
+    expect(ir.abilities[0]?.type).toBe('activated');
+    expect(steps[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'target creature card from a graveyard' },
+      to: 'exile',
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'copy_permanent',
+      source: { kind: 'raw', text: 'that card' },
+    });
+    expect(String((steps[1] as any)?.target?.text || '').toLowerCase()).toBe('this creature');
+  });
+
   it("upgrades exile-top into impulse for Hauken's Insight-style 'Once during each of your turns' permission (corpus)", () => {
     const text =
       'At the beginning of your upkeep, exile the top card of your library face down. You may look at that card for as long as it remains exiled. Once during each of your turns, you may play a land or cast a spell from among the cards exiled with this permanent without paying its mana cost.';
@@ -5468,6 +5529,29 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(String((steps[1] as any)?.effect || '')).toContain('attached to that creature');
   });
 
+  it("parses Molten Firebird as delayed return plus skip-your-next-draw-step", () => {
+    const oracleText =
+      'Flying\n' +
+      "When this creature dies, return it to the battlefield under its owner's control at the beginning of the next end step and you skip your next draw step.\n" +
+      '{4}{R}: Exile this creature.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Molten Firebird');
+    const triggered = ir.abilities.find(ability => ability.triggerCondition === 'this creature dies');
+    const steps = triggered?.steps ?? [];
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'schedule_delayed_trigger',
+        timing: 'next_end_step',
+      },
+      {
+        kind: 'skip_next_draw_step',
+        who: { kind: 'you' },
+      },
+    ]);
+    expect(String((steps[0] as any)?.effect || '')).toBe("return it to the battlefield under its owner's control");
+  });
+
   it('parses Oathkeeper, Takeno\'s Daisho as a conditional Samurai return', () => {
     const oracleText =
       "Whenever equipped creature dies, return that card to the battlefield under your control if it's a Samurai card.";
@@ -5885,6 +5969,108 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(((steps[0] as any)?.steps?.[0] as any)?.effect).toBe("return it to its owner's hand.");
   });
 
+  it('parses Molten Firebird as a delayed return plus skip-next-draw-step trigger', () => {
+    const oracleText =
+      'Flying\n' +
+      "When this creature dies, return it to the battlefield under its owner's control at the beginning of the next end step and you skip your next draw step.\n" +
+      '{4}{R}: Exile this creature.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Molten Firebird');
+    const triggered = ir.abilities.find(ability => ability.triggerCondition === 'this creature dies');
+    const activated = ir.abilities.find(ability => ability.type === 'activated');
+
+    expect(triggered?.steps).toEqual([
+      {
+        kind: 'schedule_delayed_trigger',
+        timing: 'next_end_step',
+        effect: "return it to the battlefield under its owner's control",
+        raw: "return it to the battlefield under its owner's control at the beginning of the next end step",
+      },
+      {
+        kind: 'skip_next_draw_step',
+        who: { kind: 'you' },
+        raw: 'you skip your next draw step',
+      },
+    ]);
+    expect(activated?.steps).toEqual([
+      {
+        kind: 'exile',
+        target: { kind: 'raw', text: 'this creature' },
+        raw: 'Exile this creature',
+      },
+    ]);
+  });
+
+  it("does not misclassify Shade's Form granted quote as an activated IR ability", () => {
+    const oracleText =
+      'Enchant creature\n' +
+      'Enchanted creature has "{B}: This creature gets +1/+1 until end of turn."\n' +
+      'When enchanted creature dies, return that card to the battlefield under your control.';
+
+    const ir = parseOracleTextToIR(oracleText, "Shade's Form");
+    const abilityTypes = ir.abilities.map(ability => ability.type);
+    const diesTrigger = ir.abilities.find(ability => ability.triggerCondition === 'enchanted creature dies');
+
+    expect(abilityTypes).not.toContain('activated');
+    expect(diesTrigger?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'that card' },
+        to: 'battlefield',
+      }),
+    ]);
+  });
+
+  it('parses Presumed Dead as a pump plus temporary dies trigger grant with a suspect follow-up', () => {
+    const oracleText =
+      'Until end of turn, target creature gets +2/+0 and gains "When this creature dies, return it to the battlefield under its owner\'s control and suspect it."';
+
+    const steps = parseOracleTextToIR(oracleText, 'Presumed Dead').abilities.flatMap(ability => ability.steps);
+
+    expect(steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'modify_pt',
+          target: { kind: 'raw', text: 'target creature' },
+        }),
+        expect.objectContaining({
+          kind: 'grant_temporary_dies_trigger',
+          target: { kind: 'raw', text: 'target creature' },
+          duration: 'until_end_of_turn',
+        }),
+      ])
+    );
+    expect((steps.find(step => step.kind === 'grant_temporary_dies_trigger') as any)?.effect).toBe(
+      "return it to the battlefield under its owner's control and suspect it."
+    );
+  });
+
+  it('parses Perigee Beckoner as a triggered pump plus temporary dies trigger grant', () => {
+    const oracleText =
+      'When this creature enters, until end of turn, another target creature you control gets +2/+0 and gains "When this creature dies, return it to the battlefield tapped under its owner\'s control."';
+
+    const ability = parseOracleTextToIR(oracleText, 'Perigee Beckoner').abilities[0];
+    const steps = ability?.steps ?? [];
+
+    expect(ability?.triggerCondition).toBe('this creature enters');
+    expect(steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'modify_pt',
+          target: { kind: 'raw', text: 'target creature you control' },
+        }),
+        expect.objectContaining({
+          kind: 'grant_temporary_dies_trigger',
+          target: { kind: 'raw', text: 'target creature you control' },
+          duration: 'until_end_of_turn',
+        }),
+      ])
+    );
+    expect((steps.find(step => step.kind === 'grant_temporary_dies_trigger') as any)?.effect).toBe(
+      "return it to the battlefield tapped under its owner's control."
+    );
+  });
+
   it('parses Pharika, God of Affliction as a single activated exile-plus-owner-token ability', () => {
     const oracleText =
       '{B}{G}: Exile target creature card from a graveyard. Its owner creates a 1/1 black and green Snake enchantment creature token with deathtouch.';
@@ -6176,6 +6362,59 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     );
   });
 
+  it('parses direct look-select-top self-mill selection into a deterministic library distribution step', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature dies, look at the top three cards of your library. Put one of them into your hand and the rest into your graveyard.',
+      'Testament Bearer'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'look_select_top',
+          who: { kind: 'you' },
+          amount: { kind: 'number', value: 3 },
+          choose: { kind: 'number', value: 1 },
+          destination: 'hand',
+          restDestination: 'graveyard',
+        }),
+      ])
+    );
+  });
+
+  it('parses Corpse Appraiser into a conditional look-select-top follow-up after the graveyard exile', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, exile up to one target creature card from a graveyard. If a card is put into exile this way, look at the top three cards of your library, then put one of those cards into your hand and the rest into your graveyard.',
+      'Corpse Appraiser'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'move_zone',
+          what: { kind: 'raw', text: 'up to one target creature card from a graveyard' },
+          to: 'exile',
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'a card is put into exile this way' },
+          steps: expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'draw',
+              who: { kind: 'you' },
+              amount: { kind: 'number', value: 1 },
+            }),
+            expect.objectContaining({
+              kind: 'mill',
+              who: { kind: 'you' },
+              amount: { kind: 'number', value: 2 },
+            }),
+          ]),
+        }),
+      ])
+    );
+  });
+
   it('parses Rocket-Powered Goblin Glider into an attach step behind its graveyard provenance gate', () => {
     const oracleText =
       'When this Equipment enters, if it was cast from your graveyard, attach it to target creature you control.';
@@ -6319,6 +6558,39 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
             expect.objectContaining({
               kind: 'add_mana',
               mana: '{G}',
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
+  it('parses Corpse Appraiser exile gate into conditional draw-plus-mill follow-up', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, exile up to one target creature card from a graveyard. If a card is put into exile this way, look at the top three cards of your library, then put one of those cards into your hand and the rest into your graveyard.',
+      'Corpse Appraiser'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'move_zone',
+          to: 'exile',
+          what: { kind: 'raw', text: 'up to one target creature card from a graveyard' },
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'a card is put into exile this way' },
+          steps: [
+            expect.objectContaining({
+              kind: 'draw',
+              who: { kind: 'you' },
+              amount: { kind: 'number', value: 1 },
+            }),
+            expect.objectContaining({
+              kind: 'mill',
+              who: { kind: 'you' },
+              amount: { kind: 'number', value: 2 },
             }),
           ],
         }),
@@ -6653,6 +6925,125 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         kind: 'move_zone',
         to: 'exile',
         what: { kind: 'raw', text: 'up to one target legendary creature card from a graveyard with a memory counter on it' },
+      }),
+    ]);
+  });
+
+  it('parses Mirror Golem imprint text into a triggered exile step', () => {
+    const ir = parseOracleTextToIR(
+      `Imprint — When this creature enters, you may exile target card from a graveyard.
+This creature has protection from each of the exiled card's card types. (Artifact, battle, creature, enchantment, instant, kindred, land, planeswalker, and sorcery are card types.)`,
+      'Mirror Golem'
+    );
+
+    const triggered = ir.abilities.find((ability: any) => ability.type === 'triggered');
+    expect(triggered?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        optional: true,
+        what: { kind: 'raw', text: 'target card from a graveyard' },
+      }),
+    ]);
+  });
+
+  it("parses Mourner's Shield into an activated prevent-damage step", () => {
+    const ir = parseOracleTextToIR(
+      `Imprint — When this artifact enters, you may exile target card from a graveyard.
+{2}, {T}: Prevent all damage that would be dealt this turn by target source of your choice that shares a color with the exiled card.`,
+      "Mourner's Shield"
+    );
+
+    const activated = ir.abilities.find((ability: any) => ability.type === 'activated');
+    expect(activated?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'prevent_damage',
+        amount: 'all',
+        duration: 'this_turn',
+        sharesColorWithLinkedExiledCard: true,
+      }),
+    ]);
+  });
+
+  it('parses Psionic Ritual into exile plus copied-spell replay steps', () => {
+    const ir = parseOracleTextToIR(
+      'Exile target instant or sorcery card from a graveyard and copy it. You may cast the copy without paying its mana cost.',
+      'Psionic Ritual'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'target instant or sorcery card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'last_moved_card',
+        optional: true,
+        withoutPayingManaCost: true,
+      }),
+    ]);
+  });
+
+  it('parses Ashcloud Phoenix into a face-down battlefield return step', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature dies, return it to the battlefield face down under your control.',
+      'Ashcloud Phoenix'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'it' },
+        to: 'battlefield',
+        battlefieldController: { kind: 'you' },
+        entersFaceDown: true,
+      }),
+    ]);
+  });
+
+  it('parses Missy into a tapped face-down battlefield return step', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever another nonartifact creature dies, return it to the battlefield under your control face down and tapped.',
+      'Missy'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'it' },
+        to: 'battlefield',
+        battlefieldController: { kind: 'you' },
+        entersFaceDown: true,
+        entersTapped: true,
+      }),
+    ]);
+  });
+
+  it('parses Yarus into a conditional face-down return followed by a turn-face-up step', () => {
+    const ir = parseOracleTextToIR(
+      "Whenever a face-down creature you control dies, return it to the battlefield face down under its owner's control if it's a permanent card, then turn it face up.",
+      'Yarus, Roar of the Old Gods'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "it's a permanent card" },
+        steps: [
+          expect.objectContaining({
+            kind: 'move_zone',
+            what: { kind: 'raw', text: 'it' },
+            to: 'battlefield',
+            battlefieldController: { kind: 'owner_of_moved_cards' },
+            entersFaceDown: true,
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        kind: 'turn_face_up',
+        target: { kind: 'raw', text: 'it' },
       }),
     ]);
   });

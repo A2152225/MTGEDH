@@ -54,6 +54,14 @@ export function hasExecutorClass(permanent: BattlefieldPermanent | any, klass: s
 }
 
 export function addDamageToPermanentLikeCreature(perm: BattlefieldPermanent, amount: number): BattlefieldPermanent {
+  return addDamageToPermanentLikeCreatureFromSource(perm, amount);
+}
+
+export function addDamageToPermanentLikeCreatureFromSource(
+  perm: BattlefieldPermanent,
+  amount: number,
+  sourcePermanentId?: string
+): BattlefieldPermanent {
   const n = Math.max(0, amount | 0);
   if (n <= 0) return perm;
 
@@ -61,7 +69,24 @@ export function addDamageToPermanentLikeCreature(perm: BattlefieldPermanent, amo
     Number((perm as any).markedDamage ?? (perm as any).damageMarked ?? (perm as any).damage ?? (perm as any).counters?.damage ?? 0) || 0;
   const next = current + n;
   const counters = { ...(((perm as any).counters || {}) as any), damage: next };
-  return { ...(perm as any), counters, markedDamage: next, damageMarked: next, damage: next } as any;
+  const currentDamageSourceIds = Array.isArray((perm as any)?.damageSourceIds)
+    ? (perm as any).damageSourceIds
+        .map((id: unknown) => String(id || '').trim())
+        .filter(Boolean)
+    : [];
+  const normalizedSourcePermanentId = String(sourcePermanentId || '').trim();
+  const damageSourceIds =
+    normalizedSourcePermanentId && !currentDamageSourceIds.includes(normalizedSourcePermanentId)
+      ? [...currentDamageSourceIds, normalizedSourcePermanentId]
+      : currentDamageSourceIds;
+  return {
+    ...(perm as any),
+    counters,
+    markedDamage: next,
+    damageMarked: next,
+    damage: next,
+    ...(damageSourceIds.length > 0 ? { damageSourceIds } : {}),
+  } as any;
 }
 
 export function getExcessDamageToPermanent(perm: BattlefieldPermanent, amount: number): number {

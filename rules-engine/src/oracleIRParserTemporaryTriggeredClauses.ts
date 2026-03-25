@@ -33,8 +33,16 @@ export function tryParseTemporaryGrantedDiesTriggerClause(args: {
   const normalized = normalizeOracleText(clause).trim();
   if (!normalized) return null;
 
+  if (
+    /^(?:until end of turn,\s+)?.+?\s+gets\s+.+?\s+and\s+gains?\s+"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,/i.test(
+      normalized
+    )
+  ) {
+    return null;
+  }
+
   const match = normalized.match(
-    /^until end of turn,\s+(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies,\s+(.+?)"\s*(?:\([^)]*\))?$/i
+    /^until end of turn,\s+(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+(.+?)"\s*(?:\([^)]*\))?$/i
   );
   if (match) {
     return buildGrantedDiesTriggerStep({
@@ -47,7 +55,7 @@ export function tryParseTemporaryGrantedDiesTriggerClause(args: {
   }
 
   const permanentMatch = normalized.match(
-    /^(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies,\s+(.+?)"\s*(?:\([^)]*\))?$/i
+    /^(.+?)\s+gains?\s+(?:(?:[^"]+?)\s+and\s+)?"when\s+(?:this creature|this permanent|it)\s+dies(?:\s+this\s+turn)?,\s+(.+?)"\s*(?:\([^)]*\))?$/i
   );
   if (!permanentMatch) return null;
 

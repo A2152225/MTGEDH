@@ -58,6 +58,33 @@ export function tryParseSimpleCreateTokenClause(args: {
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
 
+  const createCopy = clause.match(
+    new RegExp(
+      `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(a|an|\\d+|x|[a-z]+)\\s+token(?:s)?\\s+that(?:'s| are)\\s+(?:a\\s+copy|copies)\\s+of\\s+(.+)$`,
+      'i'
+    )
+  );
+  if (createCopy) {
+    const rawWho = String(createCopy[1] || '').trim().toLowerCase();
+    const who =
+      rawWho === 'its owner'
+        ? ({ kind: 'owner_of_moved_cards' } as const)
+        : parsePlayerSelector(createCopy[1]);
+    const amount = parseQuantity(createCopy[2]);
+    const token = `copy of ${String(createCopy[3] || '').trim()}`.trim();
+    const withCounters = parseWithCountersFromClause(clause);
+    const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
+    return withMeta({
+      kind: 'create_token',
+      who,
+      amount,
+      token,
+      withCounters,
+      battlefieldAttachedTo,
+      raw: rawClause,
+    });
+  }
+
   const create = clause.match(
     new RegExp(
       `^${PLAYER_SUBJECT_PREFIX}create(?:s)?\\s+(a|an|\\d+|x|[a-z]+)\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,

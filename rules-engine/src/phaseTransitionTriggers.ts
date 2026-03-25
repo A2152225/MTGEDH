@@ -17,7 +17,9 @@
  * - Rule 703: Turn-Based Actions
  */
 
+import type { GameState } from '../../shared/src';
 import type { TriggerEvent, TriggeredAbility, TriggerInstance, TriggerQueue } from './triggeredAbilities';
+import type { SkipNextDrawStepEffect } from '../../shared/src';
 import { 
   createTriggerInstance, 
   queueTrigger, 
@@ -78,6 +80,7 @@ export interface PhaseTransitionContext {
   readonly stack: Stack;
   readonly abilities: readonly TriggeredAbility[];
   readonly delayedTriggerRegistry?: DelayedTriggerRegistry;
+  readonly skipNextDrawStepEffects?: readonly SkipNextDrawStepEffect[];
   readonly permanentStates?: readonly PermanentState[];
   readonly playerStates?: readonly PlayerState[];
 }
@@ -430,6 +433,45 @@ export interface DrawStepResult {
   readonly log: string[];
 }
 
+export function consumeNextDrawStepSkipEffect(
+  state: GameState,
+  activePlayerId: string
+): { state: GameState; skippedBy?: string } {
+  const effects = Array.isArray((state as any).skipNextDrawStepEffects)
+    ? [...
+      ((state as any).skipNextDrawStepEffects as readonly {
+        readonly id: string;
+        readonly playerId?: string;
+        readonly sourceName?: string;
+        readonly sourceId?: string;
+        readonly remainingSkips?: number;
+      }[])
+    ]
+    : [];
+  if (effects.length === 0) return { state };
+
+  const matchIndex = effects.findIndex(effect =>
+    String(effect?.playerId || '').trim() === String(activePlayerId || '').trim() &&
+    (Number(effect?.remainingSkips) || 0) > 0
+  );
+  if (matchIndex < 0) return { state };
+
+  const matched = effects[matchIndex];
+  const remainingSkips = Math.max(0, (Number(matched?.remainingSkips) || 0) - 1);
+  const nextEffects =
+    remainingSkips > 0
+      ? effects.map((effect, index) => (index === matchIndex ? { ...effect, remainingSkips } : effect))
+      : effects.filter((_, index) => index !== matchIndex);
+
+  return {
+    state: {
+      ...(state as any),
+      skipNextDrawStepEffects: nextEffects,
+    } as GameState,
+    skippedBy: String(matched?.sourceName || matched?.sourceId || 'an effect'),
+  };
+}
+
 export function collectDrawStepTriggers(
   abilities: readonly TriggeredAbility[],
   activePlayerId: string,
@@ -775,6 +817,27 @@ export function getStepEntryTriggers(
   queue: TriggerQueue;
   log: string[];
 } {
+  if (step === PhaseStep.DRAW) {
+    const skipEffect = (context.skipNextDrawStepEffects || []).find(effect =>
+      String(effect?.playerId || '').trim() === String(context.activePlayerId || '').trim() &&
+      (Number(effect?.remainingSkips) || 0) > 0
+    );
+    if (skipEffect) {
+      const queue = createEmptyTriggerQueue();
+      const drawResult = collectDrawStepTriggers(
+        context.abilities,
+        context.activePlayerId,
+        true,
+        skipEffect?.sourceName || skipEffect?.sourceId
+      );
+      return {
+        triggers: drawResult.triggers,
+        queue,
+        log: [...drawResult.log],
+      };
+    }
+  }
+
   let queue = createEmptyTriggerQueue();
   const log: string[] = [];
   

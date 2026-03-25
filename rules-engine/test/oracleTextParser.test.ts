@@ -89,6 +89,13 @@ describe('Oracle Text Parser', () => {
       expect(result).not.toBeNull();
       expect(result?.isOptional).toBe(true);
     });
+
+    it("does not treat Shade's Form granted quoted ability as the card's activated ability", () => {
+      const result = parseActivatedAbility(
+        'Enchanted creature has "{B}: This creature gets +1/+1 until end of turn."'
+      );
+      expect(result).toBeNull();
+    });
   });
 
   describe('parseTriggeredAbility', () => {
@@ -357,6 +364,14 @@ describe('Oracle Text Parser', () => {
 
       it('should return false for simple keywords', () => {
         expect(hasActivatedAbility('Flying')).toBe(false);
+      });
+
+      it("ignores granted quoted activated abilities like Shade's Form", () => {
+        expect(
+          hasActivatedAbility(
+            'Enchant creature\nEnchanted creature has "{B}: This creature gets +1/+1 until end of turn."\nWhen enchanted creature dies, return that card to the battlefield under your control.'
+          )
+        ).toBe(false);
       });
     });
 

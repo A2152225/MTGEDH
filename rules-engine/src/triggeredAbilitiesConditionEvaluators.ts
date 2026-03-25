@@ -6,7 +6,8 @@ function evaluateDiesSubjectDescriptor(
   permanentTypes: ReadonlySet<string>,
   creatureTypes: ReadonlySet<string>,
   isToken: boolean,
-  colors: ReadonlySet<string>
+  colors: ReadonlySet<string>,
+  isFaceDown: boolean
 ): boolean {
   const cleaned = String(descriptor || '')
     .replace(/[.,]/g, ' ')
@@ -56,9 +57,17 @@ function evaluateDiesSubjectDescriptor(
       continue;
     }
 
+    if (normalizedCandidates.includes('face-down') || normalizedCandidates.includes('facedown')) {
+      if (!isFaceDown) return false;
+      continue;
+    }
+
     const negativeMatch = normalizedToken.match(/^non-?(.+)$/);
     if (negativeMatch) {
       const negativeType = String(negativeMatch[1] || '').trim();
+      if ((negativeType === 'face-down' || negativeType === 'facedown') && isFaceDown) {
+        return false;
+      }
       if (negativeType && (permanentTypes.has(negativeType) || creatureTypes.has(negativeType))) {
         return false;
       }
@@ -115,12 +124,23 @@ export function evaluateDiesTriggerCondition(
       .map(id => String(id || '').trim())
       .filter(Boolean)
   );
+  const sourceAttachedToPermanentIds = new Set(
+    (eventData.sourceAttachedToPermanentIds || [])
+      .map(id => String(id || '').trim())
+      .filter(Boolean)
+  );
+  const damagedByPermanentIds = new Set(
+    (eventData.damagedByPermanentIds || [])
+      .map(id => String(id || '').trim())
+      .filter(Boolean)
+  );
   const normalizedSourceId = String(sourceId || '').trim();
   const triggeringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
   const isToken = eventData.sourceIsToken === true || (eventData as any).isToken === true;
+  const isFaceDown = eventData.sourceIsFaceDown === true || (eventData as any).faceDown === true;
 
   if (
-    /\bthis (?:creature|permanent|card|artifact|enchantment|land|planeswalker|battle)\b/i.test(condition) &&
+    /^this (?:creature|permanent|card|artifact|enchantment|land|planeswalker|battle)\b/i.test(condition) &&
     normalizedSourceId &&
     triggeringPermanentId &&
     normalizedSourceId !== triggeringPermanentId
@@ -141,12 +161,27 @@ export function evaluateDiesTriggerCondition(
   }
 
   if (
-    (condition.includes('enchanted creature') ||
-      condition.includes('equipped creature') ||
-      condition.includes('enchanted land') ||
-      condition.includes('enchanted permanent')) &&
+    (/^(?:enchanted creature|equipped creature|enchanted land|enchanted permanent)\b/i.test(condition)) &&
     (!normalizedSourceId || !attachedByPermanentIds.has(normalizedSourceId))
   ) {
+    return false;
+  }
+
+  if (/\bdealt damage by this creature this turn\b/i.test(condition)) {
+    return Boolean(normalizedSourceId) && damagedByPermanentIds.has(normalizedSourceId);
+  }
+
+  if (/\bdealt damage by equipped creature this turn\b/i.test(condition)) {
+    if (damagedByPermanentIds.size === 0 || sourceAttachedToPermanentIds.size === 0) {
+      return false;
+    }
+
+    for (const permanentId of sourceAttachedToPermanentIds) {
+      if (damagedByPermanentIds.has(permanentId)) {
+        return true;
+      }
+    }
+
     return false;
   }
 
@@ -203,7 +238,7 @@ export function evaluateDiesTriggerCondition(
   );
   if (subjectDescriptorMatch) {
     const descriptor = String(subjectDescriptorMatch[1] || '').trim();
-    if (!evaluateDiesSubjectDescriptor(descriptor, permanentTypes, creatureTypes, isToken, colors)) {
+    if (!evaluateDiesSubjectDescriptor(descriptor, permanentTypes, creatureTypes, isToken, colors, isFaceDown)) {
       return false;
     }
   }

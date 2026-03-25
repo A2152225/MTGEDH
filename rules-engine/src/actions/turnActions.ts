@@ -15,6 +15,7 @@ import {
   resolveSpecialUpkeepOutcomes,
   clearEndOfTurnWinLossEffects,
 } from '../winEffectCards';
+import { consumeNextDrawStepSkipEffect } from '../phaseTransitionTriggers';
 
 /**
  * Execute turn-based action for untap step
@@ -63,6 +64,13 @@ export function executeDrawStep(
   gameId: string
 ): { state: GameState; logs: string[] } {
   const logs: string[] = [];
+  const skipResult = consumeNextDrawStepSkipEffect(state, activePlayerId);
+  if (skipResult.skippedBy) {
+    logs.push(`${activePlayerId} skips their draw step due to ${skipResult.skippedBy}`);
+    return { state: skipResult.state, logs };
+  }
+
+  state = skipResult.state;
   const player = state.players.find(p => p.id === activePlayerId);
   
   if (!player) {
@@ -148,6 +156,7 @@ export function executeCleanupStep(
       ...perm.counters,
       damage: 0,
     },
+    damageSourceIds: [],
   }));
   
   logs.push('Damage removed from all permanents');

@@ -394,6 +394,33 @@ describe('Phase Transition Triggers', () => {
       
       expect(result.triggers.length).toBe(0);
     });
+
+    it('suppresses draw-step triggers when the active player skips their next draw step', () => {
+      const abilities = [
+        createTestAbility('draw-trigger-1', TriggerEvent.BEGINNING_OF_DRAW_STEP, 'Howling Mine', 'Each player draws a card'),
+      ];
+
+      const context = {
+        currentStep: PhaseStep.DRAW,
+        activePlayerId: 'player-1',
+        turnNumber: 1,
+        stack: createEmptyStack(),
+        abilities,
+        skipNextDrawStepEffects: [
+          {
+            id: 'skip-draw-1',
+            playerId: 'player-1',
+            remainingSkips: 1,
+            sourceName: 'Molten Firebird',
+          },
+        ],
+      };
+
+      const result = getStepEntryTriggers(PhaseStep.DRAW, context);
+
+      expect(result.triggers).toHaveLength(0);
+      expect(result.log.some(line => line.includes('Molten Firebird'))).toBe(true);
+    });
   });
   
   describe('Phase Step Enum', () => {

@@ -75,6 +75,10 @@ export interface OracleIRExecutionContext {
   readonly copyReplaySteps?: readonly OracleEffectStep[];
   /** Internal runtime carry-over for nested conditional follow-up steps that modify exiled cards. */
   readonly lastExiledCards?: readonly any[];
+  /** Internal runtime carry-over for nested follow-up steps that reference cards moved by prior steps. */
+  readonly lastMovedCards?: readonly any[];
+  /** Internal runtime carry-over for nested follow-up steps that reference battlefield permanents moved by prior steps. */
+  readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
   readonly targetCreatureId?: string;
   /** Optional direct target permanent binding used by targeted effects like Merrow Reejerey. */

@@ -62,6 +62,20 @@ type RecentBattlefieldRuntime = {
   readonly lastMovedCards?: readonly any[];
 };
 
+function normalizeWhereQualifiedTarget(
+  target: { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined
+): { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined {
+  if (!target || target.kind !== 'raw') return target;
+  const rawText = String((target as any).text || '').trim();
+  if (!rawText) return target;
+  const normalizedText = rawText.replace(/\s*,\s*where\s+x\s+is\s+.+$/i, '').trim();
+  if (!normalizedText || normalizedText === rawText) return target;
+  return {
+    ...target,
+    text: normalizedText,
+  };
+}
+
 type ContextualBattlefieldReference =
   | { readonly mode: 'self' }
   | {
@@ -143,8 +157,31 @@ function addCountersToZoneCardsById(
     return changed ? player : player;
   });
 
+  const battlefield = Array.isArray((state as any).battlefield)
+    ? ((state as any).battlefield as any[])
+    : [];
+  let battlefieldChanged = false;
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String(perm?.id || '').trim();
+    if (!permanentId || !wantedIds.has(permanentId)) return perm;
+    battlefieldChanged = true;
+    updatedCount += 1;
+    const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+    const currentCount = Number(counters[counterName] ?? 0);
+    counters[counterName] = (Number.isFinite(currentCount) ? currentCount : 0) + amountValue;
+    const nextPermanent = { ...perm, counters };
+    updatedCards.push(nextPermanent);
+    return nextPermanent;
+  });
+
   return {
-    state: updatedCount > 0 ? ({ ...(state as any), players: players as any } as GameState) : state,
+    state: updatedCount > 0
+      ? ({
+          ...(state as any),
+          players: players as any,
+          ...(battlefieldChanged ? { battlefield: nextBattlefield as any } : {}),
+        } as GameState)
+      : state,
     updatedCards,
     updatedCount,
   };
@@ -835,6 +872,73 @@ function resolveRecentlyMovedBattlefieldPermanents(
   return singular ? matches.slice(0, 1) : matches;
 }
 
+function resolveRecentlyCreatedTokenPermanents(
+  battlefield: readonly BattlefieldPermanent[],
+  target:
+    | { readonly kind: string; readonly text?: string; readonly raw?: string }
+    | undefined,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldPermanent[] {
+  if (!target || target.kind !== 'raw') return [];
+  const recentIds = Array.isArray(runtime?.lastCreatedTokenIds)
+    ? runtime.lastCreatedTokenIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (recentIds.length === 0) return [];
+
+  const normalized = normalizeSelfReferenceText(String((target as any).text || ''));
+  if (!normalized) return [];
+
+  const singular = /^(?:it|that token|the token|that creature|the creature)$/i.test(normalized);
+  const plural = /^(?:them|those tokens|those creatures)$/i.test(normalized);
+  if (!singular && !plural) return [];
+
+  const requireCreature = /creature/i.test(normalized);
+  const matches = battlefield.filter((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!recentIds.includes(permanentId)) return false;
+    if (!(perm as any)?.isToken) return false;
+    if (requireCreature && !permanentMatchesType(perm, 'creature')) return false;
+    return true;
+  });
+
+  return singular ? matches.slice(0, 1) : matches;
+}
+
+function resolveAddCounterAmount(
+  step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
+  runtime?: RecentBattlefieldRuntime
+): number | null {
+  if (step.amount.kind === 'number') return step.amount.value;
+  if (step.amount.kind !== 'x') return null;
+
+  const raw = String(step.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
+  const movedCards = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  if (movedCards.length === 1) {
+    const movedCard = movedCards[0];
+    const manaValue = getCardManaValue(movedCard);
+    if (manaValue !== null && /\bwhere x is (?:the exiled card's|that card's|its) mana value\b/.test(raw)) {
+      return Math.max(0, manaValue);
+    }
+
+    const powerValue = readCharacteristicNumber((movedCard as any)?.power, (movedCard as any)?.card?.power);
+    if (powerValue !== undefined && /\bwhere x is (?:the exiled card's|that card's|its) power\b/.test(raw)) {
+      return Math.max(0, powerValue);
+    }
+
+    const toughnessValue = readCharacteristicNumber((movedCard as any)?.toughness, (movedCard as any)?.card?.toughness);
+    if (toughnessValue !== undefined && /\bwhere x is (?:the exiled card's|that card's|its) toughness\b/.test(raw)) {
+      return Math.max(0, toughnessValue);
+    }
+  }
+
+  return Math.max(
+    0,
+    Array.isArray(runtime?.lastCreatedTokenIds)
+      ? runtime.lastCreatedTokenIds.map(id => String(id || '').trim()).filter(Boolean).length
+      : 0
+  );
+}
+
 function buildDelayedCleanupReference(permanents: readonly BattlefieldPermanent[]): string {
   if (permanents.length <= 0) return 'that permanent';
   if (permanents.length === 1) {
@@ -1046,6 +1150,258 @@ export function applyGrantTemporaryDiesTriggerStep(
   };
 }
 
+export function applySuspectStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'suspect' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
+  const directTargets = recentTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = Array.from(
+    new Set(
+      [...recentTargets, ...directTargets]
+        .map((perm: any) => String((perm as any)?.id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped suspect (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!targetIds.includes(permanentId)) return perm;
+    return {
+      ...perm,
+      isSuspected: true,
+    } as BattlefieldPermanent;
+  });
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: nextBattlefield as any,
+    } as GameState,
+    log: [`Suspected ${targetIds.length} permanent(s)`],
+  };
+}
+
+export function applyTurnFaceUpStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'turn_face_up' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
+  const directTargets = recentTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = Array.from(
+    new Set(
+      [...recentTargets, ...directTargets]
+        .map((perm: any) => String((perm as any)?.id || '').trim())
+        .filter(Boolean)
+    )
+  );
+  const cardReferenceIds = Array.from(
+    new Set(
+      [
+        String(ctx.targetPermanentId || '').trim(),
+        String(ctx.targetCreatureId || '').trim(),
+        ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
+          ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+          : []),
+      ].filter(Boolean)
+    )
+  );
+  const fallbackTargetIds =
+    targetIds.length > 0
+      ? []
+      : battlefield
+          .filter((perm: any) =>
+            cardReferenceIds.includes(String((perm as any)?.card?.id || '').trim()) ||
+            cardReferenceIds.includes(String((perm as any)?.faceUpCard?.id || '').trim())
+          )
+          .map((perm: any) => String((perm as any)?.id || '').trim())
+          .filter(Boolean);
+  const effectiveTargetIds = targetIds.length > 0 ? targetIds : fallbackTargetIds;
+
+  if (effectiveTargetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped turn face up (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  let turnedCount = 0;
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!effectiveTargetIds.includes(permanentId)) return perm;
+    if ((perm as any)?.card?.faceDown !== true) return perm;
+
+    const faceUpCard = { ...(((perm as any)?.faceUpCard || {}) as any) };
+    if (!faceUpCard || !String(faceUpCard.id || '').trim()) return perm;
+    delete faceUpCard.faceDown;
+    faceUpCard.zone = 'battlefield';
+
+    turnedCount += 1;
+    const nextPerm: any = {
+      ...perm,
+      card: faceUpCard,
+      power: undefined,
+      toughness: undefined,
+      basePower: undefined,
+      baseToughness: undefined,
+      effectiveTypes: undefined,
+      oracle_text: undefined,
+      faceUpCard: undefined,
+    };
+    return nextPerm;
+  });
+
+  if (turnedCount === 0) {
+    return {
+      applied: false,
+      message: `Skipped turn face up (target is not face down): ${step.raw}`,
+      reason: 'impossible_action',
+      options: { persist: false },
+    };
+  }
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: nextBattlefield as any,
+    } as GameState,
+    log: [`Turned ${turnedCount} permanent(s) face up`],
+  };
+}
+
+function readCharacteristicNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function resolveCopyPermanentSourceObject(
+  step: Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
+  runtime?: RecentBattlefieldRuntime
+): any | null {
+  if (step.source.kind !== 'raw') return null;
+  const reference = String(step.source.text || '').trim().toLowerCase();
+  const movedCards = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+
+  if (reference === 'that card' || reference === 'it' || reference === 'the exiled card') {
+    return movedCards.length === 1 ? movedCards[0] : null;
+  }
+
+  return null;
+}
+
+export function applyCopyPermanentStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const directTargets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = Array.from(
+    new Set(
+      directTargets
+        .map((perm: any) => String((perm as any)?.id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (targetIds.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped copy permanent (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const sourceObject = resolveCopyPermanentSourceObject(step, runtime);
+  if (!sourceObject) {
+    return {
+      applied: false,
+      message: `Skipped copy permanent (copy source unavailable): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const sourceCard = ((sourceObject as any)?.card || sourceObject || {}) as any;
+  const sourceTypeLine = String(sourceCard?.type_line || (sourceObject as any)?.type_line || '').trim();
+  const sourceOracleText = String(sourceCard?.oracle_text || (sourceObject as any)?.oracle_text || '').trim();
+  const retainedAbilityText = String(step.retainAbilityText || '').trim();
+  const copiedOracleText = [sourceOracleText, retainedAbilityText].filter(Boolean).join('\n').trim();
+  const copiedName = String(sourceCard?.name || (sourceObject as any)?.name || '').trim();
+  const copiedPower = readCharacteristicNumber(
+    (sourceObject as any)?.basePower,
+    (sourceObject as any)?.power,
+    sourceCard?.power
+  );
+  const copiedToughness = readCharacteristicNumber(
+    (sourceObject as any)?.baseToughness,
+    (sourceObject as any)?.toughness,
+    sourceCard?.toughness
+  );
+
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!targetIds.includes(permanentId)) return perm;
+
+    const grantedAbilities = Array.isArray((perm as any)?.grantedAbilities)
+      ? (perm as any).grantedAbilities
+          .map((entry: unknown) => String(entry || '').trim())
+          .filter(Boolean)
+      : [];
+    if (retainedAbilityText && !grantedAbilities.includes(retainedAbilityText)) {
+      grantedAbilities.push(retainedAbilityText);
+    }
+
+    return {
+      ...perm,
+      ...(copiedName ? { name: copiedName } : {}),
+      ...(sourceTypeLine ? { cardType: sourceTypeLine, type_line: sourceTypeLine } : {}),
+      ...(copiedOracleText ? { oracle_text: copiedOracleText } : {}),
+      ...(Array.isArray(sourceCard?.colors) ? { colors: [...sourceCard.colors] } : {}),
+      ...(sourceCard?.mana_cost || sourceCard?.manaCost
+        ? { manaCost: sourceCard?.mana_cost ?? sourceCard?.manaCost }
+        : {}),
+      ...(copiedPower !== undefined
+        ? { power: copiedPower, basePower: copiedPower, effectivePower: undefined }
+        : {}),
+      ...(copiedToughness !== undefined
+        ? { toughness: copiedToughness, baseToughness: copiedToughness, effectiveToughness: undefined }
+        : {}),
+      ...(grantedAbilities.length > 0 ? { grantedAbilities } : {}),
+      copiedFromCardId: String(sourceCard?.id || '').trim() || undefined,
+    } as BattlefieldPermanent;
+  });
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: nextBattlefield as any,
+    } as GameState,
+    log: [`${targetIds[0]} became a copy of ${copiedName || 'the exiled card'}`],
+  };
+}
+
 export function applyScheduleDelayedTriggerStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'schedule_delayed_trigger' }>,
@@ -1238,17 +1594,7 @@ export function applyAddCounterStep(
   ctx: OracleIRExecutionContext,
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
-  const amountValue =
-    step.amount.kind === 'number'
-      ? step.amount.value
-      : step.amount.kind === 'x'
-        ? Math.max(
-            0,
-            Array.isArray(runtime?.lastCreatedTokenIds)
-              ? runtime.lastCreatedTokenIds.map(id => String(id || '').trim()).filter(Boolean).length
-              : 0
-          )
-        : null;
+  const amountValue = resolveAddCounterAmount(step, runtime);
   if (amountValue === null || amountValue <= 0) {
     return {
       applied: false,
@@ -1266,9 +1612,60 @@ export function applyAddCounterStep(
     };
   }
 
-  const targets = resolveDirectBattlefieldPermanents((state.battlefield || []) as BattlefieldPermanent[], step.target as any, ctx);
+  const normalizedTarget = normalizeWhereQualifiedTarget(step.target as any);
+  const recentTokenTargets = resolveRecentlyCreatedTokenPermanents(
+    (state.battlefield || []) as BattlefieldPermanent[],
+    normalizedTarget as any,
+    runtime
+  );
+  const recentMovedTargets = recentTokenTargets.length > 0
+    ? []
+    : resolveRecentlyMovedBattlefieldPermanents(
+        (state.battlefield || []) as BattlefieldPermanent[],
+        normalizedTarget as any,
+        runtime
+      );
+  const directTargets = recentTokenTargets.length > 0 || recentMovedTargets.length > 0
+    ? []
+    : resolveDirectBattlefieldPermanents((state.battlefield || []) as BattlefieldPermanent[], normalizedTarget as any, ctx);
+  const targets = recentTokenTargets.length > 0
+    ? recentTokenTargets
+    : recentMovedTargets.length > 0
+      ? recentMovedTargets
+      : directTargets;
+
+  if (targets.length === 0 && isContextualMovedCardReference(normalizedTarget as any)) {
+    const movedCardIds = Array.isArray(runtime?.lastMovedCards)
+      ? runtime.lastMovedCards.map((card: any) => String(card?.id || '').trim()).filter(Boolean)
+      : [];
+    const uniqueMovedCardIds = Array.from(new Set(movedCardIds));
+
+    if (uniqueMovedCardIds.length === 1) {
+      const movedCardUpdate = addCountersToZoneCardsById(state, uniqueMovedCardIds, counterName, amountValue);
+      if (movedCardUpdate.updatedCount > 0) {
+        const nextMovedCards = Array.isArray(runtime?.lastMovedCards)
+          ? runtime.lastMovedCards.map((card: any) => {
+              const cardId = String(card?.id || '').trim();
+              if (!cardId || !uniqueMovedCardIds.includes(cardId)) return card;
+              const counters = { ...((card?.counters || {}) as Record<string, number>) };
+              const currentCount = Number(counters[counterName] ?? 0);
+              counters[counterName] = (Number.isFinite(currentCount) ? currentCount : 0) + amountValue;
+              return { ...card, counters };
+            })
+          : undefined;
+
+        return {
+          applied: true,
+          state: movedCardUpdate.state,
+          log: [`Added ${amountValue} ${counterName} counter(s) to ${movedCardUpdate.updatedCount} moved card(s)`],
+          ...(nextMovedCards ? { lastMovedCards: nextMovedCards } : {}),
+        };
+      }
+    }
+  }
+
   if (targets.length === 0) {
-    if (isContextualMovedCardReference(step.target)) {
+    if (isContextualMovedCardReference(normalizedTarget as any)) {
       const movedCardIds = Array.isArray(runtime?.lastMovedCards)
         ? runtime.lastMovedCards.map((card: any) => String(card?.id || '').trim()).filter(Boolean)
         : [];

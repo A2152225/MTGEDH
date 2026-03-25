@@ -23,7 +23,7 @@ export function tryParseTemporaryModifyPtClause(params: {
   const workingClause = clause;
 
   const match = workingClause.match(
-    /^(?:then\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|the\s+creature|this\s+creature|this\s+permanent|it)\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
+    /^(?:then\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|enchanted\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
   );
   if (!match) return null;
 

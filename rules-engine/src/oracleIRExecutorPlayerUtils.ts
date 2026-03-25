@@ -611,6 +611,63 @@ export function exileTopCardsForPlayer(
   };
 }
 
+export function lookSelectTopCardsForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  lookCount: number,
+  chooseCount: number,
+  destination: 'hand' | 'graveyard',
+  restDestination: 'graveyard' | 'library',
+  restToTop = false
+): { state: GameState; log: string[]; chosen: any[]; rest: any[]; lookedAtCount: number } {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) {
+    return {
+      state,
+      log: [`Player not found: ${playerId}`],
+      chosen: [],
+      rest: [],
+      lookedAtCount: 0,
+    };
+  }
+
+  const library = [...(Array.isArray(player.library) ? player.library : [])];
+  const hand = [...(Array.isArray(player.hand) ? player.hand : [])];
+  const graveyard = [...(Array.isArray(player.graveyard) ? player.graveyard : [])];
+  const actualLookCount = Math.max(0, Math.min(library.length, lookCount | 0));
+  const chooseActual = Math.max(0, Math.min(actualLookCount, chooseCount | 0));
+  const looked = library.splice(0, actualLookCount);
+  const chosen = looked.slice(0, chooseActual);
+  const rest = looked.slice(chooseActual);
+
+  if (destination === 'hand') {
+    hand.push(...chosen);
+  } else {
+    graveyard.push(...chosen);
+  }
+
+  if (restDestination === 'graveyard') {
+    graveyard.push(...rest);
+  } else if (rest.length > 0) {
+    const reorderedRest = restToTop ? rest : [...rest].reverse();
+    library.unshift(...reorderedRest);
+  }
+
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId ? ({ ...(p as any), library, hand, graveyard } as any) : p
+  );
+
+  return {
+    state: { ...state, players: updatedPlayers as any },
+    log: [
+      `${playerId} looks at ${actualLookCount} card(s), puts ${chosen.length} into ${destination === 'hand' ? 'their hand' : 'their graveyard'}, and moves ${rest.length} to ${restDestination === 'graveyard' ? 'their graveyard' : restToTop ? 'the top of their library' : 'the bottom of their library'}`,
+    ],
+    chosen,
+    rest,
+    lookedAtCount: actualLookCount,
+  };
+}
+
 export function shouldReturnUncastExiledToBottom(step: any): boolean {
   const t = normalizeOracleText(String(step?.raw || ''));
   if (

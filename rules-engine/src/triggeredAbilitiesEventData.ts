@@ -6,9 +6,11 @@ export interface TriggerEventData {
   readonly sourceControllerId?: string;
   readonly sourceOwnerId?: string;
   readonly sourceIsToken?: boolean;
+  readonly sourceIsFaceDown?: boolean;
   readonly castFromZone?: string;
   readonly enteredFromZone?: string;
   readonly attachedByPermanentIds?: readonly string[];
+  readonly sourceAttachedToPermanentIds?: readonly string[];
   readonly targetId?: string;
   readonly targetControllerId?: string;
   readonly targetPermanentId?: string;
@@ -28,6 +30,7 @@ export interface TriggerEventData {
   readonly lifeLost?: number;
   readonly lifeGained?: number;
   readonly damageDealt?: number;
+  readonly damagedByPermanentIds?: readonly string[];
   readonly cardsDrawn?: number;
   readonly spellType?: string;
   readonly wonCoinFlip?: boolean;
@@ -294,10 +297,15 @@ export function buildTriggerEventDataFromPayloads(
     sourceControllerId: normalizedSourceControllerId,
     sourceOwnerId: scalarString('sourceOwnerId') ?? scalarString('ownerId') ?? scalarString('owner'),
     sourceIsToken: scalarBool('sourceIsToken') ?? scalarBool('isToken'),
+    sourceIsFaceDown: scalarBool('sourceIsFaceDown') ?? scalarBool('faceDown'),
     castFromZone: scalarString('castFromZone'),
     enteredFromZone: scalarString('enteredFromZone'),
     attachedByPermanentIds: (() => {
       const ids = collectIds('attachedByPermanentIds', 'attachmentSourceIds');
+      return ids.length > 0 ? ids : undefined;
+    })(),
+    sourceAttachedToPermanentIds: (() => {
+      const ids = collectIds('sourceAttachedToPermanentIds', 'sourceAttachedToIds', 'sourceEquippedPermanentIds');
       return ids.length > 0 ? ids : undefined;
     })(),
     targetId,
@@ -317,6 +325,10 @@ export function buildTriggerEventDataFromPayloads(
     lifeLost: scalarNumber('lifeLost'),
     lifeGained: scalarNumber('lifeGained'),
     damageDealt: scalarNumber('damageDealt'),
+    damagedByPermanentIds: (() => {
+      const ids = collectIds('damagedByPermanentIds', 'damageSourceIds');
+      return ids.length > 0 ? ids : undefined;
+    })(),
     cardsDrawn: scalarNumber('cardsDrawn'),
     spellType: scalarString('spellType'),
     wonCoinFlip: scalarBool('wonCoinFlip'),
@@ -347,9 +359,11 @@ export function buildStackTriggerMetaFromEventData(
       sourceControllerId?: string;
       sourceOwnerId?: string;
       sourceIsToken?: boolean;
+      sourceIsFaceDown?: boolean;
       castFromZone?: string;
       enteredFromZone?: string;
       attachedByPermanentIds?: readonly string[];
+      sourceAttachedToPermanentIds?: readonly string[];
       targetId?: string;
     targetControllerId?: string;
     targetPermanentId?: string;
@@ -366,6 +380,7 @@ export function buildStackTriggerMetaFromEventData(
     lifeLost?: number;
     lifeGained?: number;
     damageDealt?: number;
+    damagedByPermanentIds?: readonly string[];
     cardsDrawn?: number;
     spellType?: string;
     wonCoinFlip?: boolean;
@@ -391,9 +406,11 @@ export function buildStackTriggerMetaFromEventData(
       sourceControllerId: normalized.sourceControllerId,
       sourceOwnerId: normalized.sourceOwnerId,
       sourceIsToken: normalized.sourceIsToken,
+      sourceIsFaceDown: normalized.sourceIsFaceDown,
       castFromZone: normalized.castFromZone,
       enteredFromZone: normalized.enteredFromZone,
       attachedByPermanentIds: normalized.attachedByPermanentIds,
+      sourceAttachedToPermanentIds: normalized.sourceAttachedToPermanentIds,
       targetId: normalized.targetId,
       targetControllerId: normalized.targetControllerId,
       targetPermanentId: normalized.targetPermanentId,
@@ -410,6 +427,7 @@ export function buildStackTriggerMetaFromEventData(
       lifeLost: normalized.lifeLost,
       lifeGained: normalized.lifeGained,
       damageDealt: normalized.damageDealt,
+      damagedByPermanentIds: normalized.damagedByPermanentIds,
       cardsDrawn: normalized.cardsDrawn,
       spellType: normalized.spellType,
       isYourTurn: normalized.isYourTurn,
@@ -525,6 +543,20 @@ export function buildResolutionEventDataFromGameState(
   const normalizedTurnPlayerId = normalizeId((state as any).turnPlayer);
   const normalizedSourceId = normalizeId(base?.sourceId);
   const normalizedTargetPermanentId = normalizeId(base?.targetPermanentId);
+  const findZoneCardById = (cardId: string | undefined): any => {
+    const normalizedCardId = normalizeId(cardId);
+    if (!normalizedCardId) return undefined;
+
+    for (const player of state.players || []) {
+      for (const zoneName of ['graveyard', 'hand', 'exile', 'library'] as const) {
+        const zone = Array.isArray((player as any)?.[zoneName]) ? (player as any)[zoneName] : [];
+        const found = zone.find((card: any) => normalizeId(card?.id) === normalizedCardId);
+        if (found) return found;
+      }
+    }
+
+    return undefined;
+  };
 
   const battlefield = ((state.battlefield || []) as any[]).map(p => ({
     id: normalizeId(p?.id) || '',
@@ -577,6 +609,9 @@ export function buildResolutionEventDataFromGameState(
       )
     );
   }) as any;
+  const referencedCard =
+    findZoneCardById(normalizedTargetPermanentId) ??
+    findZoneCardById(normalizedSourceId);
   const resolvedCastFromZone =
     base?.castFromZone ??
     normalizeId(referencedPermanent?.castFromZone) ??
@@ -585,6 +620,24 @@ export function buildResolutionEventDataFromGameState(
     base?.enteredFromZone ??
     normalizeId(referencedPermanent?.enteredFromZone) ??
     normalizeId(referencedPermanent?.card?.enteredFromZone);
+  const resolvedDamagedByPermanentIds =
+    Array.isArray(base?.damagedByPermanentIds) && base.damagedByPermanentIds.length > 0
+      ? [...base.damagedByPermanentIds]
+      : Array.isArray((referencedPermanent as any)?.damageSourceIds) && (referencedPermanent as any).damageSourceIds.length > 0
+        ? [...(referencedPermanent as any).damageSourceIds]
+        : Array.isArray((referencedCard as any)?.damageSourceIds) && (referencedCard as any).damageSourceIds.length > 0
+          ? [...(referencedCard as any).damageSourceIds]
+          : undefined;
+  const resolvedSourceAttachedToPermanentIds =
+    Array.isArray(base?.sourceAttachedToPermanentIds) && base.sourceAttachedToPermanentIds.length > 0
+      ? [...base.sourceAttachedToPermanentIds]
+      : (() => {
+          const sourcePermanent = ((state.battlefield || []) as any[]).find(
+            (perm: any) => normalizeId(perm?.id) === normalizedSourceId
+          ) as any;
+          const attachedToId = normalizeId(sourcePermanent?.attachedTo ?? sourcePermanent?.enchanting);
+          return attachedToId ? [attachedToId] : undefined;
+        })();
 
   return {
     ...base,
@@ -600,6 +653,8 @@ export function buildResolutionEventDataFromGameState(
         : Boolean(base?.isOpponentsTurn),
     castFromZone: resolvedCastFromZone,
     enteredFromZone: resolvedEnteredFromZone,
+    damagedByPermanentIds: resolvedDamagedByPermanentIds,
+    sourceAttachedToPermanentIds: resolvedSourceAttachedToPermanentIds,
     graveyard: resolvedGraveyard,
     hand: resolvedHand,
     handAtBeginningOfTurn: resolvedHandAtBeginningOfTurn,

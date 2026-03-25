@@ -40,6 +40,7 @@ export interface CombatKeywords {
   readonly fear: boolean;
   readonly intimidate: boolean;
   readonly protectionColors: readonly string[];
+  readonly protectionTypes: readonly string[];
 }
 
 /**
@@ -164,6 +165,10 @@ export function extractCombatKeywords(perm: BattlefieldPermanent): CombatKeyword
   if (allText.includes('protection from black')) protectionColors.push('B');
   if (allText.includes('protection from red')) protectionColors.push('R');
   if (allText.includes('protection from green')) protectionColors.push('G');
+  const protectionTypes: string[] = [];
+  for (const typeWord of ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery']) {
+    if (allText.includes(`protection from ${typeWord}`)) protectionTypes.push(typeWord);
+  }
   
   return {
     flying: allText.includes('flying'),
@@ -184,6 +189,7 @@ export function extractCombatKeywords(perm: BattlefieldPermanent): CombatKeyword
     fear: allText.includes('fear'),
     intimidate: allText.includes('intimidate'),
     protectionColors,
+    protectionTypes,
   };
 }
 
@@ -366,6 +372,16 @@ export function canCreatureBlock(
     if (blockerColors.some(c => attacker.keywords.protectionColors.includes(c))) {
       const protectedFrom = attacker.keywords.protectionColors.filter(c => blockerColors.includes(c));
       return { legal: false, reason: `${attacker.name} has protection from ${protectedFrom.join(', ')}` };
+    }
+  }
+
+  if (attacker.keywords.protectionTypes.length > 0) {
+    const blockerTypeLine = String(
+      (blocker.permanent as any)?.type_line || (blocker.permanent.card as KnownCardRef | undefined)?.type_line || ''
+    ).toLowerCase();
+    const blockedByType = attacker.keywords.protectionTypes.filter(typeWord => blockerTypeLine.includes(typeWord));
+    if (blockedByType.length > 0) {
+      return { legal: false, reason: `${attacker.name} has protection from ${blockedByType.join(', ')}` };
     }
   }
   

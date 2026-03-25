@@ -14,6 +14,7 @@ import type { GameState, CombatInfo, CombatantInfo, BattlefieldPermanent } from 
 import { GameStep as SharedGameStep } from '../../../shared/src';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
+import { previewPreventedDamage } from '../oracleIRDamagePrevention';
 import {
   checkAttackCosts,
   collectPillowfortEffects,
@@ -1497,6 +1498,24 @@ export function executeCombatDamage(
   
   // Track life gained from lifelink by controller
   const lifelinkGain: Map<string, number> = new Map();
+  const appendDamageSourceId = (permanent: any, sourceId: string | undefined): any => {
+    const normalizedSourceId = String(sourceId || '').trim();
+    if (!normalizedSourceId) return permanent;
+
+    const currentDamageSourceIds = Array.isArray((permanent as any)?.damageSourceIds)
+      ? (permanent as any).damageSourceIds
+          .map((id: unknown) => String(id || '').trim())
+          .filter(Boolean)
+      : [];
+    if (currentDamageSourceIds.includes(normalizedSourceId)) {
+      return permanent;
+    }
+
+    return {
+      ...permanent,
+      damageSourceIds: [...currentDamageSourceIds, normalizedSourceId],
+    };
+  };
   
   for (const attacker of action.attackers) {
     const creature = attacker.creature;
@@ -1512,6 +1531,13 @@ export function executeCombatDamage(
       let totalDamageDealt = 0;
       for (const block of attacker.blockedBy) {
         const damageToBlocker = block.damageAssigned || damage;
+        const prevention = previewPreventedDamage(currentState, damageToBlocker, attacker.attackerId);
+        const finalDamageToBlocker = prevention.remainingDamage;
+        logs.push(...prevention.log);
+        if (finalDamageToBlocker <= 0) {
+          logs.push(`${creature?.name || 'Creature'} has all combat damage prevented`);
+          continue;
+        }
         
         // Find blocker and assign damage
         const blocker = currentState.battlefield?.find((p: any) => p.id === block.blockerId);
@@ -1519,20 +1545,20 @@ export function executeCombatDamage(
           // Add damage counter (simplified - real implementation needs damage tracking)
           const updatedBattlefield = (currentState.battlefield || []).map((p: any) => {
             if (p.id === block.blockerId) {
-              return {
+              return appendDamageSourceId({
                 ...p,
                 counters: {
                   ...p.counters,
-                  damage: (p.counters?.damage || 0) + damageToBlocker,
+                  damage: (p.counters?.damage || 0) + finalDamageToBlocker,
                 },
-              };
+              }, attacker.attackerId);
             }
             return p;
           });
           
           currentState = { ...currentState, battlefield: updatedBattlefield };
-          logs.push(`${creature?.name || 'Creature'} deals ${damageToBlocker} damage to ${blocker?.card?.name || 'blocker'}`);
-          totalDamageDealt += damageToBlocker;
+          logs.push(`${creature?.name || 'Creature'} deals ${finalDamageToBlocker} damage to ${blocker?.card?.name || 'blocker'}`);
+          totalDamageDealt += finalDamageToBlocker;
         }
       }
       
@@ -1546,7 +1572,14 @@ export function executeCombatDamage(
       const defender = currentState.players.find(p => p.id === attacker.defendingPlayerId);
       
       if (defender && damage > 0) {
-        const newLife = (defender.life || 40) - damage;
+        const prevention = previewPreventedDamage(currentState, damage, attacker.attackerId);
+        const finalDamage = prevention.remainingDamage;
+        logs.push(...prevention.log);
+        if (finalDamage <= 0) {
+          logs.push(`${creature?.name || 'Creature'} has all combat damage prevented`);
+          continue;
+        }
+        const newLife = (defender.life || 40) - finalDamage;
         
         currentState = {
           ...currentState,
@@ -1557,19 +1590,19 @@ export function executeCombatDamage(
           ),
         };
         
-        logs.push(`${creature?.name || 'Creature'} deals ${damage} combat damage to ${attacker.defendingPlayerId}`);
+        logs.push(`${creature?.name || 'Creature'} deals ${finalDamage} combat damage to ${attacker.defendingPlayerId}`);
         
         // Apply lifelink for damage dealt to player (Rule 702.15b)
         if (creatureHasLifelink && controllerId) {
           const currentGain = lifelinkGain.get(controllerId) || 0;
-          lifelinkGain.set(controllerId, currentGain + damage);
+          lifelinkGain.set(controllerId, currentGain + finalDamage);
         }
         
         // Handle commander damage
         if (creature?.isCommander) {
           const commanderDamage = defender.commanderDamage || {};
           const commanderId = creature.id;
-          const totalCommanderDamage = (commanderDamage[commanderId] || 0) + damage;
+          const totalCommanderDamage = (commanderDamage[commanderId] || 0) + finalDamage;
           
           currentState = {
             ...currentState,

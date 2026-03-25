@@ -70,6 +70,13 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'skip_next_draw_step';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'exile_top';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
@@ -206,6 +213,18 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'look_select_top';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly choose: OracleQuantity;
+      readonly destination: 'hand' | 'graveyard';
+      readonly restDestination: 'graveyard' | 'library';
+      readonly restToTop?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'add_counter';
       readonly target: OracleObjectSelector;
       readonly counter: string;
@@ -293,6 +312,17 @@ export type OracleEffectStep =
       readonly kind: 'deal_damage';
       readonly amount: OracleQuantity;
       readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'prevent_damage';
+      readonly amount: 'all';
+      readonly target: OracleObjectSelector;
+      readonly duration: 'this_turn';
+      /** Restricts legal target sources to those sharing a color with the linked exiled card. */
+      readonly sharesColorWithLinkedExiledCard?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -425,6 +455,8 @@ export type OracleEffectStep =
       readonly battlefieldAttachedTo?: OracleObjectSelector;
       /** If the move puts cards onto the battlefield tapped (deterministic). */
       readonly entersTapped?: boolean;
+      /** If the move puts cards onto the battlefield face down (deterministic). */
+      readonly entersFaceDown?: boolean;
       /** Counters the moved permanent enters with (deterministic, battlefield-only). */
       readonly withCounters?: Record<string, number>;
       /** Optional deterministic condition gating battlefield-entry counters. */
@@ -435,6 +467,27 @@ export type OracleEffectStep =
       readonly battlefieldAddTypes?: readonly string[];
       /** Optional deterministic condition gating battlefield-entry type/color changes. */
       readonly battlefieldCharacteristicsCondition?: OracleClauseCondition;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'turn_face_up';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Changes an existing battlefield permanent into a copy of another
+       * object while it remains on the battlefield.
+       */
+      readonly kind: 'copy_permanent';
+      readonly target: OracleObjectSelector;
+      readonly source: OracleObjectSelector;
+      /** Ability text retained as part of the copy effect, if any. */
+      readonly retainAbilityText?: string;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -466,7 +519,8 @@ export type OracleEffectStep =
        * can be inferred.
        */
       readonly kind: 'copy_spell';
-      readonly subject: 'this_spell';
+      readonly subject: 'this_spell' | 'last_moved_card';
+      readonly withoutPayingManaCost?: boolean;
       /** Whether the copy may choose new target(s) for deterministic replay. */
       readonly allowNewTargets?: boolean;
       readonly optional?: boolean;
@@ -505,6 +559,13 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'ring_tempts_you';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'suspect';
+      readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

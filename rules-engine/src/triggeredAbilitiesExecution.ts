@@ -8,7 +8,7 @@ import {
 } from './triggeredAbilitiesChoiceSupport';
 import { evaluateTriggerCondition } from './triggeredAbilitiesConditionRouting';
 import { resolveInterveningIfClause } from './triggeredAbilitiesInterveningIf';
-import { findTriggeringAbilities } from './triggeredAbilitiesMatching';
+import { checkTrigger } from './triggeredAbilitiesMatching';
 import { createTriggerInstance, type TriggerInstance } from './triggeredAbilitiesQueue';
 import {
   type TriggerEventData,
@@ -100,7 +100,12 @@ export function processEventAndExecuteTriggeredOracle(
   eventData?: TriggerEventData,
   options: ProcessEventOracleExecutionOptions = {}
 ): ProcessEventOracleExecutionResult {
-  const triggeredAbilities = findTriggeringAbilities(abilities, event, eventData);
+  const triggeredAbilities = abilities.flatMap(ability => {
+    const matchingEventData = buildEnrichedTriggerExecutionEventData(state, ability, eventData, {
+      inferTapOrUntapChoice: false,
+    });
+    return checkTrigger(ability, event, matchingEventData) ? [{ ability, executionEventData: matchingEventData }] : [];
+  });
   const timestamp = Date.now();
 
   const triggers: TriggerInstance[] = [];
@@ -110,10 +115,7 @@ export function processEventAndExecuteTriggeredOracle(
   let nextState = state;
 
   for (let idx = 0; idx < triggeredAbilities.length; idx++) {
-    const ability = triggeredAbilities[idx];
-    const executionEventData = buildEnrichedTriggerExecutionEventData(state, ability, eventData, {
-      inferTapOrUntapChoice: false,
-    });
+    const { ability, executionEventData } = triggeredAbilities[idx];
     const trigger = createTriggerInstance(ability, timestamp + idx, executionEventData);
     triggers.push(trigger);
 

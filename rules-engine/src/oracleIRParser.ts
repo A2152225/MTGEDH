@@ -30,6 +30,8 @@ import {
   expandCreateEmblemUnknownAbilities,
   applyGlobalImpulseUpgrades,
   expandChoiceUnknownAbilities,
+  expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities,
+  expandCopyPermanentUnknownAbilities,
   expandCopySpellUnknownAbilities,
   expandDeterministicMoveZoneFollowupAbilities,
   expandExilePermissionUnknownAbilities,
@@ -37,8 +39,10 @@ import {
   expandGraveyardPermissionUnknownAbilities,
   expandKeywordActionUnknownAbilities,
   expandMixedBattlefieldAndGraveyardExileAbilities,
+  expandMoveZoneCopiedSpellAbilities,
   expandOtherwiseConditionalUnknownAbilities,
   expandLeaveBattlefieldReplacementUnknownAbilities,
+  expandPreventDamageUnknownAbilities,
   expandPayManaUnknownAbilities,
   expandSimpleConditionalUnknownAbilities,
   expandMoveZoneAttachUnknownAbilities,
@@ -47,6 +51,7 @@ import {
   mergeDeterministicGraveyardPermissionFollowupAbilities,
   mergeDeterministicKeywordFollowupAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
+  mergeLookSelectTopFollowupAbilities,
   mergeRevealFollowupAbilities,
 } from './oracleIRParserPostprocess';
 import { buildAbilityClauses } from './oracleIRParserAbilityClauses';
@@ -1102,14 +1107,19 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   let abilities = parsed.abilities.map(ability => parseAbilityToIRAbility(ability, cardName));
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
   abilities = mergeRevealFollowupAbilities(abilities);
+  abilities = mergeLookSelectTopFollowupAbilities(abilities);
+  abilities = expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities(abilities);
   abilities = mergeConditionalMoveZoneCounterFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
   abilities = expandDeterministicMoveZoneFollowupAbilities(abilities);
+  abilities = expandMoveZoneCopiedSpellAbilities(abilities);
   abilities = expandMixedBattlefieldAndGraveyardExileAbilities(abilities);
   abilities = expandPayManaUnknownAbilities(abilities);
   abilities = expandChoiceUnknownAbilities(abilities);
   abilities = expandLeaveBattlefieldReplacementUnknownAbilities(abilities);
   abilities = expandCopySpellUnknownAbilities(abilities);
+  abilities = expandCopyPermanentUnknownAbilities(abilities);
+  abilities = expandPreventDamageUnknownAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
   abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
   abilities = expandExilePermissionUnknownAbilities(abilities);
