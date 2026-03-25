@@ -1,7 +1,7 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
 import { cardHasCreatureType, isValidCreatureType } from '../../shared/src/creatureTypes';
 import { mergeRetainedCountersForBattlefieldEntry } from '../../shared/src/zoneRetainedCounters';
-import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
+import { getCardManaValue, isCardExiledWithSource } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
 
@@ -40,6 +40,7 @@ export type MoveZoneSingleTargetCriteria = {
   readonly typeLineTermsNoneOf?: readonly string[];
   readonly colorsAllOf?: readonly string[];
   readonly noAbilities?: boolean;
+  readonly requiredCounter?: string;
 };
 
 type BattlefieldAttachmentTarget = BattlefieldPermanent;
@@ -301,6 +302,13 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
     noAbilities = true;
   }
 
+  let requiredCounter: string | undefined;
+  const requiredCounterMatch = normalizedTypeText.match(/^(.+?)\s+with\s+(?:a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i);
+  if (requiredCounterMatch) {
+    normalizedTypeText = String(requiredCounterMatch[1] || '').trim();
+    requiredCounter = String(requiredCounterMatch[2] || '').trim().toLowerCase();
+  }
+
   let requiredColors: string[] = [];
   const colorQualifiedMatch = normalizedTypeText.match(/^(white|blue|black|red|green)\s+(.+)$/i);
   if (colorQualifiedMatch) {
@@ -317,6 +325,7 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
       typeLineTermsNoneOf: [String(nonHistoricMatch[1] || '').trim().toLowerCase()],
       ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
       ...(noAbilities ? { noAbilities: true } : {}),
+      ...(requiredCounter ? { requiredCounter } : {}),
       ...(nameExclusion ? { notNamed: nameExclusion } : {}),
     };
   }
@@ -327,6 +336,7 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
       requiresHistoric: true,
       ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
       ...(noAbilities ? { noAbilities: true } : {}),
+      ...(requiredCounter ? { requiredCounter } : {}),
       ...(nameExclusion ? { notNamed: nameExclusion } : {}),
     };
   }
@@ -337,6 +347,7 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
       cardType: parsedCardType,
       ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
       ...(noAbilities ? { noAbilities: true } : {}),
+      ...(requiredCounter ? { requiredCounter } : {}),
       ...(nameExclusion ? { notNamed: nameExclusion } : {}),
     };
   }
@@ -352,6 +363,7 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
         creatureTypesAnyOf: creatureTypes,
         ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
         ...(noAbilities ? { noAbilities: true } : {}),
+        ...(requiredCounter ? { requiredCounter } : {}),
         ...(nameExclusion ? { notNamed: nameExclusion } : {}),
       };
     }
@@ -361,6 +373,7 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
       typeLineTermsAnyOf: splitTerms.map(term => normalizeTypeCriteriaTerm(term)),
       ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
       ...(noAbilities ? { noAbilities: true } : {}),
+      ...(requiredCounter ? { requiredCounter } : {}),
       ...(nameExclusion ? { notNamed: nameExclusion } : {}),
     };
   }
@@ -372,6 +385,7 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
       creatureTypesAnyOf: [singleCreatureType],
       ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
       ...(noAbilities ? { noAbilities: true } : {}),
+      ...(requiredCounter ? { requiredCounter } : {}),
       ...(nameExclusion ? { notNamed: nameExclusion } : {}),
     };
   }
@@ -422,6 +436,11 @@ export function cardMatchesMoveZoneSingleTargetCriteria(
 
   if (criteria.noAbilities && !cardHasNoAbilities(card)) return false;
 
+  if (criteria.requiredCounter) {
+    const counterCount = Number((card?.counters || (card?.card as any)?.counters || {})?.[criteria.requiredCounter] ?? 0);
+    if (!Number.isFinite(counterCount) || counterCount <= 0) return false;
+  }
+
   if (criteria.manaValueLte !== undefined) {
     const manaValue = getCardManaValue(card);
     if (manaValue === null || manaValue > criteria.manaValueLte) return false;
@@ -436,6 +455,68 @@ export function cardMatchesMoveZoneSingleTargetCriteria(
   }
 
   return true;
+}
+
+function parseTrailingZoneCounterRequirement(
+  raw: string,
+  zonePattern: string
+): { readonly selectorText: string; readonly requiredCounter?: string } {
+  const cleaned = String(raw || '').replace(/[.\s]+$/g, '').trim();
+  const match = cleaned.match(
+    new RegExp(`^(.*?\\b${zonePattern}\\b)(?:\\s+with\\s+(?:a|an|\\d+|x|[a-z]+)\\s+(.+?)\\s+counters?\\s+on\\s+it)?$`, 'i')
+  );
+  if (!match) {
+    return { selectorText: cleaned };
+  }
+
+  return {
+    selectorText: String(match[1] || '').trim(),
+    ...(match[2] ? { requiredCounter: String(match[2] || '').trim().toLowerCase() } : {}),
+  };
+}
+
+function normalizeExileSelectorText(value: string): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/[.\s]+$/g, '')
+    .replace(/\s+from\s+among\s+(?:the\s+)?cards?(?:\s+you\s+own)?\s+exiled\s+with\s+this\s+(?:creature|artifact|enchantment|planeswalker|permanent|card|class|saga)$/i, '')
+    .replace(/^(?:an?|the)\s+/i, '')
+    .replace(/\s+(?:cards?|spells?)$/i, '')
+    .trim();
+}
+
+function toTitleCaseWords(value: string): string {
+  return String(value || '')
+    .split(/[\s-]+/g)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+export function cardMatchesExileSelectorText(card: any, selectorText: string): boolean {
+  const normalized = normalizeExileSelectorText(selectorText);
+  if (!normalized || normalized === 'card') return true;
+
+  const creatureTypeAndCreatureMatch = normalized.match(/^([a-z][a-z' -]+)\s+creature$/i);
+  if (creatureTypeAndCreatureMatch) {
+    const creatureType = toTitleCaseWords(String(creatureTypeAndCreatureMatch[1] || '').trim());
+    const typeLine = String(card?.type_line || card?.card?.type_line || '');
+    const oracleText = getCardOracleText(card);
+    return cardMatchesType(card, 'creature') && isValidCreatureType(creatureType) && cardHasCreatureType(typeLine, oracleText, creatureType);
+  }
+
+  const simpleType = parseSimpleCardTypeFromText(normalized);
+  if (simpleType) return cardMatchesType(card, simpleType);
+
+  const creatureType = toTitleCaseWords(normalized);
+  if (isValidCreatureType(creatureType)) {
+    const typeLine = String(card?.type_line || card?.card?.type_line || '');
+    const oracleText = getCardOracleText(card);
+    return cardHasCreatureType(typeLine, oracleText, creatureType);
+  }
+
+  return false;
 }
 
 export function parseMoveZoneAllFromYourGraveyard(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
@@ -587,7 +668,8 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
   const raw = String((what as any).text || '').trim();
   if (!raw) return null;
 
-  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const withCounter = parseTrailingZoneCounterRequirement(raw, 'from your graveyard');
+  const cleaned = withCounter.selectorText;
   const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
   if (!/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+/i.test(lower)) return null;
@@ -604,7 +686,7 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
   if (!typeText) return null;
   const parsed = parseMoveZoneSingleTargetCriteria(typeText);
   if (!parsed) return null;
-  return parsed;
+  return withCounter.requiredCounter ? { ...parsed, requiredCounter: withCounter.requiredCounter } : parsed;
 }
 
 export function parseMoveZoneRandomSingleFromYourGraveyard(what: {
@@ -687,7 +769,8 @@ export function parseMoveZoneSingleTargetFromTargetPlayersGraveyard(what: {
   const raw = String((what as any).text || '').trim();
   if (!raw) return null;
 
-  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const withCounter = parseTrailingZoneCounterRequirement(raw, "from (?:target|that) (?:player|opponent)'s graveyard");
+  const cleaned = withCounter.selectorText;
   const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
   if (!/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+/i.test(lower)) return null;
@@ -704,7 +787,7 @@ export function parseMoveZoneSingleTargetFromTargetPlayersGraveyard(what: {
   if (!typeText) return null;
   const parsed = parseMoveZoneSingleTargetCriteria(typeText);
   if (!parsed) return null;
-  return parsed;
+  return withCounter.requiredCounter ? { ...parsed, requiredCounter: withCounter.requiredCounter } : parsed;
 }
 
 export function parseMoveZoneSingleTargetFromAGraveyard(what: {
@@ -718,7 +801,8 @@ export function parseMoveZoneSingleTargetFromAGraveyard(what: {
   const raw = String((what as any).text || '').trim();
   if (!raw) return null;
 
-  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const withCounter = parseTrailingZoneCounterRequirement(raw, 'from a graveyard');
+  const cleaned = withCounter.selectorText;
   const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
   if (!/^(?:up to one\s+)?(?:other\s+)?target\s+/i.test(lower)) return null;
@@ -735,7 +819,7 @@ export function parseMoveZoneSingleTargetFromAGraveyard(what: {
   if (!typeText) return null;
   const parsed = parseMoveZoneSingleTargetCriteria(typeText);
   if (!parsed) return null;
-  return parsed;
+  return withCounter.requiredCounter ? { ...parsed, requiredCounter: withCounter.requiredCounter } : parsed;
 }
 
 type ExactGraveyardSelection =
@@ -1156,6 +1240,80 @@ export function parseMoveZoneSingleTargetFromYourExile(what: {
   const parsed = parseSimpleCardTypeFromText(typeText);
   if (!parsed) return null;
   return { cardType: parsed };
+}
+
+export function parseMoveZoneSingleTargetFromLinkedExile(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | MoveZoneSingleTargetCriteria
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const match = cleaned.match(
+    /^(?:a|an|the)\s+(.+?)\s+exiled with this (?:creature|artifact|enchantment|planeswalker|permanent|card|class|saga)$/i
+  );
+  if (!match) return null;
+
+  const typeText = String(match[1] || '').trim();
+  if (!typeText) return null;
+  return parseMoveZoneSingleTargetCriteria(typeText);
+}
+
+export function parseMoveZoneAllFromLinkedExile(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}):
+  | { readonly cardType: SimpleCardType }
+  | null {
+  if (what.kind !== 'raw') return null;
+  const raw = String((what as any).text || '').trim();
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  if (/^the exiled cards$/i.test(cleaned)) {
+    return { cardType: 'any' };
+  }
+
+  const match = cleaned.match(/^all\s+(.+?)\s+cards?\s+exiled with this (?:creature|artifact|enchantment|planeswalker|permanent|card|class|saga)$/i);
+  if (!match) return null;
+
+  const typeText = String(match[1] || '').trim();
+  if (!typeText) return null;
+  const parsed = parseSimpleCardTypeFromText(typeText);
+  if (!parsed) return null;
+  return { cardType: parsed };
+}
+
+export function findCardsExiledWithSource(
+  state: GameState,
+  sourceId: string,
+  criteria: MoveZoneSingleTargetCriteria
+): readonly { playerId: PlayerID; cardId: string; card: any }[] {
+  const wantedSourceId = String(sourceId || '').trim();
+  if (!wantedSourceId) return [];
+
+  const matches: { playerId: PlayerID; cardId: string; card: any }[] = [];
+  for (const player of state.players as any[]) {
+    const playerId = String(player?.id || '').trim() as PlayerID;
+    if (!playerId) continue;
+
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    for (const card of exile) {
+      const cardId = String(card?.id || card?.cardId || '').trim();
+      if (!cardId) continue;
+      if (!isCardExiledWithSource(card, wantedSourceId)) continue;
+      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria)) continue;
+      matches.push({ playerId, cardId, card });
+    }
+  }
+
+  return matches;
 }
 
 export function parseMoveZoneSingleTargetFromTargetPlayersExile(what: {

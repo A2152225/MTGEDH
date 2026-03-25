@@ -199,7 +199,7 @@ function matchesCardTypeQualifier(card: any, rawTypeQualifier?: string): boolean
   return typeLine.includes(typeQualifier);
 }
 
-function isCardExiledWithSource(card: any, sourceId: string): boolean {
+export function isCardExiledWithSource(card: any, sourceId: string): boolean {
   if (!sourceId) return false;
 
   const linkedIds = [
@@ -214,6 +214,67 @@ function isCardExiledWithSource(card: any, sourceId: string): boolean {
     .filter(Boolean);
 
   return linkedIds.includes(sourceId);
+}
+
+export function applyExilePermissionMarkers(
+  state: GameState,
+  playerId: PlayerID,
+  exiledCards: readonly any[],
+  meta: {
+    readonly permission: 'play' | 'cast';
+    readonly playableUntilTurn: number | null;
+    readonly castedPermanentEntersWithCounters?: Record<string, number>;
+  }
+): { state: GameState; granted: number } {
+  if (exiledCards.length === 0) return { state, granted: 0 };
+
+  const exiledIds = new Set(
+    exiledCards
+      .map(card => String((card as any)?.id ?? (card as any)?.cardId ?? '').trim())
+      .filter(Boolean)
+  );
+  if (exiledIds.size === 0) return { state, granted: 0 };
+
+  const stateAny: any = state as any;
+  stateAny.playableFromExile = stateAny.playableFromExile || {};
+  stateAny.playableFromExile[playerId] = stateAny.playableFromExile[playerId] || {};
+
+  let granted = 0;
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    if (exile.length === 0) return player;
+
+    let changed = false;
+    const nextExile = exile.map((card: any) => {
+      const id = String(card?.id ?? card?.cardId ?? '').trim();
+      if (!id || !exiledIds.has(id)) return card;
+
+      const typeLineLower = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+      const isLand = typeLineLower.includes('land');
+      const grant = meta.permission === 'play' ? true : !isLand;
+      if (!grant) return card;
+
+      changed = true;
+      granted += 1;
+      stateAny.playableFromExile[playerId][id] = meta.playableUntilTurn ?? Number.MAX_SAFE_INTEGER;
+      return {
+        ...card,
+        zone: 'exile',
+        canBePlayedBy: playerId,
+        playableUntilTurn: meta.playableUntilTurn,
+        ...(meta.castedPermanentEntersWithCounters
+          ? { entersBattlefieldWithCounters: { ...meta.castedPermanentEntersWithCounters } }
+          : {}),
+      };
+    });
+
+    return changed ? ({ ...player, exile: nextExile } as any) : player;
+  });
+
+  return {
+    state: { ...(stateAny as any), players: updatedPlayers as any } as any,
+    granted,
+  };
 }
 
 export function countCardsExiledWithSource(

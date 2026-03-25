@@ -32,6 +32,7 @@ type StepApplyResult = {
   readonly log: readonly string[];
   readonly lastSacrificedCreaturesPowerTotal?: number;
   readonly lastSacrificedPermanents?: readonly LastKnownPermanentSnapshot[];
+  readonly lastMovedCards?: readonly any[];
 };
 
 type StepSkipResult = {
@@ -57,6 +58,8 @@ export type BattlefieldStepHandlerResult = StepApplyResult | StepSkipResult;
 
 type RecentBattlefieldRuntime = {
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+  readonly lastCreatedTokenIds?: readonly string[];
+  readonly lastMovedCards?: readonly any[];
 };
 
 type ContextualBattlefieldReference =
@@ -66,6 +69,7 @@ type ContextualBattlefieldReference =
       readonly type: ReturnType<typeof parseSimplePermanentTypeFromText> extends infer T ? Exclude<T, null> : never;
       readonly tokenOnly?: boolean;
       readonly plural?: boolean;
+      readonly subtype?: string;
     };
 
 type SacrificeAttachmentReference =
@@ -86,6 +90,65 @@ type CardZoneLocation = {
   readonly playerId: PlayerID;
   readonly zone: 'graveyard' | 'hand' | 'exile';
 };
+
+function isContextualMovedCardReference(target: any): boolean {
+  return (
+    target.kind === 'raw' &&
+    /^(?:it|that card|the exiled card|the exiled cards?)$/i.test(String((target as any).text || '').trim())
+  );
+}
+
+function addCountersToZoneCardsById(
+  state: GameState,
+  cardIds: readonly string[],
+  counterName: string,
+  amountValue: number
+): { readonly state: GameState; readonly updatedCards: readonly any[]; readonly updatedCount: number } {
+  const wantedIds = new Set(cardIds.map(id => String(id || '').trim()).filter(Boolean));
+  if (wantedIds.size === 0) {
+    return { state, updatedCards: [], updatedCount: 0 };
+  }
+
+  const updatedCards: any[] = [];
+  let updatedCount = 0;
+
+  const players = (state.players || []).map((player: any) => {
+    let changed = false;
+
+    const updateZone = (zoneName: 'graveyard' | 'hand' | 'exile' | 'library') => {
+      const zone = Array.isArray(player?.[zoneName]) ? player[zoneName] : [];
+      let zoneChanged = false;
+      const nextZone = zone.map((card: any) => {
+        const cardId = String(card?.id || '').trim();
+        if (!cardId || !wantedIds.has(cardId)) return card;
+        zoneChanged = true;
+        updatedCount += 1;
+        const counters = { ...((card?.counters || {}) as Record<string, number>) };
+        const currentCount = Number(counters[counterName] ?? 0);
+        counters[counterName] = (Number.isFinite(currentCount) ? currentCount : 0) + amountValue;
+        const nextCard = { ...card, counters };
+        updatedCards.push(nextCard);
+        return nextCard;
+      });
+      if (!zoneChanged) return;
+      changed = true;
+      player = { ...player, [zoneName]: nextZone };
+    };
+
+    updateZone('graveyard');
+    updateZone('hand');
+    updateZone('exile');
+    updateZone('library');
+
+    return changed ? player : player;
+  });
+
+  return {
+    state: updatedCount > 0 ? ({ ...(state as any), players: players as any } as GameState) : state,
+    updatedCards,
+    updatedCount,
+  };
+}
 
 function findCardZoneLocation(state: GameState, targetCardId: string): CardZoneLocation | null {
   const wantedId = String(targetCardId || '').trim();
@@ -126,6 +189,41 @@ function exileContextualSourceCardFromZone(
 
   if (!result || result.kind === 'impossible') return null;
   return { applied: true, state: result.state, log: result.log };
+}
+
+function annotateBattlefieldExilesWithSource(
+  state: GameState,
+  removed: readonly BattlefieldPermanent[],
+  ctx: OracleIRExecutionContext
+): GameState {
+  const sourceId = String(ctx.sourceId || '').trim();
+  const sourceRef = sourceId || String(ctx.sourceName || '').trim();
+  if (!sourceRef || removed.length === 0) return state;
+
+  const removedCardIds = new Set(
+    removed
+      .map(perm => String(((perm as any)?.card?.id ?? (perm as any)?.id) || '').trim())
+      .filter(Boolean)
+  );
+  if (removedCardIds.size === 0) return state;
+
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    let changed = false;
+    const nextExile = exile.map((card: any) => {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId || !removedCardIds.has(cardId)) return card;
+      changed = true;
+      return {
+        ...card,
+        exiledBy: sourceRef,
+        ...(sourceId ? { exiledWith: sourceId, exiledWithSourceId: sourceId } : {}),
+      };
+    });
+    return changed ? ({ ...player, exile: nextExile } as any) : player;
+  });
+
+  return { ...(state as any), players: updatedPlayers as any } as any;
 }
 
 function parseSacrificeWhat(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
@@ -503,6 +601,22 @@ function parseContextualBattlefieldReference(
     };
   }
 
+  const contextualSubtypeMatch = normalized.match(/^(?:each of )?those\s+([a-z][a-z' -]+)$/i);
+  if (contextualSubtypeMatch) {
+    const rawSubtype = String(contextualSubtypeMatch[1] || '').trim().toLowerCase();
+    if (rawSubtype && !/^(?:creatures|permanents|tokens)$/i.test(rawSubtype)) {
+      const subtype = rawSubtype.endsWith('s') ? rawSubtype.slice(0, -1) : rawSubtype;
+      if (subtype) {
+        return {
+          mode: 'contextual',
+          type: 'creature',
+          plural: true,
+          subtype,
+        };
+      }
+    }
+  }
+
   return null;
 }
 
@@ -514,6 +628,31 @@ function resolveContextualBattlefieldPermanents(
   ctx: OracleIRExecutionContext
 ): BattlefieldPermanent[] {
   if (!target) return [];
+
+  if (target.kind === 'raw') {
+    const rawText = String((target as any).text || '').replace(/\u2019/g, "'").trim();
+    const directTargetMatch = rawText.match(/^(?:up to one\s+)?(?:another\s+)?target\s+(.+)$/i);
+    if (directTargetMatch) {
+      const parsedType = parseSimplePermanentTypeFromText(String(directTargetMatch[1] || '').trim()) || 'permanent';
+      const directTargetIds = [
+        String(ctx.targetPermanentId || '').trim(),
+        String(ctx.targetCreatureId || '').trim(),
+        ...(
+          Array.isArray(ctx.selectorContext?.chosenObjectIds)
+            ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+            : []
+        ),
+      ].filter(Boolean);
+
+      if (directTargetIds.length > 0) {
+        const wantedIds = new Set(directTargetIds);
+        return battlefield.filter((perm: any) => {
+          const permanentId = String((perm as any)?.id || '').trim();
+          return wantedIds.has(permanentId) && permanentMatchesType(perm, parsedType);
+        });
+      }
+    }
+  }
 
   const parsed = parseContextualBattlefieldReference(target);
   if (!parsed) return [];
@@ -550,6 +689,12 @@ function resolveContextualBattlefieldPermanents(
     if (!contextualTargetIds.includes(permanentId)) return false;
     if (!permanentMatchesType(perm, parsed.type)) return false;
     if (parsed.tokenOnly && !(perm as any)?.isToken) return false;
+    if (parsed.subtype) {
+      const typeLineLower = getExecutorTypeLineLower(perm);
+      if (!new RegExp(`(^|[^a-z])${parsed.subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:s)?($|[^a-z])`, 'i').test(typeLineLower)) {
+        return false;
+      }
+    }
     return true;
   });
 }
@@ -1087,6 +1232,113 @@ export function applyRemoveCounterStep(
   };
 }
 
+export function applyAddCounterStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldStepHandlerResult {
+  const amountValue =
+    step.amount.kind === 'number'
+      ? step.amount.value
+      : step.amount.kind === 'x'
+        ? Math.max(
+            0,
+            Array.isArray(runtime?.lastCreatedTokenIds)
+              ? runtime.lastCreatedTokenIds.map(id => String(id || '').trim()).filter(Boolean).length
+              : 0
+          )
+        : null;
+  if (amountValue === null || amountValue <= 0) {
+    return {
+      applied: false,
+      message: `Skipped add counter (unsupported amount): ${step.raw}`,
+      reason: 'unsupported_target',
+    };
+  }
+
+  const counterName = String(step.counter || '').trim();
+  if (!counterName) {
+    return {
+      applied: false,
+      message: `Skipped add counter (unsupported counter): ${step.raw}`,
+      reason: 'unsupported_target',
+    };
+  }
+
+  const targets = resolveDirectBattlefieldPermanents((state.battlefield || []) as BattlefieldPermanent[], step.target as any, ctx);
+  if (targets.length === 0) {
+    if (isContextualMovedCardReference(step.target)) {
+      const movedCardIds = Array.isArray(runtime?.lastMovedCards)
+        ? runtime.lastMovedCards.map((card: any) => String(card?.id || '').trim()).filter(Boolean)
+        : [];
+      const uniqueMovedCardIds = Array.from(new Set(movedCardIds));
+      if (uniqueMovedCardIds.length !== 1) {
+        return {
+          applied: false,
+          message: `Skipped add counter (no deterministic target): ${step.raw}`,
+          reason: 'no_deterministic_target',
+        };
+      }
+
+      const zoneUpdate = addCountersToZoneCardsById(state, uniqueMovedCardIds, counterName, amountValue);
+      if (zoneUpdate.updatedCount <= 0) {
+        return {
+          applied: false,
+          message: `Skipped add counter (no deterministic target): ${step.raw}`,
+          reason: 'no_deterministic_target',
+        };
+      }
+
+      const nextMovedCards = Array.isArray(runtime?.lastMovedCards)
+        ? runtime.lastMovedCards.map((card: any) => {
+            const cardId = String(card?.id || '').trim();
+            if (!cardId || !uniqueMovedCardIds.includes(cardId)) return card;
+            const counters = { ...((card?.counters || {}) as Record<string, number>) };
+            const currentCount = Number(counters[counterName] ?? 0);
+            counters[counterName] = (Number.isFinite(currentCount) ? currentCount : 0) + amountValue;
+            return { ...card, counters };
+          })
+        : undefined;
+
+      return {
+        applied: true,
+        state: zoneUpdate.state,
+        log: [`Added ${amountValue} ${counterName} counter(s) to ${zoneUpdate.updatedCount} moved card(s)`],
+        ...(nextMovedCards ? { lastMovedCards: nextMovedCards } : {}),
+      };
+    }
+
+    return {
+      applied: false,
+      message: `Skipped add counter (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const targetIds = new Set(targets.map((target: any) => String(target?.id || '').trim()).filter(Boolean));
+
+  const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+    if (!targetIds.has(String(perm?.id || '').trim())) return perm;
+    const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+    const currentCount = Number(counters[counterName] ?? 0);
+    counters[counterName] = (Number.isFinite(currentCount) ? currentCount : 0) + amountValue;
+    return {
+      ...perm,
+      counters,
+    };
+  });
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: nextBattlefield,
+    } as GameState,
+    log: [`Added ${amountValue} ${counterName} counter(s) to ${targets.length} permanent(s)`],
+  };
+}
+
 export function applyDestroyStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'destroy' }>,
@@ -1151,7 +1403,7 @@ export function applyExileStep(
   const removedIds = new Set<string>(toRemove.map(perm => perm.id));
   const kept = battlefield.filter(perm => !removedIds.has(perm.id));
   const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled');
-  return { applied: true, state: result.state, log: result.log };
+  return { applied: true, state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx), log: result.log };
 }
 
 export function applyScheduleDelayedBattlefieldActionStep(

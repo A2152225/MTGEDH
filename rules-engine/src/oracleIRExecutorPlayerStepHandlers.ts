@@ -9,6 +9,7 @@ import { createEmptyManaPool, type ManaCost } from './types/mana';
 import { parseManaSymbols } from './types/numbers';
 import {
   addManaToPoolForPlayer,
+  applyExilePermissionMarkers,
   applyGraveyardPermissionMarkers,
   adjustLife,
   discardCardsForPlayer,
@@ -19,6 +20,7 @@ import {
   resolvePlayers,
   getPlayableUntilTurnForImpulseDuration,
   resolveUnknownMillUntilAmountForPlayer,
+  isCardExiledWithSource,
 } from './oracleIRExecutorPlayerUtils';
 
 type StepApplyResult = {
@@ -43,7 +45,7 @@ type StepSkipResult = {
 };
 
 type UnlessPaysLifeResult =
-  | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly log: readonly string[] }
+  | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly state?: GameState; readonly log: readonly string[] }
   | StepSkipResult;
 
 export type PlayerStepHandlerResult = StepApplyResult | StepSkipResult;
@@ -109,6 +111,45 @@ function buildGraveyardPermissionCriteria(text: string): MoveZoneSingleTargetCri
   return null;
 }
 
+function buildExilePermissionCriteria(text: string): {
+  readonly criteria: MoveZoneSingleTargetCriteria | null;
+  readonly ownOnly: boolean;
+} {
+  const normalized = normalizePermissionSelectorText(text)
+    .replace(/\s+from\s+among\s+(?:the\s+)?cards?\s+/i, ' ')
+    .replace(/\s+exiled with this (?:creature|artifact|enchantment|planeswalker|permanent|card|class|saga)$/i, '')
+    .trim();
+
+  const ownOnly = /\byou own\b/i.test(normalized);
+  const selectorText = normalized
+    .replace(/\byou own\b/i, '')
+    .replace(/^(?:up to one|one|a|an)\s+/i, '')
+    .replace(/\s+(?:spells?|cards?)$/i, '')
+    .trim();
+
+  if (!selectorText) return { criteria: { cardType: 'any' }, ownOnly };
+
+  const direct = buildGraveyardPermissionCriteria(selectorText);
+  if (direct) return { criteria: direct, ownOnly };
+
+  const creatureTypeOnly = selectorText.match(/^([a-z][a-z' -]+)$/i);
+  if (creatureTypeOnly) {
+    return {
+      criteria: {
+        cardType: 'creature',
+        creatureTypesAnyOf: [
+          String(creatureTypeOnly[1] || '')
+            .trim()
+            .replace(/\b\w/g, c => c.toUpperCase()),
+        ],
+      },
+      ownOnly,
+    };
+  }
+
+  return { criteria: null, ownOnly };
+}
+
 function resolveGraveyardPermissionTargets(
   state: GameState,
   playerId: PlayerID,
@@ -149,6 +190,38 @@ function resolveGraveyardPermissionTargets(
   const criteria = buildGraveyardPermissionCriteria(selectorText);
   if (!criteria) return { cards: [], reason: 'unsupported_selector' };
   return { cards: graveyard.filter((card: any) => cardMatchesMoveZoneSingleTargetCriteria(card, criteria)) };
+}
+
+function resolveExilePermissionTargets(
+  state: GameState,
+  playerId: PlayerID,
+  step: Extract<OracleEffectStep, { kind: 'grant_exile_permission' }>,
+  ctx: OracleIRExecutionContext
+): { cards: readonly any[]; reason?: 'unsupported_selector' | 'failed_to_apply' } {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return { cards: [], reason: 'failed_to_apply' };
+
+  const selectorText =
+    step.what.kind === 'raw'
+      ? normalizePermissionSelectorText(step.what.text)
+      : normalizePermissionSelectorText((step.what as any).raw || '');
+  if (!selectorText) return { cards: [], reason: 'unsupported_selector' };
+
+  const { criteria, ownOnly } = buildExilePermissionCriteria(selectorText);
+  if (!criteria) return { cards: [], reason: 'unsupported_selector' };
+
+  const matches: any[] = [];
+  for (const owner of state.players as any[]) {
+    const exile = Array.isArray(owner?.exile) ? owner.exile : [];
+    for (const card of exile) {
+      if (!isCardExiledWithSource(card, sourceId)) continue;
+      if (ownOnly && String(owner?.id || '').trim() !== playerId) continue;
+      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria)) continue;
+      matches.push(card);
+    }
+  }
+
+  return { cards: matches };
 }
 
 function parseSupportedManaCostString(rawMana: string): ManaCost | null {
@@ -289,6 +362,61 @@ export function applyGrantGraveyardPermissionStep(
     state: nextState,
     log: log.length > 0 ? log : [`Granted no graveyard permissions: ${step.raw}`],
     lastGrantedGraveyardCards: grantedCards,
+  };
+}
+
+export function applyGrantExilePermissionStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'grant_exile_permission' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped exile permission (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const playableUntilTurn = getPlayableUntilTurnForImpulseDuration(state, step.duration);
+  let nextState = state;
+  const log: string[] = [];
+
+  for (const playerId of players) {
+    const resolved = resolveExilePermissionTargets(nextState, playerId, step, ctx);
+    if (resolved.reason === 'unsupported_selector') {
+      return {
+        applied: false,
+        message: `Skipped exile permission (unsupported selector): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'ambiguous' },
+      };
+    }
+    if (resolved.reason === 'failed_to_apply') {
+      return {
+        applied: false,
+        message: `Skipped exile permission (linked exiled cards unavailable): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input', persist: false },
+      };
+    }
+
+    const markerResult = applyExilePermissionMarkers(nextState, playerId, resolved.cards, {
+      permission: step.permission,
+      playableUntilTurn,
+      castedPermanentEntersWithCounters: step.castedPermanentEntersWithCounters,
+    });
+    nextState = markerResult.state;
+    if (markerResult.granted > 0) {
+      log.push(`${playerId} may ${step.permission === 'play' ? 'play' : 'cast'} ${markerResult.granted} exiled card(s)`);
+    }
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log: log.length > 0 ? log : [`Granted no exile permissions: ${step.raw}`],
   };
 }
 
@@ -822,8 +950,20 @@ export function applyAddManaStep(
 
   let nextState = state;
   const log: string[] = [];
+  const manaToAdd = (() => {
+    const options = Array.isArray(step.manaOptions)
+      ? step.manaOptions.map(option => String(option || '').trim()).filter(Boolean)
+      : [];
+    if (options.length <= 1) return String(step.mana || '').trim();
+
+    const chosenMana = String(ctx.selectorContext?.chosenMana || '').trim();
+    if (!chosenMana) return options[0] || '';
+    const match = options.find(option => option.toUpperCase() === chosenMana.toUpperCase());
+    return match || options[0] || '';
+  })();
+
   for (const playerId of players) {
-    const result = addManaToPoolForPlayer(nextState, playerId, step.mana);
+    const result = addManaToPoolForPlayer(nextState, playerId, manaToAdd);
     log.push(...result.log);
     if (!result.applied) {
       return {
@@ -875,7 +1015,34 @@ export function evaluateUnlessPaysLifeStep(
 
   const lifeTotal = Number(payer.life);
   const canPayLife = Number.isFinite(lifeTotal) && lifeTotal >= step.amount;
+  const explicitChoice =
+    ctx.unlessPaysLifeChoice === 'pay' || ctx.unlessPaysLifeChoice === 'decline'
+      ? ctx.unlessPaysLifeChoice
+      : (ctx.selectorContext?.unlessPaysLifeChoice === 'pay' || ctx.selectorContext?.unlessPaysLifeChoice === 'decline'
+          ? ctx.selectorContext.unlessPaysLifeChoice
+          : undefined);
   if (canPayLife) {
+    if (explicitChoice === 'pay') {
+      const payment = adjustLife(state, payerId, -step.amount);
+      return {
+        applied: true,
+        shouldApplyNestedSteps: false,
+        state: payment.state,
+        log: [
+          ...payment.log,
+          `Resolved unless-pays-life step (payer chose to pay ${step.amount} life): ${step.raw}`,
+        ],
+      };
+    }
+
+    if (explicitChoice === 'decline') {
+      return {
+        applied: true,
+        shouldApplyNestedSteps: true,
+        log: [`Resolved unless-pays-life step (payer declined to pay ${step.amount} life): ${step.raw}`],
+      };
+    }
+
     return {
       applied: false,
       message: `Skipped unless-pays-life step (opponent choice required): ${step.raw}`,

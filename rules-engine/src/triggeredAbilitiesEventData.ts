@@ -16,6 +16,7 @@ export interface TriggerEventData {
   readonly targetPlayerId?: string;
   readonly targetOpponentId?: string;
   readonly tapOrUntapChoice?: 'tap' | 'untap';
+  readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   readonly selectedModeIds?: readonly string[];
   readonly permanentTypes?: readonly string[];
   readonly creatureCount?: number;
@@ -282,6 +283,11 @@ export function buildTriggerEventDataFromPayloads(
   const handAtBeginningOfTurn = collectIds('handAtBeginningOfTurn');
   const rawTapOrUntapChoice = scalarString('tapOrUntapChoice');
   const tapOrUntapChoice = rawTapOrUntapChoice === 'tap' || rawTapOrUntapChoice === 'untap' ? rawTapOrUntapChoice : undefined;
+  const rawUnlessPaysLifeChoice = scalarString('unlessPaysLifeChoice');
+  const unlessPaysLifeChoice =
+    rawUnlessPaysLifeChoice === 'pay' || rawUnlessPaysLifeChoice === 'decline'
+      ? rawUnlessPaysLifeChoice
+      : undefined;
 
   return {
     sourceId,
@@ -301,6 +307,7 @@ export function buildTriggerEventDataFromPayloads(
     targetPlayerId,
     targetOpponentId,
     tapOrUntapChoice,
+    unlessPaysLifeChoice,
     permanentTypes: permanentTypes.length > 0 ? permanentTypes : undefined,
     creatureTypes: creatureTypes.length > 0 ? creatureTypes : undefined,
     colors: colors.length > 0 ? colors : undefined,
@@ -346,10 +353,11 @@ export function buildStackTriggerMetaFromEventData(
       targetId?: string;
     targetControllerId?: string;
     targetPermanentId?: string;
-    chosenObjectIds?: readonly string[];
-    targetPlayerId?: string;
+      chosenObjectIds?: readonly string[];
+      targetPlayerId?: string;
       targetOpponentId?: string;
       tapOrUntapChoice?: 'tap' | 'untap';
+      unlessPaysLifeChoice?: 'pay' | 'decline';
       counters?: Readonly<Record<string, number>>;
       affectedPlayerIds?: readonly string[];
     affectedOpponentIds?: readonly string[];
@@ -393,6 +401,7 @@ export function buildStackTriggerMetaFromEventData(
       targetPlayerId: normalized.targetPlayerId,
       targetOpponentId: normalized.targetOpponentId,
       tapOrUntapChoice: normalized.tapOrUntapChoice,
+      unlessPaysLifeChoice: normalized.unlessPaysLifeChoice,
       counters: normalized.counters,
       affectedPlayerIds: normalized.affectedPlayerIds,
       affectedOpponentIds: normalized.affectedOpponentIds,
@@ -468,6 +477,7 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     targetPermanentId: normalizedTargetPermanentId,
     chosenObjectIds: normalizedChosenObjectIds,
     tapOrUntapChoice: eventData.tapOrUntapChoice,
+    unlessPaysLifeChoice: eventData.unlessPaysLifeChoice,
     affectedPlayerIds: dedupe(eventData.affectedPlayerIds),
     affectedOpponentIds: dedupedAffectedOpponents,
     opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
@@ -484,6 +494,7 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     !hint.targetPermanentId &&
     !hint.chosenObjectIds &&
     !hint.tapOrUntapChoice &&
+    !hint.unlessPaysLifeChoice &&
     !hint.affectedPlayerIds &&
     !hint.affectedOpponentIds &&
     !hint.opponentsDealtDamageIds &&

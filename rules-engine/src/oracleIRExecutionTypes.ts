@@ -22,6 +22,10 @@ export interface OracleIRSelectorContext {
   readonly eachOfThoseOpponents?: readonly PlayerID[];
   /** Bound chosen objects for multi-selection antecedents such as "the chosen creatures". */
   readonly chosenObjectIds?: readonly string[];
+  /** Bound mana choice for clauses like "Add {R} or {G}." */
+  readonly chosenMana?: string;
+  /** Bound pay/decline choice for unless-pays-life wrappers when already known. */
+  readonly unlessPaysLifeChoice?: 'pay' | 'decline';
 }
 
 export interface OracleIRExecutionEventHint {
@@ -33,6 +37,10 @@ export interface OracleIRExecutionEventHint {
   readonly targetPermanentId?: string;
   /** Bound chosen objects for delayed/antecedent-based battlefield references. */
   readonly chosenObjectIds?: readonly string[];
+  /** Explicit mana choice for "add {R} or {G}" style effects when already known. */
+  readonly chosenMana?: string;
+  /** Explicit pay/decline choice for unless-pays-life wrappers when already known. */
+  readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Explicit choice for "tap or untap" style effects when known. */
   readonly tapOrUntapChoice?: 'tap' | 'untap';
   /** Generic affected players for this event (may include non-opponents). */
@@ -73,6 +81,8 @@ export interface OracleIRExecutionContext {
   readonly targetPermanentId?: string;
   /** Choice for effects worded as "tap or untap target permanent." */
   readonly tapOrUntapChoice?: 'tap' | 'untap';
+  /** Choice for unless-pays-life wrappers when already known. */
+  readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Normalized reference spell types used by some deterministic unknown-amount loops. */
   readonly referenceSpellTypes?: readonly string[];
   /** Result of a relevant coin flip when already known from runtime context. */

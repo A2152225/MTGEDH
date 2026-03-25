@@ -329,3 +329,61 @@ export function moveBattlefieldPermanentsByIdToOwnersHands(
     ],
   };
 }
+
+export function moveBattlefieldPermanentsByIdToOwnersLibraries(
+  state: GameState,
+  permanentIds: readonly string[],
+  placement: 'top' | 'bottom'
+): { state: GameState; log: string[] } {
+  const wanted = new Set(permanentIds.map(id => String(id || '').trim()).filter(Boolean));
+  if (wanted.size === 0) return { state, log: [] };
+
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const removedIds = new Set<string>();
+  const removed: BattlefieldPermanent[] = [];
+  const kept: BattlefieldPermanent[] = [];
+
+  for (const perm of battlefield) {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (wanted.has(permanentId)) {
+      removed.push(perm);
+      removedIds.add(permanentId);
+    } else {
+      kept.push(perm);
+    }
+  }
+
+  if (removed.length === 0) return { state, log: [] };
+
+  const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
+  const players = state.players.map(p => ({ ...p } as any));
+  let redirectedToExile = 0;
+  for (const perm of removed) {
+    if ((perm as any).isToken) continue;
+    const ownerId = ((perm as any).owner || (perm as any).ownerId) as PlayerID;
+    const player = players.find(pp => pp.id === ownerId);
+    if (!player) continue;
+
+    const actualDestination = getLeaveBattlefieldDestination(perm, 'graveyard');
+    if (actualDestination === 'exile') {
+      redirectedToExile += 1;
+      const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+      exile.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
+      player.exile = exile;
+      continue;
+    }
+
+    const library = Array.isArray(player.library) ? [...player.library] : [];
+    const movedCard = buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'library');
+    player.library = placement === 'top' ? [movedCard, ...library] : [...library, movedCard];
+  }
+
+  return {
+    state: { ...state, battlefield: cleanedKept as any, players: players as any } as any,
+    log: [
+      `put ${removed.length} permanent(s) on the ${placement} of owners' libraries${
+        redirectedToExile > 0 ? ` (${redirectedToExile} exiled instead)` : ''
+      }`,
+    ],
+  };
+}

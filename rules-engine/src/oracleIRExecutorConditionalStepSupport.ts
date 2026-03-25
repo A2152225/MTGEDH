@@ -110,6 +110,32 @@ function cardHasType(card: any, typeName: string): boolean {
   return matchesTypeLine(card?.type_line, typeName) || matchesTypeLine(card?.cardType, typeName);
 }
 
+function matchesCardTypeDescriptor(card: any, descriptorRaw: string): boolean {
+  const descriptor = String(descriptorRaw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^an?\s+/i, '')
+    .replace(/\s+cards?$/i, '')
+    .trim();
+  if (!descriptor) return true;
+
+  const orParts = descriptor.split(/\s+or\s+/i).map(part => part.trim()).filter(Boolean);
+  if (orParts.length > 1) {
+    return orParts.some(part => matchesCardTypeDescriptor(card, part));
+  }
+
+  const commaParts = descriptor.split(/\s*,\s*/).map(part => part.trim()).filter(Boolean);
+  if (commaParts.length > 1) {
+    return commaParts.every(part => matchesCardTypeDescriptor(card, part));
+  }
+
+  if (descriptor.startsWith('non') && descriptor.length > 3) {
+    return !cardHasType(card, descriptor.slice(3).trim());
+  }
+
+  return cardHasType(card, descriptor);
+}
+
 function getSingleChosenObjectId(ctx: OracleIRExecutionContext): string {
   const chosen = Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [];
   const normalized = chosen.map(id => String(id || '').trim()).filter(Boolean);
@@ -151,14 +177,57 @@ export function evaluateConditionalWrapperCondition(params: {
   controllerId: PlayerID;
   ctx: OracleIRExecutionContext;
   lastActionOutcome: LastActionOutcome;
+  lastConditionalEvaluation?: boolean | null;
   pendingSteps?: readonly OracleEffectStep[];
   lastMovedCards?: readonly any[];
 }): boolean | null {
-  const { condition, nextState, controllerId, ctx, lastActionOutcome, pendingSteps, lastMovedCards } = params;
+  const { condition, nextState, controllerId, ctx, lastActionOutcome, lastConditionalEvaluation, pendingSteps, lastMovedCards } = params;
   if (condition.kind !== 'if' && condition.kind !== 'as_long_as') return null;
 
   const raw = String(condition.raw || '').trim().toLowerCase();
   const normalizedRaw = raw.replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim();
+
+  if (normalizedRaw === 'otherwise') {
+    return typeof lastConditionalEvaluation === 'boolean' ? !lastConditionalEvaluation : null;
+  }
+
+  {
+    const movedCardTypeMatch = normalizedRaw.match(/^it was (?:a|an)\s+(.+?)(?:\s+card)?$/i);
+    if (movedCardTypeMatch) {
+      if (lastActionOutcome?.kind === 'impossible') return false;
+      if (lastActionOutcome?.stepKind !== 'move_zone') return null;
+
+      const descriptor = String(movedCardTypeMatch[1] || '').trim().toLowerCase();
+      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+      return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
+    }
+  }
+
+  {
+    const movedCardTypeNegatedMatch = normalizedRaw.match(/^it was not (?:a|an)\s+(.+?)(?:\s+card)?$/i);
+    if (movedCardTypeNegatedMatch) {
+      if (lastActionOutcome?.kind === 'impossible') return false;
+      if (lastActionOutcome?.stepKind !== 'move_zone') return null;
+
+      const descriptor = String(movedCardTypeNegatedMatch[1] || '').trim().toLowerCase();
+      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+      return movedCards.length > 0 && movedCards.every((card: any) => !matchesCardTypeDescriptor(card, descriptor));
+    }
+  }
+
+  {
+    const exiledThisWayMatch = normalizedRaw.match(/^(.*?)\s+card\s+(?:was exiled|is put into exile)\s+this way$/i);
+    if (exiledThisWayMatch) {
+      if (lastActionOutcome?.kind === 'impossible') return false;
+      if (lastActionOutcome?.stepKind !== 'move_zone') return null;
+
+      const descriptor = String(exiledThisWayMatch[1] || '').trim().toLowerCase().replace(/^an?\s+/i, '').trim();
+      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+      if (!descriptor) return movedCards.length > 0;
+      return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
+    }
+  }
+
   const andParts = splitCompositeCondition(normalizedRaw, 'and');
   if (andParts) {
     const results = andParts.map(part =>
@@ -199,25 +268,6 @@ export function evaluateConditionalWrapperCondition(params: {
     if (lastActionOutcome?.kind === 'applied') return true;
     if (lastActionOutcome?.kind === 'impossible' || lastActionOutcome?.kind === 'choice_required') return false;
     return null;
-  }
-
-  {
-    const exiledThisWayMatch = normalizedRaw.match(
-      /^a(?:(n)\s+)?(?:(?<type>[a-z0-9' -]+?)\s+)?card\s+(?:was exiled|is put into exile)\s+this way$/i
-    );
-    if (exiledThisWayMatch) {
-      if (lastActionOutcome?.kind === 'impossible') return false;
-      if (lastActionOutcome?.stepKind !== 'move_zone') return null;
-
-      const typeName = String((exiledThisWayMatch.groups as any)?.type || '').trim().toLowerCase();
-      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
-      if (!typeName) return movedCards.length > 0;
-      if (typeName.startsWith('non') && typeName.length > 3) {
-        const positiveType = typeName.slice(3).trim();
-        return positiveType ? movedCards.some((card: any) => !cardHasType(card, positiveType)) : null;
-      }
-      return movedCards.some((card: any) => cardHasType(card, typeName));
-    }
   }
 
   if (normalizedRaw === "you can't" || normalizedRaw === 'you cannot') {

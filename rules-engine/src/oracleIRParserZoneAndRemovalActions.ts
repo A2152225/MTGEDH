@@ -243,3 +243,51 @@ export function tryParseZoneAndRemovalClause(args: {
 
   return null;
 }
+
+export function splitConservativeExileFromLeadClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const normalized = normalizeOracleText(args.rawClause).trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^(exile\s+.+?\s+from\s+(?:a|your|their|target player's|target opponent's)\s+graveyard)(?:\s+and|,\s*then)\s+(.+)$/i
+  );
+  if (match) {
+    const left = String(match[1] || '').trim();
+    const right = String(match[2] || '').trim();
+    if (!left || !right) return null;
+
+    const parsedLeft = args.parseEffectClauseToStep(left);
+    if (
+      !parsedLeft ||
+      parsedLeft.kind !== 'move_zone' ||
+      parsedLeft.to !== 'exile'
+    ) {
+      return null;
+    }
+
+    const parsedRight = args.parseEffectClauseToStep(right);
+    if (!parsedRight || parsedRight.kind === 'unknown') return null;
+
+    return [left, right];
+  }
+
+  const mixedTargetMatch = normalized.match(
+    /^(exile\s+.+?)\s+and\s+((?:up to one\s+)?target\s+.+?\s+from\s+a\s+graveyard)$/i
+  );
+  if (!mixedTargetMatch) return null;
+
+  const left = String(mixedTargetMatch[1] || '').trim();
+  const right = `exile ${String(mixedTargetMatch[2] || '').trim()}`.trim();
+  if (!left || !right) return null;
+
+  const parsedLeft = args.parseEffectClauseToStep(left);
+  const parsedRight = args.parseEffectClauseToStep(right);
+  if (!parsedLeft || !parsedRight || parsedLeft.kind === 'unknown' || parsedRight.kind === 'unknown') {
+    return null;
+  }
+
+  return [left, right];
+}

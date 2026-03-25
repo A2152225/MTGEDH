@@ -2,8 +2,11 @@ import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src
 import type { OracleEffectStep } from './oracleIR';
 import { createCustomEmblem } from './emblemSupport';
 import { getRingAbilities } from './keywordActions/ringTemptsYou';
+import { executePopulate, getPopulateTargets } from './keywordActions/populate';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { isExecutorCreature } from './oracleIRExecutorPermanentUtils';
+import { quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { createTokensByName } from './tokenCreation';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -22,6 +25,140 @@ type StepSkipResult = {
 };
 
 export type KeywordStepHandlerResult = StepApplyResult | StepSkipResult;
+
+function createChoiceRequiredResult(message: string, metadata?: Record<string, string | number | boolean | readonly string[]>): StepSkipResult {
+  return {
+    applied: false,
+    message,
+    reason: 'player_choice_required',
+    options: {
+      classification: 'player_choice',
+      ...(metadata ? { metadata } : {}),
+    },
+  };
+}
+
+export function applyInvestigateStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'investigate' }>,
+  ctx: OracleIRExecutionContext
+): KeywordStepHandlerResult {
+  const amount = quantityToNumber(step.amount);
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped investigate (unsupported amount): ${step.raw}`,
+      reason: 'failed_to_apply',
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped investigate (unsupported player selector): ${step.raw}`,
+      reason: 'failed_to_apply',
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  for (const playerId of players) {
+    const created = createTokensByName('Clue', Math.max(0, amount), playerId, nextState.battlefield || [], ctx.sourceId, ctx.sourceName);
+    if (!created) {
+      return {
+        applied: false,
+        message: `Skipped investigate (Clue token definition unavailable): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+    nextState = {
+      ...nextState,
+      battlefield: [...(nextState.battlefield || []), ...created.tokens.map(token => token.token)],
+    };
+    log.push(...created.log);
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log,
+  };
+}
+
+export function applyPopulateStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'populate' }>,
+  ctx: OracleIRExecutionContext
+): KeywordStepHandlerResult {
+  const amount = quantityToNumber(step.amount);
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped populate (unsupported amount): ${step.raw}`,
+      reason: 'failed_to_apply',
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped populate (unsupported player selector): ${step.raw}`,
+      reason: 'failed_to_apply',
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  for (const playerId of players) {
+    for (let i = 0; i < amount; i += 1) {
+      const eligibleTokens = getPopulateTargets(nextState.battlefield || [], playerId);
+      if (eligibleTokens.length === 0) {
+        log.push(`Populate had no creature tokens for ${playerId}: ${step.raw}`);
+        break;
+      }
+
+      if (eligibleTokens.length > 1) {
+        return createChoiceRequiredResult(`Skipped populate (requires choosing a creature token): ${step.raw}`, {
+          playerId,
+          eligibleTokenIds: eligibleTokens
+            .map((permanent) => String((permanent as any)?.id || '').trim())
+            .filter(Boolean),
+        });
+      }
+
+      const originalToken = eligibleTokens[0];
+      const result = executePopulate(nextState.battlefield || [], playerId, String(originalToken.id || '').trim());
+      if (!result.newToken) {
+        return {
+          applied: false,
+          message: `Skipped populate (failed to create token copy): ${step.raw}`,
+          reason: 'failed_to_apply',
+        };
+      }
+
+      const newToken: BattlefieldPermanent = {
+        ...(result.newToken as any),
+        ownerId: playerId,
+        createdBySourceId: String(ctx.sourceId || '').trim() || undefined,
+        createdBySourceName: String(ctx.sourceName || '').trim() || undefined,
+      } as BattlefieldPermanent;
+
+      nextState = {
+        ...nextState,
+        battlefield: [...(nextState.battlefield || []), newToken],
+      };
+      log.push(`Populated ${String((originalToken as any)?.id || '').trim() || 'a creature token'} for ${playerId}`);
+    }
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log,
+  };
+}
 
 function getPositiveCounterEntries(record: unknown): Array<[string, number]> {
   if (!record || typeof record !== 'object') return [];

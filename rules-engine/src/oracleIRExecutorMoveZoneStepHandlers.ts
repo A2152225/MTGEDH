@@ -6,6 +6,7 @@ import { evaluateConditionalWrapperCondition } from './oracleIRExecutorCondition
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import {
   bounceMatchingBattlefieldPermanentsToOwnersHands,
+  moveBattlefieldPermanentsByIdToOwnersLibraries,
   moveBattlefieldPermanentsByIdToOwnersHands,
 } from './oracleIRExecutorBattlefieldOps';
 import {
@@ -17,6 +18,7 @@ import {
   moveTargetedCardFromGraveyard,
   moveTargetedCardFromHand,
   moveTargetedCardFromExile,
+  findCardsExiledWithSource,
   parseMoveZoneRandomSingleFromYourGraveyard,
   parseMoveZoneAllFromEachOpponentsExile,
   parseMoveZoneAllFromEachOpponentsGraveyard,
@@ -36,6 +38,8 @@ import {
   parseMoveZoneTargetAndSameNamedFromYourGraveyard,
   parseMoveZoneSingleTargetFromYourHand,
   parseMoveZoneSingleTargetFromYourExile,
+  parseMoveZoneSingleTargetFromLinkedExile,
+  parseMoveZoneAllFromLinkedExile,
   parseMoveZoneAllFromYourExile,
   parseMoveZoneAllFromYourGraveyard,
   parseMoveZoneAllFromYourHand,
@@ -103,6 +107,58 @@ function buildAppliedResult(result: {
     ...(Array.isArray(result.movedPermanentIds)
       ? { lastMovedBattlefieldPermanentIds: [...result.movedPermanentIds] }
       : {}),
+  };
+}
+
+function annotateExiledCardsWithSource(params: {
+  state: GameState;
+  movedCards?: readonly any[];
+  ctx: OracleIRExecutionContext;
+}): { state: GameState; movedCards?: readonly any[] } {
+  const sourceId = String(params.ctx.sourceId || '').trim();
+  const sourceRef = sourceId || String(params.ctx.sourceName || '').trim();
+  const movedCards = Array.isArray(params.movedCards) ? params.movedCards : [];
+  if (!sourceRef || movedCards.length === 0) {
+    return { state: params.state, ...(params.movedCards ? { movedCards } : {}) };
+  }
+
+  const movedIds = new Set(
+    movedCards
+      .map((card: any) => String(card?.id || '').trim())
+      .filter(Boolean)
+  );
+  if (movedIds.size === 0) {
+    return { state: params.state, movedCards };
+  }
+
+  let stateChanged = false;
+  const updatedPlayers = (params.state.players || []).map((player: any) => {
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    let exileChanged = false;
+    const nextExile = exile.map((card: any) => {
+      const cardId = String(card?.id || '').trim();
+      if (!cardId || !movedIds.has(cardId)) return card;
+      exileChanged = true;
+      return {
+        ...card,
+        exiledBy: sourceRef,
+        ...(sourceId ? { exiledWith: sourceId, exiledWithSourceId: sourceId } : {}),
+      };
+    });
+    if (!exileChanged) return player;
+    stateChanged = true;
+    return { ...player, exile: nextExile };
+  });
+
+  const nextMovedCards = movedCards.map((card: any) => ({
+    ...card,
+    exiledBy: sourceRef,
+    ...(sourceId ? { exiledWith: sourceId, exiledWithSourceId: sourceId } : {}),
+  }));
+
+  return {
+    state: stateChanged ? ({ ...params.state, players: updatedPlayers as any } as GameState) : params.state,
+    movedCards: nextMovedCards,
   };
 }
 
@@ -238,6 +294,36 @@ function resolveUniqueChosenGraveyardTargetId(
     if (!cardId || !chosen.has(cardId) || excluded.has(cardId)) return false;
     return cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName);
   });
+
+  return matches.length === 1 ? String((matches[0] as any)?.id || '').trim() : '';
+}
+
+function resolveUniqueChosenAnyGraveyardTargetId(
+  state: GameState,
+  criteria: import('./oracleIRExecutorZoneOps').MoveZoneSingleTargetCriteria,
+  ctx: OracleIRExecutionContext,
+  runtime: MoveZoneRuntime | undefined,
+  referenceCardName?: string
+): string {
+  const chosen = new Set(getChosenObjectIds(ctx));
+  if (chosen.size === 0) return '';
+
+  const excluded = new Set<string>();
+  for (const moved of Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []) {
+    const movedId = String((moved as any)?.id || '').trim();
+    if (movedId) excluded.add(movedId);
+  }
+
+  const matches: any[] = [];
+  for (const player of state.players || []) {
+    const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+    for (const card of graveyard) {
+      const cardId = String((card as any)?.id || '').trim();
+      if (!cardId || !chosen.has(cardId) || excluded.has(cardId)) continue;
+      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName)) continue;
+      matches.push(card);
+    }
+  }
 
   return matches.length === 1 ? String((matches[0] as any)?.id || '').trim() : '';
 }
@@ -533,7 +619,7 @@ export function applyMoveZoneStep(
     readonly movedCards?: readonly any[];
     readonly movedPermanentIds?: readonly string[];
   }): StepApplyResult => {
-    const stateWithCharacteristics =
+    let nextState =
       step.to === 'battlefield'
         ? applyBattlefieldEntryCharacteristicsToState(
             result.state,
@@ -542,7 +628,19 @@ export function applyMoveZoneStep(
             effectiveBattlefieldAddColors
           )
         : result.state;
-    return buildAppliedResult({ ...result, state: stateWithCharacteristics });
+    let nextMovedCards = result.movedCards;
+
+    if (step.to === 'exile') {
+      const annotated = annotateExiledCardsWithSource({
+        state: nextState,
+        movedCards: result.movedCards,
+        ctx,
+      });
+      nextState = annotated.state;
+      nextMovedCards = annotated.movedCards;
+    }
+
+    return buildAppliedResult({ ...result, state: nextState, movedCards: nextMovedCards });
   };
 
   const attachmentResolution = resolveBattlefieldAttachment(nextState, step, ctx);
@@ -585,23 +683,31 @@ export function applyMoveZoneStep(
     };
   }
 
-  if (step.to === 'hand' && (step.what as any)?.kind === 'raw') {
+  if (((step.to === 'hand') || (step.to === 'library' && getLibraryPlacement(step))) && (step.what as any)?.kind === 'raw') {
     const whatText = String((step.what as any).text || '').trim();
+    const directLibraryPlacement = step.to === 'library' ? getLibraryPlacement(step) : '';
     const directBattlefieldTargetId = getTargetObjectId(ctx);
     const battlefieldTargetLikeReference =
       /^(?:up to one\s+)?(?:another\s+)?target\b/i.test(whatText) ||
-      /^(?:it|that card|that creature|that permanent)$/i.test(whatText);
+      /^(?:it|him|her|that card|that creature|that permanent)$/i.test(whatText);
     if (directBattlefieldTargetId && battlefieldTargetLikeReference) {
       const hasDirectBattlefieldTarget = ((nextState.battlefield || []) as any[]).some(
         perm => String((perm as any)?.id || '').trim() === directBattlefieldTargetId
       );
       if (hasDirectBattlefieldTarget) {
-        const result = moveBattlefieldPermanentsByIdToOwnersHands(nextState, [directBattlefieldTargetId]);
+        const result =
+          step.to === 'hand'
+            ? moveBattlefieldPermanentsByIdToOwnersHands(nextState, [directBattlefieldTargetId])
+            : moveBattlefieldPermanentsByIdToOwnersLibraries(
+                nextState,
+                [directBattlefieldTargetId],
+                directLibraryPlacement === 'top' ? 'top' : 'bottom'
+              );
         return finalizeAppliedResult(result);
       }
     }
 
-    if (whatText && !/\b(from|card|cards)\b/i.test(whatText)) {
+    if (step.to === 'hand' && whatText && !/\b(from|card|cards)\b/i.test(whatText)) {
       const selector = parseSimpleBattlefieldSelector(step.what as any);
       if (selector) {
         const result = bounceMatchingBattlefieldPermanentsToOwnersHands(nextState, selector, ctx);
@@ -622,8 +728,10 @@ export function applyMoveZoneStep(
   const parsedSameNamedFromYourGraveyard = parseMoveZoneTargetAndSameNamedFromYourGraveyard(step.what as any);
   const parsedSingleTargetFromYourHand = parseMoveZoneSingleTargetFromYourHand(step.what as any);
   const parsedSingleTargetFromYourExile = parseMoveZoneSingleTargetFromYourExile(step.what as any);
+  const parsedSingleTargetFromLinkedExile = parseMoveZoneSingleTargetFromLinkedExile(step.what as any);
   const parsedFromHand = parseMoveZoneAllFromYourHand(step.what as any);
   const parsedFromExile = parseMoveZoneAllFromYourExile(step.what as any);
+  const parsedAllFromLinkedExile = parseMoveZoneAllFromLinkedExile(step.what as any);
   const parsedEachPlayersGy = parseMoveZoneAllFromEachPlayersGraveyard(step.what as any);
   const parsedEachPlayersHand = parseMoveZoneAllFromEachPlayersHand(step.what as any);
   const parsedEachPlayersExile = parseMoveZoneAllFromEachPlayersExile(step.what as any);
@@ -659,8 +767,10 @@ export function applyMoveZoneStep(
     !parsedSameNamedFromYourGraveyard &&
     !parsedSingleTargetFromYourHand &&
     !parsedSingleTargetFromYourExile &&
+    !parsedSingleTargetFromLinkedExile &&
     !parsedFromHand &&
     !parsedFromExile &&
+    !parsedAllFromLinkedExile &&
     !parsedEachPlayersGy &&
     !parsedEachPlayersHand &&
     !parsedEachPlayersExile &&
@@ -731,6 +841,95 @@ export function applyMoveZoneStep(
     return buildAppliedResult({
       state: workingState,
       log: combinedLog.length > 0 ? combinedLog : [`Moved ${contextualBoundCardIds.length} contextual card(s)`],
+    });
+  }
+
+  const linkedSourceId = String(ctx.sourceId || '').trim();
+
+  if (parsedSingleTargetFromLinkedExile || parsedAllFromLinkedExile) {
+    if (!linkedSourceId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (linked exile source unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { persist: false },
+      };
+    }
+
+    if (step.to !== 'hand' && step.to !== 'graveyard' && step.to !== 'battlefield') {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    const criteria = parsedSingleTargetFromLinkedExile || parsedAllFromLinkedExile!;
+    const matches = findCardsExiledWithSource(nextState, linkedSourceId, criteria);
+    if (matches.length === 0) {
+      return buildAppliedResult({
+        state: nextState,
+        log: [`No linked exiled cards matched: ${step.raw}`],
+      });
+    }
+
+    const chosenObjectIds = getChosenObjectIds(ctx);
+    const selectedMatches =
+      parsedSingleTargetFromLinkedExile
+        ? (() => {
+            if (chosenObjectIds.length > 0) {
+              const explicit = matches.filter(match => chosenObjectIds.includes(match.cardId));
+              return explicit.length === 1 ? explicit : explicit;
+            }
+            return matches.length === 1 ? matches : matches;
+          })()
+        : matches;
+
+    if (parsedSingleTargetFromLinkedExile && selectedMatches.length !== 1) {
+      return {
+        applied: false,
+        message: `Skipped move zone (linked exile target requires player choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            availableLinkedExileTargets: matches.map(match => match.cardId),
+          },
+        },
+      };
+    }
+
+    let workingState = nextState;
+    const combinedLog: string[] = [];
+    let movedPermanentIds: string[] = [];
+    for (const match of selectedMatches) {
+      const result = moveTargetedCardFromExile(
+        workingState,
+        match.playerId,
+        match.cardId,
+        criteria.cardType,
+        step.to === 'battlefield' ? 'battlefield' : step.to,
+        step.to === 'battlefield' && step.battlefieldController?.kind === 'you' ? controllerId : undefined,
+        step.entersTapped,
+        effectiveWithCounters
+      );
+      if (result.kind === 'impossible') {
+        return {
+          applied: false,
+          message: `Skipped move zone (linked exiled card unavailable): ${step.raw}`,
+          reason: 'impossible_action',
+          options: { persist: false },
+        };
+      }
+      workingState = result.state;
+      combinedLog.push(...(result.log || []));
+      movedPermanentIds = movedPermanentIds.concat(result.movedPermanentIds || []);
+    }
+
+    return buildAppliedResult({
+      state: workingState,
+      log: combinedLog,
+      ...(movedPermanentIds.length > 0 ? { movedPermanentIds } : {}),
     });
   }
 
@@ -1027,7 +1226,14 @@ export function applyMoveZoneStep(
   }
 
   if (parsedSingleTargetFromAnyGraveyard) {
-    const targetObjectId = boundTargetObjectId;
+    const targetObjectId =
+      resolveUniqueChosenAnyGraveyardTargetId(
+        nextState,
+        parsedSingleTargetFromAnyGraveyard,
+        ctx,
+        runtime,
+        ctx.sourceName
+      ) || boundTargetObjectId;
     const libraryPlacement = getLibraryPlacement(step);
     if (!targetObjectId) {
       return {
@@ -1092,7 +1298,6 @@ export function applyMoveZoneStep(
   if (parsedSingleTargetFromTargetPlayerGraveyard) {
     const targetPlayerId = getTargetPlayerId(ctx);
     const targetObjectId =
-      boundTargetObjectId ||
       (targetPlayerId
         ? resolveUniqueChosenGraveyardTargetId(
             nextState,
@@ -1102,7 +1307,8 @@ export function applyMoveZoneStep(
             runtime,
             ctx.sourceName
           )
-        : '');
+        : '') ||
+      boundTargetObjectId;
     const libraryPlacement = getLibraryPlacement(step);
     if (!targetPlayerId) {
       return {

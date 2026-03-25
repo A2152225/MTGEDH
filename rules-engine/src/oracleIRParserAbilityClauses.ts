@@ -5,6 +5,7 @@ import {
   tryParseLeadingConditionalStep,
 } from './oracleIRParserSacrificeHelpers';
 import { splitConservativeCreateTokenLeadClause } from './oracleIRParserTokenSimpleClauses';
+import { splitConservativeExileFromLeadClause } from './oracleIRParserZoneAndRemovalActions';
 
 function splitTrailingGrantedDiesTriggerFollowup(clause: string): string[] {
   const normalized = normalizeOracleText(clause).trim();
@@ -16,6 +17,30 @@ function splitTrailingGrantedDiesTriggerFollowup(clause: string): string[] {
   if (!match) return [clause];
 
   return [String(match[1] || '').trim(), String(match[2] || '').trim()].filter(Boolean);
+}
+
+function splitConservativeActionConjunctionClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const normalized = normalizeOracleText(rawClause).trim();
+  if (!normalized || !/\band\b/i.test(normalized)) return null;
+
+  const splitMatch = normalized.match(
+    /^(.*?)\s+and\s+((?:you|each player|each opponent|target player|target opponent|that player|that opponent|this permanent|this creature|that creature|it|they)\b.+)$/i
+  );
+  if (!splitMatch) return null;
+
+  const first = String(splitMatch[1] || '').trim();
+  const second = String(splitMatch[2] || '').trim();
+  if (!first || !second) return null;
+
+  const firstStep = parseEffectClauseToStep(first);
+  const secondStep = parseEffectClauseToStep(second);
+  if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
+
+  return [first, second];
 }
 
 export function buildAbilityClauses(args: {
@@ -44,7 +69,9 @@ export function buildAbilityClauses(args: {
 
   return combinedClauses.flatMap(clause =>
     splitConservativeSacrificeLeadClause({ rawClause: clause, cardName, parseEffectClauseToStep }) ??
+    splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeCreateTokenLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
+    splitConservativeExileFromLeadClause({ rawClause: clause, parseEffectClauseToStep }) ??
     [clause]
   );
 }

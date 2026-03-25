@@ -55,8 +55,18 @@ export function buildOracleIRExecutionContext(
   const hintChosenObjectIds = Array.isArray(hint?.chosenObjectIds)
     ? hint.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
     : undefined;
+  const hintChosenMana = typeof hint?.chosenMana === 'string' ? hint.chosenMana.trim() || undefined : undefined;
+  const hintUnlessPaysLifeChoice =
+    hint?.unlessPaysLifeChoice === 'pay' || hint?.unlessPaysLifeChoice === 'decline'
+      ? hint.unlessPaysLifeChoice
+      : undefined;
   const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
   const baseTargetPlayerId = normalizeId(baseSel?.targetPlayerId);
+  const baseChosenMana = typeof baseSel?.chosenMana === 'string' ? baseSel.chosenMana.trim() || undefined : undefined;
+  const baseUnlessPaysLifeChoice =
+    baseSel?.unlessPaysLifeChoice === 'pay' || baseSel?.unlessPaysLifeChoice === 'decline'
+      ? baseSel.unlessPaysLifeChoice
+      : undefined;
 
   const eachOfThoseOpponents =
     dedupe(hint?.affectedOpponentIds) ??
@@ -119,6 +129,10 @@ export function buildOracleIRExecutionContext(
           chosenObjectIds: Array.from(new Set([...(baseChosenObjectIds || []), ...((hintChosenObjectIds || []))])),
         }
       : {}),
+    ...(hintChosenMana || baseChosenMana ? { chosenMana: hintChosenMana ?? baseChosenMana } : {}),
+    ...(hintUnlessPaysLifeChoice || baseUnlessPaysLifeChoice
+      ? { unlessPaysLifeChoice: hintUnlessPaysLifeChoice ?? baseUnlessPaysLifeChoice }
+      : {}),
   };
 
   const referenceSpellTypes =
@@ -136,6 +150,8 @@ export function buildOracleIRExecutionContext(
       !hintCastFromZone &&
       !hintEnteredFromZone &&
       !hint?.tapOrUntapChoice &&
+      !hintUnlessPaysLifeChoice &&
+      !hintChosenMana &&
       typeof hint?.wonCoinFlip !== 'boolean' &&
       typeof hint?.winningVoteChoice === 'undefined'
     ) {

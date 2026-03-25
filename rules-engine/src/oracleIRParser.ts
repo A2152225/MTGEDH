@@ -32,14 +32,18 @@ import {
   expandChoiceUnknownAbilities,
   expandCopySpellUnknownAbilities,
   expandDeterministicMoveZoneFollowupAbilities,
+  expandExilePermissionUnknownAbilities,
   expandGraveyardPermissionModifierUnknownAbilities,
   expandGraveyardPermissionUnknownAbilities,
   expandKeywordActionUnknownAbilities,
+  expandMixedBattlefieldAndGraveyardExileAbilities,
+  expandOtherwiseConditionalUnknownAbilities,
   expandLeaveBattlefieldReplacementUnknownAbilities,
   expandPayManaUnknownAbilities,
   expandSimpleConditionalUnknownAbilities,
   expandMoveZoneAttachUnknownAbilities,
   mergeBattlefieldEntryCharacteristicFollowupAbilities,
+  mergeExilePermissionCastCounterFollowupAbilities,
   mergeDeterministicGraveyardPermissionFollowupAbilities,
   mergeDeterministicKeywordFollowupAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
@@ -87,6 +91,16 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   };
 
   {
+    const parsed = tryParseDelayedBattlefieldActionClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParseDelayedTriggerClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
     const parsed = tryParseSimpleActionClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
   }
@@ -118,17 +132,6 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
        tryParseSimpleCreateTokenClause(...) is now the single maintained entry point. */
   }
 
-  // Delayed battlefield cleanup scheduling
-  {
-    const parsed = tryParseDelayedBattlefieldActionClause({ clause, rawClause, withMeta });
-    if (parsed) return parsed;
-  }
-
-  {
-    const parsed = tryParseDelayedTriggerClause({ clause, rawClause, withMeta });
-    if (parsed) return parsed;
-  }
-
   {
     const parsed = tryParseZoneAndRemovalClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
@@ -137,7 +140,6 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   return withMeta({ kind: 'unknown', raw: rawClause });
 }
-
 function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): OracleIRAbility {
   const effectText = abilityEffectText(ability);
 
@@ -1103,13 +1105,17 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeConditionalMoveZoneCounterFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
   abilities = expandDeterministicMoveZoneFollowupAbilities(abilities);
+  abilities = expandMixedBattlefieldAndGraveyardExileAbilities(abilities);
   abilities = expandPayManaUnknownAbilities(abilities);
   abilities = expandChoiceUnknownAbilities(abilities);
   abilities = expandLeaveBattlefieldReplacementUnknownAbilities(abilities);
   abilities = expandCopySpellUnknownAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
+  abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
+  abilities = expandExilePermissionUnknownAbilities(abilities);
   abilities = expandGraveyardPermissionUnknownAbilities(abilities);
   abilities = expandGraveyardPermissionModifierUnknownAbilities(abilities);
+  abilities = mergeExilePermissionCastCounterFollowupAbilities(abilities);
   abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);

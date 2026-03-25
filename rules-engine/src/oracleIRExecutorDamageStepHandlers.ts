@@ -7,6 +7,7 @@ import {
   parseSimpleBattlefieldSelector,
 } from './oracleIRExecutorBattlefieldParser';
 import { permanentMatchesSelector } from './oracleIRExecutorBattlefieldOps';
+import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 import {
   addDamageToPermanentLikeCreature,
   getExcessDamageToPermanent,
@@ -38,6 +39,11 @@ type DamageRuntime = {
   readonly lastMovedCards?: readonly any[];
 };
 
+function readFiniteCardStat(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function resolveDamageAmount(
   amount: Extract<OracleEffectStep, { kind: 'deal_damage' }>['amount'],
   runtime?: DamageRuntime
@@ -56,6 +62,12 @@ function resolveDamageAmount(
   if (moved.length === 1 && /^(?:its|that card's|that creature's) mana value$/.test(raw)) {
     const manaValue = getCardManaValue(moved[0]);
     return manaValue === null ? null : manaValue;
+  }
+  if (moved.length === 1 && /^(?:its|that card's|that creature's) power$/.test(raw)) {
+    return readFiniteCardStat((moved[0] as any)?.power ?? (moved[0] as any)?.card?.power);
+  }
+  if (moved.length === 1 && /^(?:its|that card's|that creature's) toughness$/.test(raw)) {
+    return readFiniteCardStat((moved[0] as any)?.toughness ?? (moved[0] as any)?.card?.toughness);
   }
 
   return null;
@@ -143,6 +155,23 @@ export function applyDealDamageStep(
 
   if ((step.target as any)?.kind === 'raw') {
     const rawText = String(((step.target as any).text || '') as any).trim();
+    const singleCreatureId = resolveSingleCreatureTargetId(nextState, step.target as any, ctx);
+    if (singleCreatureId) {
+      const result = applyDamageToMatchingBattlefield(
+        nextState,
+        amount,
+        ctx,
+        permanent => String((permanent as any)?.id || '').trim() === singleCreatureId
+      );
+      log.push(`Dealt ${amount} damage to ${rawText}`);
+      return {
+        applied: true,
+        state: result.state,
+        log,
+        excessDamageDealtThisWay: result.excessDamageDealtThisWay,
+      };
+    }
+
     const mixed = parseDeterministicMixedDamageTarget(rawText);
     if (mixed) {
       for (const playerId of resolveMixedDamagePlayers(nextState, mixed.players, ctx)) {

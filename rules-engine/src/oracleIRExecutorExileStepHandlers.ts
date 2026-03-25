@@ -12,7 +12,9 @@ import {
   shouldReturnUncastExiledToBottom,
   shouldShuffleRestIntoLibrary,
   splitExiledForShuffleRest,
+  isCardExiledWithSource,
 } from './oracleIRExecutorPlayerUtils';
+import { cardMatchesExileSelectorText } from './oracleIRExecutorZoneOps';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -52,6 +54,8 @@ type ExilePermissionModifierSkipResult = {
 export type ExilePermissionModifierResult =
   | ExilePermissionModifierApplyResult
   | ExilePermissionModifierSkipResult;
+
+type GrantExilePermissionResult = ExilePermissionModifierResult;
 
 function resolveExileCounts(
   state: GameState,
@@ -210,7 +214,8 @@ export function applyModifyExilePermissionsStep(
   step: Extract<OracleEffectStep, { kind: 'modify_exile_permissions' }>,
   runtime: {
     readonly lastExiledCards?: readonly any[];
-  }
+  },
+  _ctx?: OracleIRExecutionContext
 ): ExilePermissionModifierResult {
   const lastExiledCards = Array.isArray(runtime.lastExiledCards) ? runtime.lastExiledCards : [];
   const exiledIds = new Set(
@@ -255,5 +260,79 @@ export function applyModifyExilePermissionsStep(
       changed > 0
         ? [`Updated exile permissions for ${changed} exiled card(s)`]
         : [`Updated no exile permissions: ${step.raw}`],
+  };
+}
+
+function matchesGrantedExileSelector(card: any, what: any): boolean {
+  const selectorText = String(what?.text || what?.raw || '').trim();
+  return cardMatchesExileSelectorText(card, selectorText);
+}
+
+export function applyGrantExilePermissionStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'grant_exile_permission' }>,
+  ctx: OracleIRExecutionContext
+): GrantExilePermissionResult {
+  const grantedPlayers = resolvePlayers(state, step.who, ctx);
+  const sourceRef = String(ctx.sourceId || ctx.sourceName || '').trim();
+  if (grantedPlayers.length === 0 || !sourceRef || !step.linkedToSource) {
+    return {
+      applied: false,
+      message: `Skipped exile permission grant (missing linked source/player): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  const playableUntilTurn = getPlayableUntilTurnForImpulseDuration(state, step.duration);
+  const stateAny: any = state as any;
+  stateAny.playableFromExile = stateAny.playableFromExile || {};
+
+  let granted = 0;
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    if (exile.length === 0) return player;
+
+    let playerChanged = false;
+    const updatedExile = exile.map((card: any) => {
+      if (!isCardExiledWithSource(card, sourceRef)) return card;
+      if (!matchesGrantedExileSelector(card, step.what)) return card;
+
+      const matchingGrantedPlayerId = grantedPlayers.find(playerId => {
+        if (step.ownedByWho === 'granted_player') {
+          const ownerId = String(card?.ownerId || card?.owner || card?.card?.ownerId || card?.card?.owner || player?.id || '').trim();
+          return ownerId === String(playerId || '').trim();
+        }
+        return true;
+      });
+      if (!matchingGrantedPlayerId) return card;
+
+      const id = String(card?.id ?? card?.cardId ?? '').trim();
+      if (!id) return card;
+
+      stateAny.playableFromExile[matchingGrantedPlayerId] = stateAny.playableFromExile[matchingGrantedPlayerId] || {};
+      stateAny.playableFromExile[matchingGrantedPlayerId][id] = playableUntilTurn ?? Number.MAX_SAFE_INTEGER;
+      granted += 1;
+      playerChanged = true;
+      return {
+        ...card,
+        canBePlayedBy: matchingGrantedPlayerId,
+        playableUntilTurn: playableUntilTurn ?? Number.MAX_SAFE_INTEGER,
+        ...(step.castedPermanentEntersWithCounters
+          ? { entersBattlefieldWithCounters: { ...step.castedPermanentEntersWithCounters } }
+          : {}),
+      };
+    });
+
+    return playerChanged ? ({ ...player, exile: updatedExile } as any) : player;
+  });
+
+  return {
+    applied: true,
+    state: { ...(stateAny as any), players: updatedPlayers as any } as any,
+    log:
+      granted > 0
+        ? [`Granted exile permission for ${granted} linked exiled card(s)`]
+        : [`Granted no exile permissions: ${step.raw}`],
   };
 }

@@ -114,6 +114,30 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'grant_exile_permission';
+      readonly who: OraclePlayerSelector;
+      readonly what: OracleObjectSelector;
+      readonly duration:
+        | 'this_turn'
+        | 'during_resolution'
+        | 'during_next_turn'
+        | 'until_end_of_next_turn'
+        | 'until_end_of_combat_on_next_turn'
+        | 'until_next_turn'
+        | 'until_next_upkeep'
+        | 'until_next_end_step'
+        | 'as_long_as_remains_exiled'
+        | 'as_long_as_control_source'
+        | 'until_exile_another';
+      readonly permission: 'play' | 'cast';
+      readonly linkedToSource?: boolean;
+      readonly ownedByWho?: 'granted_player';
+      readonly castedPermanentEntersWithCounters?: Record<string, number>;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'modify_graveyard_permissions';
       readonly scope: 'last_granted_graveyard_cards';
       readonly castCost?: 'mana_cost';
@@ -144,6 +168,8 @@ export type OracleEffectStep =
       readonly who: OraclePlayerSelector;
       /** Raw mana string, e.g. "{R}{R}{R}" or "{2}{C}" */
       readonly mana: string;
+      /** Optional mana choices for clauses like "Add {R} or {G}." */
+      readonly manaOptions?: readonly string[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -174,6 +200,15 @@ export type OracleEffectStep =
   | {
       readonly kind: 'surveil';
       readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'add_counter';
+      readonly target: OracleObjectSelector;
+      readonly counter: string;
       readonly amount: OracleQuantity;
       readonly optional?: boolean;
       readonly sequence?: 'then';
@@ -448,6 +483,22 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'proliferate';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'investigate';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'populate';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

@@ -8,8 +8,9 @@ import {
 } from './delayedTriggeredAbilities';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import { attachExistingBattlefieldPermanentToTarget } from './oracleIRExecutorZoneOps';
-import { quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { getCardManaValue, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -57,6 +58,59 @@ function resolveTokenControllersFromMovedCards(runtime?: TokenStepRuntime): read
   return out;
 }
 
+function resolveTokenAmount(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'create_token' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime
+): number | null {
+  const numericAmount = quantityToNumber(step.amount);
+  if (numericAmount !== null) return numericAmount;
+  if (step.amount.kind !== 'x') return null;
+
+  const whereMatch = String(step.raw || '').match(/\bwhere\s+x\s+is\s+(.+)$/i);
+  if (!whereMatch) return null;
+
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  if (!controllerId) return null;
+
+  const whereRaw = `X is ${String(whereMatch[1] || '').trim()}`;
+  const evaluated = evaluateModifyPtWhereX(
+    state,
+    controllerId,
+    whereRaw,
+    undefined,
+    ctx,
+    {
+      lastMovedCards: Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [],
+    } as any
+  );
+  if (evaluated !== null) return evaluated;
+
+  const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  if (moved.length !== 1) return null;
+
+  const normalized = String(whereRaw || '').trim().toLowerCase();
+  const movedCard = moved[0] as any;
+  const readFinite = (value: unknown): number | null => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  if (/^x is (?:its|that card's|that creature's|the exiled card's|the exiled creature's) power$/.test(normalized)) {
+    return readFinite(movedCard?.power ?? movedCard?.card?.power);
+  }
+  if (/^x is (?:its|that card's|that creature's|the exiled card's|the exiled creature's) toughness$/.test(normalized)) {
+    return readFinite(movedCard?.toughness ?? movedCard?.card?.toughness);
+  }
+  if (/^x is (?:its|that card's|that creature's|the exiled card's|the exiled creature's) mana value$/.test(normalized)) {
+    const manaValue = getCardManaValue(movedCard);
+    return manaValue === null ? null : manaValue;
+  }
+
+  return null;
+}
+
 function addTokensToBattlefield(
   state: GameState,
   controllerId: PlayerID,
@@ -69,12 +123,21 @@ function addTokensToBattlefield(
 ): { state: GameState; log: string[]; createdTokenIds: string[] } {
   const hasOverrides = Boolean(entersTapped) || (withCounters && Object.keys(withCounters).length > 0);
 
+  const normalizeTokenLookupText = (value: string): string =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/\b(?:white|blue|black|red|green|colorless)\b/g, ' ')
+      .replace(/\btoken(s)?\b/g, ' ')
+      .replace(/\b(?:creature|artifact|enchantment)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
   const resolveCommonTokenKey = (name: string): string | null => {
     const raw = String(name || '').trim();
     if (!raw) return null;
     if ((COMMON_TOKENS as any)[raw]) return raw;
-    const lower = raw.toLowerCase();
-    const key = Object.keys(COMMON_TOKENS).find(k => k.toLowerCase() === lower);
+    const normalized = normalizeTokenLookupText(raw);
+    const key = Object.keys(COMMON_TOKENS).find(k => normalizeTokenLookupText(k) === normalized);
     return key || null;
   };
 
@@ -226,7 +289,7 @@ export function applyCreateTokenStep(
   ctx: OracleIRExecutionContext,
   runtime?: TokenStepRuntime
 ): TokenStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
+  const amount = resolveTokenAmount(state, step, ctx, runtime);
   if (amount === null) {
     return {
       applied: false,

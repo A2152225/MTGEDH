@@ -547,6 +547,10 @@ function moveToGraveyard(state: GameState, card: any, ownerId: string): GameStat
  */
 function enterBattlefield(state: GameState, permanent: any, controllerId: string): GameState {
   const card = permanent.card || permanent;
+  const entryCounters =
+    card?.entersBattlefieldWithCounters && typeof card.entersBattlefieldWithCounters === 'object'
+      ? { ...(card.entersBattlefieldWithCounters as Record<string, number>) }
+      : {};
   const permanentOnBattlefield: BattlefieldPermanent = {
     id: permanent.id || `perm-${Date.now()}`,
     card: card,
@@ -554,7 +558,7 @@ function enterBattlefield(state: GameState, permanent: any, controllerId: string
     owner: controllerId, // Owner is typically the controller when entering from stack
     tapped: false,
     summoningSickness: true,
-    counters: {},
+    counters: entryCounters,
     attachments: [],
   };
   

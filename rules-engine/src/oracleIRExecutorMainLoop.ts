@@ -13,6 +13,7 @@ import { prepareCopiedSpellExecutionContext } from './oracleIRExecutorCopySpellS
 import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
 import { applyChooseModeStep } from './oracleIRExecutorChooseModeStepHandlers';
 import {
+  applyAddCounterStep,
   applyDestroyStep,
   applyExileStep,
   applyGrantLeaveBattlefieldReplacementStep,
@@ -24,9 +25,16 @@ import {
   applyTapOrUntapStep,
 } from './oracleIRExecutorBattlefieldStepHandlers';
 import { applyDealDamageStep } from './oracleIRExecutorDamageStepHandlers';
-import { applyExileTopStep, applyImpulseExileTopStep, applyModifyExilePermissionsStep } from './oracleIRExecutorExileStepHandlers';
+import {
+  applyExileTopStep,
+  applyGrantExilePermissionStep,
+  applyImpulseExileTopStep,
+  applyModifyExilePermissionsStep,
+} from './oracleIRExecutorExileStepHandlers';
 import { applyGoadStep } from './oracleIRExecutorGoadStepHandlers';
 import {
+  applyInvestigateStep,
+  applyPopulateStep,
   applyProliferateStep,
   applyRingTemptsYouStep,
 } from './oracleIRExecutorKeywordStepHandlers';
@@ -90,6 +98,7 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastGrantedGraveyardCards: any[] = [];
   let lastMovedCards: any[] = [];
   let lastMovedBattlefieldPermanentIds: string[] = [];
+  let lastCreatedTokenIds: string[] = [];
   let lastGoadedCreatures: BattlefieldPermanent[] = [];
   let lastSacrificedCreaturesPowerTotal = 0;
   let lastSacrificedPermanents: LastKnownPermanentSnapshot[] = [];
@@ -97,6 +106,7 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastScryLookedAtCount = 0;
   let lastStepOutcome: { readonly kind: StepOutcomeKind; readonly stepKind: OracleEffectStep['kind'] } | null = null;
   let lastActionOutcome: { readonly kind: StepOutcomeKind; readonly stepKind: OracleEffectStep['kind'] } | null = null;
+  let lastConditionalEvaluation: boolean | null = null;
 
   let nextState = state;
   const pendingOptionalSteps: OracleEffectStep[] = [];
@@ -202,6 +212,9 @@ export function applyOracleIRStepsToGameStateImpl(
 
   for (let stepIndex = 0; stepIndex < steps.length; stepIndex += 1) {
     const step = steps[stepIndex];
+    if (step.kind !== 'conditional') {
+      lastConditionalEvaluation = null;
+    }
     const isOptional = Boolean((step as any).optional);
     if (isOptional && !options.allowOptional) {
       recordSkippedStep(
@@ -236,7 +249,12 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'modify_exile_permissions': {
-        const result = applyModifyExilePermissionsStep(nextState, step, { lastExiledCards });
+        const result = applyModifyExilePermissionsStep(nextState, step, { lastExiledCards }, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'grant_exile_permission': {
+        const result = applyGrantExilePermissionStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
@@ -333,6 +351,16 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'proliferate': {
         const result = applyProliferateStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'investigate': {
+        const result = applyInvestigateStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'populate': {
+        const result = applyPopulateStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
@@ -469,6 +497,16 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'add_counter': {
+        const result = applyAddCounterStep(nextState, step, currentCtx, {
+          lastCreatedTokenIds,
+          lastMovedCards,
+        });
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards) ? [...appliedResult.lastMovedCards] : lastMovedCards;
+        });
+        break;
+      }
       case 'move_zone': {
         const result = applyMoveZoneStep(nextState, step, currentCtx, {
           lastMovedCards,
@@ -491,7 +529,24 @@ export function applyOracleIRStepsToGameStateImpl(
           lastMovedBattlefieldPermanentIds,
           lastMovedCards,
         });
-        applyHandledStepResult(step, result);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastCreatedTokenIds = Array.isArray(appliedResult.createdTokenIds)
+            ? appliedResult.createdTokenIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+            : [];
+          if (lastCreatedTokenIds.length <= 0) return;
+          currentCtx = {
+            ...currentCtx,
+            selectorContext: {
+              ...(currentCtx.selectorContext || {}),
+              chosenObjectIds: Array.from(
+                new Set([
+                  ...((currentCtx.selectorContext?.chosenObjectIds || []) as readonly string[]),
+                  ...lastCreatedTokenIds,
+                ].map((id: unknown) => String(id || '').trim()).filter(Boolean))
+              ),
+            },
+          };
+        });
         break;
       }
       case 'grant_temporary_dies_trigger': {
@@ -609,17 +664,20 @@ export function applyOracleIRStepsToGameStateImpl(
           controllerId,
           ctx: currentCtx,
           lastActionOutcome,
+          lastConditionalEvaluation,
           pendingSteps: step.steps,
           lastMovedCards,
         });
 
         if (conditionEvaluation === false) {
+          lastConditionalEvaluation = false;
           skippedSteps.push(step);
           log.push(`Skipped conditional step (condition false): ${step.raw}`);
           break;
         }
 
         if (conditionEvaluation === null) {
+          lastConditionalEvaluation = null;
           recordSkippedStep(
             step,
             `Skipped conditional step (unsupported condition): ${step.raw}`,
@@ -651,6 +709,7 @@ export function applyOracleIRStepsToGameStateImpl(
           options
         );
         nextState = result.state;
+        lastConditionalEvaluation = true;
         log.push(...result.log);
         appliedSteps.push(...result.appliedSteps);
         skippedSteps.push(...result.skippedSteps);
@@ -665,9 +724,12 @@ export function applyOracleIRStepsToGameStateImpl(
           break;
         }
 
+        if (result.state) {
+          nextState = result.state;
+        }
         log.push(...result.log);
         if (!result.shouldApplyNestedSteps) {
-          skippedSteps.push(step);
+          appliedSteps.push(step);
           break;
         }
 

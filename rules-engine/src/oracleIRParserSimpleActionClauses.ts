@@ -7,6 +7,13 @@ type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 const PLAYER_SUBJECT_PREFIX =
   "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
+const COUNTER_AMOUNT_PATTERN = '(?:a|an|\\d+|x|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+
+function parseManaChoiceList(raw: string): string[] {
+  const matches = String(raw || '').match(/\{[^}]+\}/g);
+  return Array.isArray(matches) ? matches.map(symbol => String(symbol || '').trim()).filter(Boolean) : [];
+}
+
 export function tryParseSimpleActionClause(args: {
   clause: string;
   rawClause: string;
@@ -51,6 +58,19 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addCounters = clause.match(new RegExp(`^put\\s+(${COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+on\\s+(.+)$`, 'i'));
+    if (addCounters && !/\bonto\s+the\s+battlefield\b/i.test(clause)) {
+      return withMeta({
+        kind: 'add_counter',
+        amount: parseQuantity(addCounters[1]),
+        counter: normalizeCounterName(String(addCounters[2] || '')),
+        target: parseObjectSelector(addCounters[3]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const removeCounters = clause.match(/^remove\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+from\s+(.+)$/i);
     if (removeCounters) {
       return withMeta({
@@ -64,12 +84,52 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addManaChoice = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\}(?:\\s+or\\s+\\{[^}]+\\})+)\\s*$`, 'i')
+    );
+    if (addManaChoice) {
+      const manaOptions = parseManaChoiceList(String(addManaChoice[2] || '').trim());
+      if (manaOptions.length >= 2) {
+        return withMeta({
+          kind: 'add_mana',
+          who: parsePlayerSelector(addManaChoice[1]),
+          mana: manaOptions[0],
+          manaOptions,
+          raw: rawClause,
+        });
+      }
+    }
+
     const addMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\}(?:\\s*\\{[^}]+\\})*)\\s*$`, 'i'));
     if (addMana) {
       const mana = String(addMana[2] || '').trim();
       if (mana && !/\bor\b/i.test(clause)) {
         return withMeta({ kind: 'add_mana', who: parsePlayerSelector(addMana[1]), mana, raw: rawClause });
       }
+    }
+  }
+
+  {
+    const investigate = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:investigate|investigates)\\b$`, 'i'));
+    if (investigate) {
+      return withMeta({
+        kind: 'investigate',
+        who: parsePlayerSelector(investigate[1]),
+        amount: { kind: 'number', value: 1 },
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const populate = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:populate|populates)\\b$`, 'i'));
+    if (populate) {
+      return withMeta({
+        kind: 'populate',
+        who: parsePlayerSelector(populate[1]),
+        amount: { kind: 'number', value: 1 },
+        raw: rawClause,
+      });
     }
   }
 

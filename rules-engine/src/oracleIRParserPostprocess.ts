@@ -850,11 +850,63 @@ export function expandDeterministicMoveZoneFollowupAbilities(
   }));
 }
 
+function parseDeterministicUnknownBodySteps(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  body: string
+): readonly OracleEffectStep[] | null {
+  const normalizedBody = normalizeClauseForParse(body.replace(/[.]+$/g, '').trim());
+  const withMeta = <T extends OracleEffectStep>(candidate: T): T => {
+    const out: any = { ...candidate };
+    if (normalizedBody.sequence) out.sequence = normalizedBody.sequence;
+    if (normalizedBody.optional) out.optional = normalizedBody.optional;
+    return out;
+  };
+
+  const parseSingleClause = (rawClause: string): readonly OracleEffectStep[] | null => {
+    const clause = String(rawClause || '').trim();
+    if (!clause) return null;
+
+    const moveWithAttach = parseMoveZoneWithAttachFollowup(clause);
+    if (moveWithAttach && moveWithAttach.length > 0) return [...moveWithAttach];
+
+    const singleStep =
+      parseExilePermissionModifierUnknownStep({ ...step, raw: clause }) ??
+      parseCopySpellUnknownStep({ ...step, raw: clause }) ??
+      parseReturnFromYourGraveyardToHandClause(clause) ??
+      tryParseZoneAndRemovalClause({ clause, rawClause: clause, withMeta }) ??
+      tryParseSimpleCreateTokenClause({ clause, rawClause: clause, withMeta }) ??
+      tryParseLifeAndCombatClause({ clause, rawClause: clause, withMeta }) ??
+      tryParseTemporaryModifyPtClause({ clause, rawClause: clause, withMeta }) ??
+      tryParseSimpleActionClause({ clause, rawClause: clause, withMeta });
+    if (!singleStep || singleStep.kind === 'unknown') return null;
+    return [singleStep];
+  };
+
+  const bodyClause = String(normalizedBody.clause || '').trim();
+  const andParts = bodyClause.split(/\s+and\s+/i).map(part => part.trim()).filter(Boolean);
+  if (andParts.length > 1) {
+    const parsed = andParts.flatMap(part => parseSingleClause(part) || []);
+    if (parsed.length === andParts.length) return parsed;
+  }
+
+  const direct = parseSingleClause(bodyClause);
+  if (direct && direct.length > 0) return direct;
+
+  const sentenceClauses = splitIntoClauses(bodyClause);
+  if (sentenceClauses.length > 1) {
+    const parsed = sentenceClauses.flatMap(clause => parseSingleClause(clause) || []);
+    if (parsed.length === sentenceClauses.length) return parsed;
+  }
+
+  return null;
+}
+
 function parseSimpleConditionalUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || '')).trim();
   if (!normalized) return null;
 
   const match =
+    normalized.match(/^if\s+(.+?\bcard),\s*(.+)$/i) ||
     normalized.match(/^if\s+([^,]+),\s*(.+)$/i) ||
     normalized.match(/^when\s+(you do),\s*(.+)$/i);
   if (!match) return null;
@@ -863,33 +915,42 @@ function parseSimpleConditionalUnknownStep(step: Extract<OracleEffectStep, { kin
   const body = String(match[2] || '').trim();
   if (!conditionRaw || !body) return null;
 
-  const normalizedBody = normalizeClauseForParse(body.replace(/[.]+$/g, '').trim());
-  const withMeta = <T extends OracleEffectStep>(candidate: T): T => {
-    const out: any = { ...candidate };
-    if (normalizedBody.sequence) out.sequence = normalizedBody.sequence;
-    if (normalizedBody.optional) out.optional = normalizedBody.optional;
-    return out;
+  const parsedBodySteps = parseDeterministicUnknownBodySteps(step, body);
+
+  if (!parsedBodySteps || parsedBodySteps.length === 0) return null;
+
+  return {
+    kind: 'conditional',
+    condition: { kind: 'if', raw: conditionRaw },
+    steps: parsedBodySteps,
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
   };
-  const bodyClause = String(normalizedBody.clause || '').trim();
+}
 
-  const parsedBodySteps =
-    (() => {
-      const moveWithAttach = parseMoveZoneWithAttachFollowup(bodyClause);
-      if (moveWithAttach && moveWithAttach.length > 0) return [...moveWithAttach];
+function invertOtherwiseCondition(previous: Extract<OracleEffectStep, { kind: 'conditional' }>): string | null {
+  if (previous.condition.kind !== 'if') return null;
+  const text = normalizeLeadingConditionalCondition(String(previous.condition.raw || '').trim());
+  const movedCardTypeMatch = text.match(/^it was (?:a|an)\s+(.+?)(?:\s+card)?$/i);
+  if (!movedCardTypeMatch) return null;
+  return `it was not a ${String(movedCardTypeMatch[1] || '').trim()}`.trim();
+}
 
-      const singleStep =
-        parseExilePermissionModifierUnknownStep({ ...step, raw: body }) ??
-        parseCopySpellUnknownStep({ ...step, raw: body }) ??
-        parseReturnFromYourGraveyardToHandClause(bodyClause) ??
-        tryParseZoneAndRemovalClause({ clause: bodyClause, rawClause: body, withMeta }) ??
-        tryParseSimpleCreateTokenClause({ clause: bodyClause, rawClause: body, withMeta }) ??
-        tryParseLifeAndCombatClause({ clause: bodyClause, rawClause: body, withMeta }) ??
-        tryParseTemporaryModifyPtClause({ clause: bodyClause, rawClause: body, withMeta }) ??
-        tryParseSimpleActionClause({ clause: bodyClause, rawClause: body, withMeta });
-      if (!singleStep || singleStep.kind === 'unknown') return null;
-      return [singleStep];
-    })();
+function parseOtherwiseConditionalUnknownStep(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  previous: OracleEffectStep | undefined
+): OracleEffectStep | null {
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  const match = normalized.match(/^otherwise,?\s*(.+)$/i);
+  if (!match || previous?.kind !== 'conditional') return null;
 
+  const conditionRaw = invertOtherwiseCondition(previous);
+  if (!conditionRaw) return null;
+
+  const body = String(match[1] || '').trim();
+  if (!body) return null;
+
+  const parsedBodySteps = parseDeterministicUnknownBodySteps(step, body);
   if (!parsedBodySteps || parsedBodySteps.length === 0) return null;
 
   return {
@@ -918,6 +979,51 @@ export function expandSimpleConditionalUnknownAbilities(
   });
 }
 
+export function expandOtherwiseConditionalUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps = ability.steps.map((step, index, steps) => {
+      if (step.kind !== 'unknown') return step;
+      const expanded = parseOtherwiseConditionalUnknownStep(step, steps[index - 1]);
+      if (!expanded) return step;
+      changed = true;
+      return expanded;
+    });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+function parseExilePermissionUnknownStep(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  abilityType: OracleIRAbility['type']
+): OracleEffectStep | null {
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^(.+?)\s+may\s+(cast|play)\s+(.+?)\s+from\s+among\s+cards?\s+(?:(you)\s+own\s+)?exiled\s+with\s+this\s+(?:creature|artifact|enchantment|planeswalker|permanent|card|class|saga)$/i
+  );
+  if (!match) return null;
+
+  return {
+    kind: 'grant_exile_permission',
+    who: parsePlayerSelector(String(match[1] || '').trim()),
+    permission: String(match[2] || '').trim().toLowerCase() === 'play' ? 'play' : 'cast',
+    what: parseObjectSelector(String(match[3] || '').trim()),
+    duration: abilityType === 'static' ? 'as_long_as_control_source' : 'during_resolution',
+    linkedToSource: true,
+    ...(match[4] ? { ownedByWho: 'granted_player' as const } : {}),
+    optional: true,
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+}
+
 function parseExilePermissionModifierUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
@@ -940,6 +1046,23 @@ function parseExilePermissionModifierUnknownStep(step: Extract<OracleEffectStep,
   }
 
   return null;
+}
+
+export function expandExilePermissionUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps = ability.steps.map((step) => {
+      if (step.kind !== 'unknown') return step;
+      const expanded = parseExilePermissionUnknownStep(step, ability.type);
+      if (!expanded) return step;
+      changed = true;
+      return expanded;
+    });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
 }
 
 function parseGraveyardPermissionModifierUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
@@ -1047,6 +1170,90 @@ export function expandGraveyardPermissionModifierUnknownAbilities(
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
   });
+}
+
+export function mergeExilePermissionCastCounterFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const merged: OracleEffectStep[] = [];
+
+    for (let i = 0; i < ability.steps.length; i += 1) {
+      const current = ability.steps[i];
+      const next = ability.steps[i + 1];
+
+      if (
+        current?.kind === 'grant_exile_permission' &&
+        next?.kind === 'unknown'
+      ) {
+        const normalizedNext = normalizeOracleText(String(next.raw || '')).trim();
+        const castThisWayMatch = normalizedNext.match(
+          /^if you cast a spell this way, that creature enters with (?:a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
+        );
+        if (castThisWayMatch) {
+          merged.push({
+            ...current,
+            castedPermanentEntersWithCounters: {
+              [normalizeCounterName(String(castThisWayMatch[1] || '').trim())]: 1,
+            },
+            raw: `${String(current.raw || '').trim()}. ${String(next.raw || '').trim()}`.trim(),
+          });
+          i += 1;
+          continue;
+        }
+      }
+
+      merged.push(current);
+    }
+
+    return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
+  });
+}
+
+function splitMixedBattlefieldAndGraveyardExileClauses(
+  steps: readonly OracleEffectStep[]
+): OracleEffectStep[] {
+  const expanded: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    if (step.kind !== 'move_zone' || step.to !== 'exile' || step.what.kind !== 'raw') {
+      expanded.push(step);
+      continue;
+    }
+
+    const whatText = String(step.what.text || '').trim();
+    const match = whatText.match(/^(up to one target .+?)\s+and\s+(up to one target .+? from a graveyard)$/i);
+    if (!match || /\bfrom\b/i.test(String(match[1] || '').trim())) {
+      expanded.push(step);
+      continue;
+    }
+
+    expanded.push({
+      kind: 'exile',
+      target: parseObjectSelector(String(match[1] || '').trim()),
+      ...(step.optional ? { optional: step.optional } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: `Exile ${String(match[1] || '').trim()}`,
+    });
+    expanded.push({
+      kind: 'move_zone',
+      what: parseObjectSelector(String(match[2] || '').trim()),
+      to: 'exile',
+      toRaw: 'exile',
+      raw: `Exile ${String(match[2] || '').trim()}`,
+    });
+  }
+
+  return expanded;
+}
+
+export function expandMixedBattlefieldAndGraveyardExileAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map(ability => ({
+    ...ability,
+    steps: splitMixedBattlefieldAndGraveyardExileClauses(ability.steps),
+  }));
 }
 
 function parseChoiceUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {

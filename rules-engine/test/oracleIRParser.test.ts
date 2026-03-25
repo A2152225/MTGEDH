@@ -53,6 +53,126 @@ describe('Oracle IR Parser', () => {
     expect(impulse.duration).toBe('as_long_as_control_source');
   });
 
+  it('parses Intrepid Paleontologist into a linked-exile cast-permission step with finality metadata', () => {
+    const text = `{T}: Add one mana of any color.
+{2}: Exile target card from a graveyard.
+You may cast Dinosaur creature spells from among cards you own exiled with this creature. If you cast a spell this way, that creature enters with a finality counter on it. (If a creature with a finality counter on it would die, exile it instead.)`;
+
+    const ir = parseOracleTextToIR(text, 'Intrepid Paleontologist');
+    const permission = ir.abilities[2].steps[0] as any;
+
+    expect(permission.kind).toBe('grant_exile_permission');
+    expect(permission.who).toEqual({ kind: 'you' });
+    expect(permission.what).toEqual({ kind: 'raw', text: 'Dinosaur creature spells' });
+    expect(permission.permission).toBe('cast');
+    expect(permission.duration).toBe('as_long_as_control_source');
+    expect(permission.linkedToSource).toBe(true);
+    expect(permission.ownedByWho).toBe('granted_player');
+    expect(permission.castedPermanentEntersWithCounters).toEqual({ finality: 1 });
+  });
+
+  it('parses Boiling Rock Rioter into the linked-exile attack trigger shape', () => {
+    const text = `Firebending 1 (Whenever this creature attacks, add {R}. This mana lasts until end of combat.)
+Tap an untapped Ally you control: Exile target card from a graveyard.
+Whenever this creature attacks, you may cast an Ally spell from among cards you own exiled with this creature.`;
+
+    const ir = parseOracleTextToIR(text, 'Boiling Rock Rioter');
+
+    expect(ir.abilities).toHaveLength(3);
+
+    const reminder = ir.abilities[0].steps as any[];
+    expect(reminder).toHaveLength(2);
+    expect(reminder[0].kind).toBe('unknown');
+    expect(reminder[0].raw).toBe('Firebending 1 (Whenever this creature attacks, add {R}');
+    expect(reminder[1].kind).toBe('unknown');
+    expect(reminder[1].raw).toBe('This mana lasts until end of combat.)');
+
+    const exileStep = ir.abilities[1].steps[0] as any;
+    expect(exileStep.kind).toBe('move_zone');
+    expect(exileStep.what).toEqual({ kind: 'raw', text: 'target card from a graveyard' });
+    expect(exileStep.to).toBe('exile');
+
+    const attackPermission = ir.abilities[2].steps[0] as any;
+    expect(attackPermission.kind).toBe('grant_exile_permission');
+    expect(attackPermission.who).toEqual({ kind: 'you' });
+    expect(attackPermission.what).toEqual({ kind: 'raw', text: 'an Ally spell' });
+    expect(attackPermission.permission).toBe('cast');
+    expect(attackPermission.duration).toBe('during_resolution');
+    expect(attackPermission.linkedToSource).toBe(true);
+    expect(attackPermission.ownedByWho).toBe('granted_player');
+    expect(attackPermission.optional).toBe(true);
+    expect(attackPermission.raw).toBe('you may cast an Ally spell from among cards you own exiled with this creature');
+  });
+
+  it('parses Emperor of Bones into the linked-exile reanimation shape', () => {
+    const text = `At the beginning of combat on your turn, exile up to one target card from a graveyard.
+{1}{B}: Adapt 2.
+Whenever one or more +1/+1 counters are put on this creature, put a creature card exiled with this creature onto the battlefield under your control with a finality counter on it. It gains haste. Sacrifice it at the beginning of the next end step.`;
+
+    const ir = parseOracleTextToIR(text, 'Emperor of Bones');
+
+    expect(ir.abilities).toHaveLength(3);
+
+    const exileStep = ir.abilities[0].steps[0] as any;
+    expect(exileStep.kind).toBe('move_zone');
+    expect(exileStep.what).toEqual({ kind: 'raw', text: 'up to one target card from a graveyard' });
+    expect(exileStep.to).toBe('exile');
+
+    const adaptStep = ir.abilities[1].steps[0] as any;
+    expect(adaptStep.kind).toBe('unknown');
+    expect(adaptStep.raw).toBe('Adapt 2');
+
+    const reanimateSteps = ir.abilities[2].steps as any[];
+    expect(reanimateSteps).toHaveLength(3);
+
+    expect(reanimateSteps[0].kind).toBe('move_zone');
+    expect(reanimateSteps[0].what).toEqual({ kind: 'raw', text: 'a creature card exiled with this creature' });
+    expect(reanimateSteps[0].to).toBe('battlefield');
+    expect(reanimateSteps[0].battlefieldController).toEqual({ kind: 'you' });
+    expect(reanimateSteps[0].withCounters).toEqual({ finality: 1 });
+
+    expect(reanimateSteps[1].kind).toBe('unknown');
+    expect(reanimateSteps[1].raw).toBe('It gains haste');
+
+    expect(reanimateSteps[2].kind).toBe('schedule_delayed_battlefield_action');
+    expect(reanimateSteps[2].timing).toBe('next_end_step');
+    expect(reanimateSteps[2].action).toBe('sacrifice');
+  });
+
+  it('parses The Spot, Living Portal into the linked-exile death trigger shape', () => {
+    const text = `When The Spot enters, exile up to one target nonland permanent and up to one target nonland permanent card from a graveyard.
+When The Spot dies, put him on the bottom of his owner's library. If you do, return the exiled cards to their owners' hands.`;
+
+    const ir = parseOracleTextToIR(text, 'The Spot, Living Portal');
+
+    expect(ir.abilities).toHaveLength(2);
+
+    const etbSteps = ir.abilities[0].steps as any[];
+    expect(etbSteps).toHaveLength(2);
+
+    expect(etbSteps[0].kind).toBe('exile');
+    expect(etbSteps[0].target).toEqual({ kind: 'raw', text: 'up to one target nonland permanent' });
+
+    expect(etbSteps[1].kind).toBe('move_zone');
+    expect(etbSteps[1].what).toEqual({ kind: 'raw', text: 'up to one target nonland permanent card from a graveyard' });
+    expect(etbSteps[1].to).toBe('exile');
+
+    const deathSteps = ir.abilities[1].steps as any[];
+    expect(deathSteps).toHaveLength(2);
+
+    expect(deathSteps[0].kind).toBe('move_zone');
+    expect(deathSteps[0].what).toEqual({ kind: 'raw', text: 'him' });
+    expect(deathSteps[0].to).toBe('library');
+    expect(deathSteps[0].toRaw).toBe("the bottom of his owner's library");
+
+    expect(deathSteps[1].kind).toBe('conditional');
+    expect(deathSteps[1].condition).toEqual({ kind: 'if', raw: 'you do' });
+    expect(deathSteps[1].steps).toHaveLength(1);
+    expect(deathSteps[1].steps[0].kind).toBe('move_zone');
+    expect(deathSteps[1].steps[0].what).toEqual({ kind: 'raw', text: 'the exiled cards' });
+    expect(deathSteps[1].steps[0].to).toBe('hand');
+  });
+
   it("upgrades exile-top into impulse for Hauken's Insight-style 'Once during each of your turns' permission (corpus)", () => {
     const text =
       'At the beginning of your upkeep, exile the top card of your library face down. You may look at that card for as long as it remains exiled. Once during each of your turns, you may play a land or cast a spell from among the cards exiled with this permanent without paying its mana cost.';
@@ -172,8 +292,9 @@ describe('Oracle IR Parser', () => {
     expect(steps[0].steps).toHaveLength(3);
     expect(steps[0].steps[0].kind).toBe('sacrifice');
     expect(steps[0].steps[0].what).toEqual({ kind: 'raw', text: 'it' });
-    expect(steps[0].steps[1].kind).toBe('unknown');
-    expect(steps[0].steps[1].raw).toBe('put a +1/+1 counter on enchanted creature');
+    expect(steps[0].steps[1].kind).toBe('add_counter');
+    expect(steps[0].steps[1].counter).toBe('+1/+1');
+    expect(steps[0].steps[1].target).toEqual({ kind: 'raw', text: 'enchanted creature' });
     expect(steps[0].steps[2].kind).toBe('unknown');
     expect(steps[0].steps[2].raw).toBe('that creature gains flying');
   });
@@ -1060,6 +1181,18 @@ describe('Oracle IR Parser', () => {
     expect(delayed.effect).toBe('Return it to the battlefield under your control');
   });
 
+  it('parses Headstone as exile plus a delayed next-upkeep draw trigger', () => {
+    const text = 'Exile target card from a graveyard. Draw a card at the beginning of the next upkeep.';
+    const ir = parseOracleTextToIR(text, 'Headstone');
+    const steps = ir.abilities[0].steps;
+
+    expect(steps.map((step: any) => step.kind)).toEqual(['move_zone', 'schedule_delayed_trigger']);
+
+    const delayed = steps[1] as any;
+    expect(delayed.timing).toBe('next_upkeep');
+    expect(delayed.effect).toBe('Draw a card');
+  });
+
   it('parses battlefield move-zone counters for corpus reanimation wording', () => {
     const text = 'Put target creature card from a graveyard onto the battlefield under your control with a corpse counter on it.';
     const ir = parseOracleTextToIR(text);
@@ -1122,6 +1255,26 @@ describe('Oracle IR Parser', () => {
     expect(move.kind).toBe('move_zone');
     expect(move.battlefieldAddTypes).toEqual(['Zombie']);
     expect(move.battlefieldAddColors).toEqual(['B']);
+  });
+
+  it('parses Sequence Engine as exile plus moved-card X token creation and plural counter follow-up', () => {
+    const text =
+      "Exile target creature card from a graveyard. Create X 2/2 black Zombie creature tokens, where X is that card's mana value. Put X +1/+1 counters on each of those Zombies.";
+    const ir = parseOracleTextToIR(text, 'Sequence Engine');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps.map(step => step.kind)).toEqual(['move_zone', 'create_token', 'add_counter']);
+    expect(steps[1]).toMatchObject({
+      kind: 'create_token',
+      amount: { kind: 'x' },
+      token: '2/2 black Zombie',
+    });
+    expect(steps[2]).toMatchObject({
+      kind: 'add_counter',
+      amount: { kind: 'x' },
+      counter: '+1/+1',
+      target: { kind: 'raw', text: 'each of those Zombies' },
+    });
   });
 
   it("merges Lim-Dul the Necromancer's conditional Zombie rewrite onto the returned creature", () => {
@@ -6173,6 +6326,48 @@ describe('Oracle IR Parser', () => {
     );
   });
 
+  it('parses Klothys land and otherwise branches with mana choice support', () => {
+    const ir = parseOracleTextToIR(
+      'Exile target card from a graveyard. If it was a land card, add {R} or {G}. Otherwise, you gain 2 life and this permanent deals 2 damage to each opponent.',
+      'Klothys, God of Destiny'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'move_zone',
+          to: 'exile',
+          what: { kind: 'raw', text: 'target card from a graveyard' },
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'it was a land card' },
+          steps: [
+            expect.objectContaining({
+              kind: 'add_mana',
+              manaOptions: ['{R}', '{G}'],
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'it was not a land' },
+          steps: [
+            expect.objectContaining({
+              kind: 'gain_life',
+              amount: { kind: 'number', value: 2 },
+            }),
+            expect.objectContaining({
+              kind: 'deal_damage',
+              amount: { kind: 'number', value: 2 },
+              target: { kind: 'raw', text: 'each opponent' },
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
   it('parses Deathgorge Scavenger noncreature exile follow-up into a conditional self modify-pt branch', () => {
     const ir = parseOracleTextToIR(
       'When this creature enters or attacks, you may exile target card from a graveyard. If a creature card was exiled this way, you gain 2 life. If a noncreature card was exiled this way, this creature gets +1/+1 until end of turn.',
@@ -6196,6 +6391,270 @@ describe('Oracle IR Parser', () => {
         }),
       ])
     );
+  });
+
+  it('splits graveyard exile plus immediate self counter clauses into ordered move-zone and add-counter steps', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this creature becomes tapped, exile up to one target card from a graveyard and put a +1/+1 counter on this creature.',
+      'Immersturm Predator'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'up to one target card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'add_counter',
+        counter: '+1/+1',
+        amount: { kind: 'number', value: 1 },
+        target: { kind: 'raw', text: 'this creature' },
+      }),
+    ]);
+  });
+
+  it('parses Keen-Eyed Curator exile follow-up into a conditional add-counter branch', () => {
+    const ir = parseOracleTextToIR(
+      'Exile target card from a graveyard. If a creature card was exiled this way, put a +1/+1 counter on this creature.',
+      'Keen-Eyed Curator'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'a creature card was exiled this way' },
+          steps: [
+            expect.objectContaining({
+              kind: 'add_counter',
+              counter: '+1/+1',
+              amount: { kind: 'number', value: 1 },
+              target: { kind: 'raw', text: 'this creature' },
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
+  it('parses Conversion Chamber follow-up charge counter clauses into add-counter steps', () => {
+    const ir = parseOracleTextToIR(
+      'Exile target artifact card from a graveyard. Put a charge counter on this artifact.',
+      'Conversion Chamber'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'add_counter',
+          counter: 'charge',
+          amount: { kind: 'number', value: 1 },
+          target: { kind: 'raw', text: 'this artifact' },
+        }),
+      ])
+    );
+  });
+
+  it('parses Lara Croft exile plus discovery-counter follow-up into ordered steps', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever Lara Croft attacks, exile up to one target legendary artifact card or legendary land card from a graveyard and put a discovery counter on it.',
+      'Lara Croft, Tomb Raider'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'up to one target legendary artifact card or legendary land card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'add_counter',
+        counter: 'discovery',
+        amount: { kind: 'number', value: 1 },
+        target: { kind: 'raw', text: 'it' },
+      }),
+    ]);
+  });
+
+  it('parses Lazav, Wearer of Faces exile-then-investigate into ordered steps', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever Lazav attacks, exile target card from a graveyard, then investigate.',
+      'Lazav, Wearer of Faces'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'target card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'investigate',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+      }),
+    ]);
+  });
+
+  it('parses Mastermind Plum type-checked Treasure follow-up into a conditional branch', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this creature attacks, exile up to one target card from a graveyard. If it was an artifact or land card, create a Treasure token.',
+      'Mastermind Plum'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'it was an artifact or land card' },
+          steps: [
+            expect.objectContaining({
+              kind: 'create_token',
+              token: 'Treasure',
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
+  it('parses Misfortune Teller multi-branch exiled-card type follow-ups', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this creature enters or deals combat damage to a player, exile target card from a graveyard. If it was a creature card, create a 2/2 black Zombie creature token. If it was a land card, create a Treasure token. If it was a noncreature, nonland card, you gain 3 life.',
+      'Misfortune Teller'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'it was a creature card' },
+          steps: [
+            expect.objectContaining({
+              kind: 'create_token',
+              token: '2/2 black Zombie',
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'it was a land card' },
+          steps: [
+            expect.objectContaining({
+              kind: 'create_token',
+              token: 'Treasure',
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'it was a noncreature, nonland card' },
+          steps: [
+            expect.objectContaining({
+              kind: 'gain_life',
+              amount: { kind: 'number', value: 3 },
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
+  it('parses Selesnya Eulogist exile-then-populate into ordered steps', () => {
+    const ir = parseOracleTextToIR(
+      'Exile target creature card from a graveyard, then populate.',
+      'Selesnya Eulogist'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'target creature card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'populate',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+      }),
+    ]);
+  });
+
+  it('parses Selfless Exorcist exile plus moved-card power damage follow-up', () => {
+    const ir = parseOracleTextToIR(
+      '{T}: Exile target creature card from a graveyard. That card deals damage equal to its power to this creature.',
+      'Selfless Exorcist'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'target creature card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'deal_damage',
+        amount: { kind: 'unknown', raw: 'its power' },
+        target: { kind: 'raw', text: 'this creature' },
+      }),
+    ]);
+  });
+
+  it('parses Morbid Bloom exile-then-token-count from exiled toughness', () => {
+    const ir = parseOracleTextToIR(
+      "Exile target creature card from a graveyard, then create X 1/1 green Saproling creature tokens, where X is the exiled card's toughness.",
+      'Morbid Bloom'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'target creature card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'create_token',
+        amount: { kind: 'x' },
+        token: '1/1 green Saproling',
+      }),
+    ]);
+  });
+
+  it('parses Lara Croft, Tomb Raider exile plus discovery-counter follow-up into ordered steps', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever Lara Croft attacks, exile up to one target legendary artifact card or legendary land card from a graveyard and put a discovery counter on it.',
+      'Lara Croft, Tomb Raider'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'up to one target legendary artifact card or legendary land card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'add_counter',
+        counter: 'discovery',
+        amount: { kind: 'number', value: 1 },
+        target: { kind: 'raw', text: 'it' },
+      }),
+    ]);
+  });
+
+  it('parses The Animus graveyard target with a memory counter requirement', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your end step, exile up to one target legendary creature card from a graveyard with a memory counter on it.',
+      'The Animus'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'up to one target legendary creature card from a graveyard with a memory counter on it' },
+      }),
+    ]);
   });
 
 });
