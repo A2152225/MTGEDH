@@ -275,10 +275,14 @@ export function applyGrantExilePermissionStep(
 ): GrantExilePermissionResult {
   const grantedPlayers = resolvePlayers(state, step.who, ctx);
   const sourceRef = String(ctx.sourceId || ctx.sourceName || '').trim();
-  if (grantedPlayers.length === 0 || !sourceRef || !step.linkedToSource) {
+  const sourceId = String(ctx.sourceId || '').trim();
+  const selectorText = String((step.what as any)?.text || (step.what as any)?.raw || '').trim().toLowerCase();
+  const selfSelector = /^(?:this card|this spell|this permanent|this creature|it)$/.test(selectorText);
+
+  if (grantedPlayers.length === 0 || (step.linkedToSource && !sourceRef)) {
     return {
       applied: false,
-      message: `Skipped exile permission grant (missing linked source/player): ${step.raw}`,
+      message: `Skipped exile permission grant (missing source/player): ${step.raw}`,
       reason: 'failed_to_apply',
       options: { classification: 'invalid_input', persist: false },
     };
@@ -295,8 +299,15 @@ export function applyGrantExilePermissionStep(
 
     let playerChanged = false;
     const updatedExile = exile.map((card: any) => {
-      if (!isCardExiledWithSource(card, sourceRef)) return card;
-      if (!matchesGrantedExileSelector(card, step.what)) return card;
+      const cardId = String(card?.id ?? card?.cardId ?? '').trim();
+      if (step.linkedToSource) {
+        if (!isCardExiledWithSource(card, sourceRef)) return card;
+        if (!matchesGrantedExileSelector(card, step.what)) return card;
+      } else if (selfSelector) {
+        if (!sourceId || cardId !== sourceId) return card;
+      } else if (!matchesGrantedExileSelector(card, step.what)) {
+        return card;
+      }
 
       const matchingGrantedPlayerId = grantedPlayers.find(playerId => {
         if (step.ownedByWho === 'granted_player') {
@@ -307,7 +318,7 @@ export function applyGrantExilePermissionStep(
       });
       if (!matchingGrantedPlayerId) return card;
 
-      const id = String(card?.id ?? card?.cardId ?? '').trim();
+      const id = cardId;
       if (!id) return card;
 
       stateAny.playableFromExile[matchingGrantedPlayerId] = stateAny.playableFromExile[matchingGrantedPlayerId] || {};

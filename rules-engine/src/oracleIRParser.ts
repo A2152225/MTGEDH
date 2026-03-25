@@ -39,8 +39,10 @@ import {
   expandCopySpellUnknownAbilities,
   expandDeterministicMoveZoneFollowupAbilities,
   expandExilePermissionUnknownAbilities,
+  expandFreeGraveyardCastPermissionAbilities,
   expandGraveyardPermissionModifierUnknownAbilities,
   expandGraveyardPermissionUnknownAbilities,
+  expandGraveyardOrExilePermissionAbilities,
   expandKeywordActionUnknownAbilities,
   expandMixedBattlefieldAndGraveyardExileAbilities,
   expandMoveZoneCopiedSpellAbilities,
@@ -50,6 +52,7 @@ import {
   expandPreventDamageUnknownAbilities,
   expandPayManaUnknownAbilities,
   expandSimpleConditionalUnknownAbilities,
+  expandUnlessSacrificeAbilities,
   expandMoveZoneAttachUnknownAbilities,
   mergeBattlefieldEntryCharacteristicFollowupAbilities,
   mergeBattlefieldEntryAuraRewriteFollowupAbilities,
@@ -1138,9 +1141,12 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandCopyPermanentUnknownAbilities(abilities);
   abilities = expandPreventDamageUnknownAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
+  abilities = expandUnlessSacrificeAbilities(abilities);
   abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
   abilities = expandExilePermissionUnknownAbilities(abilities);
   abilities = expandGraveyardPermissionUnknownAbilities(abilities);
+  abilities = expandFreeGraveyardCastPermissionAbilities(abilities);
+  abilities = expandGraveyardOrExilePermissionAbilities(abilities);
   abilities = expandGraveyardPermissionModifierUnknownAbilities(abilities);
   abilities = mergeExilePermissionCastCounterFollowupAbilities(abilities);
   abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);

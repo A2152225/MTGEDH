@@ -106,6 +106,20 @@ function battlefieldObjectHasType(object: any, typeName: string): boolean {
   );
 }
 
+function countControlledBattlefieldObjectsMatching(params: {
+  battlefield: readonly any[];
+  controllerId: PlayerID;
+  typeNames: readonly string[];
+  tappedOnly?: boolean;
+}): number {
+  const { battlefield, controllerId, typeNames, tappedOnly } = params;
+  return battlefield.filter((perm: any) => {
+    if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return false;
+    if (tappedOnly && perm?.tapped !== true) return false;
+    return typeNames.some((typeName) => battlefieldObjectHasType(perm, typeName));
+  }).length;
+}
+
 function cardHasType(card: any, typeName: string): boolean {
   if (typeName === 'permanent') {
     return (
@@ -302,6 +316,19 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   {
+    const youControlMatch = normalizedRaw.match(/^you control (?:a|an|one or more)\s+(.+)$/i);
+    if (youControlMatch) {
+      const descriptor = String(youControlMatch[1] || '').trim();
+      const battlefield = Array.isArray((nextState as any)?.battlefield) ? ((nextState as any).battlefield as any[]) : [];
+      return battlefield.some(
+        (perm: any) =>
+          String(perm?.controller || '').trim() === controllerId &&
+          matchesCardTypeDescriptor(perm?.card || perm, descriptor)
+      );
+    }
+  }
+
+  {
     const gainedLifeThresholdMatch = normalizedRaw.match(/^you gained ([a-z0-9]+) or more life this turn$/i);
     if (gainedLifeThresholdMatch) {
       const threshold = parseSmallNumberWord(String(gainedLifeThresholdMatch[1] || ''));
@@ -365,6 +392,39 @@ export function evaluateConditionalWrapperCondition(params: {
           battlefieldObjectHasType(perm, typeName)
         ).length;
         return count >= threshold;
+      }
+    }
+  }
+
+  {
+    const youControlSingleMatch = raw.match(/^you control (?:a|an) ([a-z0-9' -]+)$/i);
+    if (youControlSingleMatch) {
+      const typeName = String(youControlSingleMatch[1] || '').trim().toLowerCase();
+      if (typeName) {
+        return countControlledBattlefieldObjectsMatching({
+          battlefield,
+          controllerId,
+          typeNames: [typeName],
+        }) >= 1;
+      }
+    }
+  }
+
+  {
+    const tappedMixedTypeMatch = raw.match(
+      /^you control ([a-z0-9]+) or more tapped ([a-z0-9' -]+?)s? and\/or ([a-z0-9' -]+?)s?$/i
+    );
+    if (tappedMixedTypeMatch) {
+      const threshold = parseSmallNumberWord(String(tappedMixedTypeMatch[1] || ''));
+      const firstType = String(tappedMixedTypeMatch[2] || '').trim().toLowerCase();
+      const secondType = String(tappedMixedTypeMatch[3] || '').trim().toLowerCase();
+      if (threshold !== null && firstType && secondType) {
+        return countControlledBattlefieldObjectsMatching({
+          battlefield,
+          controllerId,
+          typeNames: [firstType, secondType],
+          tappedOnly: true,
+        }) >= threshold;
       }
     }
   }
@@ -470,6 +530,33 @@ export function evaluateConditionalWrapperCondition(params: {
       return provenance.enteredFromZone === 'graveyard';
     }
     return provenance.castFromZone === 'graveyard';
+  }
+
+  if (normalizedRaw === 'it escaped' || normalizedRaw === 'this permanent escaped') {
+    const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
+    const provenance = referencedObject
+      ? getConditionalObjectZoneProvenance(referencedObject)
+      : {
+          castFromZone: String(ctx.castFromZone || '').trim().toLowerCase() || undefined,
+          enteredFromZone: String(ctx.enteredFromZone || '').trim().toLowerCase() || undefined,
+        };
+    return provenance.castFromZone === 'graveyard';
+  }
+
+  if (
+    normalizedRaw === "it didn't escape" ||
+    normalizedRaw === 'it did not escape' ||
+    normalizedRaw === "this permanent didn't escape" ||
+    normalizedRaw === 'this permanent did not escape'
+  ) {
+    const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
+    const provenance = referencedObject
+      ? getConditionalObjectZoneProvenance(referencedObject)
+      : {
+          castFromZone: String(ctx.castFromZone || '').trim().toLowerCase() || undefined,
+          enteredFromZone: String(ctx.enteredFromZone || '').trim().toLowerCase() || undefined,
+        };
+    return provenance.castFromZone !== 'graveyard';
   }
 
   const generic = evaluateModifyPtCondition(nextState, controllerId, condition.raw);

@@ -2,7 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 
 export function stripPlayableFromGraveyardTags(card: any): any {
   if (!card || typeof card !== 'object') return card;
-  const { canBePlayedBy, playableUntilTurn, graveyardCastCost, ...rest } = card as any;
+  const { canBePlayedBy, playableUntilTurn, graveyardCastCost, withoutPayingManaCost, ...rest } = card as any;
   return rest;
 }
 

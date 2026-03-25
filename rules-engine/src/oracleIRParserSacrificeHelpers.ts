@@ -322,6 +322,12 @@ export function tryParseLeadingConditionalStep(args: {
   const clause = String(normalized.clause || '').trim();
   if (!clause) return null;
 
+  // Replacement-effect clauses like "If it would leave the battlefield, exile it instead ..."
+  // should stay intact so dedicated postprocessors can recognize them later.
+  if (/^if\s+[^,]+\s+would\s+[^,]+,\s+.+\s+instead(?:\s+of\s+.+)?$/i.test(clause)) {
+    return null;
+  }
+
   const match = clause.match(/^if\s+([^,]+),\s*(.+)$/i);
   if (!match) return null;
 

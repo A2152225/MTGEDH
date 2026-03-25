@@ -170,6 +170,7 @@ export type OracleEffectStep =
       readonly kind: 'modify_graveyard_permissions';
       readonly scope: 'last_granted_graveyard_cards';
       readonly castCost?: 'mana_cost';
+      readonly withoutPayingManaCost?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

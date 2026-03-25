@@ -53,9 +53,10 @@ export type PlayerStepHandlerResult = StepApplyResult | StepSkipResult;
 
 function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
   const chosen = Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [];
+  const direct = [ctx.targetCreatureId, ctx.targetPermanentId];
   const ids: string[] = [];
   const seen = new Set<string>();
-  for (const candidate of chosen) {
+  for (const candidate of [...chosen, ...direct]) {
     const normalized = String(candidate || '').trim();
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
@@ -84,14 +85,25 @@ function buildGraveyardPermissionCriteria(text: string): MoveZoneSingleTargetCri
 
   const manaValueMatch = normalized.match(/^(.+?)\s+with mana value (\d+) or less$/i);
   if (manaValueMatch) {
-    const cardType = parseSimpleCardTypeFromText(String(manaValueMatch[1] || '').trim());
+    const rawBase = String(manaValueMatch[1] || '').trim().replace(/\s+spell$/i, '');
+    const creatureTypeWithMvMatch = rawBase.match(/^([a-z][a-z' -]+)\s+creature$/i);
     const manaValueLte = parseInt(String(manaValueMatch[2] || '0'), 10) || 0;
+    if (creatureTypeWithMvMatch && manaValueLte > 0) {
+      return {
+        cardType: 'creature',
+        manaValueLte,
+        creatureTypesAnyOf: [
+          String(creatureTypeWithMvMatch[1] || '')
+            .trim()
+            .replace(/\b\w/g, c => c.toUpperCase()),
+        ],
+      };
+    }
+
+    const cardType = parseSimpleCardTypeFromText(rawBase);
     if (!cardType || manaValueLte <= 0) return null;
     return { cardType, manaValueLte };
   }
-
-  const baseType = parseSimpleCardTypeFromText(normalized);
-  if (baseType) return { cardType: baseType };
 
   const creatureTypeMatch = normalized.match(/^([a-z][a-z' -]+)\s+creature$/i);
   if (creatureTypeMatch) {
@@ -104,6 +116,9 @@ function buildGraveyardPermissionCriteria(text: string): MoveZoneSingleTargetCri
       ],
     };
   }
+
+  const baseType = parseSimpleCardTypeFromText(normalized);
+  if (baseType) return { cardType: baseType };
 
   if (normalized === 'land' || normalized === 'lands') return { cardType: 'land' };
   if (normalized === 'card' || normalized === 'cards') return { cardType: 'any' };
@@ -201,13 +216,35 @@ function resolveExilePermissionTargets(
   ctx: OracleIRExecutionContext
 ): { cards: readonly any[]; reason?: 'unsupported_selector' | 'failed_to_apply' } {
   const sourceId = String(ctx.sourceId || '').trim();
-  if (!sourceId) return { cards: [], reason: 'failed_to_apply' };
-
   const selectorText =
     step.what.kind === 'raw'
       ? normalizePermissionSelectorText(step.what.text)
       : normalizePermissionSelectorText((step.what as any).raw || '');
   if (!selectorText) return { cards: [], reason: 'unsupported_selector' };
+
+  const chosenIds = new Set(getChosenObjectIds(ctx));
+  const contextualReference =
+    /^(?:it|that card|that spell|the exiled card|the exiled spell|target .+?)$/.test(selectorText);
+  if (contextualReference || /^(?:this card|this spell|this permanent|this creature)$/.test(selectorText)) {
+    const targetId = contextualReference
+      ? Array.from(chosenIds)[0] || sourceId
+      : sourceId;
+    if (!targetId) return { cards: [], reason: 'failed_to_apply' };
+
+    const matches: any[] = [];
+    for (const owner of state.players as any[]) {
+      const exile = Array.isArray(owner?.exile) ? owner.exile : [];
+      for (const card of exile) {
+        const cardId = String(card?.id || card?.cardId || '').trim();
+        if (!cardId || cardId !== targetId) continue;
+        matches.push(card);
+      }
+    }
+
+    return matches.length > 0 ? { cards: matches } : { cards: [], reason: 'failed_to_apply' };
+  }
+
+  if (!sourceId && step.linkedToSource) return { cards: [], reason: 'failed_to_apply' };
 
   const { criteria, ownOnly } = buildExilePermissionCriteria(selectorText);
   if (!criteria) return { cards: [], reason: 'unsupported_selector' };
@@ -217,7 +254,7 @@ function resolveExilePermissionTargets(
   for (const owner of state.players as any[]) {
     const exile = Array.isArray(owner?.exile) ? owner.exile : [];
     for (const card of exile) {
-      if (!isCardExiledWithSource(card, sourceId)) continue;
+      if (step.linkedToSource && !isCardExiledWithSource(card, sourceId)) continue;
       if (ownOnly && String(owner?.id || '').trim() !== playerId) continue;
       if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, undefined, currentTurn)) continue;
       matches.push(card);
@@ -462,6 +499,7 @@ export function applyModifyGraveyardPermissionsStep(
       return {
         ...card,
         ...(step.castCost ? { graveyardCastCost: step.castCost } : {}),
+        ...(step.withoutPayingManaCost ? { withoutPayingManaCost: true } : {}),
       };
     });
 

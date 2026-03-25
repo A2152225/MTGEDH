@@ -6268,6 +6268,49 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses Torrential Gearhulk into a graveyard permission plus free-cast metadata', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, you may cast target instant card from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead.',
+      'Torrential Gearhulk'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_graveyard_permission',
+          what: { kind: 'raw', text: 'target instant card' },
+          permission: 'cast',
+          optional: true,
+        }),
+        expect.objectContaining({
+          kind: 'modify_graveyard_permissions',
+          scope: 'last_granted_graveyard_cards',
+          withoutPayingManaCost: true,
+        }),
+      ])
+    );
+  });
+
+  it("parses Uro, Titan of Nature's Wrath into a sacrifice-unless-escaped conditional", () => {
+    const ir = parseOracleTextToIR(
+      "When Uro enters, sacrifice it unless it escaped.",
+      "Uro, Titan of Nature's Wrath"
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "it didn't escape" },
+        steps: [
+          expect.objectContaining({
+            kind: 'sacrifice',
+            what: { kind: 'raw', text: 'it' },
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it('parses Past in Flames into graveyard permissions plus mana-cost flashback metadata', () => {
     const ir = parseOracleTextToIR(
       'Each instant and sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost.',
@@ -6349,6 +6392,157 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         }),
       ])
     );
+  });
+
+  it('parses Gravecrawler into a Zombie-gated graveyard permission wrapper', () => {
+    const ir = parseOracleTextToIR(
+      'You may cast Gravecrawler from your graveyard as long as you control a Zombie.',
+      'Gravecrawler'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'as_long_as', raw: 'you control a Zombie' },
+        steps: [
+          expect.objectContaining({
+            kind: 'grant_graveyard_permission',
+            what: { kind: 'raw', text: 'this permanent' },
+            permission: 'cast',
+            optional: true,
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('parses Squee, the Immortal into both graveyard and exile permission steps', () => {
+    const ir = parseOracleTextToIR(
+      'You may cast Squee, the Immortal from your graveyard or from exile.',
+      'Squee, the Immortal'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_graveyard_permission',
+          what: { kind: 'raw', text: 'this permanent' },
+        }),
+        expect.objectContaining({
+          kind: 'grant_exile_permission',
+          what: { kind: 'raw', text: 'this permanent' },
+        }),
+      ])
+    );
+  });
+
+  it('parses Chainer, Nightmare Adept into a this-turn creature-graveyard permission', () => {
+    const ir = parseOracleTextToIR(
+      'Discard a card: You may cast a creature spell from your graveyard this turn.',
+      'Chainer, Nightmare Adept'
+    );
+
+    expect(ir.abilities[0]?.type).toBe('activated');
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_graveyard_permission',
+        what: { kind: 'raw', text: 'a creature spell' },
+        permission: 'cast',
+        duration: 'this_turn',
+        optional: true,
+      }),
+    ]);
+  });
+
+  it('parses The Indomitable into a tapped Pirates-or-Vehicles gated graveyard permission wrapper', () => {
+    const ir = parseOracleTextToIR(
+      'You may cast this card from your graveyard as long as you control three or more tapped Pirates and/or Vehicles.',
+      'The Indomitable'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'as_long_as', raw: 'you control three or more tapped Pirates and/or Vehicles' },
+        steps: [
+          expect.objectContaining({
+            kind: 'grant_graveyard_permission',
+            what: { kind: 'raw', text: 'this card' },
+            permission: 'cast',
+            optional: true,
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('parses Lurrus of the Dream-Den into a turn-gated graveyard permission wrapper', () => {
+    const ir = parseOracleTextToIR(
+      'Once during each of your turns, you may cast a permanent spell with mana value 2 or less from your graveyard.',
+      'Lurrus of the Dream-Den'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'as_long_as', raw: "it's your turn" },
+        steps: [
+          expect.objectContaining({
+            kind: 'grant_graveyard_permission',
+            what: { kind: 'raw', text: 'a permanent spell with mana value 2 or less' },
+            permission: 'cast',
+            duration: 'this_turn',
+            optional: true,
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('parses Exploration Broodship into a turn-gated graveyard permission wrapper despite the extra cost tail', () => {
+    const ir = parseOracleTextToIR(
+      'Once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.',
+      'Exploration Broodship'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'as_long_as', raw: "it's your turn" },
+        steps: [
+          expect.objectContaining({
+            kind: 'grant_graveyard_permission',
+            what: { kind: 'raw', text: 'a permanent spell' },
+            permission: 'cast',
+            duration: 'this_turn',
+            optional: true,
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('parses Rivaz of the Claw into a turn-gated Dragon graveyard permission wrapper', () => {
+    const ir = parseOracleTextToIR(
+      'Once during each of your turns, you may cast a Dragon creature spell from your graveyard.',
+      'Rivaz of the Claw'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'conditional',
+        condition: { kind: 'as_long_as', raw: "it's your turn" },
+        steps: [
+          expect.objectContaining({
+            kind: 'grant_graveyard_permission',
+            what: { kind: 'raw', text: 'a Dragon creature spell' },
+            permission: 'cast',
+            duration: 'this_turn',
+            optional: true,
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("parses Sevinne's Reclamation-style graveyard copy riders into a conditional copy_spell step", () => {
@@ -6523,6 +6717,77 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         }),
       ])
     );
+  });
+
+  it('parses Moira and Teshar leave-battlefield exile riders into an explicit replacement-grant step', () => {
+    const oracleText =
+      'Whenever you cast a historic spell, return target nonland permanent card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Moira and Teshar');
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_leave_battlefield_replacement',
+          destination: 'exile',
+          target: { kind: 'raw', text: 'it' },
+        }),
+      ])
+    );
+  });
+
+  it("parses Desdemona, Freedom's Edge as a targeted graveyard permission grant with qualifiers", () => {
+    const oracleText =
+      "Whenever Desdemona attacks, target creature card in your graveyard that's an artifact or that has mana value 3 or less gains escape until end of turn. The escape cost is equal to its mana cost plus exile two other cards from your graveyard. (You may cast it from your graveyard for its escape cost this turn.)";
+
+    const ir = parseOracleTextToIR(oracleText, "Desdemona, Freedom's Edge");
+
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: {
+          kind: 'raw',
+          text: "target creature card that's an artifact or that has mana value 3 or less",
+        },
+        permission: 'cast',
+        duration: 'this_turn',
+        optional: true,
+      },
+    ]);
+    expect(ir.abilities[1]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_graveyard_permission',
+          what: { kind: 'raw', text: 'it' },
+          duration: 'this_turn',
+        }),
+      ])
+    );
+  });
+
+  it('parses Gravecrawler into an as-long-as conditional graveyard permission step', () => {
+    const ir = parseOracleTextToIR(
+      "This creature can't block.\nYou may cast this card from your graveyard as long as you control a Zombie.",
+      'Gravecrawler'
+    );
+
+    expect(ir.abilities[1]?.steps).toMatchObject([
+      {
+        kind: 'conditional',
+        condition: { kind: 'as_long_as', raw: 'you control a Zombie' },
+        steps: [
+          {
+            kind: 'grant_graveyard_permission',
+            who: { kind: 'you' },
+            what: { kind: 'raw', text: 'this card' },
+            permission: 'cast',
+            duration: 'during_resolution',
+            optional: true,
+          },
+        ],
+      },
+    ]);
   });
 
   it('splits Restless Cottage style create-token-plus-graveyard-exile clauses into ordered steps', () => {

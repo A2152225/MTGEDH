@@ -1339,6 +1339,54 @@ export function expandOtherwiseConditionalUnknownAbilities(
   });
 }
 
+function expandUnlessSacrificeStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind !== 'sacrifice') return step;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  const match = normalized.match(/^sacrifice\s+(.+?)\s+unless\s+(.+)$/i);
+  if (!match) return step;
+
+  const conditionRaw = String(match[2] || '').trim();
+  const normalizedCondition = normalizeOracleText(conditionRaw);
+  const negatedCondition =
+    normalizedCondition === 'it escaped'
+      ? "it didn't escape"
+      : normalizedCondition === 'this permanent escaped'
+        ? "this permanent didn't escape"
+        : `not (${conditionRaw})`;
+
+  return {
+    kind: 'conditional',
+    condition: { kind: 'if', raw: negatedCondition },
+    steps: [
+      {
+        ...step,
+        what: parseObjectSelector(String(match[1] || '').trim()),
+        raw: `sacrifice ${String(match[1] || '').trim()}`,
+      },
+    ],
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+}
+
+export function expandUnlessSacrificeAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps = ability.steps.map((step) => {
+      const expanded = expandUnlessSacrificeStep(step);
+      if (expanded !== step) changed = true;
+      return expanded;
+    });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
 function parseExilePermissionUnknownStep(
   step: Extract<OracleEffectStep, { kind: 'unknown' }>,
   abilityType: OracleIRAbility['type']
@@ -2144,12 +2192,62 @@ function parseLeaveBattlefieldReplacementUnknownStep(
   };
 }
 
+function expandConditionalLeaveBattlefieldReplacementStep(step: OracleEffectStep): OracleEffectStep {
+  if (step.kind !== 'conditional') return step;
+
+  let changed = false;
+  const expandedNestedSteps = step.steps.map((nestedStep) => {
+    const expandedNested = expandConditionalLeaveBattlefieldReplacementStep(nestedStep);
+    if (expandedNested !== nestedStep) changed = true;
+    return expandedNested;
+  });
+
+  const normalizedCondition = normalizeOracleText(String(step.condition?.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  const normalizedRaw = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  const targetMatch = normalizedCondition.match(
+    /^(it|that card|that creature|that permanent|them|those creatures|those permanents)\s+would\s+leave\s+the\s+battlefield$/i
+  );
+  const nestedReplacement = expandedNestedSteps.length === 1 ? expandedNestedSteps[0] : null;
+
+  if (targetMatch && nestedReplacement?.kind === 'exile') {
+    const exileTargetText =
+      nestedReplacement.target?.kind === 'raw'
+        ? normalizeOracleText(String(nestedReplacement.target.text || '')).trim()
+        : '';
+    const exilePronoun = String(exileTargetText.match(/^(it|them)\b/i)?.[1] || '').trim().toLowerCase();
+    const targetPronoun = String(targetMatch[1] || '').trim().toLowerCase();
+    if (
+      /^(it|them)\s+instead\s+of\s+putting\s+(it|them)\s+anywhere\s+else$/i.test(exileTargetText) &&
+      exilePronoun === targetPronoun
+    ) {
+      return {
+        kind: 'grant_leave_battlefield_replacement',
+        target: parseObjectSelector(String(targetMatch[1] || '').trim()),
+        destination: 'exile',
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalizedRaw || step.raw,
+      };
+    }
+  }
+
+  return changed ? { ...step, steps: expandedNestedSteps } : step;
+}
+
 export function expandLeaveBattlefieldReplacementUnknownAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
     let changed = false;
     const expandedSteps = ability.steps.map((step) => {
+      if (step.kind === 'conditional') {
+        const expandedConditional = expandConditionalLeaveBattlefieldReplacementStep(step);
+        if (expandedConditional !== step) changed = true;
+        return expandedConditional;
+      }
       if (step.kind !== 'unknown') return step;
       const expanded = parseLeaveBattlefieldReplacementUnknownStep(step);
       if (!expanded) return step;
@@ -2273,21 +2371,59 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
     };
   }
 
+  const onceEachTurnPermissionMatch = normalized.match(
+    /^(?:once\s+)?during each of your turns,\s+you may\s+(cast|play)\s+(.+?)\s+from\s+your\s+graveyard(?:\s+(.+))?$/i
+  );
+  if (onceEachTurnPermissionMatch) {
+    const trailingText = String(onceEachTurnPermissionMatch[3] || '')
+      .trim()
+      .replace(
+        /^for (?:its|their|that card's|that spell's|those cards'|those spells') [a-z0-9' -]+ cost\b/i,
+        ''
+      )
+      .replace(
+        /^by\b.*\s+in addition to paying (?:its|their|that card's|that spell's|those cards'|those spells') other costs\b/i,
+        ''
+      )
+      .trim();
+
+    const permissionStep: OracleEffectStep = {
+      kind: 'grant_graveyard_permission',
+      who: { kind: 'you' },
+      permission: String(onceEachTurnPermissionMatch[1] || '').trim().toLowerCase() === 'play' ? 'play' : 'cast',
+      what: parseObjectSelector(String(onceEachTurnPermissionMatch[2] || '').trim()),
+      duration: trailingText ? parseGraveyardPermissionDuration(trailingText) : 'this_turn',
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+
+    return {
+      kind: 'conditional',
+      condition: { kind: 'as_long_as', raw: "it's your turn" },
+      steps: [permissionStep],
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   const grantedKeywordMatch = normalized.match(
-    /^((?:each|target|up to one target)\s+.+?)\s+in\s+your\s+graveyard\s+(?:has|gain|gains)\s+(flashback|escape|retrace|jump-start|harmonize)(?:\s+(until end of turn|this turn))?$/i
+    /^((?:each|target|up to one target)\s+.+?)\s+in\s+your\s+graveyard((?:\s+that(?:'s| is)\s+.+?)?)\s+(?:has|gain|gains)\s+(flashback|escape|retrace|jump-start|harmonize)(?:\s+(until end of turn|this turn))?$/i
   );
   if (grantedKeywordMatch) {
     const rawSelector = String(grantedKeywordMatch[1] || '').trim();
+    const qualifier = String(grantedKeywordMatch[2] || '').trim();
     const selectorText = /^(?:each|all)\s+/i.test(rawSelector)
       ? rawSelector.replace(/^(?:each|all)\s+/i, '').trim()
       : rawSelector;
-    const durationText = String(grantedKeywordMatch[3] || '').trim().toLowerCase();
+    const qualifiedSelector = `${selectorText}${qualifier ? ` ${qualifier}` : ''}`.trim();
+    const durationText = String(grantedKeywordMatch[4] || '').trim().toLowerCase();
 
     return {
       kind: 'grant_graveyard_permission',
       who: { kind: 'you' },
       permission: 'cast',
-      what: { kind: 'raw', text: selectorText },
+      what: { kind: 'raw', text: qualifiedSelector },
       duration: durationText === 'until end of turn' || durationText === 'this turn' ? 'this_turn' : 'during_resolution',
       optional: true,
       ...(step.sequence ? { sequence: step.sequence } : {}),
@@ -2309,7 +2445,7 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
     .replace(/[.)]\s*$/g, '')
     .trim();
 
-  return {
+  const permissionStep: OracleEffectStep = {
     kind: 'grant_graveyard_permission',
     who: parsePlayerSelector(String(match[1] || '').trim()),
     permission: String(match[2] || '').trim().toLowerCase() === 'play' ? 'play' : 'cast',
@@ -2319,6 +2455,19 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
     ...(step.sequence ? { sequence: step.sequence } : {}),
     raw: normalized,
   };
+
+  const asLongAsMatch = trailingText.match(/^as long as (.+)$/i);
+  if (asLongAsMatch) {
+    return {
+      kind: 'conditional',
+      condition: { kind: 'as_long_as', raw: String(asLongAsMatch[1] || '').trim() },
+      steps: [permissionStep],
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  return permissionStep;
 }
 
 export function expandGraveyardPermissionUnknownAbilities(
@@ -2333,6 +2482,71 @@ export function expandGraveyardPermissionUnknownAbilities(
       changed = true;
       return expanded;
     });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+export function expandGraveyardOrExilePermissionAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps: OracleEffectStep[] = [];
+
+    for (const step of ability.steps) {
+      expandedSteps.push(step);
+      if (step.kind !== 'grant_graveyard_permission') continue;
+
+      const normalizedRaw = normalizeOracleText(String(step.raw || ''))
+        .replace(/^then\b\s*/i, '')
+        .trim();
+      if (!/\bfrom\s+your\s+graveyard\s+or\s+from\s+exile\b/i.test(normalizedRaw)) continue;
+
+      expandedSteps.push({
+        kind: 'grant_exile_permission',
+        who: step.who,
+        permission: step.permission,
+        what: step.what,
+        duration: step.duration,
+        optional: step.optional,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalizedRaw,
+      });
+      changed = true;
+    }
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+export function expandFreeGraveyardCastPermissionAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps: OracleEffectStep[] = [];
+
+    for (const step of ability.steps) {
+      expandedSteps.push(step);
+      if (step.kind !== 'grant_graveyard_permission') continue;
+
+      const normalizedRaw = normalizeOracleText(String(step.raw || ''))
+        .replace(/^then\b\s*/i, '')
+        .trim();
+      if (!/\bwithout paying (?:its|their|that card's|that spell's|those cards'|those spells') mana costs?\b/i.test(normalizedRaw)) {
+        continue;
+      }
+
+      expandedSteps.push({
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        withoutPayingManaCost: true,
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalizedRaw,
+      });
+      changed = true;
+    }
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
   });

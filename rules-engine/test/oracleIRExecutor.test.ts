@@ -42054,6 +42054,141 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(graveyard.find(card => card.id === 'bolt')?.graveyardCastCost).toBe('mana_cost');
   });
 
+  it('applies Torrential Gearhulk by marking the chosen instant as castable without paying its mana cost', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, you may cast target instant card from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead.',
+      'Torrential Gearhulk'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 18,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'bolt', name: 'Lightning Bolt', type_line: 'Instant', mana_cost: '{R}' },
+              { id: 'bear', name: 'Runeclaw Bear', type_line: 'Creature - Bear', mana_cost: '{1}{G}' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'gearhulk',
+        sourceName: 'Torrential Gearhulk',
+        selectorContext: { chosenObjectIds: ['bolt'] },
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state as any).playableFromGraveyard?.p1?.bolt).toBe(18);
+    const graveyard = (((result.state.players || [])[0] as any)?.graveyard || []) as any[];
+    expect(graveyard.find(card => card.id === 'bolt')?.withoutPayingManaCost).toBe(true);
+    expect(graveyard.find(card => card.id === 'bear')?.withoutPayingManaCost).toBeUndefined();
+  });
+
+  it("applies Uro, Titan of Nature's Wrath by sacrificing it only when it didn't escape", () => {
+    const ir = parseOracleTextToIR(
+      "When Uro enters, sacrifice it unless it escaped.",
+      "Uro, Titan of Nature's Wrath"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const escapedResult = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'uro',
+            controller: 'p1',
+            owner: 'p1',
+            card: {
+              id: 'uro-card',
+              name: "Uro, Titan of Nature's Wrath",
+              type_line: 'Legendary Creature - Elder Giant',
+              castFromZone: 'graveyard',
+            },
+            castFromZone: 'graveyard',
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'uro',
+        sourceName: "Uro, Titan of Nature's Wrath",
+        targetCreatureId: 'uro',
+        castFromZone: 'graveyard',
+      },
+      { allowOptional: true }
+    );
+
+    expect((escapedResult.state.battlefield as any[]).some((perm: any) => perm.id === 'uro')).toBe(true);
+
+    const normalCastResult = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'uro',
+            controller: 'p1',
+            owner: 'p1',
+            card: {
+              id: 'uro-card',
+              name: "Uro, Titan of Nature's Wrath",
+              type_line: 'Legendary Creature - Elder Giant',
+              castFromZone: 'hand',
+            },
+            castFromZone: 'hand',
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'uro',
+        sourceName: "Uro, Titan of Nature's Wrath",
+        targetCreatureId: 'uro',
+        castFromZone: 'hand',
+      },
+      { allowOptional: true }
+    );
+
+    expect((normalCastResult.state.battlefield as any[]).some((perm: any) => perm.id === 'uro')).toBe(false);
+    expect((normalCastResult.state.players[0] as any).graveyard.map((card: any) => card.id)).toContain('uro-card');
+  });
+
   it('applies static escape grants like Underworld Breach to matching graveyard cards', () => {
     const ir = parseOracleTextToIR(
       "Each nonland card in your graveyard has escape. The escape cost is equal to the card's mana cost plus exile three other cards from your graveyard.",
@@ -42173,6 +42308,412 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     expect((result.state as any).playableFromGraveyard?.p1?.relic).toBe(21);
     expect((result.state as any).playableFromGraveyard?.p1?.swamp).toBeUndefined();
+  });
+
+  it('applies Gravecrawler only while you control a Zombie', () => {
+    const ir = parseOracleTextToIR(
+      'You may cast Gravecrawler from your graveyard as long as you control a Zombie.',
+      'Gravecrawler'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const withZombie = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 21,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'crawler', name: 'Gravecrawler', type_line: 'Creature - Zombie' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'zombie-perm',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            card: { id: 'zombie-card', name: 'Diregraf Ghoul', type_line: 'Creature - Zombie' },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'crawler',
+        sourceName: 'Gravecrawler',
+      },
+      { allowOptional: true }
+    );
+
+    expect((withZombie.state as any).playableFromGraveyard?.p1?.crawler).toBe(21);
+
+    const withoutZombie = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 21,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'crawler', name: 'Gravecrawler', type_line: 'Creature - Zombie' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'crawler',
+        sourceName: 'Gravecrawler',
+      },
+      { allowOptional: true }
+    );
+
+    expect((withoutZombie.state as any).playableFromGraveyard?.p1?.crawler).toBeUndefined();
+  });
+
+  it('applies Squee, the Immortal from both graveyard and exile', () => {
+    const ir = parseOracleTextToIR(
+      'You may cast Squee, the Immortal from your graveyard or from exile.',
+      'Squee, the Immortal'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const fromGraveyard = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 21,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'squee', name: 'Squee, the Immortal', type_line: 'Legendary Creature - Goblin' }],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'squee',
+        sourceName: 'Squee, the Immortal',
+      },
+      { allowOptional: true }
+    );
+
+    expect((fromGraveyard.state as any).playableFromGraveyard?.p1?.squee).toBe(21);
+
+    const fromExile = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 21,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [{ id: 'squee', name: 'Squee, the Immortal', type_line: 'Legendary Creature - Goblin' }],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'squee',
+        sourceName: 'Squee, the Immortal',
+      },
+      { allowOptional: true }
+    );
+
+    expect((fromExile.state.players[0] as any).exile[0]?.canBePlayedBy).toBe('p1');
+  });
+
+  it('applies Chainer, Nightmare Adept only to creature spells in your graveyard this turn', () => {
+    const ir = parseOracleTextToIR(
+      'Discard a card: You may cast a creature spell from your graveyard this turn.',
+      'Chainer, Nightmare Adept'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 21,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'creature-card', name: 'Grizzly Bears', type_line: 'Creature - Bear' },
+              { id: 'spell-card', name: 'Sign in Blood', type_line: 'Sorcery' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'chainer',
+        sourceName: 'Chainer, Nightmare Adept',
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state as any).playableFromGraveyard?.p1?.['creature-card']).toBe(21);
+    expect((result.state as any).playableFromGraveyard?.p1?.['spell-card']).toBeUndefined();
+  });
+
+  it('applies The Indomitable only while you control three or more tapped Pirates and/or Vehicles', () => {
+    const ir = parseOracleTextToIR(
+      'You may cast this card from your graveyard as long as you control three or more tapped Pirates and/or Vehicles.',
+      'The Indomitable'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const withCrew = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 21,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'indomitable', name: 'The Indomitable', type_line: 'Legendary Artifact - Vehicle' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'pirate-a',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: true,
+            card: { id: 'pirate-a-card', name: 'Pirate A', type_line: 'Creature - Pirate' },
+          } as any,
+          {
+            id: 'pirate-b',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: true,
+            card: { id: 'pirate-b-card', name: 'Pirate B', type_line: 'Creature - Pirate' },
+          } as any,
+          {
+            id: 'vehicle-c',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: true,
+            card: { id: 'vehicle-c-card', name: 'Vehicle C', type_line: 'Artifact - Vehicle' },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'indomitable',
+        sourceName: 'The Indomitable',
+      },
+      { allowOptional: true }
+    );
+
+    expect((withCrew.state as any).playableFromGraveyard?.p1?.indomitable).toBe(21);
+
+    const withoutCrew = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 21,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'indomitable', name: 'The Indomitable', type_line: 'Legendary Artifact - Vehicle' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'pirate-a',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: true,
+            card: { id: 'pirate-a-card', name: 'Pirate A', type_line: 'Creature - Pirate' },
+          } as any,
+          {
+            id: 'vehicle-b',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            card: { id: 'vehicle-b-card', name: 'Vehicle B', type_line: 'Artifact - Vehicle' },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'indomitable',
+        sourceName: 'The Indomitable',
+      },
+      { allowOptional: true }
+    );
+
+    expect((withoutCrew.state as any).playableFromGraveyard?.p1?.indomitable).toBeUndefined();
+  });
+
+  it('applies Lurrus of the Dream-Den only during your turn and only to permanents with mana value 2 or less', () => {
+    const ir = parseOracleTextToIR(
+      'Once during each of your turns, you may cast a permanent spell with mana value 2 or less from your graveyard.',
+      'Lurrus of the Dream-Den'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const onTurn = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 25,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'bauble', name: "Wayfarer's Bauble", type_line: 'Artifact', mana_value: 1 },
+              { id: 'titan', name: 'Sun Titan', type_line: 'Creature - Giant', mana_value: 6 },
+            ],
+            exile: [],
+          } as any,
+        ],
+        turnPlayer: 'p1',
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Lurrus of the Dream-Den',
+      },
+      { allowOptional: true }
+    );
+
+    expect((onTurn.state as any).playableFromGraveyard?.p1?.bauble).toBe(25);
+    expect((onTurn.state as any).playableFromGraveyard?.p1?.titan).toBeUndefined();
+
+    const offTurn = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 25,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'bauble', name: "Wayfarer's Bauble", type_line: 'Artifact', mana_value: 1 }],
+            exile: [],
+          } as any,
+        ],
+        turnPlayer: 'p2',
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Lurrus of the Dream-Den',
+      },
+      { allowOptional: true }
+    );
+
+    expect((offTurn.state as any).playableFromGraveyard?.p1?.bauble).toBeUndefined();
+  });
+
+  it('applies Rivaz of the Claw only during your turn and only to Dragon creature spells', () => {
+    const ir = parseOracleTextToIR(
+      'Once during each of your turns, you may cast a Dragon creature spell from your graveyard.',
+      'Rivaz of the Claw'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const onTurn = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 26,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'dragon', name: 'Shivan Dragon', type_line: 'Creature - Dragon', mana_value: 6 },
+              { id: 'goblin', name: 'Goblin Piker', type_line: 'Creature - Goblin', mana_value: 2 },
+            ],
+            exile: [],
+          } as any,
+        ],
+        turnPlayer: 'p1',
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Rivaz of the Claw',
+      },
+      { allowOptional: true }
+    );
+
+    expect((onTurn.state as any).playableFromGraveyard?.p1?.dragon).toBe(26);
+    expect((onTurn.state as any).playableFromGraveyard?.p1?.goblin).toBeUndefined();
+
+    const offTurn = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 26,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'dragon', name: 'Shivan Dragon', type_line: 'Creature - Dragon', mana_value: 6 }],
+            exile: [],
+          } as any,
+        ],
+        turnPlayer: 'p2',
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Rivaz of the Claw',
+      },
+      { allowOptional: true }
+    );
+
+    expect((offTurn.state as any).playableFromGraveyard?.p1?.dragon).toBeUndefined();
   });
 
   it('applies Ignite the Future graveyard rider by marking the exiled cards as free to play', () => {
@@ -42428,6 +42969,174 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     expect((destroyed.state.players[0] as any).graveyard).toEqual([{ id: 'ritual', name: 'Dark Ritual', type_line: 'Instant' }]);
     expect(((destroyed.state.players[0] as any).exile || []).map((card: any) => card.id)).toContain('ghoul');
+  });
+
+  it('redirects Moira and Teshar-style returned permanents to exile when they leave the battlefield', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever you cast a historic spell, return target nonland permanent card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.',
+      'Moira and Teshar'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const reanimated = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'relic', name: 'Lost Relic', type_line: 'Artifact' }],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'moira',
+        sourceName: 'Moira and Teshar',
+        targetPermanentId: 'relic',
+      },
+      { allowOptional: true }
+    );
+
+    const returnedPermanent = (reanimated.state.battlefield as any[]).find(
+      (perm: any) => perm.card?.id === 'relic'
+    ) as any;
+    expect(returnedPermanent?.leaveBattlefieldReplacement).toBe('exile');
+
+    const bounced = applyOracleIRStepsToGameState(
+      reanimated.state,
+      parseOracleTextToIR("Return target artifact to its owner's hand.", 'Test Bounce').abilities[0]?.steps ?? [],
+      {
+        controllerId: 'p1',
+        targetPermanentId: returnedPermanent.id,
+      },
+      { allowOptional: true }
+    );
+
+    expect((bounced.state.players[0] as any).hand).toEqual([]);
+    expect(((bounced.state.players[0] as any).exile || []).map((card: any) => card.id)).toContain('relic');
+  });
+
+  it("applies Desdemona, Freedom's Edge by granting this-turn graveyard permission to a qualified target", () => {
+    const ir = parseOracleTextToIR(
+      "Whenever Desdemona attacks, target creature card in your graveyard that's an artifact or that has mana value 3 or less gains escape until end of turn. The escape cost is equal to its mana cost plus exile two other cards from your graveyard. (You may cast it from your graveyard for its escape cost this turn.)",
+      "Desdemona, Freedom's Edge"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 23,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'gearhulk', name: 'Scrap Gearhulk', type_line: 'Artifact Creature - Construct', mana_value: 6 },
+              { id: 'giant', name: 'Hill Giant', type_line: 'Creature - Giant', mana_value: 4 },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: "Desdemona, Freedom's Edge",
+        selectorContext: { chosenObjectIds: ['gearhulk'] },
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state as any).playableFromGraveyard?.p1?.gearhulk).toBe(23);
+    expect((result.state as any).playableFromGraveyard?.p1?.giant).toBeUndefined();
+  });
+
+  it('applies Gravecrawler only while you control a Zombie', () => {
+    const ir = parseOracleTextToIR(
+      "This creature can't block.\nYou may cast this card from your graveyard as long as you control a Zombie.",
+      'Gravecrawler'
+    );
+    const steps = ir.abilities[1]?.steps ?? [];
+
+    const enabled = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 24,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'crawler', name: 'Gravecrawler', type_line: 'Creature - Zombie' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'ally-zombie',
+            controller: 'p1',
+            owner: 'p1',
+            card: { id: 'ally-zombie-card', name: 'Walking Corpse', type_line: 'Creature - Zombie' },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'crawler',
+        sourceName: 'Gravecrawler',
+      },
+      { allowOptional: true }
+    );
+
+    expect((enabled.state as any).playableFromGraveyard?.p1?.crawler).toBe(24);
+
+    const disabled = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 24,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'crawler', name: 'Gravecrawler', type_line: 'Creature - Zombie' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'ally-goblin',
+            controller: 'p1',
+            owner: 'p1',
+            card: { id: 'ally-goblin-card', name: 'Goblin Piker', type_line: 'Creature - Goblin' },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'crawler',
+        sourceName: 'Gravecrawler',
+      },
+      { allowOptional: true }
+    );
+
+    expect((disabled.state as any).playableFromGraveyard?.p1?.crawler).toBeUndefined();
   });
 
   it('exiles Personal Decoy when it would leave the battlefield', () => {
