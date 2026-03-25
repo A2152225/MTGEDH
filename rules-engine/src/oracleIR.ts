@@ -106,10 +106,59 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'modify_exile_permissions';
+      readonly scope: 'last_exiled_cards';
+      readonly withoutPayingManaCost?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'modify_graveyard_permissions';
+      readonly scope: 'last_granted_graveyard_cards';
+      readonly castCost?: 'mana_cost';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'grant_graveyard_permission';
+      readonly who: OraclePlayerSelector;
+      readonly what: OracleObjectSelector;
+      readonly duration:
+        | 'this_turn'
+        | 'during_resolution'
+        | 'during_next_turn'
+        | 'until_end_of_next_turn'
+        | 'until_end_of_combat_on_next_turn'
+        | 'until_next_turn'
+        | 'until_next_upkeep'
+        | 'until_next_end_step';
+      readonly permission: 'play' | 'cast';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'add_mana';
       readonly who: OraclePlayerSelector;
       /** Raw mana string, e.g. "{R}{R}{R}" or "{2}{C}" */
       readonly mana: string;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'pay_mana';
+      readonly who: OraclePlayerSelector;
+      /** Raw mana string, e.g. "{B}" or "{2}{G}" */
+      readonly mana: string;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'choose_opponent';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -230,6 +279,8 @@ export type OracleEffectStep =
       readonly entersTapped?: boolean;
       /** Counters the token enters with (deterministic, single-clause only). */
       readonly withCounters?: Record<string, number>;
+      /** For Aura-style token creation that enters attached to a deterministic object. */
+      readonly battlefieldAttachedTo?: OracleObjectSelector;
       /** Grant haste to the created token(s). */
       readonly grantsHaste?: 'permanent' | 'until_end_of_turn';
       /** Grant one or more keyword abilities to the created token(s) until end of turn (e.g. "They gain flying until end of turn."). */
@@ -238,6 +289,20 @@ export type OracleEffectStep =
       readonly atNextEndStep?: 'sacrifice' | 'exile';
       /** Create a delayed trigger for the created token(s) at end of combat (beginning of the end of combat step). */
       readonly atEndOfCombat?: 'sacrifice' | 'exile';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * "Until end of turn, target creature gains 'When this creature dies, ...'"
+       * and "It gains 'When this creature dies, ...'" style effects are represented
+       * as delayed watched triggers rather than mutating permanent text in place.
+       */
+      readonly kind: 'grant_temporary_dies_trigger';
+      readonly target: OracleObjectSelector;
+      readonly effect: string;
+      readonly duration: 'until_end_of_turn' | 'while_on_battlefield';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -263,6 +328,22 @@ export type OracleEffectStep =
       readonly condition?: OracleBattlefieldObjectCondition;
       /** Optional watched object for event-based delayed cleanup like "when that token leaves the battlefield". */
       readonly watch?: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Schedule a delayed one-shot trigger that later resolves the given
+       * deterministic Oracle effect text using the current bound target context.
+       */
+      readonly kind: 'schedule_delayed_trigger';
+      readonly timing:
+        | 'next_end_step'
+        | 'your_next_end_step'
+        | 'next_upkeep'
+        | 'your_next_upkeep';
+      readonly effect: string;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -302,10 +383,77 @@ export type OracleEffectStep =
        * When absent, executor uses its default deterministic behavior.
        */
       readonly battlefieldController?: OraclePlayerSelector;
+      /**
+       * For battlefield moves that require the object to enter attached to an
+       * already-known battlefield object.
+       */
+      readonly battlefieldAttachedTo?: OracleObjectSelector;
       /** If the move puts cards onto the battlefield tapped (deterministic). */
       readonly entersTapped?: boolean;
       /** Counters the moved permanent enters with (deterministic, battlefield-only). */
       readonly withCounters?: Record<string, number>;
+      /** Optional deterministic condition gating battlefield-entry counters. */
+      readonly withCountersCondition?: OracleClauseCondition;
+      /** Additional colors the moved permanent has as it enters the battlefield. */
+      readonly battlefieldAddColors?: readonly string[];
+      /** Additional types/subtypes the moved permanent has as it enters the battlefield. */
+      readonly battlefieldAddTypes?: readonly string[];
+      /** Optional deterministic condition gating battlefield-entry type/color changes. */
+      readonly battlefieldCharacteristicsCondition?: OracleClauseCondition;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'attach';
+      readonly attachment: OracleObjectSelector;
+      readonly to: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Marks a battlefield object so if it would leave the battlefield later
+       * this turn/lifetime, it is exiled instead of going elsewhere.
+       */
+      readonly kind: 'grant_leave_battlefield_replacement';
+      readonly target: OracleObjectSelector;
+      readonly destination: 'exile';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Copy the currently resolving spell and re-run its deterministic
+       * instructions, preserving choices unless a unique replacement target
+       * can be inferred.
+       */
+      readonly kind: 'copy_spell';
+      readonly subject: 'this_spell';
+      /** Whether the copy may choose new target(s) for deterministic replay. */
+      readonly allowNewTargets?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'create_emblem';
+      readonly abilities: readonly string[];
+      readonly name?: string;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'proliferate';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'ring_tempts_you';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -321,6 +469,8 @@ export type OracleEffectStep =
       readonly minModes: number;
       /** Maximum modes to pick (-1 = unlimited / "any number"). */
       readonly maxModes: number;
+      /** Whether the same mode can be chosen more than once. */
+      readonly canRepeatModes?: boolean;
       readonly modes: readonly {
         readonly label: string;
         /** Raw bullet text for display. */
@@ -345,8 +495,22 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      /**
+       * Wrapper for effects that only happen if a referenced player doesn't or
+       * can't pay a fixed life amount.
+       */
+      readonly kind: 'unless_pays_life';
+      readonly who: OraclePlayerSelector;
+      readonly amount: number;
+      readonly steps: readonly OracleEffectStep[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'unknown';
       readonly raw: string;
+      readonly optional?: boolean;
       readonly sequence?: 'then';
     };
 
@@ -355,6 +519,7 @@ export interface OracleIRAbility {
   readonly text: string;
   readonly cost?: string;
   readonly triggerCondition?: string;
+  readonly interveningIf?: string;
   readonly effectText: string;
   readonly steps: readonly OracleEffectStep[];
 }

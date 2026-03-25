@@ -1,12 +1,31 @@
 import type { OracleEffectStep, OraclePlayerSelector, OracleZone } from './oracleIR';
 import {
   inferZoneFromDestination,
+  inferZoneFromDestinationPrefix,
   normalizeCounterName,
   splitSacrificeObjectAndCondition,
 } from './oracleIRParserSacrificeHelpers';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
+
+function splitMoveZoneReturnClause(clause: string): { readonly whatRaw: string; readonly toRaw: string } | null {
+  const normalized = normalizeOracleText(clause);
+  if (!normalized.toLowerCase().startsWith('return ')) return null;
+
+  const body = normalized.slice('return '.length);
+  const boundary = /\s+to\s+/gi;
+  let match: RegExpExecArray | null;
+  while ((match = boundary.exec(body)) !== null) {
+    const whatRaw = body.slice(0, match.index).trim();
+    const toRaw = body.slice(match.index + match[0].length).trim();
+    if (!whatRaw || !toRaw) continue;
+    if (inferZoneFromDestinationPrefix(toRaw) === 'unknown') continue;
+    return { whatRaw, toRaw };
+  }
+
+  return null;
+}
 
 function parseBattlefieldController(to: OracleZone, toRaw: string): OraclePlayerSelector | undefined {
   if (to !== 'battlefield') return undefined;
@@ -42,10 +61,22 @@ function parseMoveZoneBattlefieldCounters(to: OracleZone, toRaw: string): Record
   const amount = Math.max(0, qty.value | 0);
   if (amount <= 0) return undefined;
 
-  const counterName = normalizeCounterName(String(match[2] || ''));
+  const counterName = normalizeCounterName(String(match[2] || '').replace(/^\s*additional\s+/i, '').trim());
   if (!counterName) return undefined;
 
   return { [counterName]: amount };
+}
+
+function parseMoveZoneBattlefieldAttachment(to: OracleZone, toRaw: string) {
+  if (to !== 'battlefield') return undefined;
+
+  const normalized = normalizeOracleText(toRaw).trim();
+  const match = normalized.match(
+    /\battached to (this creature|a creature you control|that creature|that land|that permanent)\b/i
+  );
+  if (!match) return undefined;
+
+  return parseObjectSelector(String(match[1] || '').trim());
 }
 
 function parseMoveZoneStep(args: {
@@ -55,12 +86,52 @@ function parseMoveZoneStep(args: {
   withMeta: WithMeta;
 }): OracleEffectStep {
   const { whatRaw, toRaw, rawClause, withMeta } = args;
+  const unlessPaysLifeMatch = toRaw.match(/^(.+?)\s+unless\s+(.+?)\s+pays\s+(\d+)\s+life$/i);
+  const baseToRaw = unlessPaysLifeMatch ? String(unlessPaysLifeMatch[1] || '').trim() : toRaw;
+  const trailingConditionMatch = baseToRaw.match(/^(.+?)\s+if\s+(.+)$/i);
+  const effectiveToRaw =
+    trailingConditionMatch && inferZoneFromDestinationPrefix(String(trailingConditionMatch[1] || '').trim()) !== 'unknown'
+      ? String(trailingConditionMatch[1] || '').trim()
+      : baseToRaw;
+  const trailingConditionRaw =
+    trailingConditionMatch && effectiveToRaw !== baseToRaw ? String(trailingConditionMatch[2] || '').trim() : '';
   const what = parseObjectSelector(whatRaw);
-  const to = inferZoneFromDestination(toRaw);
-  const battlefieldController = parseBattlefieldController(to, toRaw);
-  const entersTapped = to === 'battlefield' && !/\buntapped\b/i.test(toRaw) && /\btapped\b/i.test(toRaw) ? true : undefined;
-  const withCounters = parseMoveZoneBattlefieldCounters(to, toRaw);
-  return withMeta({ kind: 'move_zone', what, to, toRaw, battlefieldController, entersTapped, withCounters, raw: rawClause });
+  const to = inferZoneFromDestination(effectiveToRaw);
+  const battlefieldController = parseBattlefieldController(to, effectiveToRaw);
+  const battlefieldAttachedTo = parseMoveZoneBattlefieldAttachment(to, effectiveToRaw);
+  const entersTapped =
+    to === 'battlefield' && !/\buntapped\b/i.test(effectiveToRaw) && /\btapped\b/i.test(effectiveToRaw) ? true : undefined;
+  const withCounters = parseMoveZoneBattlefieldCounters(to, effectiveToRaw);
+  let moveStep: OracleEffectStep = withMeta({
+    kind: 'move_zone',
+    what,
+    to,
+    toRaw: effectiveToRaw,
+    battlefieldController,
+    battlefieldAttachedTo,
+    entersTapped,
+    withCounters,
+    raw: rawClause,
+  });
+
+  if (trailingConditionRaw) {
+    moveStep = withMeta({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: trailingConditionRaw },
+      steps: [moveStep],
+      raw: rawClause,
+    });
+  }
+
+  if (!unlessPaysLifeMatch) return moveStep;
+
+  return withMeta({
+    kind: 'unless_pays_life',
+    who: parsePlayerSelector(String(unlessPaysLifeMatch[2] || '').trim()),
+    amount: parseInt(String(unlessPaysLifeMatch[3] || '0'), 10) || 0,
+    steps: [moveStep],
+    raw: rawClause,
+  });
 }
 
 export function tryParseZoneAndRemovalClause(args: {
@@ -112,14 +183,32 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
-  const returnMatch = clause.match(/^return\s+(.+)\s+to\s+(.+)$/i);
-  if (returnMatch) {
+  const returnParts = splitMoveZoneReturnClause(clause);
+  if (returnParts) {
     return parseMoveZoneStep({
-      whatRaw: String(returnMatch[1] || '').trim(),
-      toRaw: String(returnMatch[2] || '').trim(),
+      whatRaw: returnParts.whatRaw,
+      toRaw: returnParts.toRaw,
       rawClause,
       withMeta,
     });
+  }
+
+  {
+    const subjectReturnMatch = clause.match(
+      /^(that player|that opponent|he or she|they)\s+returns?\s+(.+?)\s+from\s+(their|his or her)\s+graveyard\s+to\s+(.+)$/i
+    );
+    if (subjectReturnMatch) {
+      const subjectSelector = parsePlayerSelector(String(subjectReturnMatch[1] || '').trim());
+      if (subjectSelector.kind === 'target_player' || subjectSelector.kind === 'target_opponent') {
+        const ownerPrefix = subjectSelector.kind === 'target_opponent' ? "target opponent's" : "target player's";
+        return parseMoveZoneStep({
+          whatRaw: `${String(subjectReturnMatch[2] || '').trim()} from ${ownerPrefix} graveyard`,
+          toRaw: String(subjectReturnMatch[4] || '').trim(),
+          rawClause,
+          withMeta,
+        });
+      }
+    }
   }
 
   const putIntoMatch = clause.match(/^put\s+(.+?)\s+into\s+(.+)$/i);

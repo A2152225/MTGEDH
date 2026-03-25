@@ -201,6 +201,71 @@ describe('Trigger Parsing', () => {
       expect(abilities[0].triggerFilter).toBe('a merfolk you control becomes tapped');
       expect(abilities[0].optional).toBe(true);
     });
+
+    it('preserves filtered controlled-creature dies triggers with keyword exclusions', () => {
+      const oracleText =
+        "Whenever a creature you control without flying dies, return it to the battlefield under its owner's control with a flying counter on it.";
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Luminous Broodmoth');
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0].event).toBe(TriggerEvent.CONTROLLED_CREATURE_DIED);
+      expect(abilities[0].triggerFilter).toBe('a creature you control without flying dies');
+      expect(String(abilities[0].effect || '')).toContain('with a flying counter on it');
+    });
+
+    it('preserves controlled-creature dies filters with ownership exclusions', () => {
+      const oracleText =
+        "Whenever a creature you control but don't own dies, return it to the battlefield under its owner's control and you draw a card.";
+      const abilities = parseTriggeredAbilitiesFromText(oracleText, 'edea-1', 'player-1', 'Edea, Possessed Sorceress');
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0].event).toBe(TriggerEvent.CONTROLLED_CREATURE_DIED);
+      expect(abilities[0].triggerFilter).toBe("a creature you control but don't own dies");
+    });
+
+    it('preserves subtype and counter-qualified dies filters', () => {
+      const thunderboltsAbilities = parseTriggeredAbilitiesFromText(
+        "Whenever a Villain you control dies, return it to the battlefield under its owner's control with a finality counter on it.",
+        'thunderbolts',
+        'player-1',
+        'Thunderbolts Conspiracy'
+      );
+      const marchesaAbilities = parseTriggeredAbilitiesFromText(
+        'Whenever a creature you control with a +1/+1 counter on it dies, return that card to the battlefield under your control at the beginning of the next end step.',
+        'marchesa',
+        'player-1',
+        'Marchesa, the Black Rose'
+      );
+
+      expect(thunderboltsAbilities).toHaveLength(1);
+      expect(thunderboltsAbilities[0].event).toBe(TriggerEvent.DIES);
+      expect(thunderboltsAbilities[0].triggerFilter).toBe('a villain you control dies');
+      expect(marchesaAbilities).toHaveLength(1);
+      expect(marchesaAbilities[0].event).toBe(TriggerEvent.CONTROLLED_CREATURE_DIED);
+      expect(marchesaAbilities[0].triggerFilter).toBe('a creature you control with a +1/+1 counter on it dies');
+    });
+
+    it('preserves attached-host dies filters for enchanted and equipped triggers', () => {
+      const giftAbilities = parseTriggeredAbilitiesFromText(
+        'When enchanted creature dies, return that card to the battlefield under its owner\'s control.',
+        'gift-1',
+        'player-1',
+        'Gift of Immortality'
+      );
+      const orbAbilities = parseTriggeredAbilitiesFromText(
+        "When equipped creature dies, return that card to the battlefield under your control at the beginning of the next end step.",
+        'orb-1',
+        'player-1',
+        'Resurrection Orb'
+      );
+
+      expect(giftAbilities).toHaveLength(1);
+      expect(giftAbilities[0].event).toBe(TriggerEvent.DIES);
+      expect(giftAbilities[0].triggerFilter).toBe('enchanted creature dies');
+      expect(orbAbilities).toHaveLength(1);
+      expect(orbAbilities[0].event).toBe(TriggerEvent.DIES);
+      expect(orbAbilities[0].triggerFilter).toBe('equipped creature dies');
+    });
     
     it('should detect optional triggers with "you may"', () => {
       const oracleText = 'Whenever this creature attacks, you may draw a card.';
@@ -1014,6 +1079,52 @@ describe('Trigger Parsing', () => {
       });
     });
 
+    it('buildTriggeredAbilityChoiceEvents returns a permanent-target prompt for Rocket-Powered Goblin Glider attach triggers', () => {
+      const start = makeState({
+        battlefield: [
+          {
+            id: 'rocket',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            card: {
+              id: 'rocket-card',
+              name: 'Rocket-Powered Goblin Glider',
+              type_line: 'Artifact - Equipment',
+            },
+          },
+          {
+            id: 'bear',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            card: {
+              id: 'bear-card',
+              name: 'Target Bear',
+              type_line: 'Creature - Bear',
+            },
+          },
+        ] as any,
+      });
+      const ability = {
+        id: 'rocket-choice-trigger',
+        sourceId: 'rocket',
+        sourceName: 'Rocket-Powered Goblin Glider',
+        controllerId: 'p1',
+        keyword: TriggerKeyword.WHEN,
+        event: TriggerEvent.ENTERS_BATTLEFIELD,
+        effect: 'Attach it to target creature you control.',
+        optional: false,
+      } as any;
+
+      const events = buildTriggeredAbilityChoiceEvents(start, ability);
+      const targetEvent = events[0] as any;
+
+      expect(events.map(event => event.type)).toEqual([ChoiceEventType.TARGET_SELECTION]);
+      expect(targetEvent.targetTypes).toEqual(['permanent']);
+      expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['bear']);
+    });
+
     it('executes target-player trigger steps from grouped choice-derived execution data', () => {
       const start = makeState();
 
@@ -1492,6 +1603,419 @@ describe('Trigger Parsing', () => {
       expect(controlledMerfolk).toHaveLength(1);
       expect(opposingMerfolk).toHaveLength(0);
       expect(controlledNonMerfolk).toHaveLength(0);
+    });
+
+    it('evaluateTriggerCondition supports controlled-creature dies filters with without-flying clauses', () => {
+      const nonFlyingCreature = evaluateTriggerCondition(
+        'a creature you control without flying dies',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          permanentTypes: ['Creature'],
+          keywords: [],
+        } as any
+      );
+
+      const flyingCreature = evaluateTriggerCondition(
+        'a creature you control without flying dies',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          permanentTypes: ['Creature'],
+          keywords: ['flying'],
+        } as any
+      );
+
+      const opposingCreature = evaluateTriggerCondition(
+        'a creature you control without flying dies',
+        'p1',
+        {
+          sourceControllerId: 'p2',
+          permanentTypes: ['Creature'],
+          keywords: [],
+        } as any
+      );
+
+      expect(nonFlyingCreature).toBe(true);
+      expect(flyingCreature).toBe(false);
+      expect(opposingCreature).toBe(false);
+    });
+
+    it('processEvent only triggers Luminous Broodmoth for your nonflying dying creature', () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        "Whenever a creature you control without flying dies, return it to the battlefield under its owner's control with a flying counter on it.",
+        'broodmoth-1',
+        'p1',
+        'Luminous Broodmoth'
+      );
+
+      const controlledNonFlying = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, abilities, {
+        sourceId: 'bear-1',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'bear-1',
+        permanentTypes: ['Creature'],
+        keywords: [],
+      } as any);
+
+      const controlledFlying = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, abilities, {
+        sourceId: 'spirit-1',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'spirit-1',
+        permanentTypes: ['Creature'],
+        keywords: ['flying'],
+      } as any);
+
+      const opposingNonFlying = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, abilities, {
+        sourceId: 'bear-2',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'bear-2',
+        permanentTypes: ['Creature'],
+        keywords: [],
+      } as any);
+
+      expect(controlledNonFlying).toHaveLength(1);
+      expect(controlledFlying).toHaveLength(0);
+      expect(opposingNonFlying).toHaveLength(0);
+    });
+
+    it('processEvent only triggers Edea for a creature you control but do not own', () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        "Whenever a creature you control but don't own dies, return it to the battlefield under its owner's control and you draw a card.",
+        'edea-1',
+        'p1',
+        'Edea, Possessed Sorceress'
+      );
+
+      const borrowedCreature = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, abilities, {
+        sourceId: 'borrowed-creature',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'borrowed-creature',
+        permanentTypes: ['Creature'],
+      } as any);
+
+      const ownedCreature = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, abilities, {
+        sourceId: 'owned-creature',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'owned-creature',
+        permanentTypes: ['Creature'],
+      } as any);
+
+      const opposingCreature = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, abilities, {
+        sourceId: 'opposing-creature',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p3',
+        targetPermanentId: 'opposing-creature',
+        permanentTypes: ['Creature'],
+      } as any);
+
+      expect(borrowedCreature).toHaveLength(1);
+      expect(ownedCreature).toHaveLength(0);
+      expect(opposingCreature).toHaveLength(0);
+    });
+
+    it('processEvent supports subtype and counter-qualified dies filters', () => {
+      const marchesaAbilities = parseTriggeredAbilitiesFromText(
+        'Whenever a creature you control with a +1/+1 counter on it dies, return that card to the battlefield under your control at the beginning of the next end step.',
+        'marchesa',
+        'p1',
+        'Marchesa, the Black Rose'
+      );
+      const thunderboltsAbilities = parseTriggeredAbilitiesFromText(
+        "Whenever a Villain you control dies, return it to the battlefield under its owner's control with a finality counter on it.",
+        'thunderbolts',
+        'p1',
+        'Thunderbolts Conspiracy'
+      );
+
+      const marchesaMatch = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, marchesaAbilities, {
+        sourceId: 'counter-creature',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'counter-creature',
+        permanentTypes: ['Creature'],
+        counters: { '+1/+1': 1 },
+      } as any);
+      const marchesaMiss = processEvent(TriggerEvent.CONTROLLED_CREATURE_DIED, marchesaAbilities, {
+        sourceId: 'plain-creature',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'plain-creature',
+        permanentTypes: ['Creature'],
+        counters: {},
+      } as any);
+      const thunderboltsMatch = processEvent(TriggerEvent.DIES, thunderboltsAbilities, {
+        sourceId: 'villain-creature',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'villain-creature',
+        permanentTypes: ['Creature'],
+        creatureTypes: ['Villain'],
+      } as any);
+      const thunderboltsMiss = processEvent(TriggerEvent.DIES, thunderboltsAbilities, {
+        sourceId: 'hero-creature',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'hero-creature',
+        permanentTypes: ['Creature'],
+        creatureTypes: ['Hero'],
+      } as any);
+
+      expect(marchesaMatch).toHaveLength(1);
+      expect(marchesaMiss).toHaveLength(0);
+      expect(thunderboltsMatch).toHaveLength(1);
+      expect(thunderboltsMiss).toHaveLength(0);
+    });
+
+    it("processEvent supports comma-qualified non-Angel dies filters from Valkyrie's Call", () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        "Whenever a nontoken, non-Angel creature you control dies, return that card to the battlefield under its owner's control with a +1/+1 counter on it.",
+        'valkyries-call',
+        'p1',
+        "Valkyrie's Call"
+      );
+
+      const validDeath = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'bear',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'bear',
+        permanentTypes: ['Creature'],
+        permanentName: 'Bear',
+        isToken: false,
+      } as any);
+
+      const angelDeath = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'angel',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'angel',
+        permanentTypes: ['Creature'],
+        creatureTypes: ['Angel'],
+        isToken: false,
+      } as any);
+
+      const tokenDeath = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'token-bear',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'token-bear',
+        permanentTypes: ['Creature'],
+        sourceIsToken: true,
+      } as any);
+
+      expect(validDeath).toHaveLength(1);
+      expect(angelDeath).toHaveLength(0);
+      expect(tokenDeath).toHaveLength(0);
+    });
+
+    it('processEvent supports one-or-more controlled die wording from Liesa, Forgotten Archangel', () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        "Whenever one or more nontoken creatures you control die, return those cards to their owner's hand at the beginning of the next end step.",
+        'liesa',
+        'p1',
+        'Liesa, Forgotten Archangel'
+      );
+
+      const nontokenMatch = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'dead-cleric',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'dead-cleric',
+        chosenObjectIds: ['dead-cleric'],
+        permanentTypes: ['Creature'],
+        sourceIsToken: false,
+      } as any);
+      const tokenMiss = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'dead-token',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'dead-token',
+        chosenObjectIds: ['dead-token'],
+        permanentTypes: ['Creature'],
+        sourceIsToken: true,
+      } as any);
+
+      expect(nontokenMatch).toHaveLength(1);
+      expect(tokenMiss).toHaveLength(0);
+    });
+
+    it('processEvent supports multicolored dies filters from Rienne, Angel of Rebirth', () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        "Whenever another multicolored creature you control dies, return it to its owner's hand at the beginning of the next end step.",
+        'rienne',
+        'p1',
+        'Rienne, Angel of Rebirth'
+      );
+
+      const multicoloredMatch = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'dead-knight',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-knight',
+        chosenObjectIds: ['dead-knight'],
+        permanentTypes: ['Creature'],
+        colors: ['R', 'W'],
+      } as any);
+      const monocoloredMiss = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'dead-soldier',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'dead-soldier',
+        chosenObjectIds: ['dead-soldier'],
+        permanentTypes: ['Creature'],
+        colors: ['W'],
+      } as any);
+
+      expect(multicoloredMatch).toHaveLength(1);
+      expect(monocoloredMiss).toHaveLength(0);
+    });
+
+    it('processEvent supports owned-creature dies filters from Athreos, God of Passage', () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        'Whenever another creature you own dies, return it to your hand unless target opponent pays 3 life.',
+        'athreos',
+        'p1',
+        'Athreos, God of Passage'
+      );
+
+      const ownedMatch = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'dead-cleric',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'dead-cleric',
+        chosenObjectIds: ['dead-cleric'],
+        permanentTypes: ['Creature'],
+      } as any);
+      const notOwnedMiss = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'dead-borrowed',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-borrowed',
+        chosenObjectIds: ['dead-borrowed'],
+        permanentTypes: ['Creature'],
+      } as any);
+
+      expect(ownedMatch).toHaveLength(1);
+      expect(notOwnedMiss).toHaveLength(0);
+    });
+
+    it('processEvent only triggers attached-host dies abilities for the source attachment', () => {
+      const giftAbilities = parseTriggeredAbilitiesFromText(
+        'When enchanted creature dies, return that card to the battlefield under its owner\'s control.',
+        'gift-aura',
+        'p1',
+        'Gift of Immortality'
+      );
+      const orbAbilities = parseTriggeredAbilitiesFromText(
+        "When equipped creature dies, return that card to the battlefield under your control at the beginning of the next end step.",
+        'orb-equip',
+        'p1',
+        'Resurrection Orb'
+      );
+
+      const enchantedMatch = processEvent(TriggerEvent.DIES, giftAbilities, {
+        sourceId: 'dead-bear',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'dead-bear',
+        permanentTypes: ['Creature'],
+        attachedByPermanentIds: ['gift-aura'],
+      } as any);
+      const enchantedMiss = processEvent(TriggerEvent.DIES, giftAbilities, {
+        sourceId: 'dead-bear',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'dead-bear',
+        permanentTypes: ['Creature'],
+        attachedByPermanentIds: ['other-aura'],
+      } as any);
+      const equippedMatch = processEvent(TriggerEvent.DIES, orbAbilities, {
+        sourceId: 'dead-knight',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'dead-knight',
+        permanentTypes: ['Creature'],
+        attachedByPermanentIds: ['orb-equip'],
+      } as any);
+
+      expect(enchantedMatch).toHaveLength(1);
+      expect(enchantedMiss).toHaveLength(0);
+      expect(equippedMatch).toHaveLength(1);
+    });
+
+    it.each([
+      {
+        name: 'Endless Cockroaches',
+        permanentId: 'cockroaches',
+        text: 'When Endless Cockroaches is put into your graveyard from the battlefield, return Endless Cockroaches to your hand.',
+        expectedFilter: 'this permanent is put into your graveyard from the battlefield',
+      },
+      {
+        name: 'Mortus Strider',
+        permanentId: 'mortus-strider',
+        text: "When Mortus Strider dies, return it to its owner's hand.",
+        expectedFilter: 'this permanent dies',
+      },
+      {
+        name: 'Weatherseed Treefolk',
+        permanentId: 'weatherseed-treefolk',
+        text: "When Weatherseed Treefolk dies, return it to its owner's hand.",
+        expectedFilter: 'this permanent dies',
+      },
+      {
+        name: 'Shivan Phoenix',
+        permanentId: 'shivan-phoenix',
+        text: "When Shivan Phoenix is put into a graveyard from the battlefield, return Shivan Phoenix to its owner's hand.",
+        expectedFilter: 'this permanent is put into a graveyard from the battlefield',
+      },
+      {
+        name: 'Immortal Phoenix',
+        permanentId: 'immortal-phoenix',
+        text: "When Immortal Phoenix dies, return it to its owner's hand.",
+        expectedFilter: 'this permanent dies',
+      },
+    ])('parses and matches self dies-to-hand triggers for $name', ({ name, permanentId, text, expectedFilter }) => {
+      const abilities = parseTriggeredAbilitiesFromText(text, permanentId, 'p1', name);
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0]?.event).toBe(TriggerEvent.DIES);
+      expect(abilities[0]?.triggerFilter).toBe(expectedFilter);
+
+      const match = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: permanentId,
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: permanentId,
+        permanentTypes: ['Creature'],
+      } as any);
+
+      expect(match).toHaveLength(1);
+    });
+
+    it("matches self Aura graveyard triggers like Fool's Demise only for the source permanent", () => {
+      const abilities = parseTriggeredAbilitiesFromText(
+        "When Fool's Demise is put into a graveyard from the battlefield, return Fool's Demise to its owner's hand.",
+        'fools-demise',
+        'p1',
+        "Fool's Demise"
+      );
+
+      expect(abilities).toHaveLength(1);
+      expect(abilities[0]?.event).toBe(TriggerEvent.DIES);
+      expect(abilities[0]?.triggerFilter).toBe('this permanent is put into a graveyard from the battlefield');
+
+      const match = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'fools-demise',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'fools-demise',
+        permanentTypes: ['Enchantment'],
+      } as any);
+      const miss = processEvent(TriggerEvent.DIES, abilities, {
+        sourceId: 'other-aura',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'other-aura',
+        permanentTypes: ['Enchantment'],
+      } as any);
+
+      expect(match).toHaveLength(1);
+      expect(miss).toHaveLength(0);
     });
 
     it('evaluateTriggerCondition supports opponent control count thresholds for creatures', () => {

@@ -6,6 +6,7 @@
  */
 
 import type { GameState } from '../../../shared/src';
+import { getLeaveBattlefieldDestination } from '../../../shared/src/leaveBattlefieldReplacement';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
 
@@ -80,18 +81,19 @@ export function executeSacrifice(
   }
   
   const [sacrificed] = battlefield.splice(permanentIndex, 1);
-  
-  // Add to graveyard
-  const graveyard = [...(player.graveyard || []), { 
-    ...sacrificed, 
-    zone: 'graveyard',
-    card: sacrificed.card ? { ...sacrificed.card, zone: 'graveyard' } : undefined
-  }];
+  const destination = getLeaveBattlefieldDestination(sacrificed, 'graveyard');
+  const movedCard = {
+    ...sacrificed,
+    zone: destination,
+    card: sacrificed.card ? { ...sacrificed.card, zone: destination } : undefined
+  };
   
   // Update state with updated battlefield and player graveyard
   const updatedPlayers = state.players.map(p =>
     p.id === action.playerId
-      ? { ...p, graveyard }
+      ? destination === 'graveyard'
+        ? { ...p, graveyard: [...(p.graveyard || []), movedCard] }
+        : { ...p, exile: [...((p as any).exile || []), movedCard] }
       : p
   );
   

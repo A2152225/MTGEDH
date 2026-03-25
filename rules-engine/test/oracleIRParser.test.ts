@@ -1,6 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 
+function unwrapLeadingConditionalSteps(steps: readonly any[]): readonly any[] {
+  const first = steps[0];
+  if (steps.length === 1 && first?.kind === 'conditional' && Array.isArray(first.steps)) {
+    return first.steps;
+  }
+  return steps;
+}
+
+function flattenNestedSteps(steps: readonly any[]): readonly any[] {
+  const out: any[] = [];
+  for (const step of steps) {
+    if (step?.kind === 'conditional' && Array.isArray(step.steps)) {
+      out.push(...flattenNestedSteps(step.steps));
+      continue;
+    }
+    out.push(step);
+  }
+  return out;
+}
+
 describe('Oracle IR Parser', () => {
   it('parses ordered draw/then-discard into IR steps', () => {
     const text = 'Draw two cards. Then discard a card.';
@@ -376,6 +396,135 @@ describe('Oracle IR Parser', () => {
     expect(exileTop).toBeTruthy();
     expect(exileTop.who).toEqual({ kind: 'each_opponent' });
     expect(exileTop.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('parses battlefield attachment metadata for "attached to this creature"', () => {
+    const text = 'Put target Aura card from a graveyard onto the battlefield under your control attached to this creature.';
+    const ir = parseOracleTextToIR(text, 'Iridescent Drake');
+    const moveZone = ir.abilities[0].steps.find(step => step.kind === 'move_zone') as any;
+
+    expect(moveZone).toBeTruthy();
+    expect(moveZone.to).toBe('battlefield');
+    expect(moveZone.battlefieldController).toEqual({ kind: 'you' });
+    expect(moveZone.battlefieldAttachedTo).toEqual({ kind: 'raw', text: 'this creature' });
+  });
+
+  it('parses battlefield attachment metadata for "attached to a creature you control"', () => {
+    const text = 'Put target Aura card from a graveyard onto the battlefield under your control attached to a creature you control.';
+    const ir = parseOracleTextToIR(text, 'Nomad Mythmaker');
+    const moveZone = ir.abilities[0].steps.find(step => step.kind === 'move_zone') as any;
+
+    expect(moveZone).toBeTruthy();
+    expect(moveZone.to).toBe('battlefield');
+    expect(moveZone.battlefieldController).toEqual({ kind: 'you' });
+    expect(moveZone.battlefieldAttachedTo).toEqual({ kind: 'raw', text: 'a creature you control' });
+  });
+
+  it('expands Necromancy-style return-and-attach wording into move_zone plus attach', () => {
+    const text =
+      'When this enchantment enters, if it\'s on the battlefield, it becomes an Aura with "enchant creature put onto the battlefield with Necromancy." Put target creature card from a graveyard onto the battlefield under your control and attach this enchantment to it.';
+    const ir = parseOracleTextToIR(text, 'Necromancy');
+    const steps = unwrapLeadingConditionalSteps(ir.abilities[0].steps as any[]);
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0].kind).toBe('move_zone');
+    expect(steps[0].what).toEqual({ kind: 'raw', text: 'target creature card from a graveyard' });
+    expect(steps[0].to).toBe('battlefield');
+    expect(steps[0].battlefieldController).toEqual({ kind: 'you' });
+    expect(steps[1].kind).toBe('attach');
+    expect(steps[1].attachment).toEqual({ kind: 'raw', text: 'this enchantment' });
+    expect(steps[1].to).toEqual({ kind: 'raw', text: 'it' });
+  });
+
+  it('expands quoted emblem creation into a create_emblem step', () => {
+    const text =
+      '−7: You get an emblem with "At the beginning of combat on your turn, put target creature card from a graveyard onto the battlefield under your control."';
+    const ir = parseOracleTextToIR(text, 'Liliana, Waker of the Dead');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0].kind).toBe('create_emblem');
+    expect(steps[0].name).toBe('Liliana, Waker of the Dead Emblem');
+    expect(steps[0].abilities).toEqual([
+      'At the beginning of combat on your turn, put target creature card from a graveyard onto the battlefield under your control.',
+    ]);
+  });
+
+  it("merges Unnatural Restoration's proliferate rider into the same ability", () => {
+    const ir = parseOracleTextToIR(
+      'Return target permanent card from your graveyard to your hand. Proliferate.',
+      'Unnatural Restoration'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0].steps.map((step) => step.kind)).toEqual(['move_zone', 'proliferate']);
+  });
+
+  it("merges Sam's Desperate Rescue's Ring rider into the same ability", () => {
+    const ir = parseOracleTextToIR(
+      'Return target creature card from your graveyard to your hand. The Ring tempts you.',
+      "Sam's Desperate Rescue"
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0].steps.map((step) => step.kind)).toEqual(['move_zone', 'ring_tempts_you']);
+  });
+
+  it("parses inline proliferate keyword followups like Tezzeret's Gambit", () => {
+    const ir = parseOracleTextToIR('Draw two cards, then proliferate.', "Tezzeret's Gambit");
+
+    expect(ir.abilities[0].steps.map((step) => step.kind)).toEqual(['draw', 'proliferate']);
+    expect((ir.abilities[0].steps[1] as any).sequence).toBe('then');
+  });
+
+  it('expands simple conditional token followups like Fungal Rebirth', () => {
+    const ir = parseOracleTextToIR(
+      'Return target permanent card from your graveyard to your hand. If a creature died this turn, create two 1/1 green Saproling creature tokens.',
+      'Fungal Rebirth'
+    );
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0].kind).toBe('move_zone');
+    expect(steps[1].kind).toBe('conditional');
+    expect(steps[1].condition).toEqual({ kind: 'if', raw: 'a creature died this turn' });
+    expect(steps[1].steps.map((step: any) => step.kind)).toEqual(['create_token']);
+  });
+
+  it('expands simple "If you do" followups after discard like Toph, Hardheaded Teacher', () => {
+    const ir = parseOracleTextToIR(
+      'You may discard a card. If you do, return target instant or sorcery card from your graveyard to your hand.',
+      'Toph, Hardheaded Teacher'
+    );
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0].kind).toBe('discard');
+    expect(steps[1].kind).toBe('conditional');
+    expect(steps[1].condition).toEqual({ kind: 'if', raw: 'you do' });
+    expect(steps[1].steps.map((step: any) => step.kind)).toEqual(['move_zone']);
+  });
+
+  it('parses saga chapter move-zone clauses after stripping roman numeral prefixes', () => {
+    const text = 'III — Put target creature or planeswalker card from a graveyard onto the battlefield under your control.';
+    const ir = parseOracleTextToIR(text, 'The Eldest Reborn');
+    const moveZone = ir.abilities[0].steps.find(step => step.kind === 'move_zone') as any;
+
+    expect(moveZone).toBeTruthy();
+    expect(moveZone.what).toEqual({ kind: 'raw', text: 'target creature or planeswalker card from a graveyard' });
+    expect(moveZone.to).toBe('battlefield');
+    expect(moveZone.battlefieldController).toEqual({ kind: 'you' });
+  });
+
+  it('parses saga chapter land recursion clauses after stripping roman numeral prefixes', () => {
+    const text = 'II — Put target land card from a graveyard onto the battlefield under your control.';
+    const ir = parseOracleTextToIR(text, 'Waking the Trolls');
+    const moveZone = ir.abilities[0].steps.find(step => step.kind === 'move_zone') as any;
+
+    expect(moveZone).toBeTruthy();
+    expect(moveZone.what).toEqual({ kind: 'raw', text: 'target land card from a graveyard' });
+    expect(moveZone.to).toBe('battlefield');
+    expect(moveZone.battlefieldController).toEqual({ kind: 'you' });
   });
 
   it("parses exile_top for 'each player puts the top two cards of their library into exile'", () => {
@@ -781,6 +930,32 @@ describe('Oracle IR Parser', () => {
     });
   });
 
+  it('parses trailing delayed next-upkeep return triggers as scheduled deterministic effects', () => {
+    const text = "Return it to the battlefield tapped under its owner's control at the beginning of your next upkeep.";
+    const ir = parseOracleTextToIR(text, 'Phytotitan');
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'schedule_delayed_trigger',
+      timing: 'your_next_upkeep',
+      effect: "Return it to the battlefield tapped under its owner's control",
+    });
+  });
+
+  it('parses trailing delayed next-end-step hand return triggers as scheduled deterministic effects', () => {
+    const text = "Return it to its owner's hand at the beginning of the next end step.";
+    const ir = parseOracleTextToIR(text, 'The Locust God');
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'schedule_delayed_trigger',
+      timing: 'next_end_step',
+      effect: "Return it to its owner's hand",
+    });
+  });
+
   it('parses trailing delayed sacrifice cleanup with a mana value condition', () => {
     const text = 'Sacrifice it at the beginning of the next end step if it has mana value 3 or less.';
     const ir = parseOracleTextToIR(text);
@@ -879,9 +1054,10 @@ describe('Oracle IR Parser', () => {
     expect(steps[0].kind).toBe('exile');
     expect((steps[0] as any).target?.text?.toLowerCase?.() || '').toContain('target');
 
-    const move = steps.find(s => s.kind === 'move_zone') as any;
-    expect(move).toBeTruthy();
-    expect(move.to).toBe('battlefield');
+    const delayed = steps.find(s => s.kind === 'schedule_delayed_trigger') as any;
+    expect(delayed).toBeTruthy();
+    expect(delayed.timing).toBe('next_end_step');
+    expect(delayed.effect).toBe('Return it to the battlefield under your control');
   });
 
   it('parses battlefield move-zone counters for corpus reanimation wording', () => {
@@ -895,6 +1071,75 @@ describe('Oracle IR Parser', () => {
     expect(move.battlefieldController).toEqual({ kind: 'you' });
     expect(move.entersTapped).toBeUndefined();
     expect(move.withCounters).toEqual({ corpse: 1 });
+  });
+
+  it('merges Spell mastery reanimation counter riders onto the prior battlefield move-zone step', () => {
+    const text =
+      'Put target creature card from a graveyard onto the battlefield under your control. Spell mastery — If there are two or more instant and/or sorcery cards in your graveyard, that creature enters with two additional +1/+1 counters on it.';
+    const ir = parseOracleTextToIR(text, 'Necromantic Summons');
+    const steps = ir.abilities[0].steps;
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(steps).toHaveLength(1);
+
+    const move = steps[0] as any;
+    expect(move.kind).toBe('move_zone');
+    expect(move.to).toBe('battlefield');
+    expect(move.battlefieldController).toEqual({ kind: 'you' });
+    expect(move.withCounters).toEqual({ '+1/+1': 2 });
+    expect(move.withCountersCondition).toEqual({
+      kind: 'if',
+      raw: 'there are two or more instant and/or sorcery cards in your graveyard',
+    });
+  });
+
+  it("merges Valkyrie's Call return-time type rewrite onto the battlefield move-zone step", () => {
+    const text =
+      "Whenever a nontoken, non-Angel creature you control dies, return that card to the battlefield under its owner's control with a +1/+1 counter on it. It's an Angel in addition to its other types.";
+    const ir = parseOracleTextToIR(text, "Valkyrie's Call");
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toHaveLength(1);
+    const move = steps[0] as any;
+    expect(move.kind).toBe('move_zone');
+    expect(move.to).toBe('battlefield');
+    expect(move.battlefieldController).toEqual({ kind: 'owner_of_moved_cards' });
+    expect(move.withCounters).toEqual({ '+1/+1': 1 });
+    expect(move.battlefieldAddTypes).toEqual(['Angel']);
+  });
+
+  it('merges delayed return characteristic rewrites into the delayed effect text', () => {
+    const text =
+      "Whenever a creature you don't control dies, return it to the battlefield under your control with an additional +1/+1 counter on it at the beginning of the next end step. That creature is a black Zombie in addition to its other colors and types.";
+    const ir = parseOracleTextToIR(text, 'Grave Betrayal');
+    const delayed = ir.abilities[0].steps[0] as any;
+
+    expect(delayed.kind).toBe('schedule_delayed_trigger');
+    expect(delayed.effect).toContain('That creature is a black Zombie in addition to its other colors and types');
+
+    const delayedIr = parseOracleTextToIR(delayed.effect, 'Grave Betrayal');
+    const move = delayedIr.abilities[0].steps[0] as any;
+    expect(move.kind).toBe('move_zone');
+    expect(move.battlefieldAddTypes).toEqual(['Zombie']);
+    expect(move.battlefieldAddColors).toEqual(['B']);
+  });
+
+  it("merges Lim-Dul the Necromancer's conditional Zombie rewrite onto the returned creature", () => {
+    const text =
+      "Whenever a creature an opponent controls dies, you may pay {1}{B}. If you do, return that card to the battlefield under your control. If it's a creature, it's a Zombie in addition to its other creature types.";
+    const ir = parseOracleTextToIR(text, 'Lim-Dul the Necromancer');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps[0].kind).toBe('pay_mana');
+    expect(steps[1].kind).toBe('conditional');
+    expect(steps[1].condition).toEqual({ kind: 'if', raw: 'you do' });
+    expect(steps[1].steps).toHaveLength(1);
+    expect(steps[1].steps[0].kind).toBe('move_zone');
+    expect(steps[1].steps[0].battlefieldAddTypes).toEqual(['Zombie']);
+    expect(steps[1].steps[0].battlefieldCharacteristicsCondition).toEqual({
+      kind: 'if',
+      raw: "it's a creature",
+    });
   });
 
   it('parses mill clauses into IR steps', () => {
@@ -993,17 +1238,23 @@ describe('Oracle IR Parser', () => {
     expect(pump.scaler).toEqual({ kind: 'unknown', raw: 'for each opponent you attacked with a creature this combat' });
   });
 
-  it('parses leading if clause into modify_pt condition metadata', () => {
+  it('parses leading if clause into a conditional modify_pt wrapper', () => {
     const text = 'If you control an artifact, target creature gets +2/+2 until end of turn.';
     const ir = parseOracleTextToIR(text);
     const steps = ir.abilities[0].steps;
 
-    const pump = steps.find(s => s.kind === 'modify_pt') as any;
-    expect(pump).toBeTruthy();
-    expect(pump.target).toEqual({ kind: 'raw', text: 'target creature' });
-    expect(pump.power).toBe(2);
-    expect(pump.toughness).toBe(2);
-    expect(pump.condition).toEqual({ kind: 'if', raw: 'you control an artifact' });
+    const conditional = steps.find(s => s.kind === 'conditional') as any;
+    expect(conditional).toBeTruthy();
+    expect(conditional.condition).toEqual({ kind: 'if', raw: 'you control an artifact' });
+    expect(conditional.steps).toEqual([
+      expect.objectContaining({
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 2,
+        toughness: 2,
+        duration: 'end_of_turn',
+      }),
+    ]);
   });
 
   it('parses trailing as long as clause into modify_pt condition metadata', () => {
@@ -4930,7 +5181,7 @@ describe('Oracle IR Parser', () => {
       + 'During any turn you attacked with a Rogue, you may cast that card and you may spend mana as though it were mana of any color to cast that spell.';
 
     const ir = parseOracleTextToIR(oracleText, 'Robber of the Rich');
-    const allSteps = ir.abilities.flatMap((a) => a.steps);
+    const allSteps = ir.abilities.flatMap((a) => flattenNestedSteps(a.steps as any[]));
     const impulse = allSteps.find((s) => s.kind === 'impulse_exile_top');
     expect(impulse).toBeTruthy();
     if (!impulse || impulse.kind !== 'impulse_exile_top') return;
@@ -4941,4 +5192,1010 @@ describe('Oracle IR Parser', () => {
     expect(impulse.duration).toBe('as_long_as_remains_exiled');
     expect(impulse.condition).toEqual({ kind: 'attacked_with', raw: 'a rogue' });
   });
+
+  it('parses Veinwitch Coven payment-gated graveyard return as pay_mana plus conditional move', () => {
+    const oracleText =
+      'At the beginning of your end step, if you gained life this turn, you may pay {B}. If you do, return target creature card from your graveyard to your hand.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Veinwitch Coven');
+    const ability = ir.abilities[0];
+    const steps = unwrapLeadingConditionalSteps(ability?.steps ?? []);
+
+    expect(ability?.interveningIf).toBe('you gained life this turn');
+    expect(ir.abilities[0]?.steps?.[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you gained life this turn' },
+    });
+    expect(steps[0]).toMatchObject({
+      kind: 'pay_mana',
+      who: { kind: 'you' },
+      mana: '{B}',
+      optional: true,
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you do' },
+    });
+    expect((steps[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      to: 'hand',
+    });
+  });
+
+  it('parses Genesis payment-gated graveyard return as pay_mana plus conditional move', () => {
+    const oracleText =
+      'At the beginning of your upkeep, if Genesis is in your graveyard, you may pay {2}{G}. If you do, return target creature card from your graveyard to your hand.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Genesis');
+    const ability = ir.abilities[0];
+    const steps = unwrapLeadingConditionalSteps(ability?.steps ?? []);
+
+    expect(ability?.interveningIf).toBe('this permanent is in your graveyard');
+    expect(ir.abilities[0]?.steps?.[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'this permanent is in your graveyard' },
+    });
+    expect(steps[0]).toMatchObject({
+      kind: 'pay_mana',
+      who: { kind: 'you' },
+      mana: '{2}{G}',
+      optional: true,
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you do' },
+    });
+    expect((steps[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      to: 'hand',
+    });
+  });
+
+  it('parses Nim Deathmantle as pay_mana plus conditional move-and-attach sequence', () => {
+    const oracleText =
+      'Whenever a nontoken creature is put into your graveyard from the battlefield, you may pay {4}. If you do, return that card to the battlefield and attach Nim Deathmantle to it.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Nim Deathmantle');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps[0]).toMatchObject({
+      kind: 'pay_mana',
+      who: { kind: 'you' },
+      mana: '{4}',
+      optional: true,
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you do' },
+    });
+    expect((steps[1] as any)?.steps).toMatchObject([
+      { kind: 'move_zone', to: 'battlefield' },
+      { kind: 'attach' },
+    ]);
+  });
+
+  it('parses Athreos, God of Passage as an unless-pays-life wrapper around the return step', () => {
+    const oracleText =
+      'Whenever another creature you own dies, return it to your hand unless target opponent pays 3 life.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Athreos, God of Passage');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({
+      kind: 'unless_pays_life',
+      who: { kind: 'target_opponent' },
+      amount: 3,
+    });
+    expect((steps[0] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      to: 'hand',
+    });
+  });
+
+  it('parses Gift of Immortality as immediate return plus delayed self-reattach', () => {
+    const oracleText =
+      "When enchanted creature dies, return that card to the battlefield under its owner's control. Return Gift of Immortality to the battlefield attached to that creature at the beginning of the next end step.";
+
+    const ir = parseOracleTextToIR(oracleText, 'Gift of Immortality');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'that card' },
+        to: 'battlefield',
+      },
+      {
+        kind: 'schedule_delayed_trigger',
+        timing: 'next_end_step',
+      },
+    ]);
+    expect(String((steps[1] as any)?.effect || '')).toContain('this permanent');
+    expect(String((steps[1] as any)?.effect || '')).toContain('attached to that creature');
+  });
+
+  it('parses Oathkeeper, Takeno\'s Daisho as a conditional Samurai return', () => {
+    const oracleText =
+      "Whenever equipped creature dies, return that card to the battlefield under your control if it's a Samurai card.";
+
+    const ir = parseOracleTextToIR(oracleText, "Oathkeeper, Takeno's Daisho");
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: "it's a Samurai card" },
+    });
+    expect((steps[0] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'that card' },
+      to: 'battlefield',
+      battlefieldController: { kind: 'you' },
+    });
+  });
+
+  it('parses Edea, Possessed Sorceress as return plus draw followup', () => {
+    const oracleText =
+      "Whenever a creature you control but don't own dies, return it to the battlefield under its owner's control and you draw a card.";
+
+    const ir = parseOracleTextToIR(oracleText, 'Edea, Possessed Sorceress');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'it' },
+        to: 'battlefield',
+        battlefieldController: { kind: 'owner_of_moved_cards' },
+      },
+      {
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+      },
+    ]);
+  });
+
+  it('parses Skullwinder as return, choose_opponent, then opponent graveyard return', () => {
+    const oracleText =
+      'When Skullwinder enters, return target card from your graveyard to your hand, then choose an opponent. That player returns a card from their graveyard to their hand.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Skullwinder');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toMatchObject([
+      { kind: 'move_zone', to: 'hand' },
+      { kind: 'choose_opponent' },
+      {
+        kind: 'move_zone',
+        to: 'hand',
+        what: { kind: 'raw', text: "a card from target player's graveyard" },
+      },
+    ]);
+  });
+
+  it('parses Court of Ardenvale monarchy branch as optional conditional hand-to-battlefield move', () => {
+    const oracleText =
+      "At the beginning of your upkeep, return target permanent card from your graveyard to your hand. If you're the monarch, you may put it onto the battlefield instead.";
+
+    const ir = parseOracleTextToIR(oracleText, 'Court of Ardenvale');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps[0]).toMatchObject({ kind: 'move_zone', to: 'hand' });
+    expect(steps[1]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: "you're the monarch" },
+    });
+    expect((steps[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'it' },
+      to: 'battlefield',
+      optional: true,
+    });
+  });
+
+  it('parses Volcanic Vision as return, damage by returned card mana value, then self-exile', () => {
+    const oracleText =
+      "Return target instant or sorcery card from your graveyard to your hand. Volcanic Vision deals damage equal to that card's mana value to each creature your opponents control. Exile Volcanic Vision.";
+
+    const ir = parseOracleTextToIR(oracleText, 'Volcanic Vision');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'target instant or sorcery card from your graveyard' },
+        to: 'hand',
+      },
+      {
+        kind: 'deal_damage',
+        amount: { kind: 'unknown', raw: "that card's mana value" },
+        target: { kind: 'raw', text: 'each creature your opponents control' },
+      },
+      {
+        kind: 'exile',
+        target: { kind: 'raw', text: 'this permanent' },
+      },
+    ]);
+  });
+
+  it('parses Golbez, Crystal Collector as return plus returned-card power life-loss rider', () => {
+    const oracleText =
+      "At the beginning of your end step, if you control four or more artifacts, return target creature card from your graveyard to your hand. Each opponent loses life equal to that card's power.";
+
+    const ir = parseOracleTextToIR(oracleText, 'Golbez, Crystal Collector');
+    const ability = ir.abilities[0];
+    const steps = unwrapLeadingConditionalSteps(ability?.steps ?? []);
+
+    expect(ability?.interveningIf).toBe('you control four or more artifacts');
+    expect(steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'target creature card from your graveyard' },
+        to: 'hand',
+      },
+      {
+        kind: 'lose_life',
+        who: { kind: 'each_opponent' },
+        amount: { kind: 'unknown', raw: "that card's power" },
+      },
+    ]);
+  });
+
+  it('parses Peerless Recycling gift branch as a conditional second graveyard return', () => {
+    const oracleText =
+      'Return target permanent card from your graveyard to your hand. If the gift was promised, return another target permanent card from your graveyard to your hand.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Peerless Recycling');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'target permanent card from your graveyard' },
+      to: 'hand',
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'the gift was promised' },
+    });
+    expect((steps[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'another target permanent card from your graveyard' },
+      to: 'hand',
+    });
+  });
+
+  it('splits Reconstruct History into differentiated up-to-one graveyard return steps plus self-exile', () => {
+    const oracleText =
+      'Return up to one target artifact card, up to one target enchantment card, up to one target instant card, up to one target sorcery card, and up to one target planeswalker card from your graveyard to your hand. Exile Reconstruct History.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Reconstruct History');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toMatchObject([
+      { kind: 'move_zone', what: { kind: 'raw', text: 'up to one target artifact card from your graveyard' }, to: 'hand' },
+      { kind: 'move_zone', what: { kind: 'raw', text: 'up to one target enchantment card from your graveyard' }, to: 'hand' },
+      { kind: 'move_zone', what: { kind: 'raw', text: 'up to one target instant card from your graveyard' }, to: 'hand' },
+      { kind: 'move_zone', what: { kind: 'raw', text: 'up to one target sorcery card from your graveyard' }, to: 'hand' },
+      { kind: 'move_zone', what: { kind: 'raw', text: 'up to one target planeswalker card from your graveyard' }, to: 'hand' },
+      { kind: 'exile', target: { kind: 'raw', text: 'this permanent' } },
+    ]);
+  });
+
+  it('parses Awaken the Honored Dead discard gate as optional discard plus conditional reanimation', () => {
+    const oracleText =
+      'You may discard a card. When you do, return target creature card from your graveyard to the battlefield tapped.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Awaken the Honored Dead');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps[0]).toMatchObject({
+      kind: 'discard',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      optional: true,
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you do' },
+    });
+    expect((steps[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'target creature card from your graveyard' },
+      to: 'battlefield',
+      entersTapped: true,
+    });
+  });
+
+  it('preserves Grave Venerations intervening-if as a top-level conditional wrapper', () => {
+    const oracleText =
+      "When this enchantment enters, you become the monarch.\nAt the beginning of your end step, if you're the monarch, return up to one target creature card from your graveyard to your hand.\nWhenever a creature you control dies, each opponent loses 1 life and you gain 1 life.";
+
+    const ir = parseOracleTextToIR(oracleText, 'Grave Venerations');
+    const ability = ir.abilities.find(a => a.triggerCondition === 'the beginning of your end step');
+    const steps = ability?.steps ?? [];
+
+    expect(ability?.interveningIf).toBe("you're the monarch");
+    expect(steps[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: "you're the monarch" },
+    });
+    expect((steps[0] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'up to one target creature card from your graveyard' },
+      to: 'hand',
+    });
+  });
+
+  it('preserves Aerith, Last Ancient intervening-if around its return and battlefield-upgrade branch', () => {
+    const oracleText =
+      'At the beginning of your end step, if you gained life this turn, return target creature card from your graveyard to your hand. If you gained 7 or more life this turn, return that card to the battlefield instead.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Aerith, Last Ancient');
+    const ability = ir.abilities[0];
+    const steps = ability?.steps ?? [];
+
+    expect(ability?.interveningIf).toBe('you gained life this turn');
+    expect(steps[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you gained life this turn' },
+    });
+    expect((steps[0] as any)?.steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'target creature card from your graveyard' },
+        to: 'hand',
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you gained 7 or more life this turn' },
+      },
+    ]);
+    expect(((steps[0] as any)?.steps?.[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'that card' },
+      to: 'battlefield',
+    });
+  });
+
+  it('parses Planewide Celebration as a repeatable choose-four modal block', () => {
+    const oracleText =
+      "Choose four. You may choose the same mode more than once.\n\u2022 Create a 2/2 white Citizen creature token that's all colors.\n\u2022 Return target permanent card from your graveyard to your hand.\n\u2022 Proliferate.\n\u2022 You gain 4 life.";
+
+    const ir = parseOracleTextToIR(oracleText, 'Planewide Celebration');
+    const step = ir.abilities[0]?.steps?.[0] as any;
+
+    expect(step).toMatchObject({
+      kind: 'choose_mode',
+      minModes: 4,
+      maxModes: 4,
+      canRepeatModes: true,
+    });
+    expect(step?.modes?.map((mode: any) => mode.steps?.[0]?.kind)).toEqual([
+      'create_token',
+      'move_zone',
+      'proliferate',
+      'gain_life',
+    ]);
+  });
+
+  it('parses Stitch Together threshold text as a conditional battlefield upgrade', () => {
+    const oracleText =
+      'Return target creature card from your graveyard to your hand.\nThreshold - Return that card from your graveyard to the battlefield instead if there are seven or more cards in your graveyard.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Stitch Together');
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'target creature card from your graveyard' },
+        to: 'hand',
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'there are seven or more cards in your graveyard' },
+      },
+    ]);
+    expect((steps[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'that card from your graveyard' },
+      to: 'battlefield',
+    });
+  });
+
+  it('parses Emeria Shepherd plains upgrade effect text as a conditional battlefield return', () => {
+    const oracleText =
+      'You may return target nonland permanent card from your graveyard to your hand. If that land is a Plains, you may return that nonland permanent card to the battlefield instead.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Emeria Shepherd');
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'target nonland permanent card from your graveyard' },
+        to: 'hand',
+        optional: true,
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'that land is a Plains' },
+      },
+    ]);
+    expect((steps[1] as any)?.steps?.[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'that nonland permanent card' },
+      to: 'battlefield',
+      optional: true,
+    });
+  });
+
+  it('parses Not Dead After All as a temporary dies trigger grant', () => {
+    const oracleText =
+      'Until end of turn, target creature you control gains "When this creature dies, return it to the battlefield tapped under its owner\'s control, then create a Wicked Role token attached to it." (Enchanted creature gets +1/+1. When this token is put into a graveyard, each opponent loses 1 life.)';
+
+    const ir = parseOracleTextToIR(oracleText, 'Not Dead After All');
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'grant_temporary_dies_trigger',
+        target: { kind: 'raw', text: 'target creature you control' },
+        duration: 'until_end_of_turn',
+      },
+    ]);
+    expect((steps[0] as any)?.effect).toBe(
+      'return it to the battlefield tapped under its owner\'s control, then create a Wicked Role token attached to it.'
+    );
+  });
+
+  it('parses Infuse with Vitality as a temporary dies trigger grant plus life gain', () => {
+    const oracleText =
+      'Until end of turn, target creature gains deathtouch and "When this creature dies, return it to the battlefield tapped under its owner\'s control."\nYou gain 2 life.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Infuse with Vitality');
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'grant_temporary_dies_trigger',
+        target: { kind: 'raw', text: 'target creature' },
+        duration: 'until_end_of_turn',
+      },
+      {
+        kind: 'gain_life',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+      },
+    ]);
+    expect((steps[0] as any)?.effect).toBe("return it to the battlefield tapped under its owner's control.");
+  });
+
+  it('parses Pain 101 as a temporary dies trigger grant despite the preceding deathtouch grant', () => {
+    const oracleText =
+      'Until end of turn, target creature gains deathtouch and "When this creature dies, return it to the battlefield tapped under its owner\'s control."';
+
+    const ir = parseOracleTextToIR(oracleText, 'Pain 101');
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'grant_temporary_dies_trigger',
+        target: { kind: 'raw', text: 'target creature' },
+        duration: 'until_end_of_turn',
+      },
+    ]);
+    expect((steps[0] as any)?.effect).toBe("return it to the battlefield tapped under its owner's control.");
+  });
+
+  it('parses Verdant Rebirth as a dies trigger grant plus draw despite sharing a line', () => {
+    const oracleText =
+      'Until end of turn, target creature gains "When this creature dies, return it to its owner\'s hand." Draw a card.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Verdant Rebirth');
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'grant_temporary_dies_trigger',
+        target: { kind: 'raw', text: 'target creature' },
+        duration: 'until_end_of_turn',
+      },
+      {
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+      },
+    ]);
+    expect((steps[0] as any)?.effect).toBe("return it to its owner's hand.");
+  });
+
+  it('parses Flame-Wreathed Phoenix as a conditional self dies trigger grant behind haste', () => {
+    const oracleText =
+      'Flying, haste\nTribute 2\nWhen Flame-Wreathed Phoenix enters, if tribute wasn\'t paid, it gains haste and "When this creature dies, return it to its owner\'s hand."';
+
+    const ir = parseOracleTextToIR(oracleText, 'Flame-Wreathed Phoenix');
+    const ability = ir.abilities.find(parsedAbility => parsedAbility.triggerCondition === 'this permanent enters');
+    const steps = ability?.steps ?? [];
+
+    expect(ability?.interveningIf).toBe("tribute wasn't paid");
+    expect(steps[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: "tribute wasn't paid" },
+    });
+    expect((steps[0] as any)?.steps?.[0]).toMatchObject({
+      kind: 'grant_temporary_dies_trigger',
+      target: { kind: 'raw', text: 'it' },
+      duration: 'while_on_battlefield',
+    });
+    expect(((steps[0] as any)?.steps?.[0] as any)?.effect).toBe("return it to its owner's hand.");
+  });
+
+  it('parses Pharika, God of Affliction as a single activated exile-plus-owner-token ability', () => {
+    const oracleText =
+      '{B}{G}: Exile target creature card from a graveyard. Its owner creates a 1/1 black and green Snake enchantment creature token with deathtouch.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Pharika, God of Affliction');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'activated',
+      cost: '{B}{G}',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        to: 'exile',
+      },
+      {
+        kind: 'create_token',
+        who: { kind: 'owner_of_moved_cards' },
+        token: '1/1 black and green Snake enchantment',
+      },
+    ]);
+  });
+
+  it('parses Funeral Pyre as exile followed by owner-controlled token creation in one ability', () => {
+    const oracleText =
+      'Exile target card from a graveyard. Its owner creates a 1/1 white Spirit creature token with flying.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Funeral Pyre');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        to: 'exile',
+      },
+      {
+        kind: 'create_token',
+        who: { kind: 'owner_of_moved_cards' },
+        token: '1/1 white Spirit',
+      },
+    ]);
+  });
+
+  it('parses Oskar, Rubbish Reclaimer as a graveyard-cast permission step', () => {
+    const oracleText = 'Whenever you discard a nonland card, you may cast it from your graveyard.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Oskar, Rubbish Reclaimer');
+    const ability = ir.abilities[0];
+
+    expect(ability?.type).toBe('triggered');
+    expect(ability?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'it' },
+        permission: 'cast',
+        duration: 'during_resolution',
+        optional: true,
+      },
+    ]);
+  });
+
+  it('parses Skyclave Shade landfall text as a triggered graveyard-cast permission step', () => {
+    const oracleText =
+      "Landfall - Whenever a land you control enters, if this card is in your graveyard and it's your turn, you may cast it from your graveyard this turn.";
+
+    const ir = parseOracleTextToIR(oracleText, 'Skyclave Shade');
+    const ability = ir.abilities[0];
+
+    expect(ability?.type).toBe('triggered');
+    expect(ability?.steps).toMatchObject([
+      {
+        kind: 'conditional',
+        condition: {
+          kind: 'if',
+          raw: "this card is in your graveyard and it's your turn",
+        },
+        steps: [
+          {
+            kind: 'grant_graveyard_permission',
+            who: { kind: 'you' },
+            what: { kind: 'raw', text: 'it' },
+            permission: 'cast',
+            duration: 'this_turn',
+            optional: true,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('parses parenthetical escape-style graveyard permissions like Confession Dial', () => {
+    const oracleText = '(You may cast it from your graveyard for its escape cost this turn.)';
+
+    const ir = parseOracleTextToIR(oracleText, 'Confession Dial');
+    const ability = ir.abilities[0];
+
+    expect(ability?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'it' },
+        permission: 'cast',
+        duration: 'this_turn',
+        optional: true,
+      },
+    ]);
+  });
+
+  it('parses flashback keyword lines like Faithless Looting into graveyard-cast permission steps', () => {
+    const ir = parseOracleTextToIR('Draw two cards, then discard two cards. Flashback {2}{R}', 'Faithless Looting');
+
+    expect(ir.abilities[1]?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'this card' },
+        permission: 'cast',
+        duration: 'during_resolution',
+        optional: true,
+      },
+    ]);
+  });
+
+  it('parses full Snapcaster Mage text into a triggered graveyard permission ability', () => {
+    const ir = parseOracleTextToIR(
+      'Flash. When Snapcaster Mage enters, target instant or sorcery card in your graveyard gains flashback until end of turn.\nThe flashback cost is equal to its mana cost.',
+      'Snapcaster Mage'
+    );
+
+    expect(ir.abilities[0]?.type).toBe('static');
+    expect(ir.abilities[1]?.type).toBe('triggered');
+    expect(ir.abilities[1]?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'target instant or sorcery card' },
+        permission: 'cast',
+        duration: 'this_turn',
+        optional: true,
+      },
+      {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        castCost: 'mana_cost',
+      },
+    ]);
+  });
+
+  it('parses Past in Flames into graveyard permissions plus mana-cost flashback metadata', () => {
+    const ir = parseOracleTextToIR(
+      'Each instant and sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost.',
+      'Past in Flames'
+    );
+
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'instant and sorcery card' },
+        permission: 'cast',
+        duration: 'this_turn',
+        optional: true,
+      },
+      {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        castCost: 'mana_cost',
+      },
+    ]);
+  });
+
+  it('parses static keyword grants like Underworld Breach into graveyard-cast permission steps', () => {
+    const ir = parseOracleTextToIR(
+      "Each nonland card in your graveyard has escape. The escape cost is equal to the card's mana cost plus exile three other cards from your graveyard.",
+      'Underworld Breach'
+    );
+
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'nonland card' },
+        permission: 'cast',
+        duration: 'during_resolution',
+        optional: true,
+      },
+    ]);
+  });
+
+  it('parses non-mana flashback keyword lines like Dread Return into graveyard-cast permission steps', () => {
+    const ir = parseOracleTextToIR(
+      'Return target creature card from your graveyard to the battlefield. Flashback-Sacrifice three creatures.',
+      'Dread Return'
+    );
+
+    expect(ir.abilities[1]?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'this card' },
+        permission: 'cast',
+      },
+    ]);
+  });
+
+  it('parses turn-gated retrace grants like Six into conditional graveyard-cast permission steps', () => {
+    const ir = parseOracleTextToIR(
+      'During your turn, nonland permanent cards in your graveyard have retrace. (You may cast permanent cards from your graveyard by discarding a land card in addition to paying their other costs.)',
+      'Six'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: "it's your turn" },
+          steps: expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'grant_graveyard_permission',
+              who: { kind: 'you' },
+              what: { kind: 'raw', text: 'nonland permanent' },
+              permission: 'cast',
+              duration: 'this_turn',
+              optional: true,
+            }),
+          ]),
+        }),
+      ])
+    );
+  });
+
+  it("parses Sevinne's Reclamation-style graveyard copy riders into a conditional copy_spell step", () => {
+    const ir = parseOracleTextToIR(
+      'Return target permanent card with mana value 3 or less from your graveyard to the battlefield. If this spell was cast from a graveyard, you may copy this spell and may choose a new target for the copy.',
+      "Sevinne's Reclamation"
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'move_zone',
+          what: { kind: 'raw', text: 'target permanent card with mana value 3 or less from your graveyard' },
+          to: 'battlefield',
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'this spell was cast from a graveyard' },
+          steps: expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'copy_spell',
+              subject: 'this_spell',
+              allowNewTargets: true,
+              optional: true,
+            }),
+          ]),
+        }),
+      ])
+    );
+  });
+
+  it('parses Ignite the Future graveyard rider into a conditional exile-permission modifier', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top three cards of your library. Until the end of your next turn, you may play those cards. If this spell was cast from a graveyard, you may play cards this way without paying their mana costs.',
+      'Ignite the Future'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'impulse_exile_top',
+          amount: { kind: 'number', value: 3 },
+          duration: 'until_end_of_next_turn',
+          permission: 'play',
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'this spell was cast from a graveyard' },
+          steps: expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'modify_exile_permissions',
+              scope: 'last_exiled_cards',
+              withoutPayingManaCost: true,
+            }),
+          ]),
+        }),
+      ])
+    );
+  });
+
+  it('parses Rocket-Powered Goblin Glider into an attach step behind its graveyard provenance gate', () => {
+    const oracleText =
+      'When this Equipment enters, if it was cast from your graveyard, attach it to target creature you control.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Rocket-Powered Goblin Glider');
+    const ability = ir.abilities[0];
+
+    expect(ability?.steps).toMatchObject([
+      {
+        kind: 'conditional',
+        condition: {
+          kind: 'if',
+          raw: 'it was cast from your graveyard',
+        },
+        steps: [
+          {
+            kind: 'attach',
+            attachment: { kind: 'raw', text: 'it' },
+            to: { kind: 'raw', text: 'target creature you control' },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('parses leave-battlefield exile riders into an explicit replacement-grant step', () => {
+    const oracleText =
+      'Return target creature card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Whip of Erebos');
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_leave_battlefield_replacement',
+          destination: 'exile',
+          target: { kind: 'raw', text: 'it' },
+        }),
+      ])
+    );
+  });
+
+  it('parses random graveyard returns as move_zone selectors that preserve the at-random qualifier', () => {
+    const oracleText =
+      'Return a creature card at random from your graveyard to the battlefield. If it would leave the battlefield, exile it instead of putting it anywhere else.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Kheru Lich Lord');
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'move_zone',
+          what: { kind: 'raw', text: 'a creature card at random from your graveyard' },
+          to: 'battlefield',
+        }),
+        expect.objectContaining({
+          kind: 'grant_leave_battlefield_replacement',
+          destination: 'exile',
+        }),
+      ])
+    );
+  });
+
+  it('splits Restless Cottage style create-token-plus-graveyard-exile clauses into ordered steps', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this land attacks, create a Food token and exile up to one target card from a graveyard.',
+      'Restless Cottage'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'create_token',
+          token: 'Food',
+        }),
+        expect.objectContaining({
+          kind: 'move_zone',
+          to: 'exile',
+          what: { kind: 'raw', text: 'up to one target card from a graveyard' },
+        }),
+      ])
+    );
+    expect(ir.abilities[0]?.steps.map((step: any) => step.kind)).toEqual(['create_token', 'move_zone']);
+  });
+
+  it('parses Mardu Woe-Reaper exile follow-ups into a conditional life-gain step', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this creature or another Warrior you control enters, you may exile target creature card from a graveyard. If you do, you gain 1 life.',
+      'Mardu Woe-Reaper'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'move_zone',
+          to: 'exile',
+          optional: true,
+          what: { kind: 'raw', text: 'target creature card from a graveyard' },
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'you do' },
+          steps: [
+            expect.objectContaining({
+              kind: 'gain_life',
+              amount: { kind: 'number', value: 1 },
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
+  it('parses Diregraf Scavenger typed exiled-this-way follow-ups into conditional branches', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, exile up to one target card from a graveyard. If a creature card was exiled this way, you gain 2 life. If a land card was exiled this way, add {G}.',
+      'Diregraf Scavenger'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'move_zone',
+          to: 'exile',
+          what: { kind: 'raw', text: 'up to one target card from a graveyard' },
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'a creature card was exiled this way' },
+          steps: [
+            expect.objectContaining({
+              kind: 'gain_life',
+              amount: { kind: 'number', value: 2 },
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'a land card was exiled this way' },
+          steps: [
+            expect.objectContaining({
+              kind: 'add_mana',
+              mana: '{G}',
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
+  it('parses Deathgorge Scavenger noncreature exile follow-up into a conditional self modify-pt branch', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters or attacks, you may exile target card from a graveyard. If a creature card was exiled this way, you gain 2 life. If a noncreature card was exiled this way, this creature gets +1/+1 until end of turn.',
+      'Deathgorge Scavenger'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'conditional',
+          condition: { kind: 'if', raw: 'a noncreature card was exiled this way' },
+          steps: [
+            expect.objectContaining({
+              kind: 'modify_pt',
+              target: { kind: 'raw', text: 'this creature' },
+              power: 1,
+              toughness: 1,
+              duration: 'end_of_turn',
+            }),
+          ],
+        }),
+      ])
+    );
+  });
+
 });

@@ -135,6 +135,17 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     abilities: ['Indestructible', 'Equipped creature gets +5/+5 and has double strike.', 'Equip {0}'],
     isArtifact: true,
   },
+  'Wicked Role': {
+    name: 'Wicked Role',
+    colors: ['B'],
+    types: ['Enchantment'],
+    subtypes: ['Aura', 'Role'],
+    abilities: [
+      'Enchant creature',
+      'Enchanted creature gets +1/+1.',
+      'When this token is put into a graveyard, each opponent loses 1 life.',
+    ],
+  },
 
   // Common creature tokens
   '1/1 Soldier': {

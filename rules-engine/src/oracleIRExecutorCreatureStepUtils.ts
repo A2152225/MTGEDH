@@ -43,6 +43,7 @@ export function resolveSingleCreatureTargetId(
   const targetText = String(target.text || '').trim().toLowerCase();
   const battlefield = getProcessedBattlefield(state);
   const creatures = battlefield.filter(permanent => isExecutorCreature(permanent));
+  const sourceId = String(ctx.sourceId || '').trim();
 
   const controllerId = String(ctx.controllerId || '').trim();
   const controlledCreatures = creatures.filter(
@@ -62,6 +63,14 @@ export function resolveSingleCreatureTargetId(
 
   if (targetText === 'target creature' || targetText === 'creature' || targetText.includes('target creature')) {
     return creatures.length === 1 ? creatures[0].id : undefined;
+  }
+
+  if (
+    (targetText === 'this creature' || targetText === 'this permanent' || targetText === 'it') &&
+    sourceId &&
+    creatures.some(permanent => String((permanent as any)?.id || '').trim() === sourceId)
+  ) {
+    return sourceId;
   }
 
   return undefined;

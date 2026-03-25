@@ -196,6 +196,7 @@ export interface BattlefieldPermanent {
   id: string;
   controller: PlayerID;
   owner: PlayerID;
+  leaveBattlefieldReplacement?: 'exile';
   tapped?: boolean;
   counters?: Readonly<Record<string, number>>;
   basePower?: number;

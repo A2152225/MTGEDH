@@ -1,14 +1,14 @@
 import type { GameState, PlayerID } from '../../shared/src';
 
-export function stripPlayableFromExileTags(card: any): any {
+export function stripPlayableFromGraveyardTags(card: any): any {
   if (!card || typeof card !== 'object') return card;
-  const { canBePlayedBy, playableUntilTurn, withoutPayingManaCost, ...rest } = card as any;
+  const { canBePlayedBy, playableUntilTurn, graveyardCastCost, ...rest } = card as any;
   return rest;
 }
 
-export function clearPlayableFromExileForCards(state: GameState, playerId: PlayerID, cards: readonly any[]): GameState {
+export function clearPlayableFromGraveyardForCards(state: GameState, playerId: PlayerID, cards: readonly any[]): GameState {
   const stateAny: any = state as any;
-  const existing = stateAny.playableFromExile?.[playerId];
+  const existing = stateAny.playableFromGraveyard?.[playerId];
   if (!existing || typeof existing !== 'object') return state;
 
   let changed = false;
@@ -25,19 +25,19 @@ export function clearPlayableFromExileForCards(state: GameState, playerId: Playe
 
   return {
     ...(stateAny as any),
-    playableFromExile: {
-      ...(stateAny.playableFromExile as any),
+    playableFromGraveyard: {
+      ...(stateAny.playableFromGraveyard as any),
       [playerId]: nextMap,
     },
   } as any;
 }
 
-export function consumePlayableFromExileForCard(state: GameState, playerId: PlayerID, cardId: string): GameState {
+export function consumePlayableFromGraveyardForCard(state: GameState, playerId: PlayerID, cardId: string): GameState {
   const id = String(cardId || '');
   if (!id) return state;
 
   const stateAny: any = state as any;
-  const existing = stateAny.playableFromExile?.[playerId];
+  const existing = stateAny.playableFromGraveyard?.[playerId];
   if (!existing || typeof existing !== 'object') return state;
 
   if (!Object.prototype.hasOwnProperty.call(existing, id)) return state;
@@ -47,8 +47,8 @@ export function consumePlayableFromExileForCard(state: GameState, playerId: Play
 
   return {
     ...(stateAny as any),
-    playableFromExile: {
-      ...(stateAny.playableFromExile as any),
+    playableFromGraveyard: {
+      ...(stateAny.playableFromGraveyard as any),
       [playerId]: nextMap,
     },
   } as any;

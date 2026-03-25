@@ -9,18 +9,27 @@ import {
   evaluateConditionalWrapperCondition,
   resolveConditionalReferenceAmount,
 } from './oracleIRExecutorConditionalStepSupport';
+import { prepareCopiedSpellExecutionContext } from './oracleIRExecutorCopySpellSupport';
+import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
 import { applyChooseModeStep } from './oracleIRExecutorChooseModeStepHandlers';
 import {
   applyDestroyStep,
   applyExileStep,
+  applyGrantLeaveBattlefieldReplacementStep,
+  applyGrantTemporaryDiesTriggerStep,
   applyRemoveCounterStep,
   applySacrificeStep,
   applyScheduleDelayedBattlefieldActionStep,
+  applyScheduleDelayedTriggerStep,
   applyTapOrUntapStep,
 } from './oracleIRExecutorBattlefieldStepHandlers';
 import { applyDealDamageStep } from './oracleIRExecutorDamageStepHandlers';
-import { applyExileTopStep, applyImpulseExileTopStep } from './oracleIRExecutorExileStepHandlers';
+import { applyExileTopStep, applyImpulseExileTopStep, applyModifyExilePermissionsStep } from './oracleIRExecutorExileStepHandlers';
 import { applyGoadStep } from './oracleIRExecutorGoadStepHandlers';
+import {
+  applyProliferateStep,
+  applyRingTemptsYouStep,
+} from './oracleIRExecutorKeywordStepHandlers';
 import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
@@ -31,11 +40,16 @@ import {
 import { applyMoveZoneStep } from './oracleIRExecutorMoveZoneStepHandlers';
 import {
   applyAddManaStep,
+  applyCreateEmblemStep,
   applyDiscardStep,
   applyDrawStep,
+  applyGrantGraveyardPermissionStep,
+  applyModifyGraveyardPermissionsStep,
+  evaluateUnlessPaysLifeStep,
   applyGainLifeStep,
   applyLoseLifeStep,
   applyMillStep,
+  applyPayManaStep,
   applyScryStep,
   applySurveilStep,
 } from './oracleIRExecutorPlayerStepHandlers';
@@ -68,10 +82,14 @@ export function applyOracleIRStepsToGameStateImpl(
   const localAutomationGaps: OracleAutomationGap[] = [];
   const automationGaps: OracleAutomationGap[] = [];
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  let currentCtx = ctx;
   let lastRevealedCardCount = 0;
   let lastDiscardedCardCount = 0;
   let lastExiledCardCount = 0;
-  let lastExiledCards: any[] = [];
+  let lastExiledCards: any[] = Array.isArray(ctx.lastExiledCards) ? [...ctx.lastExiledCards] : [];
+  let lastGrantedGraveyardCards: any[] = [];
+  let lastMovedCards: any[] = [];
+  let lastMovedBattlefieldPermanentIds: string[] = [];
   let lastGoadedCreatures: BattlefieldPermanent[] = [];
   let lastSacrificedCreaturesPowerTotal = 0;
   let lastSacrificedPermanents: LastKnownPermanentSnapshot[] = [];
@@ -127,7 +145,7 @@ export function applyOracleIRStepsToGameStateImpl(
 
     const gap = createOracleAutomationGapRecord({
       state: nextState,
-      ctx,
+      ctx: currentCtx,
       step,
       reasonCode,
       message,
@@ -182,7 +200,8 @@ export function applyOracleIRStepsToGameStateImpl(
     return true;
   };
 
-  for (const step of steps) {
+  for (let stepIndex = 0; stepIndex < steps.length; stepIndex += 1) {
+    const step = steps[stepIndex];
     const isOptional = Boolean((step as any).optional);
     if (isOptional && !options.allowOptional) {
       recordSkippedStep(
@@ -199,52 +218,143 @@ export function applyOracleIRStepsToGameStateImpl(
 
     switch (step.kind) {
       case 'exile_top': {
-        const result = applyExileTopStep(nextState, step, ctx);
+        const result = applyExileTopStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
           lastExiledCardCount = Math.max(0, Number(appliedResult.lastExiledCardCount) || 0);
           lastExiledCards = [...appliedResult.lastExiledCards];
+          currentCtx = { ...currentCtx, lastExiledCards };
         });
         break;
       }
       case 'impulse_exile_top': {
-        const result = applyImpulseExileTopStep(nextState, step, ctx);
+        const result = applyImpulseExileTopStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
           lastExiledCardCount = Math.max(0, Number(appliedResult.lastExiledCardCount) || 0);
           lastExiledCards = [...appliedResult.lastExiledCards];
+          currentCtx = { ...currentCtx, lastExiledCards };
         });
         break;
       }
+      case 'modify_exile_permissions': {
+        const result = applyModifyExilePermissionsStep(nextState, step, { lastExiledCards });
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'goad': {
-        const result = applyGoadStep(nextState, step, ctx, controllerId);
+        const result = applyGoadStep(nextState, step, currentCtx, controllerId);
         applyHandledStepResult(step, result, (appliedResult) => {
           lastGoadedCreatures = [...appliedResult.lastGoadedCreatures];
         });
         break;
       }
       case 'draw': {
-        const result = applyDrawStep(nextState, step, ctx);
+        const result = applyDrawStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'grant_graveyard_permission': {
+        const result = applyGrantGraveyardPermissionStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastGrantedGraveyardCards = Array.isArray(appliedResult.lastGrantedGraveyardCards)
+            ? [...appliedResult.lastGrantedGraveyardCards]
+            : [];
+        });
+        break;
+      }
+      case 'modify_graveyard_permissions': {
+        const result = applyModifyGraveyardPermissionsStep(nextState, step, {
+          lastGrantedGraveyardCards,
+        });
         applyHandledStepResult(step, result);
         break;
       }
       case 'add_mana': {
-        const result = applyAddManaStep(nextState, step, ctx);
+        const result = applyAddManaStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'pay_mana': {
+        const result = applyPayManaStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'choose_opponent': {
+        const explicitOpponentId = (
+          String(currentCtx.selectorContext?.targetOpponentId || '').trim() ||
+          String(currentCtx.selectorContext?.targetPlayerId || '').trim()
+        ) as PlayerID;
+        const validExplicitOpponent = Boolean(
+          explicitOpponentId &&
+          (nextState.players || []).some(
+            (p: any) => String(p?.id || '').trim() === explicitOpponentId && String(p?.id || '').trim() !== controllerId
+          )
+        );
+        const opponentIds = (nextState.players || [])
+          .map((p: any) => String(p?.id || '').trim())
+          .filter((id: string) => Boolean(id) && id !== controllerId) as PlayerID[];
+        const chosenOpponentId = (validExplicitOpponent
+          ? explicitOpponentId
+          : opponentIds.length === 1
+            ? opponentIds[0]
+            : '') as PlayerID | '';
+
+        if (!chosenOpponentId) {
+          recordSkippedStep(
+            step,
+            `Skipped choose opponent (requires player choice): ${step.raw}`,
+            'player_choice_required',
+            {
+              classification: 'player_choice',
+              metadata: {
+                opponentCount: opponentIds.length,
+              },
+            }
+          );
+          break;
+        }
+
+        currentCtx = {
+          ...currentCtx,
+          selectorContext: {
+            ...(currentCtx.selectorContext || {}),
+            targetOpponentId: chosenOpponentId,
+            targetPlayerId: chosenOpponentId,
+          },
+        };
+        setLastStepOutcome(step, 'applied');
+        log.push(`Chose opponent ${chosenOpponentId}`);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'create_emblem': {
+        const result = applyCreateEmblemStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'proliferate': {
+        const result = applyProliferateStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'ring_tempts_you': {
+        const result = applyRingTemptsYouStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
       case 'scry': {
-        const result = applyScryStep(nextState, step, ctx);
+        const result = applyScryStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
           lastScryLookedAtCount = Math.max(0, Number(appliedResult.lastScryLookedAtCount) || 0);
         });
         break;
       }
       case 'surveil': {
-        const result = applySurveilStep(nextState, step, ctx);
+        const result = applySurveilStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
       case 'mill': {
-        const result = applyMillStep(nextState, step, ctx);
+        const result = applyMillStep(nextState, step, currentCtx);
         if ('message' in result) {
           recordSkippedStep(step, result.message, result.reason, result.options);
           break;
@@ -262,13 +372,14 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyModifyPtStep(
           nextState,
           step,
-          ctx,
+          currentCtx,
           controllerId,
           {
             lastRevealedCardCount,
             lastDiscardedCardCount,
             lastExiledCardCount,
             lastExiledCards,
+            lastMovedCards,
             lastGoadedCreatures,
             lastSacrificedCreaturesPowerTotal,
             lastSacrificedPermanents,
@@ -282,12 +393,12 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'modify_pt_per_revealed': {
-        const result = applyModifyPtPerRevealedStep(nextState, step, ctx, lastRevealedCardCount);
+        const result = applyModifyPtPerRevealedStep(nextState, step, currentCtx, lastRevealedCardCount);
         applyModifyPtStepResult(step, result);
         break;
       }
       case 'discard': {
-        const result = applyDiscardStep(nextState, step, ctx);
+        const result = applyDiscardStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
           lastDiscardedCardCount = Math.max(0, Number(appliedResult.lastDiscardedCardCount) || 0);
         });
@@ -297,13 +408,14 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyGainLifeStep(
           nextState,
           step,
-          ctx,
+          currentCtx,
           controllerId,
           {
             lastRevealedCardCount,
             lastDiscardedCardCount,
             lastExiledCardCount,
             lastExiledCards,
+            lastMovedCards,
             lastGoadedCreatures,
             lastSacrificedCreaturesPowerTotal,
             lastSacrificedPermanents,
@@ -319,13 +431,14 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyLoseLifeStep(
           nextState,
           step,
-          ctx,
+          currentCtx,
           controllerId,
           {
             lastRevealedCardCount,
             lastDiscardedCardCount,
             lastExiledCardCount,
             lastExiledCards,
+            lastMovedCards,
             lastGoadedCreatures,
             lastSacrificedCreaturesPowerTotal,
             lastSacrificedPermanents,
@@ -338,44 +451,126 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'deal_damage': {
-        const result = applyDealDamageStep(nextState, step, ctx);
+        const result = applyDealDamageStep(nextState, step, currentCtx, {
+          lastMovedCards,
+        });
         applyHandledStepResult(step, result, (appliedResult) => {
           lastExcessDamageDealtThisWay = Math.max(0, Number(appliedResult.excessDamageDealtThisWay) || 0);
         });
         break;
       }
       case 'tap_or_untap': {
-        const result = applyTapOrUntapStep(nextState, step, ctx);
+        const result = applyTapOrUntapStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
       case 'remove_counter': {
-        const result = applyRemoveCounterStep(nextState, step, ctx);
+        const result = applyRemoveCounterStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
       case 'move_zone': {
-        const result = applyMoveZoneStep(nextState, step, ctx);
+        const result = applyMoveZoneStep(nextState, step, currentCtx, {
+          lastMovedCards,
+        });
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards) ? [...appliedResult.lastMovedCards] : [];
+          lastMovedBattlefieldPermanentIds = Array.isArray(appliedResult.lastMovedBattlefieldPermanentIds)
+            ? [...appliedResult.lastMovedBattlefieldPermanentIds]
+            : [];
+        });
+        break;
+      }
+      case 'attach': {
+        const result = applyAttachStep(nextState, step, currentCtx, lastMovedBattlefieldPermanentIds);
         applyHandledStepResult(step, result);
         break;
       }
       case 'create_token': {
-        const result = applyCreateTokenStep(nextState, step, ctx);
+        const result = applyCreateTokenStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+          lastMovedCards,
+        });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'grant_temporary_dies_trigger': {
+        const result = applyGrantTemporaryDiesTriggerStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'grant_leave_battlefield_replacement': {
+        const result = applyGrantLeaveBattlefieldReplacementStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+        });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'copy_spell': {
+        const replaySourceSteps = Array.isArray(currentCtx.copyReplaySteps) ? currentCtx.copyReplaySteps : steps.slice(0, stepIndex);
+        const replayableSteps = replaySourceSteps
+          .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell');
+        if (replayableSteps.length === 0) {
+          recordSkippedStep(
+            step,
+            `Skipped copy spell step (no replayable spell steps): ${step.raw}`,
+            'invalid_copy_spell_source',
+            {
+              classification: 'invalid_input',
+            }
+          );
+          break;
+        }
+
+        const preparedCopy = prepareCopiedSpellExecutionContext({
+          state: nextState,
+          replaySteps: replayableSteps,
+          ctx: currentCtx,
+        });
+        if (preparedCopy.requiresChoice) {
+          recordSkippedStep(
+            step,
+            `Skipped copied spell retargeting (requires player choice): ${step.raw}`,
+            'player_choice_required',
+            {
+              classification: 'player_choice',
+              metadata: {
+                candidateCount: Number(preparedCopy.candidateCount || 0),
+              },
+            }
+          );
+          break;
+        }
+
+        const replayResult = recurse(nextState, replayableSteps, preparedCopy.ctx, options);
+        nextState = replayResult.state;
+        setLastStepOutcome(step, 'applied');
+        log.push(...preparedCopy.log);
+        log.push(...replayResult.log);
+        appliedSteps.push(step);
+        automationGaps.push(...replayResult.automationGaps);
+        pendingOptionalSteps.push(...replayResult.pendingOptionalSteps);
+        break;
+      }
+      case 'schedule_delayed_trigger': {
+        const result = applyScheduleDelayedTriggerStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+        });
         applyHandledStepResult(step, result);
         break;
       }
       case 'destroy': {
-        const result = applyDestroyStep(nextState, step, ctx);
+        const result = applyDestroyStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
       case 'exile': {
-        const result = applyExileStep(nextState, step, ctx);
+        const result = applyExileStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
       case 'sacrifice': {
-        const result = applySacrificeStep(nextState, step, ctx);
+        const result = applySacrificeStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
           lastSacrificedCreaturesPowerTotal = Math.max(
             0,
@@ -388,12 +583,12 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'schedule_delayed_battlefield_action': {
-        const result = applyScheduleDelayedBattlefieldActionStep(nextState, step, ctx);
+        const result = applyScheduleDelayedBattlefieldActionStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
       case 'choose_mode': {
-        const result = applyChooseModeStep(nextState, step, ctx, options, recurse);
+        const result = applyChooseModeStep(nextState, step, currentCtx, options, recurse);
         if (result.kind === 'recorded_skip') {
           recordSkippedStep(step, result.message, result.reason, result.options);
           break;
@@ -412,8 +607,10 @@ export function applyOracleIRStepsToGameStateImpl(
           condition: step.condition,
           nextState,
           controllerId,
-          ctx,
+          ctx: currentCtx,
           lastActionOutcome,
+          pendingSteps: step.steps,
+          lastMovedCards,
         });
 
         if (conditionEvaluation === false) {
@@ -441,16 +638,47 @@ export function applyOracleIRStepsToGameStateImpl(
         const resolvedAmount = resolveConditionalReferenceAmount({
           condition: step.condition,
           nextState,
-          ctx,
+          ctx: currentCtx,
         });
         const innerSteps = step.steps.map(inner => applyConditionalReferenceAmount(inner, resolvedAmount));
-        const result = recurse(nextState, innerSteps, ctx, options);
+        const result = recurse(
+          nextState,
+          innerSteps,
+          {
+            ...currentCtx,
+            copyReplaySteps: steps.slice(0, stepIndex),
+          },
+          options
+        );
         nextState = result.state;
         log.push(...result.log);
         appliedSteps.push(...result.appliedSteps);
         skippedSteps.push(...result.skippedSteps);
         automationGaps.push(...result.automationGaps);
         pendingOptionalSteps.push(...result.pendingOptionalSteps);
+        break;
+      }
+      case 'unless_pays_life': {
+        const result = evaluateUnlessPaysLifeStep(nextState, step, currentCtx);
+        if (!('shouldApplyNestedSteps' in result)) {
+          recordSkippedStep(step, result.message, result.reason, result.options);
+          break;
+        }
+
+        log.push(...result.log);
+        if (!result.shouldApplyNestedSteps) {
+          skippedSteps.push(step);
+          break;
+        }
+
+        const nestedResult = recurse(nextState, step.steps, currentCtx, options);
+        nextState = nestedResult.state;
+        log.push(...nestedResult.log);
+        appliedSteps.push(...nestedResult.appliedSteps);
+        skippedSteps.push(...nestedResult.skippedSteps);
+        automationGaps.push(...nestedResult.automationGaps);
+        pendingOptionalSteps.push(...nestedResult.pendingOptionalSteps);
+        appliedSteps.push(step);
         break;
       }
       default:

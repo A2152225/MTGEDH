@@ -69,7 +69,8 @@ export function createModeSelectionEvent(
   modes: readonly { id: string; text: string }[],
   minModes: number,
   maxModes: number,
-  sourceImage?: string
+  sourceImage?: string,
+  allowDuplicates: boolean = false
 ): ModeSelectionEvent {
   return {
     id: generateEventId(),
@@ -87,7 +88,7 @@ export function createModeSelectionEvent(
     })),
     minModes,
     maxModes,
-    allowDuplicates: false,
+    allowDuplicates,
   };
 }
 

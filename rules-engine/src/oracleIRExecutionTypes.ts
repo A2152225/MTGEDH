@@ -43,16 +43,30 @@ export interface OracleIRExecutionEventHint {
   readonly opponentsDealtDamageIds?: readonly PlayerID[];
   /** Spell type context used by some exile-until templates (for example, Possibility Storm). */
   readonly spellType?: string;
+  /** Source provenance for the resolving object when known. */
+  readonly castFromZone?: string;
+  /** Source provenance for the resolving object when known. */
+  readonly enteredFromZone?: string;
   /** Result of a relevant coin flip when the wrapper condition depends on it. */
   readonly wonCoinFlip?: boolean;
   /** Winning choice text for vote-result wrappers such as "carnage gets more votes". */
   readonly winningVoteChoice?: string | null;
+  /** Whether a gift cost was paid / promised for gift-conditional spell text. */
+  readonly giftPromised?: boolean;
 }
 
 export interface OracleIRExecutionContext {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;
+  /** Source provenance for the resolving object when known. */
+  readonly castFromZone?: string;
+  /** Source provenance for the resolving object when known. */
+  readonly enteredFromZone?: string;
+  /** Parent spell steps available for nested copy-this-spell instructions. */
+  readonly copyReplaySteps?: readonly OracleEffectStep[];
+  /** Internal runtime carry-over for nested conditional follow-up steps that modify exiled cards. */
+  readonly lastExiledCards?: readonly any[];
   /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
   readonly targetCreatureId?: string;
   /** Optional direct target permanent binding used by targeted effects like Merrow Reejerey. */
@@ -65,6 +79,8 @@ export interface OracleIRExecutionContext {
   readonly wonCoinFlip?: boolean;
   /** Winning vote choice when already known from runtime context. */
   readonly winningVoteChoice?: string | null;
+  /** Whether a gift cost was paid / promised for gift-conditional spell text. */
+  readonly giftPromised?: boolean;
   /**
    * Optional selector bindings supplied by the caller from trigger/target resolution context.
    * This allows relational selectors such as "each of those opponents" to execute

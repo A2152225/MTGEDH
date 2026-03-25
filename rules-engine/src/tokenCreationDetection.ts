@@ -39,7 +39,7 @@ export function parseTokenCreationFromText(
   };
 
   const createMatch = lowerText.match(
-    /create\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+(\d+\/\d+)?\s*([a-z,\s]+?)(?:\s+(artifact|creature|enchantment))?(?:\s+tokens?)?/i
+    /creates?\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+(\d+\/\d+)?\s*([a-z,\s]+?)(?:\s+(artifact|creature|enchantment))?(?:\s+tokens?)?/i
   );
 
   if (!createMatch) return null;
@@ -75,7 +75,7 @@ export function parseTokenCreationFromText(
     'knight', 'wizard', 'rogue', 'cleric', 'horror', 'insect', 'spider', 'snake', 'merfolk',
   ];
   const subtypeSource = lowerText
-    .replace(/^create\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+/, '')
+    .replace(/^.*?\bcreates?\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+/, '')
     .replace(/^\d+\/\d+\s+/, '')
     .replace(/\b(?:white|blue|black|red|green|colorless)\b/g, ' ')
     .replace(/\b(?:artifact|creature|enchantment|token|tokens)\b/g, ' ')

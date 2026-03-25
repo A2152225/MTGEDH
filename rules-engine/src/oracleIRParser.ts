@@ -13,6 +13,7 @@ import type {
 } from './oracleIR';
 import { tryParseChooseModeBlock as tryParseChooseModeBlockFromModule } from './oracleIRParserChooseMode';
 import { tryParseDelayedBattlefieldActionClause } from './oracleIRParserDelayedBattlefieldActions';
+import { tryParseDelayedTriggerClause } from './oracleIRParserDelayedTriggeredClauses';
 import { parseEffectLevelImpulsePermissionClause as parseExileTopImpulsePermissionClause } from './oracleIRParserEffectImpulsePermission';
 import { handleImpulseOrExileTopClause } from './oracleIRParserImpulseFlow';
 import {
@@ -25,14 +26,32 @@ import {
 import { tryParseLifeAndCombatClause } from './oracleIRParserLifeAndCombatClauses';
 import { tryParseTemporaryModifyPtClause } from './oracleIRParserModifyPtClauses';
 import { tryParseExileTopOnly as tryParseExileTopOnlyFromModule } from './oracleIRParserExileTopOnly';
-import { applyGlobalImpulseUpgrades, mergeRevealFollowupAbilities } from './oracleIRParserPostprocess';
+import {
+  expandCreateEmblemUnknownAbilities,
+  applyGlobalImpulseUpgrades,
+  expandChoiceUnknownAbilities,
+  expandCopySpellUnknownAbilities,
+  expandDeterministicMoveZoneFollowupAbilities,
+  expandGraveyardPermissionModifierUnknownAbilities,
+  expandGraveyardPermissionUnknownAbilities,
+  expandKeywordActionUnknownAbilities,
+  expandLeaveBattlefieldReplacementUnknownAbilities,
+  expandPayManaUnknownAbilities,
+  expandSimpleConditionalUnknownAbilities,
+  expandMoveZoneAttachUnknownAbilities,
+  mergeBattlefieldEntryCharacteristicFollowupAbilities,
+  mergeDeterministicGraveyardPermissionFollowupAbilities,
+  mergeDeterministicKeywordFollowupAbilities,
+  mergeConditionalMoveZoneCounterFollowupAbilities,
+  mergeRevealFollowupAbilities,
+} from './oracleIRParserPostprocess';
 import { buildAbilityClauses } from './oracleIRParserAbilityClauses';
 import {
   abilityEffectText,
-  buildMockSpellAbility,
   buildSelfReferenceAliases,
   parseBattlefieldObjectCondition,
   tryParseLeadingConditionalStep,
+  tryParseTrailingConditionalStep,
 } from './oracleIRParserSacrificeHelpers';
 import { tryParseCreateTokenFollowupModifier } from './oracleIRParserTokenFollowup';
 import {
@@ -40,6 +59,7 @@ import {
 } from './oracleIRParserTokenCreateClauses';
 import { tryParseSimpleCreateTokenClause } from './oracleIRParserTokenSimpleClauses';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
+import { tryParseTemporaryGrantedDiesTriggerClause } from './oracleIRParserTemporaryTriggeredClauses';
 import { tryParseZoneAndRemovalClause } from './oracleIRParserZoneAndRemovalActions';
 import {
   isThatOwnerOrControllerSelector,
@@ -68,6 +88,11 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   {
     const parsed = tryParseSimpleActionClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParseTemporaryGrantedDiesTriggerClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
   }
 
@@ -100,6 +125,11 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   }
 
   {
+    const parsed = tryParseDelayedTriggerClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
     const parsed = tryParseZoneAndRemovalClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
   }
@@ -115,8 +145,7 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
   // When found, the entire effect is a single choose_mode step rather than
   // individual flat clauses (which would lose the bullet grouping).
   const chooseModeStep = tryParseChooseModeBlockFromModule(effectText, (modeEffectText) => {
-    const mockAbility = buildMockSpellAbility(modeEffectText);
-    return parseAbilityToIRAbility(mockAbility, cardName).steps;
+    return parseOracleTextToIR(modeEffectText, cardName).abilities.flatMap(modeAbility => modeAbility.steps);
   });
   if (chooseModeStep !== null) {
     return {
@@ -124,8 +153,26 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
       text: ability.text,
       cost: ability.cost,
       triggerCondition: ability.triggerCondition,
+      interveningIf: ability.interveningIf,
       effectText,
       steps: [chooseModeStep],
+    };
+  }
+
+  const fullTemporaryDiesTriggerStep = tryParseTemporaryGrantedDiesTriggerClause({
+    clause: effectText,
+    rawClause: effectText,
+    withMeta: <T extends OracleEffectStep>(step: T): T => step,
+  });
+  if (fullTemporaryDiesTriggerStep) {
+    return {
+      type: ability.type,
+      text: ability.text,
+      cost: ability.cost,
+      triggerCondition: ability.triggerCondition,
+      interveningIf: ability.interveningIf,
+      effectText,
+      steps: [fullTemporaryDiesTriggerStep],
     };
   }
 
@@ -999,6 +1046,21 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
     }
 
     const next = parseEffectClauseToStep(clauses[i]);
+    if (next.kind === 'unknown') {
+      const trailingConditionalWrapped = tryParseTrailingConditionalStep({
+        rawClause: clauses[i],
+        cardName,
+        parseEffectClauseToStep,
+      });
+      if (trailingConditionalWrapped) {
+        steps.push(trailingConditionalWrapped);
+        lastCreateTokenStepIndexes = null;
+        pendingImpulseFromExileTop = null;
+        i += 1;
+        continue;
+      }
+    }
+
     steps.push(next);
     lastCreateTokenStepIndexes = next.kind === 'create_token' ? [steps.length - 1] : null;
     i += 1;
@@ -1009,8 +1071,25 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
     text: ability.text,
     cost: ability.cost,
     triggerCondition: ability.triggerCondition,
+    interveningIf: ability.interveningIf,
     effectText,
     steps,
+  };
+}
+
+function wrapTriggeredInterveningIfAbility(ability: OracleIRAbility): OracleIRAbility {
+  const interveningIf = String(ability.interveningIf || '').trim();
+  if (ability.type !== AbilityType.TRIGGERED || !interveningIf) return ability;
+  return {
+    ...ability,
+    steps: [
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: interveningIf },
+        steps: [...ability.steps],
+        raw: `If ${interveningIf}, ${ability.effectText}`,
+      },
+    ],
   };
 }
 
@@ -1021,6 +1100,23 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   let abilities = parsed.abilities.map(ability => parseAbilityToIRAbility(ability, cardName));
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
   abilities = mergeRevealFollowupAbilities(abilities);
+  abilities = mergeConditionalMoveZoneCounterFollowupAbilities(abilities);
+  abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
+  abilities = expandDeterministicMoveZoneFollowupAbilities(abilities);
+  abilities = expandPayManaUnknownAbilities(abilities);
+  abilities = expandChoiceUnknownAbilities(abilities);
+  abilities = expandLeaveBattlefieldReplacementUnknownAbilities(abilities);
+  abilities = expandCopySpellUnknownAbilities(abilities);
+  abilities = expandSimpleConditionalUnknownAbilities(abilities);
+  abilities = expandGraveyardPermissionUnknownAbilities(abilities);
+  abilities = expandGraveyardPermissionModifierUnknownAbilities(abilities);
+  abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);
+  abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
+  abilities = expandKeywordActionUnknownAbilities(abilities);
+  abilities = mergeDeterministicKeywordFollowupAbilities(abilities);
+  abilities = expandMoveZoneAttachUnknownAbilities(abilities);
+  abilities = expandCreateEmblemUnknownAbilities(abilities, cardName);
+  abilities = abilities.map(wrapTriggeredInterveningIfAbility);
 
   return {
     normalizedOracleText,

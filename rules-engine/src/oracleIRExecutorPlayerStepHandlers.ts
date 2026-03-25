@@ -1,15 +1,23 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
+import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
+import { cardMatchesMoveZoneSingleTargetCriteria, parseSimpleCardTypeFromText, type MoveZoneSingleTargetCriteria } from './oracleIRExecutorZoneOps';
+import { payManaCost } from './spellCasting';
+import { createEmptyManaPool, type ManaCost } from './types/mana';
+import { parseManaSymbols } from './types/numbers';
 import {
   addManaToPoolForPlayer,
+  applyGraveyardPermissionMarkers,
   adjustLife,
   discardCardsForPlayer,
   drawCardsForPlayer,
+  getCardManaValue,
   millCardsForPlayer,
   quantityToNumber,
   resolvePlayers,
+  getPlayableUntilTurnForImpulseDuration,
   resolveUnknownMillUntilAmountForPlayer,
 } from './oracleIRExecutorPlayerUtils';
 
@@ -20,6 +28,7 @@ type StepApplyResult = {
   readonly lastScryLookedAtCount?: number;
   readonly lastDiscardedCardCount?: number;
   readonly lastRevealedCardCount?: number;
+  readonly lastGrantedGraveyardCards?: readonly any[];
 };
 
 type StepSkipResult = {
@@ -27,12 +36,370 @@ type StepSkipResult = {
   readonly message: string;
   readonly reason: 'unknown_amount' | 'unsupported_player_selector' | 'player_choice_required' | 'failed_to_apply';
   readonly options?: {
-    readonly classification?: 'ambiguous' | 'player_choice';
+    readonly classification?: 'ambiguous' | 'player_choice' | 'invalid_input';
     readonly metadata?: Record<string, string | number | boolean | readonly string[]>;
+    readonly persist?: boolean;
   };
 };
 
+type UnlessPaysLifeResult =
+  | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly log: readonly string[] }
+  | StepSkipResult;
+
 export type PlayerStepHandlerResult = StepApplyResult | StepSkipResult;
+
+function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
+  const chosen = Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of chosen) {
+    const normalized = String(candidate || '').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    ids.push(normalized);
+  }
+  return ids;
+}
+
+function normalizePermissionSelectorText(value: string): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[.]+$/g, '')
+    .trim();
+}
+
+function buildGraveyardPermissionCriteria(text: string): MoveZoneSingleTargetCriteria | null {
+  const normalized = normalizePermissionSelectorText(text)
+    .replace(/^(?:up to one|one|a|an)\s+/i, '')
+    .replace(/\s+from\s+(?:your|their|his or her|its owner's|its controller's)\s+graveyard$/i, '')
+    .replace(/\s+(?:spells?|cards?)$/i, '')
+    .replace(/\binstant and sorcery\b/g, 'instant or sorcery')
+    .trim();
+  if (!normalized) return null;
+
+  const manaValueMatch = normalized.match(/^(.+?)\s+with mana value (\d+) or less$/i);
+  if (manaValueMatch) {
+    const cardType = parseSimpleCardTypeFromText(String(manaValueMatch[1] || '').trim());
+    const manaValueLte = parseInt(String(manaValueMatch[2] || '0'), 10) || 0;
+    if (!cardType || manaValueLte <= 0) return null;
+    return { cardType, manaValueLte };
+  }
+
+  const baseType = parseSimpleCardTypeFromText(normalized);
+  if (baseType) return { cardType: baseType };
+
+  const creatureTypeMatch = normalized.match(/^([a-z][a-z' -]+)\s+creature$/i);
+  if (creatureTypeMatch) {
+    return {
+      cardType: 'creature',
+      creatureTypesAnyOf: [
+        String(creatureTypeMatch[1] || '')
+          .trim()
+          .replace(/\b\w/g, c => c.toUpperCase()),
+      ],
+    };
+  }
+
+  if (normalized === 'land' || normalized === 'lands') return { cardType: 'land' };
+  if (normalized === 'card' || normalized === 'cards') return { cardType: 'any' };
+  if (normalized === 'permanent spell' || normalized === 'permanent') return { cardType: 'permanent' };
+
+  return null;
+}
+
+function resolveGraveyardPermissionTargets(
+  state: GameState,
+  playerId: PlayerID,
+  step: Extract<OracleEffectStep, { kind: 'grant_graveyard_permission' }>,
+  ctx: OracleIRExecutionContext
+): { cards: readonly any[]; reason?: 'unsupported_selector' | 'failed_to_apply' } {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { cards: [], reason: 'failed_to_apply' };
+
+  const graveyard = Array.isArray(player.graveyard) ? player.graveyard : [];
+  const chosenIds = new Set(getChosenObjectIds(ctx));
+  const sourceId = String(ctx.sourceId || '').trim();
+  const selectorText =
+    step.what.kind === 'raw'
+      ? normalizePermissionSelectorText(step.what.text)
+      : normalizePermissionSelectorText((step.what as any).raw || '');
+  if (!selectorText) return { cards: [], reason: 'unsupported_selector' };
+
+  const contextualReference =
+    /^(?:it|that card|that spell|the discarded card|target .+?)$/.test(selectorText);
+  if (contextualReference) {
+    const cards = graveyard.filter((card: any) => {
+      const cardId = String(card?.id || card?.cardId || '').trim();
+      if (!cardId) return false;
+      if (chosenIds.has(cardId)) return true;
+      return selectorText === 'it' && sourceId && cardId === sourceId;
+    });
+    return cards.length > 0 ? { cards } : { cards: [], reason: 'failed_to_apply' };
+  }
+
+  const selfReference = /^(?:this card|this spell|this permanent|this creature)$/.test(selectorText);
+  if (selfReference) {
+    if (!sourceId) return { cards: [], reason: 'failed_to_apply' };
+    const cards = graveyard.filter((card: any) => String(card?.id || card?.cardId || '').trim() === sourceId);
+    return cards.length > 0 ? { cards } : { cards: [], reason: 'failed_to_apply' };
+  }
+
+  const criteria = buildGraveyardPermissionCriteria(selectorText);
+  if (!criteria) return { cards: [], reason: 'unsupported_selector' };
+  return { cards: graveyard.filter((card: any) => cardMatchesMoveZoneSingleTargetCriteria(card, criteria)) };
+}
+
+function parseSupportedManaCostString(rawMana: string): ManaCost | null {
+  const symbols = parseManaSymbols(rawMana);
+  if (symbols.length === 0) return null;
+
+  let generic = 0;
+  let white = 0;
+  let blue = 0;
+  let black = 0;
+  let red = 0;
+  let green = 0;
+  let colorless = 0;
+
+  for (const symbol of symbols) {
+    const upper = String(symbol || '').trim().toUpperCase();
+    if (!upper) return null;
+    if (/^\{\d+\}$/.test(upper)) {
+      generic += parseInt(upper.slice(1, -1), 10);
+      continue;
+    }
+
+    switch (upper) {
+      case '{W}':
+        white += 1;
+        break;
+      case '{U}':
+        blue += 1;
+        break;
+      case '{B}':
+        black += 1;
+        break;
+      case '{R}':
+        red += 1;
+        break;
+      case '{G}':
+        green += 1;
+        break;
+      case '{C}':
+        colorless += 1;
+        break;
+      default:
+        return null;
+    }
+  }
+
+  return { generic, white, blue, black, red, green, colorless };
+}
+
+export function applyCreateEmblemStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'create_emblem' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  const player = (state.players || []).find(p => p?.id === controllerId) as any;
+  if (!player) {
+    return {
+      applied: false,
+      message: `Skipped create emblem (controller unavailable): ${step.raw}`,
+      reason: 'failed_to_apply',
+    };
+  }
+
+  const emblemName = String(step.name || ctx.sourceName || 'Emblem').trim() || 'Emblem';
+  const result = createCustomEmblem(
+    controllerId,
+    emblemName,
+    [...step.abilities],
+    ctx.sourceName,
+    ctx.sourceId
+  );
+  const currentEmblems = Array.isArray(player.emblems) ? [...player.emblems] : [];
+  const updatedPlayers = state.players.map(p =>
+    p.id === controllerId ? ({ ...(p as any), emblems: [...currentEmblems, result.emblem] } as any) : p
+  );
+
+  return {
+    applied: true,
+    state: { ...state, players: updatedPlayers as any } as any,
+    log: result.log,
+  };
+}
+
+export function applyGrantGraveyardPermissionStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'grant_graveyard_permission' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped graveyard permission (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const playableUntilTurn = getPlayableUntilTurnForImpulseDuration(state, step.duration);
+  let nextState = state;
+  let granted = 0;
+  const grantedCards: any[] = [];
+  const log: string[] = [];
+
+  for (const playerId of players) {
+    const resolved = resolveGraveyardPermissionTargets(nextState, playerId, step, ctx);
+    if (resolved.reason === 'unsupported_selector') {
+      return {
+        applied: false,
+        message: `Skipped graveyard permission (unsupported selector): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'ambiguous' },
+      };
+    }
+    if (resolved.reason === 'failed_to_apply') {
+      return {
+        applied: false,
+        message: `Skipped graveyard permission (referenced card unavailable): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input', persist: false },
+      };
+    }
+
+    const markerResult = applyGraveyardPermissionMarkers(nextState, playerId, resolved.cards, {
+      permission: step.permission,
+      playableUntilTurn,
+    });
+    nextState = markerResult.state;
+    granted += markerResult.granted;
+    grantedCards.push(...resolved.cards);
+    if (markerResult.granted > 0) {
+      log.push(`${playerId} may ${step.permission === 'play' ? 'play' : 'cast'} ${markerResult.granted} graveyard card(s)`);
+    }
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log: log.length > 0 ? log : [`Granted no graveyard permissions: ${step.raw}`],
+    lastGrantedGraveyardCards: grantedCards,
+  };
+}
+
+export function applyModifyGraveyardPermissionsStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'modify_graveyard_permissions' }>,
+  runtime: {
+    readonly lastGrantedGraveyardCards?: readonly any[];
+  }
+): PlayerStepHandlerResult {
+  const lastGrantedGraveyardCards = Array.isArray(runtime.lastGrantedGraveyardCards)
+    ? runtime.lastGrantedGraveyardCards
+    : [];
+  const grantedIds = new Set(
+    lastGrantedGraveyardCards
+      .map(card => String((card as any)?.id ?? (card as any)?.cardId ?? '').trim())
+      .filter(Boolean)
+  );
+
+  if (step.scope !== 'last_granted_graveyard_cards' || grantedIds.size === 0) {
+    return {
+      applied: false,
+      message: `Skipped graveyard permission modifier (no granted cards in context): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  let changed = 0;
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+    if (graveyard.length === 0) return player;
+
+    let playerChanged = false;
+    const updatedGraveyard = graveyard.map((card: any) => {
+      const id = String(card?.id ?? card?.cardId ?? '').trim();
+      if (!id || !grantedIds.has(id)) return card;
+      playerChanged = true;
+      changed += 1;
+      return {
+        ...card,
+        ...(step.castCost ? { graveyardCastCost: step.castCost } : {}),
+      };
+    });
+
+    return playerChanged ? ({ ...player, graveyard: updatedGraveyard } as any) : player;
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), players: updatedPlayers as any } as any,
+    log:
+      changed > 0
+        ? [`Updated graveyard permissions for ${changed} graveyard card(s)`]
+        : [`Updated no graveyard permissions: ${step.raw}`],
+  };
+}
+
+export function applyPayManaStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'pay_mana' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped pay mana (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const manaCost = parseSupportedManaCostString(step.mana);
+  if (!manaCost) {
+    return {
+      applied: false,
+      message: `Skipped pay mana (unsupported mana cost): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  for (const playerId of players) {
+    const manaPoolRecord: Record<PlayerID, any> = { ...((((nextState as any).manaPool || {}) as any) || {}) };
+    const currentPool = manaPoolRecord[playerId] || createEmptyManaPool();
+    const payment = payManaCost(currentPool, manaCost);
+    if (!payment.success || !payment.remainingPool) {
+      return {
+        applied: false,
+        message: `Skipped pay mana (cannot pay ${step.mana}): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: {
+          classification: 'invalid_input',
+          persist: false,
+        },
+      };
+    }
+
+    manaPoolRecord[playerId] = payment.remainingPool;
+    nextState = { ...(nextState as any), manaPool: manaPoolRecord } as any;
+    log.push(`${playerId} pays ${step.mana}`);
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log,
+  };
+}
 
 function resolveVariableAmount(
   state: GameState,
@@ -70,6 +437,25 @@ function resolveVariableAmount(
     if (/^(?:the sacrificed|that) creature's power$/.test(lowerRaw)) return readFinite(snapshot?.power);
     if (/^(?:the sacrificed|that) creature's toughness$/.test(lowerRaw)) return readFinite(snapshot?.toughness);
     if (/^(?:the sacrificed|that) creature's mana value$/.test(lowerRaw)) return readFinite(snapshot?.manaValue);
+  }
+
+  const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  if (moved.length === 1) {
+    const lowerRaw = raw.toLowerCase();
+    const readFinite = (value: unknown): number | null => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+    const manaValue = getCardManaValue(moved[0]);
+    if (manaValue !== null && /^(?:its|that card's|that creature's) mana value$/.test(lowerRaw)) {
+      return manaValue;
+    }
+    if (/^(?:its|that card's|that creature's) power$/.test(lowerRaw)) {
+      return readFinite((moved[0] as any)?.power ?? (moved[0] as any)?.card?.power);
+    }
+    if (/^(?:its|that card's|that creature's) toughness$/.test(lowerRaw)) {
+      return readFinite((moved[0] as any)?.toughness ?? (moved[0] as any)?.card?.toughness);
+    }
   }
 
   return null;
@@ -453,4 +839,61 @@ export function applyAddManaStep(
   }
 
   return { applied: true, state: nextState, log };
+}
+
+export function evaluateUnlessPaysLifeStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'unless_pays_life' }>,
+  ctx: OracleIRExecutionContext
+): UnlessPaysLifeResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped unless-pays-life step (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          selectorKind: step.who.kind,
+          candidateCount: players.length,
+          lifeAmount: step.amount,
+        },
+      },
+    };
+  }
+
+  const payerId = players[0];
+  const payer = (state.players || []).find(player => String(player?.id || '').trim() === String(payerId || '').trim()) as any;
+  if (!payer) {
+    return {
+      applied: false,
+      message: `Skipped unless-pays-life step (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const lifeTotal = Number(payer.life);
+  const canPayLife = Number.isFinite(lifeTotal) && lifeTotal >= step.amount;
+  if (canPayLife) {
+    return {
+      applied: false,
+      message: `Skipped unless-pays-life step (opponent choice required): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          payerId,
+          payerLife: lifeTotal,
+          lifeAmount: step.amount,
+        },
+      },
+    };
+  }
+
+  return {
+    applied: true,
+    shouldApplyNestedSteps: true,
+    log: [`Resolved unless-pays-life step (payer cannot pay ${step.amount} life): ${step.raw}`],
+  };
 }

@@ -8,12 +8,14 @@ import {
 } from './delayedTriggeredAbilities';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { attachExistingBattlefieldPermanentToTarget } from './oracleIRExecutorZoneOps';
 import { quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 
 type StepApplyResult = {
   readonly applied: true;
   readonly state: GameState;
   readonly log: readonly string[];
+  readonly createdTokenIds?: readonly string[];
 };
 
 type StepSkipResult = {
@@ -26,6 +28,34 @@ type StepSkipResult = {
 };
 
 export type TokenStepHandlerResult = StepApplyResult | StepSkipResult;
+
+type TokenStepRuntime = {
+  readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+  readonly lastMovedCards?: readonly any[];
+};
+
+function getOwnerIdFromCard(card: any): string {
+  return String(
+    card?.ownerId ??
+      card?.owner ??
+      card?.card?.ownerId ??
+      card?.card?.owner ??
+      ''
+  ).trim();
+}
+
+function resolveTokenControllersFromMovedCards(runtime?: TokenStepRuntime): readonly PlayerID[] {
+  const movedCards = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  const seen = new Set<string>();
+  const out: PlayerID[] = [];
+  for (const card of movedCards) {
+    const ownerId = getOwnerIdFromCard(card);
+    if (!ownerId || seen.has(ownerId)) continue;
+    seen.add(ownerId);
+    out.push(ownerId as PlayerID);
+  }
+  return out;
+}
 
 function addTokensToBattlefield(
   state: GameState,
@@ -193,7 +223,8 @@ function scheduleTokenCleanup(
 export function applyCreateTokenStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'create_token' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: TokenStepRuntime
 ): TokenStepHandlerResult {
   const amount = quantityToNumber(step.amount);
   if (amount === null) {
@@ -205,7 +236,10 @@ export function applyCreateTokenStep(
     };
   }
 
-  const players = resolvePlayers(state, step.who, ctx);
+  const players =
+    step.who.kind === 'owner_of_moved_cards'
+      ? resolveTokenControllersFromMovedCards(runtime)
+      : resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
     return {
       applied: false,
@@ -216,6 +250,7 @@ export function applyCreateTokenStep(
 
   let nextState = state;
   const log: string[] = [];
+  const allCreatedTokenIds: string[] = [];
   for (const playerId of players) {
     const result = addTokensToBattlefield(
       nextState,
@@ -229,6 +264,49 @@ export function applyCreateTokenStep(
     );
     nextState = result.state;
     log.push(...result.log);
+    allCreatedTokenIds.push(...result.createdTokenIds);
+
+    if (result.createdTokenIds.length > 0 && step.battlefieldAttachedTo) {
+      if ((step.battlefieldAttachedTo as any)?.kind !== 'raw') {
+        return {
+          applied: false,
+          message: `Skipped token creation (unsupported attachment selector): ${step.raw}`,
+          reason: 'unsupported_player_selector',
+        };
+      }
+
+      const attachmentTargetText = String((step.battlefieldAttachedTo as any)?.text || '').trim().toLowerCase();
+      const priorMovedIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
+        ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
+        : [];
+      const attachmentTargetId =
+        attachmentTargetText === 'that creature' || attachmentTargetText === 'it'
+          ? priorMovedIds.length === 1
+            ? priorMovedIds[0]
+            : ''
+          : '';
+
+      if (!attachmentTargetId) {
+        return {
+          applied: false,
+          message: `Skipped token creation (attachment target unavailable): ${step.raw}`,
+          reason: 'unsupported_player_selector',
+        };
+      }
+
+      for (const tokenId of result.createdTokenIds) {
+        const attachResult = attachExistingBattlefieldPermanentToTarget(nextState, tokenId, attachmentTargetId);
+        if (attachResult.kind === 'impossible') {
+          return {
+            applied: false,
+            message: `Skipped token creation (attachment target unavailable): ${step.raw}`,
+            reason: 'unsupported_player_selector',
+          };
+        }
+        nextState = attachResult.state;
+        log.push(...attachResult.log);
+      }
+    }
 
     if (result.createdTokenIds.length > 0 && step.atNextEndStep) {
       const scheduled = scheduleTokenCleanup(
@@ -259,5 +337,10 @@ export function applyCreateTokenStep(
     }
   }
 
-  return { applied: true, state: nextState, log };
+  return {
+    applied: true,
+    state: nextState,
+    log,
+    createdTokenIds: allCreatedTokenIds,
+  };
 }

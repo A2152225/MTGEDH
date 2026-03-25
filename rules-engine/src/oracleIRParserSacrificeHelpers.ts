@@ -151,6 +151,44 @@ export function inferZoneFromDestination(destination: string): OracleZone {
   return 'unknown';
 }
 
+export function inferZoneFromDestinationPrefix(destination: string): OracleZone {
+  const s = normalizeOracleText(destination).trim().toLowerCase();
+  if (!s) return 'unknown';
+
+  const anchoredPossessor =
+    String.raw`(?:your|their|his or her|its owner'?s|its owners'|their owner'?s|their owners'|owner'?s|owners')`;
+
+  if (
+    new RegExp(`^${anchoredPossessor}\\s+hands?\\b`).test(s) ||
+    /^hands?\b/.test(s)
+  ) {
+    return 'hand';
+  }
+
+  if (/^(?:the\s+)?battlefields?\b/.test(s)) return 'battlefield';
+
+  if (
+    new RegExp(`^${anchoredPossessor}\\s+graveyards?\\b`).test(s) ||
+    /^graveyards?\b/.test(s)
+  ) {
+    return 'graveyard';
+  }
+
+  if (/^exile\b/.test(s)) return 'exile';
+
+  if (
+    /^(?:the\s+)?(?:top|bottom)\s+of\b/.test(s) ||
+    new RegExp(`^${anchoredPossessor}\\s+librar(?:y|ies)\\b`).test(s) ||
+    /^librar(?:y|ies)\b/.test(s)
+  ) {
+    return 'library';
+  }
+
+  if (/^(?:the\s+)?(?:commander?\s+zone|command)\b/.test(s)) return 'command';
+
+  return 'unknown';
+}
+
 export function isSafeSacrificeFollowupClause(
   rawClause: string,
   parseEffectClauseToStep: (rawClause: string) => OracleEffectStep
@@ -302,6 +340,54 @@ export function tryParseLeadingConditionalStep(args: {
   const hasSacrificeWrapperShape =
     innerSteps.length > 1 && innerSteps.some(step => step.kind === 'sacrifice');
   if (!hasSacrificeWrapperShape) return null;
+
+  const step: {
+    kind: 'conditional';
+    condition: OracleClauseCondition;
+    steps: readonly OracleEffectStep[];
+    optional?: boolean;
+    sequence?: 'then';
+    raw: string;
+  } = {
+    kind: 'conditional',
+    condition: { kind: 'if', raw: conditionRaw },
+    steps: innerSteps,
+    raw: rawClause,
+  };
+
+  if (normalized.optional) step.optional = normalized.optional;
+  if (normalized.sequence) step.sequence = normalized.sequence;
+  return step;
+}
+
+export function tryParseTrailingConditionalStep(args: {
+  rawClause: string;
+  cardName?: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): OracleEffectStep | null {
+  const { rawClause, cardName, parseEffectClauseToStep } = args;
+  const normalized = normalizeClauseForParse(rawClause);
+  let clause = String(normalized.clause || '').trim();
+  if (!clause) return null;
+
+  // Oracle ability words like "Threshold -" are labels, not effect text.
+  clause = clause.replace(/^[A-Z][A-Za-z' -]{1,40}\s*[-?]\s+/i, '').trim();
+  if (!clause) return null;
+
+  const trailingInsteadMatch = clause.match(/^(.+?)\s+instead\s+if\s+(.+)$/i);
+  const trailingIfMatch = trailingInsteadMatch ? null : clause.match(/^(.+?)\s+if\s+(.+)$/i);
+  const body = String((trailingInsteadMatch?.[1] || trailingIfMatch?.[1] || '')).trim();
+  const conditionRaw = normalizeLeadingConditionalCondition(
+    String((trailingInsteadMatch?.[2] || trailingIfMatch?.[2] || '')).trim(),
+    cardName
+  );
+  if (!body || !conditionRaw) return null;
+
+  const innerClauses = splitIntoClauses(body).filter(Boolean);
+  if (innerClauses.length <= 0) return null;
+
+  const innerSteps = innerClauses.map(part => parseEffectClauseToStep(part));
+  if (innerSteps.every(step => step.kind === 'unknown')) return null;
 
   const step: {
     kind: 'conditional';

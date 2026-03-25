@@ -33,6 +33,26 @@ type StepSkipResult = {
 
 export type ExileTopStepHandlerResult = StepApplyResult | StepSkipResult;
 
+type ExilePermissionModifierApplyResult = {
+  readonly applied: true;
+  readonly state: GameState;
+  readonly log: readonly string[];
+};
+
+type ExilePermissionModifierSkipResult = {
+  readonly applied: false;
+  readonly message: string;
+  readonly reason: 'failed_to_apply';
+  readonly options?: {
+    readonly classification?: 'invalid_input';
+    readonly persist?: boolean;
+  };
+};
+
+export type ExilePermissionModifierResult =
+  | ExilePermissionModifierApplyResult
+  | ExilePermissionModifierSkipResult;
+
 function resolveExileCounts(
   state: GameState,
   players: readonly PlayerID[],
@@ -182,5 +202,58 @@ export function applyImpulseExileTopStep(
     log,
     lastExiledCardCount: totalExiled,
     lastExiledCards: exiledCardsThisStep,
+  };
+}
+
+export function applyModifyExilePermissionsStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'modify_exile_permissions' }>,
+  runtime: {
+    readonly lastExiledCards?: readonly any[];
+  }
+): ExilePermissionModifierResult {
+  const lastExiledCards = Array.isArray(runtime.lastExiledCards) ? runtime.lastExiledCards : [];
+  const exiledIds = new Set(
+    lastExiledCards
+      .map(card => String((card as any)?.id ?? (card as any)?.cardId ?? '').trim())
+      .filter(Boolean)
+  );
+
+  if (step.scope !== 'last_exiled_cards' || exiledIds.size === 0) {
+    return {
+      applied: false,
+      message: `Skipped exile permission modifier (no exiled cards in context): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  let changed = 0;
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    if (exile.length === 0) return player;
+
+    let playerChanged = false;
+    const updatedExile = exile.map((card: any) => {
+      const id = String(card?.id ?? card?.cardId ?? '').trim();
+      if (!id || !exiledIds.has(id)) return card;
+      playerChanged = true;
+      changed += 1;
+      return {
+        ...card,
+        ...(step.withoutPayingManaCost ? { withoutPayingManaCost: true } : {}),
+      };
+    });
+
+    return playerChanged ? ({ ...player, exile: updatedExile } as any) : player;
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), players: updatedPlayers as any } as any,
+    log:
+      changed > 0
+        ? [`Updated exile permissions for ${changed} exiled card(s)`]
+        : [`Updated no exile permissions: ${step.raw}`],
   };
 }

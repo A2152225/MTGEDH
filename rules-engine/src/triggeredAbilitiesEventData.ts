@@ -4,6 +4,11 @@ import type { OracleIRExecutionEventHint } from './oracleIRExecutor';
 export interface TriggerEventData {
   readonly sourceId?: string;
   readonly sourceControllerId?: string;
+  readonly sourceOwnerId?: string;
+  readonly sourceIsToken?: boolean;
+  readonly castFromZone?: string;
+  readonly enteredFromZone?: string;
+  readonly attachedByPermanentIds?: readonly string[];
   readonly targetId?: string;
   readonly targetControllerId?: string;
   readonly targetPermanentId?: string;
@@ -17,6 +22,7 @@ export interface TriggerEventData {
   readonly landCount?: number;
   readonly artifactCount?: number;
   readonly enchantmentCount?: number;
+  readonly keywords?: readonly string[];
   readonly lifeTotal?: number;
   readonly lifeLost?: number;
   readonly lifeGained?: number;
@@ -29,6 +35,7 @@ export interface TriggerEventData {
   readonly isOpponentsTurn?: boolean;
   readonly creatureTypes?: readonly string[];
   readonly colors?: readonly string[];
+  readonly counters?: Readonly<Record<string, number>>;
   readonly controlledCreatures?: readonly string[];
   readonly controlledPermanents?: readonly string[];
   readonly graveyard?: readonly string[];
@@ -87,6 +94,52 @@ export function buildTriggerEventDataFromPayloads(
       if (typeof raw === 'boolean') return raw;
     }
     return undefined;
+  };
+
+  const scalarCounterMap = (...fields: string[]): Record<string, number> | undefined => {
+    const out: Record<string, number> = {};
+
+    for (const payload of payloads) {
+      if (!payload || typeof payload !== 'object') continue;
+      for (const field of fields) {
+        const raw = (payload as any)[field];
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        for (const [key, value] of Object.entries(raw)) {
+          const normalizedKey = String(key || '').trim();
+          const amount = Number(value);
+          if (!normalizedKey || !Number.isFinite(amount) || amount <= 0) continue;
+          out[normalizedKey] = amount;
+        }
+      }
+    }
+
+    return Object.keys(out).length > 0 ? out : undefined;
+  };
+
+  const collectStrings = (...fields: string[]): string[] => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: any) => {
+      if (typeof value !== 'string' && typeof value !== 'number') return;
+      const normalized = String(value).trim();
+      if (!normalized || seen.has(normalized)) return;
+      seen.add(normalized);
+      out.push(normalized);
+    };
+
+    for (const payload of payloads) {
+      if (!payload || typeof payload !== 'object') continue;
+      for (const field of fields) {
+        const value = (payload as any)[field];
+        if (Array.isArray(value)) {
+          for (const item of value) push(item);
+        } else {
+          push(value);
+        }
+      }
+    }
+
+    return out;
   };
 
   const collectIds = (...fields: string[]): string[] => {
@@ -216,7 +269,11 @@ export function buildTriggerEventDataFromPayloads(
   const opponentsDealtDamageIdsSanitized = opponentsDealtDamageIdsRaw.filter(id => isOpponentId(id));
 
   const sourceId = scalarString('sourceId');
-  const chosenObjectIds = collectIds('chosenObjectIds');
+  const chosenObjectIds = collectIds('chosenObjectIds', 'cardId', 'objectId');
+  const permanentTypes = collectStrings('permanentTypes');
+  const creatureTypes = collectStrings('creatureTypes');
+  const colors = collectStrings('colors');
+  const keywords = collectStrings('keywords');
   const targetPermanentId =
     scalarString('targetPermanentId') ??
     (targetPlayerId || targetOpponentId ? undefined : singleton(targetIds));
@@ -229,6 +286,14 @@ export function buildTriggerEventDataFromPayloads(
   return {
     sourceId,
     sourceControllerId: normalizedSourceControllerId,
+    sourceOwnerId: scalarString('sourceOwnerId') ?? scalarString('ownerId') ?? scalarString('owner'),
+    sourceIsToken: scalarBool('sourceIsToken') ?? scalarBool('isToken'),
+    castFromZone: scalarString('castFromZone'),
+    enteredFromZone: scalarString('enteredFromZone'),
+    attachedByPermanentIds: (() => {
+      const ids = collectIds('attachedByPermanentIds', 'attachmentSourceIds');
+      return ids.length > 0 ? ids : undefined;
+    })(),
     targetId,
     targetControllerId: scalarString('targetControllerId'),
     targetPermanentId,
@@ -236,6 +301,11 @@ export function buildTriggerEventDataFromPayloads(
     targetPlayerId,
     targetOpponentId,
     tapOrUntapChoice,
+    permanentTypes: permanentTypes.length > 0 ? permanentTypes : undefined,
+    creatureTypes: creatureTypes.length > 0 ? creatureTypes : undefined,
+    colors: colors.length > 0 ? colors : undefined,
+    counters: scalarCounterMap('counters', 'counterMap'),
+    keywords: keywords.length > 0 ? keywords : undefined,
     lifeTotal: scalarNumber('lifeTotal'),
     lifeLost: scalarNumber('lifeLost'),
     lifeGained: scalarNumber('lifeGained'),
@@ -265,17 +335,23 @@ export function buildStackTriggerMetaFromEventData(
 ): {
   effectText?: string;
   sourceName?: string;
-  triggerEventDataSnapshot?: {
-    sourceId?: string;
-    sourceControllerId?: string;
-    targetId?: string;
+    triggerEventDataSnapshot?: {
+      sourceId?: string;
+      sourceControllerId?: string;
+      sourceOwnerId?: string;
+      sourceIsToken?: boolean;
+      castFromZone?: string;
+      enteredFromZone?: string;
+      attachedByPermanentIds?: readonly string[];
+      targetId?: string;
     targetControllerId?: string;
     targetPermanentId?: string;
     chosenObjectIds?: readonly string[];
     targetPlayerId?: string;
-    targetOpponentId?: string;
-    tapOrUntapChoice?: 'tap' | 'untap';
-    affectedPlayerIds?: readonly string[];
+      targetOpponentId?: string;
+      tapOrUntapChoice?: 'tap' | 'untap';
+      counters?: Readonly<Record<string, number>>;
+      affectedPlayerIds?: readonly string[];
     affectedOpponentIds?: readonly string[];
     opponentsDealtDamageIds?: readonly string[];
     lifeTotal?: number;
@@ -305,6 +381,11 @@ export function buildStackTriggerMetaFromEventData(
     triggerEventDataSnapshot: {
       sourceId: normalized.sourceId,
       sourceControllerId: normalized.sourceControllerId,
+      sourceOwnerId: normalized.sourceOwnerId,
+      sourceIsToken: normalized.sourceIsToken,
+      castFromZone: normalized.castFromZone,
+      enteredFromZone: normalized.enteredFromZone,
+      attachedByPermanentIds: normalized.attachedByPermanentIds,
       targetId: normalized.targetId,
       targetControllerId: normalized.targetControllerId,
       targetPermanentId: normalized.targetPermanentId,
@@ -312,6 +393,7 @@ export function buildStackTriggerMetaFromEventData(
       targetPlayerId: normalized.targetPlayerId,
       targetOpponentId: normalized.targetOpponentId,
       tapOrUntapChoice: normalized.tapOrUntapChoice,
+      counters: normalized.counters,
       affectedPlayerIds: normalized.affectedPlayerIds,
       affectedOpponentIds: normalized.affectedOpponentIds,
       opponentsDealtDamageIds: normalized.opponentsDealtDamageIds,
@@ -390,6 +472,8 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     affectedOpponentIds: dedupedAffectedOpponents,
     opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
     spellType: eventData.spellType,
+    castFromZone: typeof eventData.castFromZone === 'string' ? eventData.castFromZone : undefined,
+    enteredFromZone: typeof eventData.enteredFromZone === 'string' ? eventData.enteredFromZone : undefined,
     wonCoinFlip: eventData.wonCoinFlip,
     winningVoteChoice: eventData.winningVoteChoice ?? undefined,
   };
@@ -404,6 +488,8 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     !hint.affectedOpponentIds &&
     !hint.opponentsDealtDamageIds &&
     !hint.spellType &&
+    !hint.castFromZone &&
+    !hint.enteredFromZone &&
     typeof hint.wonCoinFlip !== 'boolean' &&
     typeof hint.winningVoteChoice === 'undefined'
   ) {
@@ -426,6 +512,8 @@ export function buildResolutionEventDataFromGameState(
 
   const normalizedControllerId = normalizeId(controllerId) ?? normalizeId(base?.sourceControllerId);
   const normalizedTurnPlayerId = normalizeId((state as any).turnPlayer);
+  const normalizedSourceId = normalizeId(base?.sourceId);
+  const normalizedTargetPermanentId = normalizeId(base?.targetPermanentId);
 
   const battlefield = ((state.battlefield || []) as any[]).map(p => ({
     id: normalizeId(p?.id) || '',
@@ -461,6 +549,31 @@ export function buildResolutionEventDataFromGameState(
     const baseLife = Number(base?.lifeTotal);
     return Number.isFinite(baseLife) ? baseLife : undefined;
   })();
+  const resolvedGraveyard = Array.isArray(controller?.graveyard)
+    ? controller.graveyard
+        .map((card: any) => normalizeId(card?.id))
+        .filter((id: string | undefined): id is string => Boolean(id))
+    : Array.isArray(base?.graveyard)
+      ? [...base.graveyard]
+      : undefined;
+  const referencedPermanent = ((state.battlefield || []) as any[]).find((perm: any) => {
+    const permId = normalizeId(perm?.id);
+    return Boolean(
+      permId &&
+      (
+        (normalizedTargetPermanentId && permId === normalizedTargetPermanentId) ||
+        (normalizedSourceId && permId === normalizedSourceId)
+      )
+    );
+  }) as any;
+  const resolvedCastFromZone =
+    base?.castFromZone ??
+    normalizeId(referencedPermanent?.castFromZone) ??
+    normalizeId(referencedPermanent?.card?.castFromZone);
+  const resolvedEnteredFromZone =
+    base?.enteredFromZone ??
+    normalizeId(referencedPermanent?.enteredFromZone) ??
+    normalizeId(referencedPermanent?.card?.enteredFromZone);
 
   return {
     ...base,
@@ -474,6 +587,9 @@ export function buildResolutionEventDataFromGameState(
       hasValidController && normalizedTurnPlayerId !== undefined
         ? normalizedTurnPlayerId !== normalizedControllerId
         : Boolean(base?.isOpponentsTurn),
+    castFromZone: resolvedCastFromZone,
+    enteredFromZone: resolvedEnteredFromZone,
+    graveyard: resolvedGraveyard,
     hand: resolvedHand,
     handAtBeginningOfTurn: resolvedHandAtBeginningOfTurn,
     battlefield,

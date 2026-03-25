@@ -1,5 +1,5 @@
 import type { OracleEffectStep } from './oracleIR';
-import { normalizeOracleText, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
+import { normalizeOracleText, parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
@@ -35,6 +35,22 @@ function parseWithCountersFromClause(clauseText: string): Record<string, number>
   return { [counterType]: n };
 }
 
+function parseAttachmentTargetFromClause(clauseText: string) {
+  const normalized = normalizeOracleText(clauseText);
+  const match = normalized.match(/\battached to (it|that creature)\b/i);
+  if (!match) return undefined;
+  return parseObjectSelector(String(match[1] || '').trim());
+}
+
+function buildSimpleCreateTokenLeadPattern(): RegExp {
+  const playerSubjectPrefixNoCapture =
+    "(?:(?:you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'â€™-]*?(?:'s|â€™s)? (?:controller|owner))\\s+)?";
+  return new RegExp(
+    `^(${playerSubjectPrefixNoCapture}create(?:s)?\\s+(?:a|an|\\d+|x|[a-z]+)\\s+(?:tapped\\s+)?(?:.+?)\\s+(?:creature\\s+)?token(?:s)?(?:\\s+tapped\\b)?(?:\\s+with\\s+[^,.]+?\\s+counters?\\s+on\\s+(?:it|them))?(?:\\s+attached\\s+to\\s+(?:it|that creature))?)\\s+and\\s+(.+)$`,
+    'i'
+  );
+}
+
 export function tryParseSimpleCreateTokenClause(args: {
   clause: string;
   rawClause: string;
@@ -49,11 +65,16 @@ export function tryParseSimpleCreateTokenClause(args: {
     )
   );
   if (create) {
-    const who = parsePlayerSelector(create[1]);
+    const rawWho = String(create[1] || '').trim().toLowerCase();
+    const who =
+      rawWho === 'its owner'
+        ? ({ kind: 'owner_of_moved_cards' } as const)
+        : parsePlayerSelector(create[1]);
     const amount = parseQuantity(create[2]);
     const entersTapped = Boolean(create[3]) || /\btoken(?:s)?\s+tapped\b/i.test(clause);
     const token = String(create[4] || '').trim();
     const withCounters = parseWithCountersFromClause(clause);
+    const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
     return withMeta({
       kind: 'create_token',
       who,
@@ -61,6 +82,7 @@ export function tryParseSimpleCreateTokenClause(args: {
       token,
       entersTapped: entersTapped || undefined,
       withCounters,
+      battlefieldAttachedTo,
       raw: rawClause,
     });
   }
@@ -69,6 +91,7 @@ export function tryParseSimpleCreateTokenClause(args: {
   if (createDefault) {
     const entersTapped = Boolean(createDefault[2]) || /\btoken(?:s)?\s+tapped\b/i.test(clause);
     const withCounters = parseWithCountersFromClause(clause);
+    const battlefieldAttachedTo = parseAttachmentTargetFromClause(clause);
     return withMeta({
       kind: 'create_token',
       who: { kind: 'you' },
@@ -76,9 +99,37 @@ export function tryParseSimpleCreateTokenClause(args: {
       token: String(createDefault[3] || '').trim(),
       entersTapped: entersTapped || undefined,
       withCounters,
+      battlefieldAttachedTo,
       raw: rawClause,
     });
   }
 
   return null;
+}
+
+export function splitConservativeCreateTokenLeadClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const normalized = normalizeOracleText(args.rawClause).trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(buildSimpleCreateTokenLeadPattern());
+  if (!match) return null;
+
+  const left = String(match[1] || '').trim();
+  const right = String(match[2] || '').trim();
+  if (!left || !right) return null;
+
+  const create = tryParseSimpleCreateTokenClause({
+    clause: left,
+    rawClause: left,
+    withMeta: <T extends OracleEffectStep>(step: T): T => step,
+  });
+  if (!create || create.kind !== 'create_token') return null;
+
+  const parsedRight = args.parseEffectClauseToStep(right);
+  if (!parsedRight || parsedRight.kind === 'unknown') return null;
+
+  return [left, right];
 }

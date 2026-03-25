@@ -1,6 +1,216 @@
 import type { PlayerID } from '../../shared/src';
 import type { TriggerEventData } from './triggeredAbilitiesEventData';
 
+function evaluateDiesSubjectDescriptor(
+  descriptor: string,
+  permanentTypes: ReadonlySet<string>,
+  creatureTypes: ReadonlySet<string>,
+  isToken: boolean,
+  colors: ReadonlySet<string>
+): boolean {
+  const cleaned = String(descriptor || '')
+    .replace(/[.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return true;
+
+  const tokens = cleaned
+    .split(/\s+/)
+    .map(token => token.trim().toLowerCase())
+    .filter(Boolean);
+  const ignored = new Set(['a', 'an', 'another', 'additional']);
+  const normalizeToken = (token: string): string[] => {
+    const normalized = String(token || '').trim().toLowerCase();
+    if (!normalized) return [];
+    const candidates = new Set<string>([normalized]);
+    if (normalized.endsWith('ies') && normalized.length > 3) {
+      candidates.add(`${normalized.slice(0, -3)}y`);
+    }
+    if (normalized.endsWith('es') && normalized.length > 2) {
+      candidates.add(normalized.slice(0, -2));
+    }
+    if (normalized.endsWith('s') && normalized.length > 1) {
+      candidates.add(normalized.slice(0, -1));
+    }
+    return [...candidates];
+  };
+
+  for (const token of tokens) {
+    if (ignored.has(token)) continue;
+    const normalizedCandidates = normalizeToken(token);
+    const [normalizedToken] = normalizedCandidates;
+    if (!normalizedToken) continue;
+
+    if (normalizedCandidates.includes('nontoken')) {
+      if (isToken) return false;
+      continue;
+    }
+
+    if (normalizedCandidates.includes('token')) {
+      if (!isToken) return false;
+      continue;
+    }
+
+    if (normalizedCandidates.includes('multicolored')) {
+      if (colors.size < 2) return false;
+      continue;
+    }
+
+    const negativeMatch = normalizedToken.match(/^non-?(.+)$/);
+    if (negativeMatch) {
+      const negativeType = String(negativeMatch[1] || '').trim();
+      if (negativeType && (permanentTypes.has(negativeType) || creatureTypes.has(negativeType))) {
+        return false;
+      }
+      continue;
+    }
+
+    if (
+      normalizedCandidates.includes('creature') ||
+      normalizedCandidates.includes('land') ||
+      normalizedCandidates.includes('artifact') ||
+      normalizedCandidates.includes('enchantment') ||
+      normalizedCandidates.includes('planeswalker') ||
+      normalizedCandidates.includes('battle') ||
+      normalizedCandidates.includes('permanent')
+    ) {
+      if (normalizedCandidates.includes('permanent')) {
+        if (permanentTypes.size === 0) return false;
+      } else if (!normalizedCandidates.some(candidate => permanentTypes.has(candidate))) {
+        return false;
+      }
+      continue;
+    }
+
+    if (!normalizedCandidates.some(candidate => creatureTypes.has(candidate))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function evaluateDiesTriggerCondition(
+  condition: string,
+  controllerId: PlayerID | string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean {
+  const isPutIntoGraveyardFromBattlefield =
+    /\bis put into (?:(?:a|an|your|its owner's|their owner's)\s+)?graveyard from the battlefield\b/i.test(condition);
+  const isDiesStyleCondition = condition.includes('dies') || /\bdie\b/i.test(condition) || isPutIntoGraveyardFromBattlefield;
+  if (!isDiesStyleCondition) {
+    return false;
+  }
+
+  const subjectControllerId = String(eventData.sourceControllerId || '').trim();
+  const subjectOwnerId = String(eventData.sourceOwnerId || '').trim();
+  const permanentTypes = new Set((eventData.permanentTypes || []).map(type => String(type).toLowerCase()));
+  const creatureTypes = new Set((eventData.creatureTypes || []).map(type => String(type).toLowerCase()));
+  const colors = new Set((eventData.colors || []).map(color => String(color).toLowerCase()));
+  const counters = eventData.counters || {};
+  const keywords = new Set((eventData.keywords || []).map(keyword => String(keyword).toLowerCase()));
+  const attachedByPermanentIds = new Set(
+    (eventData.attachedByPermanentIds || [])
+      .map(id => String(id || '').trim())
+      .filter(Boolean)
+  );
+  const normalizedSourceId = String(sourceId || '').trim();
+  const triggeringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
+  const isToken = eventData.sourceIsToken === true || (eventData as any).isToken === true;
+
+  if (
+    /\bthis (?:creature|permanent|card|artifact|enchantment|land|planeswalker|battle)\b/i.test(condition) &&
+    normalizedSourceId &&
+    triggeringPermanentId &&
+    normalizedSourceId !== triggeringPermanentId
+  ) {
+    return false;
+  }
+
+  if (condition.includes('creature') && !permanentTypes.has('creature')) {
+    return false;
+  }
+
+  if (condition.includes('land') && !permanentTypes.has('land')) {
+    return false;
+  }
+
+  if (condition.includes('permanent') && permanentTypes.size === 0) {
+    return false;
+  }
+
+  if (
+    (condition.includes('enchanted creature') ||
+      condition.includes('equipped creature') ||
+      condition.includes('enchanted land') ||
+      condition.includes('enchanted permanent')) &&
+    (!normalizedSourceId || !attachedByPermanentIds.has(normalizedSourceId))
+  ) {
+    return false;
+  }
+
+  if (condition.includes('you control') && subjectControllerId !== controllerId) {
+    return false;
+  }
+
+  if (condition.includes('you own') && subjectOwnerId !== String(controllerId).trim()) {
+    return false;
+  }
+
+  if (
+    (condition.includes("you don't control") || condition.includes('you do not control')) &&
+    (!subjectControllerId || subjectControllerId === String(controllerId).trim())
+  ) {
+    return false;
+  }
+
+  if (
+    (condition.includes("don't own") || condition.includes('dont own') || condition.includes('do not own')) &&
+    (!subjectOwnerId || subjectOwnerId === String(controllerId).trim())
+  ) {
+    return false;
+  }
+
+  if (
+    (condition.includes('an opponent controls') || condition.includes('opponent controls')) &&
+    (!subjectControllerId || subjectControllerId === controllerId)
+  ) {
+    return false;
+  }
+
+  if (condition.includes('without flying') && keywords.has('flying')) {
+    return false;
+  }
+
+  if (condition.includes('with flying') && !condition.includes('without flying') && !keywords.has('flying')) {
+    return false;
+  }
+
+  const counterMatch = condition.match(/\bwith\s+(?:an?\s+|one or more\s+)?([^,.]+?)\s+counters?\s+on\s+it\b/i);
+  if (counterMatch) {
+    const counterName = String(counterMatch[1] || '').trim().toLowerCase();
+    const hasMatchingCounter = Object.entries(counters).some(
+      ([name, amount]) => String(name || '').trim().toLowerCase() === counterName && Number(amount) > 0
+    );
+    if (!hasMatchingCounter) {
+      return false;
+    }
+  }
+
+  const subjectDescriptorMatch = condition.match(
+    /^(?:(?:one or more|another)\s+)?(?:a|an)?\s*(.+?)\s+(?:you control|you own|you don't control|you do not control|an opponent controls|opponent controls)(?:\s+but\s+(?:don't|dont|do not)\s+own)?(?:\s+with\s+[^,]+?)?\s+dies?$/
+  );
+  if (subjectDescriptorMatch) {
+    const descriptor = String(subjectDescriptorMatch[1] || '').trim();
+    if (!evaluateDiesSubjectDescriptor(descriptor, permanentTypes, creatureTypes, isToken, colors)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export function evaluateTapStateTriggerCondition(
   condition: string,
   controllerId: PlayerID | string,

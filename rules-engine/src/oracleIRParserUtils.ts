@@ -134,6 +134,11 @@ export function normalizeClauseForParse(clause: string): {
     working = working.replace(/^you\s+may\b\s*/i, '');
   }
 
+  // Saga chapter lines commonly prefix the real clause with a roman numeral marker
+  // like "III -", but corpus text can arrive with mojibake punctuation as well.
+  // Strip the whole marker so downstream clause parsers see the action text.
+  working = working.replace(/^(?:[ivxlcdm]+)\s*(?:[-?]|[^\w\s])+\s*/i, '');
+
   working = working
     .replace(/^each\s+of\s+your\s+opponents\b/i, 'each opponent')
     .replace(/^each\s+of\s+the\s+opponents\b/i, 'each opponent')

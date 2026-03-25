@@ -61,12 +61,16 @@ export function applyChooseModeStep(
     };
   }
 
+  const canRepeatModes = Boolean((step as any).canRepeatModes);
   const normalizedSelectedModeIds = rawSelectedModeIds
     .map(id => (typeof id === 'string' ? id.trim() : ''))
-    .filter((id, index, ids) => Boolean(id) && ids.indexOf(id) === index);
+    .filter(Boolean);
   const modeById = new Map(
     ((step as any).modes || []).map((mode: any) => [String(mode?.label || '').trim(), mode] as const)
   );
+  const hasDuplicateModeSelection =
+    !canRepeatModes &&
+    normalizedSelectedModeIds.some((id, index) => normalizedSelectedModeIds.indexOf(id) !== index);
   const selectedModes = normalizedSelectedModeIds
     .map(id => modeById.get(id))
     .filter((mode): mode is { label: string; steps: readonly OracleEffectStep[] } => Boolean(mode));
@@ -75,6 +79,7 @@ export function applyChooseModeStep(
   const maxModes = Number.isFinite(maxModesRaw) && maxModesRaw >= 0 ? maxModesRaw : Infinity;
 
   if (
+    hasDuplicateModeSelection ||
     selectedModes.length !== normalizedSelectedModeIds.length ||
     selectedModes.length < minModes ||
     selectedModes.length > maxModes

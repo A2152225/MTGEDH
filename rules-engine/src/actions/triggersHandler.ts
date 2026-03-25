@@ -13,6 +13,7 @@ import {
   putTriggersOnStack,
   createEmptyTriggerQueue,
   buildTriggerEventDataFromPayloads,
+  buildResolutionEventDataFromGameState,
   type TriggeredAbility,
   type TriggerEventData,
   parseTriggeredAbilitiesFromText,
@@ -164,6 +165,16 @@ export function processTriggersAutoOracle(
  */
 export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
   const abilities: TriggeredAbility[] = [];
+  const looksLikeZoneActiveGraveyardTrigger = (oracleText: string): boolean => {
+    const normalized = String(oracleText || '').replace(/\u2019/g, "'").toLowerCase();
+    if (!/\b(?:when|whenever|at)\b/.test(normalized)) return false;
+    return (
+      normalized.includes('this card is in your graveyard') ||
+      normalized.includes('return this card from your graveyard') ||
+      normalized.includes('cast it from your graveyard') ||
+      normalized.includes('cast this card from your graveyard')
+    );
+  };
   
   // Scan all permanents on centralized battlefield for triggered abilities
   for (const perm of state.battlefield || []) {
@@ -217,6 +228,44 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
     );
     abilities.push(...parsedTriggers);
   }
+
+  for (const player of state.players || []) {
+    const controllerId = String((player as any)?.id || '').trim();
+    if (!controllerId) continue;
+
+    const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+    for (const card of graveyard) {
+      const cardId = String((card as any)?.id || '').trim();
+      const cardName = String((card as any)?.name || '').trim();
+      const oracleText = String((card as any)?.oracle_text || '').trim();
+      if (!cardId || !cardName || !oracleText || !looksLikeZoneActiveGraveyardTrigger(oracleText)) continue;
+
+      const parsedTriggers = parseTriggeredAbilitiesFromText(
+        oracleText,
+        cardId,
+        controllerId,
+        cardName
+      );
+      abilities.push(...parsedTriggers);
+    }
+
+    const emblems = Array.isArray((player as any)?.emblems) ? (player as any).emblems : [];
+    for (const emblem of emblems) {
+      const emblemId = String((emblem as any)?.id || '').trim();
+      const emblemName = String((emblem as any)?.name || 'Emblem').trim() || 'Emblem';
+      const abilityTexts = Array.isArray((emblem as any)?.abilities) ? (emblem as any).abilities : [];
+
+      for (const abilityText of abilityTexts) {
+        const parsedTriggers = parseTriggeredAbilitiesFromText(
+          String(abilityText || ''),
+          emblemId || `${controllerId}-emblem`,
+          controllerId,
+          emblemName
+        );
+        abilities.push(...parsedTriggers);
+      }
+    }
+  }
   
   return abilities;
 }
@@ -230,16 +279,46 @@ export function checkETBTriggers(
   controllerId: string
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
-  const etbAbilities = abilities.filter(a => 
-    a.sourceId === permanentId && 
-    a.event === TriggerEvent.ENTERS_BATTLEFIELD
-  );
-  
+  const enteringPermanent = ((state.battlefield || []) as any[]).find(
+    perm => String((perm as any)?.id || '').trim() === String(permanentId || '').trim()
+  ) as any;
+  const etbAbilities = abilities.filter(a => a.event === TriggerEvent.ENTERS_BATTLEFIELD);
+
   if (etbAbilities.length === 0) {
     return { state, triggersAdded: 0, logs: [] };
   }
-  
-  return processTriggers(state, TriggerEvent.ENTERS_BATTLEFIELD, etbAbilities);
+
+  const eventData = buildResolutionEventDataFromGameState(
+    state,
+    controllerId,
+    buildTriggerEventDataFromPayloads(
+      controllerId,
+      {
+        sourceId: permanentId,
+        targetPermanentId: permanentId,
+        targetId: permanentId,
+        sourceControllerId: controllerId,
+        sourceOwnerId: String((enteringPermanent as any)?.owner || (enteringPermanent as any)?.ownerId || controllerId).trim() || undefined,
+        sourceIsToken: Boolean((enteringPermanent as any)?.isToken),
+        permanentTypes: String((enteringPermanent as any)?.card?.type_line || (enteringPermanent as any)?.type_line || '')
+          .split(/[\s\u2014-]+/)
+          .map(part => part.trim())
+          .filter(Boolean),
+        creatureTypes: String((enteringPermanent as any)?.card?.type_line || (enteringPermanent as any)?.type_line || '')
+          .split(/[\s\u2014-]+/)
+          .map(part => part.trim())
+          .filter(Boolean),
+        keywords: Array.isArray((enteringPermanent as any)?.card?.keywords) ? (enteringPermanent as any).card.keywords : undefined,
+        counters: (enteringPermanent as any)?.counters,
+        castFromZone:
+          String((enteringPermanent as any)?.castFromZone || (enteringPermanent as any)?.card?.castFromZone || '').trim() || undefined,
+        enteredFromZone:
+          String((enteringPermanent as any)?.enteredFromZone || (enteringPermanent as any)?.card?.enteredFromZone || '').trim() || undefined,
+      }
+    )
+  );
+
+  return processTriggers(state, TriggerEvent.ENTERS_BATTLEFIELD, etbAbilities, eventData);
 }
 
 /**
@@ -378,7 +457,11 @@ export function checkLandfallTriggers(
     state,
     TriggerEvent.LANDFALL,
     landfallAbilities,
-    buildTriggerEventDataFromPayloads(landPlayerId, { affectedPlayerIds: [landPlayerId] })
+    buildResolutionEventDataFromGameState(
+      state,
+      landPlayerId,
+      buildTriggerEventDataFromPayloads(landPlayerId, { affectedPlayerIds: [landPlayerId] })
+    )
   );
 }
 
@@ -399,7 +482,11 @@ export function checkSpellCastTriggers(
     state,
     TriggerEvent.SPELL_CAST,
     spellCastAbilities,
-    buildTriggerEventDataFromPayloads(casterId, { affectedPlayerIds: [casterId] })
+    buildResolutionEventDataFromGameState(
+      state,
+      casterId,
+      buildTriggerEventDataFromPayloads(casterId, { affectedPlayerIds: [casterId] })
+    )
   );
 }
 

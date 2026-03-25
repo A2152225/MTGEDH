@@ -2,7 +2,10 @@ export function detectTriggeredAbilityEvent<T extends string>(
   condition: string,
   triggerEventValues: Record<string, T>
 ): { event: T; filter?: string } {
-  const text = condition.toLowerCase();
+  const text = condition.toLowerCase().replace(/\s+/g, ' ').trim();
+  const putIntoGraveyardFromBattlefield =
+    /\bis put into (?:(?:a|an|your|its owner's|their owner's)\s+)?graveyard from the battlefield\b/i.test(text);
+  const isDiesStyleTrigger = text.includes('dies') || /\bdie\b/i.test(text) || putIntoGraveyardFromBattlefield;
 
   if (text.includes('enters the battlefield') || text.includes('enters')) {
     if (text.includes('a land') || text.includes('land you control')) {
@@ -11,9 +14,35 @@ export function detectTriggeredAbilityEvent<T extends string>(
     return { event: triggerEventValues.ENTERS_BATTLEFIELD };
   }
 
-  if (text.includes('dies') || text.includes('is put into a graveyard from the battlefield')) {
-    if (text.includes('another creature') || text.includes('a creature you control')) {
-      return { event: triggerEventValues.CONTROLLED_CREATURE_DIED };
+  if (isDiesStyleTrigger) {
+    const isControlledCreatureDiesTrigger =
+      /^(?:(?:one or more|another)\s+)?(?:a|an)?\s*(?:nontoken\s+)?creatures?\s+you control(?:\s+but\s+(?:don't|dont|do not)\s+own)?(?:\s+(?:without\s+[^,]+|with\s+[^,]+(?:\s+on\s+it)?))?\s+dies?$/i.test(
+        text
+      );
+
+    if (/^this (?:creature|permanent|card|artifact|enchantment|land|planeswalker|battle)\b/i.test(text)) {
+      return { event: triggerEventValues.DIES, filter: text };
+    }
+    if (
+      text.includes('enchanted creature') ||
+      text.includes('equipped creature') ||
+      text.includes('enchanted land') ||
+      text.includes('enchanted permanent')
+    ) {
+      return { event: triggerEventValues.DIES, filter: text };
+    }
+    if (isControlledCreatureDiesTrigger) {
+      return { event: triggerEventValues.CONTROLLED_CREATURE_DIED, filter: text };
+    }
+    if (
+      text.includes('you control') ||
+      text.includes("you don't control") ||
+      text.includes('you do not control')
+    ) {
+      return { event: triggerEventValues.DIES, filter: text };
+    }
+    if (text.includes('another creature')) {
+      return { event: triggerEventValues.DIES, filter: text };
     }
     return { event: triggerEventValues.DIES };
   }

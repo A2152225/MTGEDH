@@ -51,6 +51,8 @@ export enum DelayedTriggerTiming {
   YOUR_NEXT_TURN = 'your_next_turn',
   /** When a specific permanent leaves the battlefield */
   WHEN_LEAVES = 'when_leaves',
+  /** When a specific permanent dies */
+  WHEN_DIES = 'when_dies',
   /** When the controller loses control of a watched permanent */
   WHEN_CONTROL_LOST = 'when_control_lost',
   /** Until end of turn (expires at cleanup) */
@@ -168,7 +170,7 @@ export function registerDelayedTrigger(
 export function checkDelayedTriggers(
   registry: Readonly<DelayedTriggerRegistry>,
   currentEvent: {
-    type: 'end_step' | 'upkeep' | 'combat_end' | 'combat_begin' | 'cleanup' | 'permanent_left' | 'control_lost' | 'turn_start';
+    type: 'end_step' | 'upkeep' | 'combat_end' | 'combat_begin' | 'cleanup' | 'permanent_left' | 'dies' | 'control_lost' | 'turn_start';
     playerId?: PlayerID;
     activePlayerId?: PlayerID;
     permanentId?: string;
@@ -185,6 +187,14 @@ export function checkDelayedTriggers(
   for (const trigger of registry.triggers) {
     // Skip already fired one-shot triggers
     if (trigger.fired && trigger.oneShot) {
+      continue;
+    }
+
+    if (
+      currentEvent.type === 'cleanup' &&
+      trigger.timing === DelayedTriggerTiming.WHEN_DIES &&
+      Boolean((trigger.effectData as any)?.expireAtEndOfTurn)
+    ) {
       continue;
     }
 
@@ -248,6 +258,13 @@ export function checkDelayedTriggers(
         
       case DelayedTriggerTiming.WHEN_LEAVES:
         if (currentEvent.type === 'permanent_left' && 
+            currentEvent.permanentId === trigger.watchingPermanentId) {
+          shouldFire = true;
+        }
+        break;
+
+      case DelayedTriggerTiming.WHEN_DIES:
+        if (currentEvent.type === 'dies' &&
             currentEvent.permanentId === trigger.watchingPermanentId) {
           shouldFire = true;
         }

@@ -13,6 +13,7 @@ export type ModifyPtRuntime = {
   readonly lastDiscardedCardCount?: number;
   readonly lastExiledCardCount?: number;
   readonly lastExiledCards?: readonly any[];
+  readonly lastMovedCards?: readonly any[];
   readonly lastGoadedCreatures?: readonly BattlefieldPermanent[];
   readonly lastSacrificedCreaturesPowerTotal?: number;
   readonly lastSacrificedPermanents?: readonly LastKnownPermanentSnapshot[];

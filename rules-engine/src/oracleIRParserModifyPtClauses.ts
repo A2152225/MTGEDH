@@ -20,16 +20,10 @@ export function tryParseTemporaryModifyPtClause(params: {
     return null;
   };
 
-  let workingClause = clause;
-  let leadingCondition: any | undefined;
-  const leadingIf = workingClause.match(/^if\s+([^,]+),\s*(.+)$/i);
-  if (leadingIf) {
-    leadingCondition = { kind: 'if', raw: String(leadingIf[1] || '').trim() };
-    workingClause = String(leadingIf[2] || '').trim();
-  }
+  const workingClause = clause;
 
   const match = workingClause.match(
-    /^(?:then\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|the\s+creature)\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
+    /^(?:then\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|the\s+creature|this\s+creature|this\s+permanent|it)\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
   );
   if (!match) return null;
 
@@ -50,7 +44,7 @@ export function tryParseTemporaryModifyPtClause(params: {
     .trim();
 
   let scaler: any | undefined;
-  let condition: any | undefined = leadingCondition;
+  let condition: any | undefined;
   if (tail) {
     const forEachMatch = tail.match(/^for\s+each\s+(.+)$/i);
     if (forEachMatch) {
@@ -80,7 +74,10 @@ export function tryParseTemporaryModifyPtClause(params: {
 
   const step: any = {
     kind: 'modify_pt',
-    target: targetRaw === 'the creature' ? { kind: 'equipped_creature' } : { kind: 'raw', text: targetRaw },
+    target:
+      targetRaw === 'the creature'
+        ? { kind: 'equipped_creature' }
+        : { kind: 'raw', text: targetRaw },
     power: powerComponent.value,
     toughness: toughnessComponent.value,
     ...(powerComponent.usesX ? { powerUsesX: true } : {}),

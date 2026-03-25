@@ -206,6 +206,107 @@ const AT_PATTERN = /^At\s+(the|each)\s+([\s\S]+?),\s+([\s\S]+)$/i;
 // Note: Use [\s\S] so multiline modal/bullet effects are supported.
 const INTERVENING_IF_PATTERN = /^(When|Whenever|At)\s+([\s\S]+?),\s+if\s+([\s\S]+?),\s+([\s\S]+)$/i;
 
+const TRIGGER_CONDITION_EVENT_HINTS = [
+  /\bdies$/i,
+  /\bis put into (?:(?:a|an|your|its owner's|their owner's)\s+)?graveyard from the battlefield$/i,
+  /\benters(?: the battlefield)?(?: under your control)?$/i,
+  /\battacks(?: alone)?$/i,
+  /\bblocks$/i,
+  /\bbecomes blocked$/i,
+  /\bdeals combat damage(?: to (?:a|an|target) [a-z0-9' -]+)?$/i,
+  /\bdeals damage(?: to (?:a|an|target) [a-z0-9' -]+)?$/i,
+  /\bcasts? (?:a|an|target) [a-z0-9' -]+$/i,
+  /\bdraws? (?:a|an|\d+|x|[a-z]+)?\s*cards?$/i,
+  /\bdiscards? (?:a|an|\d+|x|[a-z]+)?\s*cards?$/i,
+  /\bgains? [a-z0-9' -]+ life$/i,
+  /\bloses? [a-z0-9' -]+ life$/i,
+  /\bloses the game$/i,
+  /\bsacrifices? [a-z0-9' -]+$/i,
+  /\bbecomes tapped$/i,
+  /\btaps$/i,
+  /\bbecomes untapped$/i,
+  /\buntaps$/i,
+  /\bis exiled$/i,
+  /\bleaves the battlefield$/i,
+  /\bbecomes the target$/i,
+  /\bis targeted$/i,
+];
+
+function stripLeadingTriggeredAbilityLabel(text: string): string {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return trimmed;
+
+  return trimmed.replace(
+    /^[a-z][a-z0-9' ,/+-]*\s+[\u2014-]\s+(?=(?:when|whenever|at(?:\s+the\s+beginning)?)\b)/i,
+    ''
+  );
+}
+
+function looksLikeCompleteTriggerCondition(text: string): boolean {
+  const normalized = String(text || '').trim();
+  if (!normalized) return false;
+  return TRIGGER_CONDITION_EVENT_HINTS.some(pattern => pattern.test(normalized));
+}
+
+function splitMixedStandaloneAndTriggeredLine(text: string): string[] {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return [];
+
+  const sentenceBoundary = trimmed.match(/^([^.!?]+[.!?])\s+([\s\S]+)$/);
+  if (!sentenceBoundary) return [trimmed];
+
+  const firstSentence = String(sentenceBoundary[1] || '').trim();
+  const remainder = String(sentenceBoundary[2] || '').trim();
+  if (!firstSentence || !remainder) return [trimmed];
+
+  const firstBody = firstSentence.replace(/[.!?]+$/, '').trim();
+  if (!firstBody) return [trimmed];
+
+  const standaloneKeywords = parseKeywordsFromOracleText(firstBody);
+
+  // Keep true sentence continuations intact; only split simple standalone
+  // clauses like "Flash." before a triggered/replacement ability.
+  if (/[,:;]/.test(firstBody)) return [trimmed];
+  if (standaloneKeywords.length === 0) return [trimmed];
+  if (/^(when\s+you\s+do|whenever\s+you\s+do)\b/i.test(remainder)) return [trimmed];
+  if (!/^(when|whenever|at\s+the\s+beginning|if\b.+\binstead\b|as\s+.+enters\b)/i.test(remainder)) {
+    return [trimmed];
+  }
+
+  return [firstSentence, remainder];
+}
+
+function splitWhenWheneverTriggeredLine(text: string): {
+  readonly keyword: 'when' | 'whenever';
+  readonly triggerCondition: string;
+  readonly effect: string;
+} | null {
+  const prefixMatch = text.match(/^(When|Whenever)\s+([\s\S]+)$/i);
+  if (!prefixMatch) return null;
+
+  const keyword = String(prefixMatch[1] || '').trim().toLowerCase() as 'when' | 'whenever';
+  const body = String(prefixMatch[2] || '').trim();
+  if (!body) return null;
+
+  const boundary = /,\s+/g;
+  let match: RegExpExecArray | null;
+  while ((match = boundary.exec(body)) !== null) {
+    const triggerCondition = body.slice(0, match.index).trim();
+    const effect = body.slice(match.index + match[0].length).trim();
+    if (!triggerCondition || !effect) continue;
+    if (!looksLikeCompleteTriggerCondition(triggerCondition)) continue;
+    return { keyword, triggerCondition, effect };
+  }
+
+  const fallback = text.match(WHEN_WHENEVER_PATTERN);
+  if (!fallback) return null;
+  return {
+    keyword: String(fallback[1] || '').trim().toLowerCase() as 'when' | 'whenever',
+    triggerCondition: String(fallback[2] || '').trim(),
+    effect: String(fallback[3] || '').trim(),
+  };
+}
+
 /**
  * Parse a triggered ability from oracle text line
  */
@@ -250,10 +351,9 @@ export function parseTriggeredAbility(text: string): ParsedAbility | null {
   }
 
   // Check for When/Whenever clause
-  const whenMatch = text.match(WHEN_WHENEVER_PATTERN);
+  const whenMatch = splitWhenWheneverTriggeredLine(text);
   if (whenMatch) {
-    const keyword = whenMatch[1].toLowerCase() as 'when' | 'whenever';
-    return parseInterveningIfEffect(keyword, whenMatch[2].trim(), whenMatch[3]);
+    return parseInterveningIfEffect(whenMatch.keyword, whenMatch.triggerCondition, whenMatch.effect);
   }
   
   return null;
@@ -532,11 +632,12 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
   
   // Shared preprocessing preserves ability boundaries, keeps modal bullet blocks
   // intact, and merges sentence fragments that continue a prior instruction.
-  const lines = splitOracleTextIntoParseLines(normalizedText);
+  const lines = splitOracleTextIntoParseLines(normalizedText).flatMap(splitMixedStandaloneAndTriggeredLine);
   
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
+    const triggerCandidate = stripLeadingTriggeredAbilityLabel(trimmed);
     
     // Step 1: Check for colon (activated ability)
     if (trimmed.includes(':') && !trimmed.startsWith('(')) {
@@ -567,10 +668,10 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
     }
     
     // Step 2c: Check for triggers (When/Whenever/At)
-    if (/^(when|whenever|at\s+the\s+beginning)/i.test(trimmed)) {
-      const triggered = parseTriggeredAbility(trimmed);
+    if (/^(when|whenever|at\s+the\s+beginning)/i.test(triggerCandidate)) {
+      const triggered = parseTriggeredAbility(triggerCandidate);
       if (triggered) {
-        abilities.push(triggered);
+        abilities.push({ ...triggered, text: trimmed });
         if (triggered.targets && triggered.targets.length > 0) hasTargets = true;
         continue;
       }

@@ -14,7 +14,7 @@ import {
   removeDefenseCountersFromBattle,
   removeLoyaltyFromPlaneswalker,
 } from './oracleIRExecutorPermanentUtils';
-import { adjustLife, quantityToNumber, resolvePlayers, resolvePlayersFromDamageTarget } from './oracleIRExecutorPlayerUtils';
+import { adjustLife, getCardManaValue, quantityToNumber, resolvePlayers, resolvePlayersFromDamageTarget } from './oracleIRExecutorPlayerUtils';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -33,6 +33,33 @@ type StepSkipResult = {
 };
 
 export type DamageStepHandlerResult = StepApplyResult | StepSkipResult;
+
+type DamageRuntime = {
+  readonly lastMovedCards?: readonly any[];
+};
+
+function resolveDamageAmount(
+  amount: Extract<OracleEffectStep, { kind: 'deal_damage' }>['amount'],
+  runtime?: DamageRuntime
+): number | null {
+  const numericAmount = quantityToNumber(amount);
+  if (numericAmount !== null) return numericAmount;
+  if (amount.kind !== 'unknown') return null;
+
+  const raw = String(amount.raw || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .toLowerCase();
+  if (!raw) return null;
+
+  const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  if (moved.length === 1 && /^(?:its|that card's|that creature's) mana value$/.test(raw)) {
+    const manaValue = getCardManaValue(moved[0]);
+    return manaValue === null ? null : manaValue;
+  }
+
+  return null;
+}
 
 function applyDamageToMatchingBattlefield(
   state: GameState,
@@ -87,9 +114,10 @@ function resolveMixedDamagePlayers(
 export function applyDealDamageStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: DamageRuntime
 ): DamageStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
+  const amount = resolveDamageAmount(step.amount, runtime);
   if (amount === null) {
     return {
       applied: false,

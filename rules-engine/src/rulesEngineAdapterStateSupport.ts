@@ -1,5 +1,6 @@
 import type { GameState } from '../../shared/src';
 import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
+import { getLeaveBattlefieldDestination } from '../../shared/src/leaveBattlefieldReplacement';
 import type { EngineResult } from './index';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { GameEndReason, WinCondition } from './types/gameFlow';
@@ -32,6 +33,7 @@ export function hasPermanentType(perm: any, type: string): boolean {
 
 export function movePermanentToGraveyard(state: GameState, permanent: any): GameState {
   const ownerId = permanent.controller || permanent.controllerId || permanent.owner;
+  const destination = getLeaveBattlefieldDestination(permanent, 'graveyard');
 
   const updatedBattlefield = (state.battlefield || []).filter(
     (entry: any) => entry.id !== permanent.id
@@ -39,9 +41,12 @@ export function movePermanentToGraveyard(state: GameState, permanent: any): Game
 
   const updatedPlayers = state.players.map(player => {
     if (player.id === ownerId) {
+      const zoneObject = buildZoneObjectWithRetainedCounters(permanent.card || permanent, permanent, destination);
       return {
         ...player,
-        graveyard: [...(player.graveyard || []), buildZoneObjectWithRetainedCounters(permanent.card || permanent, permanent, 'graveyard')],
+        ...(destination === 'graveyard'
+          ? { graveyard: [...(player.graveyard || []), zoneObject] }
+          : { exile: [...((player as any).exile || []), zoneObject] }),
       };
     }
 

@@ -265,6 +265,78 @@ describe('RulesEngineAdapter', () => {
       expect(allowed.legal).toBe(true);
     });
 
+    it('should require permission to cast from graveyard', () => {
+      const stateWithGraveyard: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                graveyard: [{ id: 'gy1', name: 'Opt', type_line: 'Instant' }],
+              }
+            : p
+        ),
+        turn: 1,
+      };
+
+      adapter.initializeGame('test-game', stateWithGraveyard);
+      const denied = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'graveyard',
+        cardId: 'gy1',
+        card: { name: 'Opt', type_line: 'Instant' },
+      });
+      expect(denied.legal).toBe(false);
+
+      stateWithGraveyard.playableFromGraveyard = { player1: { gy1: 10 } };
+      adapter.initializeGame('test-game', stateWithGraveyard);
+      const allowed = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'graveyard',
+        cardId: 'gy1',
+        card: { name: 'Opt', type_line: 'Instant' },
+      });
+      expect(allowed.legal).toBe(true);
+    });
+
+    it('should require permission to play a land from graveyard', () => {
+      const stateWithGraveyardLand: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                graveyard: [{ id: 'gy-land', name: 'Mountain', type_line: 'Basic Land - Mountain' }],
+              }
+            : p
+        ),
+        turn: 1,
+        landsPlayedThisTurn: { player1: 0 },
+      };
+
+      adapter.initializeGame('test-game', stateWithGraveyardLand);
+      const denied = adapter.validateAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'graveyard',
+        cardId: 'gy-land',
+      });
+      expect(denied.legal).toBe(false);
+
+      stateWithGraveyardLand.playableFromGraveyard = { player1: { 'gy-land': 10 } };
+      adapter.initializeGame('test-game', stateWithGraveyardLand);
+      const allowed = adapter.validateAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'graveyard',
+        cardId: 'gy-land',
+      });
+      expect(allowed.legal).toBe(true);
+    });
+
     it('should derive spell timing from the source-zone card when action card data is omitted', () => {
       const stateWithSorceryInHand: any = {
         ...testGameState,
@@ -438,6 +510,60 @@ describe('RulesEngineAdapter', () => {
 
       const player2 = resolveResult.next.players.find(p => p.id === 'player2');
       expect(player2?.life).toBe(39);
+    });
+
+    it("should resolve Sevinne's Reclamation from graveyard and replay the copied spell onto the remaining unique target", () => {
+      const stateWithGraveyard: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                graveyard: [
+                  {
+                    id: 'sev',
+                    name: "Sevinne's Reclamation",
+                    type_line: 'Sorcery',
+                    canBePlayedBy: 'player1',
+                    playableUntilTurn: 10,
+                  },
+                  { id: 'target-a', name: 'Soul-Guide Lantern', type_line: 'Artifact', mana_cost: '{1}', mana_value: 1 },
+                  { id: 'target-b', name: 'Wayfarer Bauble', type_line: 'Artifact', mana_cost: '{1}', mana_value: 1 },
+                ],
+                manaPool: { white: 5, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+              }
+            : p
+        ),
+        playableFromGraveyard: { player1: { sev: 10 } },
+        turn: 1,
+      };
+
+      adapter.initializeGame('test-game', stateWithGraveyard);
+      const castResult = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'graveyard',
+        cardId: 'sev',
+        cardName: "Sevinne's Reclamation",
+        cardTypes: ['sorcery'],
+        manaCost: { white: 1 },
+        targets: ['target-a'],
+        oracleText:
+          'Return target permanent card with mana value 3 or less from your graveyard to the battlefield. If this spell was cast from a graveyard, you may copy this spell and may choose a new target for the copy.',
+      });
+      expect(castResult.next).toBeDefined();
+
+      const resolveResult = adapter.executeAction('test-game', {
+        type: 'resolveStack',
+      });
+
+      expect(((resolveResult.next.players.find(p => p.id === 'player1') as any)?.graveyard || [])).toEqual([]);
+      expect(((resolveResult.next.battlefield || []) as any[]).map((perm: any) => perm.card?.id).sort()).toEqual([
+        'target-a',
+        'target-b',
+      ]);
     });
 
     it('should resolve targeted opponent spell effect in multiplayer from stack targets', () => {
@@ -909,6 +1035,157 @@ describe('RulesEngineAdapter', () => {
       const p1 = result.next.players.find(p => p.id === 'player1') as any;
       expect((p1.exile || []).some((c: any) => c.id === 'ex1')).toBe(false);
       expect((result.next as any).playableFromExile?.player1?.ex1).toBeUndefined();
+    });
+
+    it('should cast a spell from exile without spending mana when the permission waives mana cost', () => {
+      const stateWithFreeExileCast: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                exile: [
+                  {
+                    id: 'free-ex1',
+                    name: 'Lightning Bolt',
+                    type_line: 'Instant',
+                    canBePlayedBy: 'player1',
+                    playableUntilTurn: 10,
+                    withoutPayingManaCost: true,
+                  },
+                ],
+                manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+              }
+            : p
+        ),
+        playableFromExile: { player1: { 'free-ex1': 10 } },
+        turn: 1,
+      };
+
+      adapter.initializeGame('test-game', stateWithFreeExileCast);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'exile',
+        cardId: 'free-ex1',
+        cardName: 'Lightning Bolt',
+        cardTypes: ['instant'],
+        manaCost: { red: 1 },
+        targets: [],
+      });
+
+      const p1 = result.next.players.find(p => p.id === 'player1') as any;
+      expect((p1.exile || []).some((c: any) => c.id === 'free-ex1')).toBe(false);
+      expect(p1.manaPool).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+    });
+
+    it('should remove a spell from graveyard when it is cast from graveyard', () => {
+      const stateWithGraveyard: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                graveyard: [{ id: 'gy1', name: 'Opt', type_line: 'Instant', canBePlayedBy: 'player1', playableUntilTurn: 10 }],
+                manaPool: { white: 5, blue: 5, black: 0, red: 0, green: 0, colorless: 0 },
+              }
+            : p
+        ),
+        playableFromGraveyard: { player1: { gy1: 10 } },
+        turn: 1,
+      };
+
+      adapter.initializeGame('test-game', stateWithGraveyard);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'graveyard',
+        cardId: 'gy1',
+        cardName: 'Opt',
+        cardTypes: ['instant'],
+        manaCost: { blue: 1 },
+        targets: [],
+      });
+
+      const p1 = result.next.players.find(p => p.id === 'player1') as any;
+      expect((p1.graveyard || []).some((c: any) => c.id === 'gy1')).toBe(false);
+      expect((result.next as any).playableFromGraveyard?.player1?.gy1).toBeUndefined();
+    });
+
+    it('should cast a spell from graveyard using its printed mana cost when flashback metadata says mana_cost', () => {
+      const stateWithFlashbackManaCost: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                graveyard: [
+                  {
+                    id: 'gy-flash',
+                    name: 'Lightning Bolt',
+                    type_line: 'Instant',
+                    mana_cost: '{R}',
+                    canBePlayedBy: 'player1',
+                    playableUntilTurn: 10,
+                    graveyardCastCost: 'mana_cost',
+                  },
+                ],
+                manaPool: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+              }
+            : p
+        ),
+        playableFromGraveyard: { player1: { 'gy-flash': 10 } },
+        turn: 1,
+      };
+
+      adapter.initializeGame('test-game', stateWithFlashbackManaCost);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'graveyard',
+        cardId: 'gy-flash',
+        cardName: 'Lightning Bolt',
+        cardTypes: ['instant'],
+        targets: [],
+      });
+
+      const p1 = result.next.players.find(p => p.id === 'player1') as any;
+      expect((p1.graveyard || []).some((c: any) => c.id === 'gy-flash')).toBe(false);
+      expect(p1.manaPool).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+    });
+
+    it('should play a land from graveyard when permitted', () => {
+      const stateWithGraveyardLand: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                graveyard: [{ id: 'gy-land', name: 'Mountain', type_line: 'Basic Land - Mountain', canBePlayedBy: 'player1', playableUntilTurn: 10 }],
+              }
+            : p
+        ),
+        playableFromGraveyard: { player1: { 'gy-land': 10 } },
+        turn: 1,
+        landsPlayedThisTurn: { player1: 0 },
+        battlefield: [],
+      };
+
+      adapter.initializeGame('test-game', stateWithGraveyardLand);
+      const result = adapter.executeAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'graveyard',
+        cardId: 'gy-land',
+      });
+
+      const p1 = result.next.players.find(p => p.id === 'player1') as any;
+      expect((p1.graveyard || []).some((c: any) => c.id === 'gy-land')).toBe(false);
+      expect(((result.next as any).battlefield || []).some((perm: any) => perm.id === 'gy-land')).toBe(true);
+      expect((result.next as any).landsPlayedThisTurn?.player1).toBe(1);
+      expect((result.next as any).playableFromGraveyard?.player1?.['gy-land']).toBeUndefined();
     });
 
     it('should execute triggered ability oracle effect on stack resolution', () => {
@@ -2246,6 +2523,173 @@ describe('RulesEngineAdapter', () => {
       const resolveResult = adapter.executeAction('test-game', { type: 'resolveStack' });
 
       expect((resolveResult.next.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['krovikan-vampire']);
+    });
+  });
+
+  describe('delayed dies triggers', () => {
+    it('puts watched dies triggers on the stack and resolves them after the creature hits the graveyard', () => {
+      const delayedTrigger = createDelayedTrigger(
+        'not-dead',
+        'Not Dead After All',
+        'player1',
+        DelayedTriggerTiming.WHEN_DIES,
+        'Return it to the battlefield tapped under its owner\'s control, then create a Treasure token.',
+        1,
+        {
+          watchingPermanentId: 'captured-bear',
+          eventDataSnapshot: {
+            sourceId: 'not-dead',
+            sourceControllerId: 'player1',
+            targetPermanentId: 'captured-bear',
+            chosenObjectIds: ['captured-bear'],
+          },
+        }
+      );
+
+      const startState: GameState = {
+        ...testGameState,
+        battlefield: [
+          {
+            id: 'captured-bear',
+            controller: 'player1',
+            owner: 'player1',
+            tapped: false,
+            attachments: [],
+            counters: {},
+            card: {
+              id: 'captured-bear',
+              name: 'Captured Bear',
+              type_line: 'Creature - Bear',
+              power: '2',
+              toughness: '2',
+            },
+          },
+        ] as any,
+        delayedTriggerRegistry: registerDelayedTrigger(
+          { triggers: [], firedTriggerIds: [] },
+          delayedTrigger
+        ),
+      } as any;
+
+      adapter.initializeGame('test-game', startState);
+
+      const nextState: GameState = {
+        ...startState,
+        battlefield: [] as any,
+        players: startState.players.map(player =>
+          player.id === 'player1'
+            ? {
+                ...player,
+                graveyard: [
+                  ...(player.graveyard || []),
+                  {
+                    id: 'captured-bear',
+                    name: 'Captured Bear',
+                    type_line: 'Creature - Bear',
+                    power: '2',
+                    toughness: '2',
+                  },
+                ],
+              }
+            : player
+        ),
+      } as any;
+
+      const processed = (adapter as any).processDiesDelayedTriggers('test-game', startState, nextState);
+
+      expect(processed.state.delayedTriggerRegistry.triggers).toHaveLength(0);
+      expect(processed.state.delayedTriggerRegistry.firedTriggerIds).toContain(delayedTrigger.id);
+      expect((processed.state.stack as any[])).toHaveLength(1);
+
+      ((adapter as any).gameStates as Map<string, GameState>).set('test-game', processed.state);
+      const resolveResult = adapter.executeAction('test-game', { type: 'resolveStack' });
+
+      const player1 = resolveResult.next.players.find(player => player.id === 'player1') as any;
+      expect((player1.graveyard || []).map((card: any) => card.id)).toEqual([]);
+      expect(
+        (resolveResult.next.battlefield as any[]).some(
+          (perm: any) => String(perm?.card?.id || perm?.id || '') === 'captured-bear'
+        )
+      ).toBe(true);
+      expect((resolveResult.next.battlefield as any[]).some((perm: any) => perm.card?.name === 'Treasure')).toBe(true);
+    });
+
+    it('expires watched dies triggers when the watched permanent leaves without dying', () => {
+      const delayedTrigger = createDelayedTrigger(
+        'flame-wreathed-phoenix',
+        'Flame-Wreathed Phoenix',
+        'player1',
+        DelayedTriggerTiming.WHEN_DIES,
+        "Return it to its owner's hand.",
+        1,
+        {
+          watchingPermanentId: 'phoenix',
+          effectData: {
+            expireWhenPermanentLeavesBattlefield: true,
+          },
+          eventDataSnapshot: {
+            sourceId: 'phoenix',
+            sourceControllerId: 'player1',
+            targetPermanentId: 'phoenix',
+            chosenObjectIds: ['phoenix'],
+          },
+        }
+      );
+
+      const startState: GameState = {
+        ...testGameState,
+        battlefield: [
+          {
+            id: 'phoenix',
+            controller: 'player1',
+            owner: 'player1',
+            tapped: false,
+            attachments: [],
+            counters: {},
+            card: {
+              id: 'phoenix',
+              name: 'Flame-Wreathed Phoenix',
+              type_line: 'Creature - Phoenix',
+              power: '3',
+              toughness: '3',
+            },
+          },
+        ] as any,
+        delayedTriggerRegistry: registerDelayedTrigger(
+          { triggers: [], firedTriggerIds: [] },
+          delayedTrigger
+        ),
+      } as any;
+
+      adapter.initializeGame('test-game', startState);
+
+      const nextState: GameState = {
+        ...startState,
+        battlefield: [] as any,
+        players: startState.players.map(player =>
+          player.id === 'player1'
+            ? {
+                ...player,
+                hand: [
+                  ...(player.hand || []),
+                  {
+                    id: 'phoenix',
+                    name: 'Flame-Wreathed Phoenix',
+                    type_line: 'Creature - Phoenix',
+                    power: '3',
+                    toughness: '3',
+                  },
+                ],
+              }
+            : player
+        ),
+      } as any;
+
+      const processed = (adapter as any).processDiesDelayedTriggers('test-game', startState, nextState);
+
+      expect(processed.state.delayedTriggerRegistry.triggers).toHaveLength(0);
+      expect(processed.state.delayedTriggerRegistry.firedTriggerIds).toHaveLength(0);
+      expect((processed.state.stack as any[])).toHaveLength(0);
     });
   });
   

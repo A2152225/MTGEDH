@@ -51,7 +51,10 @@ import {
   payLifeActionForState,
 } from './rulesEngineAdapterStateSupport';
 import { dispatchRulesEngineAction } from './rulesEngineAdapterActionDispatch';
-import { processControlLossDelayedTriggersForState } from './rulesEngineAdapterDelayedTriggerSupport';
+import {
+  processControlLossDelayedTriggersForState,
+  processDiesDelayedTriggersForState,
+} from './rulesEngineAdapterDelayedTriggerSupport';
 
 /** Simple mana pool interface for checking mana availability (doesn't need restricted mana info) */
 interface SimpleManaPool {
@@ -70,6 +73,7 @@ import {
   type StackObject,
 } from './spellCasting';
 import { consumePlayableFromExileForCard, stripPlayableFromExileTags } from './playableFromExile';
+import { consumePlayableFromGraveyardForCard, stripPlayableFromGraveyardTags } from './playableFromGraveyard';
 import {
   createEmptyStack,
   pushToStack,
@@ -329,6 +333,30 @@ export class RulesEngineAdapter {
       return { legal: true };
     }
 
+    if (fromZone === 'graveyard') {
+      const graveyardCard = findById(player.graveyard);
+      if (!graveyardCard) return { legal: false, reason: 'Card not found in graveyard' };
+      const typeLineLower = String(graveyardCard?.type_line || '').toLowerCase();
+      if (!typeLineLower.includes('land')) return { legal: false, reason: 'Card is not a land' };
+
+      const playableFromGraveyard = stateAny.playableFromGraveyard?.[action.playerId] || {};
+      const currentTurn = Number(stateAny.turnNumber ?? (state as any).turn ?? 0) || 0;
+      const until = playableFromGraveyard[cardId] ?? graveyardCard.playableUntilTurn;
+      const canBePlayedBy = graveyardCard.canBePlayedBy;
+
+      if (canBePlayedBy && canBePlayedBy !== action.playerId) {
+        return { legal: false, reason: 'Card is not playable by this player' };
+      }
+      if (typeof until !== 'number') {
+        return { legal: false, reason: 'No permission to play this land from graveyard' };
+      }
+      if (until < currentTurn) {
+        return { legal: false, reason: 'Permission window to play from graveyard has expired' };
+      }
+
+      return { legal: true };
+    }
+
     return { legal: false, reason: `Unsupported fromZone: ${fromZone}` };
   }
   
@@ -356,8 +384,18 @@ export class RulesEngineAdapter {
       };
     }
     
+    const fromZone = String(action.fromZone || 'hand').toLowerCase();
+    const cardId = String(action.cardId || action.spellId || '');
+    const sourceCard = this.findSourceZoneCard(state, action.playerId, cardId, fromZone);
+    const ignoresManaCost = Boolean((sourceCard as any)?.withoutPayingManaCost);
+    const derivedManaCostInput =
+      action.manaCost ??
+      (fromZone === 'graveyard' && (sourceCard as any)?.graveyardCastCost === 'mana_cost'
+        ? ((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost)
+        : undefined);
+
     // Check mana availability if mana cost is provided
-    if (action.manaCost) {
+    if (derivedManaCostInput && !ignoresManaCost) {
       const player = state.players.find(p => p.id === action.playerId);
       if (!player) {
         return {
@@ -367,7 +405,7 @@ export class RulesEngineAdapter {
       }
       
       // Parse mana cost string (e.g., "{2}{U}{U}")
-      const cost = this.parseManaCostString(action.manaCost);
+      const cost = this.parseManaCostString(derivedManaCostInput);
       const pool = player.manaPool || { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
       
       // Check if player can pay the cost
@@ -382,10 +420,6 @@ export class RulesEngineAdapter {
     
     // If a cardId is provided, enforce the card is in the declared origin zone.
     // This prevents "cast from exile" from silently defaulting to hand casts.
-    const fromZone = String(action.fromZone || 'hand').toLowerCase();
-    const cardId = String(action.cardId || action.spellId || '');
-    const sourceCard = this.findSourceZoneCard(state, action.playerId, cardId, fromZone);
-
     // Check timing restrictions (main phase, stack empty for sorceries, etc.)
     const cardTypes = this.getCardTypes(action.card || action.spell || sourceCard);
     const timingContext = this.buildTimingContext(state, action.playerId);
@@ -449,6 +483,44 @@ export class RulesEngineAdapter {
         return { legal: false, reason: 'Permission window to cast from exile has expired' };
       }
     }
+
+    if (fromZone === 'graveyard') {
+      if (!cardId) {
+        return { legal: false, reason: 'Missing cardId for graveyard cast' };
+      }
+
+      const player = state.players.find(p => p.id === action.playerId) as any;
+      if (!player) {
+        return { legal: false, reason: 'Player not found' };
+      }
+
+      const graveyardArr: any[] = Array.isArray(player.graveyard) ? player.graveyard : [];
+      const graveyardCard = graveyardArr.find(c => String(c?.id || c?.cardId || '') === cardId);
+      if (!graveyardCard) {
+        return { legal: false, reason: 'Card not found in graveyard' };
+      }
+
+      const typeLineLower = String(graveyardCard?.type_line || '').toLowerCase();
+      if (typeLineLower.includes('land')) {
+        return { legal: false, reason: 'Cannot cast a land from graveyard' };
+      }
+
+      const stateAny: any = state as any;
+      const currentTurn = Number(stateAny.turnNumber ?? (state as any).turn ?? 0) || 0;
+      const playableFromGraveyard = stateAny.playableFromGraveyard?.[action.playerId] || {};
+      const until = playableFromGraveyard[cardId] ?? graveyardCard.playableUntilTurn;
+      const canBePlayedBy = graveyardCard.canBePlayedBy;
+
+      if (canBePlayedBy && canBePlayedBy !== action.playerId) {
+        return { legal: false, reason: 'Card is not playable by this player' };
+      }
+      if (typeof until !== 'number') {
+        return { legal: false, reason: 'No permission to cast this card from graveyard' };
+      }
+      if (until < currentTurn) {
+        return { legal: false, reason: 'Permission window to cast from graveyard has expired' };
+      }
+    }
     
     return { legal: true };
   }
@@ -491,6 +563,7 @@ export class RulesEngineAdapter {
 
     const sourceZoneCards = (() => {
       if (fromZone === 'exile') return Array.isArray(player.exile) ? player.exile : [];
+      if (fromZone === 'graveyard') return Array.isArray(player.graveyard) ? player.graveyard : [];
       return Array.isArray(player.hand) ? player.hand : [];
     })();
 
@@ -774,6 +847,13 @@ export class RulesEngineAdapter {
       stack: [...(((this.stacks.get(gameId)?.objects as any[]) || ((result.next as any).stack as any[]) || []))] as any,
     };
 
+    const diesAfterAction = this.processDiesDelayedTriggers(
+      gameId,
+      currentState,
+      syncedResultState
+    );
+    syncedResultState = diesAfterAction.state;
+
     const controlLossAfterAction = this.processControlLossDelayedTriggers(
       gameId,
       currentState,
@@ -791,6 +871,13 @@ export class RulesEngineAdapter {
       stack: [...(((this.stacks.get(gameId)?.objects as any[]) || ((sbaResult.next as any).stack as any[]) || []))] as any,
     };
 
+    const diesAfterSba = this.processDiesDelayedTriggers(
+      gameId,
+      syncedResultState,
+      syncedSbaState
+    );
+    syncedSbaState = diesAfterSba.state;
+
     const controlLossAfterSba = this.processControlLossDelayedTriggers(
       gameId,
       syncedResultState,
@@ -803,11 +890,27 @@ export class RulesEngineAdapter {
       next: syncedSbaState,
       log: [
         ...(result.log || []),
+        ...(diesAfterAction.log || []),
         ...(controlLossAfterAction.log || []),
         ...(sbaResult.log || []),
+        ...(diesAfterSba.log || []),
         ...(controlLossAfterSba.log || []),
       ],
     };
+  }
+
+  private processDiesDelayedTriggers(
+    gameId: string,
+    previousState: GameState,
+    nextState: GameState
+  ): { state: GameState; log: string[] } {
+    return processDiesDelayedTriggersForState({
+      gameId,
+      previousState,
+      nextState,
+      getStack: targetGameId => this.stacks.get(targetGameId),
+      setStack: (targetGameId, stack) => this.stacks.set(targetGameId, stack),
+    });
   }
 
   private processControlLossDelayedTriggers(
@@ -876,7 +979,13 @@ export class RulesEngineAdapter {
         : this.collectTargetIdsFromEventData(spellTargetHints);
     
     // Prepare casting context
-    const manaCost = action.manaCost ? this.parseManaCostString(action.manaCost) : {};
+    const manaCost = (sourceCard as any)?.withoutPayingManaCost
+      ? {}
+      : action.manaCost
+        ? this.parseManaCostString(action.manaCost)
+        : fromZone === 'graveyard' && (sourceCard as any)?.graveyardCastCost === 'mana_cost'
+          ? this.parseManaCostString((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost)
+        : {};
     const context: SpellCastingContext = {
       spellId: action.cardId,
       cardName: String(action.cardName || action.card?.name || sourceCard?.name || 'Unknown Card'),
@@ -934,6 +1043,15 @@ export class RulesEngineAdapter {
             kept.push(c);
           }
           next.exile = kept;
+        } else if (fromZone === 'graveyard') {
+          const graveyard: any[] = Array.isArray((p as any).graveyard) ? [...(p as any).graveyard] : [];
+          const kept: any[] = [];
+          for (const c of graveyard) {
+            const id = String(c?.id || c?.cardId || '');
+            if (id === cardId) continue;
+            kept.push(c);
+          }
+          next.graveyard = kept;
         }
       }
 
@@ -948,6 +1066,8 @@ export class RulesEngineAdapter {
     // Clear any playable-from-exile marker if we cast from exile.
     if (fromZone === 'exile' && cardId) {
       nextState = consumePlayableFromExileForCard(nextState, action.playerId, cardId) as any;
+    } else if (fromZone === 'graveyard' && cardId) {
+      nextState = consumePlayableFromGraveyardForCard(nextState, action.playerId, cardId) as any;
     }
     
     // Add to stack (stored separately for now)
@@ -977,6 +1097,7 @@ export class RulesEngineAdapter {
       context.cardName,
       {
         ...spellTargetHints,
+        castFromZone: fromZone,
         spellType:
           (Array.isArray(action.cardTypes) && action.cardTypes.length > 0
             ? action.cardTypes.join(' ')
@@ -1061,7 +1182,7 @@ export class RulesEngineAdapter {
   }
 
   /**
-   * Play a land (special action). Supports playing from hand and from exile.
+   * Play a land (special action). Supports playing from hand, exile, and graveyard.
    */
   private playLandAction(gameId: string, action: any): EngineResult<GameState> {
     const state = this.gameStates.get(gameId)!;
@@ -1080,6 +1201,7 @@ export class RulesEngineAdapter {
     const player: any = state.players[playerIndex] as any;
     const hand: any[] = Array.isArray(player.hand) ? [...player.hand] : [];
     const exile: any[] = Array.isArray(player.exile) ? [...player.exile] : [];
+    const graveyard: any[] = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
 
     let card: any | null = null;
     if (fromZone === 'hand') {
@@ -1094,6 +1216,12 @@ export class RulesEngineAdapter {
         card = exile[idx];
         exile.splice(idx, 1);
       }
+    } else if (fromZone === 'graveyard') {
+      const idx = graveyard.findIndex(c => String(c?.id || c?.cardId || '') === cardId);
+      if (idx >= 0) {
+        card = graveyard[idx];
+        graveyard.splice(idx, 1);
+      }
     }
 
     if (!card) {
@@ -1105,14 +1233,18 @@ export class RulesEngineAdapter {
       return { next: state, log: ['Card is not a land'] };
     }
 
-    // Strip impulse markers when the card leaves exile.
-    const restCard = stripPlayableFromExileTags(card);
+    // Strip temporary play-permission markers when the card leaves a non-hand zone.
+    const restCard =
+      fromZone === 'graveyard'
+        ? stripPlayableFromGraveyardTags(card)
+        : stripPlayableFromExileTags(card);
     const battlefieldPermanent: any = {
       id: cardId,
       controller: playerId,
       owner: playerId,
       tapped: false,
-      card: { ...(restCard as any), id: cardId, zone: 'battlefield' },
+      enteredFromZone: fromZone,
+      card: { ...(restCard as any), id: cardId, zone: 'battlefield', enteredFromZone: fromZone },
     };
 
     const updatedPlayers = state.players.map(p => {
@@ -1121,6 +1253,7 @@ export class RulesEngineAdapter {
         ...(p as any),
         hand,
         exile,
+        graveyard,
       } as any;
     });
 
@@ -1135,6 +1268,9 @@ export class RulesEngineAdapter {
     if (fromZone === 'exile') {
       const consumed = consumePlayableFromExileForCard(stateAny as any, playerId, cardId) as any;
       stateAny.playableFromExile = (consumed as any).playableFromExile;
+    } else if (fromZone === 'graveyard') {
+      const consumed = consumePlayableFromGraveyardForCard(stateAny as any, playerId, cardId) as any;
+      stateAny.playableFromGraveyard = (consumed as any).playableFromGraveyard;
     }
 
     // Emit a generic ETB/zone-change style event.

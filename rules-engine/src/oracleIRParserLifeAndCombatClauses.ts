@@ -98,6 +98,28 @@ export function tryParseLifeAndCombatClause(args: {
   }
 
   {
+    const dealDamageEqual = clause.match(/^deal\s+damage\s+equal\s+to\s+(.+?)\s+to\s+(.+)$/i);
+    if (dealDamageEqual) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: { kind: 'unknown', raw: String(dealDamageEqual[1] || '').trim() },
+        target: parseObjectSelector(dealDamageEqual[2]),
+        raw: rawClause,
+      });
+    }
+
+    const sourceDealsDamageEqual = clause.match(
+      /^(?:it|this (?:permanent|spell)|[a-z0-9 ,.'â€™/-]+)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+to\s+(.+)$/i
+    );
+    if (sourceDealsDamageEqual) {
+      return withMeta({
+        kind: 'deal_damage',
+        amount: { kind: 'unknown', raw: String(sourceDealsDamageEqual[1] || '').trim() },
+        target: parseObjectSelector(sourceDealsDamageEqual[2]),
+        raw: rawClause,
+      });
+    }
+
     const dealDamage = clause.match(/^deal\s+(that much|\d+|x|[a-z]+)\s+damage\s+to\s+(.+)$/i);
     if (dealDamage) {
       return withMeta({

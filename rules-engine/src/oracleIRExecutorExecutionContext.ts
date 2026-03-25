@@ -50,6 +50,8 @@ export function buildOracleIRExecutionContext(
   const hintTargetOpponentId = normalizeId(hint?.targetOpponentId);
   const hintTargetPlayerId = normalizeId(hint?.targetPlayerId);
   const hintTargetPermanentId = normalizeId(hint?.targetPermanentId);
+  const hintCastFromZone = typeof hint?.castFromZone === 'string' ? hint.castFromZone.trim().toLowerCase() || undefined : undefined;
+  const hintEnteredFromZone = typeof hint?.enteredFromZone === 'string' ? hint.enteredFromZone.trim().toLowerCase() || undefined : undefined;
   const hintChosenObjectIds = Array.isArray(hint?.chosenObjectIds)
     ? hint.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
     : undefined;
@@ -131,18 +133,22 @@ export function buildOracleIRExecutionContext(
       !selectorContext.chosenObjectIds &&
       !referenceSpellTypes &&
       !hintTargetPermanentId &&
+      !hintCastFromZone &&
+      !hintEnteredFromZone &&
       !hint?.tapOrUntapChoice &&
       typeof hint?.wonCoinFlip !== 'boolean' &&
       typeof hint?.winningVoteChoice === 'undefined'
     ) {
       return base;
     }
-    return {
-      ...base,
-      controllerId: normalizedControllerId,
-      ...(selectorContext.chosenObjectIds ? { selectorContext } : {}),
-      ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
-      ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
+      return {
+        ...base,
+        controllerId: normalizedControllerId,
+        ...(hintCastFromZone ? { castFromZone: hintCastFromZone } : {}),
+        ...(hintEnteredFromZone ? { enteredFromZone: hintEnteredFromZone } : {}),
+        ...(selectorContext.chosenObjectIds ? { selectorContext } : {}),
+        ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
+        ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
       ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
       ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
       ...(typeof hint?.winningVoteChoice !== 'undefined' ? { winningVoteChoice: hint.winningVoteChoice } : {}),
@@ -152,6 +158,8 @@ export function buildOracleIRExecutionContext(
   return {
     ...base,
     controllerId: normalizedControllerId,
+    ...(hintCastFromZone ? { castFromZone: hintCastFromZone } : {}),
+    ...(hintEnteredFromZone ? { enteredFromZone: hintEnteredFromZone } : {}),
     selectorContext,
     ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
     ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),

@@ -3,7 +3,12 @@ import type { GameState } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import { DelayedTriggerTiming, checkDelayedTriggers, processDelayedTriggers } from '../src/delayedTriggeredAbilities';
-import { executeTriggeredAbilityEffectWithOracleIR } from '../src/triggeredAbilities';
+import {
+  executeTriggeredAbilityEffectWithOracleIR,
+  parseTriggeredAbilitiesFromText,
+  processEventAndExecuteTriggeredOracle,
+  TriggerEvent,
+} from '../src/triggeredAbilities';
 import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
@@ -14672,6 +14677,206 @@ describe('Oracle IR Executor', () => {
     expect(result.automationGaps.some(gap => gap.reasonCode === 'impossible_action')).toBe(false);
   });
 
+  it('applies Spell mastery conditional battlefield-entry counters when your graveyard has enough instant and/or sorcery cards', () => {
+    const ir = parseOracleTextToIR(
+      'Put target creature card from a graveyard onto the battlefield under your control. Spell mastery — If there are two or more instant and/or sorcery cards in your graveyard, that creature enters with two additional +1/+1 counters on it.',
+      'Necromantic Summons'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'i1', name: 'Shock', type_line: 'Instant' },
+            { id: 's1', name: 'Sign in Blood', type_line: 'Sorcery' },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature - Bear' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'g1' });
+    const perm = (result.state.battlefield as any[])[0];
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(perm.counters).toEqual({ '+1/+1': 2 });
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it('does not apply Spell mastery battlefield-entry counters when your graveyard is below the threshold', () => {
+    const ir = parseOracleTextToIR(
+      'Put target creature card from a graveyard onto the battlefield under your control. Spell mastery — If there are two or more instant and/or sorcery cards in your graveyard, that creature enters with two additional +1/+1 counters on it.',
+      'Necromantic Summons'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'i1', name: 'Shock', type_line: 'Instant' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature - Bear' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'g1' });
+    const perm = (result.state.battlefield as any[])[0];
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(perm.counters || {}).toEqual({});
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+  });
+
+  it('applies life loss equal to the reanimated creature mana value for Reanimate-style followups', () => {
+    const ir = parseOracleTextToIR(
+      'Put target creature card from a graveyard onto the battlefield under your control. You lose life equal to its mana value.',
+      'Reanimate'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'g1', name: 'Rune-Scarred Demon', type_line: 'Creature - Demon', mana_value: 7 }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'g1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(p1.life).toBe(33);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'lose_life')).toBe(false);
+  });
+
+  it('applies Necromancy-style return-and-attach followups to the returned creature', () => {
+    const ir = parseOracleTextToIR(
+      'When this enchantment enters, if it\'s on the battlefield, it becomes an Aura with "enchant creature put onto the battlefield with Necromancy." Put target creature card from a graveyard onto the battlefield under your control and attach this enchantment to it.',
+      'Necromancy'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'g1', name: 'Grizzly Bears', type_line: 'Creature - Bear', mana_value: 2 }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'necromancy-aura',
+          controller: 'p1',
+          owner: 'p1',
+          attachments: [],
+          attachedTo: undefined,
+          card: {
+            id: 'necromancy-card',
+            name: 'Necromancy',
+            type_line: 'Enchantment',
+            oracle_text:
+              'When Necromancy enters, if it\'s on the battlefield, it becomes an Aura with enchant creature put onto the battlefield with Necromancy.',
+          },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'necromancy-aura',
+      sourceName: 'Necromancy',
+      targetCreatureId: 'g1',
+    });
+
+    const returnedCreature = (result.state.battlefield as any[]).find(perm => perm?.card?.id === 'g1') as any;
+    const necromancy = (result.state.battlefield as any[]).find(perm => perm?.id === 'necromancy-aura') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(returnedCreature).toBeTruthy();
+    expect(returnedCreature.controller).toBe('p1');
+    expect(returnedCreature.owner).toBe('p2');
+    expect(necromancy.attachedTo).toBe(returnedCreature.id);
+    expect(returnedCreature.attachments).toContain('necromancy-aura');
+    expect(p2.graveyard).toHaveLength(0);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'attach')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'attach')).toBe(false);
+  });
+
   it("safe-skips move_zone for a target creature card from a graveyard when the bound card fails a static mana value cap", () => {
     const ir = parseOracleTextToIR(
       'Put target creature card with mana value 4 or less from a graveyard onto the battlefield under your control with a finality counter on it.',
@@ -15792,6 +15997,2795 @@ describe('Oracle IR Executor', () => {
 
     expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
     expect(remainingIds).toEqual(['outfitted-jouster', 'safe-aura-after-equipment']);
+  });
+
+  it('puts a targeted Aura from a graveyard onto the battlefield attached to this creature', () => {
+    const ir = parseOracleTextToIR(
+      'Put target Aura card from a graveyard onto the battlefield under your control attached to this creature.',
+      'Iridescent Drake'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'dead-aura',
+              name: 'Flight of Fancy',
+              type_line: 'Enchantment - Aura',
+              oracle_text: 'Enchant creature\nWhen Flight of Fancy enters, draw two cards.',
+            },
+          ],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'iridescent-drake',
+          controller: 'p1',
+          owner: 'p1',
+          attachments: [],
+          card: { id: 'iridescent-drake-card', name: 'Iridescent Drake', type_line: 'Creature - Drake' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'iridescent-drake',
+      sourceName: 'Iridescent Drake',
+      targetPermanentId: 'dead-aura',
+    });
+
+    const aura = (result.state.battlefield as any[]).find(
+      perm => perm?.card?.id === 'dead-aura' || perm?.card?.name === 'Flight of Fancy'
+    ) as any;
+    const drake = (result.state.battlefield as any[]).find(perm => perm?.id === 'iridescent-drake') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(aura).toBeTruthy();
+    expect(aura.controller).toBe('p1');
+    expect(aura.owner).toBe('p2');
+    expect(aura.attachedTo).toBe('iridescent-drake');
+    expect(drake.attachments).toContain(aura.id);
+    expect(p2.graveyard).toHaveLength(0);
+  });
+
+  it('puts a targeted Aura from a graveyard onto the battlefield attached to your only creature', () => {
+    const ir = parseOracleTextToIR(
+      'Put target Aura card from a graveyard onto the battlefield under your control attached to a creature you control.',
+      'Nomad Mythmaker'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'dead-ward',
+              name: 'Hyena Umbra',
+              type_line: 'Enchantment - Aura',
+              oracle_text: 'Enchant creature\nEnchanted creature gets +1/+1 and has first strike.',
+            },
+          ],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'lone-bear',
+          controller: 'p1',
+          owner: 'p1',
+          attachments: [],
+          card: { id: 'lone-bear-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'nomad-mythmaker',
+      sourceName: 'Nomad Mythmaker',
+      targetPermanentId: 'dead-ward',
+    });
+
+    const aura = (result.state.battlefield as any[]).find(perm => perm?.card?.id === 'dead-ward') as any;
+    const bear = (result.state.battlefield as any[]).find(perm => perm?.id === 'lone-bear') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(aura).toBeTruthy();
+    expect(aura.attachedTo).toBe('lone-bear');
+    expect(bear.attachments).toContain(aura.id);
+  });
+
+  it('classifies Aura reanimation attached to a creature you control as player choice when multiple creatures fit', () => {
+    const ir = parseOracleTextToIR(
+      'Put target Aura card from a graveyard onto the battlefield under your control attached to a creature you control.',
+      'Nomad Mythmaker'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'choice-aura',
+              name: 'Spirit Mantle',
+              type_line: 'Enchantment - Aura',
+              oracle_text: 'Enchant creature\nEnchanted creature gets +1/+1 and has protection from creatures.',
+            },
+          ],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'choice-bear-a',
+          controller: 'p1',
+          owner: 'p1',
+          attachments: [],
+          card: { id: 'choice-bear-a-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+        },
+        {
+          id: 'choice-bear-b',
+          controller: 'p1',
+          owner: 'p1',
+          attachments: [],
+          card: { id: 'choice-bear-b-card', name: 'Grizzly Bears', type_line: 'Creature - Bear' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'nomad-mythmaker',
+      sourceName: 'Nomad Mythmaker',
+      targetPermanentId: 'choice-aura',
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.automationGaps.some(gap => gap.reasonCode === 'player_choice_required')).toBe(true);
+    expect(p2.graveyard).toHaveLength(1);
+    expect((result.state.battlefield as any[]).some(perm => perm?.card?.id === 'choice-aura')).toBe(false);
+  });
+
+  it('returns a creature with Necromancy and then attaches the source enchantment to it', () => {
+    const ir = parseOracleTextToIR(
+      'When this enchantment enters, if it\'s on the battlefield, it becomes an Aura with "enchant creature put onto the battlefield with Necromancy." Put target creature card from a graveyard onto the battlefield under your control and attach this enchantment to it.',
+      'Necromancy'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'dead-demon',
+              name: 'Abyssal Specter',
+              type_line: 'Creature - Specter',
+            },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'necromancy-source',
+          controller: 'p1',
+          owner: 'p1',
+          attachments: [],
+          card: {
+            id: 'necromancy-card',
+            name: 'Necromancy',
+            type_line: 'Enchantment',
+          },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'necromancy-source',
+      sourceName: 'Necromancy',
+      targetCreatureId: 'dead-demon',
+    });
+
+    const returnedCreature = (result.state.battlefield as any[]).find(
+      perm => perm?.card?.id === 'dead-demon' || perm?.card?.name === 'Abyssal Specter'
+    ) as any;
+    const necromancy = (result.state.battlefield as any[]).find(perm => perm?.id === 'necromancy-source') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'attach')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'attach')).toBe(false);
+    expect(returnedCreature).toBeTruthy();
+    expect(returnedCreature.controller).toBe('p1');
+    expect(necromancy.attachedTo).toBe(returnedCreature.id);
+    expect(returnedCreature.attachments).toContain('necromancy-source');
+    expect(p2.graveyard).toHaveLength(0);
+  });
+
+  it('applies Portal to Phyrexia-style upkeep reanimation under your control', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your upkeep, put target creature card from a graveyard onto the battlefield under your control.',
+      'Portal to Phyrexia'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'portal-target', name: 'Solemn Simulacrum', type_line: 'Artifact Creature - Golem' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Portal to Phyrexia',
+      targetCreatureId: 'portal-target',
+    });
+
+    const permanent = (result.state.battlefield as any[]).find(perm => perm?.card?.id === 'portal-target') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(permanent).toBeTruthy();
+    expect(permanent.controller).toBe('p1');
+    expect(p2.graveyard).toHaveLength(0);
+  });
+
+  it('applies Junji-style non-Dragon reanimation and preserves the non-Dragon exclusion', () => {
+    const ir = parseOracleTextToIR(
+      '• Put target non-Dragon creature card from a graveyard onto the battlefield under your control.',
+      'Junji, the Midnight Sky'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const successStart = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'junji-legal', name: 'Grizzly Bears', type_line: 'Creature - Bear' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const successResult = applyOracleIRStepsToGameState(successStart, steps, {
+      controllerId: 'p1',
+      sourceName: 'Junji, the Midnight Sky',
+      targetCreatureId: 'junji-legal',
+    });
+
+    const skippedStart = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'junji-dragon', name: 'Shivan Dragon', type_line: 'Creature - Dragon' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const skippedResult = applyOracleIRStepsToGameState(skippedStart, steps, {
+      controllerId: 'p1',
+      sourceName: 'Junji, the Midnight Sky',
+      targetCreatureId: 'junji-dragon',
+    });
+    const skippedP2 = skippedResult.state.players.find(p => p.id === 'p2') as any;
+
+    expect(successResult.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect((successResult.state.battlefield as any[]).some(perm => perm?.card?.id === 'junji-legal')).toBe(true);
+    expect(skippedResult.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(skippedResult.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(skippedP2.graveyard.map((card: any) => card.id)).toEqual(['junji-dragon']);
+  });
+
+  it('applies Beacon of Unrest-style artifact recursion under your control', () => {
+    const ir = parseOracleTextToIR(
+      'Put target artifact or creature card from a graveyard onto the battlefield under your control.',
+      'Beacon of Unrest'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'beacon-target', name: 'Worn Powerstone', type_line: 'Artifact' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Beacon of Unrest',
+      targetPermanentId: 'beacon-target',
+    });
+
+    const permanent = (result.state.battlefield as any[]).find(perm => perm?.card?.id === 'beacon-target') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(permanent).toBeTruthy();
+    expect(permanent.controller).toBe('p1');
+  });
+
+  it('creates a Liliana-style emblem from quoted emblem text', () => {
+    const ir = parseOracleTextToIR(
+      '−7: You get an emblem with "At the beginning of combat on your turn, put target creature card from a graveyard onto the battlefield under your control."',
+      'Liliana, Waker of the Dead'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+          emblems: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'liliana-waker',
+      sourceName: 'Liliana, Waker of the Dead',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const emblem = Array.isArray(p1?.emblems) ? p1.emblems[0] : null;
+
+    expect(result.appliedSteps.some(s => s.kind === 'create_emblem')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'create_emblem')).toBe(false);
+    expect(p1.emblems).toHaveLength(1);
+    expect(emblem?.name).toBe('Liliana, Waker of the Dead Emblem');
+    expect(emblem?.createdBy).toBe('Liliana, Waker of the Dead');
+    expect(emblem?.sourceId).toBe('liliana-waker');
+    expect(emblem?.abilities).toEqual([
+      'At the beginning of combat on your turn, put target creature card from a graveyard onto the battlefield under your control.',
+    ]);
+  });
+
+  it.each([
+    {
+      name: 'The Cruelty of Gix',
+      text: 'III â€” Put target creature card from a graveyard onto the battlefield under your control.',
+      targetKey: 'targetCreatureId',
+      card: { id: 'cruelty-target', name: 'Grizzly Bears', type_line: 'Creature - Bear' },
+    },
+    {
+      name: 'Vat Emergence',
+      text: 'Put target creature card from a graveyard onto the battlefield under your control.',
+      targetKey: 'targetCreatureId',
+      card: { id: 'vat-target', name: 'Baleful Strix', type_line: 'Artifact Creature - Bird' },
+    },
+    {
+      name: 'Chainer, Dementia Master',
+      text: '{B}{B}{B}, Pay 3 life: Put target creature card from a graveyard onto the battlefield under your control.',
+      targetKey: 'targetCreatureId',
+      card: { id: 'chainer-target', name: 'Phyrexian Rager', type_line: 'Creature - Horror' },
+    },
+    {
+      name: 'Too Greedily, Too Deep',
+      text: 'Put target creature card from a graveyard onto the battlefield under your control.',
+      targetKey: 'targetCreatureId',
+      card: { id: 'greed-target', name: 'Sakura-Tribe Elder', type_line: 'Creature - Snake Shaman' },
+    },
+    {
+      name: "Debtors' Knell",
+      text: 'At the beginning of your upkeep, put target creature card from a graveyard onto the battlefield under your control.',
+      targetKey: 'targetCreatureId',
+      card: { id: 'knell-target', name: 'Sun Titan', type_line: 'Creature - Giant' },
+    },
+    {
+      name: 'Gravespawn Sovereign',
+      text: 'Tap five untapped Zombies you control: Put target creature card from a graveyard onto the battlefield under your control.',
+      targetKey: 'targetCreatureId',
+      card: { id: 'sovereign-target', name: 'Diregraf Colossus', type_line: 'Creature - Zombie Giant' },
+    },
+    {
+      name: 'Demon of Dark Schemes',
+      text: '{2}{B}, Pay {E}{E}{E}{E}: Put target creature card from a graveyard onto the battlefield under your control tapped.',
+      targetKey: 'targetCreatureId',
+      card: { id: 'demon-target', name: 'Burnished Hart', type_line: 'Artifact Creature - Elk' },
+      tapped: true,
+    },
+    {
+      name: 'Quest for the Necropolis',
+      text: '{5}{B}, Sacrifice this enchantment: Put target creature card from a graveyard onto the battlefield under your control.',
+      targetKey: 'targetCreatureId',
+      card: { id: 'quest-target', name: 'Kokusho, the Evening Star', type_line: 'Creature - Dragon Spirit' },
+    },
+  ])('applies queue-backed graveyard recursion for $name', ({ name, text, targetKey, card, tapped }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [card],
+          exile: [],
+        } as any,
+      ],
+      battlefield: name === 'Veteran Survivor'
+        ? [
+            {
+              id: 'veteran-survivor',
+              controller: 'p1',
+              owner: 'p1',
+              tapped: true,
+              card: { id: 'veteran-survivor-card', name: 'Veteran Survivor', type_line: 'Creature - Human Survivor' },
+            } as any,
+          ]
+        : [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: name,
+      [targetKey]: card.id,
+    } as any);
+
+    const permanent = (result.state.battlefield as any[]).find(perm => perm?.card?.id === card.id) as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(permanent).toBeTruthy();
+    expect(permanent.controller).toBe('p1');
+    expect(p2.graveyard).toHaveLength(0);
+    if (tapped) {
+      expect(permanent.tapped).toBe(true);
+    }
+  });
+
+  it.each([
+    {
+      name: 'Fated Return',
+      text: 'Put target creature card from a graveyard onto the battlefield under your control.',
+      zone: 'opponent_graveyard',
+      targetKey: 'targetCreatureId',
+      card: { id: 'fated-target', name: 'Massacre Wurm', type_line: 'Creature - Wurm' },
+    },
+    {
+      name: 'Rise from the Grave',
+      text: 'Put target creature card from a graveyard onto the battlefield under your control.',
+      zone: 'opponent_graveyard',
+      targetKey: 'targetCreatureId',
+      card: { id: 'rise-target', name: 'Acidic Slime', type_line: 'Creature - Ooze' },
+    },
+    {
+      name: 'Ashiok, Sculptor of Fears',
+      text: '−5: Put target creature card from a graveyard onto the battlefield under your control.',
+      zone: 'opponent_graveyard',
+      targetKey: 'targetCreatureId',
+      card: { id: 'ashiok-target', name: 'Mulldrifter', type_line: 'Creature - Elemental' },
+    },
+    {
+      name: 'Grave Upheaval',
+      text: 'Put target creature card from a graveyard onto the battlefield under your control.',
+      zone: 'opponent_graveyard',
+      targetKey: 'targetCreatureId',
+      card: { id: 'upheaval-target', name: 'Ravenous Chupacabra', type_line: 'Creature - Beast Horror' },
+    },
+    {
+      name: 'Endless Obedience',
+      text: 'Put target creature card from a graveyard onto the battlefield under your control.',
+      zone: 'opponent_graveyard',
+      targetKey: 'targetCreatureId',
+      card: { id: 'obedience-target', name: 'Gray Merchant of Asphodel', type_line: 'Creature - Zombie' },
+    },
+    {
+      name: 'Sheoldred, Whispering One',
+      text: 'At the beginning of your upkeep, return target creature card from your graveyard to the battlefield.',
+      zone: 'your_graveyard',
+      targetKey: 'targetCreatureId',
+      card: { id: 'sheoldred-target', name: 'Shriekmaw', type_line: 'Creature - Elemental' },
+    },
+    {
+      name: 'Dread Return',
+      text: 'Return target creature card from your graveyard to the battlefield.',
+      zone: 'your_graveyard',
+      targetKey: 'targetCreatureId',
+      card: { id: 'dread-target', name: 'Solemn Simulacrum', type_line: 'Artifact Creature - Golem' },
+    },
+    {
+      name: 'Unburial Rites',
+      text: 'Return target creature card from your graveyard to the battlefield.',
+      zone: 'your_graveyard',
+      targetKey: 'targetCreatureId',
+      card: { id: 'rites-target', name: 'Rune-Scarred Demon', type_line: 'Creature - Demon' },
+    },
+  ])('applies queue-backed direct reanimation for $name', ({ name, text, zone, targetKey, card }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: zone === 'your_graveyard' ? [card] : [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: zone === 'opponent_graveyard' ? [card] : [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: name,
+      [targetKey]: card.id,
+    } as any);
+
+    const permanent = (result.state.battlefield as any[]).find((perm: any) => perm?.card?.id === card.id) as any;
+    const sourcePlayer = result.state.players.find(p => p.id === (zone === 'your_graveyard' ? 'p1' : 'p2')) as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(permanent).toBeTruthy();
+    expect(permanent.controller).toBe('p1');
+    expect(sourcePlayer.graveyard).toHaveLength(0);
+  });
+
+  it('applies Phyrexian Delver-style self-graveyard return plus mana-value life loss', () => {
+    const ir = parseOracleTextToIR(
+      "When Phyrexian Delver enters, return target creature card from your graveyard to the battlefield. You lose life equal to that card's mana value.",
+      'Phyrexian Delver'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'delver-target', name: 'Grave Titan', type_line: 'Creature - Giant', mana_value: 6 }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Phyrexian Delver',
+      targetCreatureId: 'delver-target',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const permanent = (result.state.battlefield as any[]).find((perm: any) => perm?.card?.id === 'delver-target') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'lose_life')).toBe(true);
+    expect(permanent).toBeTruthy();
+    expect(p1.life).toBe(34);
+    expect(p1.graveyard).toHaveLength(0);
+  });
+
+  it.each([
+    {
+      name: 'Naya Charm',
+      text: "Return target card from a graveyard to its owner's hand.",
+      card: { id: 'naya-target', name: 'Lightning Bolt', type_line: 'Instant' },
+    },
+    {
+      name: 'Pulse of Murasa',
+      text: "Return target creature or land card from a graveyard to its owner's hand.",
+      card: { id: 'pulse-target', name: 'Eternal Witness', type_line: 'Creature - Human Shaman' },
+    },
+    {
+      name: 'Revive the Fallen',
+      text: "Return target creature card from a graveyard to its owner's hand.",
+      card: { id: 'revive-target', name: 'Wall of Blossoms', type_line: 'Creature - Plant Wall' },
+    },
+    {
+      name: 'Mine Excavation',
+      text: "Return target artifact or enchantment card from a graveyard to its owner's hand.",
+      card: { id: 'excavation-target', name: 'Seal of Cleansing', type_line: 'Enchantment' },
+    },
+    {
+      name: 'Endbringer\'s Revel',
+      text: "Return target creature card from a graveyard to its owner's hand.",
+      card: { id: 'revel-target', name: 'Baleful Strix', type_line: 'Artifact Creature - Bird' },
+    },
+    {
+      name: 'Disturbing Plot',
+      text: "Return target creature card from a graveyard to its owner's hand.",
+      card: { id: 'plot-target', name: 'Satyr Wayfinder', type_line: 'Creature - Satyr' },
+    },
+  ])('applies queue-backed graveyard-to-hand recursion for $name', ({ name, text, card }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [card],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'veteran-survivor',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: { id: 'veteran-survivor-card', name: 'Veteran Survivor', type_line: 'Creature - Human Survivor' },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'veteran-survivor',
+      sourceName: name,
+      targetPermanentId: card.id,
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p2.graveyard).toHaveLength(0);
+    expect(p2.hand.map((entry: any) => entry.id)).toContain(card.id);
+  });
+
+  it.each([
+    {
+      name: 'Buried Ruin',
+      text: 'Return target artifact card from your graveyard to your hand.',
+      card: { id: 'buried-target', name: 'Mind Stone', type_line: 'Artifact' },
+    },
+    {
+      name: 'Phyrexian Reclamation',
+      text: 'Return target creature card from your graveyard to your hand.',
+      card: { id: 'reclamation-target', name: 'Solemn Simulacrum', type_line: 'Artifact Creature - Golem' },
+    },
+    {
+      name: 'Archaeomancer',
+      text: 'Return target instant or sorcery card from your graveyard to your hand.',
+      card: { id: 'archaeomancer-target', name: 'Counterspell', type_line: 'Instant' },
+    },
+    {
+      name: 'Evolution Witness',
+      text: 'Return target permanent card from your graveyard to your hand.',
+      card: { id: 'evolution-target', name: 'Pernicious Deed', type_line: 'Enchantment' },
+    },
+    {
+      name: 'Haven of the Spirit Dragon',
+      text: 'Return target Dragon creature card or Ugin planeswalker card from your graveyard to your hand.',
+      card: { id: 'haven-target', name: 'Thundermaw Hellkite', type_line: 'Creature - Dragon' },
+    },
+    {
+      name: 'Timeless Witness',
+      text: 'Return target card from your graveyard to your hand.',
+      card: { id: 'timeless-target', name: 'Kodama\'s Reach', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Regrowth',
+      text: 'Return target card from your graveyard to your hand.',
+      card: { id: 'regrowth-target', name: 'Swords to Plowshares', type_line: 'Instant' },
+    },
+    {
+      name: 'Honest Rutstein',
+      text: 'Return target creature card from your graveyard to your hand.',
+      card: { id: 'rutstein-target', name: 'Llanowar Elves', type_line: 'Creature - Elf Druid' },
+    },
+    {
+      name: 'Tortured Existence',
+      text: 'Return target creature card from your graveyard to your hand.',
+      card: { id: 'tortured-target', name: 'Reclamation Sage', type_line: 'Creature - Elf Shaman' },
+    },
+    {
+      name: 'Nyx Weaver',
+      text: 'Return target card from your graveyard to your hand.',
+      card: { id: 'nyx-target', name: 'Beast Within', type_line: 'Instant' },
+    },
+    {
+      name: 'Trading Post',
+      text: 'Return target artifact card from your graveyard to your hand.',
+      card: { id: 'trading-post-target', name: 'Solemn Simulacrum', type_line: 'Artifact Creature - Golem' },
+    },
+    {
+      name: 'Codex Shredder',
+      text: 'Return target card from your graveyard to your hand.',
+      card: { id: 'codex-target', name: 'Heroic Intervention', type_line: 'Instant' },
+    },
+    {
+      name: 'Memorial to Folly',
+      text: 'Return target creature card from your graveyard to your hand.',
+      card: { id: 'memorial-target', name: 'Yavimaya Elder', type_line: 'Creature - Human Druid' },
+    },
+    {
+      name: 'Tezzeret, Master of the Bridge',
+      text: 'Return target artifact card from your graveyard to your hand.',
+      card: { id: 'tezzeret-target', name: 'Chromatic Lantern', type_line: 'Artifact' },
+    },
+    {
+      name: "Stormchaser's Talent",
+      text: 'Return target instant or sorcery card from your graveyard to your hand.',
+      card: { id: 'stormchaser-target', name: 'Expressive Iteration', type_line: 'Sorcery' },
+    },
+    {
+      name: "Kolaghan's Command",
+      text: 'Return target creature card from your graveyard to your hand.',
+      card: { id: 'kolaghan-target', name: 'Goblin Engineer', type_line: 'Creature - Goblin Artificer' },
+    },
+    {
+      name: 'Trailtracker Scout',
+      text: 'Return up to one target permanent card from your graveyard to your hand.',
+      card: { id: 'trailtracker-target', name: 'Mirari\'s Wake', type_line: 'Enchantment' },
+    },
+    {
+      name: 'Colossal Skyturtle',
+      text: 'Return target card from your graveyard to your hand.',
+      card: { id: 'skyturtle-target', name: 'Heroic Intervention', type_line: 'Instant' },
+    },
+    {
+      name: 'Scour for Scrap',
+      text: 'Return target artifact card from your graveyard to your hand.',
+      card: { id: 'scour-target', name: 'Mishra\'s Bauble', type_line: 'Artifact' },
+    },
+    {
+      name: 'Nissa, Vital Force',
+      text: 'Return target permanent card from your graveyard to your hand.',
+      card: { id: 'nissa-target', name: 'The Great Henge', type_line: 'Legendary Artifact' },
+    },
+    {
+      name: 'Palace Siege',
+      text: 'Return target creature card from your graveyard to your hand.',
+      card: { id: 'siege-target', name: 'Plaguecrafter', type_line: 'Creature - Human Shaman' },
+    },
+    {
+      name: 'Mystic Retrieval',
+      text: 'Return target instant or sorcery card from your graveyard to your hand.',
+      card: { id: 'retrieval-target', name: 'Lightning Bolt', type_line: 'Instant' },
+    },
+    {
+      name: "Hanna, Ship's Navigator",
+      text: 'Return target artifact or enchantment card from your graveyard to your hand.',
+      card: { id: 'hanna-target', name: 'Seal of Cleansing', type_line: 'Enchantment' },
+    },
+    {
+      name: 'Cavalier of Dawn',
+      text: 'Return target artifact or enchantment card from your graveyard to your hand.',
+      card: { id: 'cavalier-target', name: 'Mind Stone', type_line: 'Artifact' },
+    },
+    {
+      name: 'Auroral Procession',
+      text: 'Return target card from your graveyard to your hand.',
+      card: { id: 'auroral-target', name: 'Negate', type_line: 'Instant' },
+    },
+    {
+      name: 'The Underworld Cookbook',
+      text: 'Return target creature card from your graveyard to your hand.',
+      card: { id: 'cookbook-target', name: 'Cauldron Familiar', type_line: 'Creature - Cat' },
+    },
+    {
+      name: 'Den Protector',
+      text: 'Return target card from your graveyard to your hand.',
+      card: { id: 'den-protector-target', name: 'Beast Within', type_line: 'Instant' },
+    },
+    {
+      name: 'Wrenn and Six',
+      text: 'Return up to one target land card from your graveyard to your hand.',
+      card: { id: 'wrenn-target', name: 'Wooded Foothills', type_line: 'Land' },
+    },
+    {
+      name: 'Cormela, Glamour Thief',
+      text: 'Return up to one target instant or sorcery card from your graveyard to your hand.',
+      card: { id: 'cormela-target', name: 'Ponder', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Gloomshrieker',
+      text: 'Return target permanent card from your graveyard to your hand.',
+      card: { id: 'gloomshrieker-target', name: 'Sylvan Library', type_line: 'Enchantment' },
+    },
+    {
+      name: 'Turntimber Sower',
+      text: 'Return target land card from your graveyard to your hand.',
+      card: { id: 'turntimber-target', name: 'Blast Zone', type_line: 'Land' },
+    },
+    {
+      name: "Dryad's Revival",
+      text: 'Return target card from your graveyard to your hand.',
+      card: { id: 'dryad-target', name: 'Nature\'s Lore', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Flood of Recollection',
+      text: 'Return target instant or sorcery card from your graveyard to your hand.',
+      card: { id: 'flood-target', name: 'Ponder', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Evolution Charm',
+      text: 'Return target creature card from your graveyard to your hand.',
+      card: { id: 'evolution-charm-target', name: 'Elvish Visionary', type_line: 'Creature - Elf Shaman' },
+    },
+    {
+      name: 'Spring-Leaf Avenger',
+      text: 'Return target permanent card from your graveyard to your hand.',
+      card: { id: 'spring-leaf-target', name: 'Lightning Greaves', type_line: 'Artifact - Equipment' },
+    },
+  ])('applies queue-backed self graveyard-to-hand recursion for $name', ({ name, text, card }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [card],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: name === 'Veteran Survivor'
+        ? [
+            {
+              id: 'veteran-survivor',
+              controller: 'p1',
+              owner: 'p1',
+              tapped: true,
+              card: { id: 'veteran-survivor-card', name: 'Veteran Survivor', type_line: 'Creature - Human Survivor' },
+            } as any,
+          ]
+        : [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      ...(name === 'Veteran Survivor' ? { sourceId: 'veteran-survivor' } : {}),
+      sourceName: name,
+      targetPermanentId: card.id,
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard).toHaveLength(0);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain(card.id);
+  });
+
+  it.each([
+    {
+      name: 'Samwise Gamgee',
+      text: 'Return target historic card from your graveyard to your hand.',
+      card: { id: 'samwise-target', name: "Mox Amber", type_line: 'Legendary Artifact' },
+    },
+    {
+      name: 'Mudflat Village',
+      text: 'Return target Bat, Lizard, Rat, or Squirrel card from your graveyard to your hand.',
+      card: { id: 'mudflat-target', name: 'Lord Skitter, Sewer King', type_line: 'Legendary Creature - Rat Noble' },
+    },
+    {
+      name: 'Lord of the Undead',
+      text: 'Return target Zombie card from your graveyard to your hand.',
+      card: { id: 'lord-target', name: 'Mire Triton', type_line: 'Creature - Zombie Merfolk' },
+    },
+    {
+      name: 'Cid, Freeflier Pilot',
+      text: 'Return target Equipment or Vehicle card from your graveyard to your hand.',
+      card: { id: 'cid-target', name: 'Esika\'s Chariot', type_line: 'Legendary Artifact - Vehicle' },
+    },
+    {
+      name: 'Atzocan Seer',
+      text: 'Return target Dinosaur card from your graveyard to your hand.',
+      card: { id: 'atzocan-target', name: 'Quartzwood Crasher', type_line: 'Creature - Dinosaur Beast' },
+    },
+    {
+      name: 'Satsuki, the Living Lore',
+      text: 'Return target Saga card from your graveyard to your hand.',
+      card: { id: 'satsuki-target', name: 'The Restoration of Eiganjo', type_line: 'Enchantment - Saga' },
+    },
+    {
+      name: 'Red XIII, Proud Warrior',
+      text: 'Return target Aura or Equipment card from your graveyard to your hand.',
+      card: { id: 'red-xiii-target', name: 'Rancor', type_line: 'Enchantment - Aura' },
+    },
+    {
+      name: 'Call to the Netherworld',
+      text: 'Return target black creature card from your graveyard to your hand.',
+      card: {
+        id: 'netherworld-target',
+        name: 'Graveyard Trespasser',
+        type_line: 'Creature - Human Werewolf',
+        colors: ['B'],
+      },
+    },
+    {
+      name: 'Layla Hassan',
+      text: 'Return target historic card from your graveyard to your hand.',
+      card: { id: 'layla-target', name: 'Weatherlight', type_line: 'Legendary Artifact - Vehicle' },
+    },
+    {
+      name: 'Ruxa, Patient Professor',
+      text: 'Return target creature card with no abilities from your graveyard to your hand.',
+      card: {
+        id: 'ruxa-target',
+        name: 'Gigantosaurus Cub',
+        type_line: 'Creature - Dinosaur',
+        oracle_text: '',
+        keywords: [],
+      },
+    },
+    {
+      name: 'Elena, Turk Recruit',
+      text: 'Return target non-Assassin historic card from your graveyard to your hand.',
+      card: { id: 'elena-target', name: 'Teshar, Ancestor\'s Apostle', type_line: 'Legendary Creature - Bird Cleric' },
+    },
+  ])('applies expanded graveyard selector recursion for $name', ({ name, text, card }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [card],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: name,
+      targetPermanentId: card.id,
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard).toHaveLength(0);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain(card.id);
+  });
+
+  it('rejects Assassin historic targets for Elena, Turk Recruit', () => {
+    const ir = parseOracleTextToIR(
+      'Return target non-Assassin historic card from your graveyard to your hand.',
+      'Elena, Turk Recruit'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'elena-assassin-target',
+              name: 'Ezio Auditore da Firenze',
+              type_line: 'Legendary Creature - Human Assassin',
+            },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Elena, Turk Recruit',
+      targetPermanentId: 'elena-assassin-target',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(p1.graveyard.map((entry: any) => entry.id)).toContain('elena-assassin-target');
+    expect(p1.hand).toHaveLength(0);
+  });
+
+  it('applies life gain plus optional graveyard return for Sword of Light and Shadow when allowOptional is enabled', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever equipped creature deals combat damage to a player, you gain 3 life and you may return up to one target creature card from your graveyard to your hand.',
+      'Sword of Light and Shadow'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 37,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'sword-target', name: 'Wall of Omens', type_line: 'Creature - Wall' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Sword of Light and Shadow',
+        targetPermanentId: 'sword-target',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['gain_life', 'move_zone']);
+    expect(p1.life).toBe(40);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('sword-target');
+    expect(p1.graveyard).toHaveLength(0);
+  });
+
+  it('applies graveyard return plus graveyard exile sweep for Abstergo Entertainment', () => {
+    const ir = parseOracleTextToIR(
+      'Return up to one target historic card from your graveyard to your hand, then exile all graveyards.',
+      'Abstergo Entertainment'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'abstergo-target', name: 'Mox Amber', type_line: 'Legendary Artifact' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'abstergo-opp-target', name: 'Opt', type_line: 'Instant' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Abstergo Entertainment',
+      targetPermanentId: 'abstergo-target',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone', 'move_zone']);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('abstergo-target');
+    expect(p1.graveyard).toHaveLength(0);
+    expect((p1.exile || []).map((entry: any) => entry.id)).not.toContain('abstergo-target');
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain('abstergo-opp-target');
+  });
+
+  it('applies graveyard return plus token creation for Spawnbed Protector', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your end step, return up to one target Eldrazi creature card from your graveyard to your hand. Create two 1/1 colorless Eldrazi Scion creature tokens with "Sacrifice this token: Add {C}."',
+      'Spawnbed Protector'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'spawnbed-target', name: 'Bane of Bala Ged', type_line: 'Creature - Eldrazi' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Spawnbed Protector',
+      targetPermanentId: 'spawnbed-target',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone', 'create_token']);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('spawnbed-target');
+    expect(p1.graveyard).toHaveLength(0);
+    expect(result.state.battlefield).toHaveLength(2);
+  });
+
+  it('applies graveyard return plus Food token creation for Revive the Shire', () => {
+    const ir = parseOracleTextToIR(
+      'Return target permanent card from your graveyard to your hand. Create a Food token.',
+      'Revive the Shire'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'shire-target', name: 'Sylvan Library', type_line: 'Enchantment' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Revive the Shire',
+      targetPermanentId: 'shire-target',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone', 'create_token']);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('shire-target');
+    expect(p1.graveyard).toHaveLength(0);
+    expect(result.state.battlefield).toHaveLength(1);
+  });
+
+  it('applies graveyard return plus Clue token creation for True Ancestry', () => {
+    const ir = parseOracleTextToIR(
+      'Return up to one target permanent card from your graveyard to your hand. Create a Clue token.',
+      'True Ancestry'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'ancestry-target', name: 'Mind Stone', type_line: 'Artifact' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'True Ancestry',
+      targetPermanentId: 'ancestry-target',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone', 'create_token']);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('ancestry-target');
+    expect(p1.graveyard).toHaveLength(0);
+    expect(result.state.battlefield).toHaveLength(1);
+  });
+
+  it('applies your graveyard return even when Witch of the Moors sacrifice choice remains manual', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your end step, if you gained life this turn, each opponent sacrifices a creature of their choice and you return up to one target creature card from your graveyard to your hand.',
+      'Witch of the Moors'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'witch-target', name: 'Plaguecrafter', type_line: 'Creature - Human Shaman' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'opp-creature-a',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'opp-creature-a-card', name: 'Grizzly Bears', type_line: 'Creature - Bear' },
+        } as any,
+        {
+          id: 'opp-creature-b',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'opp-creature-b-card', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+        } as any,
+      ],
+      lifeGainedThisTurn: { p1: 1 },
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Witch of the Moors',
+      targetPermanentId: 'witch-target',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('witch-target');
+    expect(p1.graveyard).toHaveLength(0);
+  });
+
+  it('applies Unnatural Restoration when proliferate has exactly one eligible target', () => {
+    const ir = parseOracleTextToIR(
+      'Return target permanent card from your graveyard to your hand. Proliferate.',
+      'Unnatural Restoration'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'restoration-target', name: 'Evolution Sage', type_line: 'Creature - Elf Druid' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'scales-creature',
+          controller: 'p1',
+          owner: 'p1',
+          counters: { '+1/+1': 1 },
+          card: { id: 'scales-creature-card', name: 'Conclave Mentor', type_line: 'Creature - Centaur Cleric' },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Unnatural Restoration',
+      targetPermanentId: 'restoration-target',
+    });
+
+    const p1 = result.state.players.find((player) => player.id === 'p1') as any;
+    const proliferated = (result.state.battlefield as any[]).find((permanent) => permanent?.id === 'scales-creature') as any;
+
+    expect(result.appliedSteps.map((step) => step.kind)).toEqual(['move_zone', 'proliferate']);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('restoration-target');
+    expect(p1.graveyard).toHaveLength(0);
+    expect(proliferated?.counters?.['+1/+1']).toBe(2);
+  });
+
+  it("applies Sam's Desperate Rescue when Ring-bearer choice is deterministic", () => {
+    const ir = parseOracleTextToIR(
+      'Return target creature card from your graveyard to your hand. The Ring tempts you.',
+      "Sam's Desperate Rescue"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'sams-target', name: 'Farhaven Elf', type_line: 'Creature - Elf Druid' }],
+          exile: [],
+          emblems: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'ring-bearer-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'ring-bearer-creature-card', name: 'Samwise Gamgee', type_line: 'Legendary Creature - Halfling Peasant' },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: "Sam's Desperate Rescue",
+      targetPermanentId: 'sams-target',
+    });
+
+    const p1 = result.state.players.find((player) => player.id === 'p1') as any;
+    const emblem = Array.isArray(p1?.emblems) ? p1.emblems.find((entry: any) => entry?.name === 'The Ring') : null;
+    const ringBearer = (result.state.battlefield as any[]).find((permanent) => permanent?.id === 'ring-bearer-creature') as any;
+
+    expect(result.appliedSteps.map((step) => step.kind)).toEqual(['move_zone', 'ring_tempts_you']);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('sams-target');
+    expect(p1.graveyard).toHaveLength(0);
+    expect(emblem?.abilities).toEqual([
+      "Your Ring-bearer is legendary and can't be blocked by creatures with greater power.",
+    ]);
+    expect(p1.ringTemptations).toBe(1);
+    expect(p1.ringBearerId).toBe('ring-bearer-creature');
+    expect(ringBearer?.isRingBearer).toBe(true);
+  });
+
+  it('applies Fungal Rebirth token followup when a creature died this turn', () => {
+    const ir = parseOracleTextToIR(
+      'Return target permanent card from your graveyard to your hand. If a creature died this turn, create two 1/1 green Saproling creature tokens.',
+      'Fungal Rebirth'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      creatureDiedThisTurn: true as any,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'fungal-target', name: 'Arcane Signet', type_line: 'Artifact' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    } as any);
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Fungal Rebirth',
+      targetPermanentId: 'fungal-target',
+    });
+
+    const p1 = result.state.players.find((player) => player.id === 'p1') as any;
+
+    expect(result.appliedSteps.map((step) => step.kind)).toEqual(['move_zone', 'create_token']);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('fungal-target');
+    expect(result.state.battlefield).toHaveLength(2);
+  });
+
+  it('applies Toph, Hardheaded Teacher when allowOptional enables the discard gate', () => {
+    const ir = parseOracleTextToIR(
+      'You may discard a card. If you do, return target instant or sorcery card from your graveyard to your hand.',
+      'Toph, Hardheaded Teacher'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [{ id: 'discard-me', name: 'Forest', type_line: 'Land' }],
+          graveyard: [{ id: 'toph-target', name: 'Opt', type_line: 'Instant' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Toph, Hardheaded Teacher',
+        targetPermanentId: 'toph-target',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find((player) => player.id === 'p1') as any;
+
+    expect(result.appliedSteps.map((step) => step.kind)).toEqual(['discard', 'move_zone']);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('toph-target');
+    expect(p1.graveyard).toHaveLength(1);
+    expect(p1.graveyard.map((entry: any) => entry.id)).toContain('discard-me');
+  });
+
+  it('applies optional graveyard exile for Blood Operative when allowOptional is enabled', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, you may exile target card from a graveyard.',
+      'Blood Operative'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'blood-operative-target', name: 'Opt', type_line: 'Instant' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Blood Operative',
+        targetPermanentId: 'blood-operative-target',
+      },
+      { allowOptional: true }
+    );
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain('blood-operative-target');
+  });
+
+  it('applies optional self graveyard-to-hand recursion for Oversold Cemetery when allowOptional is enabled', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your upkeep, if you have four or more creature cards in your graveyard, you may return target creature card from your graveyard to your hand.',
+      'Oversold Cemetery'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'oversold-target', name: 'Wall of Blossoms', type_line: 'Creature - Plant Wall' },
+            { id: 'oversold-two', name: 'Llanowar Elves', type_line: 'Creature - Elf Druid' },
+            { id: 'oversold-three', name: 'Eternal Witness', type_line: 'Creature - Human Shaman' },
+            { id: 'oversold-four', name: 'Sakura-Tribe Elder', type_line: 'Creature - Snake Shaman' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Oversold Cemetery',
+        targetPermanentId: 'oversold-target',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard.map((entry: any) => entry.id)).not.toContain('oversold-target');
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('oversold-target');
+  });
+
+  it('applies optional self graveyard-to-hand recursion for Graveshifter when allowOptional is enabled', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, you may return target creature card from your graveyard to your hand.',
+      'Graveshifter'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'graveshifter-target', name: 'Mire Triton', type_line: 'Creature - Zombie Merfolk' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Graveshifter',
+        targetPermanentId: 'graveshifter-target',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard).toHaveLength(0);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('graveshifter-target');
+  });
+
+  it('applies optional self graveyard-to-hand recursion for Auramancer when allowOptional is enabled', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, you may return target enchantment card from your graveyard to your hand.',
+      'Auramancer'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'auramancer-target', name: 'Seal of Primordium', type_line: 'Enchantment' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Auramancer',
+        targetPermanentId: 'auramancer-target',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard).toHaveLength(0);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('auramancer-target');
+  });
+
+  it('applies optional self graveyard-to-hand recursion for Greenwarden of Murasa when allowOptional is enabled', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, you may return target card from your graveyard to your hand.',
+      'Greenwarden of Murasa'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'greenwarden-target', name: 'Cultivate', type_line: 'Sorcery' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Greenwarden of Murasa',
+        targetPermanentId: 'greenwarden-target',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard).toHaveLength(0);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('greenwarden-target');
+  });
+
+  it('applies optional self graveyard-to-hand recursion for Mnemonic Wall when allowOptional is enabled', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, you may return target instant or sorcery card from your graveyard to your hand.',
+      'Mnemonic Wall'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'mnemonic-wall-target', name: 'Preordain', type_line: 'Sorcery' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Mnemonic Wall',
+        targetPermanentId: 'mnemonic-wall-target',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard).toHaveLength(0);
+    expect(p1.hand.map((entry: any) => entry.id)).toContain('mnemonic-wall-target');
+  });
+
+  it.each([
+    {
+      name: 'Noxious Revival',
+      text: "Put target card from a graveyard on top of its owner's library.",
+      placement: 'top',
+      card: { id: 'revival-target', name: 'Cultivate', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Junktroller',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      placement: 'bottom',
+      card: { id: 'junktroller-target', name: 'Mortify', type_line: 'Instant' },
+    },
+    {
+      name: 'Vessel of Endless Rest',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      placement: 'bottom',
+      card: { id: 'vessel-target', name: 'Wrath of God', type_line: 'Sorcery' },
+    },
+  ])('applies queue-backed graveyard-to-library recursion for $name', ({ name, text, placement, card }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'lib-a' }, { id: 'lib-b' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'opp-lib-a' }, { id: 'opp-lib-b' }],
+          hand: [],
+          graveyard: [card],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'veteran-survivor',
+      sourceName: name,
+      targetPermanentId: card.id,
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p2.graveyard).toHaveLength(0);
+    if (placement === 'top') {
+      expect(p2.library[0]?.id).toBe(card.id);
+    } else {
+      expect(p2.library[p2.library.length - 1]?.id).toBe(card.id);
+    }
+  });
+
+  it('applies self graveyard-to-library topdeck recursion for Golgari Thug', () => {
+    const ir = parseOracleTextToIR(
+      'Put target creature card from your graveyard on top of your library.',
+      'Golgari Thug'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'library-bottom' }],
+          hand: [],
+          graveyard: [{ id: 'thug-target', name: 'Sakura-Tribe Elder', type_line: 'Creature - Snake Shaman' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Golgari Thug',
+      targetPermanentId: 'thug-target',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p1.graveyard).toHaveLength(0);
+    expect(p1.library[0]?.id).toBe('thug-target');
+  });
+
+  it.each([
+    {
+      name: 'Deathrite Shaman',
+      text: 'Exile target land card from a graveyard.',
+      card: { id: 'deathrite-target', name: 'Wasteland', type_line: 'Land' },
+    },
+    {
+      name: 'Return to Nature',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'return-nature-target', name: 'Swords to Plowshares', type_line: 'Instant' },
+    },
+    {
+      name: 'Soul-Guide Lantern',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'lantern-target', name: 'Explosive Vegetation', type_line: 'Sorcery' },
+    },
+    {
+      name: "Agatha's Soul Cauldron",
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'cauldron-target', name: 'Birds of Paradise', type_line: 'Creature - Bird' },
+    },
+    {
+      name: 'Scavenging Ooze',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'ooze-target', name: 'Cultivate', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Lion Sash',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'sash-target', name: 'Flooded Strand', type_line: 'Land' },
+    },
+    {
+      name: 'The Scarab God',
+      text: 'Exile target creature card from a graveyard.',
+      card: { id: 'scarab-target', name: 'Murderous Rider', type_line: 'Creature - Zombie Knight' },
+    },
+    {
+      name: 'Cemetery Reaper',
+      text: 'Exile target creature card from a graveyard.',
+      card: { id: 'reaper-target', name: 'Reassembling Skeleton', type_line: 'Creature - Skeleton Warrior' },
+    },
+    {
+      name: 'Heritage Reclamation',
+      text: 'Exile up to one target card from a graveyard.',
+      card: { id: 'heritage-target', name: 'Rampant Growth', type_line: 'Sorcery' },
+    },
+    {
+      name: "General's Enforcer",
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'enforcer-target', name: 'Path to Exile', type_line: 'Instant' },
+    },
+    {
+      name: 'Mnemonic Deluge',
+      text: 'Exile target instant or sorcery card from a graveyard.',
+      card: { id: 'deluge-target', name: 'Ponder', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Ghost Vacuum',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'vacuum-target', name: 'Animate Dead', type_line: 'Enchantment - Aura' },
+    },
+    {
+      name: 'Cremate',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'cremate-target', name: 'Wrath of God', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Myr Welder',
+      text: 'Exile target artifact card from a graveyard.',
+      card: { id: 'welder-target', name: 'Mind Stone', type_line: 'Artifact' },
+    },
+    {
+      name: 'Honored Heirloom',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'heirloom-target', name: 'Beast Within', type_line: 'Instant' },
+    },
+    {
+      name: 'Cling to Dust',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'cling-target', name: 'Arcane Signet', type_line: 'Artifact' },
+    },
+  ])('applies queue-backed graveyard exile for $name', ({ name, text, card }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [card],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      ...(name === 'Veteran Survivor' ? { sourceId: 'veteran-survivor' } : {}),
+      sourceName: name,
+      targetPermanentId: card.id,
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain(card.id);
+  });
+
+  it.each([
+    {
+      name: 'Chrome Companion',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'chrome-target', name: 'Ponder', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Hoverstone Pilgrim',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'hoverstone-target', name: 'Arcane Signet', type_line: 'Artifact' },
+    },
+    {
+      name: 'Reito Lantern',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'lantern-target', name: 'Swords to Plowshares', type_line: 'Instant' },
+    },
+    {
+      name: 'Reito Sentinel',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'sentinel-target', name: 'Deep Analysis', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Jade-Cast Sentinel',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'jade-target', name: 'Faithless Looting', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Malevolent Chandelier',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'chandelier-target', name: 'Rakdos Signet', type_line: 'Artifact' },
+    },
+    {
+      name: 'Dutiful Knowledge Seeker',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'dutiful-target', name: 'Impulse', type_line: 'Instant' },
+    },
+    {
+      name: 'Phyrexian Archivist',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'archivist-target', name: 'Damn', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Cogwork Archivist',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'cogwork-target', name: 'Counterspell', type_line: 'Instant' },
+    },
+    {
+      name: 'Nantuko Tracer',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'tracer-target', name: 'Terror', type_line: 'Instant' },
+    },
+    {
+      name: 'Keeper of the Cadence',
+      text: "Put target artifact, instant, or sorcery card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'keeper-target', name: 'Thoughtcast', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Grazing Kelpie',
+      text: "Put target card from a graveyard on the bottom of its owner's library.",
+      card: { id: 'kelpie-target', name: 'Negate', type_line: 'Instant' },
+    },
+  ])('applies the remaining ordered graveyard-to-library item for $name', ({ name, text, card }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'self-lib-a' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'opp-lib-a' }, { id: 'opp-lib-b' }],
+          hand: [],
+          graveyard: [card],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: name,
+      targetPermanentId: card.id,
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p2.graveyard).toHaveLength(0);
+    expect(p2.library[p2.library.length - 1]?.id).toBe(card.id);
+  });
+
+  it.each([
+    {
+      name: 'Deathrite Shaman',
+      text: 'Exile target land card from a graveyard.',
+      card: { id: 'deathrite-target', name: 'Windswept Heath', type_line: 'Land' },
+    },
+    {
+      name: 'Return to Nature',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'return-target', name: 'Cultivate', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Soul-Guide Lantern',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'lantern-exile-target', name: 'Brainstorm', type_line: 'Instant' },
+    },
+    {
+      name: "Agatha's Soul Cauldron",
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'cauldron-target', name: 'Birds of Paradise', type_line: 'Creature - Bird' },
+    },
+    {
+      name: 'Heritage Reclamation',
+      text: 'Exile up to one target card from a graveyard.',
+      card: { id: 'heritage-target', name: 'Sign in Blood', type_line: 'Sorcery' },
+    },
+    {
+      name: "General's Enforcer",
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'enforcer-target', name: 'Path to Exile', type_line: 'Instant' },
+    },
+  ])('applies the next clean graveyard-exile queue item for $name', ({ name, text, card }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [card],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: name,
+      targetPermanentId: card.id,
+    });
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain(card.id);
+  });
+
+  it.each([
+    {
+      name: 'Scrabbling Claws',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'claws-target', name: 'Counterspell', type_line: 'Instant' },
+    },
+    {
+      name: "Wizard's Spellbook",
+      text: 'Exile target instant or sorcery card from a graveyard.',
+      card: { id: 'spellbook-target', name: 'Dig Through Time', type_line: 'Instant' },
+    },
+    {
+      name: 'Dawnhand Dissident',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'dissident-target', name: 'Kodama\'s Reach', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Pharika, God of Affliction',
+      text: 'Exile target creature card from a graveyard.',
+      card: { id: 'pharika-target', name: 'Elvish Mystic', type_line: 'Creature - Elf Druid' },
+    },
+    {
+      name: 'Withered Wretch',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'wretch-target', name: 'Demonic Tutor', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Necrogenesis',
+      text: 'Exile target creature card from a graveyard.',
+      card: { id: 'necrogenesis-target', name: 'Blood Artist', type_line: 'Creature - Vampire' },
+    },
+    {
+      name: 'Keen-Eyed Curator',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'curator-target', name: 'Farseek', type_line: 'Sorcery' },
+    },
+    {
+      name: 'The Ooze',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'ooze-two-target', name: 'Fact or Fiction', type_line: 'Instant' },
+    },
+    {
+      name: 'Lantern of the Lost',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'lost-target', name: 'Nature\'s Lore', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Heap Doll',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'heap-target', name: 'Chaos Warp', type_line: 'Instant' },
+    },
+    {
+      name: 'Dimir Doppelganger',
+      text: 'Exile target creature card from a graveyard.',
+      card: { id: 'doppelganger-target', name: 'Baleful Mastery', type_line: 'Creature - Spirit' },
+    },
+    {
+      name: 'Stonecloaker',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'stonecloaker-target', name: 'Austere Command', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Venom, Deadly Devourer',
+      text: 'Exile target creature card from a graveyard.',
+      card: { id: 'venom-target', name: 'Sakura-Tribe Elder', type_line: 'Creature - Snake Shaman' },
+    },
+    {
+      name: 'Rotten Reunion',
+      text: 'Exile up to one target card from a graveyard.',
+      card: { id: 'rotten-target', name: 'Faithless Looting', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Break Ties',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'break-target', name: 'Regrowth', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Magic Pot',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'pot-target', name: 'Swan Song', type_line: 'Instant' },
+    },
+    {
+      name: 'Cleanup Crew',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'cleanup-target', name: 'Read the Bones', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Jack-o\'-Lantern',
+      text: 'Exile up to one target card from a graveyard.',
+      card: { id: 'jack-target', name: 'Ponder', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Mechanical Mobster',
+      text: 'When this creature enters, exile up to one target card from a graveyard.',
+      card: { id: 'mobster-target', name: 'Cultivate', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Ambush Wolf',
+      text: 'When this creature enters, exile up to one target card from a graveyard.',
+      card: { id: 'wolf-target', name: 'Rampant Growth', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Crossroads Candleguide',
+      text: 'When this creature enters, exile up to one target card from a graveyard.',
+      card: { id: 'candleguide-target', name: 'Solemn Simulacrum', type_line: 'Artifact Creature - Golem' },
+    },
+    {
+      name: 'Wreck Remover',
+      text: 'Whenever this creature enters or attacks, exile up to one target card from a graveyard.',
+      card: { id: 'wrecker-target', name: 'Faithless Looting', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Phyrexian Furnace',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'furnace-target', name: 'Anguished Unmaking', type_line: 'Instant' },
+    },
+    {
+      name: 'Veteran Survivor',
+      text: 'At the beginning of your second main phase, if this creature is tapped, exile up to one target card from a graveyard.',
+      card: { id: 'survivor-target', name: 'Talisman of Dominance', type_line: 'Artifact' },
+    },
+    {
+      name: 'Sungold Sentinel',
+      text: 'Whenever this creature enters or attacks, exile up to one target card from a graveyard.',
+      card: { id: 'sentinel-target', name: 'Preordain', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Offalsnout',
+      text: 'When this creature leaves the battlefield, exile target card from a graveyard.',
+      card: { id: 'offalsnout-target', name: 'Damn', type_line: 'Sorcery' },
+    },
+    {
+      name: "Ashnod's Harvester",
+      text: 'Whenever this creature attacks, exile target card from a graveyard.',
+      card: { id: 'harvester-target', name: 'Painful Truths', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Verdant Command',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'verdant-target', name: 'Thought Vessel', type_line: 'Artifact' },
+    },
+    {
+      name: 'Dawnbringer Cleric',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'cleric-target', name: 'Night\'s Whisper', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Coffin Purge',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'purge-target', name: 'Doom Blade', type_line: 'Instant' },
+    },
+    {
+      name: 'Crook of Condemnation',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'crook-target', name: 'Mortify', type_line: 'Instant' },
+    },
+    {
+      name: 'Territorial Kavu',
+      text: 'Exile up to one target card from a graveyard.',
+      card: { id: 'kavu-target', name: 'Cultivate', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Purify the Grave',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'purify-target', name: 'Growth Spiral', type_line: 'Instant' },
+    },
+    {
+      name: 'Gravestone Strider',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'gravestone-target', name: 'Negate', type_line: 'Instant' },
+    },
+    {
+      name: 'Apostle of Purifying Light',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'apostle-target', name: 'Cultivate', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Fade from Memory',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'fade-target', name: 'Memory Deluge', type_line: 'Instant' },
+    },
+    {
+      name: 'Crypt Creeper',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'creeper-target', name: 'Swords to Plowshares', type_line: 'Instant' },
+    },
+    {
+      name: 'Shadowfeed',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'shadowfeed-target', name: 'Thoughtseize', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Soul-Guide Gryff',
+      text: 'When this creature enters, exile up to one target card from a graveyard.',
+      card: { id: 'gryff-target', name: 'Arcane Denial', type_line: 'Instant' },
+    },
+    {
+      name: 'Thraben Heretic',
+      text: 'Exile target creature card from a graveyard.',
+      card: { id: 'thraben-target', name: 'Stinkweed Imp', type_line: 'Creature - Imp' },
+    },
+    {
+      name: 'Rise of Extus',
+      text: 'Exile up to one target instant or sorcery card from a graveyard.',
+      card: { id: 'extus-target', name: 'Expressive Iteration', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Mortiphobia',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'mortiphobia-target', name: 'Wear // Tear', type_line: 'Instant' },
+    },
+    {
+      name: 'Sewerdreg',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'sewerdreg-target', name: 'Electrolyze', type_line: 'Instant' },
+    },
+    {
+      name: 'Moratorium Stone',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'moratorium-target', name: 'Farseek', type_line: 'Sorcery' },
+    },
+    {
+      name: 'Steamclaw',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'steamclaw-target', name: 'Frantic Search', type_line: 'Instant' },
+    },
+    {
+      name: 'Trained Blessed Mind',
+      text: 'Exile target card from a graveyard.',
+      card: { id: 'mind-target', name: 'Impulse', type_line: 'Instant' },
+    },
+  ])('applies later queue-backed graveyard exile for $name', ({ name, text, card }) => {
+    const ir = parseOracleTextToIR(text, name);
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [card],
+          exile: [],
+        } as any,
+      ],
+      battlefield:
+        name === 'Veteran Survivor'
+          ? [
+              {
+                id: 'veteran-survivor',
+                controller: 'p1',
+                owner: 'p1',
+                tapped: true,
+                card: { id: 'veteran-survivor-card', name: 'Veteran Survivor', type_line: 'Creature - Human Survivor' },
+              } as any,
+            ]
+          : [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      ...(name === 'Veteran Survivor' ? { sourceId: 'veteran-survivor' } : {}),
+      sourceName: name,
+      targetPermanentId: card.id,
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain(card.id);
+  });
+
+  it('applies saga chapter graveyard reanimation for creature-or-planeswalker targets under your control', () => {
+    const ir = parseOracleTextToIR(
+      'III — Put target creature or planeswalker card from a graveyard onto the battlefield under your control.',
+      'The Eldest Reborn'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'fallen-walker',
+              name: 'Liliana of the Veil',
+              type_line: 'Legendary Planeswalker - Liliana',
+            },
+          ],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'The Eldest Reborn',
+      targetPermanentId: 'fallen-walker',
+    });
+
+    const permanent = (result.state.battlefield as any[]).find(perm => perm?.card?.id === 'fallen-walker') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(permanent).toBeTruthy();
+    expect(permanent.controller).toBe('p1');
+    expect(p2.graveyard).toHaveLength(0);
+  });
+
+  it('applies saga chapter graveyard land recursion under your control', () => {
+    const ir = parseOracleTextToIR(
+      'II — Put target land card from a graveyard onto the battlefield under your control.',
+      'Waking the Trolls'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'strip-mine',
+              name: 'Strip Mine',
+              type_line: 'Land',
+            },
+          ],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Waking the Trolls',
+      targetPermanentId: 'strip-mine',
+    });
+
+    const land = (result.state.battlefield as any[]).find(perm => perm?.card?.id === 'strip-mine') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(land).toBeTruthy();
+    expect(land.controller).toBe('p1');
+    expect(p2.graveyard).toHaveLength(0);
+  });
+
+  it("applies exact-target legendary permanent recursion with a 'not named this permanent' exclusion", () => {
+    const ir = parseOracleTextToIR(
+      "When Staff of Eden enters, put target legendary permanent card not named Staff of Eden, Vault's Key from a graveyard onto the battlefield under your control.",
+      "Staff of Eden, Vault's Key"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'legendary-relic',
+              name: 'Blackblade Reforged',
+              type_line: 'Legendary Artifact - Equipment',
+            },
+          ],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: "Staff of Eden, Vault's Key",
+      targetPermanentId: 'legendary-relic',
+    });
+
+    const permanent = (result.state.battlefield as any[]).find(perm => perm?.card?.id === 'legendary-relic') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(permanent).toBeTruthy();
+    expect(permanent.controller).toBe('p1');
+    expect(p2.graveyard).toHaveLength(0);
+  });
+
+  it("safe-skips exact-target legendary permanent recursion when the target is named like 'this permanent'", () => {
+    const ir = parseOracleTextToIR(
+      "When Staff of Eden enters, put target legendary permanent card not named Staff of Eden, Vault's Key from a graveyard onto the battlefield under your control.",
+      "Staff of Eden, Vault's Key"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            {
+              id: 'staff-copy',
+              name: "Staff of Eden, Vault's Key",
+              type_line: 'Legendary Artifact',
+            },
+          ],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: "Staff of Eden, Vault's Key",
+      targetPermanentId: 'staff-copy',
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect((result.state.battlefield as any[]).some(perm => perm?.card?.id === 'staff-copy')).toBe(false);
+    expect(p2.graveyard).toHaveLength(1);
   });
 
   it('classifies attached-Equipment sacrifice as player choice when multiple matches exist', () => {
@@ -18058,7 +21052,7 @@ describe('Oracle IR Executor', () => {
     expect(modifiers.some((m: any) => m?.type === 'powerToughness')).toBe(false);
   });
 
-  it('safely skips modify_pt with condition clause metadata', () => {
+  it('skips leading conditional modify_pt when the condition is false', () => {
     const ir = parseOracleTextToIR(
       'If you control an artifact, target creature gets +2/+2 until end of turn.',
       'Test'
@@ -18101,7 +21095,7 @@ describe('Oracle IR Executor', () => {
     const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
-    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'conditional')).toBe(true);
     expect(modifiers.some((m: any) => m?.type === 'powerToughness')).toBe(false);
   });
 
@@ -33234,6 +36228,4061 @@ describe('Oracle IR Executor', () => {
       // {R} has no generic mana, X=0; a 0/0 modifier may still be applied with power=0
       expect(ptMod?.power ?? 0).toBe(0);
     });
+  });
+
+  it('applies Veinwitch Coven when allowOptional enables the mana payment gate', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your end step, if you gained life this turn, you may pay {B}. If you do, return target creature card from your graveyard to your hand.',
+      'Veinwitch Coven'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'deadBear', name: 'Dead Bear', type_line: 'Creature - Bear' }],
+          exile: [],
+        } as any,
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 },
+      } as any,
+      lifeGainedThisTurn: { p1: 1 },
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', targetCreatureId: 'deadBear' },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const pool = (result.state as any).manaPool?.p1;
+
+    expect(result.appliedSteps.some(s => s.kind === 'pay_mana')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect((p1.hand || []).map((c: any) => c.id)).toContain('deadBear');
+    expect((p1.graveyard || []).map((c: any) => c.id)).not.toContain('deadBear');
+    expect(pool?.black).toBe(0);
+  });
+
+  it('keeps Genesis return gated off when the optional mana payment cannot be paid', () => {
+    const ir = parseOracleTextToIR(
+      'At the beginning of your upkeep, if Genesis is in your graveyard, you may pay {2}{G}. If you do, return target creature card from your graveyard to your hand.',
+      'Genesis'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'genesis', name: 'Genesis', type_line: 'Creature - Incarnation' },
+            { id: 'targetElf', name: 'Target Elf', type_line: 'Creature - Elf' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+      } as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', sourceId: 'genesis', sourceName: 'Genesis', targetCreatureId: 'targetElf' },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const pool = (result.state as any).manaPool?.p1;
+
+    expect(result.appliedSteps.some(s => s.kind === 'pay_mana')).toBe(false);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(false);
+    expect(result.skippedSteps.some(s => s.kind === 'pay_mana')).toBe(true);
+    expect((p1.hand || []).map((c: any) => c.id)).not.toContain('targetElf');
+    expect((p1.graveyard || []).map((c: any) => c.id)).toContain('targetElf');
+    expect(pool?.green).toBe(1);
+    expect(pool?.colorless).toBe(1);
+  });
+
+  it('applies Nim Deathmantle when allowOptional enables the payment gate and conditional attach follow-up', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever a nontoken creature is put into your graveyard from the battlefield, you may pay {4}. If you do, return that card to the battlefield and attach Nim Deathmantle to it.',
+      'Nim Deathmantle'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'deadBear', name: 'Dead Bear', type_line: 'Creature - Bear' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'nim',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Nim Deathmantle',
+          cardType: 'Artifact',
+          type_line: 'Artifact - Equipment',
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 4 },
+      } as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', sourceId: 'nim', targetCreatureId: 'deadBear' },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const equipment = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'nim');
+    const revived = (result.state.battlefield as any[]).find((perm: any) => String(perm?.card?.id || '') === 'deadBear');
+    const pool = (result.state as any).manaPool?.p1;
+
+    expect(result.appliedSteps.some(s => s.kind === 'pay_mana')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'attach')).toBe(true);
+    expect((p1.graveyard || []).map((c: any) => c.id)).not.toContain('deadBear');
+    expect(revived).toBeTruthy();
+    expect(equipment?.attachedTo).toBe(String(revived?.id || ''));
+    expect(pool?.colorless).toBe(0);
+  });
+
+  it('applies Echoing Return by returning the targeted card and all same-name cards from your graveyard', () => {
+    const ir = parseOracleTextToIR(
+      'Return target creature card and all other cards with the same name as that card from your graveyard to your hand.',
+      'Echoing Return'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'elf-1', name: 'Llanowar Elves', type_line: 'Creature - Elf Druid' },
+            { id: 'shock-1', name: 'Shock', type_line: 'Instant' },
+            { id: 'elf-2', name: 'Llanowar Elves', type_line: 'Creature - Elf Druid' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'elf-1' });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['elf-1', 'elf-2']);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual(['shock-1']);
+  });
+
+  it('applies Skullwinder when choose_opponent and the opponent follow-up return are deterministic', () => {
+    const ir = parseOracleTextToIR(
+      'When Skullwinder enters, return target card from your graveyard to your hand, then choose an opponent. That player returns a card from their graveyard to their hand.',
+      'Skullwinder'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'regrowth', name: 'Regrowth', type_line: 'Sorcery' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'bolt', name: 'Lightning Bolt', type_line: 'Instant' }],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', targetPermanentId: 'regrowth' }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone', 'choose_opponent', 'move_zone']);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['regrowth']);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    expect((p2.hand || []).map((c: any) => c.id)).toEqual(['bolt']);
+    expect((p2.graveyard || []).map((c: any) => c.id)).toEqual([]);
+  });
+
+  it('applies Court of Ardenvale monarchy branch when allowOptional is enabled', () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of your upkeep, return target permanent card from your graveyard to your hand. If you're the monarch, you may put it onto the battlefield instead.",
+      'Court of Ardenvale'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'sword', name: 'Sword of Testing', type_line: 'Artifact - Equipment' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+      monarch: 'p1' as any,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', targetPermanentId: 'sword' },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const battlefieldCard = (result.state.battlefield as any[]).find((perm: any) => String(perm?.card?.id || '') === 'sword');
+
+    expect(result.appliedSteps.some(s => s.kind === 'move_zone')).toBe(true);
+    expect((p1.hand || []).map((c: any) => c.id)).not.toContain('sword');
+    expect((p1.graveyard || []).map((c: any) => c.id)).not.toContain('sword');
+    expect(battlefieldCard).toBeTruthy();
+  });
+
+  it('applies Volcanic Vision by returning the card, dealing damage from its mana value, and exiling the source spell', () => {
+    const ir = parseOracleTextToIR(
+      "Return target instant or sorcery card from your graveyard to your hand. Volcanic Vision deals damage equal to that card's mana value to each creature your opponents control. Exile Volcanic Vision.",
+      'Volcanic Vision'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'mortars', name: 'Mizzium Mortars', type_line: 'Sorcery', mana_cost: '{1}{R}{R}', manaValue: 3 },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'volcanic-vision-spell',
+          type: 'spell',
+          controller: 'p1',
+          card: { id: 'volcanic-vision-card', name: 'Volcanic Vision', type_line: 'Sorcery' },
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'opp-bear',
+          ownerId: 'p2',
+          controller: 'p2',
+          name: 'Opponent Bear',
+          cardType: 'Creature',
+          type_line: 'Creature - Bear',
+          power: 4,
+          toughness: 4,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+        {
+          id: 'opp-wolf',
+          ownerId: 'p2',
+          controller: 'p2',
+          name: 'Opponent Wolf',
+          cardType: 'Creature',
+          type_line: 'Creature - Wolf',
+          power: 5,
+          toughness: 5,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'volcanic-vision-spell',
+      targetPermanentId: 'mortars',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const opponentBear = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'opp-bear');
+    const opponentWolf = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'opp-wolf');
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone', 'deal_damage', 'exile']);
+    expect((p1.hand || []).map((c: any) => c.id)).toContain('mortars');
+    expect((p1.graveyard || []).map((c: any) => c.id)).not.toContain('mortars');
+    expect(opponentBear?.damageMarked).toBe(3);
+    expect(opponentWolf?.damageMarked).toBe(3);
+    expect((p1.exile || []).map((c: any) => c.id)).toContain('volcanic-vision-card');
+    expect((result.state.stack || []).map((item: any) => item.id)).not.toContain('volcanic-vision-spell');
+  });
+
+  it('applies Golbez, Crystal Collector by returning the creature and using its power for each opponent life loss', () => {
+    const ir = parseOracleTextToIR(
+      "At the beginning of your end step, if you control four or more artifacts, return target creature card from your graveyard to your hand. Each opponent loses life equal to that card's power.",
+      'Golbez, Crystal Collector'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'golem', name: 'Myr Golem', type_line: 'Artifact Creature - Golem', power: 5, toughness: 4 },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'art-1', controller: 'p1', owner: 'p1', card: { id: 'art-1-card', name: 'Sol Ring', type_line: 'Artifact' } } as any,
+        { id: 'art-2', controller: 'p1', owner: 'p1', card: { id: 'art-2-card', name: 'Arcane Signet', type_line: 'Artifact' } } as any,
+        { id: 'art-3', controller: 'p1', owner: 'p1', card: { id: 'art-3-card', name: 'Mind Stone', type_line: 'Artifact' } } as any,
+        { id: 'art-4', controller: 'p1', owner: 'p1', card: { id: 'art-4-card', name: 'Wayfarer\'s Bauble', type_line: 'Artifact' } } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'golem',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone', 'lose_life']);
+    expect((p1.hand || []).map((c: any) => c.id)).toContain('golem');
+    expect((p1.graveyard || []).map((c: any) => c.id)).not.toContain('golem');
+    expect(p2.life).toBe(35);
+    expect(p3.life).toBe(35);
+  });
+
+  it('applies Peerless Recycling gift branch by returning a second chosen permanent card', () => {
+    const ir = parseOracleTextToIR(
+      'Return target permanent card from your graveyard to your hand. If the gift was promised, return another target permanent card from your graveyard to your hand.',
+      'Peerless Recycling'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'relic', name: 'Relic of Testing', type_line: 'Artifact' },
+            { id: 'wake', name: 'Mirari\'s Wake', type_line: 'Enchantment' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetPermanentId: 'relic',
+      giftPromised: true,
+      selectorContext: {
+        chosenObjectIds: ['relic', 'wake'],
+      },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone', 'move_zone']);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['relic', 'wake']);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+  });
+
+  it('applies Reconstruct History by returning each chosen graveyard type slot and self-exiling', () => {
+    const ir = parseOracleTextToIR(
+      'Return up to one target artifact card, up to one target enchantment card, up to one target instant card, up to one target sorcery card, and up to one target planeswalker card from your graveyard to your hand. Exile Reconstruct History.',
+      'Reconstruct History'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'bauble', name: 'Mishra\'s Bauble', type_line: 'Artifact' },
+            { id: 'wake', name: 'Mirari\'s Wake', type_line: 'Enchantment' },
+            { id: 'wrath', name: 'Wrath of God', type_line: 'Sorcery' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'reconstruct-history-spell',
+          type: 'spell',
+          controller: 'p1',
+          card: { id: 'reconstruct-history-card', name: 'Reconstruct History', type_line: 'Sorcery' },
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'reconstruct-history-spell',
+      selectorContext: {
+        chosenObjectIds: ['bauble', 'wake', 'wrath'],
+      },
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual([
+      'move_zone',
+      'move_zone',
+      'move_zone',
+      'move_zone',
+      'move_zone',
+      'exile',
+    ]);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['bauble', 'wake', 'wrath']);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.exile || []).map((c: any) => c.id)).toContain('reconstruct-history-card');
+  });
+
+  it('applies Awaken the Honored Dead when allowOptional enables the discard gate', () => {
+    const ir = parseOracleTextToIR(
+      'You may discard a card. When you do, return target creature card from your graveyard to the battlefield tapped.',
+      'Awaken the Honored Dead'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [{ id: 'pitch', name: 'Spare Card', type_line: 'Instant' }],
+          graveyard: [{ id: 'zombie', name: 'Diregraf Ghoul', type_line: 'Creature - Zombie' }],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      { controllerId: 'p1', targetCreatureId: 'zombie' },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const revived = (result.state.battlefield as any[]).find((perm: any) => String(perm?.card?.id || '') === 'zombie');
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['discard', 'move_zone']);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toContain('pitch');
+    expect((p1.graveyard || []).map((c: any) => c.id)).not.toContain('zombie');
+    expect(revived?.tapped).toBe(true);
+  });
+
+  it('applies Consumed by Greed gift branch after the opponent sacrifice resolves deterministically', () => {
+    const ir = parseOracleTextToIR(
+      'Target opponent sacrifices a creature or enchantment. If the gift was promised, you return target permanent card from your graveyard to your hand.',
+      'Consumed by Greed'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'wake', name: 'Mirari\'s Wake', type_line: 'Enchantment' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'opp-creature',
+          ownerId: 'p2',
+          controller: 'p2',
+          name: 'Opponent Bear',
+          cardType: 'Creature',
+          type_line: 'Creature - Bear',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetPermanentId: 'wake',
+      selectorContext: { targetOpponentId: 'p2' },
+      giftPromised: true,
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['sacrifice', 'move_zone']);
+    expect((result.state.battlefield || []).map((perm: any) => perm.id)).not.toContain('opp-creature');
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['wake']);
+  });
+
+  it('does not apply Grave Venerations end-step return when you are not the monarch', () => {
+    const ir = parseOracleTextToIR(
+      "When this enchantment enters, you become the monarch.\nAt the beginning of your end step, if you're the monarch, return up to one target creature card from your graveyard to your hand.\nWhenever a creature you control dies, each opponent loses 1 life and you gain 1 life.",
+      'Grave Venerations'
+    );
+    const steps =
+      ir.abilities.find(a => a.triggerCondition === 'the beginning of your end step')?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'angel', name: 'Angel of Tests', type_line: 'Creature - Angel' }],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'angel',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps).toEqual([]);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual(['angel']);
+  });
+
+  it('applies Grave Venerations end-step return when you are the monarch', () => {
+    const ir = parseOracleTextToIR(
+      "When this enchantment enters, you become the monarch.\nAt the beginning of your end step, if you're the monarch, return up to one target creature card from your graveyard to your hand.\nWhenever a creature you control dies, each opponent loses 1 life and you gain 1 life.",
+      'Grave Venerations'
+    );
+    const steps =
+      ir.abilities.find(a => a.triggerCondition === 'the beginning of your end step')?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'angel', name: 'Angel of Tests', type_line: 'Creature - Angel' }],
+          exile: [],
+        } as any,
+      ],
+      monarch: 'p1',
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'angel',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone']);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['angel']);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+  });
+
+  it('does not apply Aerith, Last Ancient raise ability when you did not gain life this turn', () => {
+    const ir = parseOracleTextToIR(
+      'Lifelink\nAt the beginning of your end step, if you gained life this turn, return target creature card from your graveyard to your hand. If you gained 7 or more life this turn, return that card to the battlefield instead.',
+      'Aerith, Last Ancient'
+    );
+    const steps =
+      ir.abilities.find(a => a.triggerCondition === 'the beginning of your end step')?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'cleric', name: 'Cleric of Tests', type_line: 'Creature - Cleric' }],
+          exile: [],
+        } as any,
+      ],
+      lifeGainedThisTurn: { p1: 0 },
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'cleric',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps).toEqual([]);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual(['cleric']);
+    expect((result.state.battlefield || []).map((perm: any) => perm.card?.id || perm.id)).not.toContain('cleric');
+  });
+
+  it('applies Aerith, Last Ancient battlefield upgrade when you gained seven life this turn', () => {
+    const ir = parseOracleTextToIR(
+      'Lifelink\nAt the beginning of your end step, if you gained life this turn, return target creature card from your graveyard to your hand. If you gained 7 or more life this turn, return that card to the battlefield instead.',
+      'Aerith, Last Ancient'
+    );
+    const steps =
+      ir.abilities.find(a => a.triggerCondition === 'the beginning of your end step')?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'cleric', name: 'Cleric of Tests', type_line: 'Creature - Cleric' }],
+          exile: [],
+        } as any,
+      ],
+      lifeGainedThisTurn: { p1: 7 },
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'cleric',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const returned = (result.state.battlefield || []).find((perm: any) => String(perm?.card?.id || perm?.id || '') === 'cleric');
+
+    expect(result.appliedSteps.map(s => s.kind)).toEqual(['move_zone', 'move_zone']);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    expect(returned).toBeTruthy();
+  });
+
+  it('applies Planewide Celebration with repeated mode selections', () => {
+    const ir = parseOracleTextToIR(
+      "Choose four. You may choose the same mode more than once.\n\u2022 Create a 2/2 white Citizen creature token that's all colors.\n\u2022 Return target permanent card from your graveyard to your hand.\n\u2022 Proliferate.\n\u2022 You gain 4 life.",
+      'Planewide Celebration'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'relic', name: 'Relic of Tests', type_line: 'Artifact' }],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        targetPermanentId: 'relic',
+      },
+      {
+        selectedModeIds: ['Mode 2', 'Mode 4', 'Mode 4', 'Mode 1'],
+      }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(p1.life).toBe(48);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['relic']);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    expect(result.state.battlefield || []).toHaveLength(1);
+    expect(result.appliedSteps.some(step => step.kind === 'choose_mode')).toBe(true);
+    expect(result.appliedSteps.filter(step => step.kind === 'gain_life')).toHaveLength(2);
+  });
+
+  it('applies Stitch Together threshold battlefield upgrade when seven or more cards are in your graveyard', () => {
+    const ir = parseOracleTextToIR(
+      'Return target creature card from your graveyard to your hand.\nThreshold - Return that card from your graveyard to the battlefield instead if there are seven or more cards in your graveyard.',
+      'Stitch Together'
+    );
+    const steps = ir.abilities.flatMap(ability => ability.steps);
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [
+            { id: 'ghoul', name: 'Diregraf Ghoul', type_line: 'Creature - Zombie' },
+            { id: 'c1', name: 'Filler 1', type_line: 'Instant' },
+            { id: 'c2', name: 'Filler 2', type_line: 'Instant' },
+            { id: 'c3', name: 'Filler 3', type_line: 'Instant' },
+            { id: 'c4', name: 'Filler 4', type_line: 'Instant' },
+            { id: 'c5', name: 'Filler 5', type_line: 'Instant' },
+            { id: 'c6', name: 'Filler 6', type_line: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'ghoul',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const returned = (result.state.battlefield || []).find((perm: any) => String(perm?.card?.id || perm?.id || '') === 'ghoul');
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'move_zone']);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.graveyard || []).map((c: any) => c.id)).not.toContain('ghoul');
+    expect(returned).toBeTruthy();
+  });
+
+  it('applies Emeria Shepherd plains branch when the triggering land is bound as a Plains', () => {
+    const result = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'relic', name: 'Testing Relic', type_line: 'Artifact' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'plains1',
+            ownerId: 'p1',
+            controller: 'p1',
+            name: 'Plains',
+            type_line: 'Basic Land - Plains',
+            tapped: false,
+            summoningSick: false,
+            counters: {},
+          } as any,
+        ],
+        priority: 'p1',
+        turnPlayer: 'p1',
+      }),
+      {
+        controllerId: 'p1',
+        sourceId: 'emeria',
+        sourceName: 'Emeria Shepherd',
+        effect:
+          'You may return target nonland permanent card from your graveyard to your hand. If that land is a Plains, you may return that nonland permanent card to the battlefield instead.',
+      },
+      {
+        targetPermanentId: 'relic',
+        chosenObjectIds: ['plains1'],
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const returned = (result.state.battlefield || []).find((perm: any) => String(perm?.card?.id || perm?.id || '') === 'relic');
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'move_zone']);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    expect(returned).toBeTruthy();
+  });
+
+  it('applies Undead Butler by exiling the source from your graveyard and returning the chosen creature', () => {
+    const result = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'butler', name: 'Undead Butler', type_line: 'Creature - Zombie' },
+              { id: 'ghoul', name: 'Diregraf Ghoul', type_line: 'Creature - Zombie' },
+            ],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+        priority: 'p1',
+        turnPlayer: 'p1',
+      }),
+      {
+        controllerId: 'p1',
+        sourceId: 'butler',
+        sourceName: 'Undead Butler',
+        effect: 'You may exile it. When you do, return target creature card from your graveyard to your hand.',
+      },
+      {
+        targetPermanentId: 'ghoul',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['exile', 'move_zone']);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['ghoul']);
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.exile || []).map((c: any) => c.id)).toEqual(['butler']);
+  });
+
+  it('applies Not Dead After All by returning the creature and attaching a Wicked Role token when it dies', () => {
+    const ir = parseOracleTextToIR(
+      'Until end of turn, target creature you control gains "When this creature dies, return it to the battlefield tapped under its owner\'s control, then create a Wicked Role token attached to it." (Enchanted creature gets +1/+1. When this token is put into a graveyard, each opponent loses 1 life.)',
+      'Not Dead After All'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'bear',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          attachments: [],
+          card: { id: 'bear', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const granted = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'not-dead',
+      sourceName: 'Not Dead After All',
+      targetCreatureId: 'bear',
+    });
+
+    const registry = (granted.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.timing).toBe(DelayedTriggerTiming.WHEN_DIES);
+
+    const diedState = makeState({
+      turnNumber: 9,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'bear', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+      delayedTriggerRegistry: registry,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    } as any);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'dies', permanentId: 'bear' });
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      diedState,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const p1 = resolved.state.players.find(p => p.id === 'p1') as any;
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'bear'
+    );
+    const role = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.name || '') === 'Wicked Role');
+
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    expect(returned?.tapped).toBe(true);
+    expect(role?.attachedTo).toBe(returned?.id);
+    expect((returned?.attachments || [])).toContain(role?.id);
+  });
+
+  it('applies Undying Malice by returning the creature tapped with a +1/+1 counter when it dies', () => {
+    const ir = parseOracleTextToIR(
+      'Until end of turn, target creature gains "When this creature dies, return it to the battlefield tapped under its owner\'s control with a +1/+1 counter on it."',
+      'Undying Malice'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const granted = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 9,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'bear',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            attachments: [],
+            counters: {},
+            card: { id: 'bear', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+          } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'undying-malice',
+        sourceName: 'Undying Malice',
+        targetCreatureId: 'bear',
+      }
+    );
+
+    const registry = (granted.state as any).delayedTriggerRegistry;
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'dies', permanentId: 'bear' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'bear', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+        delayedTriggerRegistry: registry,
+      } as any),
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'bear'
+    ) as any;
+    expect(returned?.tapped).toBe(true);
+    expect(returned?.counters?.['+1/+1']).toBe(1);
+  });
+
+  it('applies Luminous Broodmoth trigger text by returning the creature with a flying counter', () => {
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'bear', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'broodmoth',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            attachments: [],
+            counters: {},
+            card: {
+              id: 'broodmoth',
+              name: 'Luminous Broodmoth',
+              type_line: 'Creature - Insect',
+              oracle_text:
+                "Flying\nWhenever a creature you control without flying dies, return it to the battlefield under its owner's control with a flying counter on it.",
+              power: '3',
+              toughness: '4',
+            },
+          } as any,
+        ],
+      }),
+      {
+        controllerId: 'p1',
+        sourceId: 'broodmoth',
+        sourceName: 'Luminous Broodmoth',
+        effect: "Return it to the battlefield under its owner's control with a flying counter on it.",
+      },
+      {
+        sourceId: 'bear',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'bear',
+        chosenObjectIds: ['bear'],
+      }
+    );
+
+    const player1 = resolved.state.players.find(player => player.id === 'p1') as any;
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'bear'
+    ) as any;
+
+    expect((player1.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect(returned?.controller).toBe('p1');
+    expect(returned?.owner).toBe('p1');
+    expect(returned?.counters?.flying).toBe(1);
+    expect(resolved.skippedSteps).toHaveLength(0);
+  });
+
+  it("applies Valkyrie's Call by returning the creature with its counter and added Angel type", () => {
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              {
+                id: 'bear',
+                name: 'Test Bear',
+                type_line: 'Creature - Bear',
+                power: '2',
+                toughness: '2',
+                colors: ['G'],
+              },
+            ],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      {
+        controllerId: 'p1',
+        sourceId: 'valkyries-call',
+        sourceName: "Valkyrie's Call",
+        effect: "Return that card to the battlefield under its owner's control with a +1/+1 counter on it. It's an Angel in addition to its other types.",
+      },
+      {
+        sourceId: 'bear',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'bear',
+        chosenObjectIds: ['bear'],
+      } as any
+    );
+
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'bear'
+    ) as any;
+
+    expect(returned?.controller).toBe('p1');
+    expect(returned?.owner).toBe('p1');
+    expect(returned?.counters?.['+1/+1']).toBe(1);
+    expect(returned?.grantedTypes).toContain('Angel');
+  });
+
+  it('applies Grave Betrayal delayed return by adding the black Zombie rewrite on entry', () => {
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              {
+                id: 'dead-bear',
+                name: 'Dead Bear',
+                type_line: 'Creature - Bear',
+                power: '3',
+                toughness: '3',
+                colors: ['G'],
+              },
+            ],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      {
+        controllerId: 'p1',
+        sourceId: 'grave-betrayal',
+        sourceName: 'Grave Betrayal',
+        effect:
+          "Return it to the battlefield under your control with an additional +1/+1 counter on it. That creature is a black Zombie in addition to its other colors and types.",
+      },
+      {
+        sourceId: 'dead-bear',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-bear',
+        chosenObjectIds: ['dead-bear'],
+      } as any
+    );
+
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'dead-bear'
+    ) as any;
+
+    expect(returned?.controller).toBe('p1');
+    expect(returned?.owner).toBe('p2');
+    expect(returned?.counters?.['+1/+1']).toBe(1);
+    expect(returned?.grantedTypes).toContain('Zombie');
+    expect(returned?.colors).toEqual(expect.arrayContaining(['G', 'B']));
+  });
+
+  it("applies Lim-Dul the Necromancer by returning the card as a Zombie when the payment condition succeeds", () => {
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        manaPool: { p1: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 1 } },
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              {
+                id: 'dead-ogre',
+                name: 'Dead Ogre',
+                type_line: 'Creature - Ogre',
+                power: '4',
+                toughness: '2',
+                colors: ['R'],
+              },
+            ],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      {
+        controllerId: 'p1',
+        sourceId: 'lim-dul',
+        sourceName: 'Lim-Dul the Necromancer',
+        effect:
+          "You may pay {1}{B}. If you do, return that card to the battlefield under your control. If it's a creature, it's a Zombie in addition to its other creature types.",
+      },
+      {
+        sourceId: 'dead-ogre',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-ogre',
+        chosenObjectIds: ['dead-ogre'],
+      } as any,
+      { allowOptional: true }
+    );
+
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'dead-ogre'
+    ) as any;
+
+    expect(returned?.controller).toBe('p1');
+    expect(returned?.owner).toBe('p2');
+    expect(returned?.grantedTypes).toContain('Zombie');
+  });
+
+  it.each([
+    {
+      name: 'Endless Cockroaches',
+      permanentId: 'cockroaches',
+      text: 'When Endless Cockroaches is put into your graveyard from the battlefield, return Endless Cockroaches to your hand.',
+      typeLine: 'Creature - Insect',
+    },
+    {
+      name: 'Mortus Strider',
+      permanentId: 'mortus-strider',
+      text: "When Mortus Strider dies, return it to its owner's hand.",
+      typeLine: 'Creature - Skeleton',
+    },
+    {
+      name: 'Weatherseed Treefolk',
+      permanentId: 'weatherseed-treefolk',
+      text: "When Weatherseed Treefolk dies, return it to its owner's hand.",
+      typeLine: 'Creature - Treefolk',
+    },
+    {
+      name: 'Shivan Phoenix',
+      permanentId: 'shivan-phoenix',
+      text: "When Shivan Phoenix is put into a graveyard from the battlefield, return Shivan Phoenix to its owner's hand.",
+      typeLine: 'Creature - Phoenix',
+    },
+    {
+      name: 'Immortal Phoenix',
+      permanentId: 'immortal-phoenix',
+      text: "When Immortal Phoenix dies, return it to its owner's hand.",
+      typeLine: 'Creature - Phoenix',
+    },
+  ])('triggers and executes $name by returning itself to hand after dying', ({ name, permanentId, text, typeLine }) => {
+    const abilities = parseTriggeredAbilitiesFromText(text, permanentId, 'p1', name);
+
+    const resolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: permanentId, name, type_line: typeLine }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: permanentId,
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: permanentId,
+        chosenObjectIds: [permanentId],
+        permanentTypes: ['Creature'],
+      }
+    );
+
+    const p1 = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect(resolved.triggers).toHaveLength(1);
+    expect((p1.hand || []).map((card: any) => card.id)).toContain(permanentId);
+    expect((p1.graveyard || []).map((card: any) => card.id)).not.toContain(permanentId);
+  });
+
+  it("triggers and executes Fool's Demise self-return by moving the Aura from graveyard to hand", () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "When Fool's Demise is put into a graveyard from the battlefield, return Fool's Demise to its owner's hand.",
+      'fools-demise',
+      'p1',
+      "Fool's Demise"
+    );
+
+    const resolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'fools-demise', name: "Fool's Demise", type_line: 'Enchantment - Aura' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'fools-demise',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'fools-demise',
+        chosenObjectIds: ['fools-demise'],
+        permanentTypes: ['Enchantment'],
+      }
+    );
+
+    const p1 = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect(resolved.triggers).toHaveLength(1);
+    expect((p1.hand || []).map((card: any) => card.id)).toContain('fools-demise');
+    expect((p1.graveyard || []).map((card: any) => card.id)).not.toContain('fools-demise');
+  });
+
+  it('resolves Gift of Immortality by returning the creature immediately and reattaching the Aura at the next end step', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "When enchanted creature dies, return that card to the battlefield under its owner's control. Return Gift of Immortality to the battlefield attached to that creature at the beginning of the next end step.",
+      'gift-aura',
+      'p1',
+      'Gift of Immortality'
+    );
+
+    const initial = processEventAndExecuteTriggeredOracle(
+      makeState({
+        turnNumber: 12,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'dead-bear', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+              { id: 'gift-card', name: 'Gift of Immortality', type_line: 'Enchantment - Aura', oracle_text: 'Enchant creature' },
+            ],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'dead-bear',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'dead-bear',
+        permanentTypes: ['Creature'],
+        attachedByPermanentIds: ['gift-aura'],
+      }
+    );
+
+    const creatureReturned = (initial.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'dead-bear'
+    ) as any;
+    const initialPlayer = initial.state.players.find((player: any) => player.id === 'p1') as any;
+    const registry = (initial.state as any).delayedTriggerRegistry;
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p1' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      initial.state as any,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const resolvedPlayer = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+    const giftAura = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'gift-card'
+    ) as any;
+
+    expect(creatureReturned).toBeTruthy();
+    expect((initialPlayer.graveyard || []).map((card: any) => card.id)).toContain('gift-card');
+    expect((initialPlayer.graveyard || []).map((card: any) => card.id)).not.toContain('dead-bear');
+    expect(giftAura).toBeTruthy();
+    expect(giftAura?.attachedTo).toBe(String(creatureReturned?.id || ''));
+    expect((resolvedPlayer.graveyard || []).map((card: any) => card.id)).not.toContain('gift-card');
+  });
+
+  it('resolves Nissa\'s Zendikon trigger text by returning the enchanted land to hand', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "When enchanted land dies, return that card to its owner's hand.",
+      'zendikon-aura',
+      'p1',
+      "Nissa's Zendikon"
+    );
+
+    const resolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'forest-card', name: 'Forest', type_line: 'Basic Land - Forest' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'forest-card',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'forest-card',
+        permanentTypes: ['Land'],
+        attachedByPermanentIds: ['zendikon-aura'],
+      }
+    );
+
+    const player1 = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect((player1.hand || []).map((card: any) => card.id)).toContain('forest-card');
+    expect((player1.graveyard || []).map((card: any) => card.id)).not.toContain('forest-card');
+  });
+
+  it.each([
+    {
+      name: 'Necrogen Communion',
+      sourceId: 'necrogen-communion',
+      text: 'When enchanted creature dies, return that card to the battlefield under your control.',
+      hostId: 'dead-zombie',
+      hostCard: { id: 'dead-zombie', name: 'Dead Zombie', type_line: 'Creature - Zombie', power: '2', toughness: '2' },
+      attachedByPermanentIds: ['necrogen-communion'],
+      eventData: {
+        sourceId: 'dead-zombie',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-zombie',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const returned = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.id || '') === 'dead-zombie');
+        expect(returned?.controller).toBe('p1');
+      },
+    },
+    {
+      name: 'Fungal Fortitude',
+      sourceId: 'fungal-fortitude',
+      text: "When enchanted creature dies, return it to the battlefield tapped under its owner's control.",
+      hostId: 'dead-fungus',
+      hostCard: { id: 'dead-fungus', name: 'Dead Fungus', type_line: 'Creature - Fungus', power: '3', toughness: '3' },
+      attachedByPermanentIds: ['fungal-fortitude'],
+      eventData: {
+        sourceId: 'dead-fungus',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-fungus',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const returned = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.id || '') === 'dead-fungus');
+        expect(returned?.controller).toBe('p2');
+        expect(returned?.tapped).toBe(true);
+      },
+    },
+    {
+      name: "Minion's Return",
+      sourceId: 'minions-return',
+      text: 'When enchanted creature dies, return that card to the battlefield under your control.',
+      hostId: 'dead-minion',
+      hostCard: { id: 'dead-minion', name: 'Dead Minion', type_line: 'Creature - Imp', power: '2', toughness: '1' },
+      attachedByPermanentIds: ['minions-return'],
+      eventData: {
+        sourceId: 'dead-minion',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-minion',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const returned = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.id || '') === 'dead-minion');
+        expect(returned?.controller).toBe('p1');
+      },
+    },
+    {
+      name: 'Unholy Indenture',
+      sourceId: 'unholy-indenture',
+      text: 'When enchanted creature dies, return that card to the battlefield under your control with a +1/+1 counter on it.',
+      hostId: 'dead-warrior',
+      hostCard: { id: 'dead-warrior', name: 'Dead Warrior', type_line: 'Creature - Warrior', power: '3', toughness: '2' },
+      attachedByPermanentIds: ['unholy-indenture'],
+      eventData: {
+        sourceId: 'dead-warrior',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-warrior',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const returned = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.id || '') === 'dead-warrior');
+        expect(returned?.controller).toBe('p1');
+        expect(returned?.counters?.['+1/+1']).toBe(1);
+      },
+    },
+    {
+      name: 'Abduction',
+      sourceId: 'abduction-aura',
+      text: "When enchanted creature dies, return that card to the battlefield under its owner's control.",
+      hostId: 'abducted-bear',
+      hostCard: { id: 'abducted-bear', name: 'Abducted Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+      attachedByPermanentIds: ['abduction-aura'],
+      eventData: {
+        sourceId: 'abducted-bear',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'abducted-bear',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const returned = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.id || '') === 'abducted-bear');
+        expect(returned?.controller).toBe('p2');
+      },
+    },
+    {
+      name: 'Unhallowed Pact',
+      sourceId: 'unhallowed-pact',
+      text: 'When enchanted creature dies, return that card to the battlefield under your control.',
+      hostId: 'dead-horror',
+      hostCard: { id: 'dead-horror', name: 'Dead Horror', type_line: 'Creature - Horror', power: '4', toughness: '4' },
+      attachedByPermanentIds: ['unhallowed-pact'],
+      eventData: {
+        sourceId: 'dead-horror',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-horror',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const returned = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.id || '') === 'dead-horror');
+        expect(returned?.controller).toBe('p1');
+      },
+    },
+    {
+      name: "Shade's Form",
+      sourceId: 'shades-form',
+      text: 'When enchanted creature dies, return that card to the battlefield under your control.',
+      hostId: 'dead-shade',
+      hostCard: { id: 'dead-shade', name: 'Dead Shade', type_line: 'Creature - Shade', power: '1', toughness: '1' },
+      attachedByPermanentIds: ['shades-form'],
+      eventData: {
+        sourceId: 'dead-shade',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-shade',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const returned = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.id || '') === 'dead-shade');
+        expect(returned?.controller).toBe('p1');
+      },
+    },
+    {
+      name: 'False Demise',
+      sourceId: 'false-demise',
+      text: 'When enchanted creature dies, return that card to the battlefield under your control.',
+      hostId: 'dead-merfolk',
+      hostCard: { id: 'dead-merfolk', name: 'Dead Merfolk', type_line: 'Creature - Merfolk', power: '2', toughness: '1' },
+      attachedByPermanentIds: ['false-demise'],
+      eventData: {
+        sourceId: 'dead-merfolk',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-merfolk',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const returned = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.id || '') === 'dead-merfolk');
+        expect(returned?.controller).toBe('p1');
+      },
+    },
+    {
+      name: "Fool's Demise",
+      sourceId: 'fools-demise-main',
+      text: 'When enchanted creature dies, return that card to the battlefield under your control.',
+      hostId: 'dead-wizard',
+      hostCard: { id: 'dead-wizard', name: 'Dead Wizard', type_line: 'Creature - Wizard', power: '2', toughness: '2' },
+      attachedByPermanentIds: ['fools-demise-main'],
+      eventData: {
+        sourceId: 'dead-wizard',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-wizard',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const returned = (resolved.state.battlefield || []).find((perm: any) => String(perm?.card?.id || '') === 'dead-wizard');
+        expect(returned?.controller).toBe('p1');
+      },
+    },
+    {
+      name: 'Demonic Vigor',
+      sourceId: 'demonic-vigor',
+      text: "When enchanted creature dies, return that card to its owner's hand.",
+      hostId: 'dead-devil',
+      hostCard: { id: 'dead-devil', name: 'Dead Devil', type_line: 'Creature - Devil', power: '2', toughness: '2' },
+      attachedByPermanentIds: ['demonic-vigor'],
+      eventData: {
+        sourceId: 'dead-devil',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-devil',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const owner = resolved.state.players.find((player: any) => player.id === 'p2') as any;
+        expect((owner.hand || []).map((card: any) => card.id)).toContain('dead-devil');
+      },
+    },
+    {
+      name: "Squee's Embrace",
+      sourceId: 'squees-embrace',
+      text: "When enchanted creature dies, return that card to its owner's hand.",
+      hostId: 'dead-goblin',
+      hostCard: { id: 'dead-goblin', name: 'Dead Goblin', type_line: 'Creature - Goblin', power: '1', toughness: '1' },
+      attachedByPermanentIds: ['squees-embrace'],
+      eventData: {
+        sourceId: 'dead-goblin',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-goblin',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const owner = resolved.state.players.find((player: any) => player.id === 'p2') as any;
+        expect((owner.hand || []).map((card: any) => card.id)).toContain('dead-goblin');
+      },
+    },
+    {
+      name: 'Puppet Master',
+      sourceId: 'puppet-master',
+      text: "When enchanted creature dies, return that card to its owner's hand.",
+      hostId: 'dead-puppet',
+      hostCard: { id: 'dead-puppet', name: 'Dead Puppet', type_line: 'Creature - Construct', power: '1', toughness: '1' },
+      attachedByPermanentIds: ['puppet-master'],
+      eventData: {
+        sourceId: 'dead-puppet',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'dead-puppet',
+        permanentTypes: ['Creature'],
+      },
+      assertResolved: (resolved: any) => {
+        const owner = resolved.state.players.find((player: any) => player.id === 'p2') as any;
+        expect((owner.hand || []).map((card: any) => card.id)).toContain('dead-puppet');
+      },
+    },
+  ])('resolves attached-host return families for $name', ({ name, sourceId, text, hostId, hostCard, attachedByPermanentIds, eventData, assertResolved }) => {
+    const abilities = parseTriggeredAbilitiesFromText(text, sourceId, 'p1', name);
+
+    const resolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [hostCard],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        ...eventData,
+        attachedByPermanentIds,
+      }
+    );
+
+    const owner = resolved.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect((owner.graveyard || []).map((card: any) => card.id)).not.toContain(hostId);
+    assertResolved(resolved);
+  });
+
+  it('resolves Resurrection Orb by scheduling and applying the delayed equipped-creature return', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "When equipped creature dies, return that card to the battlefield under your control at the beginning of the next end step.",
+      'res-orb',
+      'p1',
+      'Resurrection Orb'
+    );
+
+    const initial = processEventAndExecuteTriggeredOracle(
+      makeState({
+        turnNumber: 14,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'dead-knight', name: 'Dead Knight', type_line: 'Creature - Human Knight', power: '3', toughness: '3' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'dead-knight',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'dead-knight',
+        permanentTypes: ['Creature'],
+        attachedByPermanentIds: ['res-orb'],
+      }
+    );
+
+    const registry = (initial.state as any).delayedTriggerRegistry;
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p1' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      initial.state as any,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'dead-knight'
+    ) as any;
+
+    expect(returned).toBeTruthy();
+    expect(returned?.controller).toBe('p1');
+  });
+
+  it('resolves Oathkeeper, Takeno\'s Daisho only when the equipped creature card is a Samurai', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "Whenever equipped creature dies, return that card to the battlefield under your control if it's a Samurai card.",
+      'oathkeeper',
+      'p1',
+      "Oathkeeper, Takeno's Daisho"
+    );
+
+    const samuraiResolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'samurai-card', name: 'Test Samurai', type_line: 'Creature - Human Samurai', power: '2', toughness: '2' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'samurai-card',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'samurai-card',
+        permanentTypes: ['Creature'],
+        attachedByPermanentIds: ['oathkeeper'],
+      }
+    );
+
+    const nonsamuraiResolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'wizard-card', name: 'Test Wizard', type_line: 'Creature - Human Wizard', power: '2', toughness: '2' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'wizard-card',
+        sourceControllerId: 'p2',
+        targetPermanentId: 'wizard-card',
+        permanentTypes: ['Creature'],
+        attachedByPermanentIds: ['oathkeeper'],
+      }
+    );
+
+    const returnedSamurai = (samuraiResolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'samurai-card'
+    ) as any;
+    const p2AfterSkip = nonsamuraiResolved.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect(returnedSamurai?.controller).toBe('p1');
+    expect((p2AfterSkip.graveyard || []).map((card: any) => card.id)).toContain('wizard-card');
+    expect((nonsamuraiResolved.state.battlefield || []).map((perm: any) => String(perm?.card?.id || ''))).not.toContain('wizard-card');
+  });
+
+  it('executes Edea, Possessed Sorceress effect text by returning the creature to its owner and drawing a card', () => {
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [{ id: 'drawn-card', name: 'Drawn Card', type_line: 'Instant' }],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'borrowed-creature', name: 'Borrowed Creature', type_line: 'Creature - Beast', power: '4', toughness: '4' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      {
+        controllerId: 'p1',
+        sourceId: 'edea',
+        sourceName: 'Edea, Possessed Sorceress',
+        effect: "return it to the battlefield under its owner's control and you draw a card.",
+      },
+      {
+        sourceId: 'borrowed-creature',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'borrowed-creature',
+        chosenObjectIds: ['borrowed-creature'],
+      }
+    );
+
+    const p1 = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'borrowed-creature'
+    ) as any;
+
+    expect(returned?.controller).toBe('p2');
+    expect((p1.hand || []).map((card: any) => card.id)).toContain('drawn-card');
+  });
+
+  it('triggers and executes Edea, Possessed Sorceress for a borrowed creature that dies', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "Whenever a creature you control but don't own dies, return it to the battlefield under its owner's control and you draw a card.",
+      'edea',
+      'p1',
+      'Edea, Possessed Sorceress'
+    );
+
+    const resolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [{ id: 'drawn-card', name: 'Drawn Card', type_line: 'Instant' }],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'borrowed-creature', name: 'Borrowed Creature', type_line: 'Creature - Beast', power: '4', toughness: '4' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'borrowed-creature',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'borrowed-creature',
+        chosenObjectIds: ['borrowed-creature'],
+        permanentTypes: ['Creature'],
+      }
+    );
+
+    const p1 = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'borrowed-creature'
+    ) as any;
+
+    expect(resolved.triggers).toHaveLength(1);
+    expect(returned?.controller).toBe('p2');
+    expect((p1.hand || []).map((card: any) => card.id)).toContain('drawn-card');
+  });
+
+  it('triggers and resolves Marchesa, the Black Rose for your creature with a +1/+1 counter', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      'Whenever a creature you control with a +1/+1 counter on it dies, return that card to the battlefield under your control at the beginning of the next end step.',
+      'marchesa',
+      'p1',
+      'Marchesa, the Black Rose'
+    );
+
+    const initial = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'fallen-creature', name: 'Fallen Creature', type_line: 'Creature - Human Rogue', power: '3', toughness: '3' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.CONTROLLED_CREATURE_DIED,
+      abilities,
+      {
+        sourceId: 'fallen-creature',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'fallen-creature',
+        chosenObjectIds: ['fallen-creature'],
+        permanentTypes: ['Creature'],
+        counters: { '+1/+1': 1 },
+      }
+    );
+
+    const registry = (initial.state as any).delayedTriggerRegistry;
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p1' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      initial.state as any,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'fallen-creature'
+    ) as any;
+
+    expect(initial.triggers).toHaveLength(1);
+    expect(delayedCheck.triggersToFire).toHaveLength(1);
+    expect(returned?.controller).toBe('p1');
+  });
+
+  it('triggers and executes Thunderbolts Conspiracy for a Villain you control', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "Whenever a Villain you control dies, return it to the battlefield under its owner's control with a finality counter on it.",
+      'thunderbolts',
+      'p1',
+      'Thunderbolts Conspiracy'
+    );
+
+    const resolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'villain-creature', name: 'Villain Creature', type_line: 'Creature - Villain', power: '4', toughness: '4' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'villain-creature',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'villain-creature',
+        chosenObjectIds: ['villain-creature'],
+        permanentTypes: ['Creature'],
+        creatureTypes: ['Villain'],
+      }
+    );
+
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'villain-creature'
+    ) as any;
+
+    expect(resolved.triggers).toHaveLength(1);
+    expect(returned?.controller).toBe('p1');
+    expect(returned?.counters?.finality).toBe(1);
+  });
+
+  it('schedules and resolves Phytotitan delayed return for your next upkeep', () => {
+    const initial = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        turnNumber: 9,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'phytotitan', name: 'Phytotitan', type_line: 'Creature - Plant Elemental', power: '7', toughness: '2' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      {
+        controllerId: 'p1',
+        sourceId: 'phytotitan',
+        sourceName: 'Phytotitan',
+        effect: "Return it to the battlefield tapped under its owner's control at the beginning of your next upkeep.",
+      },
+      {
+        sourceId: 'phytotitan',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'phytotitan',
+        chosenObjectIds: ['phytotitan'],
+      }
+    );
+
+    const registry = (initial.state as any).delayedTriggerRegistry;
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'upkeep', activePlayerId: 'p1' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      initial.state as any,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const player1 = resolved.state.players.find(player => player.id === 'p1') as any;
+    const returned = (resolved.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'phytotitan'
+    ) as any;
+
+    expect((player1.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect(returned?.tapped).toBe(true);
+    expect(returned?.controller).toBe('p1');
+  });
+
+  it('schedules and resolves The Locust God delayed hand return at the next end step', () => {
+    const initial = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        turnNumber: 11,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'locust-god', name: 'The Locust God', type_line: 'Legendary Creature - God', power: '4', toughness: '4' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      {
+        controllerId: 'p1',
+        sourceId: 'locust-god',
+        sourceName: 'The Locust God',
+        effect: "Return it to its owner's hand at the beginning of the next end step.",
+      },
+      {
+        sourceId: 'locust-god',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'locust-god',
+        chosenObjectIds: ['locust-god'],
+      }
+    );
+
+    const registry = (initial.state as any).delayedTriggerRegistry;
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p2' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      initial.state as any,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const player1 = resolved.state.players.find(player => player.id === 'p1') as any;
+
+    expect((player1.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect((player1.hand || []).map((card: any) => card.id)).toEqual(['locust-god']);
+  });
+
+  it('applies Fake Your Own Death by returning the creature and creating a Treasure token when it dies', () => {
+    const ir = parseOracleTextToIR(
+      'Until end of turn, target creature gains "When this creature dies, return it to the battlefield under its owner\'s control, then create a Treasure token."',
+      'Fake Your Own Death'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const granted = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 9,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'bear',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            attachments: [],
+            counters: {},
+            card: { id: 'bear', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+          } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'fake-your-own-death',
+        sourceName: 'Fake Your Own Death',
+        targetCreatureId: 'bear',
+      }
+    );
+
+    const registry = (granted.state as any).delayedTriggerRegistry;
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'dies', permanentId: 'bear' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'bear', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+        delayedTriggerRegistry: registry,
+      } as any),
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    expect(
+      (resolved.state.battlefield || []).some((perm: any) => String(perm?.card?.id || perm?.id || '') === 'bear')
+    ).toBe(true);
+    expect((resolved.state.battlefield || []).some((perm: any) => String(perm?.card?.name || '') === 'Treasure')).toBe(true);
+  });
+
+  it('applies Infuse with Vitality by granting the delayed dies trigger and gaining 2 life', () => {
+    const steps = parseOracleTextToIR(
+      'Until end of turn, target creature gains deathtouch and "When this creature dies, return it to the battlefield tapped under its owner\'s control."\nYou gain 2 life.',
+      'Infuse with Vitality'
+    ).abilities.flatMap(ability => ability.steps);
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          { id: 'target-bear', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'infuse-with-vitality',
+        sourceName: 'Infuse with Vitality',
+        targetPermanentId: 'target-bear',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const registry = (result.state as any).delayedTriggerRegistry;
+
+    expect(p1.life).toBe(42);
+    expect(registry).toBeTruthy();
+    expect((registry?.triggers || []).some((trigger: any) => String(trigger?.watchingPermanentId || '') === 'target-bear')).toBe(true);
+  });
+
+  it('applies Verdant Rebirth by granting the delayed dies trigger and drawing a card', () => {
+    const steps = parseOracleTextToIR(
+      'Until end of turn, target creature gains "When this creature dies, return it to its owner\'s hand." Draw a card.',
+      'Verdant Rebirth'
+    ).abilities.flatMap(ability => ability.steps);
+
+    const granted = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [{ id: 'drawn-card', name: 'Drawn Card', type_line: 'Sorcery' }],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          { id: 'target-wolf', ownerId: 'p2', controller: 'p2', name: 'Target Wolf', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        ],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'verdant-rebirth',
+        sourceName: 'Verdant Rebirth',
+        targetPermanentId: 'target-wolf',
+      }
+    );
+
+    const caster = granted.state.players.find((player: any) => player.id === 'p1') as any;
+    const registry = (granted.state as any).delayedTriggerRegistry;
+
+    expect((caster.hand || []).map((card: any) => card.id)).toContain('drawn-card');
+    expect((registry?.triggers || []).some((trigger: any) => String(trigger?.watchingPermanentId || '') === 'target-wolf')).toBe(true);
+
+    const diedState = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: caster.hand || [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'target-wolf', name: 'Target Wolf', type_line: 'Creature - Wolf', power: '2', toughness: '2' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+      delayedTriggerRegistry: registry,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    } as any);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'dies', permanentId: 'target-wolf' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      diedState,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const owner = resolved.state.players.find((player: any) => player.id === 'p2') as any;
+    expect((owner.hand || []).map((card: any) => card.id)).toContain('target-wolf');
+  });
+
+  it('applies Flame-Wreathed Phoenix trigger text by granting a watched dies trigger while it remains on the battlefield', () => {
+    const ability = parseOracleTextToIR(
+      'Flying, haste\nTribute 2\nWhen Flame-Wreathed Phoenix enters, if tribute wasn\'t paid, it gains haste and "When this creature dies, return it to its owner\'s hand."',
+      'Flame-Wreathed Phoenix'
+    ).abilities.find(parsedAbility => parsedAbility.triggerCondition === 'this permanent enters');
+    const conditionalStep = ability?.steps?.[0] as any;
+    const grantStep = conditionalStep?.steps?.[0];
+
+    const granted = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          { id: 'phoenix', ownerId: 'p1', controller: 'p1', name: 'Flame-Wreathed Phoenix', cardType: 'Creature', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        ],
+      }),
+      [grantStep],
+      {
+        controllerId: 'p1',
+        sourceId: 'phoenix',
+        sourceName: 'Flame-Wreathed Phoenix',
+      }
+    );
+
+    const registry = (granted.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+    expect(registry?.triggers?.[0]?.effectData?.expireAtEndOfTurn).toBe(false);
+    expect(registry?.triggers?.[0]?.effectData?.expireWhenPermanentLeavesBattlefield).toBe(true);
+
+    const diedState = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'phoenix', name: 'Flame-Wreathed Phoenix', type_line: 'Creature - Phoenix', power: '3', toughness: '3' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+      delayedTriggerRegistry: registry,
+      priority: 'p1',
+      turnPlayer: 'p1',
+    } as any);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'dies', permanentId: 'phoenix' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      diedState,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const owner = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+    expect((owner.hand || []).map((card: any) => card.id)).toContain('phoenix');
+  });
+
+  it('schedules and resolves Liesa, Forgotten Archangel by returning the dead nontoken creature at the next end step', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "Whenever one or more nontoken creatures you control die, return those cards to their owner's hand at the beginning of the next end step.",
+      'liesa',
+      'p1',
+      'Liesa, Forgotten Archangel'
+    );
+
+    const initial = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'dead-cleric', name: 'Dead Cleric', type_line: 'Creature - Cleric', power: '2', toughness: '2' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.CONTROLLED_CREATURE_DIED,
+      abilities,
+      {
+        sourceId: 'dead-cleric',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'dead-cleric',
+        chosenObjectIds: ['dead-cleric'],
+        permanentTypes: ['Creature'],
+        sourceIsToken: false,
+      }
+    );
+
+    const registry = (initial.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p1' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      initial.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const owner = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+    expect((owner.graveyard || []).map((card: any) => card.id)).not.toContain('dead-cleric');
+    expect((owner.hand || []).map((card: any) => card.id)).toContain('dead-cleric');
+  });
+
+  it("schedules and resolves Rienne, Angel of Rebirth by returning the dead multicolored creature to its owner's hand", () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "Whenever another multicolored creature you control dies, return it to its owner's hand at the beginning of the next end step.",
+      'rienne',
+      'p1',
+      'Rienne, Angel of Rebirth'
+    );
+
+    const initial = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'dead-knight', name: 'Dead Knight', type_line: 'Creature - Human Knight', mana_cost: '{R}{W}', power: '3', toughness: '3' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'dead-knight',
+        sourceControllerId: 'p1',
+        sourceOwnerId: 'p2',
+        targetPermanentId: 'dead-knight',
+        chosenObjectIds: ['dead-knight'],
+        permanentTypes: ['Creature'],
+        colors: ['R', 'W'],
+      }
+    );
+
+    const registry = (initial.state as any).delayedTriggerRegistry;
+    expect(registry?.triggers).toHaveLength(1);
+
+    const delayedCheck = checkDelayedTriggers(registry, { type: 'end_step', activePlayerId: 'p1' });
+    const [triggerInstance] = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+    const resolved = executeTriggeredAbilityEffectWithOracleIR(
+      initial.state,
+      {
+        controllerId: triggerInstance.controllerId,
+        sourceId: triggerInstance.sourceId,
+        sourceName: triggerInstance.sourceName,
+        effect: triggerInstance.effect,
+      },
+      triggerInstance.triggerEventDataSnapshot
+    );
+
+    const owner = resolved.state.players.find((player: any) => player.id === 'p2') as any;
+    expect((owner.graveyard || []).map((card: any) => card.id)).not.toContain('dead-knight');
+    expect((owner.hand || []).map((card: any) => card.id)).toContain('dead-knight');
+  });
+
+  it('applies Athreos, God of Passage when the targeted opponent cannot pay 3 life', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      'Whenever another creature you own dies, return it to your hand unless target opponent pays 3 life.',
+      'athreos',
+      'p1',
+      'Athreos, God of Passage'
+    );
+
+    const resolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'dead-cleric', name: 'Dead Cleric', type_line: 'Creature - Cleric', power: '2', toughness: '2' }],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 2,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'dead-cleric',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'dead-cleric',
+        chosenObjectIds: ['dead-cleric'],
+        permanentTypes: ['Creature'],
+        targetOpponentId: 'p2',
+      }
+    );
+
+    const owner = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(resolved.triggers).toHaveLength(1);
+    expect((owner.graveyard || []).map((card: any) => card.id)).not.toContain('dead-cleric');
+    expect((owner.hand || []).map((card: any) => card.id)).toContain('dead-cleric');
+  });
+
+  it('keeps Athreos, God of Passage as a player-choice gap when the targeted opponent can pay 3 life', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      'Whenever another creature you own dies, return it to your hand unless target opponent pays 3 life.',
+      'athreos',
+      'p1',
+      'Athreos, God of Passage'
+    );
+
+    const resolved = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'dead-cleric', name: 'Dead Cleric', type_line: 'Creature - Cleric', power: '2', toughness: '2' }],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 5,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      TriggerEvent.DIES,
+      abilities,
+      {
+        sourceId: 'dead-cleric',
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p1',
+        targetPermanentId: 'dead-cleric',
+        chosenObjectIds: ['dead-cleric'],
+        permanentTypes: ['Creature'],
+        targetOpponentId: 'p2',
+      }
+    );
+
+    const owner = resolved.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(resolved.triggers).toHaveLength(1);
+    expect((owner.graveyard || []).map((card: any) => card.id)).toContain('dead-cleric');
+    expect((owner.hand || []).map((card: any) => card.id)).not.toContain('dead-cleric');
+    expect(resolved.executions).toHaveLength(1);
+    expect(resolved.executions[0]?.automationGaps.some((gap: any) => gap.reasonCode === 'player_choice_required')).toBe(true);
+  });
+
+  it('applies Pharika, God of Affliction by exiling the target and giving the Snake token to that card owner', () => {
+    const ir = parseOracleTextToIR(
+      '{B}{G}: Exile target creature card from a graveyard. Its owner creates a 1/1 black and green Snake enchantment creature token with deathtouch.',
+      'Pharika, God of Affliction'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'pharika-target', owner: 'p2', name: 'Dead Mystic', type_line: 'Creature - Elf Druid' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'pharika',
+        sourceName: 'Pharika, God of Affliction',
+        targetPermanentId: 'pharika-target',
+        selectorContext: { chosenObjectIds: ['pharika-target'] },
+      }
+    );
+
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    expect((p2.graveyard || []).map((card: any) => card.id)).not.toContain('pharika-target');
+    expect((p2.exile || []).map((card: any) => card.id)).toContain('pharika-target');
+    expect(result.state.battlefield).toHaveLength(1);
+    expect((result.state.battlefield[0] as any)?.controller).toBe('p2');
+  });
+
+  it('applies Shamble Back by exiling the target, creating a Zombie, and gaining 2 life', () => {
+    const ir = parseOracleTextToIR(
+      'Exile target creature card from a graveyard. Create a 2/2 black Zombie creature token. You gain 2 life.',
+      'Shamble Back'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'shamble-target', owner: 'p2', name: 'Dead Artist', type_line: 'Creature - Vampire' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Shamble Back',
+        targetPermanentId: 'shamble-target',
+        selectorContext: { chosenObjectIds: ['shamble-target'] },
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    expect((p2.exile || []).map((card: any) => card.id)).toContain('shamble-target');
+    expect(result.state.battlefield).toHaveLength(1);
+    expect((result.state.battlefield[0] as any)?.controller).toBe('p1');
+    expect(p1.life).toBe(42);
+  });
+
+  it('applies Boneclad Necromancer when allowOptional enables the exile gate', () => {
+    const ir = parseOracleTextToIR(
+      'When Boneclad Necromancer enters, you may exile target creature card from a graveyard. If you do, create a 2/2 black Zombie creature token.',
+      'Boneclad Necromancer'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'boneclad-target', owner: 'p2', name: 'Dead Bear', type_line: 'Creature - Bear' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      }),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Boneclad Necromancer',
+        targetPermanentId: 'boneclad-target',
+        selectorContext: { chosenObjectIds: ['boneclad-target'] },
+      },
+      { allowOptional: true }
+    );
+
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    expect((p2.exile || []).map((card: any) => card.id)).toContain('boneclad-target');
+    expect(result.state.battlefield).toHaveLength(1);
+    expect((result.state.battlefield[0] as any)?.controller).toBe('p1');
+  });
+
+  it('applies Oskar, Rubbish Reclaimer by granting cast permission to the discarded graveyard card', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever you discard a nonland card, you may cast it from your graveyard.',
+      'Oskar, Rubbish Reclaimer'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 7,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'discarded-opt', name: 'Opt', type_line: 'Instant' }],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Oskar, Rubbish Reclaimer',
+        selectorContext: { chosenObjectIds: ['discarded-opt'] },
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect((result.state as any).playableFromGraveyard?.p1?.['discarded-opt']).toBe(7);
+    expect((p1.graveyard || [])[0]?.canBePlayedBy).toBe('p1');
+    expect((p1.graveyard || [])[0]?.playableUntilTurn).toBe(7);
+  });
+
+  it("triggers and executes Archfiend's Vessel when it entered from your graveyard", () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      "When this creature enters, if it entered from your graveyard or you cast it from your graveyard, exile it.",
+      'vessel',
+      'p1',
+      "Archfiend's Vessel"
+    );
+
+    const result = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'vessel',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            enteredFromZone: 'graveyard',
+            card: {
+              id: 'vessel-card',
+              name: "Archfiend's Vessel",
+              type_line: 'Creature - Demon',
+              enteredFromZone: 'graveyard',
+            },
+          },
+        ],
+      } as any),
+      TriggerEvent.ENTERS_BATTLEFIELD,
+      abilities,
+      {
+        sourceId: 'vessel',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'vessel',
+        enteredFromZone: 'graveyard',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.triggers).toHaveLength(1);
+    expect(result.state.battlefield).toHaveLength(0);
+    expect((p1.exile || []).map((card: any) => card.id)).toContain('vessel-card');
+  });
+
+  it('triggers and schedules Prized Amalgam when a creature entered from your graveyard', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      'Whenever a creature enters, if it entered from your graveyard or you cast it from your graveyard, return this card from your graveyard to the battlefield tapped at the beginning of the next end step.',
+      'amalgam',
+      'p1',
+      'Prized Amalgam'
+    );
+
+    const result = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              {
+                id: 'amalgam',
+                name: 'Prized Amalgam',
+                type_line: 'Creature - Zombie',
+                oracle_text:
+                  'Whenever a creature enters, if it entered from your graveyard or you cast it from your graveyard, return this card from your graveyard to the battlefield tapped at the beginning of the next end step.',
+              },
+            ],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'bear',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            enteredFromZone: 'graveyard',
+            card: {
+              id: 'bear-card',
+              name: 'Reanimated Bear',
+              type_line: 'Creature - Bear',
+              enteredFromZone: 'graveyard',
+            },
+          },
+        ],
+      } as any),
+      TriggerEvent.ENTERS_BATTLEFIELD,
+      abilities,
+      {
+        sourceId: 'bear',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'bear',
+        enteredFromZone: 'graveyard',
+      }
+    );
+
+    const delayedRegistry = (result.state as any).delayedTriggerRegistry;
+    expect(result.triggers).toHaveLength(1);
+    expect(Array.isArray(delayedRegistry?.triggers)).toBe(true);
+    expect(delayedRegistry.triggers).toHaveLength(1);
+    expect(delayedRegistry.triggers[0]?.sourceId).toBe('amalgam');
+    expect(String(delayedRegistry.triggers[0]?.effect || '')).toContain('return this card from your graveyard to the battlefield tapped');
+  });
+
+  it('triggers and executes Rocket-Powered Goblin Glider when a target creature is supplied', () => {
+    const abilities = parseTriggeredAbilitiesFromText(
+      'When this Equipment enters, if it was cast from your graveyard, attach it to target creature you control.',
+      'rocket',
+      'p1',
+      'Rocket-Powered Goblin Glider'
+    );
+
+    const result = processEventAndExecuteTriggeredOracle(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'rocket',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            castFromZone: 'graveyard',
+            card: {
+              id: 'rocket-card',
+              name: 'Rocket-Powered Goblin Glider',
+              type_line: 'Artifact - Equipment',
+              castFromZone: 'graveyard',
+            },
+          },
+          {
+            id: 'bear',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            card: {
+              id: 'bear-card',
+              name: 'Target Bear',
+              type_line: 'Creature - Bear',
+            },
+          },
+        ],
+      } as any),
+      TriggerEvent.ENTERS_BATTLEFIELD,
+      abilities,
+      {
+        sourceId: 'rocket',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'bear',
+        castFromZone: 'graveyard',
+      },
+      { allowOptional: true }
+    );
+
+    const rocket = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'rocket') as any;
+    const bear = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'bear') as any;
+
+    expect(result.triggers).toHaveLength(1);
+    expect(rocket?.attachedTo).toBe('bear');
+    expect((bear?.attachments || []).includes('rocket')).toBe(true);
+  });
+
+  it('applies Skyclave Shade by granting this-turn cast permission to the source card in your graveyard', () => {
+    const ir = parseOracleTextToIR(
+      "Landfall - Whenever a land you control enters, if this card is in your graveyard and it's your turn, you may cast it from your graveyard this turn.",
+      'Skyclave Shade'
+    );
+    const steps = ir.abilities.flatMap(ability => ability.steps ?? []);
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 11,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'shade', name: 'Skyclave Shade', type_line: 'Creature - Shade' }],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'shade',
+        sourceName: 'Skyclave Shade',
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state as any).playableFromGraveyard?.p1?.shade).toBe(11);
+  });
+
+  it('applies parenthetical escape-style graveyard permissions like Confession Dial', () => {
+    const ir = parseOracleTextToIR(
+      '(You may cast it from your graveyard for its escape cost this turn.)',
+      'Confession Dial'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 13,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'dial', name: 'Confession Dial', type_line: 'Enchantment' }],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'dial',
+        sourceName: 'Confession Dial',
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state as any).playableFromGraveyard?.p1?.dial).toBe(13);
+  });
+
+  it('applies flashback keyword permissions like Faithless Looting', () => {
+    const ir = parseOracleTextToIR('Draw two cards, then discard two cards. Flashback {2}{R}', 'Faithless Looting');
+    const steps = ir.abilities[1]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 17,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'looting', name: 'Faithless Looting', type_line: 'Sorcery' }],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'looting',
+        sourceName: 'Faithless Looting',
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state as any).playableFromGraveyard?.p1?.looting).toBe(17);
+  });
+
+  it('applies Snapcaster Mage full-text flashback grants to the chosen graveyard card', () => {
+    const ir = parseOracleTextToIR(
+      'Flash. When Snapcaster Mage enters, target instant or sorcery card in your graveyard gains flashback until end of turn.\nThe flashback cost is equal to its mana cost.',
+      'Snapcaster Mage'
+    );
+    const steps = ir.abilities[1]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 18,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'bolt', name: 'Lightning Bolt', type_line: 'Instant' },
+              { id: 'bear', name: 'Runeclaw Bear', type_line: 'Creature - Bear' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'snapcaster',
+        sourceName: 'Snapcaster Mage',
+        selectorContext: { chosenObjectIds: ['bolt'] },
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state as any).playableFromGraveyard?.p1?.bolt).toBe(18);
+    expect((result.state as any).playableFromGraveyard?.p1?.bear).toBeUndefined();
+    const graveyard = (((result.state.players || [])[0] as any)?.graveyard || []) as any[];
+    expect(graveyard.find(card => card.id === 'bolt')?.graveyardCastCost).toBe('mana_cost');
+  });
+
+  it('applies static escape grants like Underworld Breach to matching graveyard cards', () => {
+    const ir = parseOracleTextToIR(
+      "Each nonland card in your graveyard has escape. The escape cost is equal to the card's mana cost plus exile three other cards from your graveyard.",
+      'Underworld Breach'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 19,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'looting', name: 'Faithless Looting', type_line: 'Sorcery' },
+              { id: 'swamp', name: 'Swamp', type_line: 'Basic Land - Swamp' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'breach',
+        sourceName: 'Underworld Breach',
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state as any).playableFromGraveyard?.p1?.looting).toBe(19);
+    expect((result.state as any).playableFromGraveyard?.p1?.swamp).toBeUndefined();
+  });
+
+  it('applies Past in Flames by marking matching graveyard spells with mana-cost flashback metadata', () => {
+    const ir = parseOracleTextToIR(
+      'Each instant and sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost.',
+      'Past in Flames'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 20,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'bolt', name: 'Lightning Bolt', type_line: 'Instant', mana_cost: '{R}' },
+              { id: 'ritual', name: 'Seething Song', type_line: 'Sorcery', mana_cost: '{2}{R}' },
+              { id: 'swamp', name: 'Swamp', type_line: 'Basic Land - Swamp' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'past',
+        sourceName: 'Past in Flames',
+      },
+      { allowOptional: true }
+    );
+
+    const graveyard = (((result.state.players || [])[0] as any)?.graveyard || []) as any[];
+    expect(graveyard.find(card => card.id === 'bolt')?.graveyardCastCost).toBe('mana_cost');
+    expect(graveyard.find(card => card.id === 'ritual')?.graveyardCastCost).toBe('mana_cost');
+    expect(graveyard.find(card => card.id === 'swamp')?.graveyardCastCost).toBeUndefined();
+  });
+
+  it('applies Six-style turn-gated retrace grants during your turn', () => {
+    const ir = parseOracleTextToIR(
+      'During your turn, nonland permanent cards in your graveyard have retrace. (You may cast permanent cards from your graveyard by discarding a land card in addition to paying their other costs.)',
+      'Six'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 21,
+        turnPlayer: 'p1',
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'relic', name: 'Mind Stone', type_line: 'Artifact' },
+              { id: 'swamp', name: 'Swamp', type_line: 'Basic Land - Swamp' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'six',
+        sourceName: 'Six',
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state as any).playableFromGraveyard?.p1?.relic).toBe(21);
+    expect((result.state as any).playableFromGraveyard?.p1?.swamp).toBeUndefined();
+  });
+
+  it('applies Ignite the Future graveyard rider by marking the exiled cards as free to play', () => {
+    const ir = parseOracleTextToIR(
+      'Exile the top three cards of your library. Until the end of your next turn, you may play those cards. If this spell was cast from a graveyard, you may play cards this way without paying their mana costs.',
+      'Ignite the Future'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 22,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [
+              { id: 'ignite-ex1', name: 'Lightning Bolt', type_line: 'Instant', mana_cost: '{R}' },
+              { id: 'ignite-ex2', name: 'Mountain', type_line: 'Basic Land - Mountain' },
+              { id: 'ignite-ex3', name: 'Seize the Spoils', type_line: 'Sorcery', mana_cost: '{2}{R}' },
+            ],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'ignite',
+        sourceName: 'Ignite the Future',
+        castFromZone: 'graveyard',
+      },
+      { allowOptional: true }
+    );
+
+    const exile = ((result.state.players[0] as any)?.exile || []) as any[];
+    expect(exile).toHaveLength(3);
+    expect(exile.every(card => card.playableUntilTurn === 23)).toBe(true);
+    expect(exile.every(card => card.withoutPayingManaCost === true)).toBe(true);
+  });
+
+  it("replays Sevinne's Reclamation-style copied spells from graveyard and auto-retargets a unique remaining card", () => {
+    const ir = parseOracleTextToIR(
+      'Return target permanent card with mana value 3 or less from your graveyard to the battlefield. If this spell was cast from a graveyard, you may copy this spell and may choose a new target for the copy.',
+      "Sevinne's Reclamation"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'target-a', name: 'Soul-Guide Lantern', type_line: 'Artifact', mana_cost: '{1}', mana_value: 1 },
+              { id: 'target-b', name: 'Wayfarer Bauble', type_line: 'Artifact', mana_cost: '{1}', mana_value: 1 },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'sev',
+        sourceName: "Sevinne's Reclamation",
+        targetPermanentId: 'target-a',
+        castFromZone: 'graveyard',
+      },
+      { allowOptional: true }
+    );
+
+    expect((result.state.players[0] as any).graveyard).toEqual([]);
+    expect(((result.state.battlefield || []) as any[]).map((perm: any) => perm.card?.id).sort()).toEqual([
+      'target-a',
+      'target-b',
+    ]);
+  });
+
+  it('redirects Whip of Erebos-style returned creatures to exile when they are destroyed', () => {
+    const ir = parseOracleTextToIR(
+      'Return target creature card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.',
+      'Whip of Erebos'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const reanimated = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'ghoul', name: 'Grave Ghoul', type_line: 'Creature - Zombie' }],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'whip',
+        sourceName: 'Whip of Erebos',
+        targetCreatureId: 'ghoul',
+      },
+      { allowOptional: true }
+    );
+
+    const returnedPermanent = (reanimated.state.battlefield as any[]).find(
+      (perm: any) => perm.card?.id === 'ghoul'
+    ) as any;
+    expect(returnedPermanent?.leaveBattlefieldReplacement).toBe('exile');
+
+    const destroyed = applyOracleIRStepsToGameState(
+      reanimated.state,
+      [
+        {
+          kind: 'destroy',
+          target: { kind: 'raw', text: 'that creature' },
+          raw: 'Destroy that creature.',
+        } as any,
+      ],
+      {
+        controllerId: 'p1',
+        targetCreatureId: returnedPermanent.id,
+      },
+      { allowOptional: true }
+    );
+
+    expect((destroyed.state.battlefield as any[]).some((perm: any) => perm.id === returnedPermanent.id)).toBe(false);
+    expect((destroyed.state.players[0] as any).graveyard).toEqual([]);
+    expect(((destroyed.state.players[0] as any).exile || []).map((card: any) => card.id)).toContain('ghoul');
+  });
+
+  it("redirects Whip of Erebos-style returned creatures to exile instead of owners' hands", () => {
+    const ir = parseOracleTextToIR(
+      'Return target creature card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.',
+      'Whip of Erebos'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const reanimated = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [{ id: 'ghoul', name: 'Grave Ghoul', type_line: 'Creature - Zombie' }],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'whip',
+        sourceName: 'Whip of Erebos',
+        targetCreatureId: 'ghoul',
+      },
+      { allowOptional: true }
+    );
+
+    const returnedPermanent = (reanimated.state.battlefield as any[]).find(
+      (perm: any) => perm.card?.id === 'ghoul'
+    ) as any;
+
+    const bounced = applyOracleIRStepsToGameState(
+      reanimated.state,
+      parseOracleTextToIR("Return target creature to its owner's hand.", 'Test Bounce').abilities[0]?.steps ?? [],
+      {
+        controllerId: 'p1',
+        targetCreatureId: returnedPermanent.id,
+      },
+      { allowOptional: true }
+    );
+
+    expect((bounced.state.players[0] as any).hand).toEqual([]);
+    expect(((bounced.state.players[0] as any).exile || []).map((card: any) => card.id)).toContain('ghoul');
+  });
+
+  it('applies Kheru Lich Lord-style random graveyard return and preserves exile-on-leave replacement', () => {
+    const ir = parseOracleTextToIR(
+      'Return a creature card at random from your graveyard to the battlefield. If it would leave the battlefield, exile it instead of putting it anywhere else.',
+      'Kheru Lich Lord'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const reanimated = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [
+              { id: 'ghoul', name: 'Grave Ghoul', type_line: 'Creature - Zombie' },
+              { id: 'ritual', name: 'Dark Ritual', type_line: 'Instant' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'kheru',
+        sourceName: 'Kheru Lich Lord',
+      },
+      { allowOptional: true }
+    );
+
+    const returnedPermanent = (reanimated.state.battlefield as any[]).find(
+      (perm: any) => perm.card?.id === 'ghoul'
+    ) as any;
+    expect(returnedPermanent).toBeTruthy();
+    expect(returnedPermanent?.leaveBattlefieldReplacement).toBe('exile');
+    expect(((reanimated.state.players[0] as any).graveyard || []).map((card: any) => card.id)).toEqual(['ritual']);
+
+    const destroyed = applyOracleIRStepsToGameState(
+      reanimated.state,
+      [
+        {
+          kind: 'destroy',
+          target: { kind: 'raw', text: 'that creature' },
+          raw: 'Destroy that creature.',
+        } as any,
+      ],
+      {
+        controllerId: 'p1',
+        targetCreatureId: returnedPermanent.id,
+      },
+      { allowOptional: true }
+    );
+
+    expect((destroyed.state.players[0] as any).graveyard).toEqual([{ id: 'ritual', name: 'Dark Ritual', type_line: 'Instant' }]);
+    expect(((destroyed.state.players[0] as any).exile || []).map((card: any) => card.id)).toContain('ghoul');
+  });
+
+  it('exiles Personal Decoy when it would leave the battlefield', () => {
+    const destroyed = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            library: [],
+            hand: [],
+            graveyard: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'decoy',
+            controller: 'p1',
+            owner: 'p1',
+            counters: { loyalty: 40 },
+            card: {
+              id: 'decoy-card',
+              name: 'Personal Decoy',
+              type_line: 'Planeswalker - Duck',
+              oracle_text:
+                "Personal Decoy enters with a number of loyalty counters on it equal to your life total. If it would leave the battlefield, exile it instead of putting it anywhere else. You can't be attacked.",
+            },
+          },
+        ],
+      } as any),
+      [
+        {
+          kind: 'destroy',
+          target: { kind: 'raw', text: 'that permanent' },
+          raw: 'Destroy that permanent.',
+        } as any,
+      ],
+      {
+        controllerId: 'p1',
+        targetPermanentId: 'decoy',
+      },
+      { allowOptional: true }
+    );
+
+    expect(destroyed.state.battlefield).toEqual([]);
+    expect((destroyed.state.players[0] as any).graveyard).toEqual([]);
+    expect(((destroyed.state.players[0] as any).exile || []).map((card: any) => card.id)).toContain('decoy-card');
+  });
+
+  it('applies Mardu Woe-Reaper graveyard exile plus conditional life gain', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this creature or another Warrior you control enters, you may exile target creature card from a graveyard. If you do, you gain 1 life.',
+      'Mardu Woe-Reaper'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'woe-target', name: 'Savannah Lions', type_line: 'Creature - Cat' }],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Mardu Woe-Reaper',
+        targetPermanentId: 'woe-target',
+      },
+      { allowOptional: true }
+    );
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'gain_life']);
+    expect(p1.life).toBe(41);
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain('woe-target');
+  });
+
+  it('applies Diregraf Scavenger creature-card exile follow-up life gain', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters, exile up to one target card from a graveyard. If a creature card was exiled this way, you gain 2 life. If a land card was exiled this way, add {G}.',
+      'Diregraf Scavenger'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'diregraf-target', name: 'Grizzly Bears', type_line: 'Creature - Bear' }],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Diregraf Scavenger',
+      targetPermanentId: 'diregraf-target',
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'gain_life']);
+    expect(p1.life).toBe(42);
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain('diregraf-target');
+  });
+
+  it('applies Deathgorge Scavenger noncreature exile follow-up self pump', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters or attacks, you may exile target card from a graveyard. If a creature card was exiled this way, you gain 2 life. If a noncreature card was exiled this way, this creature gets +1/+1 until end of turn.',
+      'Deathgorge Scavenger'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'deathgorge-target', name: 'Cultivate', type_line: 'Sorcery' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'deathgorge-source',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Deathgorge Scavenger',
+          cardType: 'Creature',
+          type_line: 'Creature - Dinosaur',
+          power: 3,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'deathgorge-source',
+        sourceName: 'Deathgorge Scavenger',
+        targetPermanentId: 'deathgorge-target',
+      },
+      { allowOptional: true }
+    );
+
+    const source = (result.state.battlefield || []).find((perm: any) => perm.id === 'deathgorge-source') as any;
+    const modifier = (Array.isArray(source?.modifiers) ? source.modifiers : []).find((entry: any) => entry?.type === 'powerToughness');
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'modify_pt']);
+    expect(modifier).toBeTruthy();
+    expect(modifier.power).toBe(1);
+    expect(modifier.toughness).toBe(1);
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain('deathgorge-target');
+  });
+
+  it('applies Raven Eagle typed exiled-this-way token creation follow-up', () => {
+    const ir = parseOracleTextToIR(
+      'When this creature enters or attacks, exile up to one target card from a graveyard. If a creature card was exiled this way, create a Clue token.',
+      'Raven Eagle'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'raven-target', name: 'Sakura-Tribe Elder', type_line: 'Creature - Snake Shaman' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Raven Eagle',
+      targetPermanentId: 'raven-target',
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'create_token']);
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain('raven-target');
+    expect(result.state.battlefield).toHaveLength(1);
+  });
+
+  it('applies Restless Cottage create-token-plus-graveyard-exile in order', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever this land attacks, create a Food token and exile up to one target card from a graveyard.',
+      'Restless Cottage'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'cottage-target', name: 'Faithless Looting', type_line: 'Sorcery' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Restless Cottage',
+      targetPermanentId: 'cottage-target',
+    });
+
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['create_token', 'move_zone']);
+    expect(result.state.battlefield).toHaveLength(1);
+    expect(p2.graveyard).toHaveLength(0);
+    expect((p2.exile || []).map((entry: any) => entry.id)).toContain('cottage-target');
   });
 
 });

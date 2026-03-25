@@ -17,6 +17,28 @@ import {
 } from './triggeredAbilitiesEventData';
 import { type TriggerEvent, type TriggeredAbility } from './triggeredAbilitiesTypes';
 
+function collectOptionalStepKinds(steps: readonly any[]): string[] {
+  const kinds: string[] = [];
+
+  const visit = (step: any): void => {
+    if (!step || typeof step !== 'object') return;
+    if (step.optional) {
+      kinds.push(String(step.kind || 'unknown'));
+    }
+    if (Array.isArray(step.steps)) {
+      for (const nested of step.steps) visit(nested);
+    }
+    if (Array.isArray(step.modes)) {
+      for (const mode of step.modes) {
+        for (const nested of Array.isArray(mode?.steps) ? mode.steps : []) visit(nested);
+      }
+    }
+  };
+
+  for (const step of steps) visit(step);
+  return kinds;
+}
+
 export interface ProcessEventOracleExecutionResult {
   readonly state: GameState;
   readonly triggers: readonly TriggerInstance[];
@@ -45,8 +67,13 @@ export function executeTriggeredAbilityEffectWithOracleIR(
     steps.some(step => step.kind === 'tap_or_untap' && Boolean((step as any).optional)) &&
     steps.every(step => !Boolean((step as any).optional) || step.kind === 'tap_or_untap');
 
+  const optionalKinds = collectOptionalStepKinds(steps);
+  const canAutoAllowCopySpell =
+    optionalKinds.length > 0 &&
+    optionalKinds.every(kind => kind === 'copy_spell');
+
   const executionOptions =
-    canAutoAllowOptional && !options.allowOptional
+    (canAutoAllowOptional || canAutoAllowCopySpell) && !options.allowOptional
       ? { ...options, allowOptional: true }
       : options;
 

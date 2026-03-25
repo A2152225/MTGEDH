@@ -45,16 +45,17 @@ function extractTriggeredChoiceSelectionId(selection: unknown): string | undefin
   return undefined;
 }
 
-function extractTriggeredChoiceSelectionIds(selection: unknown): string[] {
+function extractTriggeredChoiceSelectionIds(selection: unknown, dedupe: boolean = true): string[] {
   if (typeof selection === 'string') {
     const normalized = selection.trim();
     return normalized ? [normalized] : [];
   }
 
   if (Array.isArray(selection)) {
-    return selection
-      .flatMap((entry: unknown) => extractTriggeredChoiceSelectionIds(entry))
-      .filter((id: string, index: number, items: string[]) => items.indexOf(id) === index);
+    const ids = selection.flatMap((entry: unknown) => extractTriggeredChoiceSelectionIds(entry, dedupe));
+    return dedupe
+      ? ids.filter((id: string, index: number, items: string[]) => items.indexOf(id) === index)
+      : ids.filter(Boolean);
   }
 
   const extracted = extractTriggeredChoiceSelectionId(selection);
@@ -129,7 +130,7 @@ export function buildTriggeredAbilityEventDataFromChoices(
     }
 
     if (choice?.type === 'mode_selection') {
-      overrides.selectedModeIds = extractTriggeredChoiceSelectionIds(choice?.selections);
+      overrides.selectedModeIds = extractTriggeredChoiceSelectionIds(choice?.selections, false);
     }
   }
 
@@ -218,6 +219,33 @@ function buildPermanentTargetChoiceOptions(state: GameState): readonly { id: str
       if (imageUrl) {
         option.imageUrl = imageUrl;
       }
+      return option;
+    })
+    .filter((option): option is { id: string; name: string; imageUrl?: string } => Boolean(option));
+}
+
+function buildFilteredPermanentTargetChoiceOptions(
+  state: GameState,
+  controllerId: string,
+  filter: 'any' | 'creature_you_control'
+): readonly { id: string; name: string; imageUrl?: string }[] {
+  const normalizedControllerId = normalizeTriggerContextId(controllerId);
+  return ((state.battlefield || []) as any[])
+    .filter((perm: any) => {
+      if (filter === 'any') return true;
+      if (filter !== 'creature_you_control') return true;
+      const permControllerId = normalizeTriggerContextId(perm?.controller);
+      const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+      return permControllerId === normalizedControllerId && /\bcreature\b/i.test(typeLine);
+    })
+    .map((perm: any) => {
+      const id = normalizeTriggerContextId(perm?.id);
+      if (!id) return undefined;
+      const card = perm?.card || {};
+      const name = String(card?.name || perm?.name || id).trim() || id;
+      const imageUrl = card?.image_uris?.small || card?.image_uris?.normal || undefined;
+      const option: { id: string; name: string; imageUrl?: string } = { id, name };
+      if (imageUrl) option.imageUrl = imageUrl;
       return option;
     })
     .filter((option): option is { id: string; name: string; imageUrl?: string } => Boolean(option));
@@ -339,13 +367,45 @@ export function buildTriggeredAbilityChoiceEvents(
           })),
           Math.max(0, Number((step as any)?.minModes ?? 0) || 0),
           Number((step as any)?.maxModes ?? -1) || -1,
-          sourceImage
+          sourceImage,
+          Boolean((step as any)?.canRepeatModes)
         )
       );
     }
   }
 
   for (const step of steps) {
+    if (step.kind === 'attach' && !enrichedEventData?.targetPermanentId) {
+      const targetRaw = String((step.to as any)?.text || (step.to as any)?.raw || '').trim().toLowerCase();
+      const validTargets = /^target creature you control$/i.test(targetRaw)
+        ? buildFilteredPermanentTargetChoiceOptions(state, ability.controllerId, 'creature_you_control')
+        : /^target creature$/i.test(targetRaw)
+          ? buildFilteredPermanentTargetChoiceOptions(state, ability.controllerId, 'any').filter(option => {
+              const permanent = ((state.battlefield || []) as any[]).find(
+                perm => normalizeTriggerContextId(perm?.id) === option.id
+              ) as any;
+              const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+              return /\bcreature\b/i.test(typeLine);
+            })
+          : [];
+      if (validTargets.length > 0) {
+        choiceEvents.push(
+          createTargetSelectionEvent(
+            ability.controllerId as PlayerID,
+            ability.sourceId,
+            ability.sourceName,
+            validTargets,
+            ['permanent'],
+            1,
+            1,
+            true,
+            sourceImage
+          )
+        );
+      }
+      continue;
+    }
+
     if (step.kind !== 'tap_or_untap') continue;
 
     if (!enrichedEventData?.targetPermanentId) {

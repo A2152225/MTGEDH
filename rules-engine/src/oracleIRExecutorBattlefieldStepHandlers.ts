@@ -4,6 +4,11 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { parseSimpleBattlefieldSelector, parseSimplePermanentTypeFromText } from './oracleIRExecutorBattlefieldParser';
 import { parseQuantity } from './oracleIRParserUtils';
 import {
+  moveTargetedCardFromExile,
+  moveTargetedCardFromGraveyard,
+  moveTargetedCardFromHand,
+} from './oracleIRExecutorZoneOps';
+import {
   applyTapOrUntapToBattlefield,
   permanentMatchesSelector,
   finalizeBattlefieldRemoval,
@@ -50,6 +55,10 @@ type StepSkipResult = {
 
 export type BattlefieldStepHandlerResult = StepApplyResult | StepSkipResult;
 
+type RecentBattlefieldRuntime = {
+  readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+};
+
 type ContextualBattlefieldReference =
   | { readonly mode: 'self' }
   | {
@@ -72,6 +81,52 @@ type SacrificeAttachmentReference =
       readonly subtype?: string;
       readonly attachedToName: string;
     };
+
+type CardZoneLocation = {
+  readonly playerId: PlayerID;
+  readonly zone: 'graveyard' | 'hand' | 'exile';
+};
+
+function findCardZoneLocation(state: GameState, targetCardId: string): CardZoneLocation | null {
+  const wantedId = String(targetCardId || '').trim();
+  if (!wantedId) return null;
+
+  const matches: CardZoneLocation[] = [];
+  for (const player of state.players || []) {
+    const playerId = String((player as any)?.id || '').trim() as PlayerID;
+    if (!playerId) continue;
+
+    for (const zone of ['graveyard', 'hand', 'exile'] as const) {
+      const cards = Array.isArray((player as any)?.[zone]) ? (player as any)[zone] : [];
+      if (cards.some((card: any) => String(card?.id || '').trim() === wantedId)) {
+        matches.push({ playerId, zone });
+      }
+    }
+  }
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function exileContextualSourceCardFromZone(
+  state: GameState,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult | null {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return null;
+
+  const location = findCardZoneLocation(state, sourceId);
+  if (!location) return null;
+
+  const result =
+    location.zone === 'graveyard'
+      ? moveTargetedCardFromGraveyard(state, location.playerId, sourceId, { cardType: 'any' }, 'exile')
+      : location.zone === 'hand'
+        ? moveTargetedCardFromHand(state, location.playerId, sourceId, 'any', 'exile')
+        : null;
+
+  if (!result || result.kind === 'impossible') return null;
+  return { applied: true, state: result.state, log: result.log };
+}
 
 function parseSacrificeWhat(what: { readonly kind: string; readonly text?: string; readonly raw?: string }):
   | { readonly mode: 'self' }
@@ -362,6 +417,46 @@ function isNamedSelfSacrificeReference(
   return sourceCandidates.includes(normalizedWhat);
 }
 
+function exileSourceStackObject(
+  state: GameState,
+  ctx: OracleIRExecutionContext
+): { readonly state: GameState; readonly log: readonly string[] } | null {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return null;
+
+  const stack = Array.isArray((state as any).stack) ? [...((state as any).stack as any[])] : [];
+  const stackIndex = stack.findIndex(item => String((item as any)?.id || '').trim() === sourceId);
+  if (stackIndex < 0) return null;
+
+  const stackObject = stack[stackIndex] as any;
+  const playerId = (String(stackObject?.controller || stackObject?.controllerId || ctx.controllerId || '').trim() ||
+    ctx.controllerId) as PlayerID;
+  const player = (state.players || []).find(p => String((p as any)?.id || '').trim() === String(playerId || '').trim()) as any;
+  if (!player) return null;
+
+  const stackCard = {
+    ...((stackObject?.card as any) || {}),
+    id: String(((stackObject?.card as any)?.id || stackObject?.spellId || stackObject?.id || sourceId)).trim(),
+    name: String(((stackObject?.card as any)?.name || stackObject?.cardName || ctx.sourceName || 'Unknown')).trim() || 'Unknown',
+    zone: 'exile',
+  } as any;
+
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId
+      ? ({
+          ...(p as any),
+          exile: [...(Array.isArray((p as any)?.exile) ? (p as any).exile : []), stackCard],
+        } as any)
+      : p
+  );
+  stack.splice(stackIndex, 1);
+
+  return {
+    state: { ...(state as any), players: updatedPlayers as any, stack: stack as any } as any,
+    log: [`${playerId} exiles ${stackCard.name} from the stack`],
+  };
+}
+
 function parseContextualBattlefieldReference(
   target: { readonly kind: string; readonly text?: string; readonly raw?: string }
 ): ContextualBattlefieldReference | null {
@@ -559,6 +654,42 @@ function resolveDirectBattlefieldPermanents(
   return resolveContextualBattlefieldPermanents(battlefield, target, ctx);
 }
 
+function resolveRecentlyMovedBattlefieldPermanents(
+  battlefield: readonly BattlefieldPermanent[],
+  target:
+    | { readonly kind: string; readonly text?: string; readonly raw?: string }
+    | undefined,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldPermanent[] {
+  if (!target || target.kind !== 'raw') return [];
+  const recentIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
+    ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (recentIds.length === 0) return [];
+
+  const normalized = normalizeSelfReferenceText(String((target as any).text || ''));
+  if (!normalized) return [];
+
+  const singular = /^(?:it|that card|that creature|that permanent)$/i.test(normalized);
+  const plural = /^(?:them|those creatures|those permanents)$/i.test(normalized);
+  if (!singular && !plural) return [];
+
+  const requiredType =
+    normalized.includes('creature') ? 'creature' :
+    normalized.includes('permanent') || normalized === 'it' || normalized === 'that card' || normalized === 'them'
+      ? 'permanent'
+      : undefined;
+
+  const matches = battlefield.filter((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!recentIds.includes(permanentId)) return false;
+    if (requiredType && !permanentMatchesType(perm, requiredType as any)) return false;
+    return true;
+  });
+
+  return singular ? matches.slice(0, 1) : matches;
+}
+
 function buildDelayedCleanupReference(permanents: readonly BattlefieldPermanent[]): string {
   if (permanents.length <= 0) return 'that permanent';
   if (permanents.length === 1) {
@@ -699,6 +830,186 @@ export function applyTapOrUntapStep(
   };
 }
 
+export function applyGrantTemporaryDiesTriggerStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'grant_temporary_dies_trigger' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
+  const explicitTargetId = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
+  const targets =
+    explicitTargetId && /^target\b/.test(targetText)
+      ? battlefield.filter((perm: any) => String(perm?.id || '').trim() === explicitTargetId)
+      : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  if (targets.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped temporary dies trigger grant (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  if (targets.length > 1) {
+    return {
+      applied: false,
+      message: `Skipped temporary dies trigger grant (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const watchedPermanentId = String((targets[0] as any)?.id || '').trim();
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
+  const delayedTrigger = createDelayedTrigger(
+    String(ctx.sourceId || ctx.sourceName || 'oracle-ir'),
+    String(ctx.sourceName || 'Temporary granted dies trigger'),
+    controllerId,
+    DelayedTriggerTiming.WHEN_DIES,
+    step.effect,
+    currentTurn,
+    {
+      watchingPermanentId: watchedPermanentId,
+      targets: [watchedPermanentId],
+      effectData: {
+        expireAtEndOfTurn: step.duration === 'until_end_of_turn',
+        expireWhenPermanentLeavesBattlefield: true,
+      },
+      eventDataSnapshot: {
+        sourceId: String(ctx.sourceId || '').trim() || undefined,
+        sourceControllerId: String(controllerId || '').trim() || undefined,
+        targetPermanentId: watchedPermanentId,
+        chosenObjectIds: [watchedPermanentId],
+      },
+    }
+  );
+
+  const registry = (state as any).delayedTriggerRegistry || createDelayedTriggerRegistry();
+  const nextRegistry = registerDelayedTrigger(registry, delayedTrigger);
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      delayedTriggerRegistry: nextRegistry,
+    } as GameState,
+    log: [
+      `Granted delayed dies trigger to ${watchedPermanentId}${
+        step.duration === 'until_end_of_turn' ? ' until end of turn' : ''
+      }`,
+    ],
+  };
+}
+
+export function applyScheduleDelayedTriggerStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'schedule_delayed_trigger' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: { readonly lastMovedBattlefieldPermanentIds?: readonly string[] }
+): BattlefieldStepHandlerResult {
+  const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
+  const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
+  const timing =
+    step.timing === 'your_next_end_step'
+      ? DelayedTriggerTiming.YOUR_NEXT_END_STEP
+      : step.timing === 'next_upkeep'
+        ? DelayedTriggerTiming.NEXT_UPKEEP
+        : step.timing === 'your_next_upkeep'
+          ? DelayedTriggerTiming.YOUR_NEXT_UPKEEP
+          : DelayedTriggerTiming.NEXT_END_STEP;
+
+  const targetPermanentId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim() || undefined;
+  const baseChosenObjectIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds
+        .map((id: unknown) => String(id || '').trim())
+        .filter(Boolean)
+    : undefined;
+  const recentBattlefieldIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
+    ? runtime?.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+  const chosenObjectIds = (() => {
+    const merged = [...(baseChosenObjectIds || []), ...recentBattlefieldIds];
+    return merged.length > 0 ? Array.from(new Set(merged)) : undefined;
+  })();
+  const targetPlayerId = String(ctx.selectorContext?.targetPlayerId || '').trim() || undefined;
+  const targetOpponentId = String(ctx.selectorContext?.targetOpponentId || '').trim() || undefined;
+
+  const delayedTrigger = createDelayedTrigger(
+    String(ctx.sourceId || ctx.sourceName || 'oracle-ir'),
+    String(ctx.sourceName || 'Delayed trigger'),
+    controllerId,
+    timing,
+    step.effect,
+    currentTurn,
+    {
+      ...(Array.isArray(chosenObjectIds) && chosenObjectIds.length > 0 ? { targets: [...chosenObjectIds] } : {}),
+      eventDataSnapshot: {
+        sourceId: String(ctx.sourceId || '').trim() || undefined,
+        sourceControllerId: String(controllerId || '').trim() || undefined,
+        targetPermanentId,
+        chosenObjectIds,
+        targetPlayerId,
+        targetOpponentId,
+      },
+    }
+  );
+
+  const registry = (state as any).delayedTriggerRegistry || createDelayedTriggerRegistry();
+  const nextRegistry = registerDelayedTrigger(registry, delayedTrigger);
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      delayedTriggerRegistry: nextRegistry,
+    } as GameState,
+    log: [`Scheduled delayed trigger for ${timing.replace(/_/g, ' ')}`],
+  };
+}
+
+export function applyGrantLeaveBattlefieldReplacementStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'grant_leave_battlefield_replacement' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
+  const directTargets = recentTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = Array.from(
+    new Set(
+      [...recentTargets, ...directTargets]
+        .map((perm: any) => String((perm as any)?.id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped leave-battlefield replacement grant (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!targetIds.includes(permanentId)) return perm;
+    return {
+      ...perm,
+      leaveBattlefieldReplacement: step.destination,
+    } as BattlefieldPermanent;
+  });
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: nextBattlefield as any,
+    } as GameState,
+    log: [`Granted leave-battlefield ${step.destination} replacement to ${targetIds.length} permanent(s)`],
+  };
+}
+
 export function applyRemoveCounterStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'remove_counter' }>,
@@ -817,6 +1128,19 @@ export function applyExileStep(
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const toRemove = resolveContextualBattlefieldPermanents(battlefield, step.target as any, ctx);
   if (toRemove.length === 0) {
+    const contextualTarget = parseContextualBattlefieldReference(step.target as any);
+    if (contextualTarget?.mode === 'self' || isNamedSelfSacrificeReference(step.target as any, ctx)) {
+      const stackExile = exileSourceStackObject(state, ctx);
+      if (stackExile) {
+        return { applied: true, state: stackExile.state, log: stackExile.log };
+      }
+
+      const zoneExile = exileContextualSourceCardFromZone(state, ctx);
+      if (zoneExile) {
+        return zoneExile;
+      }
+    }
+
     return {
       applied: false,
       message: `Skipped exile (unsupported target): ${step.raw}`,

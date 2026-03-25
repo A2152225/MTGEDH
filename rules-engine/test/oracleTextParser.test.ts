@@ -141,6 +141,15 @@ describe('Oracle Text Parser', () => {
       expect(result).not.toBeNull();
       expect(result?.targets).toContain('player');
     });
+
+    it('should preserve comma-qualified trigger conditions before the effect delimiter', () => {
+      const result = parseTriggeredAbility(
+        "Whenever a nontoken, non-Angel creature you control dies, return that card to the battlefield under its owner's control with a +1/+1 counter on it."
+      );
+      expect(result).not.toBeNull();
+      expect(result?.triggerCondition).toBe('a nontoken, non-Angel creature you control dies');
+      expect(result?.effect).toBe("return that card to the battlefield under its owner's control with a +1/+1 counter on it.");
+    });
   });
 
   describe('parseReplacementEffect', () => {
@@ -583,6 +592,24 @@ describe('Oracle Text Parser', () => {
       // Should have TWO separate abilities (split by newline)
       const staticAbilities = result.abilities.filter(a => a.type === AbilityType.STATIC);
       expect(staticAbilities.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('splits standalone keyword sentences from following triggered abilities on the same line', () => {
+      const text =
+        'Flash. When this permanent enters, target instant or sorcery card in your graveyard gains flashback until end of turn.';
+      const result = parseOracleText(text, 'Snapcaster Mage');
+
+      expect(result.abilities).toHaveLength(2);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        text: 'Flash.',
+      });
+      expect(result.abilities[1]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'this permanent enters',
+        effect: 'target instant or sorcery card in your graveyard gains flashback until end of turn.',
+      });
     });
 
     it('should merge ". When you do" reflexive triggers (Electro, Assaulting Battery)', () => {

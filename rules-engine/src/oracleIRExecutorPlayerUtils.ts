@@ -2,6 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OraclePlayerSelector, OracleQuantity } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
+import { stripPlayableFromGraveyardTags } from './playableFromGraveyard';
 import { parseManaSymbols } from './types/numbers';
 import { addMana, createEmptyManaPool, ManaType } from './types/mana';
 
@@ -99,7 +100,65 @@ export function applyImpulsePermissionMarkers(
   return { state: { ...(stateAny as any), players: updatedPlayers as any }, granted };
 }
 
+export function applyGraveyardPermissionMarkers(
+  state: GameState,
+  playerId: PlayerID,
+  graveyardCards: readonly any[],
+  meta: {
+    readonly permission: 'play' | 'cast';
+    readonly playableUntilTurn: number | null;
+    readonly castCost?: 'mana_cost';
+  }
+): { state: GameState; granted: number } {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { state, granted: 0 };
+
+  const graveyardArr: any[] = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+  if (graveyardArr.length === 0 || graveyardCards.length === 0) return { state, granted: 0 };
+
+  const stateAny: any = state as any;
+  stateAny.playableFromGraveyard = stateAny.playableFromGraveyard || {};
+  stateAny.playableFromGraveyard[playerId] = stateAny.playableFromGraveyard[playerId] || {};
+
+  const playableUntilTurn = meta.playableUntilTurn;
+  let granted = 0;
+
+  const graveyardIds = new Set(graveyardCards.map(c => String((c as any)?.id ?? (c as any)?.cardId ?? '')));
+
+  for (let i = 0; i < graveyardArr.length; i++) {
+    const card = graveyardArr[i];
+    const id = String(card?.id ?? card?.cardId ?? '');
+    if (!id || !graveyardIds.has(id)) continue;
+
+    const typeLineLower = String(card?.type_line || '').toLowerCase();
+    const isLand = typeLineLower.includes('land');
+    const grant = meta.permission === 'play' ? true : !isLand;
+
+    const next = {
+      ...card,
+      zone: 'graveyard',
+      ...(grant
+        ? {
+            canBePlayedBy: playerId,
+            playableUntilTurn,
+            ...(meta.castCost ? { graveyardCastCost: meta.castCost } : {}),
+          }
+        : {}),
+    };
+    graveyardArr[i] = next;
+
+    if (grant) {
+      stateAny.playableFromGraveyard[playerId][id] = playableUntilTurn ?? Number.MAX_SAFE_INTEGER;
+      granted++;
+    }
+  }
+
+  const updatedPlayers = state.players.map(p => (p.id === playerId ? ({ ...(p as any), graveyard: graveyardArr } as any) : p));
+  return { state: { ...(stateAny as any), players: updatedPlayers as any }, granted };
+}
+
 const stripImpulsePermissionMarkers = stripPlayableFromExileTags;
+export const stripGraveyardPermissionMarkers = stripPlayableFromGraveyardTags;
 
 export function quantityToNumber(qty: OracleQuantity): number | null {
   if (qty.kind === 'number') return qty.value;
