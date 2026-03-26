@@ -551,6 +551,48 @@ export function evaluateSelfCastSpellCondition(
   return normalizedSourceId === triggeringSpellId && triggeringControllerId === String(controllerId || '').trim();
 }
 
+export function evaluateQualifiedSpellCastCondition(
+  condition: string,
+  controllerId: PlayerID | string,
+  eventData: TriggerEventData
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  const triggeringControllerId = String(eventData.sourceControllerId || '').trim();
+  const normalizedControllerId = String(controllerId || '').trim();
+  const spellType = String(eventData.spellType || '').trim().toLowerCase();
+  const isCreatureSpell = spellType.includes('creature');
+  const isInstantOrSorcerySpell = spellType.includes('instant') || spellType.includes('sorcery');
+  const isOpponentCast = Boolean(triggeringControllerId) && triggeringControllerId !== normalizedControllerId;
+  const isSelfCast = Boolean(triggeringControllerId) && triggeringControllerId === normalizedControllerId;
+
+  switch (normalized) {
+    case 'you cast a spell':
+      return isSelfCast;
+    case 'an opponent casts a spell':
+    case 'opponent casts a spell':
+      return isOpponentCast;
+    case 'you cast a noncreature spell':
+      return isSelfCast && !isCreatureSpell;
+    case 'an opponent casts a noncreature spell':
+    case 'opponent casts a noncreature spell':
+      return isOpponentCast && !isCreatureSpell;
+    case 'you cast an instant or sorcery spell':
+      return isSelfCast && isInstantOrSorcerySpell;
+    case 'an opponent casts an instant or sorcery spell':
+    case 'opponent casts an instant or sorcery spell':
+      return isOpponentCast && isInstantOrSorcerySpell;
+    case 'an opponent casts their first noncreature spell each turn':
+    case 'opponent casts their first noncreature spell each turn':
+      return (
+        isOpponentCast &&
+        !isCreatureSpell &&
+        Number(eventData.noncreatureSpellCastCountThisTurn || 0) === 1
+      );
+    default:
+      return null;
+  }
+}
+
 export function evaluateEvolveEntersCondition(
   condition: string,
   controllerId: PlayerID | string,

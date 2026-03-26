@@ -4,8 +4,9 @@ import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import {
-  cardMatchesMoveZoneSingleTargetCriteria,
+  addBattlefieldPermanentsToState,
   createBattlefieldPermanentsFromCards,
+  cardMatchesMoveZoneSingleTargetCriteria,
   parseSimpleCardTypeFromText,
   type MoveZoneSingleTargetCriteria,
 } from './oracleIRExecutorZoneOps';
@@ -19,8 +20,10 @@ import {
   adjustLife,
   adjustPlayerCounter,
   discardCardsForPlayer,
+  deriveWinningVoteChoice,
   drawCardsForPlayer,
   getCardManaValue,
+  getCardTypeLineLower,
   millCardsForPlayer,
   lookSelectTopCardsForPlayer,
   quantityToNumber,
@@ -29,14 +32,19 @@ import {
   resolveUnknownMillUntilAmountForPlayer,
   isCardExiledWithSource,
   normalizeOracleText,
+  stampCardsPutIntoGraveyardThisTurn,
 } from './oracleIRExecutorPlayerUtils';
+import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 
 type StepApplyResult = {
   readonly applied: true;
   readonly state: GameState;
   readonly log: readonly string[];
+  readonly lastClashWon?: boolean;
   readonly lastScryLookedAtCount?: number;
   readonly lastDiscardedCardCount?: number;
+  readonly lastDiscardedCards?: readonly any[];
+  readonly lastMovedCards?: readonly any[];
   readonly lastRevealedCardCount?: number;
   readonly lastGrantedGraveyardCards?: readonly any[];
 };
@@ -668,7 +676,7 @@ function resolveVariableAmount(
     runtime?: ModifyPtRuntime
   ) => number | null
 ): number | null {
-  const numericAmount = quantityToNumber(amount);
+  const numericAmount = quantityToNumber(amount, ctx);
   if (numericAmount !== null) return numericAmount;
   if (amount.kind !== 'unknown' || !evaluateWhereX) return null;
 
@@ -718,7 +726,7 @@ export function applyScryStep(
   step: Extract<OracleEffectStep, { kind: 'scry' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
+  const amount = quantityToNumber(step.amount, ctx);
   if (amount === null) {
     return {
       applied: false,
@@ -766,6 +774,241 @@ export function applyScryStep(
     state,
     log: [`Scry ${amount} (no cards in library): ${step.raw}`],
     lastScryLookedAtCount: 0,
+  };
+}
+
+export function applyFatesealStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'fateseal' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const amount = quantityToNumber(step.amount);
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped fateseal (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped fateseal (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  if (players.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped fateseal (requires deterministic controller): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const actingPlayerId = players[0];
+  const targets = resolvePlayers(state, step.target, ctx).filter(playerId => playerId !== actingPlayerId);
+  if (targets.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped fateseal (unsupported target selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  if (targets.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped fateseal (requires deterministic opponent): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const targetPlayerId = targets[0];
+  const targetPlayer = state.players.find((player: any) => String(player?.id || '').trim() === String(targetPlayerId || '').trim()) as any;
+  if (!targetPlayer) {
+    return {
+      applied: false,
+      message: `Skipped fateseal (target player not found): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  const library = Array.isArray(targetPlayer.library) ? targetPlayer.library : [];
+  const lookedAtCount = Math.min(Math.max(0, amount), library.length);
+  return {
+    applied: true,
+    state,
+    log: [
+      lookedAtCount > 0
+        ? `${actingPlayerId} fatesealed ${targetPlayerId} for ${lookedAtCount} card(s) and left them in the same order`
+        : `${actingPlayerId} fatesealed ${targetPlayerId} for 0 card(s)`,
+    ],
+  };
+}
+
+export function applyVoteStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'vote' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const voters = resolvePlayers(state, step.voters, ctx);
+  if (voters.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped vote (unsupported voter selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const winningVoteChoice = deriveWinningVoteChoice(ctx);
+  if (typeof winningVoteChoice === 'undefined') {
+    return {
+      applied: false,
+      message: `Skipped vote (requires vote choices): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  if (winningVoteChoice === '') {
+    return {
+      applied: false,
+      message: `Skipped vote (winning choice unavailable): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  if (winningVoteChoice === null) {
+    return {
+      applied: true,
+      state,
+      log: [`${voters.length} player(s) voted and the vote tied`],
+    };
+  }
+
+  const normalizedWinner = String(winningVoteChoice).toLowerCase();
+  const normalizedChoices = (step.choices || []).map(choice => String(choice || '').trim().toLowerCase()).filter(Boolean);
+  if (!normalizedChoices.includes(normalizedWinner)) {
+    return {
+      applied: false,
+      message: `Skipped vote (winning choice not in parsed choices): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  return {
+    applied: true,
+    state,
+    log: [
+      `${voters.length} player(s) voted and ${String(winningVoteChoice)} won`,
+    ],
+  };
+}
+
+export function applyClashStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'clash' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped clash (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+  if (players.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped clash (requires deterministic player): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const playerId = players[0];
+  const player = state.players.find((p: any) => String(p?.id || '').trim() === String(playerId || '').trim()) as any;
+  if (!player) {
+    return {
+      applied: false,
+      message: `Skipped clash (player not found): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  let opponentId: PlayerID | null = null;
+  if (step.opponent) {
+    const opponents = resolvePlayers(state, step.opponent, ctx);
+    if (opponents.length === 0) {
+      const controllerOpponents = (state.players || []).filter((p: any) => String(p?.id || '').trim() !== String(playerId || '').trim());
+      return {
+        applied: false,
+        message: `Skipped clash (requires opponent selection): ${step.raw}`,
+        reason: controllerOpponents.length > 1 ? 'player_choice_required' : 'unsupported_player_selector',
+        options: { classification: controllerOpponents.length > 1 ? 'player_choice' : 'ambiguous' },
+      };
+    }
+    if (opponents.length !== 1) {
+      return {
+        applied: false,
+        message: `Skipped clash (requires deterministic opponent): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+    opponentId = opponents[0];
+  }
+
+  const playerTopCard = Array.isArray(player.library) && player.library.length > 0 ? player.library[0] : null;
+  const playerManaValue = Math.max(0, Number(getCardManaValue(playerTopCard) ?? 0));
+  const log: string[] = [];
+
+  if (playerTopCard) {
+    log.push(`${playerId} clashed and revealed ${String(playerTopCard?.name || 'a card')} (MV ${playerManaValue})`);
+  } else {
+    log.push(`${playerId} clashed but had no card to reveal`);
+  }
+
+  let lastClashWon = Boolean(playerTopCard);
+  if (opponentId) {
+    const opponent = state.players.find((p: any) => String(p?.id || '').trim() === String(opponentId || '').trim()) as any;
+    if (!opponent) {
+      return {
+        applied: false,
+        message: `Skipped clash (opponent not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input', persist: false },
+      };
+    }
+
+    const opponentTopCard = Array.isArray(opponent.library) && opponent.library.length > 0 ? opponent.library[0] : null;
+    const opponentManaValue = Math.max(0, Number(getCardManaValue(opponentTopCard) ?? 0));
+    if (opponentTopCard) {
+      log.push(`${opponentId} revealed ${String(opponentTopCard?.name || 'a card')} (MV ${opponentManaValue})`);
+    } else {
+      log.push(`${opponentId} had no card to reveal`);
+    }
+
+    lastClashWon = playerTopCard !== null && playerManaValue > opponentManaValue;
+  }
+
+  log.push(lastClashWon ? `${playerId} won the clash` : `${playerId} did not win the clash`);
+  return {
+    applied: true,
+    state,
+    log,
+    lastClashWon,
   };
 }
 
@@ -1067,10 +1310,12 @@ export function applyDiscardStep(
   let nextState = state;
   const log: string[] = [];
   let totalDiscarded = 0;
+  const discardedCards: any[] = [];
   for (const playerId of players) {
     const result = discardCardsForPlayer(nextState, playerId, amount);
     nextState = result.state;
     totalDiscarded += Math.max(0, Number(result.discardedCount) || 0);
+    if (Array.isArray(result.discardedCards)) discardedCards.push(...result.discardedCards);
     log.push(...result.log);
   }
 
@@ -1079,6 +1324,274 @@ export function applyDiscardStep(
     state: nextState,
     log,
     lastDiscardedCardCount: totalDiscarded,
+    lastDiscardedCards: discardedCards,
+    lastMovedCards: discardedCards,
+  };
+}
+
+export function applyExploreStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'explore' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  if (!targetId) {
+    return {
+      applied: false,
+      message: `Skipped explore (requires deterministic target): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const battlefield = [...((state.battlefield || []) as any[])];
+  const targetIndex = battlefield.findIndex((perm: any) => String(perm?.id || '').trim() === targetId);
+  if (targetIndex < 0) {
+    return {
+      applied: false,
+      message: `Skipped explore (target not on battlefield): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  const target = battlefield[targetIndex] as any;
+  const controllerId = String(target?.controller || ctx.controllerId || '').trim();
+  const player = state.players.find((p: any) => String(p?.id || '').trim() === controllerId) as any;
+  if (!player) {
+    return {
+      applied: false,
+      message: `Skipped explore (controller not found): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  const library = Array.isArray(player.library) ? [...player.library] : [];
+  const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+  if (library.length <= 0) {
+    return {
+      applied: true,
+      state,
+      log: [`${targetId} explored, but ${controllerId} had no cards to reveal`],
+    };
+  }
+
+  const topCard = library[0];
+  const typeLine = getCardTypeLineLower(topCard);
+  const nextPlayers = state.players.map((p: any) => ({ ...p }));
+  const playerIndex = nextPlayers.findIndex((p: any) => String(p?.id || '').trim() === controllerId);
+  if (playerIndex < 0) {
+    return {
+      applied: false,
+      message: `Skipped explore (controller not found): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  const log: string[] = [`${targetId} explored and revealed ${String(topCard?.name || 'a card')}`];
+  if (typeLine.includes('land')) {
+    library.shift();
+    hand.push(topCard);
+    nextPlayers[playerIndex] = {
+      ...nextPlayers[playerIndex],
+      library,
+      hand,
+    };
+    return {
+      applied: true,
+      state: { ...(state as any), players: nextPlayers as any } as GameState,
+      log: [...log, `${controllerId} put the revealed land into their hand`],
+    };
+  }
+
+  const counters = { ...((target?.counters || {}) as Record<string, number>) };
+  const currentCount = Number(counters['+1/+1'] ?? 0);
+  counters['+1/+1'] = (Number.isFinite(currentCount) ? currentCount : 0) + 1;
+  battlefield[targetIndex] = {
+    ...target,
+    counters,
+  };
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield } as GameState,
+    log: [...log, `Added 1 +1/+1 counter to ${targetId}`],
+  };
+}
+
+export function applyManifestDreadStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'manifest_dread' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped manifest dread (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  const movedCards: any[] = [];
+  const movedPermanentIds: string[] = [];
+
+  for (const playerId of players) {
+    const player = nextState.players.find((p: any) => String(p?.id || '').trim() === String(playerId || '').trim()) as any;
+    if (!player) {
+      return {
+        applied: false,
+        message: `Skipped manifest dread (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input', persist: false },
+      };
+    }
+
+    const library = Array.isArray(player.library) ? [...player.library] : [];
+    if (library.length <= 0) {
+      log.push(`${playerId} manifested dread, but had no cards in library`);
+      continue;
+    }
+
+    const looked = library.slice(0, 2);
+    const manifestedCard = looked[0];
+    const rest = looked.slice(1);
+    const keptLibrary = library.slice(looked.length);
+    const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+    const newPermanent = createBattlefieldPermanentsFromCards(
+      [manifestedCard],
+      playerId,
+      playerId,
+      false,
+      true,
+      undefined,
+      'library'
+    );
+    const updatedPlayers = nextState.players.map((p: any) =>
+      String(p?.id || '').trim() === String(playerId || '').trim()
+        ? ({
+            ...p,
+            library: keptLibrary,
+            graveyard: [...graveyard, ...stampCardsPutIntoGraveyardThisTurn(nextState, rest)],
+          } as any)
+        : p
+    );
+    nextState = addBattlefieldPermanentsToState(
+      { ...(nextState as any), players: updatedPlayers as any } as GameState,
+      newPermanent as any
+    );
+    movedCards.push(manifestedCard, ...rest);
+    movedPermanentIds.push(...newPermanent.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean));
+    log.push(
+      `${playerId} manifested ${String(manifestedCard?.name || 'a card')} from among the top ${looked.length} card(s) of their library`
+    );
+    if (rest.length > 0) {
+      log.push(`${playerId} put ${rest.length} remaining looked card(s) into their graveyard`);
+    }
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log,
+    lastMovedCards: movedCards,
+  };
+}
+
+export function applyConniveStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'connive' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const amount = quantityToNumber(step.amount);
+  if (amount === null || amount <= 0) {
+    return {
+      applied: false,
+      message: `Skipped connive (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const targetId = resolveSingleCreatureTargetId(state, step.target, ctx);
+  if (!targetId) {
+    return {
+      applied: false,
+      message: `Skipped connive (requires deterministic target): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const battlefield = [...((state.battlefield || []) as any[])];
+  const targetIndex = battlefield.findIndex((perm: any) => String(perm?.id || '').trim() === targetId);
+  if (targetIndex < 0) {
+    return {
+      applied: false,
+      message: `Skipped connive (target not on battlefield): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  const target = battlefield[targetIndex] as any;
+  const controllerId = String(target?.controller || ctx.controllerId || '').trim();
+  const player = state.players.find((p: any) => String(p?.id || '').trim() === controllerId) as any;
+  if (!player) {
+    return {
+      applied: false,
+      message: `Skipped connive (controller not found): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
+  const handLength = Array.isArray(player.hand) ? player.hand.length : 0;
+  const libraryLength = Array.isArray(player.library) ? player.library.length : 0;
+  const drawnCount = Math.min(amount, Math.max(0, libraryLength));
+  if (handLength + drawnCount > amount) {
+    return {
+      applied: false,
+      message: `Skipped connive (requires discard choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const drawResult = drawCardsForPlayer(state, controllerId as PlayerID, amount);
+  const discardResult = discardCardsForPlayer(drawResult.state, controllerId as PlayerID, amount);
+  const discardedNonlands = discardResult.discardedCards.filter((card: any) => !getCardTypeLineLower(card).includes('land')).length;
+  const log = [...drawResult.log, ...discardResult.log];
+
+  if (discardedNonlands > 0) {
+    const counters = { ...((target?.counters || {}) as Record<string, number>) };
+    const currentCount = Number(counters['+1/+1'] ?? 0);
+    counters['+1/+1'] = (Number.isFinite(currentCount) ? currentCount : 0) + discardedNonlands;
+    battlefield[targetIndex] = {
+      ...target,
+      counters,
+    };
+    return {
+      applied: true,
+      state: { ...(discardResult.state as any), battlefield } as GameState,
+      log: [...log, `Added ${discardedNonlands} +1/+1 counter(s) to ${targetId}`],
+      lastDiscardedCardCount: discardResult.discardedCount,
+      lastDiscardedCards: discardResult.discardedCards,
+      lastMovedCards: discardResult.discardedCards,
+    };
+  }
+
+  return {
+    applied: true,
+    state: discardResult.state,
+    log,
+    lastDiscardedCardCount: discardResult.discardedCount,
+    lastDiscardedCards: discardResult.discardedCards,
+    lastMovedCards: discardResult.discardedCards,
   };
 }
 

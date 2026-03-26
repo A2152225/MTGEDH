@@ -38,12 +38,28 @@ function createChoiceRequiredResult(message: string, metadata?: Record<string, s
   };
 }
 
+function getTimeCounterCount(record: unknown): number {
+  const count = Number((record as Record<string, unknown> | null | undefined)?.time ?? 0);
+  return Number.isFinite(count) && count > 0 ? count : 0;
+}
+
+function decrementTimeCounterRecord(record: unknown): Record<string, number> {
+  const nextCounters = { ...(((record || {}) as Record<string, number>)) };
+  const current = getTimeCounterCount(nextCounters);
+  if (current <= 1) {
+    delete nextCounters.time;
+  } else {
+    nextCounters.time = current - 1;
+  }
+  return nextCounters;
+}
+
 export function applyInvestigateStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'investigate' }>,
   ctx: OracleIRExecutionContext
 ): KeywordStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
+  const amount = quantityToNumber(step.amount, ctx);
   if (amount === null) {
     return {
       applied: false,
@@ -91,7 +107,7 @@ export function applyPopulateStep(
   step: Extract<OracleEffectStep, { kind: 'populate' }>,
   ctx: OracleIRExecutionContext
 ): KeywordStepHandlerResult {
-  const amount = quantityToNumber(step.amount);
+  const amount = quantityToNumber(step.amount, ctx);
   if (amount === null) {
     return {
       applied: false,
@@ -157,6 +173,101 @@ export function applyPopulateStep(
     applied: true,
     state: nextState,
     log,
+  };
+}
+
+export function applyTimeTravelStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'time_travel' }>,
+  ctx: OracleIRExecutionContext
+): KeywordStepHandlerResult {
+  const repetitions = quantityToNumber(step.amount, ctx);
+  if (repetitions === null) {
+    return {
+      applied: false,
+      message: `Skipped time travel (unsupported amount): ${step.raw}`,
+      reason: 'failed_to_apply',
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped time travel (unsupported player selector): ${step.raw}`,
+      reason: 'failed_to_apply',
+    };
+  }
+
+  if (players.length !== 1) {
+    return createChoiceRequiredResult(`Skipped time travel (requires deterministic player): ${step.raw}`, {
+      eligiblePlayerIds: players.map(playerId => String(playerId || '').trim()).filter(Boolean),
+    });
+  }
+
+  if (repetitions <= 0) {
+    return {
+      applied: true,
+      state,
+      log: [`Time travel ${repetitions} time(s) (no-op): ${step.raw}`],
+    };
+  }
+
+  const controllerId = String(players[0] || '').trim() as PlayerID;
+  let nextState = state;
+  let battlefieldChanged = 0;
+  let exileChanged = 0;
+
+  for (let repetition = 0; repetition < repetitions; repetition += 1) {
+    const nextBattlefield = (nextState.battlefield || []).map((permanent) => {
+      if (String(permanent?.controller || '').trim() !== controllerId) return permanent;
+      if (getTimeCounterCount((permanent as any)?.counters) <= 0) return permanent;
+      battlefieldChanged += 1;
+      return {
+        ...(permanent as any),
+        counters: decrementTimeCounterRecord((permanent as any)?.counters),
+      } as BattlefieldPermanent;
+    });
+
+    const nextPlayers = (nextState.players || []).map((player: any) => {
+      const playerId = String(player?.id || '').trim();
+      const exile = Array.isArray(player?.exile) ? player.exile : [];
+      let playerChanged = 0;
+      const nextExile = exile.map((card: any) => {
+        const cardOwnerId = String(card?.owner || card?.ownerId || playerId).trim();
+        if (cardOwnerId !== controllerId) return card;
+        if (getTimeCounterCount(card?.counters) <= 0) return card;
+        playerChanged += 1;
+        return {
+          ...card,
+          counters: decrementTimeCounterRecord(card?.counters),
+        };
+      });
+      exileChanged += playerChanged;
+      return playerChanged > 0 ? { ...player, exile: nextExile } : player;
+    });
+
+    nextState = {
+      ...(nextState as any),
+      battlefield: nextBattlefield as any,
+      players: nextPlayers as any,
+    } as GameState;
+  }
+
+  if (battlefieldChanged === 0 && exileChanged === 0) {
+    return {
+      applied: true,
+      state,
+      log: [`Time travel had no eligible time counters to change: ${step.raw}`],
+    };
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log: [
+      `${controllerId} time traveled ${repetitions} time(s), removing time counters from ${battlefieldChanged} permanent(s) and ${exileChanged} exiled card(s)`,
+    ],
   };
 }
 

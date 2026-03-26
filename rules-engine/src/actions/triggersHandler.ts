@@ -507,10 +507,6 @@ export function checkSpellCastTriggers(
   castCard?: KnownCardRef
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
-  const spellCastAbilities = abilities.filter(a => 
-    a.event === TriggerEvent.SPELL_CAST &&
-    a.controllerId === casterId
-  );
   const stackSpell = getStackItems(state).find(item => {
     if (String((item as any)?.type || '').trim().toLowerCase() !== 'spell') return false;
     const itemId = String((item as any)?.id || '').trim();
@@ -520,27 +516,85 @@ export function checkSpellCastTriggers(
   }) as any;
   const stackSpellId = String(castSpellId || stackSpell?.id || '').trim() || undefined;
   const stackSpellTargets = Array.isArray(stackSpell?.targets) ? stackSpell.targets : [];
-  const spellManaValue = getCardManaValue(castCard || stackSpell?.card);
-  
-  return processTriggersAutoOracle(
-    state,
-    TriggerEvent.SPELL_CAST,
-    spellCastAbilities,
-    buildResolutionEventDataFromGameState(
-      state,
-      casterId,
-      buildTriggerEventDataFromPayloads(casterId, {
-        sourceId: stackSpellId,
-        sourceControllerId: casterId,
-        targetId: stackSpellTargets[0],
-        targetPermanentId: stackSpellTargets[0],
-        targetPlayerId: stackSpellTargets[0],
-        affectedPlayerIds: [casterId],
-        spellType: String(castCard?.type_line || '').trim() || undefined,
-        ...(spellManaValue !== null ? { spellManaValue } : {}),
-      })
-    )
+  const resolvedCastCard = castCard || stackSpell?.card;
+  const resolvedSpellType = String(resolvedCastCard?.type_line || '').trim();
+  const normalizedSpellType = resolvedSpellType.toLowerCase();
+  const spellManaValue = getCardManaValue(resolvedCastCard);
+  const spellCastCountThisTurn = Number((((state as any)?.spellsCastThisTurn || {})?.[casterId] || 0));
+  const noncreatureSpellCastCountThisTurn = Number(
+    ((((state as any)?.noncreatureSpellsCastThisTurn || {})?.[casterId] || 0))
   );
+  const relevantEvents: TriggerEvent[] = [TriggerEvent.SPELL_CAST];
+
+  if (normalizedSpellType) {
+    if (normalizedSpellType.includes('creature')) {
+      relevantEvents.push(TriggerEvent.CREATURE_SPELL_CAST);
+    } else {
+      relevantEvents.push(TriggerEvent.NONCREATURE_SPELL_CAST);
+    }
+
+    if (normalizedSpellType.includes('instant') || normalizedSpellType.includes('sorcery')) {
+      relevantEvents.push(TriggerEvent.INSTANT_OR_SORCERY_CAST);
+    }
+  }
+
+  const baseEventData = buildTriggerEventDataFromPayloads(casterId, {
+    sourceId: stackSpellId,
+    sourceControllerId: casterId,
+    targetId: stackSpellTargets[0],
+    targetPermanentId: stackSpellTargets[0],
+    targetPlayerId: stackSpellTargets[0],
+    affectedPlayerIds: [casterId],
+    spellType: resolvedSpellType || undefined,
+    ...(spellManaValue !== null ? { spellManaValue } : {}),
+    ...(Number.isFinite(spellCastCountThisTurn) ? { spellCastCountThisTurn } : {}),
+    ...(Number.isFinite(noncreatureSpellCastCountThisTurn) ? { noncreatureSpellCastCountThisTurn } : {}),
+  });
+
+  let nextState = state;
+  let triggersAdded = 0;
+  let oracleStepsApplied = 0;
+  let oracleStepsSkipped = 0;
+  let oracleExecutions = 0;
+  let oracleAutomationGaps = 0;
+  const logs: string[] = [];
+
+  for (const event of relevantEvents) {
+    const matchingAbilities = abilities.filter(ability => ability.event === event);
+    if (matchingAbilities.length === 0) continue;
+
+    const abilityControllers = [...new Set(matchingAbilities.map(ability => String(ability.controllerId || '').trim()).filter(Boolean))];
+    for (const abilityControllerId of abilityControllers) {
+      const controllerAbilities = matchingAbilities.filter(
+        ability => String(ability.controllerId || '').trim() === abilityControllerId
+      );
+      if (controllerAbilities.length === 0) continue;
+
+      const eventData = buildResolutionEventDataFromGameState(
+        nextState,
+        abilityControllerId,
+        baseEventData
+      );
+      const result = processTriggersAutoOracle(nextState, event, controllerAbilities, eventData);
+      nextState = result.state;
+      triggersAdded += result.triggersAdded;
+      oracleStepsApplied += result.oracleStepsApplied || 0;
+      oracleStepsSkipped += result.oracleStepsSkipped || 0;
+      oracleExecutions += result.oracleExecutions || 0;
+      oracleAutomationGaps += result.oracleAutomationGaps || 0;
+      logs.push(...(result.logs || []));
+    }
+  }
+
+  return {
+    state: nextState,
+    triggersAdded,
+    oracleStepsApplied,
+    oracleStepsSkipped,
+    oracleExecutions,
+    oracleAutomationGaps,
+    logs,
+  };
 }
 
 /**

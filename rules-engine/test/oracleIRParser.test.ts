@@ -178,8 +178,16 @@ Whenever one or more +1/+1 counters are put on this creature, put a creature car
     expect(exileStep.to).toBe('exile');
 
     const adaptStep = ir.abilities[1].steps[0] as any;
-    expect(adaptStep.kind).toBe('unknown');
-    expect(adaptStep.raw).toBe('Adapt 2');
+    expect(adaptStep.kind).toBe('conditional');
+    expect(adaptStep.condition).toEqual({ kind: 'if', raw: 'there are no +1/+1 counters on it' });
+    expect(adaptStep.steps).toEqual([
+      expect.objectContaining({
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'this permanent' },
+        counter: '+1/+1',
+        amount: { kind: 'number', value: 2 },
+      }),
+    ]);
 
     const reanimateSteps = ir.abilities[2].steps as any[];
     expect(reanimateSteps).toHaveLength(3);
@@ -771,6 +779,341 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses bare incubate keyword clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Incubate 2.', 'Norns Inquisitor');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'create_token',
+        token: 'Incubator',
+        withCounters: { '+1/+1': 2 },
+      }),
+    ]);
+  });
+
+  it('parses Amass keyword lines into conditional token creation plus counters', () => {
+    const ir = parseOracleTextToIR('Amass 2', 'Lazotep Convert');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "you don't control an Army creature" },
+        steps: [
+          {
+            kind: 'create_token',
+            who: { kind: 'you' },
+            amount: { kind: 'number', value: 1 },
+            token: '0/0 black Zombie Army',
+            raw: 'create a 0/0 black Zombie Army creature token',
+          },
+        ],
+        raw: "If you don't control an Army creature, create a 0/0 black Zombie Army creature token",
+      },
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 2 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        raw: 'Put 2 +1/+1 counters on an Army creature you control',
+      },
+    ]);
+  });
+
+  it('parses Amass Orcs keyword lines into counters plus subtype addition', () => {
+    const ir = parseOracleTextToIR('Amass Orcs 2', 'Orc Muster');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "you don't control an Army creature" },
+        steps: [
+          {
+            kind: 'create_token',
+            who: { kind: 'you' },
+            amount: { kind: 'number', value: 1 },
+            token: '0/0 black Orc Army',
+            raw: 'create a 0/0 black Orc Army creature token',
+          },
+        ],
+        raw: "If you don't control an Army creature, create a 0/0 black Orc Army creature token",
+      },
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 2 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        raw: 'Put 2 +1/+1 counters on an Army creature you control',
+      },
+      {
+        kind: 'add_types',
+        target: { kind: 'raw', text: 'Army creature you control' },
+        addTypes: ['Orc'],
+        raw: "If it isn't an Orc, it becomes an Orc in addition to its other types",
+      },
+    ]);
+  });
+
+  it('parses Explore keyword lines into an executable explore step', () => {
+    const ir = parseOracleTextToIR('Explore', 'Jadelight Ranger');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'explore',
+        target: { kind: 'raw', text: 'this creature' },
+        raw: 'Explore',
+      },
+    ]);
+  });
+
+  it('parses Manifest keyword lines into a face-down battlefield move', () => {
+    const ir = parseOracleTextToIR('Manifest the top card of your library.', 'Whisperwood Elemental');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'the top card of your library' },
+        to: 'battlefield',
+        toRaw: 'battlefield face down',
+        entersFaceDown: true,
+        raw: 'Manifest the top card of your library',
+      },
+    ]);
+  });
+
+  it("parses Manifest keyword lines into a face-down battlefield move from that player's library", () => {
+    const ir = parseOracleTextToIR("Manifest the top card of that player's library.", 'Thieving Amalgam');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: "the top card of that player's library" },
+        to: 'battlefield',
+        toRaw: 'battlefield face down',
+        entersFaceDown: true,
+        raw: "Manifest the top card of that player's library",
+      },
+    ]);
+  });
+
+  it('parses Learn keyword lines into optional discard plus conditional draw steps', () => {
+    const ir = parseOracleTextToIR('Learn', 'Professor of Symbology');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        optional: true,
+        raw: 'You may discard a card',
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you do' },
+        steps: [
+          {
+            kind: 'draw',
+            who: { kind: 'you' },
+            amount: { kind: 'number', value: 1 },
+            raw: 'draw a card',
+          },
+        ],
+        raw: 'If you do, draw a card',
+      },
+    ]);
+  });
+
+  it('parses Manifest dread keyword lines into an executable manifest-dread step', () => {
+    const ir = parseOracleTextToIR('Manifest dread', 'Abhorrent Oculus');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'manifest_dread',
+        who: { kind: 'you' },
+        raw: 'Manifest dread',
+      },
+    ]);
+  });
+
+  it('parses Cloak-the-top-card keyword lines into an executable face-down move step', () => {
+    const ir = parseOracleTextToIR('Cloak the top card of your library', 'Cryptic Coat');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'the top card of your library' },
+        to: 'battlefield',
+        toRaw: 'battlefield face down',
+        entersFaceDown: true,
+        faceDownWardCost: '{2}',
+        raw: 'Cloak the top card of your library',
+      },
+    ]);
+  });
+
+  it("parses Cloak-the-top-card keyword lines into an executable face-down move step from that player's library", () => {
+    const ir = parseOracleTextToIR("Cloak the top card of that player's library.", 'Etrata, Deadly Fugitive');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: "the top card of that player's library" },
+        to: 'battlefield',
+        toRaw: 'battlefield face down',
+        entersFaceDown: true,
+        faceDownWardCost: '{2}',
+        raw: "Cloak the top card of that player's library",
+      },
+    ]);
+  });
+
+  it('parses Forage keyword lines into a choose-mode step', () => {
+    const ir = parseOracleTextToIR('Forage', 'Camellia, the Seedmiser');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+        modes: [
+          {
+            label: 'Exile three cards from your graveyard',
+            raw: 'Exile three cards from your graveyard',
+            steps: [
+              {
+                kind: 'move_zone',
+                what: { kind: 'raw', text: 'three cards from your graveyard' },
+                to: 'exile',
+                toRaw: 'exile',
+                raw: 'Exile three cards from your graveyard',
+              },
+            ],
+          },
+          {
+            label: 'Sacrifice a Food',
+            raw: 'Sacrifice a Food',
+            steps: [
+              {
+                kind: 'sacrifice',
+                who: { kind: 'you' },
+                what: { kind: 'raw', text: 'a Food' },
+                raw: 'Sacrifice a Food',
+              },
+            ],
+          },
+        ],
+        raw: 'Forage',
+      },
+    ]);
+  });
+
+  it('parses clash follow-up text into clash plus if-you-win conditional steps', () => {
+    const ir = parseOracleTextToIR(
+      'Clash with an opponent. If you win, put a +1/+1 counter on this creature.',
+      "Adder-Staff Boggart"
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'clash',
+        who: { kind: 'you' },
+        opponent: { kind: 'target_opponent' },
+        raw: 'Clash with an opponent',
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'you win' },
+        steps: [
+          {
+            kind: 'add_counter',
+            amount: { kind: 'number', value: 1 },
+            counter: '+1/+1',
+            target: { kind: 'raw', text: 'this creature' },
+            raw: 'put a +1/+1 counter on this creature',
+          },
+        ],
+        raw: 'If you win, put a +1/+1 counter on this creature',
+      },
+    ]);
+  });
+
+  it('parses Connive keyword lines into draw-discard-plus-counter steps', () => {
+    const ir = parseOracleTextToIR('Connive 2', 'Raffine Informant');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'draw',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+        raw: 'Draw 2 cards.',
+      },
+      {
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+        sequence: 'then',
+        raw: 'Discard 2 cards.',
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'a nonland card was discarded this way' },
+        steps: [
+          {
+            kind: 'add_counter',
+            target: { kind: 'raw', text: 'this creature' },
+            counter: '+1/+1',
+            amount: { kind: 'x' },
+            raw: 'Put X +1/+1 counters on this creature, where X is the number of nonland cards discarded this way.',
+          },
+        ],
+        raw: 'If a nonland card was discarded this way, put X +1/+1 counters on this creature, where X is the number of nonland cards discarded this way.',
+      },
+    ]);
+  });
+
+  it('parses Discover keyword lines into impulse exile plus free-cast permission', () => {
+    const ir = parseOracleTextToIR('Discover 4', 'Pantlaza');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'impulse_exile_top',
+        who: { kind: 'you' },
+        amount: { kind: 'unknown', raw: 'until you exile a nonland card with mana value 4 or less' },
+        duration: 'during_resolution',
+        permission: 'cast',
+        raw:
+          'Exile cards from the top of your library until you exile a nonland card with mana value 4 or less. You may cast that card without paying its mana cost. Put the remaining exiled cards on the bottom of your library in a random order.',
+      },
+      {
+        kind: 'modify_exile_permissions',
+        scope: 'last_exiled_cards',
+        withoutPayingManaCost: true,
+        raw: 'You may cast that card without paying its mana cost.',
+      },
+    ]);
+  });
+
+  it('parses triggered Discover text into the same lowered discover steps', () => {
+    const ir = parseOracleTextToIR('When this creature enters the battlefield, discover 3.', 'Pantlaza');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'impulse_exile_top',
+        who: { kind: 'you' },
+        amount: { kind: 'unknown', raw: 'until you exile a nonland card with mana value 3 or less' },
+        duration: 'during_resolution',
+        permission: 'cast',
+        raw:
+          'Exile cards from the top of your library until you exile a nonland card with mana value 3 or less. You may cast that card without paying its mana cost. Put the remaining exiled cards on the bottom of your library in a random order.',
+      },
+      {
+        kind: 'modify_exile_permissions',
+        scope: 'last_exiled_cards',
+        withoutPayingManaCost: true,
+        raw: 'You may cast that card without paying its mana cost.',
+      },
+    ]);
+  });
+
   it('parses counter-doubling text into a double_counters step', () => {
     const ir = parseOracleTextToIR(
       'For each kind of counter on target permanent, put another of that kind of counter on that permanent.',
@@ -782,6 +1125,22 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         kind: 'double_counters',
         target: { kind: 'raw', text: 'target permanent' },
         raw: 'For each kind of counter on target permanent, put another of that kind of counter on that permanent',
+      },
+    ]);
+  });
+
+  it('parses specific-counter doubling text into a constrained double_counters step', () => {
+    const ir = parseOracleTextToIR(
+      'Double the number of +1/+1 counters on target creature.',
+      'Ornery Tumblewagg'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'double_counters',
+        target: { kind: 'raw', text: 'target creature' },
+        counter: '+1/+1',
+        raw: 'Double the number of +1/+1 counters on target creature',
       },
     ]);
   });
@@ -873,6 +1232,46 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         who: { kind: 'you' },
         amount: { kind: 'number', value: 2 },
         raw: 'Surveil 2',
+      },
+    ]);
+  });
+
+  it('parses Fateseal keyword lines into fateseal steps', () => {
+    const ir = parseOracleTextToIR('Fateseal 2', 'Spin into Myth');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'fateseal',
+        who: { kind: 'you' },
+        target: { kind: 'target_opponent' },
+        amount: { kind: 'number', value: 2 },
+        raw: 'Fateseal 2',
+      },
+    ]);
+  });
+
+  it('parses Time travel keyword lines into time-travel steps', () => {
+    const ir = parseOracleTextToIR('Time travel', 'Time Beetle');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'time_travel',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        raw: 'Time travel',
+      },
+    ]);
+  });
+
+  it('parses repeated Time travel keyword lines into time-travel steps', () => {
+    const ir = parseOracleTextToIR('Time travel three times', 'The Tenth Doctor');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'time_travel',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 3 },
+        raw: 'Time travel three times',
       },
     ]);
   });
@@ -1821,6 +2220,53 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(surveil).toBeTruthy();
     expect(surveil.who).toEqual({ kind: 'you' });
     expect(surveil.amount).toEqual({ kind: 'number', value: 1 });
+  });
+
+  it('parses vote clauses into a vote step with parsed choices', () => {
+    const text = 'Starting with you, each player votes for grace or condemnation.';
+    const ir = parseOracleTextToIR(text);
+    const vote = ir.abilities[0].steps.find(s => s.kind === 'vote') as any;
+
+    expect(vote).toBeTruthy();
+    expect(vote.voters).toEqual({ kind: 'each_player' });
+    expect(vote.startingWith).toEqual({ kind: 'you' });
+    expect(vote.choices).toEqual(['grace', 'condemnation']);
+  });
+
+  it('parses per-choice vote payoffs into scaled executable steps', () => {
+    const text =
+      'Starting with you, each player votes for evidence or bribery. For each evidence vote, investigate. For each bribery vote, create a Treasure token.';
+    const ir = parseOracleTextToIR(text, 'Tivit, Seller of Secrets');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps.map(step => step.kind)).toEqual(['vote', 'investigate', 'create_token']);
+    expect(steps[1]).toMatchObject({
+      kind: 'investigate',
+      amount: { kind: 'votes_for_choice', choice: 'evidence' },
+    });
+    expect(steps[2]).toMatchObject({
+      kind: 'create_token',
+      amount: { kind: 'votes_for_choice', choice: 'bribery' },
+      token: 'Treasure',
+    });
+  });
+
+  it('parses numeric per-choice vote scaling for counters and life', () => {
+    const text =
+      'Starting with you, each player votes for sprout or harvest. Put two +1/+1 counters on this creature for each sprout vote. You gain 3 life for each harvest vote.';
+    const ir = parseOracleTextToIR(text, 'Orchard Elemental');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps.map(step => step.kind)).toEqual(['vote', 'add_counter', 'gain_life']);
+    expect(steps[1]).toMatchObject({
+      kind: 'add_counter',
+      target: { kind: 'raw', text: 'this creature' },
+      amount: { kind: 'votes_for_choice', choice: 'sprout', multiplier: 2 },
+    });
+    expect(steps[2]).toMatchObject({
+      kind: 'gain_life',
+      amount: { kind: 'votes_for_choice', choice: 'harvest', multiplier: 3 },
+    });
   });
 
   it('parses deterministic add mana clauses into IR steps', () => {
@@ -6563,6 +7009,75 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         shuffle: true,
         maxResults: 1,
         raw: 'Search your library for a card with the same mana value as this card, reveal it, put it into your hand, then shuffle.',
+      },
+    ]);
+  });
+
+  it('parses Basic landcycling keyword lines into a reusable library-search step', () => {
+    const ir = parseOracleTextToIR('Basic landcycling {1}{B}', 'Absorb Vis');
+    const landcycling = ir.abilities.find(ability => String(ability.cost || '').includes('{1}{B}'));
+
+    expect(landcycling).toMatchObject({
+      type: 'keyword',
+      cost: '{1}{B}, Discard this card',
+      effectText: 'Search your library for a basic land card, reveal it, put it into your hand, then shuffle.',
+    });
+    expect(landcycling?.steps).toEqual([
+      {
+        kind: 'search_library',
+        who: { kind: 'you' },
+        criteria: { kind: 'raw', text: 'basic land' },
+        destination: 'hand',
+        revealFound: true,
+        shuffle: true,
+        maxResults: 1,
+        raw: 'Search your library for a basic land card, reveal it, put it into your hand, then shuffle.',
+      },
+    ]);
+  });
+
+  it('parses land-type cycling keyword lines into a subtype library-search step', () => {
+    const ir = parseOracleTextToIR('Plainscycling {2}', 'Eternal Dragon');
+    const typecycling = ir.abilities.find(ability => String(ability.cost || '').includes('{2}'));
+
+    expect(typecycling).toMatchObject({
+      type: 'keyword',
+      cost: '{2}, Discard this card',
+      effectText: 'Search your library for a Plains card, reveal it, put it into your hand, then shuffle.',
+    });
+    expect(typecycling?.steps).toEqual([
+      {
+        kind: 'search_library',
+        who: { kind: 'you' },
+        criteria: { kind: 'raw', text: 'Plains' },
+        destination: 'hand',
+        revealFound: true,
+        shuffle: true,
+        maxResults: 1,
+        raw: 'Search your library for a Plains card, reveal it, put it into your hand, then shuffle.',
+      },
+    ]);
+  });
+
+  it('parses subtypecycling keyword lines into a typed library-search step', () => {
+    const ir = parseOracleTextToIR('Wizardcycling {3}', 'Vedalken Aethermage');
+    const typecycling = ir.abilities.find(ability => String(ability.cost || '').includes('{3}'));
+
+    expect(typecycling).toMatchObject({
+      type: 'keyword',
+      cost: '{3}, Discard this card',
+      effectText: 'Search your library for a Wizard card, reveal it, put it into your hand, then shuffle.',
+    });
+    expect(typecycling?.steps).toEqual([
+      {
+        kind: 'search_library',
+        who: { kind: 'you' },
+        criteria: { kind: 'raw', text: 'Wizard' },
+        destination: 'hand',
+        revealFound: true,
+        shuffle: true,
+        maxResults: 1,
+        raw: 'Search your library for a Wizard card, reveal it, put it into your hand, then shuffle.',
       },
     ]);
   });

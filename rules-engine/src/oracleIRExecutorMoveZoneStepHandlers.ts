@@ -12,6 +12,7 @@ import {
 import {
   exileExactMatchingFromGraveyard,
   exileAllMatchingFromGraveyard,
+  moveTopCardFromLibrary,
   moveAllMatchingFromExile,
   moveAllMatchingFromHand,
   moveTargetedCardFromAnyGraveyard,
@@ -328,6 +329,27 @@ function getOpponents(state: GameState, controllerId: PlayerID): any[] {
 
 function getTargetPlayerId(ctx: OracleIRExecutionContext): PlayerID | '' {
   return (String(ctx.selectorContext?.targetPlayerId || ctx.selectorContext?.targetOpponentId || '').trim() || '') as PlayerID | '';
+}
+
+function getTopCardLibraryOwnerId(what: unknown, ctx: OracleIRExecutionContext): PlayerID | '' {
+  if ((what as any)?.kind !== 'raw') return '' as PlayerID | '';
+  const whatText = String((what as any)?.text || '').trim().toLowerCase();
+  if (!whatText) return '' as PlayerID | '';
+
+  if (whatText === 'the top card of your library') {
+    return getControllerId(ctx);
+  }
+
+  if (
+    whatText === "the top card of target player's library" ||
+    whatText === "the top card of target opponent's library" ||
+    whatText === "the top card of that player's library" ||
+    whatText === "the top card of that opponent's library"
+  ) {
+    return getTargetPlayerId(ctx);
+  }
+
+  return '' as PlayerID | '';
 }
 
 function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
@@ -958,6 +980,7 @@ export function applyMoveZoneStep(
       ? findBoundCardZoneLocation(nextState, boundTargetObjectId)
       : null;
   const sourceCardZone = resolveSourceCardZoneLocation(nextState, step.what as any, ctx);
+  const topCardLibraryOwnerId = getTopCardLibraryOwnerId((step as any)?.what, ctx);
 
   if (
     !parsedFromGraveyard &&
@@ -987,13 +1010,57 @@ export function applyMoveZoneStep(
     !parsedTargetPlayerGy &&
     contextualBoundCardIds.length === 0 &&
     !contextualBoundCardZone &&
-    !sourceCardZone
+    !sourceCardZone &&
+    !topCardLibraryOwnerId
   ) {
     return {
       applied: false,
       message: `Skipped move zone (unsupported selector): ${step.raw}`,
       reason: 'unsupported_selector',
     };
+  }
+
+  if (topCardLibraryOwnerId) {
+    const libraryPlacement = getLibraryPlacement(step);
+    if (
+      step.to !== 'hand' &&
+      step.to !== 'graveyard' &&
+      step.to !== 'exile' &&
+      step.to !== 'battlefield' &&
+      !(step.to === 'library' && libraryPlacement)
+    ) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported destination): ${step.raw}`,
+        reason: 'unsupported_destination',
+      };
+    }
+
+    const result = moveTopCardFromLibrary(
+      nextState,
+      topCardLibraryOwnerId,
+      step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
+      step.to === 'battlefield'
+        ? step.battlefieldController?.kind === 'owner_of_moved_cards'
+          ? topCardLibraryOwnerId
+          : controllerId
+        : undefined,
+      step.entersTapped,
+      step.entersFaceDown,
+      effectiveWithCounters,
+      attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
+      undefined,
+      step.faceDownWardCost
+    );
+    if (result.kind === 'impossible') {
+      return {
+        applied: false,
+        message: `Skipped move zone (top card unavailable): ${step.raw}`,
+        reason: 'impossible_action',
+        options: { persist: false },
+      };
+    }
+    return finalizeAppliedResult(result);
   }
 
   if (contextualBoundCardIds.length > 0) {

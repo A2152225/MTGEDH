@@ -51,6 +51,10 @@ export interface OracleIRExecutionEventHint {
   readonly opponentsDealtDamageIds?: readonly PlayerID[];
   /** Spell type context used by some exile-until templates (for example, Possibility Storm). */
   readonly spellType?: string;
+  /** Number of spells the triggering player has cast this turn when relevant. */
+  readonly spellCastCountThisTurn?: number;
+  /** Number of noncreature spells the triggering player has cast this turn when relevant. */
+  readonly noncreatureSpellCastCountThisTurn?: number;
   /** Spell mana value context used by some exile-until templates (for example, Cascade). */
   readonly spellManaValue?: number;
   /** Source provenance for the resolving object when known. */
@@ -61,6 +65,8 @@ export interface OracleIRExecutionEventHint {
   readonly wonCoinFlip?: boolean;
   /** Winning choice text for vote-result wrappers such as "carnage gets more votes". */
   readonly winningVoteChoice?: string | null;
+  /** Explicit vote tallies keyed by choice text when already known from runtime context. */
+  readonly voteChoiceCounts?: Readonly<Record<string, number>>;
   /** Whether a gift cost was paid / promised for gift-conditional spell text. */
   readonly giftPromised?: boolean;
 }
@@ -81,8 +87,12 @@ export interface OracleIRExecutionContext {
   readonly lastExiledCards?: readonly any[];
   /** Internal runtime carry-over for nested follow-up steps that reference cards moved by prior steps. */
   readonly lastMovedCards?: readonly any[];
+  /** Internal runtime carry-over for nested follow-up steps that reference cards discarded by prior steps. */
+  readonly lastDiscardedCards?: readonly any[];
   /** Internal runtime carry-over for nested follow-up steps that reference permanents tapped this way. */
   readonly lastTappedMatchingPermanentCount?: number;
+  /** Internal runtime carry-over for clash follow-up conditionals like "If you win". */
+  readonly lastClashWon?: boolean;
   /** Internal runtime carry-over for nested follow-up steps that reference battlefield permanents moved by prior steps. */
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
@@ -101,6 +111,8 @@ export interface OracleIRExecutionContext {
   readonly wonCoinFlip?: boolean;
   /** Winning vote choice when already known from runtime context. */
   readonly winningVoteChoice?: string | null;
+  /** Explicit vote tallies keyed by choice text when already known from runtime context. */
+  readonly voteChoiceCounts?: Readonly<Record<string, number>>;
   /** Whether a gift cost was paid / promised for gift-conditional spell text. */
   readonly giftPromised?: boolean;
   /**

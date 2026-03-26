@@ -1341,6 +1341,242 @@ describe('triggersHandler Oracle automation', () => {
     expect(p1.exile || []).toEqual([]);
   });
 
+  it('checkSpellCastTriggers executes Prowess after you cast a noncreature spell', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'prowess-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          summoningSickness: false,
+          power: 2,
+          toughness: 3,
+          basePower: 2,
+          baseToughness: 3,
+          card: {
+            id: 'prowess-source-card',
+            name: 'Stormchaser Adept',
+            type_line: 'Creature - Human Monk',
+            oracle_text: 'Prowess',
+            power: '2',
+            toughness: '3',
+          },
+        } as any,
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-on-stack',
+          type: 'spell',
+          controller: 'p1',
+          card: {
+            id: 'spell-card',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+          },
+        } as any,
+      ],
+    } as any);
+
+    const result = checkSpellCastTriggers(start, 'p1');
+    const creature = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'prowess-source');
+    const prowessModifier = (creature?.modifiers || []).find(
+      (modifier: any) =>
+        modifier?.type === 'powerToughness' &&
+        modifier?.power === 1 &&
+        modifier?.toughness === 1 &&
+        modifier?.duration === 'end_of_turn'
+    );
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(prowessModifier).toBeTruthy();
+  });
+
+  it('checkSpellCastTriggers executes self instant-or-sorcery cast triggers', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'arcane-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'arcane-source-card',
+            name: 'Arcane Channeler',
+            type_line: 'Creature - Wizard',
+            oracle_text: 'Whenever you cast an instant or sorcery spell, draw a card.',
+          },
+        } as any,
+      ] as any,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          hand: [],
+          graveyard: [],
+          library: [{ id: 'drawn-card', name: 'Island', type_line: 'Basic Land - Island' }],
+          exile: [],
+        } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-on-stack',
+          type: 'spell',
+          controller: 'p1',
+          card: {
+            id: 'spell-card',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+          },
+        } as any,
+      ],
+    } as any);
+
+    const result = checkSpellCastTriggers(start, 'p1');
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['drawn-card']);
+    expect(p1.library || []).toEqual([]);
+  });
+
+  it('checkSpellCastTriggers executes opponent noncreature-spell triggers for the trigger controller', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'remora-like-source',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: {
+            id: 'remora-like-card',
+            name: 'Remora-Like Study',
+            type_line: 'Enchantment',
+            oracle_text: 'Whenever an opponent casts a noncreature spell, draw a card.',
+          },
+        } as any,
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          hand: [],
+          graveyard: [],
+          library: [{ id: 'p2-draw', name: 'Island', type_line: 'Basic Land - Island' }],
+          exile: [],
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-on-stack',
+          type: 'spell',
+          controller: 'p1',
+          card: {
+            id: 'spell-card',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+          },
+        } as any,
+      ],
+      spellsCastThisTurn: { p1: 1 },
+      noncreatureSpellsCastThisTurn: { p1: 1 },
+    } as any);
+
+    const result = checkSpellCastTriggers(start, 'p1');
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((p2.hand || []).map((card: any) => card.id)).toEqual(['p2-draw']);
+    expect(p2.library || []).toEqual([]);
+  });
+
+  it('checkSpellCastTriggers respects first-noncreature-spell-each-turn filters', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'sentinel-like-source',
+          controller: 'p2',
+          owner: 'p2',
+          tapped: false,
+          card: {
+            id: 'sentinel-like-card',
+            name: 'Sentinel-Like Watcher',
+            type_line: 'Artifact Creature - Soldier',
+            oracle_text: 'Whenever an opponent casts their first noncreature spell each turn, draw a card.',
+          },
+        } as any,
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          hand: [],
+          graveyard: [],
+          library: [
+            { id: 'p2-first', name: 'Island', type_line: 'Basic Land - Island' },
+            { id: 'p2-second', name: 'Plains', type_line: 'Basic Land - Plains' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-on-stack',
+          type: 'spell',
+          controller: 'p1',
+          card: {
+            id: 'spell-card',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+          },
+        } as any,
+      ],
+      spellsCastThisTurn: { p1: 1 },
+      noncreatureSpellsCastThisTurn: { p1: 1 },
+    } as any);
+
+    const firstResult = checkSpellCastTriggers(start, 'p1');
+    const firstP2 = firstResult.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect(firstResult.triggersAdded).toBe(1);
+    expect((firstP2.hand || []).map((card: any) => card.id)).toEqual(['p2-first']);
+
+    const secondState = {
+      ...(start as any),
+      players: firstResult.state.players,
+      spellsCastThisTurn: { p1: 2 },
+      noncreatureSpellsCastThisTurn: { p1: 2 },
+    } as any;
+    const secondResult = checkSpellCastTriggers(secondState, 'p1');
+    const secondP2 = secondResult.state.players.find((player: any) => player.id === 'p2') as any;
+
+    expect(secondResult.triggersAdded).toBe(0);
+    expect((secondP2.hand || []).map((card: any) => card.id)).toEqual(['p2-first']);
+  });
+
   it('processTriggersAutoOracle resolves Living weapon on self ETB by creating and attaching a Germ token', () => {
     const selfEtbState = makeState({
       battlefield: [

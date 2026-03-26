@@ -6201,6 +6201,132 @@ describe('Oracle IR Executor', () => {
     expect(result.skippedSteps.some(s => s.kind === 'surveil')).toBe(false);
   });
 
+  it('treats fateseal as a deterministic no-op when the targeted opponent library is empty', () => {
+    const ir = parseOracleTextToIR('Fateseal 2.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+    expect(result.appliedSteps.some(s => s.kind === 'fateseal')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'fateseal')).toBe(false);
+  });
+
+  it('applies fateseal deterministically by leaving the looked-at cards in place', () => {
+    const ir = parseOracleTextToIR('Fateseal 2.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'top-a', name: 'A' }, { id: 'top-b', name: 'B' }, { id: 'top-c', name: 'C' }],
+          hand: [],
+          graveyard: [],
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetOpponentId: 'p2' as any },
+    });
+
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    expect(result.appliedSteps.some(s => s.kind === 'fateseal')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'fateseal')).toBe(false);
+    expect((p2.library || []).map((card: any) => card.id)).toEqual(['top-a', 'top-b', 'top-c']);
+  });
+
+  it('applies time travel by removing a time counter from each eligible controlled permanent and exiled card', () => {
+    const ir = parseOracleTextToIR('Time travel.', 'Time Beetle');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [
+            { id: 'suspended-a', name: 'Ancestral Vision', counters: { time: 2 }, owner: 'p1', suspend: true },
+          ],
+        } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'fireplace',
+          controller: 'p1',
+          owner: 'p1',
+          counters: { time: 2 },
+          card: { id: 'fireplace-card', name: 'Rotating Fireplace', type_line: 'Artifact' },
+        },
+        {
+          id: 'their-permanent',
+          controller: 'p2',
+          owner: 'p2',
+          counters: { time: 3 },
+          card: { id: 'their-permanent-card', name: 'Their Card', type_line: 'Artifact' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const fireplace = (result.state.battlefield || []).find((perm: any) => perm.id === 'fireplace') as any;
+    const theirs = (result.state.battlefield || []).find((perm: any) => perm.id === 'their-permanent') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'time_travel')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'time_travel')).toBe(false);
+    expect(fireplace?.counters?.time).toBe(1);
+    expect(theirs?.counters?.time).toBe(3);
+    expect(p1.exile[0]?.counters?.time).toBe(1);
+  });
+
+  it('applies repeated time travel by repeating the deterministic time-counter removal', () => {
+    const ir = parseOracleTextToIR('Time travel three times.', 'The Tenth Doctor');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'impending-a',
+          controller: 'p1',
+          owner: 'p1',
+          counters: { time: 3 },
+          card: { id: 'impending-a-card', name: 'Impending Test', type_line: 'Enchantment Creature' },
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const permanent = (result.state.battlefield || []).find((perm: any) => perm.id === 'impending-a') as any;
+
+    expect(result.appliedSteps.some(s => s.kind === 'time_travel')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'time_travel')).toBe(false);
+    expect(permanent?.counters?.time).toBeUndefined();
+  });
+
   it('treats defending-player scry as deterministic no-op when target-opponent library is empty', () => {
     const ir = parseOracleTextToIR('Defending player scries 1.', 'Test');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -19937,6 +20063,168 @@ describe('Oracle IR Executor', () => {
     expect((result.state.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['land-a']);
   });
 
+  it('applies parsed vote steps and winner-conditioned follow-up when the runtime context provides the winning vote', () => {
+    const ir = parseOracleTextToIR(
+      'Starting with you, each player votes for homage or carnage. If homage gets more votes, draw a card.',
+      'Coercive Portal'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'draw-a', name: 'Card A' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Coercive Portal',
+      winningVoteChoice: 'homage',
+    });
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.some(s => s.kind === 'vote')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['draw-a']);
+  });
+
+  it('applies tied-vote follow-up when the runtime context marks the vote as tied', () => {
+    const ir = parseOracleTextToIR(
+      'Starting with you, each player votes for homage or carnage. If carnage gets more votes or the vote is tied, draw a card.',
+      'Coercive Portal'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'draw-a', name: 'Card A' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Coercive Portal',
+      winningVoteChoice: null,
+    });
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.some(s => s.kind === 'vote')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['draw-a']);
+  });
+
+  it('derives the winning vote from vote counts for winner-conditioned follow-up', () => {
+    const ir = parseOracleTextToIR(
+      'Starting with you, each player votes for homage or carnage. If homage gets more votes, draw a card.',
+      'Coercive Portal'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'draw-a', name: 'Card A' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Coercive Portal',
+      voteChoiceCounts: { homage: 2, carnage: 1 },
+    });
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.some(s => s.kind === 'vote')).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'draw')).toBe(true);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['draw-a']);
+  });
+
+  it('applies per-choice vote payoff steps for Tivit', () => {
+    const ir = parseOracleTextToIR(
+      'Starting with you, each player votes for evidence or bribery. For each evidence vote, investigate. For each bribery vote, create a Treasure token.',
+      'Tivit, Seller of Secrets'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState();
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Tivit, Seller of Secrets',
+      voteChoiceCounts: { evidence: 2, bribery: 1 },
+    });
+
+    const names = (result.state.battlefield as any[]).map((perm: any) => String(perm?.card?.name || '').toLowerCase());
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['vote', 'investigate', 'create_token']);
+    expect(names.filter(name => name.includes('clue'))).toHaveLength(2);
+    expect(names.filter(name => name.includes('treasure'))).toHaveLength(1);
+  });
+
+  it('applies numeric per-choice vote scaling for Orchard Elemental', () => {
+    const ir = parseOracleTextToIR(
+      'Starting with you, each player votes for sprout or harvest. Put two +1/+1 counters on this creature for each sprout vote. You gain 3 life for each harvest vote.',
+      'Orchard Elemental'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] },
+      ] as any,
+      battlefield: [
+        {
+          id: 'orchard-source',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'orchard-source-card', name: 'Orchard Elemental', type_line: 'Creature - Elemental' },
+          counters: {},
+        },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'orchard-source',
+      sourceName: 'Orchard Elemental',
+      voteChoiceCounts: { sprout: 2, harvest: 1 },
+    });
+
+    const orchard = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'orchard-source') as any;
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['vote', 'add_counter', 'gain_life']);
+    expect(Number(orchard?.counters?.['+1/+1'] || 0)).toBe(4);
+    expect(p1.life).toBe(43);
+  });
+
   it('treats specific \"you do not ...\" conditional wrappers as false after a successful antecedent action', () => {
     const ir = parseOracleTextToIR(
       'You may sacrifice a Forest. If you do not sacrifice a Forest, sacrifice this creature and it deals 7 damage to you.',
@@ -22268,6 +22556,78 @@ Whenever one or more +1/+1 counters are put on this creature, put a creature car
     expect(returned?.controller).toBe('p1');
     expect(returned?.counters).toEqual({ finality: 1 });
     expect((((result.state.players || [])[0] as any)?.exile || []).map((card: any) => card.id)).not.toContain('emperor-target');
+  });
+
+  it('applies Adapt only when the source has no +1/+1 counters', () => {
+    const ir = parseOracleTextToIR('Adapt 2', 'Adaptive Familiar');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'adapt-source',
+            ownerId: 'p1',
+            controller: 'p1',
+            name: 'Adaptive Familiar',
+            cardType: 'Creature',
+            type_line: 'Creature - Beast',
+            power: 2,
+            toughness: 2,
+            tapped: false,
+            summoningSick: false,
+            counters: {},
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'adapt-source',
+        sourceName: 'Adaptive Familiar',
+      }
+    );
+
+    const source = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'adapt-source') as any;
+    expect(source?.counters).toEqual({ '+1/+1': 2 });
+    expect(result.appliedSteps.some(step => step.kind === 'add_counter')).toBe(true);
+    expect(result.skippedSteps).toHaveLength(0);
+  });
+
+  it('skips Adapt when the source already has a +1/+1 counter', () => {
+    const ir = parseOracleTextToIR('Adapt 2', 'Adaptive Familiar');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'adapt-source',
+            ownerId: 'p1',
+            controller: 'p1',
+            name: 'Adaptive Familiar',
+            cardType: 'Creature',
+            type_line: 'Creature - Beast',
+            power: 2,
+            toughness: 2,
+            tapped: false,
+            summoningSick: false,
+            counters: { '+1/+1': 1 },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'adapt-source',
+        sourceName: 'Adaptive Familiar',
+      }
+    );
+
+    const source = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'adapt-source') as any;
+    expect(source?.counters).toEqual({ '+1/+1': 1 });
+    expect(result.appliedSteps.some(step => step.kind === 'add_counter')).toBe(false);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['conditional']);
   });
 
   it("applies The Spot, Living Portal's linked-exile ETB", () => {
@@ -43394,6 +43754,123 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(result.log.some(line => line.includes('shuffled their library'))).toBe(true);
   });
 
+  it('applies Basic landcycling keyword lines by tutoring a basic land into hand and shuffling', () => {
+    const ir = parseOracleTextToIR('Basic landcycling {1}{B}', 'Absorb Vis');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'plains', name: 'Plains', type_line: 'Basic Land - Plains' },
+              { id: 'mage', name: 'Silvercoat Lion', type_line: 'Creature - Cat' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'absorb-vis',
+        sourceName: 'Absorb Vis',
+      },
+      { allowOptional: true }
+    );
+
+    const player = result.state.players.find(p => p.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['search_library']);
+    expect((player.hand || []).map((card: any) => card.id)).toContain('plains');
+    expect((player.library || []).map((card: any) => card.id)).not.toContain('plains');
+    expect(result.log.some(line => line.includes('revealed Plains'))).toBe(true);
+    expect(result.log.some(line => line.includes('shuffled their library'))).toBe(true);
+  });
+
+  it('applies land-type cycling keyword lines by tutoring a matching subtype land into hand and shuffling', () => {
+    const ir = parseOracleTextToIR('Plainscycling {2}', 'Eternal Dragon');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'fountain', name: 'Hallowed Fountain', type_line: 'Land - Plains Island' },
+              { id: 'swamp', name: 'Swamp', type_line: 'Basic Land - Swamp' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'eternal-dragon',
+        sourceName: 'Eternal Dragon',
+      },
+      { allowOptional: true }
+    );
+
+    const player = result.state.players.find(p => p.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['search_library']);
+    expect((player.hand || []).map((card: any) => card.id)).toContain('fountain');
+    expect((player.library || []).map((card: any) => card.id)).not.toContain('fountain');
+    expect(result.log.some(line => line.includes('revealed Hallowed Fountain'))).toBe(true);
+    expect(result.log.some(line => line.includes('shuffled their library'))).toBe(true);
+  });
+
+  it('applies subtypecycling keyword lines by tutoring the matching card type into hand and shuffling', () => {
+    const ir = parseOracleTextToIR('Wizardcycling {3}', 'Vedalken Aethermage');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'wizard', name: 'Vodalian Mage', type_line: 'Creature - Wizard Merfolk' },
+              { id: 'land', name: 'Island', type_line: 'Basic Land - Island' },
+            ],
+            exile: [],
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'aethermage',
+        sourceName: 'Vedalken Aethermage',
+      },
+      { allowOptional: true }
+    );
+
+    const player = result.state.players.find(p => p.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['search_library']);
+    expect((player.hand || []).map((card: any) => card.id)).toContain('wizard');
+    expect((player.library || []).map((card: any) => card.id)).not.toContain('wizard');
+    expect(result.log.some(line => line.includes('revealed Vodalian Mage'))).toBe(true);
+    expect(result.log.some(line => line.includes('shuffled their library'))).toBe(true);
+  });
+
   it('applies Transfigure keyword lines by tutoring a same-mana-value creature onto the battlefield and shuffling', () => {
     const ir = parseOracleTextToIR('Transfigure {1}{B}{B}', 'Fleshwrither');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -43607,6 +44084,817 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(tokens.every((token: any) => (token.card?.colors || []).join(',') === 'W,B')).toBe(true);
     expect(tokens.every((token: any) => String(token.card?.oracle_text || '').includes('Flying'))).toBe(true);
     expect(tokens.every((token: any) => String(token.card?.type_line || '').includes('Spirit'))).toBe(true);
+  });
+
+  it('applies Incubate keyword lines by creating an Incubator token with counters', () => {
+    const ir = parseOracleTextToIR('Incubate 2', 'Norns Inquisitor');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'inquisitor',
+        sourceName: 'Norns Inquisitor',
+      }
+    );
+    const tokens = (result.state.battlefield as any[]).filter((perm: any) => perm.isToken);
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['create_token']);
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]?.controller).toBe('p1');
+    expect(tokens[0]?.counters).toEqual({ '+1/+1': 2 });
+    expect(String(tokens[0]?.card?.type_line || '')).toContain('Incubator');
+  });
+
+  it('applies Amass by creating an Army token and putting counters on it when none exists', () => {
+    const ir = parseOracleTextToIR('Amass 2', 'Lazotep Convert');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Lazotep Convert',
+      }
+    );
+
+    const armies = ((result.state.battlefield || []) as any[]).filter((perm: any) =>
+      String(perm.type_line || perm.card?.type_line || '').toLowerCase().includes('army')
+    );
+
+    expect(armies).toHaveLength(1);
+    expect(armies[0]?.controller).toBe('p1');
+    expect(armies[0]?.counters?.['+1/+1']).toBe(2);
+    expect(result.appliedSteps.some(step => step.kind === 'create_token')).toBe(true);
+    expect(result.appliedSteps.some(step => step.kind === 'add_counter')).toBe(true);
+  });
+
+  it('applies Amass to an existing Army instead of creating a new token', () => {
+    const ir = parseOracleTextToIR('Amass 2', 'Lazotep Convert');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'existing-army',
+            ownerId: 'p1',
+            controller: 'p1',
+            name: 'Zombie Army',
+            cardType: 'Creature',
+            type_line: 'Creature - Zombie Army',
+            power: 0,
+            toughness: 0,
+            tapped: false,
+            summoningSick: false,
+            counters: { '+1/+1': 1 },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Lazotep Convert',
+      }
+    );
+
+    const armies = ((result.state.battlefield || []) as any[]).filter((perm: any) =>
+      String(perm.type_line || perm.card?.type_line || '').toLowerCase().includes('army')
+    );
+
+    expect(armies).toHaveLength(1);
+    expect(armies[0]?.id).toBe('existing-army');
+    expect(armies[0]?.counters?.['+1/+1']).toBe(3);
+    expect(result.appliedSteps.some(step => step.kind === 'create_token')).toBe(false);
+    expect(result.appliedSteps.some(step => step.kind === 'add_counter')).toBe(true);
+  });
+
+  it('applies Amass Orcs by adding Orc to an existing non-Orc Army', () => {
+    const ir = parseOracleTextToIR('Amass Orcs 2', 'Orc Muster');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'existing-army',
+            ownerId: 'p1',
+            controller: 'p1',
+            name: 'Zombie Army',
+            cardType: 'Creature',
+            type_line: 'Creature - Zombie Army',
+            power: 0,
+            toughness: 0,
+            tapped: false,
+            summoningSick: false,
+            counters: {},
+            card: {
+              id: 'existing-army-card',
+              name: 'Zombie Army',
+              type_line: 'Creature - Zombie Army',
+            },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Orc Muster',
+      }
+    );
+
+    const army = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'existing-army') as any;
+
+    expect(army?.counters?.['+1/+1']).toBe(2);
+    expect(String(army?.type_line || army?.card?.type_line || '')).toContain('Orc');
+    expect(result.appliedSteps.some(step => step.kind === 'add_types')).toBe(true);
+  });
+
+  it('applies Explore by putting a revealed land into hand', () => {
+    const ir = parseOracleTextToIR('Explore', 'Pathfinder');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'top-land', name: 'Forest', type_line: 'Basic Land - Forest' }],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'explore-source',
+            ownerId: 'p1',
+            controller: 'p1',
+            name: 'Pathfinder',
+            cardType: 'Creature',
+            type_line: 'Creature - Scout',
+            power: 2,
+            toughness: 2,
+            counters: {},
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'explore-source',
+        sourceName: 'Pathfinder',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['explore']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['top-land']);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual([]);
+  });
+
+  it('applies Explore by adding a counter when the revealed card is nonland', () => {
+    const ir = parseOracleTextToIR('Explore', 'Pathfinder');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'top-spell', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 }],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'explore-source',
+            ownerId: 'p1',
+            controller: 'p1',
+            name: 'Pathfinder',
+            cardType: 'Creature',
+            type_line: 'Creature - Scout',
+            power: 2,
+            toughness: 2,
+            counters: {},
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'explore-source',
+        sourceName: 'Pathfinder',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const source = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'explore-source') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['explore']);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['top-spell']);
+    expect(source?.counters?.['+1/+1']).toBe(1);
+  });
+
+  it('applies Manifest by moving the top card of your library onto the battlefield face down', () => {
+    const ir = parseOracleTextToIR('Manifest the top card of your library.', 'Whisperwood Elemental');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'manifest-card', name: 'Air Elemental', type_line: 'Creature - Elemental', power: '4', toughness: '4', mana_cost: '{3}{U}{U}' },
+            ],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Whisperwood Elemental',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const manifested = ((result.state.battlefield || []) as any[])[0] as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone']);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual([]);
+    expect(manifested?.card?.faceDown).toBe(true);
+    expect(manifested?.faceUpCard?.id).toBe('manifest-card');
+    expect(manifested?.basePower).toBe(2);
+    expect(manifested?.baseToughness).toBe(2);
+    expect(manifested?.effectiveTypes).toEqual(['Creature']);
+  });
+
+  it('applies Cloak by moving the top card of your library onto the battlefield face down with ward metadata', () => {
+    const ir = parseOracleTextToIR('Cloak the top card of your library.', 'Cryptic Coat');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'cloak-card', name: 'Air Elemental', type_line: 'Creature - Elemental', power: '4', toughness: '4', mana_cost: '{3}{U}{U}' },
+            ],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Cryptic Coat',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const cloaked = ((result.state.battlefield || []) as any[])[0] as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone']);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual([]);
+    expect(cloaked?.card?.faceDown).toBe(true);
+    expect(cloaked?.card?.wardCost).toBe('{2}');
+    expect(cloaked?.faceUpCard?.id).toBe('cloak-card');
+    expect(cloaked?.basePower).toBe(2);
+    expect(cloaked?.baseToughness).toBe(2);
+    expect(cloaked?.effectiveTypes).toEqual(['Creature']);
+  });
+
+  it("applies Manifest by moving the top card of that player's library onto your battlefield face down", () => {
+    const ir = parseOracleTextToIR("Manifest the top card of that player's library.", 'Thieving Amalgam');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'their-manifest-card', name: 'Hill Giant', type_line: 'Creature - Giant', power: '3', toughness: '3', mana_cost: '{3}{R}' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Thieving Amalgam',
+        selectorContext: { targetPlayerId: 'p2' },
+      }
+    );
+
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    const manifested = ((result.state.battlefield || []) as any[])[0] as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone']);
+    expect((p2.library || []).map((card: any) => card.id)).toEqual([]);
+    expect(manifested?.controller).toBe('p1');
+    expect(manifested?.owner).toBe('p2');
+    expect(manifested?.card?.faceDown).toBe(true);
+    expect(manifested?.faceUpCard?.id).toBe('their-manifest-card');
+  });
+
+  it("applies Cloak by moving the top card of that player's library onto your battlefield face down with ward metadata", () => {
+    const ir = parseOracleTextToIR("Cloak the top card of that player's library.", 'Etrata, Deadly Fugitive');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'their-cloak-card', name: 'Merrow Commerce', type_line: 'Kindred Enchantment - Merfolk', mana_cost: '{1}{U}' }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Etrata, Deadly Fugitive',
+        selectorContext: { targetPlayerId: 'p2' },
+      }
+    );
+
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    const cloaked = ((result.state.battlefield || []) as any[])[0] as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone']);
+    expect((p2.library || []).map((card: any) => card.id)).toEqual([]);
+    expect(cloaked?.controller).toBe('p1');
+    expect(cloaked?.owner).toBe('p2');
+    expect(cloaked?.card?.faceDown).toBe(true);
+    expect(cloaked?.card?.wardCost).toBe('{2}');
+    expect(cloaked?.faceUpCard?.id).toBe('their-cloak-card');
+  });
+
+  it('applies Forage by exiling three cards from your graveyard when that mode is selected', () => {
+    const ir = parseOracleTextToIR('Forage', 'Camellia, the Seedmiser');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [
+              { id: 'forage-gy-1', name: 'Card 1', type_line: 'Instant' },
+              { id: 'forage-gy-2', name: 'Card 2', type_line: 'Sorcery' },
+              { id: 'forage-gy-3', name: 'Card 3', type_line: 'Creature - Elf' },
+            ],
+            library: [],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Camellia, the Seedmiser',
+      },
+      {
+        selectedModeIds: ['Exile three cards from your graveyard'],
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.some(step => step.kind === 'choose_mode')).toBe(true);
+    expect(result.appliedSteps.some(step => step.kind === 'move_zone')).toBe(true);
+    expect((p1.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.exile || []).map((card: any) => card.id)).toEqual(['forage-gy-1', 'forage-gy-2', 'forage-gy-3']);
+  });
+
+  it('applies Forage by sacrificing a Food when that mode is selected', () => {
+    const ir = parseOracleTextToIR('Forage', 'Camellia, the Seedmiser');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'forage-food',
+            controller: 'p1',
+            owner: 'p1',
+            isToken: true,
+            card: { id: 'forage-food-card', name: 'Food', type_line: 'Token Artifact - Food' },
+          } as any,
+          {
+            id: 'forage-other',
+            controller: 'p1',
+            owner: 'p1',
+            card: { id: 'forage-other-card', name: 'Mind Stone', type_line: 'Artifact' },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Camellia, the Seedmiser',
+      },
+      {
+        selectedModeIds: ['Sacrifice a Food'],
+      }
+    );
+
+    const names = (result.state.battlefield || []).map((perm: any) => String((perm as any)?.card?.name || ''));
+    expect(result.appliedSteps.some(step => step.kind === 'choose_mode')).toBe(true);
+    expect(result.appliedSteps.some(step => step.kind === 'sacrifice')).toBe(true);
+    expect(names).toContain('Mind Stone');
+    expect(names).not.toContain('Food');
+  });
+
+  it('applies clash win follow-ups when you reveal the higher mana value', () => {
+    const ir = parseOracleTextToIR(
+      'Clash with an opponent. If you win, put a +1/+1 counter on this creature.',
+      "Adder-Staff Boggart"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'clash-top-you', name: 'Dragon', type_line: 'Creature - Dragon', mana_cost: '{5}{R}', cmc: 6 }],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'clash-top-opp', name: 'Shock', type_line: 'Instant', mana_cost: '{R}', cmc: 1 }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'clash-source',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            counters: {},
+            card: {
+              id: 'clash-source-card',
+              name: 'Adder-Staff Boggart',
+              type_line: 'Creature - Goblin Warrior',
+            },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'clash-source',
+        sourceName: 'Adder-Staff Boggart',
+        selectorContext: { targetOpponentId: 'p2' },
+      }
+    );
+
+    const source = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'clash-source') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['clash', 'add_counter']);
+    expect(source?.counters?.['+1/+1']).toBe(1);
+  });
+
+  it('skips clash win follow-ups when you do not reveal the higher mana value', () => {
+    const ir = parseOracleTextToIR(
+      'Clash with an opponent. If you win, put a +1/+1 counter on this creature.',
+      "Adder-Staff Boggart"
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'clash-low', name: 'Shock', type_line: 'Instant', mana_cost: '{R}', cmc: 1 }],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'clash-high', name: 'Dragon', type_line: 'Creature - Dragon', mana_cost: '{5}{R}', cmc: 6 }],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'clash-source-lose',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            counters: {},
+            card: {
+              id: 'clash-source-card-lose',
+              name: 'Adder-Staff Boggart',
+              type_line: 'Creature - Goblin Warrior',
+            },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'clash-source-lose',
+        sourceName: 'Adder-Staff Boggart',
+        selectorContext: { targetOpponentId: 'p2' },
+      }
+    );
+
+    const source = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'clash-source-lose') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['clash']);
+    expect((source?.counters || {})['+1/+1'] || 0).toBe(0);
+  });
+
+  it('applies Learn by discarding a card and drawing a card when optional execution is enabled', () => {
+    const ir = parseOracleTextToIR('Learn', 'Professor of Symbology');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [{ id: 'learn-discard', name: 'Plains', type_line: 'Basic Land - Plains' }],
+            graveyard: [],
+            library: [{ id: 'learn-draw', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 }],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Professor of Symbology',
+      },
+      {
+        allowOptional: true,
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['discard', 'draw']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['learn-draw']);
+    expect((p1.graveyard || []).map((card: any) => card.id)).toEqual(['learn-discard']);
+  });
+
+  it('applies Manifest dread by manifesting the first of the top two cards and milling the rest', () => {
+    const ir = parseOracleTextToIR('Manifest dread', 'Abhorrent Oculus');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'dread-manifest', name: 'Air Elemental', type_line: 'Creature - Elemental', power: '4', toughness: '4', mana_cost: '{3}{U}{U}' },
+              { id: 'dread-rest', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 },
+              { id: 'dread-third', name: 'Island', type_line: 'Basic Land - Island' },
+            ],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Abhorrent Oculus',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const manifested = ((result.state.battlefield || []) as any[])[0] as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['manifest_dread']);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['dread-third']);
+    expect((p1.graveyard || []).map((card: any) => card.id)).toEqual(['dread-rest']);
+    expect(manifested?.card?.faceDown).toBe(true);
+    expect(manifested?.faceUpCard?.id).toBe('dread-manifest');
+  });
+
+  it('applies Connive by drawing, discarding, and adding counters for nonland cards discarded', () => {
+    const ir = parseOracleTextToIR('Connive 2', 'Raffine Informant');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'draw-1', name: 'Island', type_line: 'Basic Land - Island' },
+              { id: 'draw-2', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 },
+            ],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'connive-source',
+            ownerId: 'p1',
+            controller: 'p1',
+            name: 'Raffine Informant',
+            cardType: 'Creature',
+            type_line: 'Creature - Human Wizard',
+            power: 2,
+            toughness: 1,
+            counters: {},
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'connive-source',
+        sourceName: 'Raffine Informant',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const source = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'connive-source') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['draw', 'discard', 'add_counter']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.graveyard || []).map((card: any) => card.id)).toEqual(['draw-1', 'draw-2']);
+    expect(source?.counters?.['+1/+1']).toBe(1);
+  });
+
+  it('applies Discover by keeping the first legal hit exiled and bottoming the rest', () => {
+    const ir = parseOracleTextToIR('Discover 4', 'Pantlaza');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 12,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'discover-land', name: 'Forest', type_line: 'Basic Land - Forest' },
+              { id: 'discover-big', name: 'Ancient Brontodon', type_line: 'Creature - Dinosaur', mana_cost: '{6}{G}{G}', cmc: 8 },
+              { id: 'discover-hit', name: 'Growth Spiral', type_line: 'Instant', mana_cost: '{G}{U}', cmc: 2 },
+              { id: 'discover-after', name: 'Island', type_line: 'Basic Land - Island' },
+            ],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Pantlaza',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['impulse_exile_top', 'modify_exile_permissions']);
+    expect((p1.exile || []).map((card: any) => card.id)).toEqual(['discover-hit']);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['discover-after', 'discover-land', 'discover-big']);
+    expect(p1.exile[0]?.canBePlayedBy).toBe('p1');
+    expect(p1.exile[0]?.withoutPayingManaCost).toBe(true);
+    expect(p1.exile[0]?.playableUntilTurn).toBe(12);
+  });
+
+  it('applies Discover with no legal hit by returning all exiled cards to the library bottom', () => {
+    const ir = parseOracleTextToIR('Discover 3', 'Pantlaza');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        turnNumber: 12,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'discover-land', name: 'Forest', type_line: 'Basic Land - Forest' },
+              { id: 'discover-big-1', name: 'Ancient Brontodon', type_line: 'Creature - Dinosaur', mana_cost: '{6}{G}{G}', cmc: 8 },
+              { id: 'discover-big-2', name: 'Colossal Dreadmaw', type_line: 'Creature - Dinosaur', mana_cost: '{4}{G}{G}', cmc: 6 },
+            ],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Pantlaza',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['impulse_exile_top', 'modify_exile_permissions']);
+    expect((p1.exile || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['discover-land', 'discover-big-1', 'discover-big-2']);
   });
 
   it('applies Renown keyword lines by adding a counter once and marking the source as renowned', () => {
@@ -44143,6 +45431,91 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(result.appliedSteps.map(step => step.kind)).toEqual(['double_counters']);
     expect((target?.counters || {})['+1/+1']).toBe(4);
     expect((target?.counters || {}).charge).toBe(2);
+  });
+
+  it('applies specific-counter double_counters wording without doubling unrelated counters', () => {
+    const ir = parseOracleTextToIR(
+      'Double the number of +1/+1 counters on target creature.',
+      'Ornery Tumblewagg'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'counter-target',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            counters: { '+1/+1': 3, charge: 2 },
+            card: {
+              id: 'counter-target-card',
+              name: 'Test Creature',
+              type_line: 'Creature - Beast',
+            },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'tumblewagg-source',
+        sourceName: 'Ornery Tumblewagg',
+        targetCreatureId: 'counter-target',
+      }
+    );
+    const target = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'counter-target');
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['double_counters']);
+    expect((target?.counters || {})['+1/+1']).toBe(6);
+    expect((target?.counters || {}).charge).toBe(2);
+  });
+
+  it('applies specific-counter double_counters wording to plural contextual targets', () => {
+    const ir = parseOracleTextToIR(
+      'Double the number of +1/+1 counters on those creatures.',
+      'Omnivorous Flytrap'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'creature-a',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            counters: { '+1/+1': 2, shield: 1 },
+            card: { id: 'creature-a-card', name: 'A', type_line: 'Creature - Beast' },
+          } as any,
+          {
+            id: 'creature-b',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            counters: { '+1/+1': 1 },
+            card: { id: 'creature-b-card', name: 'B', type_line: 'Creature - Beast' },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'flytrap-source',
+        sourceName: 'Omnivorous Flytrap',
+        selectorContext: { chosenObjectIds: ['creature-a', 'creature-b'] },
+      }
+    );
+
+    const creatureA = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'creature-a');
+    const creatureB = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'creature-b');
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['double_counters']);
+    expect((creatureA?.counters || {})['+1/+1']).toBe(4);
+    expect((creatureA?.counters || {}).shield).toBe(1);
+    expect((creatureB?.counters || {})['+1/+1']).toBe(2);
   });
 
   it('applies Support keyword lines to chosen other target creatures and excludes the source', () => {

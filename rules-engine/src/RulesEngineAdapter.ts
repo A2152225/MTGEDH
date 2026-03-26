@@ -2551,10 +2551,19 @@ export class RulesEngineAdapter {
       ...((((nextState as any)?.spellsCastThisTurn || {}) as Record<string, number>) || {}),
       [action.playerId]: Number((((nextState as any)?.spellsCastThisTurn || {})?.[action.playerId] || 0)) + 1,
     };
+    const castTypeLine = String(castCard?.type_line || '').toLowerCase();
+    const noncreatureSpellsCastThisTurn = !castTypeLine.includes('creature')
+      ? {
+          ...((((nextState as any)?.noncreatureSpellsCastThisTurn || {}) as Record<string, number>) || {}),
+          [action.playerId]:
+            Number((((nextState as any)?.noncreatureSpellsCastThisTurn || {})?.[action.playerId] || 0)) + 1,
+        }
+      : (((nextState as any)?.noncreatureSpellsCastThisTurn || {}) as Record<string, number>);
     const triggerState = {
       ...(nextState as any),
       stack: stackAfterSpell as any,
       spellsCastThisTurn,
+      noncreatureSpellsCastThisTurn,
     } as any;
 
     const tribalTriggerResult = checkTribalCastTriggers(triggerState, castCard, action.playerId, {

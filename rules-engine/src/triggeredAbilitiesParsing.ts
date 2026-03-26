@@ -45,6 +45,17 @@ function shouldPreserveTriggerConditionFilter(normalizedCondition: string): bool
     normalizedCondition === 'you cast this creature' ||
     normalizedCondition === 'you cast a spell that targets this creature' ||
     normalizedCondition === 'you cast a spell that targets this permanent' ||
+    normalizedCondition === 'you cast a spell' ||
+    normalizedCondition === 'an opponent casts a spell' ||
+    normalizedCondition === 'opponent casts a spell' ||
+    normalizedCondition === 'you cast a noncreature spell' ||
+    normalizedCondition === 'an opponent casts a noncreature spell' ||
+    normalizedCondition === 'opponent casts a noncreature spell' ||
+    normalizedCondition === 'you cast an instant or sorcery spell' ||
+    normalizedCondition === 'an opponent casts an instant or sorcery spell' ||
+    normalizedCondition === 'opponent casts an instant or sorcery spell' ||
+    normalizedCondition === 'an opponent casts their first noncreature spell each turn' ||
+    normalizedCondition === 'opponent casts their first noncreature spell each turn' ||
     normalizedCondition === 'another creature enters the battlefield under your control' ||
     normalizedCondition === 'this permanent enters the battlefield' ||
     normalizedCondition === 'this creature enters the battlefield' ||

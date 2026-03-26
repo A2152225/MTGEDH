@@ -36,6 +36,8 @@ export interface TriggerEventData {
   readonly cardsDrawn?: number;
   readonly spellType?: string;
   readonly spellManaValue?: number;
+  readonly spellCastCountThisTurn?: number;
+  readonly noncreatureSpellCastCountThisTurn?: number;
   readonly wonCoinFlip?: boolean;
   readonly winningVoteChoice?: string | null;
   readonly isYourTurn?: boolean;
@@ -345,6 +347,8 @@ export function buildTriggerEventDataFromPayloads(
     cardsDrawn: scalarNumber('cardsDrawn'),
     spellType: scalarString('spellType'),
     spellManaValue: scalarNumber('spellManaValue'),
+    spellCastCountThisTurn: scalarNumber('spellCastCountThisTurn'),
+    noncreatureSpellCastCountThisTurn: scalarNumber('noncreatureSpellCastCountThisTurn'),
     wonCoinFlip: scalarBool('wonCoinFlip'),
     winningVoteChoice: scalarString('winningVoteChoice'),
     isYourTurn: scalarBool('isYourTurn'),
@@ -397,6 +401,8 @@ export function buildStackTriggerMetaFromEventData(
     damagedByPermanentIds?: readonly string[];
     cardsDrawn?: number;
     spellType?: string;
+    spellCastCountThisTurn?: number;
+    noncreatureSpellCastCountThisTurn?: number;
     wonCoinFlip?: boolean;
     winningVoteChoice?: string | null;
     isYourTurn?: boolean;
@@ -452,6 +458,8 @@ export function buildStackTriggerMetaFromEventData(
       damagedByPermanentIds: normalized.damagedByPermanentIds,
       cardsDrawn: normalized.cardsDrawn,
       spellType: normalized.spellType,
+      spellCastCountThisTurn: normalized.spellCastCountThisTurn,
+      noncreatureSpellCastCountThisTurn: normalized.noncreatureSpellCastCountThisTurn,
       isYourTurn: normalized.isYourTurn,
       isOpponentsTurn: normalized.isOpponentsTurn,
       hand: normalized.hand,
@@ -522,6 +530,12 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     affectedOpponentIds: dedupedAffectedOpponents,
     opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
     spellType: eventData.spellType,
+    ...(Number.isFinite(Number(eventData.spellCastCountThisTurn))
+      ? { spellCastCountThisTurn: Number(eventData.spellCastCountThisTurn) }
+      : {}),
+    ...(Number.isFinite(Number(eventData.noncreatureSpellCastCountThisTurn))
+      ? { noncreatureSpellCastCountThisTurn: Number(eventData.noncreatureSpellCastCountThisTurn) }
+      : {}),
     ...(Number.isFinite(Number(eventData.spellManaValue)) ? { spellManaValue: Number(eventData.spellManaValue) } : {}),
     castFromZone: typeof eventData.castFromZone === 'string' ? eventData.castFromZone : undefined,
     enteredFromZone: typeof eventData.enteredFromZone === 'string' ? eventData.enteredFromZone : undefined,
@@ -540,6 +554,8 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     !hint.affectedOpponentIds &&
     !hint.opponentsDealtDamageIds &&
     !hint.spellType &&
+    !Number.isFinite(Number(hint.spellCastCountThisTurn)) &&
+    !Number.isFinite(Number(hint.noncreatureSpellCastCountThisTurn)) &&
     !Number.isFinite(Number(hint.spellManaValue)) &&
     !hint.castFromZone &&
     !hint.enteredFromZone &&
@@ -705,7 +721,7 @@ export function buildResolutionEventDataFromGameState(
 
   return {
     ...base,
-    sourceControllerId: normalizedControllerId,
+    sourceControllerId: normalizeId(base?.sourceControllerId) ?? normalizedControllerId,
     sourceRenowned: resolvedSourceRenowned,
     lifeTotal: resolvedLifeTotal,
     ...(resolvedPlayerLifeTotals ? { playerLifeTotals: resolvedPlayerLifeTotals } : {}),

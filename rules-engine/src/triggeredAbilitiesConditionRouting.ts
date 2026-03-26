@@ -11,6 +11,7 @@ import {
   evaluateLifeTotalCondition,
   evaluateNoNamedCounterCondition,
   evaluateOpponentControlCondition,
+  evaluateQualifiedSpellCastCondition,
   evaluateRenownedCondition,
   evaluateSelfEntersBattlefieldCondition,
   evaluateSelfCastSpellCondition,
@@ -146,6 +147,10 @@ export function evaluateTriggerCondition(
   const targetedSpellCast = evaluateTargetedSpellCastCondition(conditionLower, controllerId, eventData, sourceId);
   if (targetedSpellCast !== null) {
     return targetedSpellCast;
+  }
+  const qualifiedSpellCast = evaluateQualifiedSpellCastCondition(conditionLower, controllerId, eventData);
+  if (qualifiedSpellCast !== null) {
+    return qualifiedSpellCast;
   }
   const selfCastSpell = evaluateSelfCastSpellCondition(conditionLower, controllerId, eventData, sourceId);
   if (selfCastSpell !== null) {

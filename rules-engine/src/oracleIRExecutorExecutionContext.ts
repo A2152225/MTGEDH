@@ -52,6 +52,14 @@ export function buildOracleIRExecutionContext(
   const hintTargetPermanentId = normalizeId(hint?.targetPermanentId);
   const hintCastFromZone = typeof hint?.castFromZone === 'string' ? hint.castFromZone.trim().toLowerCase() || undefined : undefined;
   const hintEnteredFromZone = typeof hint?.enteredFromZone === 'string' ? hint.enteredFromZone.trim().toLowerCase() || undefined : undefined;
+  const hintVoteChoiceCounts =
+    hint?.voteChoiceCounts && typeof hint.voteChoiceCounts === 'object'
+      ? Object.fromEntries(
+          Object.entries(hint.voteChoiceCounts)
+            .map(([choice, count]) => [String(choice || '').trim(), Number(count)])
+            .filter(([choice, count]) => Boolean(choice) && Number.isFinite(count))
+        )
+      : undefined;
   const hintChosenObjectIds = Array.isArray(hint?.chosenObjectIds)
     ? hint.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
     : undefined;
@@ -160,7 +168,8 @@ export function buildOracleIRExecutionContext(
       !hintUnlessPaysLifeChoice &&
       !hintChosenMana &&
       typeof hint?.wonCoinFlip !== 'boolean' &&
-      typeof hint?.winningVoteChoice === 'undefined'
+      typeof hint?.winningVoteChoice === 'undefined' &&
+      !hintVoteChoiceCounts
     ) {
       return base;
     }
@@ -176,6 +185,7 @@ export function buildOracleIRExecutionContext(
       ...(typeof referenceSpellManaValue !== 'undefined' ? { referenceSpellManaValue } : {}),
       ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
       ...(typeof hint?.winningVoteChoice !== 'undefined' ? { winningVoteChoice: hint.winningVoteChoice } : {}),
+      ...(hintVoteChoiceCounts ? { voteChoiceCounts: hintVoteChoiceCounts } : {}),
     };
   }
 
@@ -191,5 +201,6 @@ export function buildOracleIRExecutionContext(
     ...(typeof referenceSpellManaValue !== 'undefined' ? { referenceSpellManaValue } : {}),
     ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
     ...(typeof hint?.winningVoteChoice !== 'undefined' ? { winningVoteChoice: hint.winningVoteChoice } : {}),
+    ...(hintVoteChoiceCounts ? { voteChoiceCounts: hintVoteChoiceCounts } : {}),
   };
 }

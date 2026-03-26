@@ -69,7 +69,7 @@ export function parseTokenCreationFromText(
 
   const subtypes: string[] = [];
   const knownCreatureTypes = [
-    'soldier', 'zombie', 'goblin', 'beast', 'spirit', 'angel', 'demon', 'dragon',
+    'soldier', 'zombie', 'orc', 'army', 'goblin', 'beast', 'spirit', 'angel', 'demon', 'dragon',
     'elf', 'human', 'vampire', 'wolf', 'bird', 'cat', 'rat', 'bat', 'elemental',
     'saproling', 'servo', 'thopter', 'clue', 'treasure', 'food', 'blood', 'warrior',
     'knight', 'wizard', 'rogue', 'cleric', 'horror', 'insect', 'spider', 'snake', 'merfolk',

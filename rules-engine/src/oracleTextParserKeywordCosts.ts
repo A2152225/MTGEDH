@@ -36,6 +36,21 @@ function buildExpandedKeywordAbility(
   };
 }
 
+function formatCyclingSearchSelector(keyword: string): string | null {
+  const raw = String(keyword || '').trim();
+  if (!raw) return null;
+  if (/^basic landcycling$/i.test(raw)) return 'basic land';
+
+  const typecycling = raw.match(/^([A-Za-z]+)cycling$/i);
+  if (!typecycling) return null;
+  const selector = String(typecycling[1] || '').trim();
+  return selector || null;
+}
+
+function indefiniteArticleFor(selector: string): 'a' | 'an' {
+  return /^[aeiou]/i.test(String(selector || '').trim()) ? 'an' : 'a';
+}
+
 export function parseKeywordPrefixedActivatedAbility(text: string): ExpandedKeywordCostAbility | null {
   const normalized = normalizeDashPunctuation(text).trim();
   if (!normalized.includes(':')) return null;
@@ -63,7 +78,26 @@ export function expandKeywordCostAbility(
   const normalizedKeyword = String(keyword || '').trim().toLowerCase();
   const cleanCost = cleanCapturedCost(normalizeDashPunctuation(rawCost));
 
+  if (normalizedKeyword !== 'cycling' && normalizedKeyword.endsWith('cycling')) {
+    const selector = formatCyclingSearchSelector(keyword);
+    if (selector) {
+      const article = indefiniteArticleFor(selector);
+      return buildExpandedKeywordAbility(
+        text,
+        `${cleanCost}, Discard this card`,
+        `Search your library for ${article} ${selector} card, reveal it, put it into your hand, then shuffle.`
+      );
+    }
+  }
+
   switch (normalizedKeyword) {
+    case 'adapt':
+      return buildExpandedKeywordAbility(
+        text,
+        cleanCost,
+        'If there are no +1/+1 counters on it, put 2 +1/+1 counters on this permanent. Activate only as a sorcery.'
+          .replace(/\b2\b/, String(text.match(/adapt\s+(\d+|x)/i)?.[1] || '').toUpperCase())
+      );
     case 'buyback':
       return buildExpandedKeywordAbility(
         text,

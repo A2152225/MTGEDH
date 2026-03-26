@@ -76,6 +76,30 @@ describe('Oracle Text Parser', () => {
       expect(result?.effect).toBe('Draw a card.');
     });
 
+    it('parses basic landcycling as a discard-plus-tutor activation', () => {
+      const result = parseActivatedAbility('Basic landcycling {1}{B}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{1}{B}, Discard this card');
+      expect(result?.effect).toBe('Search your library for a basic land card, reveal it, put it into your hand, then shuffle.');
+    });
+
+    it('parses land-type cycling as a discard-plus-subtype-tutor activation', () => {
+      const result = parseActivatedAbility('Plainscycling {2}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{2}, Discard this card');
+      expect(result?.effect).toBe('Search your library for a Plains card, reveal it, put it into your hand, then shuffle.');
+    });
+
+    it('parses subtypecycling as a discard-plus-typed-tutor activation', () => {
+      const result = parseActivatedAbility('Wizardcycling {3}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{3}, Discard this card');
+      expect(result?.effect).toBe('Search your library for a Wizard card, reveal it, put it into your hand, then shuffle.');
+    });
+
     it('parses buyback into an explicit additional-cost keyword line', () => {
       const result = parseActivatedAbility('Buyback {3}');
       expect(result).not.toBeNull();
@@ -162,6 +186,14 @@ describe('Oracle Text Parser', () => {
       expect(result?.type).toBe(AbilityType.KEYWORD);
       expect(result?.cost).toBe('{2}');
       expect(result?.effect).toBe('Put a level counter on this permanent. Activate only as a sorcery.');
+    });
+
+    it('parses adapt into an explicit conditional counter activation', () => {
+      const result = parseActivatedAbility('Adapt 2');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('2');
+      expect(result?.effect).toBe('If there are no +1/+1 counters on it, put 2 +1/+1 counters on this permanent. Activate only as a sorcery.');
     });
 
     it('parses unearth into an explicit graveyard-return activation', () => {
@@ -471,6 +503,53 @@ describe('Oracle Text Parser', () => {
       });
     });
 
+    it('parses goad as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Goad target creature.');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Goad target creature.',
+      });
+    });
+
+    it('parses suspect as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Suspect target creature.');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Suspect target creature.',
+      });
+    });
+
+    it('parses incubate as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Incubate 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Create an Incubator token with 2 +1/+1 counters on it.',
+      });
+    });
+
+    it('parses amass as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Amass 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect:
+          "If you don't control an Army creature, create a 0/0 black Zombie Army creature token. Choose an Army creature you control. Put 2 +1/+1 counters on that creature.",
+      });
+    });
+
+    it('parses amass orcs as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Amass Orcs 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect:
+          "If you don't control an Army creature, create a 0/0 black Orc Army creature token. Choose an Army creature you control. Put 2 +1/+1 counters on that creature. If it isn't an Orc, it becomes an Orc in addition to its other types.",
+      });
+    });
+
     it('parses scry as a keyword action line instead of a static stub', () => {
       const result = parseOracleText('Scry 2');
       expect(result.abilities).toHaveLength(1);
@@ -489,12 +568,129 @@ describe('Oracle Text Parser', () => {
       });
     });
 
+    it('parses fateseal as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Fateseal 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Fateseal 2.',
+      });
+    });
+
+    it('parses time travel as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Time travel');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Time travel.',
+      });
+    });
+
+    it('parses repeated time travel as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Time travel three times');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Time travel three times.',
+      });
+    });
+
     it('parses mill as a keyword action line instead of a static stub', () => {
       const result = parseOracleText('Mill 2');
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
         type: AbilityType.STATIC,
         effect: 'Mill 2 cards.',
+      });
+    });
+
+    it('parses explore as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Explore');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Explore.',
+      });
+    });
+
+    it('parses connive as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Connive 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Connive 2.',
+      });
+    });
+
+    it('parses manifest as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Manifest the top card of your library.');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Manifest the top card of your library.',
+      });
+    });
+
+    it("parses manifest-from-that-player's-library as a keyword action line instead of a static stub", () => {
+      const result = parseOracleText("Manifest the top card of that player's library.");
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: "Manifest the top card of that player's library.",
+      });
+    });
+
+    it('parses learn as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Learn');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'You may discard a card. If you do, draw a card.',
+      });
+    });
+
+    it('parses manifest dread as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Manifest dread');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Manifest dread.',
+      });
+    });
+
+    it('parses cloak-the-top-card lines as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Cloak the top card of your library');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Cloak the top card of your library.',
+      });
+    });
+
+    it("parses cloak-from-that-player's-library as a keyword action line instead of a static stub", () => {
+      const result = parseOracleText("Cloak the top card of that player's library.");
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: "Cloak the top card of that player's library.",
+      });
+    });
+
+    it('parses forage as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Forage');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Forage.',
+      });
+    });
+
+    it('parses clash-with-an-opponent as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Clash with an opponent');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Clash with an opponent.',
       });
     });
 

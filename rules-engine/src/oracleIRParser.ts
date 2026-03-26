@@ -32,6 +32,9 @@ import { tryParseExileTopOnly as tryParseExileTopOnlyFromModule } from './oracle
 import {
   expandCreateEmblemUnknownAbilities,
   applyGlobalImpulseUpgrades,
+  lowerAmassReminderAbilities,
+  lowerConniveKeywordAbilities,
+  lowerDiscoverKeywordAbilities,
   expandChoiceUnknownAbilities,
   expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities,
   expandCopyChapterAbilityUnknownAbilities,
@@ -49,6 +52,7 @@ import {
   expandScavengeKeywordAbilities,
   expandTransfigureKeywordAbilities,
   expandTransmuteKeywordAbilities,
+  expandTypecyclingKeywordAbilities,
   expandEncoreKeywordAbilities,
   expandMyriadKeywordAbilities,
   expandMobilizeKeywordAbilities,
@@ -57,6 +61,8 @@ import {
   expandGraveyardOrExilePermissionAbilities,
   expandUnearthKeywordAbilities,
   expandKeywordActionUnknownAbilities,
+  expandVoteChoiceCountAbilities,
+  pruneRedundantActivationRestrictionUnknownAbilities,
   expandMixedBattlefieldAndGraveyardExileAbilities,
   expandMoveZoneCopiedSpellAbilities,
   mergeDieRollResultTableAbilities,
@@ -1172,6 +1178,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandDisturbKeywordAbilities(abilities);
   abilities = expandUnearthKeywordAbilities(abilities);
   abilities = expandScavengeKeywordAbilities(abilities);
+  abilities = expandTypecyclingKeywordAbilities(abilities);
   abilities = expandTransfigureKeywordAbilities(abilities);
   abilities = expandTransmuteKeywordAbilities(abilities);
   abilities = expandEncoreKeywordAbilities(abilities);
@@ -1185,7 +1192,12 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryAuraRewriteFollowupAbilities(abilities);
+  abilities = lowerAmassReminderAbilities(abilities);
+  abilities = lowerConniveKeywordAbilities(abilities);
+  abilities = lowerDiscoverKeywordAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
+  abilities = expandVoteChoiceCountAbilities(abilities);
+  abilities = pruneRedundantActivationRestrictionUnknownAbilities(abilities);
   abilities = mergeDeterministicKeywordFollowupAbilities(abilities);
   abilities = mergeSagaChapterCopyFollowupAbilities(abilities);
   abilities = pruneRedundantImpulseCleanupUnknownAbilities(abilities);

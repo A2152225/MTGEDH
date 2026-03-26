@@ -6,7 +6,7 @@ import { getAmountOfManaSpent } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
-import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
+import { deriveWinningVoteChoice, getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { splitCardMatchesName } from './splitCards';
 
 type ConditionalCondition = Extract<OracleEffectStep, { kind: 'conditional' }>['condition'];
@@ -105,6 +105,19 @@ function battlefieldObjectHasType(object: any, typeName: string): boolean {
     matchesTypeLine(object?.card?.type_line, typeName) ||
     matchesTypeLine(object?.card?.cardType, typeName)
   );
+}
+
+function battlefieldObjectMatchesDescriptor(object: any, descriptorRaw: string): boolean {
+  const descriptor = String(descriptorRaw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^an?\s+/i, '')
+    .replace(/\s+cards?$/i, '')
+    .trim();
+  if (!descriptor) return true;
+
+  const parts = descriptor.split(/\s+/g).filter(Boolean);
+  return parts.every(part => battlefieldObjectHasType(object, part));
 }
 
 function countControlledBattlefieldObjectsMatching(params: {
@@ -211,8 +224,9 @@ export function evaluateConditionalWrapperCondition(params: {
   lastConditionalEvaluation?: boolean | null;
   pendingSteps?: readonly OracleEffectStep[];
   lastMovedCards?: readonly any[];
+  lastDiscardedCards?: readonly any[];
 }): boolean | null {
-  const { condition, nextState, controllerId, ctx, lastActionOutcome, lastConditionalEvaluation, pendingSteps, lastMovedCards } = params;
+  const { condition, nextState, controllerId, ctx, lastActionOutcome, lastConditionalEvaluation, pendingSteps, lastMovedCards, lastDiscardedCards } = params;
   if (condition.kind !== 'if' && condition.kind !== 'as_long_as') return null;
 
   const raw = String(condition.raw || '').trim().toLowerCase();
@@ -226,10 +240,12 @@ export function evaluateConditionalWrapperCondition(params: {
     const movedCardTypeMatch = normalizedRaw.match(/^it was (?:a|an)\s+(.+?)(?:\s+card)?$/i);
     if (movedCardTypeMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
-      if (lastActionOutcome?.stepKind !== 'move_zone') return null;
+      if (lastActionOutcome?.stepKind !== 'move_zone' && lastActionOutcome?.stepKind !== 'discard') return null;
 
       const descriptor = String(movedCardTypeMatch[1] || '').trim().toLowerCase();
-      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+      const movedCards = lastActionOutcome?.stepKind === 'discard'
+        ? (Array.isArray(lastDiscardedCards) ? lastDiscardedCards : [])
+        : (Array.isArray(lastMovedCards) ? lastMovedCards : []);
       return movedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
     }
   }
@@ -238,11 +254,25 @@ export function evaluateConditionalWrapperCondition(params: {
     const movedCardTypeNegatedMatch = normalizedRaw.match(/^it was not (?:a|an)\s+(.+?)(?:\s+card)?$/i);
     if (movedCardTypeNegatedMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
-      if (lastActionOutcome?.stepKind !== 'move_zone') return null;
+      if (lastActionOutcome?.stepKind !== 'move_zone' && lastActionOutcome?.stepKind !== 'discard') return null;
 
       const descriptor = String(movedCardTypeNegatedMatch[1] || '').trim().toLowerCase();
-      const movedCards = Array.isArray(lastMovedCards) ? lastMovedCards : [];
+      const movedCards = lastActionOutcome?.stepKind === 'discard'
+        ? (Array.isArray(lastDiscardedCards) ? lastDiscardedCards : [])
+        : (Array.isArray(lastMovedCards) ? lastMovedCards : []);
       return movedCards.length > 0 && movedCards.every((card: any) => !matchesCardTypeDescriptor(card, descriptor));
+    }
+  }
+
+  {
+    const discardedThisWayMatch = normalizedRaw.match(/^a[n]?\s+(.+?)\s+card\s+was\s+discarded\s+this\s+way$/i);
+    if (discardedThisWayMatch) {
+      if (lastActionOutcome?.kind === 'impossible') return false;
+      if (lastActionOutcome?.stepKind !== 'discard') return null;
+
+      const descriptor = String(discardedThisWayMatch[1] || '').trim().toLowerCase();
+      const discardedCards = Array.isArray(lastDiscardedCards) ? lastDiscardedCards : [];
+      return discardedCards.some((card: any) => matchesCardTypeDescriptor(card, descriptor));
     }
   }
 
@@ -288,6 +318,19 @@ export function evaluateConditionalWrapperCondition(params: {
       : results.every(result => result === false)
         ? false
         : null;
+  }
+
+  {
+    const youDoNotControlMatch = normalizedRaw.match(/^you (?:don't|do not) control (?:a|an|one or more)\s+(.+)$/i);
+    if (youDoNotControlMatch) {
+      const descriptor = String(youDoNotControlMatch[1] || '').trim();
+      const battlefield = Array.isArray((nextState as any)?.battlefield) ? ((nextState as any).battlefield as any[]) : [];
+      return !battlefield.some(
+        (perm: any) =>
+          String(perm?.controller || '').trim() === controllerId &&
+          battlefieldObjectMatchesDescriptor(perm?.card || perm, descriptor)
+      );
+    }
   }
 
   if (/^you (?:don't|do not)\b/i.test(normalizedRaw)) {
@@ -371,7 +414,7 @@ export function evaluateConditionalWrapperCondition(params: {
       return battlefield.some(
         (perm: any) =>
           String(perm?.controller || '').trim() === controllerId &&
-          matchesCardTypeDescriptor(perm?.card || perm, descriptor)
+          battlefieldObjectMatchesDescriptor(perm?.card || perm, descriptor)
       );
     }
   }
@@ -399,6 +442,21 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   const battlefield = getProcessedBattlefield(nextState);
+
+  {
+    const noCountersMatch = normalizedRaw.match(
+      /^(?:there are no|it has no|this creature has no|this permanent has no)\s+(.+?)\s+counters?\s+on\s+it$/i
+    );
+    if (noCountersMatch) {
+      const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
+      if (!referencedObject) return null;
+      const counterName = String(noCountersMatch[1] || '').trim().toLowerCase();
+      if (!counterName) return null;
+      const counters = ((referencedObject as any)?.counters || {}) as Record<string, unknown>;
+      const count = Number(counters[counterName] ?? 0);
+      return (Number.isFinite(count) ? count : 0) === 0;
+    }
+  }
 
   {
     const thatLandIsTypeMatch = normalizedRaw.match(/^that land is (?:a|an) ([a-z0-9' -]+)$/i);
@@ -617,6 +675,14 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   if (
+    normalizedRaw === 'you win' ||
+    normalizedRaw === 'you win the clash' ||
+    normalizedRaw === 'you won the clash'
+  ) {
+    return typeof ctx.lastClashWon === 'boolean' ? ctx.lastClashWon : null;
+  }
+
+  if (
     normalizedRaw === "it's on the battlefield" ||
     normalizedRaw === 'it is on the battlefield' ||
     normalizedRaw === 'this permanent is on the battlefield'
@@ -657,17 +723,23 @@ export function evaluateConditionalWrapperCondition(params: {
     }
   }
 
-  if (!sourceRef) return null;
-
   {
     const voteWinnerMatch = normalizedRaw.match(/^([a-z0-9][a-z0-9' -]*) gets more votes$/i);
     if (voteWinnerMatch) {
       const expected = String(voteWinnerMatch[1] || '').trim().toLowerCase();
-      const actual = String(ctx.winningVoteChoice || '').trim().toLowerCase();
+      const winningVoteChoice = deriveWinningVoteChoice(ctx);
+      const actual = winningVoteChoice === null ? '' : String(winningVoteChoice || '').trim().toLowerCase();
       if (!expected || !actual) return null;
       return actual === expected;
     }
   }
+
+  if (normalizedRaw === 'the vote is tied' || normalizedRaw === 'vote is tied') {
+    const winningVoteChoice = deriveWinningVoteChoice(ctx);
+    return winningVoteChoice === null ? true : typeof winningVoteChoice === 'undefined' ? null : false;
+  }
+
+  if (!sourceRef) return null;
 
   if (normalizedRaw === 'that card has the chosen name') {
     const chosenName = String((sourceRef as any)?.chosenCardName || (sourceRef as any)?.card?.chosenCardName || '').trim();

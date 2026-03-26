@@ -176,8 +176,71 @@ export function applyGraveyardPermissionMarkers(
 const stripImpulsePermissionMarkers = stripPlayableFromExileTags;
 export const stripGraveyardPermissionMarkers = stripPlayableFromGraveyardTags;
 
-export function quantityToNumber(qty: OracleQuantity): number | null {
+function normalizeVoteChoice(choice: string | undefined): string {
+  return normalizeOracleText(String(choice || ''));
+}
+
+export function getVoteChoiceCounts(
+  ctx?: OracleIRExecutionContext
+): Readonly<Record<string, number>> | undefined {
+  if (!ctx?.voteChoiceCounts || typeof ctx.voteChoiceCounts !== 'object') return undefined;
+  const out: Record<string, number> = {};
+  for (const [choice, count] of Object.entries(ctx.voteChoiceCounts)) {
+    const normalizedChoice = normalizeVoteChoice(choice);
+    const normalizedCount = Number(count);
+    if (!normalizedChoice || !Number.isFinite(normalizedCount)) continue;
+    out[normalizedChoice] = Math.max(0, Math.trunc(normalizedCount));
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+export function getVoteCountForChoice(ctx: OracleIRExecutionContext | undefined, choice: string | undefined): number | null {
+  const normalizedChoice = normalizeVoteChoice(choice);
+  if (!normalizedChoice) return null;
+  const counts = getVoteChoiceCounts(ctx);
+  if (!counts) return null;
+  return Math.max(0, Number(counts[normalizedChoice] ?? 0) || 0);
+}
+
+export function deriveWinningVoteChoice(
+  ctx?: OracleIRExecutionContext
+): string | null | undefined {
+  const counts = getVoteChoiceCounts(ctx);
+  if (counts) {
+    const entries = Object.entries(counts);
+    if (entries.length === 0) return undefined;
+    let winner: string | null = null;
+    let maxVotes = -1;
+    let isTie = false;
+    for (const [choice, count] of entries) {
+      const normalizedCount = Number(count);
+      if (!Number.isFinite(normalizedCount)) continue;
+      if (normalizedCount > maxVotes) {
+        maxVotes = normalizedCount;
+        winner = choice;
+        isTie = false;
+      } else if (normalizedCount === maxVotes) {
+        isTie = true;
+      }
+    }
+    if (maxVotes < 0) return undefined;
+    return isTie ? null : winner;
+  }
+
+  if (typeof ctx?.winningVoteChoice === 'undefined') return undefined;
+  if (ctx.winningVoteChoice === null) return null;
+  const normalizedWinner = String(ctx.winningVoteChoice || '').trim();
+  return normalizedWinner || undefined;
+}
+
+export function quantityToNumber(qty: OracleQuantity, ctx?: OracleIRExecutionContext): number | null {
   if (qty.kind === 'number') return qty.value;
+  if (qty.kind === 'votes_for_choice') {
+    const voteCount = getVoteCountForChoice(ctx, qty.choice);
+    if (voteCount === null) return null;
+    const multiplier = Number.isFinite(Number(qty.multiplier)) ? Math.max(0, Math.trunc(Number(qty.multiplier))) : 1;
+    return voteCount * multiplier;
+  }
   return null;
 }
 
@@ -404,6 +467,27 @@ export function resolveUnknownExileUntilAmountForPlayer(
       if (typeLine.includes('legendary')) return i + 1;
     }
     return library.length;
+  }
+
+  {
+    const discoverMatch = raw.match(/^until (?:they|you) exile a nonland card with mana value (\d+|x) or less$/i);
+    if (discoverMatch) {
+      const thresholdRaw = String(discoverMatch[1] || '').trim().toLowerCase();
+      if (thresholdRaw === 'x') return null;
+      const threshold = Number(thresholdRaw);
+      if (!Number.isFinite(threshold) || threshold < 0) return null;
+
+      for (let i = 0; i < library.length; i++) {
+        const typeLine = getCardTypeLineLower(library[i]);
+        if (!typeLine) return null;
+        if (typeLine.includes('land')) continue;
+
+        const manaValue = getCardManaValue(library[i]);
+        if (manaValue === null) return null;
+        if (manaValue <= threshold) return i + 1;
+      }
+      return library.length;
+    }
   }
 
   const totalMvMatch = raw.match(
@@ -773,9 +857,12 @@ export function shouldShuffleRestIntoLibrary(step: any): boolean {
     step?.duration === 'during_resolution' &&
     step?.permission === 'cast' &&
     step?.amount?.kind === 'unknown' &&
-    who === 'each_opponent' &&
-    (amountRaw === 'until they exile an instant or sorcery card' ||
-      amountRaw === 'until you exile an instant or sorcery card')
+    (
+      (who === 'each_opponent' &&
+        (amountRaw === 'until they exile an instant or sorcery card' ||
+          amountRaw === 'until you exile an instant or sorcery card')) ||
+      /until (?:they|you) exile a nonland card with mana value \d+ or less/i.test(amountRaw)
+    )
   );
 }
 
@@ -810,6 +897,25 @@ export function splitExiledForShuffleRest(step: any, exiled: readonly any[]): { 
       keepExiled: [all[hitIndex]],
       returnToLibrary: all.filter((_, index) => index !== hitIndex),
     };
+  }
+
+  {
+    const discoverMatch = amountRaw.match(/^until (?:they|you) exile a nonland card with mana value (\d+) or less$/i);
+    if (discoverMatch) {
+      const threshold = Number(discoverMatch[1]);
+      if (!Number.isFinite(threshold)) return { keepExiled: all, returnToLibrary: [] };
+
+      const hitIndex = all.findIndex((card: any) => {
+        const typeLine = getCardTypeLineLower(card);
+        const manaValue = getCardManaValue(card);
+        return Boolean(typeLine) && !typeLine.includes('land') && manaValue !== null && manaValue <= threshold;
+      });
+      if (hitIndex < 0) return { keepExiled: [], returnToLibrary: all };
+      return {
+        keepExiled: [all[hitIndex]],
+        returnToLibrary: all.filter((_, index) => index !== hitIndex),
+      };
+    }
   }
 
   return { keepExiled: all, returnToLibrary: [] };
@@ -951,27 +1057,35 @@ export function discardCardsForPlayer(
   state: GameState,
   playerId: PlayerID,
   count: number
-): { state: GameState; log: string[]; applied: boolean; needsChoice: boolean; discardedCount: number } {
+): { state: GameState; log: string[]; applied: boolean; needsChoice: boolean; discardedCount: number; discardedCards: any[] } {
   const log: string[] = [];
   const player = state.players.find(p => p.id === playerId);
-  if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false, needsChoice: false, discardedCount: 0 };
+  if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false, needsChoice: false, discardedCount: 0, discardedCards: [] };
 
   const hand = [...((player as any).hand || [])];
   const graveyard = [...((player as any).graveyard || [])];
 
   const n = Math.max(0, count | 0);
-  if (n === 0) return { state, log, applied: true, needsChoice: false, discardedCount: 0 };
+  if (n === 0) return { state, log, applied: true, needsChoice: false, discardedCount: 0, discardedCards: [] };
 
   if (hand.length > n) {
-    return { state, log, applied: false, needsChoice: true, discardedCount: 0 };
+    return { state, log, applied: false, needsChoice: true, discardedCount: 0, discardedCards: [] };
   }
 
   const discarded = hand.splice(0, hand.length);
-  graveyard.push(...stampCardsPutIntoGraveyardThisTurn(state, discarded));
+  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded);
+  graveyard.push(...stampedDiscarded);
 
   const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, hand, graveyard } : p));
   log.push(`${playerId} discards ${discarded.length} card(s)`);
-  return { state: { ...state, players: updatedPlayers as any }, log, applied: true, needsChoice: false, discardedCount: discarded.length };
+  return {
+    state: { ...state, players: updatedPlayers as any },
+    log,
+    applied: true,
+    needsChoice: false,
+    discardedCount: discarded.length,
+    discardedCards: stampedDiscarded,
+  };
 }
 
 export function millCardsForPlayer(

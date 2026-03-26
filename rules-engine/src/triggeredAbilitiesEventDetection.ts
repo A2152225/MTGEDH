@@ -117,14 +117,17 @@ export function detectTriggeredAbilityEvent<T extends string>(
     return { event: triggerEventValues.END_OF_COMBAT };
   }
 
-  if (text.includes('casts a spell') || text.includes('you cast')) {
+  if (
+    /\b(?:you|an opponent|opponent|a player|each player|each opponent|that player|they)\s+cast\b/.test(text) ||
+    /\bcasts?\s+(?:their\s+first\s+)?(?:a\s+)?(?:noncreature\s+spell|creature\s+spell|instant or sorcery spell|spell)\b/.test(text)
+  ) {
     if (text.includes('noncreature spell')) {
       return { event: triggerEventValues.NONCREATURE_SPELL_CAST };
     }
     if (text.includes('creature spell')) {
       return { event: triggerEventValues.CREATURE_SPELL_CAST };
     }
-    if (text.includes('instant') || text.includes('sorcery')) {
+    if (text.includes('instant or sorcery spell')) {
       return { event: triggerEventValues.INSTANT_OR_SORCERY_CAST };
     }
     return { event: triggerEventValues.SPELL_CAST };

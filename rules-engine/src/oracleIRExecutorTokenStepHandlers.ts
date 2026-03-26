@@ -69,7 +69,7 @@ function resolveTokenAmount(
   ctx: OracleIRExecutionContext,
   runtime?: TokenStepRuntime
 ): number | null {
-  const numericAmount = quantityToNumber(step.amount);
+  const numericAmount = quantityToNumber(step.amount, ctx);
   if (numericAmount !== null) return numericAmount;
   if (step.amount.kind !== 'x') return null;
 

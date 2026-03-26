@@ -4,6 +4,7 @@ export type OracleQuantity =
   | { readonly kind: 'number'; readonly value: number }
   | { readonly kind: 'x' }
   | { readonly kind: 'spells_cast_before_this_turn' }
+  | { readonly kind: 'votes_for_choice'; readonly choice: string; readonly multiplier?: number }
   | { readonly kind: 'unknown'; readonly raw?: string };
 
 export type OraclePlayerSelector =
@@ -112,6 +113,44 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'draw';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'clash';
+      readonly who: OraclePlayerSelector;
+      readonly opponent?: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'explore';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'connive';
+      readonly target: OracleObjectSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'manifest_dread';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'time_travel';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
       readonly optional?: boolean;
@@ -284,6 +323,24 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'fateseal';
+      readonly who: OraclePlayerSelector;
+      readonly target: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'vote';
+      readonly voters: OraclePlayerSelector;
+      readonly startingWith?: OraclePlayerSelector;
+      readonly choices: readonly string[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'look_select_top';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
@@ -300,6 +357,14 @@ export type OracleEffectStep =
       readonly target: OracleObjectSelector;
       readonly counter: string;
       readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'add_types';
+      readonly target: OracleObjectSelector;
+      readonly addTypes: readonly string[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -325,6 +390,7 @@ export type OracleEffectStep =
   | {
       readonly kind: 'double_counters';
       readonly target: OracleObjectSelector;
+      readonly counter?: string;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -565,6 +631,8 @@ export type OracleEffectStep =
       readonly entersTapped?: boolean;
       /** If the move puts cards onto the battlefield face down (deterministic). */
       readonly entersFaceDown?: boolean;
+      /** Optional ward cost for specific face-down entries such as cloak. */
+      readonly faceDownWardCost?: string;
       /** Counters the moved permanent enters with (deterministic, battlefield-only). */
       readonly withCounters?: Record<string, number>;
       /** Optional deterministic condition gating battlefield-entry counters. */

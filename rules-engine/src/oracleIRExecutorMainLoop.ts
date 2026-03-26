@@ -23,6 +23,7 @@ import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
 import { applyChooseModeStep } from './oracleIRExecutorChooseModeStepHandlers';
 import {
   applyAddCounterStep,
+  applyAddTypesStep,
   applyDoubleCountersStep,
   applyDestroyStep,
   applyExileStep,
@@ -52,6 +53,7 @@ import {
   applyPopulateStep,
   applyProliferateStep,
   applyRingTemptsYouStep,
+  applyTimeTravelStep,
 } from './oracleIRExecutorKeywordStepHandlers';
 import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
@@ -65,9 +67,14 @@ import { applyMoveZoneStep } from './oracleIRExecutorMoveZoneStepHandlers';
 import {
   applyAddManaStep,
   applyAddPlayerCounterStep,
+  applyClashStep,
+  applyConniveStep,
   applyCreateEmblemStep,
   applyDiscardStep,
   applyDrawStep,
+  applyExploreStep,
+  applyFatesealStep,
+  applyManifestDreadStep,
   applyGrantGraveyardPermissionStep,
   applyModifyGraveyardPermissionsStep,
   evaluateUnlessPaysLifeStep,
@@ -79,6 +86,7 @@ import {
   applyScryStep,
   applySearchLibraryStep,
   applySurveilStep,
+  applyVoteStep,
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
 import { applySkipNextDrawStep } from './oracleIRExecutorTurnStepHandlers';
@@ -126,6 +134,7 @@ export function applyOracleIRStepsToGameStateImpl(
   let currentCtx = ctx;
   let lastRevealedCardCount = 0;
   let lastDiscardedCardCount = 0;
+  let lastDiscardedCards: any[] = Array.isArray(ctx.lastDiscardedCards) ? [...ctx.lastDiscardedCards] : [];
   let lastExiledCardCount = 0;
   let lastExiledCards: any[] = Array.isArray(ctx.lastExiledCards) ? [...ctx.lastExiledCards] : [];
   let lastGrantedGraveyardCards: any[] = [];
@@ -140,6 +149,7 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastExcessDamageDealtThisWay = 0;
   let lastScryLookedAtCount = 0;
   let lastTappedMatchingPermanentCount = Math.max(0, Number(ctx.lastTappedMatchingPermanentCount) || 0);
+  let lastClashWon = typeof ctx.lastClashWon === 'boolean' ? ctx.lastClashWon : undefined;
   let lastStepOutcome: {
     readonly kind: StepOutcomeKind;
     readonly stepKind: OracleEffectStep['kind'];
@@ -404,6 +414,16 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'clash': {
+        const result = applyClashStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          if (typeof appliedResult.lastClashWon === 'boolean') {
+            lastClashWon = appliedResult.lastClashWon;
+            currentCtx = { ...currentCtx, lastClashWon };
+          }
+        });
+        break;
+      }
       case 'search_library': {
         const result = applySearchLibraryStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -513,6 +533,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'time_travel': {
+        const result = applyTimeTravelStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'suspect': {
         const result = applySuspectStep(nextState, step, currentCtx, {
           lastMovedBattlefieldPermanentIds,
@@ -557,9 +582,50 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'fateseal': {
+        const result = applyFatesealStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'vote': {
+        const result = applyVoteStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'look_select_top': {
         const result = applyLookSelectTopStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
+        break;
+      }
+      case 'explore': {
+        const result = applyExploreStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'manifest_dread': {
+        const result = applyManifestDreadStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards) ? [...appliedResult.lastMovedCards] : lastMovedCards;
+          currentCtx = { ...currentCtx, lastMovedCards };
+        });
+        break;
+      }
+      case 'connive': {
+        const result = applyConniveStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastDiscardedCardCount = Math.max(0, Number(appliedResult.lastDiscardedCardCount) || 0);
+          lastDiscardedCards = Array.isArray(appliedResult.lastDiscardedCards)
+            ? [...appliedResult.lastDiscardedCards]
+            : [];
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
+            ? [...appliedResult.lastMovedCards]
+            : lastMovedCards;
+          currentCtx = {
+            ...currentCtx,
+            lastDiscardedCards,
+            lastMovedCards,
+          };
+        });
         break;
       }
       case 'mill': {
@@ -586,6 +652,7 @@ export function applyOracleIRStepsToGameStateImpl(
           {
             lastRevealedCardCount,
             lastDiscardedCardCount,
+            lastDiscardedCards,
             lastExiledCardCount,
             lastExiledCards,
             lastMovedCards,
@@ -616,6 +683,17 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyDiscardStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
           lastDiscardedCardCount = Math.max(0, Number(appliedResult.lastDiscardedCardCount) || 0);
+          lastDiscardedCards = Array.isArray(appliedResult.lastDiscardedCards)
+            ? [...appliedResult.lastDiscardedCards]
+            : [];
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
+            ? [...appliedResult.lastMovedCards]
+            : lastMovedCards;
+          currentCtx = {
+            ...currentCtx,
+            lastDiscardedCards,
+            lastMovedCards,
+          };
         });
         break;
       }
@@ -628,6 +706,7 @@ export function applyOracleIRStepsToGameStateImpl(
           {
             lastRevealedCardCount,
             lastDiscardedCardCount,
+            lastDiscardedCards,
             lastExiledCardCount,
             lastExiledCards,
             lastMovedCards,
@@ -652,6 +731,7 @@ export function applyOracleIRStepsToGameStateImpl(
           {
             lastRevealedCardCount,
             lastDiscardedCardCount,
+            lastDiscardedCards,
             lastExiledCardCount,
             lastExiledCards,
             lastMovedCards,
@@ -676,6 +756,7 @@ export function applyOracleIRStepsToGameStateImpl(
           {
             lastRevealedCardCount,
             lastDiscardedCardCount,
+            lastDiscardedCards,
             lastExiledCardCount,
             lastExiledCards,
             lastMovedCards,
@@ -746,11 +827,17 @@ export function applyOracleIRStepsToGameStateImpl(
         const result = applyAddCounterStep(nextState, step, currentCtx, {
           lastCreatedTokenIds,
           lastMovedCards,
+          lastDiscardedCards,
         });
         applyHandledStepResult(step, result, (appliedResult) => {
           lastMovedCards = Array.isArray(appliedResult.lastMovedCards) ? [...appliedResult.lastMovedCards] : lastMovedCards;
           currentCtx = { ...currentCtx, lastMovedCards };
         });
+        break;
+      }
+      case 'add_types': {
+        const result = applyAddTypesStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
         break;
       }
       case 'double_counters': {
@@ -1094,6 +1181,7 @@ export function applyOracleIRStepsToGameStateImpl(
           lastConditionalEvaluation,
           pendingSteps: step.steps,
           lastMovedCards,
+          lastDiscardedCards,
         });
 
         if (conditionEvaluation === false) {
@@ -1131,6 +1219,7 @@ export function applyOracleIRStepsToGameStateImpl(
           innerSteps,
           {
             ...currentCtx,
+            lastDiscardedCards,
             copyReplaySteps: steps.slice(0, stepIndex),
             lastTappedMatchingPermanentCount,
           },

@@ -2263,6 +2263,76 @@ export function expandTransmuteKeywordAbilities(
   });
 }
 
+function parseTypecyclingSearchSelector(ability: OracleIRAbility): string | null {
+  const normalizedText = normalizeOracleText(String(ability.text || '')).trim();
+  if (/^basic landcycling\b/i.test(normalizedText)) return 'basic land';
+
+  const keywordMatch = normalizedText.match(/^([a-z]+)cycling\b/i);
+  if (keywordMatch) {
+    return String(keywordMatch[1] || '').trim();
+  }
+
+  const effectMatch = normalizeOracleText(String(ability.effectText || ''))
+    .trim()
+    .match(/^search your library for (?:a|an) (.+?) card, reveal it, put it into your hand, then shuffle/i);
+  if (!effectMatch) return null;
+  return String(effectMatch[1] || '').trim();
+}
+
+function formatTypecyclingSelectorForEffect(selector: string): string {
+  if (/^basic land$/i.test(selector)) return 'basic land';
+  return String(selector || '')
+    .trim()
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function indefiniteArticleForSelector(selector: string): 'a' | 'an' {
+  return /^[aeiou]/i.test(String(selector || '').trim()) ? 'an' : 'a';
+}
+
+export function expandTypecyclingKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
+    const alreadyExpanded = ability.steps.some((step) => step.kind === 'search_library');
+    const matchesKeywordLine =
+      /^basic landcycling\b/i.test(normalizedText) ||
+      (/^[a-z]+cycling\b/i.test(normalizedText) && !/^cycling\b/i.test(normalizedText));
+    const matchesCanonicalEffect =
+      normalizedEffect.startsWith('search your library for a ') ||
+      normalizedEffect.startsWith('search your library for an ');
+    if (alreadyExpanded || (!matchesKeywordLine && !matchesCanonicalEffect)) {
+      return ability;
+    }
+
+    const selector = parseTypecyclingSearchSelector(ability);
+    if (!selector) return ability;
+
+    const formattedSelector = formatTypecyclingSelectorForEffect(selector);
+    const article = indefiniteArticleForSelector(formattedSelector);
+    const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
+    return {
+      ...ability,
+      ...(matchesKeywordLine && manaCost ? { cost: `${manaCost}, Discard this card` } : {}),
+      effectText: `Search your library for ${article} ${formattedSelector} card, reveal it, put it into your hand, then shuffle.`,
+      steps: [
+        {
+          kind: 'search_library',
+          who: { kind: 'you' },
+          criteria: { kind: 'raw', text: selector },
+          destination: 'hand',
+          revealFound: true,
+          shuffle: true,
+          maxResults: 1,
+          raw: `Search your library for ${article} ${formattedSelector} card, reveal it, put it into your hand, then shuffle.`,
+        },
+      ],
+    };
+  });
+}
+
 export function expandTransfigureKeywordAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -3620,11 +3690,215 @@ export function expandFreeGraveyardCastPermissionAbilities(
   });
 }
 
+function tryLowerAmassAbilitySteps(steps: readonly OracleEffectStep[]): readonly OracleEffectStep[] | null {
+  let changed = false;
+  const nextSteps: OracleEffectStep[] = [];
+
+  for (let index = 0; index < steps.length; index += 1) {
+    const current = steps[index];
+    const chooseStep = steps[index + 1];
+    const addCounterStep = steps[index + 2];
+    const addTypeUnknownStep = steps[index + 3];
+
+    const isAmassCreateConditional =
+      current?.kind === 'conditional' &&
+      normalizeOracleText(String(current.condition?.raw || '')).toLowerCase() === "you don't control an army creature" &&
+      current.steps.length === 1 &&
+      current.steps[0]?.kind === 'create_token' &&
+      /\barmy\b/i.test(String(current.steps[0]?.token || ''));
+    const isChooseArmyUnknown =
+      chooseStep?.kind === 'unknown' &&
+      normalizeOracleText(String(chooseStep.raw || '')).toLowerCase() === 'choose an army creature you control';
+    const isContextualArmyCounter =
+      addCounterStep?.kind === 'add_counter' &&
+      addCounterStep.target.kind === 'raw' &&
+      normalizeOracleText(String(addCounterStep.target.text || '')).toLowerCase() === 'that creature';
+
+    if (!isAmassCreateConditional || !isChooseArmyUnknown || !isContextualArmyCounter) {
+      nextSteps.push(current);
+      continue;
+    }
+
+    changed = true;
+    nextSteps.push(current);
+    nextSteps.push({
+      ...addCounterStep,
+      target: { kind: 'raw', text: 'Army creature you control' },
+      raw: String(addCounterStep.raw || '').replace(/\bthat creature\b/i, 'an Army creature you control'),
+    });
+
+    if (addTypeUnknownStep?.kind === 'unknown') {
+      const typeUpgradeMatch = normalizeOracleText(String(addTypeUnknownStep.raw || '')).match(
+        /^if it isn't (?:a|an) ([a-z][a-z' -]*), it becomes (?:a|an) \1 in addition to its other types$/i
+      );
+      if (typeUpgradeMatch) {
+        index += 3;
+        nextSteps.push({
+          kind: 'add_types',
+          target: { kind: 'raw', text: 'Army creature you control' },
+          addTypes: [String(typeUpgradeMatch[1] || '').trim()],
+          ...(addTypeUnknownStep.sequence ? { sequence: addTypeUnknownStep.sequence } : {}),
+          raw: addTypeUnknownStep.raw,
+        });
+        continue;
+      }
+    }
+
+    index += 2;
+  }
+
+  return changed ? nextSteps : null;
+}
+
+export function lowerAmassReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const lowered = tryLowerAmassAbilitySteps(ability.steps);
+    return lowered ? { ...ability, steps: lowered } : ability;
+  });
+}
+
+function tryLowerDiscoverKeywordSteps(steps: readonly OracleEffectStep[]): readonly OracleEffectStep[] | null {
+  let changed = false;
+  const nextSteps: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    if (step.kind !== 'unknown') {
+      nextSteps.push(step);
+      continue;
+    }
+
+    const normalized = normalizeOracleText(String(step.raw || ''))
+      .replace(/^then\b\s*/i, '')
+      .trim();
+    const discoverMatch = normalized.match(/^discover\s+(\d+|x)$/i);
+    if (!discoverMatch) {
+      nextSteps.push(step);
+      continue;
+    }
+
+    changed = true;
+    const amountText = String(discoverMatch[1] || '').trim().toUpperCase();
+    nextSteps.push({
+      kind: 'impulse_exile_top',
+      who: { kind: 'you' },
+      amount: { kind: 'unknown', raw: `until you exile a nonland card with mana value ${amountText} or less` },
+      duration: 'during_resolution',
+      permission: 'cast',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw:
+        `Exile cards from the top of your library until you exile a nonland card with mana value ${amountText} or less. ` +
+        "You may cast that card without paying its mana cost. Put the remaining exiled cards on the bottom of your library in a random order.",
+    });
+    nextSteps.push({
+      kind: 'modify_exile_permissions',
+      scope: 'last_exiled_cards',
+      withoutPayingManaCost: true,
+      raw: 'You may cast that card without paying its mana cost.',
+    });
+  }
+
+  return changed ? nextSteps : null;
+}
+
+export function lowerDiscoverKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const lowered = tryLowerDiscoverKeywordSteps(ability.steps);
+    return lowered ? { ...ability, steps: lowered } : ability;
+  });
+}
+
+function tryLowerConniveKeywordSteps(steps: readonly OracleEffectStep[]): readonly OracleEffectStep[] | null {
+  let changed = false;
+  const nextSteps: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    if (step.kind !== 'unknown') {
+      nextSteps.push(step);
+      continue;
+    }
+
+    const normalized = normalizeOracleText(String(step.raw || ''))
+      .replace(/^then\b\s*/i, '')
+      .trim();
+    const conniveMatch = normalized.match(/^connive(?:\s+(\d+))?$/i);
+    if (!conniveMatch) {
+      nextSteps.push(step);
+      continue;
+    }
+
+    changed = true;
+    const amount = Number.parseInt(String(conniveMatch[1] || '1'), 10);
+    const quantityText = amount === 1 ? 'a card' : `${amount} cards`;
+    nextSteps.push({
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: amount },
+      raw: `Draw ${quantityText}.`,
+    });
+    nextSteps.push({
+      kind: 'discard',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: amount },
+      sequence: 'then',
+      raw: `Discard ${quantityText}.`,
+    });
+    nextSteps.push({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'a nonland card was discarded this way' },
+      steps: [
+        {
+          kind: 'add_counter',
+          target: { kind: 'raw', text: 'this creature' },
+          counter: '+1/+1',
+          amount: { kind: 'x' },
+          raw: 'Put X +1/+1 counters on this creature, where X is the number of nonland cards discarded this way.',
+        },
+      ],
+      raw:
+        'If a nonland card was discarded this way, put X +1/+1 counters on this creature, where X is the number of nonland cards discarded this way.',
+    });
+  }
+
+  return changed ? nextSteps : null;
+}
+
+export function lowerConniveKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const lowered = tryLowerConniveKeywordSteps(ability.steps);
+    return lowered ? { ...ability, steps: lowered } : ability;
+  });
+}
+
 function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
     .trim();
   if (!normalized) return null;
+
+  const adaptMatch = normalized.match(/^adapt\s+(\d+|x)$/i);
+  if (adaptMatch) {
+    return {
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'there are no +1/+1 counters on it' },
+      steps: [
+        {
+          kind: 'add_counter',
+          target: { kind: 'raw', text: 'this permanent' },
+          counter: '+1/+1',
+          amount: parseQuantity(String(adaptMatch[1] || '').trim()),
+          raw: `Put ${String(adaptMatch[1] || '').toUpperCase()} +1/+1 counters on this permanent.`,
+        },
+      ],
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
 
   if (/^proliferate$/i.test(normalized)) {
     return {
@@ -3657,6 +3931,138 @@ function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: '
       kind: 'populate',
       who: { kind: 'you' },
       amount: { kind: 'number', value: 1 },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^explore$/i.test(normalized)) {
+    return {
+      kind: 'explore',
+      target: { kind: 'raw', text: 'this creature' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const timeTravelMatch = normalized.match(/^time travel(?:\s+(\d+|x|one|two|three|four|five|six|seven|eight|nine|ten)(?:\s+times?)?)?$/i);
+  if (timeTravelMatch) {
+    return {
+      kind: 'time_travel',
+      who: { kind: 'you' },
+      amount: parseQuantity(String(timeTravelMatch[1] || '1').trim()),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const fatesealMatch = normalized.match(/^fateseal\s+(\d+|x)$/i);
+  if (fatesealMatch) {
+    return {
+      kind: 'fateseal',
+      who: { kind: 'you' },
+      target: { kind: 'target_opponent' },
+      amount: parseQuantity(String(fatesealMatch[1] || '').trim()),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const manifestTopCardMatch = normalized.match(
+    /^manifest the top card of (your|that player's|target player's|target opponent's) library$/i
+  );
+  if (manifestTopCardMatch) {
+    const libraryRef = String(manifestTopCardMatch[1] || '').toLowerCase();
+    return {
+      kind: 'move_zone',
+      what: { kind: 'raw', text: `the top card of ${libraryRef} library` },
+      to: 'battlefield',
+      toRaw: 'battlefield face down',
+      entersFaceDown: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const cloakTopCardMatch = normalized.match(
+    /^cloak the top card of (your|that player's|target player's|target opponent's) library$/i
+  );
+  if (cloakTopCardMatch) {
+    const libraryRef = String(cloakTopCardMatch[1] || '').toLowerCase();
+    return {
+      kind: 'move_zone',
+      what: { kind: 'raw', text: `the top card of ${libraryRef} library` },
+      to: 'battlefield',
+      toRaw: 'battlefield face down',
+      entersFaceDown: true,
+      faceDownWardCost: '{2}',
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^forage$/i.test(normalized)) {
+    return {
+      kind: 'choose_mode',
+      minModes: 1,
+      maxModes: 1,
+      modes: [
+        {
+          label: 'Exile three cards from your graveyard',
+          raw: 'Exile three cards from your graveyard',
+          steps: [
+            {
+              kind: 'move_zone',
+              what: { kind: 'raw', text: 'three cards from your graveyard' },
+              to: 'exile',
+              toRaw: 'exile',
+              raw: 'Exile three cards from your graveyard',
+            },
+          ],
+        },
+        {
+          label: 'Sacrifice a Food',
+          raw: 'Sacrifice a Food',
+          steps: [
+            {
+              kind: 'sacrifice',
+              who: { kind: 'you' },
+              what: { kind: 'raw', text: 'a Food' },
+              raw: 'Sacrifice a Food',
+            },
+          ],
+        },
+      ],
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^clash with an opponent$/i.test(normalized)) {
+    return {
+      kind: 'clash',
+      who: { kind: 'you' },
+      opponent: { kind: 'target_opponent' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^manifest dread$/i.test(normalized)) {
+    return {
+      kind: 'manifest_dread',
+      who: { kind: 'you' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const conniveMatch = normalized.match(/^connive(?:\s+(\d+|x))?$/i);
+  if (conniveMatch) {
+    return {
+      kind: 'connive',
+      target: { kind: 'raw', text: 'this creature' },
+      amount: parseQuantity(String(conniveMatch[1] || '1').trim()),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
     };
@@ -3699,6 +4105,128 @@ export function expandKeywordActionUnknownAbilities(
     });
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+function createVotesForChoiceQuantity(choice: string, multiplier: number = 1) {
+  return {
+    kind: 'votes_for_choice' as const,
+    choice: String(choice || '').trim(),
+    ...(multiplier !== 1 ? { multiplier } : {}),
+  };
+}
+
+function expandVoteScaledStep(step: OracleEffectStep): OracleEffectStep {
+  const normalizedRaw = normalizeOracleText(String(step.raw || '')).replace(/^then\b\s*/i, '').trim();
+  if (!normalizedRaw) return step;
+
+  if (
+    step.kind === 'gain_life' ||
+    step.kind === 'draw' ||
+    step.kind === 'investigate' ||
+    step.kind === 'create_token'
+  ) {
+    const voteMatch = normalizedRaw.match(/\s+for each ([a-z0-9][a-z0-9' -]*) vote$/i);
+    if (!voteMatch || step.amount.kind !== 'number') return step;
+    return {
+      ...step,
+      amount: createVotesForChoiceQuantity(String(voteMatch[1] || '').trim(), step.amount.value),
+    };
+  }
+
+  if (step.kind === 'add_counter' && step.target.kind === 'raw' && step.amount.kind === 'number') {
+    const targetMatch = String(step.target.text || '').match(/^(.*?)\s+for each ([a-z0-9][a-z0-9' -]*) vote$/i);
+    if (!targetMatch) return step;
+    const targetText = String(targetMatch[1] || '').trim();
+    const choice = String(targetMatch[2] || '').trim();
+    if (!targetText || !choice) return step;
+    return {
+      ...step,
+      target: parseObjectSelector(targetText),
+      amount: createVotesForChoiceQuantity(choice, step.amount.value),
+    };
+  }
+
+  return step;
+}
+
+function parseVoteScaledUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
+  const normalized = normalizeOracleText(String(step.raw || '')).replace(/^then\b\s*/i, '').trim();
+  if (!normalized) return null;
+
+  {
+    const investigateMatch = normalized.match(/^for each ([a-z0-9][a-z0-9' -]*) vote,\s*investigate$/i);
+    if (investigateMatch) {
+      return {
+        kind: 'investigate',
+        who: { kind: 'you' },
+        amount: createVotesForChoiceQuantity(String(investigateMatch[1] || '').trim()),
+        ...(step.optional ? { optional: step.optional } : {}),
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: step.raw,
+      };
+    }
+  }
+
+  {
+    const createTokenMatch = normalized.match(/^for each ([a-z0-9][a-z0-9' -]*) vote,\s*create (?:a|an) (.+?) token$/i);
+    if (createTokenMatch) {
+      const choice = String(createTokenMatch[1] || '').trim();
+      const token = String(createTokenMatch[2] || '').trim();
+      if (!choice || !token) return null;
+      return {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: createVotesForChoiceQuantity(choice),
+        token,
+        ...(step.optional ? { optional: step.optional } : {}),
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: step.raw,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function expandVoteChoiceCountAbilities(abilities: readonly OracleIRAbility[]): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps = ability.steps.map((step) => {
+      if (step.kind === 'unknown') {
+        const expanded = parseVoteScaledUnknownStep(step);
+        if (expanded) {
+          changed = true;
+          return expanded;
+        }
+      }
+
+      const nextStep = expandVoteScaledStep(step);
+      if (nextStep !== step) changed = true;
+      return nextStep;
+    });
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+function isRedundantActivationRestrictionUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return false;
+
+  return /^activate only as a sorcery$/i.test(normalized);
+}
+
+export function pruneRedundantActivationRestrictionUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const nextSteps = ability.steps.filter(step => !isRedundantActivationRestrictionUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
 

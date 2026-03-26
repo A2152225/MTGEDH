@@ -125,6 +125,18 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const doubleSpecificCounters = clause.match(/^double the number of (.+?) counters on (.+)$/i);
+    if (doubleSpecificCounters) {
+      return withMeta({
+        kind: 'double_counters',
+        target: parseObjectSelector(String(doubleSpecificCounters[2] || '').trim()),
+        counter: normalizeCounterName(String(doubleSpecificCounters[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const addManaChoice = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+(\\{[^}]+\\}(?:\\s+or\\s+\\{[^}]+\\})+)\\s*$`, 'i')
     );
@@ -146,6 +158,39 @@ export function tryParseSimpleActionClause(args: {
       const mana = String(addMana[2] || '').trim();
       if (mana && !/\bor\b/i.test(clause)) {
         return withMeta({ kind: 'add_mana', who: parsePlayerSelector(addMana[1]), mana, raw: rawClause });
+      }
+    }
+  }
+
+  {
+    const clash = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:clash|clashes)\\s+with\\s+an\\s+opponent\\b`, 'i'));
+    if (clash) {
+      return withMeta({
+        kind: 'clash',
+        who: parsePlayerSelector(clash[1]),
+        opponent: { kind: 'target_opponent' },
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const vote = clause.match(
+      /^starting with\s+(.+?),\s*(each player)\s+votes?\s+for\s+(.+)$/i
+    );
+    if (vote) {
+      const choices = String(vote[3] || '')
+        .split(/\s*,\s*|\s+or\s+/i)
+        .map(choice => choice.trim().replace(/^(?:an?|the)\s+/i, '').trim())
+        .filter(Boolean);
+      if (choices.length >= 2) {
+        return withMeta({
+          kind: 'vote',
+          voters: parsePlayerSelector(vote[2]),
+          startingWith: parsePlayerSelector(vote[1]),
+          choices,
+          raw: rawClause,
+        });
       }
     }
   }
@@ -241,6 +286,33 @@ export function tryParseSimpleActionClause(args: {
         kind: 'surveil',
         who: parsePlayerSelector(surveil[1]),
         amount: parseQuantity(surveil[2]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const fateseal = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:fateseal|fateseals)\\s+(a|an|\\d+|x|[a-z]+)\\b`, 'i'));
+    if (fateseal) {
+      return withMeta({
+        kind: 'fateseal',
+        who: parsePlayerSelector(fateseal[1]),
+        target: { kind: 'target_opponent' },
+        amount: parseQuantity(fateseal[2]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const timeTravel = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:time\\s+travel)(?:\\s+(a|an|\\d+|x|[a-z]+)\\s+times?)?\\b`, 'i')
+    );
+    if (timeTravel) {
+      return withMeta({
+        kind: 'time_travel',
+        who: parsePlayerSelector(timeTravel[1]),
+        amount: parseQuantity(timeTravel[2] || '1'),
         raw: rawClause,
       });
     }

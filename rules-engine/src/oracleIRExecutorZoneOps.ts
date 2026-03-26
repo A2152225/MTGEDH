@@ -1161,6 +1161,134 @@ export function moveTargetedCardFromGraveyard(
   };
 }
 
+export function moveTopCardFromLibrary(
+  state: GameState,
+  playerId: PlayerID,
+  destination: 'hand' | 'graveyard' | 'exile' | 'battlefield' | 'library_top' | 'library_bottom',
+  battlefieldControllerId?: PlayerID,
+  entersTapped?: boolean,
+  entersFaceDown?: boolean,
+  withCounters?: Record<string, number>,
+  attachedToBattlefieldPermanentId?: string,
+  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
+  faceDownWardCost?: string
+): {
+  readonly kind: 'applied';
+  readonly state: GameState;
+  readonly log: readonly string[];
+  readonly movedCards: readonly any[];
+  readonly movedPermanentIds?: readonly string[];
+} | { readonly kind: 'impossible' } {
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { kind: 'impossible' };
+
+  const library = Array.isArray(player.library) ? [...player.library] : [];
+  if (library.length <= 0) {
+    return {
+      kind: 'applied',
+      state,
+      log: [`${playerId} cannot move the top card of their library (empty library)`],
+      movedCards: [],
+    };
+  }
+
+  const [card, ...keptLibrary] = library;
+
+  if (destination === 'hand') {
+    const hand = Array.isArray(player.hand) ? [...player.hand, card] : [card];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), library: keptLibrary, hand } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} moves the top card of their library to their hand`],
+      movedCards: [card],
+    };
+  }
+
+  if (destination === 'graveyard') {
+    const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId
+        ? ({
+            ...(p as any),
+            library: keptLibrary,
+            graveyard: [...graveyard, ...stampCardsPutIntoGraveyardThisTurn(state, [card])],
+          } as any)
+        : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} moves the top card of their library to their graveyard`],
+      movedCards: [card],
+    };
+  }
+
+  if (destination === 'exile') {
+    const exile = Array.isArray(player.exile) ? [...player.exile, card] : [card];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), library: keptLibrary, exile } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [`${playerId} exiles the top card of their library`],
+      movedCards: [card],
+    };
+  }
+
+  if (destination === 'library_top' || destination === 'library_bottom') {
+    const nextLibrary = destination === 'library_top' ? [card, ...keptLibrary] : [...keptLibrary, card];
+    const updatedPlayers = state.players.map(p =>
+      p.id === playerId ? ({ ...(p as any), library: nextLibrary } as any) : p
+    );
+    return {
+      kind: 'applied',
+      state: { ...state, players: updatedPlayers as any } as any,
+      log: [
+        `${playerId} puts the top card of their library on the ${destination === 'library_top' ? 'top' : 'bottom'} of their library`,
+      ],
+      movedCards: [card],
+    };
+  }
+
+  const controllerId = battlefieldControllerId || playerId;
+  const attachmentTarget = attachedToBattlefieldPermanentId
+    ? getBattlefieldAttachmentTarget(state, attachedToBattlefieldPermanentId)
+    : undefined;
+  if (
+    attachedToBattlefieldPermanentId &&
+    (!attachmentTarget || !canCardEnterAttachedToTarget(card, controllerId, attachmentTarget, battlefieldEntryOverrides))
+  ) {
+    return { kind: 'impossible' };
+  }
+
+  const newPermanent = createBattlefieldPermanentsFromCards(
+    [card],
+    playerId,
+    controllerId,
+    entersTapped,
+    entersFaceDown,
+    withCounters,
+    'library',
+    attachmentTarget,
+    battlefieldEntryOverrides,
+    faceDownWardCost
+  );
+  const updatedPlayers = state.players.map(p =>
+    p.id === playerId ? ({ ...(p as any), library: keptLibrary } as any) : p
+  );
+  return {
+    kind: 'applied',
+    state: addBattlefieldPermanentsToState({ ...state, players: updatedPlayers as any } as any, newPermanent),
+    log: [`${controllerId} puts the top card of ${playerId}'s library onto the battlefield`],
+    movedCards: [card],
+    movedPermanentIds: newPermanent.map(perm => String((perm as any)?.id || '').trim()).filter(Boolean),
+  };
+}
+
 export function moveTargetedCardFromAnyGraveyard(
   state: GameState,
   targetCardId: string,
@@ -1958,7 +2086,8 @@ export function createBattlefieldPermanentsFromCards(
   withCounters: Record<string, number> | undefined,
   sourcePrefix: string,
   attachmentTarget?: BattlefieldAttachmentTarget,
-  entryOverrides?: BattlefieldEntryCardOverrides
+  entryOverrides?: BattlefieldEntryCardOverrides,
+  faceDownWardCost?: string
 ): BattlefieldPermanent[] {
   return moved.map((card: any, idx: number) => {
     const cardIdHint = String(card?.id || '').trim();
@@ -1995,6 +2124,13 @@ export function createBattlefieldPermanentsFromCards(
         visibility: 'public',
         power: '2',
         toughness: '2',
+        ...(faceDownWardCost
+          ? {
+              wardCost: faceDownWardCost,
+              keywords: ['Ward'],
+              oracle_text: `Ward ${faceDownWardCost}`,
+            }
+          : {}),
       } as any;
 
       return {
@@ -2068,7 +2204,7 @@ function canCardEnterAttachedToTarget(
   return true;
 }
 
-function addBattlefieldPermanentsToState(state: GameState, newPermanents: readonly BattlefieldPermanent[]): GameState {
+export function addBattlefieldPermanentsToState(state: GameState, newPermanents: readonly BattlefieldPermanent[]): GameState {
   if (newPermanents.length === 0) return state;
 
   const attachmentAdds = new Map<string, string[]>();

@@ -129,7 +129,7 @@ const LOYALTY_ABILITY_PATTERN = /^([+−-]?\d+|0)\s*:\s*([\s\S]+)$/;
  *
  * Captures: keyword (group 1), cost (group 2)
  */
-const KEYWORD_COST_PATTERN = /^(Buyback|Cycling|Disturb|Embalm|Encore|Equip|Escape|Eternalize|Flashback|Fortify|Jump-start|Level up|Megamorph|Morph|Outlast|Reinforce|Replicate|Retrace|Scavenge|Transfigure|Transmute|Unearth)\s+(.+)$/i;
+const KEYWORD_COST_PATTERN = /^(Adapt|Basic landcycling|[A-Za-z]+cycling|Buyback|Cycling|Disturb|Embalm|Encore|Equip|Escape|Eternalize|Flashback|Fortify|Jump-start|Level up|Megamorph|Morph|Outlast|Reinforce|Replicate|Retrace|Scavenge|Transfigure|Transmute|Unearth)\s+(.+)$/i;
 
 function isGrantedQuotedActivatedAbilityLine(text: string): boolean {
   const normalized = String(text || '').replace(/\u2019/g, "'").trim();

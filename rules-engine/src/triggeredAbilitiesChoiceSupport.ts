@@ -150,7 +150,7 @@ export function buildEnrichedTriggerExecutionEventData(
   options: { inferTapOrUntapChoice?: boolean } = {}
 ): TriggerEventData | undefined {
   const normalizedEventData = buildTriggerEventDataFromPayloads(
-    ability.controllerId,
+    eventData?.sourceControllerId ?? ability.controllerId,
     eventData,
     {
       sourceId: ability.sourceId,

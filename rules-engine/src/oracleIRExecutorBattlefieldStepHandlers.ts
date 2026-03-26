@@ -28,7 +28,7 @@ import {
   resolveMentorTargetCreatureIdFromBattlefield,
 } from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
-import { getCardManaValue, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { getCardManaValue, getCardTypeLineLower, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -66,7 +66,104 @@ type RecentBattlefieldRuntime = {
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   readonly lastCreatedTokenIds?: readonly string[];
   readonly lastMovedCards?: readonly any[];
+  readonly lastDiscardedCards?: readonly any[];
 };
+
+function escapeTypeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeArmyCreatureSelectorText(
+  target: { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined
+): string | null {
+  if (!target || target.kind !== 'raw') return null;
+  const normalized = normalizeSelfReferenceText(String((target as any).text || ''));
+  if (!normalized) return null;
+  return /^(?:target |an |a )?army creature you control$/i.test(normalized) ? normalized : null;
+}
+
+function resolveDeterministicArmyCreatureSelection(
+  battlefield: readonly BattlefieldPermanent[],
+  target: { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined,
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] | null {
+  if (!normalizeArmyCreatureSelectorText(target)) return null;
+
+  const controllerId = String(ctx.controllerId || '').trim();
+  if (!controllerId) return [];
+
+  const matches = battlefield.filter((perm: any) => {
+    if (String((perm as any)?.controller || '').trim() !== controllerId) return false;
+    if (!permanentMatchesType(perm, 'creature')) return false;
+    return new RegExp(`(^|[^a-z])army($|[^a-z])`, 'i').test(getExecutorTypeLineLower(perm));
+  });
+
+  return matches.length === 1 ? matches : [];
+}
+
+function addSubtypeToTypeLine(typeLine: string, subtype: string): string {
+  const trimmed = String(typeLine || '').trim();
+  const normalizedSubtype = String(subtype || '').trim();
+  if (!normalizedSubtype) return trimmed;
+  if (!trimmed) return normalizedSubtype;
+  if (new RegExp(`(^|[^a-z])${escapeTypeRegex(normalizedSubtype.toLowerCase())}($|[^a-z])`, 'i').test(trimmed.toLowerCase())) {
+    return trimmed;
+  }
+  if (/\s+[—-]\s+/.test(trimmed)) return `${trimmed} ${normalizedSubtype}`;
+  return `${trimmed} - ${normalizedSubtype}`;
+}
+
+function appendPermanentTypes(permanent: BattlefieldPermanent, addTypes: readonly string[]): BattlefieldPermanent {
+  const normalizedTypes = addTypes.map(type => String(type || '').trim()).filter(Boolean);
+  if (normalizedTypes.length === 0) return permanent;
+
+  let changed = false;
+  const grantedTypes = Array.isArray((permanent as any).grantedTypes) ? [...(permanent as any).grantedTypes] : [];
+  const permanentSubtypes = Array.isArray((permanent as any).subtypes) ? [...(permanent as any).subtypes] : [];
+  const cardSubtypes = Array.isArray((permanent as any)?.card?.subtypes) ? [...(permanent as any).card.subtypes] : [];
+  let permanentTypeLine = String((permanent as any).type_line || (permanent as any)?.card?.type_line || '').trim();
+  let cardTypeLine = String((permanent as any)?.card?.type_line || (permanent as any).type_line || '').trim();
+
+  for (const typeName of normalizedTypes) {
+    if (!grantedTypes.includes(typeName)) {
+      grantedTypes.push(typeName);
+      changed = true;
+    }
+    if (!permanentSubtypes.includes(typeName)) {
+      permanentSubtypes.push(typeName);
+      changed = true;
+    }
+    if (!cardSubtypes.includes(typeName)) {
+      cardSubtypes.push(typeName);
+      changed = true;
+    }
+
+    const nextPermanentTypeLine = addSubtypeToTypeLine(permanentTypeLine, typeName);
+    const nextCardTypeLine = addSubtypeToTypeLine(cardTypeLine, typeName);
+    if (nextPermanentTypeLine !== permanentTypeLine) {
+      permanentTypeLine = nextPermanentTypeLine;
+      changed = true;
+    }
+    if (nextCardTypeLine !== cardTypeLine) {
+      cardTypeLine = nextCardTypeLine;
+      changed = true;
+    }
+  }
+
+  if (!changed) return permanent;
+
+  return {
+    ...(permanent as any),
+    grantedTypes,
+    subtypes: permanentSubtypes,
+    type_line: permanentTypeLine,
+    card: {
+      ...((permanent as any).card || {}),
+      subtypes: cardSubtypes,
+      type_line: cardTypeLine,
+    },
+  } as any;
+}
 
 function normalizeWhereQualifiedTarget(
   target: { readonly kind: string; readonly text?: string; readonly raw?: string } | undefined
@@ -853,6 +950,8 @@ function resolveDirectBattlefieldPermanents(
   ctx: OracleIRExecutionContext
 ): BattlefieldPermanent[] {
   if (!target) return [];
+  const armyMatches = resolveDeterministicArmyCreatureSelection(battlefield, target, ctx);
+  if (armyMatches) return armyMatches;
   const selector = parseSimpleBattlefieldSelector(target as any);
   if (selector) {
     return battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx));
@@ -930,13 +1029,16 @@ function resolveRecentlyCreatedTokenPermanents(
 
 function resolveAddCounterAmount(
   step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
+  ctx?: OracleIRExecutionContext,
   runtime?: RecentBattlefieldRuntime
 ): number | null {
-  if (step.amount.kind === 'number') return step.amount.value;
+  const numericAmount = quantityToNumber(step.amount, ctx);
+  if (numericAmount !== null) return numericAmount;
   if (step.amount.kind !== 'x') return null;
 
   const raw = String(step.raw || '').replace(/\u2019/g, "'").trim().toLowerCase();
   const movedCards = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  const discardedCards = Array.isArray(runtime?.lastDiscardedCards) ? runtime.lastDiscardedCards : [];
   if (movedCards.length === 1) {
     const movedCard = movedCards[0];
     const manaValue = getCardManaValue(movedCard);
@@ -953,6 +1055,13 @@ function resolveAddCounterAmount(
     if (toughnessValue !== undefined && /\bwhere x is (?:the exiled card's|that card's|its|this card's) toughness\b/.test(raw)) {
       return Math.max(0, toughnessValue);
     }
+  }
+
+  if (/\bwhere x is the number of nonland cards discarded this way\b/.test(raw)) {
+    return Math.max(
+      0,
+      discardedCards.filter((card: any) => !getCardTypeLineLower(card).includes('land')).length
+    );
   }
 
   return Math.max(
@@ -1754,39 +1863,43 @@ export function applyDoubleCountersStep(
 ): BattlefieldStepHandlerResult {
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const targets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
-  if (targets.length !== 1) {
+  if (targets.length === 0) {
     return {
       applied: false,
       message: `Skipped double counters (no deterministic target): ${step.raw}`,
-      reason: targets.length > 1 ? 'player_choice_required' : 'no_deterministic_target',
-      ...(targets.length > 1 ? { options: { classification: 'player_choice' as const } } : {}),
-    };
-  }
-
-  const targetId = String((targets[0] as any)?.id || '').trim();
-  const targetIndex = battlefield.findIndex((perm: any) => String((perm as any)?.id || '').trim() === targetId);
-  if (targetIndex < 0) {
-    return {
-      applied: false,
-      message: `Skipped double counters (target not on battlefield): ${step.raw}`,
       reason: 'no_deterministic_target',
     };
   }
 
-  const target: any = battlefield[targetIndex] as any;
-  const counters = { ...((target?.counters || {}) as Record<string, number>) };
+  const specificCounter = String(step.counter || '').trim();
+  const targetIds = new Set(targets.map((target: any) => String(target?.id || '').trim()).filter(Boolean));
   let doubledKinds = 0;
-  for (const [counterName, rawCount] of Object.entries(counters)) {
-    const count = Number(rawCount);
-    if (!Number.isFinite(count) || count <= 0) continue;
-    counters[counterName] = count * 2;
-    doubledKinds += 1;
-  }
+  let changedTargets = 0;
 
-  battlefield[targetIndex] = {
-    ...target,
-    counters,
-  } as any;
+  for (let index = 0; index < battlefield.length; index += 1) {
+    const target = battlefield[index] as any;
+    const targetId = String(target?.id || '').trim();
+    if (!targetIds.has(targetId)) continue;
+
+    const counters = { ...((target?.counters || {}) as Record<string, number>) };
+    let changedThisTarget = false;
+    for (const [counterName, rawCount] of Object.entries(counters)) {
+      if (specificCounter && counterName !== specificCounter) continue;
+      const count = Number(rawCount);
+      if (!Number.isFinite(count) || count <= 0) continue;
+      counters[counterName] = count * 2;
+      doubledKinds += 1;
+      changedThisTarget = true;
+    }
+
+    if (changedThisTarget) {
+      battlefield[index] = {
+        ...target,
+        counters,
+      } as any;
+      changedTargets += 1;
+    }
+  }
 
   return {
     applied: true,
@@ -1794,7 +1907,15 @@ export function applyDoubleCountersStep(
       ...(state as any),
       battlefield,
     } as GameState,
-    log: [doubledKinds > 0 ? `Doubled ${doubledKinds} counter kind(s) on ${targetId}` : `No counters to double on ${targetId}`],
+    log: [
+      doubledKinds > 0
+        ? specificCounter
+          ? `Doubled ${specificCounter} counter(s) on ${changedTargets} permanent(s)`
+          : `Doubled ${doubledKinds} counter kind(s) across ${changedTargets} permanent(s)`
+        : specificCounter
+          ? `No ${specificCounter} counters to double on the resolved permanents`
+          : `No counters to double on the resolved permanents`,
+    ],
   };
 }
 
@@ -1804,7 +1925,7 @@ export function applyAddCounterStep(
   ctx: OracleIRExecutionContext,
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
-  const amountValue = resolveAddCounterAmount(step, runtime);
+  const amountValue = resolveAddCounterAmount(step, ctx, runtime);
   if (amountValue === null || amountValue <= 0) {
     return {
       applied: false,
@@ -1943,6 +2064,49 @@ export function applyAddCounterStep(
       battlefield: nextBattlefield,
     } as GameState,
     log: [`Added ${amountValue} ${counterName} counter(s) to ${targets.length} permanent(s)`],
+  };
+}
+
+export function applyAddTypesStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'add_types' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const targets = resolveDirectBattlefieldPermanents((state.battlefield || []) as BattlefieldPermanent[], step.target as any, ctx);
+  if (targets.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped add types (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const wantedIds = new Set(targets.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean));
+  let changedCount = 0;
+
+  for (let index = 0; index < battlefield.length; index += 1) {
+    const permanent = battlefield[index] as BattlefieldPermanent;
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (!wantedIds.has(permanentId)) continue;
+    const nextPermanent = appendPermanentTypes(permanent, step.addTypes);
+    if (nextPermanent !== permanent) {
+      battlefield[index] = nextPermanent;
+      changedCount += 1;
+    }
+  }
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield,
+    } as GameState,
+    log: [
+      changedCount > 0
+        ? `Added type(s) ${step.addTypes.join(', ')} to ${changedCount} permanent(s)`
+        : `No type changes applied for ${step.raw}`,
+    ],
   };
 }
 

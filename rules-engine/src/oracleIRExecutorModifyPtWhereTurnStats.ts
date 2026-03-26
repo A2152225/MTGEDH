@@ -1,6 +1,12 @@
 import type { GameState } from '../../shared/src';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 
+function getCardTypesLower(card: any): string {
+  return String(card?.type_line || card?.cardType || card?.card?.type_line || card?.card?.cardType || '')
+    .trim()
+    .toLowerCase();
+}
+
 function readControllerValue(value: any, controllerId: string, missingAsZero: boolean): number | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const key = String(controllerId);
@@ -212,6 +218,16 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
     if (m) {
       const discarded = Number(runtime?.lastDiscardedCardCount ?? 0);
       return Number.isFinite(discarded) ? Math.max(0, discarded) : 0;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is the number of nonland cards? discarded this way$/i);
+    if (m) {
+      const discardedCards = Array.isArray(runtime?.lastDiscardedCards) ? runtime.lastDiscardedCards : [];
+      return discardedCards.reduce((count: number, card: any) => {
+        return count + (getCardTypesLower(card).includes('land') ? 0 : 1);
+      }, 0);
     }
   }
 
