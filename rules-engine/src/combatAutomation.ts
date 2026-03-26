@@ -17,6 +17,7 @@
  */
 
 import type { BattlefieldPermanent, PlayerID, KnownCardRef } from '../../shared/src';
+import { getCombinedPermanentText } from './permanentText';
 
 /**
  * Combat keyword abilities
@@ -125,15 +126,6 @@ export interface BlockValidation {
 }
 
 /**
- * Type for granted ability (can be string or object with name)
- */
-interface GrantedAbility {
-  readonly name?: string;
-  readonly type?: string;
-  [key: string]: unknown;
-}
-
-/**
  * Type for power/toughness modifier
  */
 interface PowerToughnessModifier {
@@ -146,17 +138,7 @@ interface PowerToughnessModifier {
  * Extract combat keywords from a permanent
  */
 export function extractCombatKeywords(perm: BattlefieldPermanent): CombatKeywords {
-  const card = perm.card as KnownCardRef;
-  const oracleText = (card?.oracle_text || '').toLowerCase();
-  const typeLine = (card?.type_line || '').toLowerCase();
-  
-  // Check oracle text and granted abilities
-  const grantedAbilitiesArray = perm.grantedAbilities || [];
-  const grantedAbilities = grantedAbilitiesArray
-    .map((a: string | GrantedAbility) => 
-      typeof a === 'string' ? a : (a.name || '')
-    ).join(' ').toLowerCase();
-  const allText = oracleText + ' ' + grantedAbilities;
+  const allText = getCombinedPermanentText(perm);
   
   // Check for protection
   const protectionColors: string[] = [];
@@ -362,6 +344,19 @@ export function canCreatureBlock(
   if (attacker.keywords.skulk) {
     if (blocker.power > attacker.power) {
       return { legal: false, reason: `${blocker.name} can't block ${attacker.name} (skulk)` };
+    }
+  }
+
+  const attackerText = getCombinedPermanentText(attacker.permanent);
+  if (attackerText.includes("can't be blocked")) {
+    if (attackerText.includes("can't be blocked by creatures with power 2 or less") && blocker.power <= 2) {
+      return { legal: false, reason: `${blocker.name} can't block ${attacker.name} (power 2 or less restriction)` };
+    }
+    if (attackerText.includes("can't be blocked by creatures with greater power") && blocker.power > attacker.power) {
+      return { legal: false, reason: `${blocker.name} can't block ${attacker.name} (greater power restriction)` };
+    }
+    if (!attackerText.includes("can't be blocked by creatures with power 2 or less") && !attackerText.includes("can't be blocked by creatures with greater power")) {
+      return { legal: false, reason: `${attacker.name} can't be blocked` };
     }
   }
   

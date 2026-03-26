@@ -29,6 +29,7 @@ import type {
   CombatControlEffect 
 } from '../../shared/src';
 import { canPermanentAttack, canPermanentBlock, isCurrentlyCreature } from './actions/combat';
+import { getCombinedPermanentText } from './permanentText';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 function getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
@@ -36,13 +37,7 @@ function getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
 }
 
 function getKeywordList(permanent: BattlefieldPermanent): string[] {
-  const oracleText = (((permanent.card as any)?.oracle_text) || '').toLowerCase();
-  const grantedAbilities = Array.isArray((permanent as any).grantedAbilities)
-    ? ((permanent as any).grantedAbilities as unknown[])
-        .filter((ability): ability is string => typeof ability === 'string')
-        .map(ability => ability.toLowerCase())
-    : [];
-  const combinedText = `${oracleText} ${grantedAbilities.join(' ')}`;
+  const combinedText = getCombinedPermanentText(permanent);
   const keywords = ['flying', 'first strike', 'double strike', 'trample', 'haste', 'vigilance', 'lifelink', 'deathtouch', 'defender', 'reach', 'shadow', 'horsemanship'];
   return keywords.filter(keyword => combinedText.includes(keyword));
 }

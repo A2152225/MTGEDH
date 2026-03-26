@@ -145,6 +145,8 @@ import {
   checkBecomesBlockedTriggers,
   checkTribalCastTriggers,
   checkSpellCastTriggers,
+  findTriggeredAbilities,
+  processTriggersAutoOracle,
   GamePhase,
   GameStep,
 } from './actions';
@@ -3026,6 +3028,7 @@ export class RulesEngineAdapter {
   private resolveStackTop(gameId: string): EngineResult<GameState> {
     const state = this.gameStates.get(gameId)!;
     const stack = this.stacks.get(gameId)!;
+    const battlefieldBeforeResolution = Array.isArray(state.battlefield) ? [...state.battlefield] : [];
     
     const popResult = popFromStack(stack);
     
@@ -3332,11 +3335,93 @@ export class RulesEngineAdapter {
       nextState = this.moveResolvedPermanentSpellToBattlefield(nextState, stackObjectAny);
       oracleLogs.push(`[oracle-ir] ${popResult.object.cardName} entered the battlefield`);
     }
+
+    const becameMonstrousResult = this.processBecameMonstrousTriggers(
+      gameId,
+      battlefieldBeforeResolution,
+      nextState
+    );
+    nextState = becameMonstrousResult.next;
+    oracleLogs.push(...(becameMonstrousResult.log || []));
     
     return {
       next: nextState,
       log: [...(resolveResult.log || [`Resolved ${popResult.object.cardName}`]), ...oracleLogs],
     };
+  }
+
+  private processBecameMonstrousTriggers(
+    gameId: string,
+    battlefieldBeforeResolution: readonly any[],
+    state: GameState
+  ): EngineResult<GameState> {
+    const previousById = new Map(
+      (Array.isArray(battlefieldBeforeResolution) ? battlefieldBeforeResolution : [])
+        .map((perm: any) => [String(perm?.id || '').trim(), perm] as const)
+        .filter(([id]) => Boolean(id))
+    );
+    const newlyMonstrous = ((state.battlefield || []) as any[]).filter((perm: any) => {
+      const permanentId = String(perm?.id || '').trim();
+      if (!permanentId) return false;
+      const previous = previousById.get(permanentId);
+      const wasMonstrous =
+        typeof previous?.isMonstrous === 'boolean'
+          ? Boolean(previous.isMonstrous)
+          : typeof previous?.monstrous === 'boolean'
+            ? Boolean(previous.monstrous)
+            : false;
+      const isMonstrous =
+        typeof perm?.isMonstrous === 'boolean'
+          ? Boolean(perm.isMonstrous)
+          : typeof perm?.monstrous === 'boolean'
+            ? Boolean(perm.monstrous)
+            : false;
+      return !wasMonstrous && isMonstrous;
+    });
+
+    if (newlyMonstrous.length === 0) {
+      return { next: state, log: [] };
+    }
+
+    let nextState = state;
+    const logs: string[] = [];
+
+    for (const permanent of newlyMonstrous) {
+      const controllerId = String(permanent?.controller || '').trim();
+      const permanentId = String(permanent?.id || '').trim();
+      if (!controllerId || !permanentId) continue;
+
+      const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '');
+      const types = typeLine
+        .split(/[\s\u2014-]+/)
+        .map((part: string) => part.trim())
+        .filter(Boolean);
+      const abilities = findTriggeredAbilities(nextState);
+      const triggerResult = processTriggersAutoOracle(
+        nextState,
+        TriggerEvent.BECAME_MONSTROUS,
+        abilities,
+        buildResolutionEventDataFromGameState(nextState, controllerId, {
+          sourceId: permanentId,
+          targetPermanentId: permanentId,
+          sourceControllerId: controllerId,
+          sourceOwnerId: String(permanent?.owner || permanent?.ownerId || controllerId).trim() || controllerId,
+          permanentTypes: types,
+          creatureTypes: types,
+          counters: permanent?.counters,
+          keywords: Array.isArray(permanent?.card?.keywords) ? permanent.card.keywords : undefined,
+        })
+      );
+
+      nextState = triggerResult.state;
+      logs.push(...(triggerResult.logs || []));
+
+      if (triggerResult.triggersAdded > 0 || (triggerResult.oracleExecutions || 0) > 0) {
+        logs.push(`[triggers] Processed became monstrous triggers for ${permanentId}`);
+      }
+    }
+
+    return { next: nextState, log: logs };
   }
   
   /**

@@ -75,6 +75,35 @@ function splitConservativeModifyPtGrantedDiesTriggerClause(args: {
   return [first, second];
 }
 
+function splitConservativeTemporaryAbilityEvasionClause(args: {
+  rawClause: string;
+  parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+}): string[] | null {
+  const { rawClause, parseEffectClauseToStep } = args;
+  const normalized = normalizeOracleText(rawClause).trim();
+  if (!normalized || !/\bgains?\b/i.test(normalized) || !/\band\b/i.test(normalized) || !/\bcan't be blocked\b/i.test(normalized)) {
+    return null;
+  }
+
+  const match = normalized.match(
+    /^(?:until end of turn,\s+)?(.+?)\s+gains?\s+(.+?)\s+until end of turn\s+and\s+(can't be blocked(?: by .+?)?(?: this turn)?)$/i
+  );
+  if (!match) return null;
+
+  const targetText = String(match[1] || '').trim();
+  const gainsText = String(match[2] || '').trim();
+  const evasionText = String(match[3] || '').trim();
+  if (!targetText || !gainsText || !evasionText) return null;
+
+  const first = `${targetText} gains ${gainsText} until end of turn`;
+  const second = `${targetText} ${evasionText}`;
+  const firstStep = parseEffectClauseToStep(first);
+  const secondStep = parseEffectClauseToStep(second);
+  if (firstStep.kind === 'unknown' || secondStep.kind === 'unknown') return null;
+
+  return [first, second];
+}
+
 function splitConservativeGrantedDiesTriggerSetBasePtClause(args: {
   rawClause: string;
   parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
@@ -130,6 +159,7 @@ export function buildAbilityClauses(args: {
 
   return combinedClauses.flatMap(clause =>
     splitConservativeSacrificeLeadClause({ rawClause: clause, cardName, parseEffectClauseToStep }) ??
+    splitConservativeTemporaryAbilityEvasionClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeGrantedDiesTriggerSetBasePtClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeModifyPtGrantedDiesTriggerClause({ rawClause: clause, parseEffectClauseToStep }) ??
     splitConservativeActionConjunctionClause({ rawClause: clause, parseEffectClauseToStep }) ??

@@ -262,6 +262,159 @@ describe('State-Based Actions', () => {
     expect(result.actions).toContain('Animated Relic dies (lethal damage)');
   });
 
+  it('should use regeneration shields for state-based lethal damage', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 40, battlefield: [], hand: [], library: [], graveyard: [] },
+      ],
+      battlefield: [
+        {
+          id: 'skeleton-1',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          attacking: 'player2',
+          counters: { damage: 1 },
+          markedDamage: 1,
+          damageMarked: 1,
+          card: {
+            name: 'Drudge Skeletons',
+            type_line: 'Creature - Skeleton',
+            power: '1',
+            toughness: '1',
+            oracle_text: '',
+          },
+        },
+      ],
+      regenerationShields: [
+        {
+          id: 'regen-shield-skeleton-1',
+          permanentId: 'skeleton-1',
+          controllerId: 'player1',
+          createdAt: 1,
+          isUsed: false,
+          expiresAtEndOfTurn: true,
+        },
+      ] as any,
+    } as any;
+
+    const result = performStateBasedActions(state);
+    const creature = result.state.battlefield.find((perm: any) => perm.id === 'skeleton-1') as any;
+
+    expect(creature).toBeTruthy();
+    expect(creature.tapped).toBe(true);
+    expect(creature.attacking).toBeUndefined();
+    expect(creature.counters?.damage).toBe(0);
+    expect(result.actions).toContain('Drudge Skeletons regenerates instead of dying');
+    expect((result.state.players[0] as any).graveyard || []).toHaveLength(0);
+    expect(((result.state as any).regenerationShields || [])[0]?.isUsed).toBe(true);
+  });
+
+  it('should destroy creatures with deathtouch damage during state-based actions', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 40, battlefield: [], hand: [], library: [], graveyard: [] },
+        { id: 'player2', life: 40, battlefield: [], hand: [], library: [], graveyard: [] },
+      ],
+      battlefield: [
+        {
+          id: 'deadly-attacker',
+          controller: 'player2',
+          owner: 'player2',
+          card: {
+            name: 'Deadly Recluse',
+            type_line: 'Creature - Spider',
+            power: '1',
+            toughness: '2',
+            oracle_text: 'Deathtouch, reach',
+          },
+        },
+        {
+          id: 'damaged-bear',
+          controller: 'player1',
+          owner: 'player1',
+          counters: { damage: 1 },
+          markedDamage: 1,
+          damageMarked: 1,
+          damageSourceIds: ['deadly-attacker'],
+          card: {
+            name: 'Grizzly Bears',
+            type_line: 'Creature - Bear',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        },
+      ],
+    } as any;
+
+    const result = performStateBasedActions(state);
+    expect(result.state.battlefield.some((perm: any) => perm.id === 'damaged-bear')).toBe(false);
+    expect(result.actions).toContain('Grizzly Bears dies (deathtouch damage)');
+  });
+
+  it('should use regeneration shields for state-based deathtouch damage', () => {
+    const state: GameState = {
+      players: [
+        { id: 'player1', life: 40, battlefield: [], hand: [], library: [], graveyard: [] },
+        { id: 'player2', life: 40, battlefield: [], hand: [], library: [], graveyard: [] },
+      ],
+      battlefield: [
+        {
+          id: 'deadly-attacker',
+          controller: 'player2',
+          owner: 'player2',
+          card: {
+            name: 'Deadly Recluse',
+            type_line: 'Creature - Spider',
+            power: '1',
+            toughness: '2',
+            oracle_text: 'Deathtouch, reach',
+          },
+        },
+        {
+          id: 'skeleton-2',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          attacking: 'player2',
+          counters: { damage: 1 },
+          markedDamage: 1,
+          damageMarked: 1,
+          damageSourceIds: ['deadly-attacker'],
+          card: {
+            name: 'Drudge Skeletons',
+            type_line: 'Creature - Skeleton',
+            power: '1',
+            toughness: '4',
+            oracle_text: '',
+          },
+        },
+      ],
+      regenerationShields: [
+        {
+          id: 'regen-shield-skeleton-2',
+          permanentId: 'skeleton-2',
+          controllerId: 'player1',
+          createdAt: 1,
+          isUsed: false,
+          expiresAtEndOfTurn: true,
+        },
+      ] as any,
+    } as any;
+
+    const result = performStateBasedActions(state);
+    const creature = result.state.battlefield.find((perm: any) => perm.id === 'skeleton-2') as any;
+
+    expect(creature).toBeTruthy();
+    expect(creature.tapped).toBe(true);
+    expect(creature.attacking).toBeUndefined();
+    expect(creature.counters?.damage).toBe(0);
+    expect(result.actions).toContain('Drudge Skeletons regenerates instead of dying');
+    expect((result.state.players[0] as any).graveyard || []).toHaveLength(0);
+    expect(((result.state as any).regenerationShields || [])[0]?.isUsed).toBe(true);
+  });
+
   it('should treat effective planeswalkers as planeswalkers for zero-loyalty checks', () => {
     const state: GameState = {
       players: [
@@ -474,6 +627,31 @@ describe('Turn Actions', () => {
     // Check centralized battlefield
     const perm = result.state.battlefield?.find((p: any) => p.id === 'perm1');
     expect(perm?.counters?.damage).toBe(0);
+  });
+
+  it('should clear regeneration shields in cleanup', () => {
+    const state: GameState = {
+      players: [
+        {
+          id: 'player1',
+          hand: [],
+        },
+      ],
+      battlefield: [],
+      regenerationShields: [
+        {
+          id: 'regen-shield-1',
+          permanentId: 'perm1',
+          controllerId: 'player1',
+          createdAt: 1,
+          isUsed: false,
+          expiresAtEndOfTurn: true,
+        },
+      ] as any,
+    } as any;
+
+    const result = executeCleanupStep(state, 'player1');
+    expect((result.state as any).regenerationShields || []).toEqual([]);
   });
 
   it('should clear temporary win/loss effects in cleanup', () => {

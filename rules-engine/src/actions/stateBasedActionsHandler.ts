@@ -9,6 +9,7 @@ import type { GameState } from '../../../shared/src';
 import {
   checkPlayerLife,
   checkPoisonCounters,
+  checkDeathtouchDamage,
   checkCreatureToughness,
   checkLethalDamage,
   checkPlaneswalkerLoyalty,
@@ -16,6 +17,7 @@ import {
   checkLegendRule,
 } from '../stateBasedActions';
 import { applyStaticAbilitiesToBattlefield } from '../staticAbilities';
+import { getAvailableShields, processDestructionWithRegeneration } from '../keywordAbilities/regeneration';
 import {
   playerHasCantLoseEffect,
   opponentsHaveCantWinEffect,
@@ -41,6 +43,111 @@ function hasPermanentType(perm: any, type: string): boolean {
 
   const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
   return typeLine.includes(targetType);
+}
+
+function permanentHasKeyword(perm: any, keyword: string): boolean {
+  const lowerKeyword = String(keyword || '').trim().toLowerCase();
+  if (!lowerKeyword) return false;
+
+  const oracleText = String(perm?.card?.oracle_text || perm?.oracle_text || '').toLowerCase();
+  if (oracleText.includes(lowerKeyword)) {
+    return true;
+  }
+
+  const grantedAbilities = Array.isArray(perm?.grantedAbilities) ? perm.grantedAbilities : [];
+  return grantedAbilities.some((entry: unknown) => String(entry || '').trim().toLowerCase() === lowerKeyword);
+}
+
+function creatureHasDeathtouchDamage(
+  creature: any,
+  permanentsById: ReadonlyMap<string, any>
+): boolean {
+  const damageSourceIds = Array.isArray(creature?.damageSourceIds)
+    ? creature.damageSourceIds
+        .map((id: unknown) => String(id || '').trim())
+        .filter(Boolean)
+    : [];
+  if (damageSourceIds.length === 0) {
+    return false;
+  }
+
+  return damageSourceIds.some((sourceId) => permanentHasKeyword(permanentsById.get(sourceId), 'deathtouch'));
+}
+
+function tryRegenerateStateBasedDestruction(
+  battlefield: readonly any[],
+  shields: readonly any[],
+  permanentId: string
+): {
+  readonly wasRegenerated: boolean;
+  readonly battlefield: readonly any[];
+  readonly shields: readonly any[];
+} {
+  const originalPermanent = battlefield.find((entry: any) => String((entry as any)?.id || '').trim() === permanentId);
+  const availableShields = getAvailableShields(permanentId, shields as any);
+  if (!originalPermanent || availableShields.length === 0) {
+    return {
+      wasRegenerated: false,
+      battlefield,
+      shields,
+    };
+  }
+
+  const originalDamage =
+    Number(
+      originalPermanent?.markedDamage ??
+      originalPermanent?.damageMarked ??
+      originalPermanent?.damage ??
+      originalPermanent?.counters?.damage ??
+      0
+    ) || 0;
+  const isInCombat = Boolean(
+    originalPermanent?.attacking ||
+    originalPermanent?.attackingPlayerId ||
+    originalPermanent?.defendingPlayerId ||
+    (Array.isArray(originalPermanent?.blocking) && originalPermanent.blocking.length > 0) ||
+    (Array.isArray(originalPermanent?.blockedBy) && originalPermanent.blockedBy.length > 0)
+  );
+  const regeneration = processDestructionWithRegeneration(
+    permanentId,
+    shields as any,
+    Boolean(originalPermanent?.tapped),
+    originalDamage,
+    isInCombat
+  );
+
+  if (!regeneration.wasRegenerated) {
+    return {
+      wasRegenerated: false,
+      battlefield,
+      shields: regeneration.updatedShields,
+    };
+  }
+
+  return {
+    wasRegenerated: true,
+    battlefield: battlefield.map((entry: any) => (
+      String((entry as any)?.id || '').trim() !== permanentId
+        ? entry
+        : {
+            ...entry,
+            tapped: regeneration.permanentTapped,
+            markedDamage: 0,
+            damageMarked: 0,
+            damage: 0,
+            counters: {
+              ...((entry?.counters || {}) as Record<string, number>),
+              damage: 0,
+            },
+            attacking: undefined,
+            attackingPlayerId: undefined,
+            defendingPlayerId: undefined,
+            blocking: undefined,
+            blockedBy: undefined,
+          }
+    )),
+    shields: regeneration.updatedShields,
+  };
 }
 
 export interface SBAResult {
@@ -107,10 +214,12 @@ export function performStateBasedActions(state: GameState): SBAResult {
   
   // Check creatures for lethal damage/zero toughness
   const creatureDeaths = checkCreatureDeaths(currentState);
-  if (creatureDeaths.deaths.length > 0) {
+  if (creatureDeaths.deaths.length > 0 || creatureDeaths.actions.length > 0) {
     currentState = creatureDeaths.state;
     actions.push(...creatureDeaths.actions);
-    checkAgain = true;
+    if (creatureDeaths.deaths.length > 0) {
+      checkAgain = true;
+    }
   }
   
   // Check planeswalkers for zero loyalty
@@ -141,8 +250,15 @@ function checkCreatureDeaths(state: GameState): {
 } {
   const allPermanents = state.battlefield || [];
   const processedBattlefield = applyStaticAbilitiesToBattlefield(allPermanents as any[]);
+  const processedPermanentsById = new Map(
+    processedBattlefield.map((perm: any) => [String((perm as any)?.id || '').trim(), perm] as const)
+  );
   const creatureDeaths: string[] = [];
   const actions: string[] = [];
+  let updatedBattlefield = [...allPermanents];
+  let nextShields = Array.isArray((state as any).regenerationShields)
+    ? [...((state as any).regenerationShields as any[])]
+    : [];
   
   for (const perm of processedBattlefield) {
     if (!hasPermanentType(perm, 'creature')) continue;
@@ -189,25 +305,65 @@ function checkCreatureDeaths(state: GameState): {
     // Lethal damage
     const lethalCheck = checkLethalDamage(perm.id, toughness, damage);
     if (lethalCheck) {
+      const regeneration = tryRegenerateStateBasedDestruction(updatedBattlefield, nextShields, String(perm.id || '').trim());
+      nextShields = [...regeneration.shields];
+      if (regeneration.wasRegenerated) {
+        updatedBattlefield = [...regeneration.battlefield];
+          actions.push(`${perm.card.name} regenerates instead of dying`);
+          continue;
+      }
+
       creatureDeaths.push(perm.id);
       actions.push(`${perm.card.name} dies (lethal damage)`);
+      continue;
+    }
+
+    const deathtouchCheck = checkDeathtouchDamage(
+      perm.id,
+      toughness,
+      creatureHasDeathtouchDamage(perm, processedPermanentsById)
+    );
+    if (deathtouchCheck) {
+      const regeneration = tryRegenerateStateBasedDestruction(updatedBattlefield, nextShields, String(perm.id || '').trim());
+      nextShields = [...regeneration.shields];
+      if (regeneration.wasRegenerated) {
+        updatedBattlefield = [...regeneration.battlefield];
+        actions.push(`${perm.card.name} regenerates instead of dying`);
+        continue;
+      }
+
+      creatureDeaths.push(perm.id);
+      actions.push(`${perm.card.name} dies (deathtouch damage)`);
     }
   }
   
   if (creatureDeaths.length === 0) {
-    return { state, deaths: [], actions: [] };
+    if (actions.length === 0 && nextShields === (state as any).regenerationShields && updatedBattlefield === allPermanents) {
+      return { state, deaths: [], actions: [] };
+    }
+    return {
+      state: {
+        ...(state as any),
+        battlefield: updatedBattlefield,
+        regenerationShields: nextShields,
+      } as GameState,
+      deaths: [],
+      actions,
+    };
   }
   
   // Move dead creatures to graveyard
+  const deadPermanents = updatedBattlefield.filter((p: any) => creatureDeaths.includes(p.id));
   const updatedState = {
-    ...state,
-    battlefield: allPermanents.filter((p: any) => !creatureDeaths.includes(p.id)),
+    ...(state as any),
+    battlefield: updatedBattlefield.filter((p: any) => !creatureDeaths.includes(p.id)),
+    regenerationShields: nextShields,
     players: state.players.map(player => ({
       ...player,
       graveyard: [
         ...(player.graveyard || []),
         // Find dead creatures from centralized battlefield that this player owned
-        ...allPermanents.filter((p: any) => 
+        ...deadPermanents.filter((p: any) => 
           creatureDeaths.includes(p.id) && 
           (p.owner === player.id || p.controller === player.id)
         ),

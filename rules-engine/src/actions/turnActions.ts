@@ -16,6 +16,7 @@ import {
   clearEndOfTurnWinLossEffects,
 } from '../winEffectCards';
 import { consumeNextDrawStepSkipEffect } from '../phaseTransitionTriggers';
+import { removeExpiredShields } from '../keywordAbilities/regeneration';
 
 /**
  * Execute turn-based action for untap step
@@ -36,15 +37,40 @@ export function executeUntapStep(
     logs.push(`${activePlayerId} untaps ${tappedCount} permanents`);
   }
   
-  // Untap all permanents controlled by active player on centralized battlefield
+  // Expire "until your next turn" style temporary effects such as detain.
   const updatedBattlefield = (state.battlefield || []).map((perm: any) => {
+    const expiringTurnEffects = Array.isArray(perm?.temporaryEffects)
+      ? perm.temporaryEffects.filter((effect: any) => String(effect?.expiresOnControllerTurn || '').trim() === activePlayerId)
+      : [];
+    const remainingTemporaryEffects = Array.isArray(perm?.temporaryEffects)
+      ? perm.temporaryEffects.filter((effect: any) => String(effect?.expiresOnControllerTurn || '').trim() !== activePlayerId)
+      : [];
+    const expiringGrantedAbilitySet = new Set(
+      expiringTurnEffects
+        .flatMap((effect: any) => Array.isArray(effect?.grantedAbilities) ? effect.grantedAbilities : [])
+        .map((ability: unknown) => String(ability || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const remainingGrantedAbilities = Array.isArray(perm?.grantedAbilities)
+      ? perm.grantedAbilities.filter((ability: unknown) => !expiringGrantedAbilitySet.has(String(ability || '').trim().toLowerCase()))
+      : [];
+    const skipUntapForStep = expiringTurnEffects.some(
+      (effect: any) => String(effect?.description || '').trim().toLowerCase() === "doesn't untap during your next untap step"
+    );
+
     if (perm.controller === activePlayerId) {
       return {
         ...perm,
-        tapped: false,
+        tapped: skipUntapForStep ? perm.tapped : false,
+        ...(remainingTemporaryEffects.length > 0 ? { temporaryEffects: remainingTemporaryEffects } : { temporaryEffects: undefined }),
+        ...(remainingGrantedAbilities.length > 0 ? { grantedAbilities: remainingGrantedAbilities } : { grantedAbilities: undefined }),
       };
     }
-    return perm;
+    return {
+      ...perm,
+      ...(remainingTemporaryEffects.length > 0 ? { temporaryEffects: remainingTemporaryEffects } : { temporaryEffects: undefined }),
+      ...(remainingGrantedAbilities.length > 0 ? { grantedAbilities: remainingGrantedAbilities } : { grantedAbilities: undefined }),
+    };
   });
   
   return {
@@ -150,21 +176,53 @@ export function executeCleanupStep(
   }
   
   // Remove damage from all permanents on centralized battlefield
-  const updatedBattlefield = (state.battlefield || []).map((perm: any) => ({
-    ...perm,
-    counters: {
-      ...perm.counters,
-      damage: 0,
-    },
-    damageSourceIds: [],
-  }));
+  const updatedBattlefield = (state.battlefield || []).map((perm: any) => {
+    const expiringTemporaryEffects = Array.isArray(perm?.temporaryEffects)
+      ? perm.temporaryEffects.filter((effect: any) => effect?.expiresAt === 'end_of_turn' || effect?.expiresAt === 'end_of_combat')
+      : [];
+    const remainingTemporaryEffects = Array.isArray(perm?.temporaryEffects)
+      ? perm.temporaryEffects.filter((effect: any) => effect?.expiresAt !== 'end_of_turn' && effect?.expiresAt !== 'end_of_combat')
+      : [];
+    const expiringGrantedAbilitySet = new Set(
+      expiringTemporaryEffects
+        .flatMap((effect: any) => Array.isArray(effect?.grantedAbilities) ? effect.grantedAbilities : [])
+        .map((ability: unknown) => String(ability || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const remainingGrantedAbilities = Array.isArray(perm?.grantedAbilities)
+      ? perm.grantedAbilities.filter((ability: unknown) => !expiringGrantedAbilitySet.has(String(ability || '').trim().toLowerCase()))
+      : [];
+    const remainingModifiers = Array.isArray(perm?.modifiers)
+      ? perm.modifiers.filter((modifier: any) => modifier?.duration !== 'end_of_turn' && modifier?.duration !== 'end_of_combat')
+      : [];
+
+    return {
+      ...perm,
+      counters: {
+        ...perm.counters,
+        damage: 0,
+      },
+      damageSourceIds: [],
+      ...(remainingTemporaryEffects.length > 0 ? { temporaryEffects: remainingTemporaryEffects } : { temporaryEffects: undefined }),
+      ...(remainingGrantedAbilities.length > 0 ? { grantedAbilities: remainingGrantedAbilities } : { grantedAbilities: undefined }),
+      ...(remainingModifiers.length > 0 ? { modifiers: remainingModifiers } : { modifiers: undefined }),
+    };
+  });
   
   logs.push('Damage removed from all permanents');
   
   const clearedState = clearEndOfTurnWinLossEffects({ ...state, battlefield: updatedBattlefield } as GameState);
+  const remainingRegenerationShields = removeExpiredShields(
+    Array.isArray((clearedState as any).regenerationShields)
+      ? ((clearedState as any).regenerationShields as any[])
+      : []
+  );
 
   return {
-    state: clearedState,
+    state: {
+      ...(clearedState as any),
+      regenerationShields: remainingRegenerationShields,
+    } as GameState,
     logs,
     discardRequired,
   };

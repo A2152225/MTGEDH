@@ -332,6 +332,98 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'learn';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'collect_evidence';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'exert';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'open_attraction';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'roll_visit_attractions';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'take_initiative';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'become_monarch';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'venture_into_dungeon';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'planeswalk';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'assemble';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'regenerate';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'abandon_scheme';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'set_in_motion';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'vote';
       readonly voters: OraclePlayerSelector;
       readonly startingWith?: OraclePlayerSelector;
@@ -411,6 +503,13 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'detain';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'set_base_pt';
       readonly target: OracleObjectSelector;
       readonly power: number;
@@ -443,6 +542,18 @@ export type OracleEffectStep =
       readonly powerPerCard: number;
       readonly toughnessPerCard: number;
       readonly duration: 'end_of_turn';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'grant_temporary_ability';
+      readonly target: OracleObjectSelector;
+      readonly duration: 'end_of_turn' | 'this_turn';
+      /** Keyword-style granted abilities that should behave like transient grantedAbilities. */
+      readonly abilities?: readonly string[];
+      /** Additional temporary text that should matter while this effect lasts. */
+      readonly effectText?: readonly string[];
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -590,6 +701,7 @@ export type OracleEffectStep =
   | {
       readonly kind: 'destroy';
       readonly target: OracleObjectSelector;
+      readonly cantBeRegenerated?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -778,6 +890,14 @@ export type OracleEffectStep =
   | {
       readonly kind: 'become_renowned';
       readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'monstrosity';
+      readonly target: OracleObjectSelector;
+      readonly amount: OracleQuantity;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

@@ -363,6 +363,10 @@ export function evaluateConditionalWrapperCondition(params: {
     return Number(((nextState as any)?.lifeGainedThisTurn || {})?.[controllerId] || 0) > 0;
   }
 
+  if (normalizedRaw === 'evidence was collected') {
+    return typeof ctx.lastCollectedEvidence === 'boolean' ? ctx.lastCollectedEvidence : null;
+  }
+
   if (
     normalizedRaw === 'defending player has the most life or is tied for the most life' ||
     normalizedRaw === 'the defending player has the most life or is tied for the most life'
@@ -431,6 +435,29 @@ export function evaluateConditionalWrapperCondition(params: {
 
   if (normalizedRaw === "you're the monarch" || normalizedRaw === 'you are the monarch') {
     return String((nextState as any)?.monarch || '').trim() === String(controllerId || '').trim();
+  }
+
+  if (
+    normalizedRaw === 'you have the initiative' ||
+    normalizedRaw === "you've got the initiative"
+  ) {
+    return String((nextState as any)?.initiative || '').trim() === String(controllerId || '').trim();
+  }
+
+  if (
+    normalizedRaw === 'you completed a dungeon this turn' ||
+    normalizedRaw === "you've completed a dungeon this turn" ||
+    normalizedRaw === 'you have completed a dungeon this turn'
+  ) {
+    return Boolean(((nextState as any)?.dungeonCompletedThisTurn || {})?.[controllerId]);
+  }
+
+  if (
+    normalizedRaw === 'you completed a dungeon' ||
+    normalizedRaw === "you've completed a dungeon" ||
+    normalizedRaw === 'you have completed a dungeon'
+  ) {
+    return Boolean(((nextState as any)?.dungeonCompleted || {})?.[controllerId]);
   }
 
   if (normalizedRaw === 'the gift was promised') {

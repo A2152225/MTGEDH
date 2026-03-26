@@ -65,6 +65,10 @@ export function detectTriggeredAbilityEvent<T extends string>(
     return { event: triggerEventValues.BECOMES_BLOCKED };
   }
 
+  if (text.includes('becomes monstrous')) {
+    return { event: triggerEventValues.BECAME_MONSTROUS, filter: text };
+  }
+
   if (text.includes('deals combat damage to a player') || text.includes('deals combat damage to an opponent')) {
     return { event: triggerEventValues.DEALS_COMBAT_DAMAGE_TO_PLAYER };
   }

@@ -1,5 +1,6 @@
 import type { GameState, PlayerID, BattlefieldPermanent, OracleAutomationGap } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
+import { parseOracleTextToIR } from './oracleIRParser';
 import {
   appendOracleAutomationGapRecords,
   createOracleAutomationGapRecord,
@@ -26,9 +27,14 @@ import {
   applyAddTypesStep,
   applyDoubleCountersStep,
   applyDestroyStep,
+  applyDetainStep,
+  applyExertStep,
   applyExileStep,
+  applyRegenerateStep,
   applyGrantLeaveBattlefieldReplacementStep,
+  applyGrantTemporaryAbilityStep,
   applyGrantTemporaryDiesTriggerStep,
+  applyMonstrosityStep,
   applyBecomeRenownedStep,
   applyCopyPermanentStep,
   applyRemoveCounterStep,
@@ -67,13 +73,18 @@ import { applyMoveZoneStep } from './oracleIRExecutorMoveZoneStepHandlers';
 import {
   applyAddManaStep,
   applyAddPlayerCounterStep,
+  applyAssembleStep,
+  applyBecomeMonarchStep,
+  applyAbandonSchemeStep,
   applyClashStep,
+  applyCollectEvidenceStep,
   applyConniveStep,
   applyCreateEmblemStep,
   applyDiscardStep,
   applyDrawStep,
   applyExploreStep,
   applyFatesealStep,
+  applyLearnStep,
   applyManifestDreadStep,
   applyGrantGraveyardPermissionStep,
   applyModifyGraveyardPermissionsStep,
@@ -82,10 +93,16 @@ import {
   applyLoseLifeStep,
   applyLookSelectTopStep,
   applyMillStep,
+  applyOpenAttractionStep,
   applyPayManaStep,
+  applyPlaneswalkStep,
+  applyRollVisitAttractionsStep,
   applyScryStep,
   applySearchLibraryStep,
+  applySetInMotionStep,
   applySurveilStep,
+  applyTakeInitiativeStep,
+  applyVentureIntoDungeonStep,
   applyVoteStep,
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
@@ -150,6 +167,8 @@ export function applyOracleIRStepsToGameStateImpl(
   let lastScryLookedAtCount = 0;
   let lastTappedMatchingPermanentCount = Math.max(0, Number(ctx.lastTappedMatchingPermanentCount) || 0);
   let lastClashWon = typeof ctx.lastClashWon === 'boolean' ? ctx.lastClashWon : undefined;
+  let lastCollectedEvidence = typeof ctx.lastCollectedEvidence === 'boolean' ? ctx.lastCollectedEvidence : undefined;
+  let lastSetInMotionScheme = (ctx as any).lastSetInMotionScheme;
   let lastStepOutcome: {
     readonly kind: StepOutcomeKind;
     readonly stepKind: OracleEffectStep['kind'];
@@ -319,6 +338,19 @@ export function applyOracleIRStepsToGameStateImpl(
         });
         break;
       }
+      case 'detain': {
+        const result = applyDetainStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'exert': {
+        const result = applyExertStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+          lastMovedCards,
+        });
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'roll_die': {
         const players = step.who.kind === 'you' && controllerId ? [controllerId] : [];
         if (players.length !== 1) {
@@ -422,6 +454,188 @@ export function applyOracleIRStepsToGameStateImpl(
             currentCtx = { ...currentCtx, lastClashWon };
           }
         });
+        break;
+      }
+      case 'collect_evidence': {
+        const result = applyCollectEvidenceStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          if (typeof appliedResult.lastCollectedEvidence === 'boolean') {
+            lastCollectedEvidence = appliedResult.lastCollectedEvidence;
+            currentCtx = { ...currentCtx, lastCollectedEvidence };
+          }
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
+            ? [...appliedResult.lastMovedCards]
+            : lastMovedCards;
+          currentCtx = { ...currentCtx, lastMovedCards };
+        });
+        break;
+      }
+      case 'learn': {
+        const result = applyLearnStep(nextState, step, currentCtx, options);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastDiscardedCardCount = Math.max(0, Number(appliedResult.lastDiscardedCardCount) || 0);
+          lastDiscardedCards = Array.isArray(appliedResult.lastDiscardedCards)
+            ? [...appliedResult.lastDiscardedCards]
+            : lastDiscardedCards;
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
+            ? [...appliedResult.lastMovedCards]
+            : lastMovedCards;
+          currentCtx = {
+            ...currentCtx,
+            lastDiscardedCards,
+            lastMovedCards,
+          };
+        });
+        break;
+      }
+      case 'open_attraction': {
+        const result = applyOpenAttractionStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
+            ? [...appliedResult.lastMovedCards]
+            : lastMovedCards;
+          currentCtx = { ...currentCtx, lastMovedCards };
+        });
+        break;
+      }
+      case 'roll_visit_attractions': {
+        const result = applyRollVisitAttractionsStep(nextState, step, currentCtx);
+        const applied = applyHandledStepResult(step, result, (appliedResult) => {
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
+            ? [...appliedResult.lastMovedCards]
+            : lastMovedCards;
+          currentCtx = { ...currentCtx, lastMovedCards };
+        });
+        if (!applied) break;
+
+        const visitedAttractions = Array.isArray((result as any).lastVisitedAttractions)
+          ? (result as any).lastVisitedAttractions
+          : [];
+        for (const attraction of visitedAttractions) {
+          const visitAbilityText = String(
+            attraction?.card?.visitAbility || attraction?.visitAbility || attraction?.card?.oracle_text || ''
+          ).trim();
+          if (!visitAbilityText) continue;
+
+          const visitIr = parseOracleTextToIR(visitAbilityText, String(attraction?.card?.name || attraction?.name || 'Attraction'));
+          const visitSteps = visitIr.abilities.flatMap(ability => ability.steps);
+          if (visitSteps.length === 0) continue;
+
+          const visitCtx: OracleIRExecutionContext = {
+            ...currentCtx,
+            sourceId: String(attraction?.id || currentCtx.sourceId || '').trim() || currentCtx.sourceId,
+            sourceName: String(attraction?.card?.name || attraction?.name || currentCtx.sourceName || '').trim() || currentCtx.sourceName,
+          };
+          const visitResult = recurse(nextState, visitSteps, visitCtx, options);
+          nextState = visitResult.state;
+          log.push(`[oracle-ir] Resolved Attraction visit ability from ${String(attraction?.card?.name || attraction?.name || 'Attraction')}`);
+          log.push(...visitResult.log);
+          appliedSteps.push(...visitResult.appliedSteps);
+          skippedSteps.push(...visitResult.skippedSteps);
+          automationGaps.push(...visitResult.automationGaps);
+          pendingOptionalSteps.push(...visitResult.pendingOptionalSteps);
+        }
+        break;
+      }
+      case 'take_initiative': {
+        const result = applyTakeInitiativeStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'become_monarch': {
+        const result = applyBecomeMonarchStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'venture_into_dungeon': {
+        const result = applyVentureIntoDungeonStep(nextState, step, currentCtx);
+        const applied = applyHandledStepResult(step, result);
+        if (!applied) break;
+
+        const dungeonRoomEffectText = String((result as any).lastDungeonRoomEffectText || '').trim();
+        if (!dungeonRoomEffectText) break;
+
+        const dungeonName = String((result as any).lastDungeonName || 'Dungeon').trim() || 'Dungeon';
+        const dungeonRoomName = String((result as any).lastDungeonRoomName || 'Room').trim() || 'Room';
+        const roomIr = parseOracleTextToIR(dungeonRoomEffectText, `${dungeonName} - ${dungeonRoomName}`);
+        const roomSteps = roomIr.abilities.flatMap(ability => ability.steps);
+        if (roomSteps.length === 0) break;
+
+        const roomResult = recurse(nextState, roomSteps, currentCtx, options);
+        nextState = roomResult.state;
+        log.push(`[oracle-ir] Resolved dungeon room ability from ${dungeonName} (${dungeonRoomName})`);
+        log.push(...roomResult.log);
+        appliedSteps.push(...roomResult.appliedSteps);
+        skippedSteps.push(...roomResult.skippedSteps);
+        automationGaps.push(...roomResult.automationGaps);
+        pendingOptionalSteps.push(...roomResult.pendingOptionalSteps);
+        break;
+      }
+      case 'planeswalk': {
+        const result = applyPlaneswalkStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'assemble': {
+        const result = applyAssembleStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
+            ? [...appliedResult.lastMovedCards]
+            : lastMovedCards;
+          currentCtx = { ...currentCtx, lastMovedCards };
+        });
+        break;
+      }
+      case 'regenerate': {
+        const result = applyRegenerateStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'abandon_scheme': {
+        const result = applyAbandonSchemeStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'set_in_motion': {
+        const result = applySetInMotionStep(nextState, step, currentCtx);
+        const applied = applyHandledStepResult(step, result, (appliedResult) => {
+          lastSetInMotionScheme = (appliedResult as any).lastSetInMotionScheme ?? lastSetInMotionScheme;
+          currentCtx = {
+            ...currentCtx,
+            lastSetInMotionScheme,
+          };
+        });
+        if (!applied) break;
+
+        const setInMotionScheme = (result as any).lastSetInMotionScheme;
+        const schemeOracleText = String(
+          setInMotionScheme?.oracle_text || setInMotionScheme?.card?.oracle_text || ''
+        ).trim();
+        if (!schemeOracleText) break;
+
+        const schemeIr = parseOracleTextToIR(
+          schemeOracleText,
+          String(setInMotionScheme?.name || setInMotionScheme?.card?.name || currentCtx.sourceName || 'Scheme')
+        );
+        const triggerSteps = schemeIr.abilities
+          .filter(ability => String((ability as any)?.triggerCondition || '').trim().toLowerCase() === 'you set this scheme in motion')
+          .flatMap(ability => ability.steps);
+        if (triggerSteps.length === 0) break;
+
+        const schemeCtx: OracleIRExecutionContext = {
+          ...currentCtx,
+          sourceId: String(setInMotionScheme?.id || setInMotionScheme?.card?.id || currentCtx.sourceId || '').trim() || currentCtx.sourceId,
+          sourceName: String(setInMotionScheme?.name || setInMotionScheme?.card?.name || currentCtx.sourceName || '').trim() || currentCtx.sourceName,
+          lastSetInMotionScheme: setInMotionScheme,
+        };
+        const schemeResult = recurse(nextState, triggerSteps, schemeCtx, options);
+        nextState = schemeResult.state;
+        log.push(`[oracle-ir] Replayed set-in-motion trigger for ${String(setInMotionScheme?.name || setInMotionScheme?.card?.name || 'Scheme')}`);
+        log.push(...schemeResult.log);
+        appliedSteps.push(...schemeResult.appliedSteps);
+        skippedSteps.push(...schemeResult.skippedSteps);
+        automationGaps.push(...schemeResult.automationGaps);
+        pendingOptionalSteps.push(...schemeResult.pendingOptionalSteps);
         break;
       }
       case 'search_library': {
@@ -548,6 +762,14 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'become_renowned': {
         const result = applyBecomeRenownedStep(nextState, step, currentCtx, {
+          lastMovedBattlefieldPermanentIds,
+          lastMovedCards,
+        });
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'monstrosity': {
+        const result = applyMonstrosityStep(nextState, step, currentCtx, {
           lastMovedBattlefieldPermanentIds,
           lastMovedCards,
         });
@@ -896,6 +1118,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'grant_temporary_dies_trigger': {
         const result = applyGrantTemporaryDiesTriggerStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'grant_temporary_ability': {
+        const result = applyGrantTemporaryAbilityStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

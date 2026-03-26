@@ -325,6 +325,33 @@ describe('Oracle Text Parser', () => {
       });
     });
 
+    it('parses monstrosity as a keyword action instead of a static stub', () => {
+      const result = parseOracleText('Monstrosity 3');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Monstrosity 3.',
+      });
+    });
+
+    it('parses endure as a keyword action instead of a static stub', () => {
+      const result = parseOracleText('Endure 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Endure 2.',
+      });
+    });
+
+    it('parses collect evidence as a keyword action instead of a static stub', () => {
+      const result = parseOracleText('Collect evidence 4');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Collect evidence 4.',
+      });
+    });
+
     it('parses ingest as a keyword-triggered ability instead of a static stub', () => {
       const result = parseOracleText('Ingest');
       expect(result.abilities).toHaveLength(1);
@@ -645,7 +672,7 @@ describe('Oracle Text Parser', () => {
       expect(result.abilities).toHaveLength(1);
       expect(result.abilities[0]).toMatchObject({
         type: AbilityType.STATIC,
-        effect: 'You may discard a card. If you do, draw a card.',
+        effect: 'Learn.',
       });
     });
 
@@ -682,6 +709,69 @@ describe('Oracle Text Parser', () => {
       expect(result.abilities[0]).toMatchObject({
         type: AbilityType.STATIC,
         effect: 'Forage.',
+      });
+    });
+
+    it('parses exert as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Exert');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Exert.',
+      });
+    });
+
+    it('parses open an Attraction as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Open an Attraction');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Open an Attraction.',
+      });
+    });
+
+    it('parses roll to visit your Attractions as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Roll to visit your Attractions');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Roll to visit your Attractions.',
+      });
+    });
+
+    it('parses take the initiative as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Take the initiative');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Take the initiative.',
+      });
+    });
+
+    it('parses venture into the dungeon as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Venture into the dungeon');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Venture into the dungeon.',
+      });
+    });
+
+    it('parses abandon this scheme as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Abandon this scheme');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Abandon this scheme.',
+      });
+    });
+
+    it('parses set that scheme in motion again as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Set that scheme in motion again');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Set that scheme in motion again.',
       });
     });
 

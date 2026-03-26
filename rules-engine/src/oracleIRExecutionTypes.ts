@@ -22,6 +22,10 @@ export interface OracleIRSelectorContext {
   readonly eachOfThoseOpponents?: readonly PlayerID[];
   /** Bound chosen objects for multi-selection antecedents such as "the chosen creatures". */
   readonly chosenObjectIds?: readonly string[];
+  /** Explicit chosen dungeon id for venture selection. */
+  readonly chosenDungeonId?: string;
+  /** Explicit chosen room id for venture branch selection. */
+  readonly chosenDungeonRoomId?: string;
   /** Bound mana choice for clauses like "Add {R} or {G}." */
   readonly chosenMana?: string;
   /** Bound pay/decline choice for unless-pays-life wrappers when already known. */
@@ -37,6 +41,10 @@ export interface OracleIRExecutionEventHint {
   readonly targetPermanentId?: string;
   /** Bound chosen objects for delayed/antecedent-based battlefield references. */
   readonly chosenObjectIds?: readonly string[];
+  /** Explicit chosen dungeon id for venture selection. */
+  readonly chosenDungeonId?: string;
+  /** Explicit chosen room id for venture branch selection. */
+  readonly chosenDungeonRoomId?: string;
   /** Explicit mana choice for "add {R} or {G}" style effects when already known. */
   readonly chosenMana?: string;
   /** Explicit pay/decline choice for unless-pays-life wrappers when already known. */
@@ -93,8 +101,12 @@ export interface OracleIRExecutionContext {
   readonly lastTappedMatchingPermanentCount?: number;
   /** Internal runtime carry-over for clash follow-up conditionals like "If you win". */
   readonly lastClashWon?: boolean;
+  /** Internal runtime carry-over for collect-evidence follow-up conditionals like "If evidence was collected". */
+  readonly lastCollectedEvidence?: boolean;
   /** Internal runtime carry-over for nested follow-up steps that reference battlefield permanents moved by prior steps. */
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+  /** Internal runtime carry-over for scheme effects that refer to "that scheme". */
+  readonly lastSetInMotionScheme?: any;
   /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
   readonly targetCreatureId?: string;
   /** Optional direct target permanent binding used by targeted effects like Merrow Reejerey. */

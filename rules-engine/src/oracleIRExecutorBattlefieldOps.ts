@@ -6,6 +6,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { SimpleBattlefieldSelector, SimplePermanentType } from './oracleIRExecutorBattlefieldParser';
 import { stampCardPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
+import { putAttractionInJunkyard, shouldAttractionGoToCommandZone } from './remainingCardTypes';
 
 export function resolveTapOrUntapTargetIds(
   state: GameState,
@@ -80,6 +81,67 @@ function cleanBattlefieldAfterRemovingIds(
     if (Array.isArray(next.blockedBy)) next.blockedBy = next.blockedBy.filter((id: any) => !removedIds.has(String(id)));
     return next;
   });
+}
+
+function isAttractionPermanent(perm: BattlefieldPermanent): boolean {
+  const typeLine = String((perm as any)?.type_line || (perm as any)?.card?.type_line || '').toLowerCase();
+  return typeLine.includes('attraction');
+}
+
+function moveRemovedPermanentToOwnerZone(params: {
+  state: GameState;
+  player: any;
+  perm: BattlefieldPermanent;
+  destination: 'graveyard' | 'exile' | 'hand' | 'library';
+  libraryPlacement?: 'top' | 'bottom';
+}): 'graveyard' | 'exile' | 'hand' | 'library' | 'command' {
+  const { state, player, perm, destination, libraryPlacement } = params;
+  const adjustedDestination =
+    destination === 'library'
+      ? (getLeaveBattlefieldDestination(perm, 'hand') === 'exile' ? 'exile' : 'library')
+      : getLeaveBattlefieldDestination(perm, destination);
+
+  if (adjustedDestination !== 'exile' && isAttractionPermanent(perm) && shouldAttractionGoToCommandZone(adjustedDestination)) {
+    const commandZone = Array.isArray(player.commandZone) ? [...player.commandZone] : [];
+    const commandCard = putAttractionInJunkyard({
+      ...buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'command'),
+      type: 'attraction',
+      source: String((perm as any)?.card?.id || (perm as any)?.id || ''),
+      name: String((perm as any)?.card?.name || (perm as any)?.name || 'Attraction'),
+      litUpNumbers: Array.isArray((perm as any)?.card?.litUpNumbers) ? (perm as any).card.litUpNumbers : [],
+      visitAbility: String((perm as any)?.card?.visitAbility || ''),
+      inJunkyard: false,
+    } as any);
+    commandZone.push(commandCard);
+    player.commandZone = commandZone;
+    return 'command';
+  }
+
+  if (adjustedDestination === 'graveyard') {
+    const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+    graveyard.push(stampCardPutIntoGraveyardThisTurn(state, buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'graveyard')));
+    player.graveyard = graveyard;
+    return 'graveyard';
+  }
+
+  if (adjustedDestination === 'hand') {
+    const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+    hand.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'hand'));
+    player.hand = hand;
+    return 'hand';
+  }
+
+  if (adjustedDestination === 'library') {
+    const library = Array.isArray(player.library) ? [...player.library] : [];
+    const movedCard = buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'library');
+    player.library = libraryPlacement === 'top' ? [movedCard, ...library] : [...library, movedCard];
+    return 'library';
+  }
+
+  const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+  exile.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
+  player.exile = exile;
+  return 'exile';
 }
 
 export function permanentMatchesSelector(
@@ -165,31 +227,28 @@ export function finalizeBattlefieldRemoval(
 
   const players = state.players.map(p => ({ ...p } as any));
   let redirectedToExile = 0;
+  let redirectedToCommand = 0;
   for (const perm of removed) {
     if ((perm as any).isToken) continue;
     const ownerId = perm.owner;
     const player = players.find(pp => pp.id === ownerId);
     if (!player) continue;
 
-    const actualDestination = getLeaveBattlefieldDestination(perm, destination);
+    const actualDestination = moveRemovedPermanentToOwnerZone({ state, player, perm, destination });
     if (actualDestination === 'exile' && destination !== 'exile') redirectedToExile += 1;
-
-    if (actualDestination === 'graveyard') {
-      const gy = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
-      gy.push(stampCardPutIntoGraveyardThisTurn(state, buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'graveyard')));
-      player.graveyard = gy;
-    } else {
-      const ex = Array.isArray(player.exile) ? [...player.exile] : [];
-      ex.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
-      player.exile = ex;
-    }
+    if (actualDestination === 'command') redirectedToCommand += 1;
   }
 
   const log =
     removed.length > 0
       ? [
           `${verbPastTense} ${removed.length} permanent(s) from battlefield${
-            redirectedToExile > 0 ? ` (${redirectedToExile} exiled instead)` : ''
+            redirectedToExile > 0 || redirectedToCommand > 0
+              ? ` (${[
+                  redirectedToExile > 0 ? `${redirectedToExile} exiled instead` : '',
+                  redirectedToCommand > 0 ? `${redirectedToCommand} moved to the junkyard instead` : '',
+                ].filter(Boolean).join(', ')})`
+              : ''
           }`,
         ]
       : [];
@@ -247,28 +306,25 @@ export function bounceMatchingBattlefieldPermanentsToOwnersHands(
 
   const players = state.players.map(p => ({ ...p } as any));
   let redirectedToExile = 0;
+  let redirectedToCommand = 0;
   for (const perm of removed) {
     if ((perm as any).isToken) continue;
     const ownerId = perm.owner;
     const player = players.find(pp => pp.id === ownerId);
     if (!player) continue;
-    const actualDestination = getLeaveBattlefieldDestination(perm, 'hand');
-    if (actualDestination === 'exile') {
-      redirectedToExile += 1;
-      const exile = Array.isArray(player.exile) ? [...player.exile] : [];
-      exile.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
-      player.exile = exile;
-      continue;
-    }
-
-    const hand = Array.isArray(player.hand) ? [...player.hand] : [];
-    hand.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'hand'));
-    player.hand = hand;
+    const actualDestination = moveRemovedPermanentToOwnerZone({ state, player, perm, destination: 'hand' });
+    if (actualDestination === 'exile') redirectedToExile += 1;
+    if (actualDestination === 'command') redirectedToCommand += 1;
   }
 
   const log = [
     `returned ${removed.length} permanent(s) to owners' hands${
-      redirectedToExile > 0 ? ` (${redirectedToExile} exiled instead)` : ''
+      redirectedToExile > 0 || redirectedToCommand > 0
+        ? ` (${[
+            redirectedToExile > 0 ? `${redirectedToExile} exiled instead` : '',
+            redirectedToCommand > 0 ? `${redirectedToCommand} moved to the junkyard instead` : '',
+          ].filter(Boolean).join(', ')})`
+        : ''
     }`,
   ];
   return { state: { ...state, battlefield: cleanedKept as any, players: players as any } as any, log };
@@ -301,31 +357,28 @@ export function moveBattlefieldPermanentsByIdToOwnersHands(
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
   const players = state.players.map(p => ({ ...p } as any));
   let redirectedToExile = 0;
+  let redirectedToCommand = 0;
   for (const perm of removed) {
     if ((perm as any).isToken) continue;
     const ownerId = perm.owner;
     const player = players.find(pp => pp.id === ownerId);
     if (!player) continue;
 
-    const actualDestination = getLeaveBattlefieldDestination(perm, 'hand');
-    if (actualDestination === 'exile') {
-      redirectedToExile += 1;
-      const exile = Array.isArray(player.exile) ? [...player.exile] : [];
-      exile.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
-      player.exile = exile;
-      continue;
-    }
-
-    const hand = Array.isArray(player.hand) ? [...player.hand] : [];
-    hand.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'hand'));
-    player.hand = hand;
+    const actualDestination = moveRemovedPermanentToOwnerZone({ state, player, perm, destination: 'hand' });
+    if (actualDestination === 'exile') redirectedToExile += 1;
+    if (actualDestination === 'command') redirectedToCommand += 1;
   }
 
   return {
     state: { ...state, battlefield: cleanedKept as any, players: players as any } as any,
     log: [
       `returned ${removed.length} permanent(s) to owners' hands${
-        redirectedToExile > 0 ? ` (${redirectedToExile} exiled instead)` : ''
+        redirectedToExile > 0 || redirectedToCommand > 0
+          ? ` (${[
+              redirectedToExile > 0 ? `${redirectedToExile} exiled instead` : '',
+              redirectedToCommand > 0 ? `${redirectedToCommand} moved to the junkyard instead` : '',
+            ].filter(Boolean).join(', ')})`
+          : ''
       }`,
     ],
   };
@@ -359,31 +412,34 @@ export function moveBattlefieldPermanentsByIdToOwnersLibraries(
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
   const players = state.players.map(p => ({ ...p } as any));
   let redirectedToExile = 0;
+  let redirectedToCommand = 0;
   for (const perm of removed) {
     if ((perm as any).isToken) continue;
     const ownerId = ((perm as any).owner || (perm as any).ownerId) as PlayerID;
     const player = players.find(pp => pp.id === ownerId);
     if (!player) continue;
 
-    const actualDestination = getLeaveBattlefieldDestination(perm, 'graveyard');
-    if (actualDestination === 'exile') {
-      redirectedToExile += 1;
-      const exile = Array.isArray(player.exile) ? [...player.exile] : [];
-      exile.push(buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'exile'));
-      player.exile = exile;
-      continue;
-    }
-
-    const library = Array.isArray(player.library) ? [...player.library] : [];
-    const movedCard = buildZoneObjectWithRetainedCounters((perm as any).card, perm, 'library');
-    player.library = placement === 'top' ? [movedCard, ...library] : [...library, movedCard];
+    const actualDestination = moveRemovedPermanentToOwnerZone({
+      state,
+      player,
+      perm,
+      destination: 'library',
+      libraryPlacement: placement,
+    });
+    if (actualDestination === 'exile') redirectedToExile += 1;
+    if (actualDestination === 'command') redirectedToCommand += 1;
   }
 
   return {
     state: { ...state, battlefield: cleanedKept as any, players: players as any } as any,
     log: [
       `put ${removed.length} permanent(s) on the ${placement} of owners' libraries${
-        redirectedToExile > 0 ? ` (${redirectedToExile} exiled instead)` : ''
+        redirectedToExile > 0 || redirectedToCommand > 0
+          ? ` (${[
+              redirectedToExile > 0 ? `${redirectedToExile} exiled instead` : '',
+              redirectedToCommand > 0 ? `${redirectedToCommand} moved to the junkyard instead` : '',
+            ].filter(Boolean).join(', ')})`
+          : ''
       }`,
     ],
   };

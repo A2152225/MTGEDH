@@ -11,6 +11,7 @@ import {
   TriggerEvent,
 } from '../src/triggeredAbilities';
 import { canCreatureBlock, createCombatCreature } from '../src/combatAutomation';
+import { executeCleanupStep as executeTurnCleanupStep, executeUntapStep } from '../src/actions/turnActions';
 import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
@@ -20313,6 +20314,127 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(false);
     expect((result.state.battlefield as any[]).map((perm: any) => perm.id)).toEqual(['gorilla-source']);
     expect(p1?.life).toBe(40);
+  });
+
+  it('applies temporary evasion grants that combat automation respects and cleanup removes', () => {
+    const ir = parseOracleTextToIR(
+      "Double the number of +1/+1 counters on target creature. That creature can't be blocked by creatures with power 2 or less this turn.",
+      'Bright-Palm, Soul Awakener'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'bright-palm-target',
+          controller: 'p1',
+          owner: 'p1',
+          counters: { '+1/+1': 2 },
+          card: {
+            id: 'bright-palm-target-card',
+            name: 'Fox Monk',
+            type_line: 'Creature - Fox Monk',
+            power: '4',
+            toughness: '4',
+          },
+        },
+        {
+          id: 'small-blocker',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'small-blocker-card', name: 'Bear Cub', type_line: 'Creature - Bear', power: '2', toughness: '2' },
+        },
+        {
+          id: 'large-blocker',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'large-blocker-card', name: 'Hill Giant', type_line: 'Creature - Giant', power: '3', toughness: '3' },
+        },
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'bright-palm-source',
+        sourceName: 'Bright-Palm, Soul Awakener',
+        targetCreatureId: 'bright-palm-target',
+      },
+      { allowOptional: true }
+    );
+
+    const attackerPerm = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'bright-palm-target');
+    expect(attackerPerm?.counters?.['+1/+1']).toBe(4);
+    expect(attackerPerm?.temporaryEffects?.some((effect: any) => String(effect?.description || '').includes('power 2 or less'))).toBe(true);
+
+    const attacker = createCombatCreature(attackerPerm as any);
+    const smallBlocker = createCombatCreature(((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'small-blocker') as any);
+    const largeBlocker = createCombatCreature(((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'large-blocker') as any);
+
+    expect(canCreatureBlock(smallBlocker, attacker, []).legal).toBe(false);
+    expect(canCreatureBlock(largeBlocker, attacker, []).legal).toBe(true);
+
+    const cleanup = executeTurnCleanupStep(result.state as any, 'p1');
+    const cleanedAttacker = ((cleanup.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'bright-palm-target');
+    expect(cleanedAttacker?.temporaryEffects || []).toEqual([]);
+  });
+
+  it('applies detain until the detainer next turn begins', () => {
+    const ir = parseOracleTextToIR('Detain target permanent.', 'Azorius Arrester');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'detained-target',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'detained-target-card',
+            name: 'Runeclaw Bear',
+            type_line: 'Creature - Bear',
+            power: '2',
+            toughness: '2',
+          },
+        },
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+      ] as any,
+    });
+
+    const result = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'azorius-arrester',
+        sourceName: 'Azorius Arrester',
+        targetPermanentId: 'detained-target',
+      },
+      { allowOptional: true }
+    );
+
+    const detained = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'detained-target');
+    expect(detained?.temporaryEffects?.map((effect: any) => effect.description)).toEqual(
+      expect.arrayContaining(["can't attack", "can't block", "activated abilities can't be activated"])
+    );
+    expect(detained?.temporaryEffects?.every((effect: any) => effect.expiresOnControllerTurn === 'p1')).toBe(true);
+
+    const afterOpponentUntap = executeUntapStep(result.state as any, 'p2');
+    const stillDetained = ((afterOpponentUntap.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'detained-target');
+    expect(stillDetained?.temporaryEffects?.length).toBeGreaterThan(0);
+
+    const afterDetainerUntap = executeUntapStep(afterOpponentUntap.state as any, 'p1');
+    const released = ((afterDetainerUntap.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'detained-target');
+    expect(released?.temporaryEffects || []).toEqual([]);
   });
 
   it("applies remove-counter antecedents before \"if you can't\" sacrifice fallbacks for Cocoon-style text", () => {
@@ -44719,9 +44841,1061 @@ This creature has protection from each of the exiled card's card types. (Artifac
     );
 
     const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['discard', 'draw']);
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['learn']);
     expect((p1.hand || []).map((card: any) => card.id)).toEqual(['learn-draw']);
     expect((p1.graveyard || []).map((card: any) => card.id)).toEqual(['learn-discard']);
+  });
+
+  it('applies Learn by taking the only Lesson from outside the game when optional execution is enabled', () => {
+    const ir = parseOracleTextToIR('Learn', 'Professor of Symbology');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'learn-draw', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 }],
+            sideboard: [
+              { id: 'lesson-card', name: 'Mascot Exhibition', type_line: 'Sorcery - Lesson', mana_cost: '{7}', cmc: 7 },
+            ],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Professor of Symbology',
+      },
+      {
+        allowOptional: true,
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['learn']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['lesson-card']);
+    expect((p1.sideboard || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['learn-draw']);
+  });
+
+  it('records a choice gap for Learn when both discard and Lesson branches are ambiguous', () => {
+    const ir = parseOracleTextToIR('Learn', 'Professor of Symbology');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [
+              { id: 'learn-discard-a', name: 'Plains', type_line: 'Basic Land - Plains' },
+              { id: 'learn-discard-b', name: 'Island', type_line: 'Basic Land - Island' },
+            ],
+            graveyard: [],
+            library: [{ id: 'learn-draw', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 }],
+            sideboard: [
+              { id: 'lesson-a', name: 'Academic Probation', type_line: 'Sorcery - Lesson', mana_cost: '{1}{W}', cmc: 2 },
+              { id: 'lesson-b', name: 'Environmental Sciences', type_line: 'Sorcery - Lesson', mana_cost: '{2}', cmc: 2 },
+            ],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Professor of Symbology',
+      },
+      {
+        allowOptional: true,
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual([]);
+    expect(result.automationGaps.some((gap: any) => gap.reasonCode === 'player_choice_required')).toBe(true);
+  });
+
+  it('applies villainous choice when a mode is selected explicitly', () => {
+    const ir = parseOracleTextToIR(
+      'Target opponent faces a villainous choice — You draw a card, or that player loses 3 life.',
+      'Choice Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'choice-draw', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 }],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Choice Test',
+        selectorContext: { targetPlayerId: 'p2', targetOpponentId: 'p2' },
+      },
+      {
+        selectedModeIds: ['that player loses 3 life'],
+      }
+    );
+
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    expect(result.appliedSteps.some(step => step.kind === 'choose_mode')).toBe(true);
+    expect(p2.life).toBe(37);
+  });
+
+  it("applies exert so the creature doesn't untap during its controller's next untap step", () => {
+    const ir = parseOracleTextToIR('You may exert this creature as it attacks.', 'Gust Walker');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'gust-walker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: {
+            id: 'gust-walker-card',
+            name: 'Gust Walker',
+            type_line: 'Creature - Human Wizard',
+            power: '2',
+            toughness: '2',
+          },
+        },
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] },
+      ] as any,
+    });
+
+    const exerted = applyOracleIRStepsToGameState(
+      start,
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'gust-walker',
+        sourceName: 'Gust Walker',
+      },
+      { allowOptional: true }
+    );
+
+    const exertedPermanent = ((exerted.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'gust-walker');
+    expect(exerted.appliedSteps.map(step => step.kind)).toEqual(['exert']);
+    expect(exertedPermanent?.temporaryEffects?.map((effect: any) => effect.description)).toContain(
+      "doesn't untap during your next untap step"
+    );
+
+    const afterFirstUntap = executeUntapStep(exerted.state as any, 'p1');
+    const stillTapped = ((afterFirstUntap.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'gust-walker');
+    expect(stillTapped?.tapped).toBe(true);
+    expect(stillTapped?.temporaryEffects || []).toEqual([]);
+
+    const afterSecondUntap = executeUntapStep(afterFirstUntap.state as any, 'p1');
+    const untapped = ((afterSecondUntap.state.battlefield || []) as any[]).find((perm: any) => perm.id === 'gust-walker');
+    expect(untapped?.tapped).toBe(false);
+  });
+
+  it('applies open_attraction by moving the first Attraction from the attraction deck to the battlefield', () => {
+    const ir = parseOracleTextToIR('Open an Attraction.', 'Scavenger Hunt');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [],
+            attractionDeck: [
+              {
+                id: 'attraction-card-1',
+                name: 'Balloon Stand',
+                type_line: 'Artifact - Attraction',
+                litUpNumbers: [2, 6],
+                visitAbility: 'When you visit, draw a card.',
+              },
+            ],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Scavenger Hunt',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const attraction = ((result.state.battlefield || []) as any[]).find((perm: any) => perm.card?.name === 'Balloon Stand');
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['open_attraction']);
+    expect((p1.attractionDeck || []).length).toBe(0);
+    expect(attraction?.controller).toBe('p1');
+  });
+
+  it('applies roll_visit_attractions by matching lit-up numbers against the die roll', () => {
+    const ir = parseOracleTextToIR('Roll to visit your Attractions.', 'Park Map');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'visit-draw', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 }],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'opened-attraction',
+            controller: 'p1',
+            owner: 'p1',
+            card: {
+              id: 'attraction-card-1',
+              name: 'Balloon Stand',
+              type_line: 'Artifact - Attraction',
+              litUpNumbers: [2, 6],
+              visitAbility: 'When you visit, draw a card.',
+            },
+          },
+        ] as any,
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Park Map',
+        dieRollResult: 2,
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['roll_visit_attractions', 'draw']);
+    expect(result.log.some((line: string) => line.includes('Visited 1 Attraction'))).toBe(true);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['visit-draw']);
+  });
+
+  it('moves destroyed Attractions to their owner command-zone junkyard instead of the graveyard', () => {
+    const ir = parseOracleTextToIR('Destroy all artifacts you control.', 'Test');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [],
+            exile: [],
+            commandZone: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'opened-attraction',
+            controller: 'p1',
+            owner: 'p1',
+            card: {
+              id: 'attraction-card-1',
+              name: 'Balloon Stand',
+              type_line: 'Artifact - Attraction',
+              litUpNumbers: [2, 6],
+              visitAbility: 'When you visit, draw a card.',
+            },
+          } as any,
+        ],
+      } as any),
+      steps,
+      { controllerId: 'p1', sourceName: 'Test' }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.some(step => step.kind === 'destroy')).toBe(true);
+    expect(result.state.battlefield).toEqual([]);
+    expect((p1.graveyard || []).length).toBe(0);
+    expect((p1.commandZone || []).map((card: any) => card.id)).toEqual(['attraction-card-1']);
+    expect(Boolean((p1.commandZone || [])[0]?.inJunkyard)).toBe(true);
+  });
+
+  it('moves bounced Attractions to their owner command-zone junkyard instead of their hand', () => {
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [],
+            exile: [],
+            commandZone: [],
+          } as any,
+        ],
+        battlefield: [
+          {
+            id: 'opened-attraction',
+            controller: 'p1',
+            owner: 'p1',
+            card: {
+              id: 'attraction-card-1',
+              name: 'Balloon Stand',
+              type_line: 'Artifact - Attraction',
+              litUpNumbers: [2, 6],
+              visitAbility: 'When you visit, draw a card.',
+            },
+          } as any,
+        ],
+      } as any),
+      [
+        {
+          kind: 'move_zone',
+          what: { kind: 'raw', text: 'that permanent' },
+          to: 'hand',
+          toRaw: "its owner's hand",
+          raw: "Return that permanent to its owner's hand.",
+        } as any,
+      ],
+      { controllerId: 'p1', targetPermanentId: 'opened-attraction' }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone']);
+    expect(result.state.battlefield).toEqual([]);
+    expect((p1.hand || []).length).toBe(0);
+    expect((p1.commandZone || []).map((card: any) => card.id)).toEqual(['attraction-card-1']);
+    expect(Boolean((p1.commandZone || [])[0]?.inJunkyard)).toBe(true);
+  });
+
+  it('applies take_initiative by setting the initiative designation to the controller', () => {
+    const ir = parseOracleTextToIR('Take the initiative.', 'White Plume Adventurer');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'White Plume Adventurer',
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['take_initiative']);
+    expect((result.state as any).initiative).toBe('p1');
+  });
+
+  it('applies become_monarch by setting the monarch designation to the controller', () => {
+    const ir = parseOracleTextToIR('When this enchantment enters, you become the monarch.', 'Grave Venerations');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Grave Venerations',
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['become_monarch']);
+    expect((result.state as any).monarch).toBe('p1');
+  });
+
+  it('applies abandon_scheme by moving the source ongoing scheme to the bottom of the scheme deck', () => {
+    const ir = parseOracleTextToIR('Abandon this scheme.', 'Dark Wings Bring Your Downfall');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const scheme = {
+      id: 'scheme-dark-wings',
+      name: 'Dark Wings Bring Your Downfall',
+      type_line: 'Ongoing Scheme',
+      oracle_text: 'At the beginning of each end step, if two or more creatures died under your control this turn, abandon this scheme.',
+    };
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+        ongoingSchemes: [scheme] as any,
+        schemeDeck: [{ id: 'scheme-next', name: 'Next Scheme', type_line: 'Scheme' }] as any,
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'scheme-dark-wings',
+        sourceName: 'Dark Wings Bring Your Downfall',
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['abandon_scheme']);
+    expect(((result.state as any).ongoingSchemes || []).map((entry: any) => entry.id)).toEqual([]);
+    expect(((result.state as any).schemeDeck || []).map((entry: any) => entry.id)).toEqual(['scheme-next', 'scheme-dark-wings']);
+  });
+
+  it('applies set_in_motion by replaying the referenced scheme set-in-motion trigger text', () => {
+    const ir = parseOracleTextToIR('Set that scheme in motion again.', 'My Laughter Echoes');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'scheme-draw', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 }],
+            exile: [],
+          } as any,
+          {
+            id: 'p2',
+            name: 'P2',
+            seat: 1,
+            life: 40,
+            hand: [{ id: 'scheme-discard', name: 'Swamp', type_line: 'Basic Land - Swamp' }],
+            graveyard: [],
+            library: [],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'scheme-my-laughter',
+        sourceName: 'My Laughter Echoes',
+        lastSetInMotionScheme: {
+          id: 'scheme-every-dream',
+          name: 'Every Dream a Nightmare',
+          type_line: 'Scheme',
+          oracle_text: 'When you set this scheme in motion, each opponent discards a card. You draw a card for each land card discarded this way.',
+        },
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['set_in_motion', 'discard', 'draw']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['scheme-draw']);
+    expect((p2.hand || []).map((card: any) => card.id)).toEqual([]);
+    expect((p2.graveyard || []).map((card: any) => card.id)).toEqual(['scheme-discard']);
+  });
+
+  it('applies venture_into_dungeon by entering Lost Mine of Phandelver on the first venture', () => {
+    const ir = parseOracleTextToIR('Venture into the dungeon.', 'Triumphant Adventurer');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Triumphant Adventurer',
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['venture_into_dungeon', 'scry']);
+    expect((result.state as any).dungeonProgress?.p1).toMatchObject({
+      dungeonId: 'lost_mine',
+      dungeonName: 'Lost Mine of Phandelver',
+      roomIndex: 0,
+    });
+  });
+
+  it('applies planeswalk by moving the current plane to the bottom and tracking the revealed plane', () => {
+    const ir = parseOracleTextToIR('Planeswalk.', 'Spatial Merging');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const currentPlane = {
+      id: 'plane-current',
+      name: 'The Maelstrom',
+      type_line: 'Plane - Alara',
+    };
+    const nextPlane = {
+      id: 'plane-next',
+      name: 'Unyaro',
+      type_line: 'Plane - Shandalar',
+    };
+    const laterPlane = {
+      id: 'plane-later',
+      name: 'Pools of Becoming',
+      type_line: 'Plane - Bolas',
+    };
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        houseRules: { enablePlanechase: true } as any,
+        currentPlane: currentPlane as any,
+        planarDeckFaceDown: [nextPlane, laterPlane] as any,
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Spatial Merging',
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['planeswalk']);
+    expect((result.state as any).currentPlane?.id).toBe('plane-next');
+    expect(((result.state as any).planarDeckFaceDown || []).map((entry: any) => entry.id)).toEqual([
+      'plane-later',
+      'plane-current',
+    ]);
+    expect((result.state as any).planeswalkedThisTurn).toBe(true);
+    expect((result.state as any).planeswalksAttempted).toBe(1);
+    expect((result.state as any).planeswalkedToThisTurn?.p1).toEqual(['unyaro']);
+    expect((result.state as any).planeswalkedToPlanesThisTurn?.p1).toEqual(['unyaro']);
+  });
+
+  it('applies assemble by moving the first Contraption from the contraption deck to the battlefield', () => {
+    const ir = parseOracleTextToIR('Assemble a Contraption.', 'Finders, Keepers');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [],
+            contraptionDeck: [
+              {
+                id: 'contraption-card-1',
+                name: 'Auto-Key',
+                type_line: 'Artifact - Contraption',
+              },
+            ],
+            exile: [],
+          } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Finders, Keepers',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const contraption = (result.state.battlefield || []).find((perm: any) =>
+      /contraption/i.test(String(perm?.card?.type_line || perm?.type_line || ''))
+    ) as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['assemble']);
+    expect((p1.contraptionDeck || []).length).toBe(0);
+    expect(contraption?.controller).toBe('p1');
+    expect(String(contraption?.card?.name || '')).toBe('Auto-Key');
+  });
+
+  it('applies regenerate by creating a regeneration shield on the targeted permanent', () => {
+    const ir = parseOracleTextToIR('Regenerate target artifact.', 'Welding Jar');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'jar-target',
+            controller: 'p1',
+            owner: 'p1',
+            name: 'Darksteel Ingot',
+            type_line: 'Artifact',
+            tapped: false,
+            counters: {},
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Welding Jar',
+        targetPermanentId: 'jar-target',
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['regenerate']);
+    expect(((result.state as any).regenerationShields || [])).toEqual([
+      expect.objectContaining({
+        permanentId: 'jar-target',
+        controllerId: 'p1',
+        isUsed: false,
+        expiresAtEndOfTurn: true,
+      }),
+    ]);
+  });
+
+  it('consumes regeneration shields when a shielded permanent would be destroyed', () => {
+    const ir = parseOracleTextToIR('Destroy target creature.', 'Murder');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'regen-creature',
+            controller: 'p1',
+            owner: 'p1',
+            name: 'Drudge Skeletons',
+            type_line: 'Creature - Skeleton',
+            tapped: false,
+            attacking: 'p2',
+            markedDamage: 2,
+            damageMarked: 2,
+            damage: 2,
+            counters: { damage: 2 },
+          } as any,
+        ],
+        regenerationShields: [
+          {
+            id: 'regen-shield-1',
+            permanentId: 'regen-creature',
+            controllerId: 'p1',
+            createdAt: 1,
+            isUsed: false,
+            expiresAtEndOfTurn: true,
+          },
+        ] as any,
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Murder',
+        targetPermanentId: 'regen-creature',
+      }
+    );
+
+    const creature = (result.state.battlefield || []).find((perm: any) => perm.id === 'regen-creature') as any;
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['destroy']);
+    expect(creature).toBeTruthy();
+    expect(creature.tapped).toBe(true);
+    expect(creature.attacking).toBeUndefined();
+    expect(creature.markedDamage).toBe(0);
+    expect(creature.damageMarked).toBe(0);
+    expect(creature.counters?.damage).toBe(0);
+    expect((p1.graveyard || []).length).toBe(0);
+    expect(((result.state as any).regenerationShields || [])[0]).toEqual(
+      expect.objectContaining({
+        permanentId: 'regen-creature',
+        isUsed: true,
+      })
+    );
+  });
+
+  it("does not use regeneration shields when destroy says the permanent can't be regenerated", () => {
+    const ir = parseOracleTextToIR("Destroy target creature. It can't be regenerated.", 'Terror');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'regen-creature',
+            controller: 'p1',
+            owner: 'p1',
+            name: 'Drudge Skeletons',
+            type_line: 'Creature - Skeleton',
+            tapped: false,
+            counters: {},
+            card: {
+              id: 'regen-card',
+              name: 'Drudge Skeletons',
+              type_line: 'Creature - Skeleton',
+            },
+          } as any,
+        ],
+        regenerationShields: [
+          {
+            id: 'regen-shield-1',
+            permanentId: 'regen-creature',
+            controllerId: 'p1',
+            createdAt: 1,
+            isUsed: false,
+            expiresAtEndOfTurn: true,
+          },
+        ] as any,
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Terror',
+        targetPermanentId: 'regen-creature',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect((result.state.battlefield || []).find((perm: any) => perm.id === 'regen-creature')).toBeUndefined();
+    expect((p1.graveyard || []).some((card: any) => card.id === 'regen-card')).toBe(true);
+    expect(((result.state as any).regenerationShields || [])[0]).toEqual(
+      expect.objectContaining({
+        permanentId: 'regen-creature',
+        isUsed: false,
+      })
+    );
+  });
+
+  it('applies venture_into_dungeon with an explicit dungeon choice for Tomb of Annihilation', () => {
+    const ir = parseOracleTextToIR('Venture into the dungeon.', 'Triumphant Adventurer');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Triumphant Adventurer',
+        selectorContext: { chosenDungeonId: 'tomb' },
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['venture_into_dungeon', 'lose_life']);
+    expect((result.state as any).dungeonProgress?.p1).toMatchObject({
+      dungeonId: 'tomb',
+      dungeonName: 'Tomb of Annihilation',
+      roomIndex: 0,
+      roomId: 'trapped_entry',
+    });
+    expect(p1.life).toBe(39);
+    expect(p2.life).toBe(39);
+  });
+
+  it('applies venture_into_dungeon room effects along the deterministic Lost Mine path', () => {
+    const ir = parseOracleTextToIR('Venture into the dungeon.', 'Triumphant Adventurer');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+        dungeonProgress: {
+          p1: {
+            dungeonId: 'lost_mine',
+            dungeonName: 'Lost Mine of Phandelver',
+            roomIndex: 0,
+          },
+        } as any,
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Triumphant Adventurer',
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['venture_into_dungeon', 'create_token']);
+    expect((result.state as any).dungeonProgress?.p1).toMatchObject({
+      dungeonId: 'lost_mine',
+      dungeonName: 'Lost Mine of Phandelver',
+      roomIndex: 1,
+    });
+    const battlefield = (result.state as any).battlefield || [];
+    const goblinToken = battlefield.find((perm: any) => /goblin/i.test(String(perm?.name || perm?.card?.name || '')));
+    expect(goblinToken).toBeTruthy();
+  });
+
+  it('applies venture_into_dungeon with an explicit branch choice for Mine Tunnels', () => {
+    const ir = parseOracleTextToIR('Venture into the dungeon.', 'Triumphant Adventurer');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+        dungeonProgress: {
+          p1: {
+            dungeonId: 'lost_mine',
+            dungeonName: 'Lost Mine of Phandelver',
+            roomIndex: 0,
+            roomId: 'cave_entrance',
+          },
+        } as any,
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Triumphant Adventurer',
+        selectorContext: { chosenDungeonRoomId: 'mine_tunnels' },
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['venture_into_dungeon', 'create_token']);
+    expect((result.state as any).dungeonProgress?.p1).toMatchObject({
+      dungeonId: 'lost_mine',
+      dungeonName: 'Lost Mine of Phandelver',
+      roomIndex: 1,
+      roomId: 'mine_tunnels',
+    });
+    const battlefield = (result.state as any).battlefield || [];
+    const treasureToken = battlefield.find((perm: any) => /treasure/i.test(String(perm?.name || perm?.card?.name || '')));
+    expect(treasureToken).toBeTruthy();
+  });
+
+  it('applies venture_into_dungeon with an explicit branch choice for Dark Pool', () => {
+    const ir = parseOracleTextToIR('Venture into the dungeon.', 'Triumphant Adventurer');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+        dungeonProgress: {
+          p1: {
+            dungeonId: 'lost_mine',
+            dungeonName: 'Lost Mine of Phandelver',
+            roomIndex: 1,
+            roomId: 'goblin_lair',
+          },
+        } as any,
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Triumphant Adventurer',
+        selectorContext: { chosenDungeonRoomId: 'dark_pool' },
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['venture_into_dungeon', 'lose_life', 'gain_life']);
+    expect((result.state as any).dungeonProgress?.p1).toMatchObject({
+      dungeonId: 'lost_mine',
+      dungeonName: 'Lost Mine of Phandelver',
+      roomIndex: 2,
+      roomId: 'dark_pool',
+    });
+    expect(p1.life).toBe(41);
+    expect(p2.life).toBe(39);
+  });
+
+  it('applies venture_into_dungeon storeroom by placing a +1/+1 counter on the only legal creature', () => {
+    const ir = parseOracleTextToIR('Venture into the dungeon.', 'Triumphant Adventurer');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [
+          {
+            id: 'storeroom-target',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            summoningSick: false,
+            counters: {},
+            card: {
+              id: 'storeroom-target-card',
+              name: 'Storeroom Target',
+              type_line: 'Creature - Human Soldier',
+            },
+          } as any,
+        ],
+        dungeonProgress: {
+          p1: {
+            dungeonId: 'lost_mine',
+            dungeonName: 'Lost Mine of Phandelver',
+            roomIndex: 1,
+          },
+        } as any,
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Triumphant Adventurer',
+      }
+    );
+
+    const target = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'storeroom-target') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['venture_into_dungeon', 'add_counter']);
+    expect((result.state as any).dungeonProgress?.p1).toMatchObject({
+      dungeonId: 'lost_mine',
+      dungeonName: 'Lost Mine of Phandelver',
+      roomIndex: 2,
+    });
+    expect((target?.counters || {})['+1/+1']).toBe(1);
+  });
+
+  it('applies venture_into_dungeon by completing the dungeon on the final room and enabling completion conditionals', () => {
+    const ir = parseOracleTextToIR('Venture into the dungeon. If you completed a dungeon this turn, draw a card.', 'Nadaar');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [
+              { id: 'dungeon-draw', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 },
+              { id: 'dungeon-draw-2', name: 'Ponder', type_line: 'Sorcery', mana_cost: '{U}', cmc: 1 },
+            ],
+            exile: [],
+          } as any,
+        ],
+        dungeonProgress: {
+          p1: {
+            dungeonId: 'lost_mine',
+            dungeonName: 'Lost Mine of Phandelver',
+            roomIndex: 2,
+          },
+        } as any,
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Nadaar',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['venture_into_dungeon', 'draw', 'draw']);
+    expect((result.state as any).dungeonProgress?.p1).toBeUndefined();
+    expect((result.state as any).dungeonCompletedThisTurn?.p1).toBe(true);
+    expect((result.state as any).dungeonCompleted?.p1).toBe(true);
+    expect((result.state as any).completedDungeons?.p1).toBe(1);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['dungeon-draw', 'dungeon-draw-2']);
+  });
+
+  it('applies initiative-gated conditionals when you have the initiative', () => {
+    const ir = parseOracleTextToIR('If you have the initiative, draw a card.', 'Seasoned Dungeoneer');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        initiative: 'p1' as any,
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [],
+            library: [{ id: 'initiative-draw', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', cmc: 1 }],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Seasoned Dungeoneer',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['draw']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['initiative-draw']);
   });
 
   it('applies Manifest dread by manifesting the first of the top two cards and milling the rest', () => {
@@ -44950,6 +46124,270 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     expect((secondSource?.counters || {})['+1/+1']).toBe(1);
     expect(secondSource?.isRenowned).toBe(true);
+  });
+
+  it('applies Monstrosity keyword lines by adding counters once and marking the source as monstrous', () => {
+    const ir = parseOracleTextToIR('Monstrosity 3.', 'Hundred-Handed One');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'monstrosity-source',
+          ownerId: 'p1',
+          owner: 'p1',
+          controller: 'p1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          power: 3,
+          toughness: 5,
+          basePower: 3,
+          baseToughness: 5,
+          card: {
+            id: 'monstrosity-source-card',
+            name: 'Hundred-Handed One',
+            type_line: 'Creature - Giant',
+            oracle_text: 'Monstrosity 3',
+            power: '3',
+            toughness: '5',
+          },
+        } as any,
+      ],
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    } as any);
+
+    const first = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceId: 'monstrosity-source',
+      sourceName: 'Hundred-Handed One',
+    });
+    const firstSource = (first.state.battlefield as any[]).find((perm: any) => perm.id === 'monstrosity-source');
+
+    expect((firstSource?.counters || {})['+1/+1']).toBe(3);
+    expect(firstSource?.isMonstrous).toBe(true);
+    expect(firstSource?.monstrosityX).toBe(3);
+
+    const second = applyOracleIRStepsToGameState(first.state, steps, {
+      controllerId: 'p1',
+      sourceId: 'monstrosity-source',
+      sourceName: 'Hundred-Handed One',
+    });
+    const secondSource = (second.state.battlefield as any[]).find((perm: any) => perm.id === 'monstrosity-source');
+
+    expect((secondSource?.counters || {})['+1/+1']).toBe(3);
+    expect(secondSource?.isMonstrous).toBe(true);
+    expect(secondSource?.monstrosityX).toBe(3);
+  });
+
+  it('applies Endure by adding counters when that mode is selected', () => {
+    const ir = parseOracleTextToIR('Endure 2.', 'Wary Watchdog');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'endure-source',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            summoningSickness: false,
+            counters: {},
+            power: 2,
+            toughness: 2,
+            basePower: 2,
+            baseToughness: 2,
+            card: {
+              id: 'endure-source-card',
+              name: 'Wary Watchdog',
+              type_line: 'Creature - Dog',
+              oracle_text: 'Endure 2',
+              power: '2',
+              toughness: '2',
+            },
+          } as any,
+        ],
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'endure-source',
+        sourceName: 'Wary Watchdog',
+      },
+      {
+        selectedModeIds: ['Put 2 +1/+1 counters on this permanent'],
+      }
+    );
+
+    const source = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'endure-source');
+    expect(result.appliedSteps.some(step => step.kind === 'choose_mode')).toBe(true);
+    expect((source?.counters || {})['+1/+1']).toBe(2);
+  });
+
+  it('applies Endure by creating a Spirit token when that mode is selected', () => {
+    const ir = parseOracleTextToIR('Endure 2.', 'Wary Watchdog');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'endure-source',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            summoningSickness: false,
+            counters: {},
+            power: 2,
+            toughness: 2,
+            basePower: 2,
+            baseToughness: 2,
+            card: {
+              id: 'endure-source-card',
+              name: 'Wary Watchdog',
+              type_line: 'Creature - Dog',
+              oracle_text: 'Endure 2',
+              power: '2',
+              toughness: '2',
+            },
+          } as any,
+        ],
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'endure-source',
+        sourceName: 'Wary Watchdog',
+      },
+      {
+        selectedModeIds: ['Create a 2/2 white Spirit creature token'],
+      }
+    );
+
+    const battlefield = (result.state.battlefield as any[]).filter((perm: any) => String(perm?.controller || '') === 'p1');
+    const spiritToken = battlefield.find((perm: any) => String(perm?.card?.type_line || '').includes('Spirit'));
+
+    expect(result.appliedSteps.some(step => step.kind === 'choose_mode')).toBe(true);
+    expect(spiritToken).toBeTruthy();
+    expect(Number(spiritToken?.power ?? spiritToken?.basePower ?? spiritToken?.card?.power)).toBe(2);
+    expect(Number(spiritToken?.toughness ?? spiritToken?.baseToughness ?? spiritToken?.card?.toughness)).toBe(2);
+  });
+
+  it('applies Collect evidence by exiling a deterministic graveyard subset with enough total mana value', () => {
+    const ir = parseOracleTextToIR('Collect evidence 4.', 'Deadly Cover-Up');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [
+              { id: 'evidence-1', name: 'One Drop', type_line: 'Creature - Human', mana_cost: '{W}', cmc: 1 },
+              { id: 'evidence-2', name: 'Four Drop', type_line: 'Creature - Beast', mana_cost: '{3}{G}', cmc: 4 },
+              { id: 'evidence-3', name: 'Two Drop', type_line: 'Instant', mana_cost: '{1}{U}', cmc: 2 },
+            ],
+            library: [],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Deadly Cover-Up',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect((p1.exile || []).map((card: any) => card.id)).toEqual(['evidence-2']);
+    expect((p1.graveyard || []).map((card: any) => card.id)).toEqual(['evidence-1', 'evidence-3']);
+  });
+
+  it('applies immediate collect evidence follow-up conditionals when evidence was collected', () => {
+    const ir = parseOracleTextToIR('Collect evidence 4. If evidence was collected, draw a card.', 'Deadly Cover-Up');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [
+              { id: 'evidence-2', name: 'Four Drop', type_line: 'Creature - Beast', mana_cost: '{3}{G}', cmc: 4 },
+            ],
+            library: [{ id: 'drawn-after-evidence', name: 'Drawn', type_line: 'Instant' }],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Deadly Cover-Up',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect((p1.exile || []).map((card: any) => card.id)).toEqual(['evidence-2']);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['drawn-after-evidence']);
+  });
+
+  it('skips immediate collect evidence follow-up conditionals when evidence was not collected', () => {
+    const ir = parseOracleTextToIR('Collect evidence 4. If evidence was collected, draw a card.', 'Deadly Cover-Up');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [],
+            graveyard: [{ id: 'evidence-1', name: 'One Drop', type_line: 'Creature - Human', mana_cost: '{W}', cmc: 1 }],
+            library: [{ id: 'undrawn-after-failed-evidence', name: 'Undrawn', type_line: 'Instant' }],
+            exile: [],
+          } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Deadly Cover-Up',
+      }
+    );
+
+    const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
+    expect((p1.exile || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['undrawn-after-failed-evidence']);
   });
 
   it('applies Ingest keyword lines by exiling the top card of the damaged player library', () => {

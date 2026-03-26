@@ -40,6 +40,40 @@ type TokenStepRuntime = {
   readonly lastMovedCards?: readonly any[];
 };
 
+function applyTemporaryGrantedAbilitiesToToken(
+  token: BattlefieldPermanent | any,
+  grantedAbilities: readonly string[] | undefined
+): BattlefieldPermanent | any {
+  if (!Array.isArray(grantedAbilities) || grantedAbilities.length === 0) return token;
+
+  const normalizedAbilities = grantedAbilities
+    .map(value => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (normalizedAbilities.length === 0) return token;
+
+  const nextGrantedAbilities = Array.from(
+    new Set([...(Array.isArray((token as any)?.grantedAbilities) ? (token as any).grantedAbilities : []), ...normalizedAbilities])
+  );
+  const nextTemporaryEffects = Array.isArray((token as any)?.temporaryEffects)
+    ? [...(token as any).temporaryEffects]
+    : [];
+
+  for (const ability of normalizedAbilities) {
+    nextTemporaryEffects.push({
+      id: `${String((token as any)?.id || 'token')}:temp:${ability.replace(/[^a-z0-9]+/g, '-')}`,
+      description: ability,
+      expiresAt: 'end_of_turn',
+      grantedAbilities: [ability],
+    } as any);
+  }
+
+  return {
+    ...token,
+    grantedAbilities: nextGrantedAbilities,
+    temporaryEffects: nextTemporaryEffects,
+  } as any;
+}
+
 function getOwnerIdFromCard(card: any): string {
   return String(
     card?.ownerId ??
@@ -556,7 +590,8 @@ function addTokensToBattlefield(
   entersTapped?: boolean,
   withCounters?: Record<string, number>,
   attackTargetPlayerId?: string,
-  grantedAbilities?: readonly string[]
+  temporaryGrantedAbilities?: readonly string[],
+  permanentGrantedAbilities?: readonly string[]
 ): StepApplyResult | StepSkipResult {
   const hasOverrides = Boolean(entersTapped) || (withCounters && Object.keys(withCounters).length > 0);
   const copySource = resolveCopyTokenSource(state, tokenHint, ctx, runtime);
@@ -605,11 +640,16 @@ function addTokensToBattlefield(
         token.defendingPlayerId = attackTargetPlayerId;
       }
 
-      if (Array.isArray(grantedAbilities) && grantedAbilities.length > 0) {
-        token.grantedAbilities = Array.from(new Set([...(Array.isArray(token.grantedAbilities) ? token.grantedAbilities : []), ...grantedAbilities]));
-      }
-
-      copiedTokens.push(token);
+      const tokenWithPermanentAbilities =
+        Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
+          ? {
+              ...token,
+              grantedAbilities: Array.from(
+                new Set([...(Array.isArray(token.grantedAbilities) ? token.grantedAbilities : []), ...permanentGrantedAbilities])
+              ),
+            }
+          : token;
+      copiedTokens.push(applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities));
     }
     return {
       applied: true,
@@ -674,10 +714,16 @@ function addTokensToBattlefield(
             createdToken.attackingPlayerId = controllerId;
             createdToken.defendingPlayerId = attackTargetPlayerId;
           }
-          if (Array.isArray(grantedAbilities) && grantedAbilities.length > 0) {
-            createdToken.grantedAbilities = Array.from(new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...grantedAbilities]));
-          }
-          return createdToken;
+          const tokenWithPermanentAbilities =
+            Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
+              ? {
+                  ...createdToken,
+                  grantedAbilities: Array.from(
+                    new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...permanentGrantedAbilities])
+                  ),
+                }
+              : createdToken;
+          return applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities);
         });
         return {
           applied: true,
@@ -717,10 +763,16 @@ function addTokensToBattlefield(
             createdToken.attackingPlayerId = controllerId;
             createdToken.defendingPlayerId = attackTargetPlayerId;
           }
-          if (Array.isArray(grantedAbilities) && grantedAbilities.length > 0) {
-            createdToken.grantedAbilities = Array.from(new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...grantedAbilities]));
-          }
-          return createdToken;
+          const tokenWithPermanentAbilities =
+            Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
+              ? {
+                  ...createdToken,
+                  grantedAbilities: Array.from(
+                    new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...permanentGrantedAbilities])
+                  ),
+                }
+              : createdToken;
+          return applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities);
         });
         return {
           applied: true,
@@ -756,10 +808,16 @@ function addTokensToBattlefield(
       createdToken.attackingPlayerId = controllerId;
       createdToken.defendingPlayerId = attackTargetPlayerId;
     }
-    if (Array.isArray(grantedAbilities) && grantedAbilities.length > 0) {
-      createdToken.grantedAbilities = Array.from(new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...grantedAbilities]));
-    }
-    return createdToken;
+    const tokenWithPermanentAbilities =
+      Array.isArray(permanentGrantedAbilities) && permanentGrantedAbilities.length > 0
+        ? {
+            ...createdToken,
+            grantedAbilities: Array.from(
+              new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...permanentGrantedAbilities])
+            ),
+          }
+        : createdToken;
+    return applyTemporaryGrantedAbilitiesToToken(tokenWithPermanentAbilities, temporaryGrantedAbilities);
   });
   return {
     applied: true,
@@ -892,7 +950,8 @@ export function applyCreateTokenStep(
         step.entersTapped,
         step.withCounters,
         attackTarget,
-        step.grantsHaste ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn
+        step.grantsHaste === 'until_end_of_turn' ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn,
+        step.grantsHaste === 'permanent' ? ['haste'] : undefined
       );
       if (!result.applied) return result;
       nextState = result.state;

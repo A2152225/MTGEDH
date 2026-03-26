@@ -13,6 +13,7 @@ import {
   evaluateOpponentControlCondition,
   evaluateQualifiedSpellCastCondition,
   evaluateRenownedCondition,
+  evaluateSelfBecomesMonstrousCondition,
   evaluateSelfEntersBattlefieldCondition,
   evaluateSelfCastSpellCondition,
   evaluateTargetedSpellCastCondition,
@@ -168,6 +169,10 @@ export function evaluateTriggerCondition(
   const selfEnters = evaluateSelfEntersBattlefieldCondition(conditionLower, eventData, sourceId);
   if (selfEnters !== null) {
     return selfEnters;
+  }
+  const selfBecomesMonstrous = evaluateSelfBecomesMonstrousCondition(conditionLower, eventData, sourceId);
+  if (selfBecomesMonstrous !== null) {
+    return selfBecomesMonstrous;
   }
   const evolveEnters = evaluateEvolveEntersCondition(conditionLower, controllerId, eventData, sourceId);
   if (evolveEnters !== null) {

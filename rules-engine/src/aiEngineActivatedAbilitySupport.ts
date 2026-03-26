@@ -1,6 +1,7 @@
 import type { BattlefieldPermanent, GameState, KnownCardRef, PlayerID } from '../../shared/src';
 import { cardAnalyzer, CardCategory, SynergyArchetype } from './CardAnalyzer';
 import type { AIPlayerConfig } from './AIEngine';
+import { getCombinedPermanentText } from './permanentText';
 
 type HasPermanentType = (perm: BattlefieldPermanent, type: string) => boolean;
 type GetPrimaryArchetypes = (config: AIPlayerConfig) => readonly SynergyArchetype[];
@@ -211,8 +212,7 @@ export function canActivateAbilityNow(
   playerId: PlayerID,
   deps: { readonly hasPermanentType: HasPermanentType }
 ): boolean {
-  const card = perm.card as KnownCardRef;
-  const oracleText = (card?.oracle_text || '').toLowerCase();
+  const oracleText = getCombinedPermanentText(perm);
 
   if (perm.tapped && oracleText.includes('{t}')) {
     return false;
@@ -222,6 +222,10 @@ export function canActivateAbilityNow(
     if (deps.hasPermanentType(perm, 'creature') && !oracleText.includes('haste')) {
       return false;
     }
+  }
+
+  if (oracleText.includes("activated abilities can't be activated")) {
+    return false;
   }
 
   if (

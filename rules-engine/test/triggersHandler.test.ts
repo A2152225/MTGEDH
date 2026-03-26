@@ -290,6 +290,33 @@ describe('triggersHandler Oracle automation', () => {
     expect(renownTrigger?.effect).toBe('Put 1 +1/+1 counter on this creature. This creature becomes renowned.');
   });
 
+  it('finds becomes-monstrous triggers on the battlefield', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'monstrous-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'monstrous-card',
+            name: 'Test Monster',
+            type_line: 'Creature - Beast',
+            oracle_text: 'Whenever this creature becomes monstrous, draw a card.',
+          },
+        } as any,
+      ],
+    });
+
+    const abilities = findTriggeredAbilities(start);
+    const monstrousTrigger = abilities.find(ability => ability.sourceId === 'monstrous-perm');
+
+    expect(monstrousTrigger).toBeTruthy();
+    expect(monstrousTrigger?.event).toBe(TriggerEvent.BECAME_MONSTROUS);
+    expect(monstrousTrigger?.triggerFilter).toBe('this creature becomes monstrous');
+    expect(monstrousTrigger?.effect).toBe('draw a card.');
+  });
+
   it('finds Ingest as a synthesized combat-damage trigger on the battlefield', () => {
     const start = makeState({
       battlefield: [

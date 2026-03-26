@@ -163,6 +163,138 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const exertMatch = clause.match(/^exert(?:\s+(.+?))?(?:\s+as\s+it\s+attacks)?$/i);
+    if (exertMatch) {
+      return withMeta({
+        kind: 'exert',
+        target: parseObjectSelector(String(exertMatch[1] || 'this permanent').trim()),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const openAttractionMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:open|opens)\\s+an\\s+attraction$`, 'i'));
+    if (openAttractionMatch) {
+      return withMeta({
+        kind: 'open_attraction',
+        who: parsePlayerSelector(openAttractionMatch[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const rollVisitMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}roll(?:s)?\\s+to\\s+visit\\s+(?:your|their|his or her)\\s+attractions$`, 'i'));
+    if (rollVisitMatch) {
+      return withMeta({
+        kind: 'roll_visit_attractions',
+        who: parsePlayerSelector(rollVisitMatch[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const initiativeMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}take(?:s)?\\s+the\\s+initiative$`, 'i'));
+    if (initiativeMatch) {
+      return withMeta({
+        kind: 'take_initiative',
+        who: parsePlayerSelector(initiativeMatch[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const monarchMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}become(?:s)?\\s+the\\s+monarch$`, 'i'));
+    if (monarchMatch) {
+      return withMeta({
+        kind: 'become_monarch',
+        who: parsePlayerSelector(monarchMatch[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const ventureMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}venture(?:s)?\\s+into\\s+the\\s+dungeon$`, 'i'));
+    if (ventureMatch) {
+      return withMeta({
+        kind: 'venture_into_dungeon',
+        who: parsePlayerSelector(ventureMatch[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const planeswalkMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}planeswalk(?:s)?$`, 'i'));
+    if (planeswalkMatch) {
+      return withMeta({
+        kind: 'planeswalk',
+        who: parsePlayerSelector(planeswalkMatch[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const assembleMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}assemble(?:s)?(?:\\s+a\\s+contraption)?$`, 'i'));
+    if (assembleMatch) {
+      return withMeta({
+        kind: 'assemble',
+        who: parsePlayerSelector(assembleMatch[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const regenerateMatch = clause.match(/^regenerate\s+(.+)$/i);
+    if (regenerateMatch) {
+      return withMeta({
+        kind: 'regenerate',
+        target: parseObjectSelector(regenerateMatch[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const abandonSchemeMatch = clause.match(/^abandon\s+(this|that)\s+scheme$/i);
+    if (abandonSchemeMatch) {
+      return withMeta({
+        kind: 'abandon_scheme',
+        target: { kind: 'raw', text: `${String(abandonSchemeMatch[1] || '').toLowerCase()} scheme` },
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const setInMotionMatch = clause.match(/^set\s+(this|that)\s+scheme\s+in\s+motion(?:\s+again)?$/i);
+    if (setInMotionMatch) {
+      return withMeta({
+        kind: 'set_in_motion',
+        target: { kind: 'raw', text: `${String(setInMotionMatch[1] || '').toLowerCase()} scheme` },
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const learnMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:learn|learns)\\b$`, 'i'));
+    if (learnMatch) {
+      return withMeta({
+        kind: 'learn',
+        who: parsePlayerSelector(learnMatch[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const clash = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:clash|clashes)\\s+with\\s+an\\s+opponent\\b`, 'i'));
     if (clash) {
       return withMeta({
@@ -215,6 +347,18 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'skip_next_draw_step',
         who: parsePlayerSelector(skipNextDrawStep[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const monstrosityMatch = clause.match(/^monstrosity\s+(a|an|\d+|x|[a-z]+)$/i);
+    if (monstrosityMatch) {
+      return withMeta({
+        kind: 'monstrosity',
+        target: parseObjectSelector('this permanent'),
+        amount: parseQuantity(monstrosityMatch[1]),
         raw: rawClause,
       });
     }
@@ -409,6 +553,17 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'goad',
         target: parseObjectSelector(goad[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const detain = clause.match(/^detain\s+(.+)$/i);
+    if (detain) {
+      return withMeta({
+        kind: 'detain',
+        target: parseObjectSelector(detain[1]),
         raw: rawClause,
       });
     }

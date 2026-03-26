@@ -81,7 +81,7 @@ export function parseKeywordActionAbility(text: string): ParsedAbility | null {
     return {
       type: AbilityType.STATIC,
       text,
-      effect: 'You may discard a card. If you do, draw a card.',
+      effect: 'Learn.',
     };
   }
 
@@ -101,11 +101,87 @@ export function parseKeywordActionAbility(text: string): ParsedAbility | null {
     };
   }
 
+  if (/^exert\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: 'Exert.',
+    };
+  }
+
+  if (/^open an attraction\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: 'Open an Attraction.',
+    };
+  }
+
+  if (/^roll to visit your attractions\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: 'Roll to visit your Attractions.',
+    };
+  }
+
+  if (/^take the initiative\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: 'Take the initiative.',
+    };
+  }
+
+  if (/^venture into the dungeon\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: 'Venture into the dungeon.',
+    };
+  }
+
+  if (/^abandon this scheme\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: 'Abandon this scheme.',
+    };
+  }
+
+  if (/^set (?:this|that) scheme in motion(?: again)?\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: cleaned.endsWith('.') ? cleaned : `${cleaned}.`,
+    };
+  }
+
+  const endureMatch = cleaned.match(/^endure\s+(\d+)\.?$/i);
+  if (endureMatch) {
+    const amountText = String(endureMatch[1] || '').toUpperCase();
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: `Endure ${amountText}.`,
+    };
+  }
+
   if (/^clash with an opponent\.?$/i.test(cleaned)) {
     return {
       type: AbilityType.STATIC,
       text,
       effect: 'Clash with an opponent.',
+    };
+  }
+
+  const collectEvidenceMatch = cleaned.match(/^collect evidence\s+(\d+)\.?$/i);
+  if (collectEvidenceMatch) {
+    const amountText = String(collectEvidenceMatch[1] || '').toUpperCase();
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: `Collect evidence ${amountText}.`,
     };
   }
 
@@ -166,6 +242,24 @@ export function parseKeywordActionAbility(text: string): ParsedAbility | null {
       type: AbilityType.STATIC,
       text,
       effect: 'Goad target creature.',
+    };
+  }
+
+  if (/^detain target permanent\.?$/i.test(cleaned)) {
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: 'Detain target permanent.',
+    };
+  }
+
+  const monstrosityMatch = cleaned.match(/^monstrosity\s+(\d+|x)\.?$/i);
+  if (monstrosityMatch) {
+    const amountText = String(monstrosityMatch[1] || '').toUpperCase();
+    return {
+      type: AbilityType.STATIC,
+      text,
+      effect: `Monstrosity ${amountText}.`,
     };
   }
 

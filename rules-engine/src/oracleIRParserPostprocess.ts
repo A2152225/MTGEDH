@@ -3900,6 +3900,17 @@ function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: '
     };
   }
 
+  const collectEvidenceMatch = normalized.match(/^collect evidence\s+(\d+)$/i);
+  if (collectEvidenceMatch) {
+    return {
+      kind: 'collect_evidence',
+      who: { kind: 'you' },
+      amount: parseQuantity(String(collectEvidenceMatch[1] || '').trim()),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   if (/^proliferate$/i.test(normalized)) {
     return {
       kind: 'proliferate',
@@ -4038,6 +4049,60 @@ function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: '
     };
   }
 
+  if (/^exert$/i.test(normalized)) {
+    return {
+      kind: 'exert',
+      target: { kind: 'raw', text: 'this permanent' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^open an attraction$/i.test(normalized)) {
+    return {
+      kind: 'open_attraction',
+      who: { kind: 'you' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^roll to visit your attractions$/i.test(normalized)) {
+    return {
+      kind: 'roll_visit_attractions',
+      who: { kind: 'you' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^take the initiative$/i.test(normalized)) {
+    return {
+      kind: 'take_initiative',
+      who: { kind: 'you' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^become the monarch$/i.test(normalized)) {
+    return {
+      kind: 'become_monarch',
+      who: { kind: 'you' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^venture into the dungeon$/i.test(normalized)) {
+    return {
+      kind: 'venture_into_dungeon',
+      who: { kind: 'you' },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   if (/^clash with an opponent$/i.test(normalized)) {
     return {
       kind: 'clash',
@@ -4055,6 +4120,48 @@ function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: '
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
     };
+  }
+
+  const endureMatch = normalized.match(/^endure\s+(\d+)$/i);
+  if (endureMatch) {
+    const endureAmount = Number.parseInt(String(endureMatch[1] || '0'), 10);
+    if (Number.isFinite(endureAmount) && endureAmount > 0) {
+      return {
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+        modes: [
+          {
+            label: `Put ${endureAmount} +1/+1 counter${endureAmount === 1 ? '' : 's'} on this permanent`,
+            raw: `Put ${endureAmount} +1/+1 counter${endureAmount === 1 ? '' : 's'} on this permanent`,
+            steps: [
+              {
+                kind: 'add_counter',
+                target: { kind: 'raw', text: 'this permanent' },
+                counter: '+1/+1',
+                amount: { kind: 'number', value: endureAmount },
+                raw: `Put ${endureAmount} +1/+1 counter${endureAmount === 1 ? '' : 's'} on this permanent`,
+              },
+            ],
+          },
+          {
+            label: `Create a ${endureAmount}/${endureAmount} white Spirit creature token`,
+            raw: `Create a ${endureAmount}/${endureAmount} white Spirit creature token`,
+            steps: [
+              {
+                kind: 'create_token',
+                who: { kind: 'you' },
+                amount: { kind: 'number', value: 1 },
+                token: `${endureAmount}/${endureAmount} white Spirit`,
+                raw: `Create a ${endureAmount}/${endureAmount} white Spirit creature token`,
+              },
+            ],
+          },
+        ],
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
   }
 
   const conniveMatch = normalized.match(/^connive(?:\s+(\d+|x))?$/i);
@@ -4105,6 +4212,41 @@ export function expandKeywordActionUnknownAbilities(
     });
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+export function mergeDestroyCantRegenerateFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const mergedSteps: OracleEffectStep[] = [];
+    let changed = false;
+
+    for (let index = 0; index < ability.steps.length; index += 1) {
+      const step = ability.steps[index];
+      const next = ability.steps[index + 1];
+
+      if (
+        step?.kind === 'destroy' &&
+        next?.kind === 'unknown' &&
+        /^(?:it|they|that (?:permanent|creature|artifact|enchantment|land|planeswalker)|those (?:permanents|creatures|artifacts|enchantments|lands|planeswalkers)) can't be regenerated$/i.test(
+          normalizeOracleText(String(next.raw || '')).replace(/^then\b\s*/i, '').trim()
+        )
+      ) {
+        mergedSteps.push({
+          ...step,
+          cantBeRegenerated: true,
+          raw: `${String(step.raw || '').trim()} ${String(next.raw || '').trim()}`.trim(),
+        });
+        changed = true;
+        index += 1;
+        continue;
+      }
+
+      mergedSteps.push(step);
+    }
+
+    return changed ? { ...ability, steps: mergedSteps } : ability;
   });
 }
 

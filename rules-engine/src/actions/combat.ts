@@ -28,6 +28,7 @@ import {
   type AttackCostCheckResult,
   type AttackCostRequirement,
 } from '../pillowfortEffects';
+import { getCombinedPermanentText, getPermanentTextFragments } from '../permanentText';
 import { applyStaticAbilitiesToBattlefield } from '../staticAbilities';
 
 export interface AttackerDeclaration {
@@ -103,24 +104,6 @@ const BLOCKER_CAPACITY_WORDS: Record<string, number> = {
   eighty: 80,
   ninety: 90,
 };
-
-function getPermanentTextFragments(permanent: any): string[] {
-  const fragments: string[] = [];
-
-  const cardOracle = String(permanent?.card?.oracle_text || '').trim();
-  if (cardOracle) fragments.push(cardOracle);
-
-  const permanentOracle = String(permanent?.oracle_text || '').trim();
-  if (permanentOracle && permanentOracle !== cardOracle) {
-    fragments.push(permanentOracle);
-  }
-
-  if (Array.isArray(permanent?.grantedAbilities) && permanent.grantedAbilities.length > 0) {
-    fragments.push(permanent.grantedAbilities.join('\n'));
-  }
-
-  return fragments;
-}
 
 function parseBlockerCapacityValue(token?: string): number {
   if (!token) return 1;
@@ -356,11 +339,8 @@ export function isCurrentlyCreature(permanent: any): boolean {
  */
 export function hasDefender(permanent: any): boolean {
   if (!permanent) return false;
-  
-  // Check oracle text for defender keyword
-  const oracleText = permanent.card?.oracle_text?.toLowerCase() || 
-                     permanent.oracle_text?.toLowerCase() || '';
-  if (oracleText.includes('defender')) return true;
+  const combinedText = getCombinedPermanentText(permanent);
+  if (combinedText.includes('defender')) return true;
   
   // Check type line (some cards have it inline like "Creature — Wall")
   const typeLine = permanent.card?.type_line?.toLowerCase() || 
@@ -449,10 +429,13 @@ export function canPermanentAttack(permanent: any, controllerId?: string, battle
   }
   
   // Check oracle text for "can't attack" effects on attached auras/equipment
-  const oracleText = analyzedPermanent.card?.oracle_text?.toLowerCase() || '';
+  const oracleText = getCombinedPermanentText(analyzedPermanent);
   if (oracleText.includes("can't attack") || oracleText.includes("cannot attack")) {
     // Self-restricting abilities like "can't attack alone" are handled differently
     // Full implementation would check specific conditions
+    if (!oracleText.includes("can't attack alone")) {
+      return { canParticipate: false, reason: 'This creature cannot attack' };
+    }
   }
   
   return { canParticipate: true };
@@ -466,11 +449,8 @@ export function canPermanentAttack(permanent: any, controllerId?: string, battle
  */
 export function hasHaste(permanent: any): boolean {
   if (!permanent) return false;
-  
-  // Check oracle text for haste keyword
-  const oracleText = permanent.card?.oracle_text?.toLowerCase() || 
-                     permanent.oracle_text?.toLowerCase() || '';
-  if (oracleText.includes('haste')) return true;
+  const combinedText = getCombinedPermanentText(permanent);
+  if (combinedText.includes('haste')) return true;
   
   // Check granted abilities
   if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {
@@ -551,7 +531,7 @@ export function canPermanentBlock(permanent: any, attacker?: any, battlefield?: 
   }
   
   // Check oracle text for "can't block" self-restrictions
-  const oracleText = analyzedPermanent.card?.oracle_text?.toLowerCase() || '';
+  const oracleText = getCombinedPermanentText(analyzedPermanent);
   if (oracleText.includes("can't block") && !oracleText.includes("can't be blocked")) {
     // Check if it's a self-restriction (simple cases)
     // Full implementation would parse the oracle text more carefully
@@ -590,10 +570,8 @@ export function canPermanentBlock(permanent: any, attacker?: any, battlefield?: 
  * @returns CombatValidationResult
  */
 export function checkEvasionAbilities(blocker: any, attacker: any, battlefield?: any[]): CombatValidationResult {
-  const attackerText = attacker.card?.oracle_text?.toLowerCase() || 
-                       attacker.oracle_text?.toLowerCase() || '';
-  const blockerText = blocker.card?.oracle_text?.toLowerCase() || 
-                      blocker.oracle_text?.toLowerCase() || '';
+  const attackerText = getCombinedPermanentText(attacker);
+  const blockerText = getCombinedPermanentText(blocker);
   
   // Flying (Rule 702.9) - can only be blocked by creatures with flying or reach
   if (attackerText.includes('flying') || hasAbility(attacker, 'flying', battlefield)) {
@@ -616,6 +594,25 @@ export function checkEvasionAbilities(blocker: any, attacker: any, battlefield?:
       return { canParticipate: false, reason: 'Only creatures with horsemanship can block creatures with horsemanship' };
     }
   }
+
+  if (attackerText.includes("can't be blocked by creatures with power 2 or less")) {
+    const blockerPower = getPermanentPower(blocker);
+    if (blockerPower <= 2) {
+      return { canParticipate: false, reason: 'This attacker cannot be blocked by creatures with power 2 or less' };
+    }
+  }
+
+  if (attackerText.includes("can't be blocked by creatures with greater power")) {
+    const blockerPower = getPermanentPower(blocker);
+    const attackerPower = getPermanentPower(attacker);
+    if (blockerPower > attackerPower) {
+      return { canParticipate: false, reason: 'This attacker cannot be blocked by creatures with greater power' };
+    }
+  }
+
+  if (attackerText.includes("can't be blocked this turn") || attackerText.includes("can't be blocked")) {
+    return { canParticipate: false, reason: 'This creature cannot block that attacker' };
+  }
   
   return { canParticipate: true };
 }
@@ -627,7 +624,7 @@ function hasAbility(permanent: any, abilityName: string, battlefield?: any[]): b
   if (!permanent) return false;
   
   const lowerName = abilityName.toLowerCase();
-  const oracleText = String(permanent.card?.oracle_text || permanent.oracle_text || '').toLowerCase();
+  const oracleText = getCombinedPermanentText(permanent);
 
   if (oracleText.includes(lowerName)) {
     return true;
@@ -1445,11 +1442,8 @@ export function executeDeclareBlockers(
  */
 export function hasLifelink(permanent: any): boolean {
   if (!permanent) return false;
-  
-  // Check oracle text for lifelink keyword
-  const oracleText = permanent.card?.oracle_text?.toLowerCase() || 
-                     permanent.oracle_text?.toLowerCase() || '';
-  if (oracleText.includes('lifelink')) return true;
+  const combinedText = getCombinedPermanentText(permanent);
+  if (combinedText.includes('lifelink')) return true;
   
   // Check granted abilities
   if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {

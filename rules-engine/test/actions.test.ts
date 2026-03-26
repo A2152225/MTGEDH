@@ -605,6 +605,7 @@ describe('Combat Validation Helpers', () => {
       };
       expect(isCurrentlyCreature(imprisoned)).toBe(false);
     });
+
   });
 
   describe('hasDefender', () => {
@@ -739,6 +740,24 @@ describe('Combat Validation Helpers', () => {
       expect(result.canParticipate).toBe(false);
       expect(result.reason).toContain('Pacifism');
     });
+
+    it('should reject creatures detained by temporary text', () => {
+      const detained = {
+        id: 'd1',
+        tapped: false,
+        card: { type_line: 'Creature - Bear', oracle_text: '' },
+        temporaryEffects: [
+          {
+            id: 'detain-effect',
+            description: "can't attack",
+            expiresOnControllerTurn: 'player1',
+          },
+        ],
+      };
+      const result = canPermanentAttack(detained);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('cannot attack');
+    });
   });
 
   describe('canPermanentBlock', () => {
@@ -783,6 +802,32 @@ describe('Combat Validation Helpers', () => {
       };
       const result = canPermanentBlock(goaded);
       expect(result.canParticipate).toBe(false);
+    });
+
+    it('should respect temporary evasion text granted until end of turn', () => {
+      const blocker = {
+        id: 'b1',
+        tapped: false,
+        basePower: 2,
+        card: { type_line: 'Creature - Bear', power: '2', toughness: '2', oracle_text: '' },
+      };
+      const attacker = {
+        id: 'a1',
+        tapped: false,
+        basePower: 4,
+        card: { type_line: 'Creature - Fox Monk', power: '4', toughness: '4', oracle_text: '' },
+        temporaryEffects: [
+          {
+            id: 'bright-palm-evasion',
+            description: "can't be blocked by creatures with power 2 or less",
+            expiresAt: 'end_of_turn',
+          },
+        ],
+      };
+
+      const result = canPermanentBlock(blocker, attacker);
+      expect(result.canParticipate).toBe(false);
+      expect(result.reason).toContain('power 2 or less');
     });
   });
 

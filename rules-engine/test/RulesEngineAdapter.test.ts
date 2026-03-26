@@ -3068,6 +3068,79 @@ describe('RulesEngineAdapter', () => {
       expect(tokens.every((token: any) => (token.grantedAbilities || []).includes('haste'))).toBe(true);
     });
 
+    it('should process becomes-monstrous triggers after a monstrosity ability resolves', () => {
+      const stateWithMonstrousTrigger: any = {
+        ...testGameState,
+        players: [
+          {
+            ...(testGameState.players[0] as any),
+            id: 'player1',
+            hand: [],
+            library: [
+              {
+                id: 'drawn-card',
+                name: 'Drawn Card',
+                type_line: 'Instant',
+              },
+            ],
+            graveyard: [],
+            exile: [],
+            manaPool: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
+          },
+          { ...(testGameState.players[1] as any), id: 'player2', hand: [], graveyard: [], exile: [], library: [] },
+        ],
+        battlefield: [
+          {
+            id: 'monstrous-source',
+            controller: 'player1',
+            owner: 'player1',
+            ownerId: 'player1',
+            tapped: false,
+            summoningSickness: false,
+            counters: {},
+            power: 3,
+            toughness: 3,
+            basePower: 3,
+            baseToughness: 3,
+            card: {
+              id: 'monstrous-source-card',
+              name: 'Test Monster',
+              type_line: 'Creature - Beast',
+              oracle_text: 'Whenever this creature becomes monstrous, draw a card.',
+              power: '3',
+              toughness: '3',
+            },
+          },
+        ] as any,
+        phase: 'precombatMain' as any,
+        step: 'main1' as any,
+      } as any;
+
+      adapter.initializeGame('test-game', stateWithMonstrousTrigger);
+      adapter.executeAction('test-game', {
+        type: 'activateAbility',
+        playerId: 'player1',
+        ability: {
+          id: 'monstrosity-ability',
+          sourceId: 'monstrous-source',
+          sourceName: 'Test Monster',
+          sourceZone: 'battlefield',
+          controllerId: 'player1',
+          manaCost: { colorless: 3 },
+          effect: 'Monstrosity 3.',
+        },
+      });
+
+      const resolveResult = adapter.executeAction('test-game', { type: 'resolveStack' });
+      const player1 = resolveResult.next.players.find(p => p.id === 'player1') as any;
+      const source = (resolveResult.next.battlefield as any[]).find((perm: any) => perm.id === 'monstrous-source') as any;
+
+      expect(source?.isMonstrous).toBe(true);
+      expect((source?.counters || {})['+1/+1']).toBe(3);
+      expect((player1.hand || []).map((card: any) => card.id)).toEqual(['drawn-card']);
+      expect(resolveResult.log.some(entry => entry.includes('became monstrous triggers'))).toBe(true);
+    });
+
     it('should resolve Encore end-to-end from the graveyard after paying the self-exile additional cost', () => {
       const stateWithEncoreCard: any = {
         ...testGameState,

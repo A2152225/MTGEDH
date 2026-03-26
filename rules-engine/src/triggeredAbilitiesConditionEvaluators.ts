@@ -652,6 +652,36 @@ export function evaluateSelfEntersBattlefieldCondition(
   return Boolean(triggeringPermanent.types?.some(type => String(type || '').toLowerCase() === subject));
 }
 
+export function evaluateSelfBecomesMonstrousCondition(
+  condition: string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  const match = normalized.match(/^this\s+([a-z ]+?)\s+becomes monstrous$/i);
+  if (!match) {
+    return null;
+  }
+
+  const triggeringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!triggeringPermanentId || !normalizedSourceId || triggeringPermanentId !== normalizedSourceId) {
+    return false;
+  }
+
+  const subject = String(match[1] || '').trim().toLowerCase();
+  if (!subject || subject === 'permanent') {
+    return true;
+  }
+
+  const permanentTypes = new Set((eventData.permanentTypes || []).map(type => String(type || '').trim().toLowerCase()));
+  if (subject === 'creature') {
+    return permanentTypes.has('creature');
+  }
+
+  return permanentTypes.has(subject);
+}
+
 export function evaluateEvolveComparisonCondition(
   condition: string,
   eventData: TriggerEventData,

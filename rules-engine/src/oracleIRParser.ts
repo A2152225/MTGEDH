@@ -61,6 +61,7 @@ import {
   expandGraveyardOrExilePermissionAbilities,
   expandUnearthKeywordAbilities,
   expandKeywordActionUnknownAbilities,
+  mergeDestroyCantRegenerateFollowupAbilities,
   expandVoteChoiceCountAbilities,
   pruneRedundantActivationRestrictionUnknownAbilities,
   expandMixedBattlefieldAndGraveyardExileAbilities,
@@ -102,6 +103,7 @@ import {
 } from './oracleIRParserTokenCreateClauses';
 import { tryParseSimpleCreateTokenClause } from './oracleIRParserTokenSimpleClauses';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
+import { tryParseTemporaryAbilityClause } from './oracleIRParserTemporaryAbilityClauses';
 import { tryParseTemporaryGrantedDiesTriggerClause } from './oracleIRParserTemporaryTriggeredClauses';
 import { tryParseZoneAndRemovalClause } from './oracleIRParserZoneAndRemovalActions';
 import {
@@ -149,6 +151,11 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     if (parsed) return parsed;
   }
 
+  {
+    const parsed = tryParseTemporaryAbilityClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
   // Temporary P/T modification (composable: target + base delta + duration + optional scaler)
   {
     const parsed = tryParseTemporarySetBasePtClause({ clause, rawClause, withMeta });
@@ -184,6 +191,49 @@ function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   return withMeta({ kind: 'unknown', raw: rawClause });
 }
+
+function tryParseVillainousChoiceStep(
+  effectText: string,
+  cardName: string | undefined
+): (OracleEffectStep & { kind: 'choose_mode' }) | null {
+  const normalized = normalizeOracleText(effectText);
+  const match = normalized.match(/^(.+?)\s+faces a villainous choice\s*(?:\u2014|-)\s*(.+)$/i);
+  if (!match) return null;
+
+  const chooserText = String(match[1] || '').trim();
+  const optionsText = String(match[2] || '').trim().replace(/[.]+$/g, '');
+  const separatorIndex = optionsText.toLowerCase().lastIndexOf(', or ');
+  if (!chooserText || !optionsText || separatorIndex < 0) return null;
+
+  const optionAText = optionsText.slice(0, separatorIndex).trim();
+  const optionBText = optionsText.slice(separatorIndex + ', or '.length).trim();
+  if (!optionAText || !optionBText) return null;
+
+  const parseModeEffectSteps = (modeEffectText: string): readonly OracleEffectStep[] => {
+    const clauses = buildAbilityClauses({ effectText: modeEffectText, cardName, parseEffectClauseToStep });
+    return clauses.map(parseEffectClauseToStep);
+  };
+
+  return {
+    kind: 'choose_mode',
+    minModes: 1,
+    maxModes: 1,
+    modes: [
+      {
+        label: optionAText,
+        raw: optionAText,
+        steps: [...parseModeEffectSteps(optionAText)],
+      },
+      {
+        label: optionBText,
+        raw: optionBText,
+        steps: [...parseModeEffectSteps(optionBText)],
+      },
+    ],
+    raw: `${chooserText} faces a villainous choice - ${optionAText}, or ${optionBText}`,
+  };
+}
+
 function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): OracleIRAbility {
   const effectText = abilityEffectText(ability);
 
@@ -202,6 +252,19 @@ function parseAbilityToIRAbility(ability: ParsedAbility, cardName?: string): Ora
       interveningIf: ability.interveningIf,
       effectText,
       steps: [chooseModeStep],
+    };
+  }
+
+  const villainousChoiceStep = tryParseVillainousChoiceStep(effectText, cardName);
+  if (villainousChoiceStep !== null) {
+    return {
+      type: ability.type,
+      text: ability.text,
+      cost: ability.cost,
+      triggerCondition: ability.triggerCondition,
+      interveningIf: ability.interveningIf,
+      effectText,
+      steps: [villainousChoiceStep],
     };
   }
 
@@ -1196,6 +1259,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = lowerConniveKeywordAbilities(abilities);
   abilities = lowerDiscoverKeywordAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
+  abilities = mergeDestroyCantRegenerateFollowupAbilities(abilities);
   abilities = expandVoteChoiceCountAbilities(abilities);
   abilities = pruneRedundantActivationRestrictionUnknownAbilities(abilities);
   abilities = mergeDeterministicKeywordFollowupAbilities(abilities);

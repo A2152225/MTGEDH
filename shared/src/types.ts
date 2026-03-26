@@ -83,6 +83,9 @@ export interface PlayerRef {
   hand?: any[];
   library?: any[];
   graveyard?: any[];
+  sideboard?: any[];
+  attractionDeck?: any[];
+  contraptionDeck?: any[];
   // battlefield removed - use state.battlefield filtered by controller
   exile?: any[];
   commandZone?: any[];
@@ -106,6 +109,9 @@ export interface Player {
   library?: string[];
   hand?: string[];
   graveyard?: string[];
+  sideboard?: any[];
+  attractionDeck?: any[];
+  contraptionDeck?: any[];
 
   poisonCounters?: number;
   energyCounters?: number;
@@ -266,6 +272,9 @@ export interface BattlefieldPermanent {
   // Mutate support (Rule 702.140)
   mutatedStack?: MutatedCardStack;  // Stack of cards in a mutated creature (presence indicates mutation)
   mutationCount?: number;           // Number of times this creature has been mutated
+  // Monstrosity support (Rule 701.37)
+  isMonstrous?: boolean;
+  monstrosityX?: number;
   // Control change mechanics (Xantcha, Vislor Turlough, Akroan Horse)
   mustAttackEachCombat?: boolean;   // Xantcha-style: creature must attack each combat if able
   cantAttackOwner?: boolean;        // Xantcha-style: creature can't attack its owner
@@ -314,8 +323,15 @@ export interface TemporaryEffect {
   description: string;           // Human-readable description
   icon?: string;                 // Icon/emoji for the effect
   expiresAt?: 'end_of_turn' | 'end_of_combat' | 'next_upkeep' | 'leaves_battlefield';
+  /** Effects like detain expire as the named player's next turn begins. */
+  expiresOnControllerTurn?: PlayerID;
   sourceId?: string;             // ID of the permanent/spell that created this effect
   sourceName?: string;           // Name of the source
+  /**
+   * Optional keyword abilities granted while this effect remains active.
+   * Used so cleanup can remove transient granted abilities cleanly.
+   */
+  grantedAbilities?: readonly string[];
 }
 
 export interface DamagePreventionEffect {
@@ -507,6 +523,32 @@ export interface GameState {
   // Special game designations (Rules 724-730)
   monarch?: PlayerID | null;
   initiative?: PlayerID | null;
+  schemeDeck?: any[];
+  ongoingSchemes?: any[];
+  planarDeck?: any[];
+  planarDeckFaceDown?: any[];
+  currentPlane?: any | null;
+  planeswalkedThisTurn?: boolean;
+  planeswalksAttempted?: number;
+  planeswalkedToThisTurn?: Record<PlayerID, string[]>;
+  planeswalkedToPlanesThisTurn?: Record<PlayerID, string[]>;
+  regenerationShields?: Array<{
+    id: string;
+    permanentId: string;
+    controllerId: string;
+    createdAt: number;
+    isUsed: boolean;
+    expiresAtEndOfTurn: boolean;
+  }>;
+  dungeonProgress?: Record<PlayerID, {
+    dungeonId: string;
+    dungeonName: string;
+    roomIndex: number;
+    roomId?: string;
+  }>;
+  dungeonCompletedThisTurn?: Record<PlayerID, boolean>;
+  dungeonCompleted?: Record<PlayerID, boolean>;
+  completedDungeons?: Record<PlayerID, number>;
   dayNight?: 'day' | 'night' | null;
   cityBlessing?: Record<PlayerID, boolean>;
   // Mana pool for each player

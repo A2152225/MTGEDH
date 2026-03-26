@@ -362,7 +362,8 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(steps).toHaveLength(2);
     expect(steps[0].kind).toBe('sacrifice');
     expect(steps[0].what).toEqual({ kind: 'raw', text: 'this permanent' });
-    expect(steps[1].kind).toBe('unknown');
+    expect(steps[1].kind).toBe('open_attraction');
+    expect(steps[1].who).toEqual({ kind: 'you' });
     expect(steps[1].sequence).toBe('then');
     expect(steps[1].raw).toBe('then open an Attraction');
   });
@@ -779,6 +780,188 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses detain target permanent into an executable step', () => {
+    const ir = parseOracleTextToIR('Detain target permanent.', 'Azorius Arrester');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'detain',
+        target: { kind: 'raw', text: 'target permanent' },
+      }),
+    ]);
+  });
+
+  it('parses bare monstrosity keyword clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Monstrosity 3.', 'Hundred-Handed One');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'monstrosity',
+        target: { kind: 'raw', text: 'this permanent' },
+        amount: { kind: 'number', value: 3 },
+      }),
+    ]);
+  });
+
+  it('parses bare endure keyword clauses into a choose-one modal step', () => {
+    const ir = parseOracleTextToIR('Endure 2.', 'Wary Watchdog');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+        modes: [
+          expect.objectContaining({
+            label: 'Put 2 +1/+1 counters on this permanent',
+          }),
+          expect.objectContaining({
+            label: 'Create a 2/2 white Spirit creature token',
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('parses exert attack clauses into executable exert steps', () => {
+    const ir = parseOracleTextToIR('You may exert this creature as it attacks.', 'Gust Walker');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'exert',
+        optional: true,
+        target: { kind: 'raw', text: 'this creature' },
+      }),
+    ]);
+  });
+
+  it('parses standalone open an Attraction keyword lines into executable steps', () => {
+    const ir = parseOracleTextToIR('Open an Attraction.', 'Scavenger Hunt');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'open_attraction',
+        who: { kind: 'you' },
+      }),
+    ]);
+  });
+
+  it('parses roll to visit your Attractions keyword lines into executable steps', () => {
+    const ir = parseOracleTextToIR('Roll to visit your Attractions.', 'Park Map');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'roll_visit_attractions',
+        who: { kind: 'you' },
+      }),
+    ]);
+  });
+
+  it('parses take the initiative keyword lines into executable steps', () => {
+    const ir = parseOracleTextToIR('Take the initiative.', 'White Plume Adventurer');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'take_initiative',
+        who: { kind: 'you' },
+      }),
+    ]);
+  });
+
+  it('parses become the monarch clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('When this enchantment enters, you become the monarch.', 'Grave Venerations');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    expect(steps).toEqual([
+      expect.objectContaining({
+        kind: 'become_monarch',
+        who: { kind: 'you' },
+      }),
+    ]);
+  });
+
+  it('parses venture into the dungeon keyword lines into executable steps', () => {
+    const ir = parseOracleTextToIR('Venture into the dungeon.', 'Triumphant Adventurer');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'venture_into_dungeon',
+        who: { kind: 'you' },
+      }),
+    ]);
+  });
+
+  it('parses planeswalk clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Planeswalk.', 'Spatial Merging');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'planeswalk',
+        who: { kind: 'you' },
+      }),
+    ]);
+  });
+
+  it('parses assemble contraption clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Assemble a Contraption.', 'Finders, Keepers');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'assemble',
+        who: { kind: 'you' },
+      }),
+    ]);
+  });
+
+  it('parses regenerate clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Regenerate target artifact.', 'Welding Jar');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'regenerate',
+        target: { kind: 'raw', text: 'target artifact' },
+      }),
+    ]);
+  });
+
+  it("merges destroy followups that say the target can't be regenerated", () => {
+    const ir = parseOracleTextToIR("Destroy target creature. It can't be regenerated. Draw a card.", 'Terror Test');
+    const steps = ir.abilities[0].steps as any[];
+
+    expect(steps[0]).toMatchObject({
+      kind: 'destroy',
+      target: { kind: 'raw', text: 'target creature' },
+      cantBeRegenerated: true,
+    });
+    expect(String(steps[0].raw || '')).toContain("can't be regenerated");
+    expect(steps[1]).toMatchObject({
+      kind: 'draw',
+      amount: { kind: 'number', value: 1 },
+    });
+  });
+
+  it('parses abandon this scheme clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Abandon this scheme.', 'Dark Wings Bring Your Downfall');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'abandon_scheme',
+        target: { kind: 'raw', text: 'this scheme' },
+      }),
+    ]);
+  });
+
+  it('parses set-that-scheme-in-motion-again clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Set that scheme in motion again.', 'My Laughter Echoes');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'set_in_motion',
+        target: { kind: 'raw', text: 'that scheme' },
+      }),
+    ]);
+  });
+
   it('parses bare incubate keyword clauses into executable steps', () => {
     const ir = parseOracleTextToIR('Incubate 2.', 'Norns Inquisitor');
 
@@ -895,29 +1078,56 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
-  it('parses Learn keyword lines into optional discard plus conditional draw steps', () => {
+  it('parses Learn keyword lines into an executable learn step', () => {
     const ir = parseOracleTextToIR('Learn', 'Professor of Symbology');
 
     expect(ir.abilities[0]?.steps).toEqual([
       {
-        kind: 'discard',
+        kind: 'learn',
         who: { kind: 'you' },
-        amount: { kind: 'number', value: 1 },
-        optional: true,
-        raw: 'You may discard a card',
+        raw: 'Learn',
       },
+    ]);
+  });
+
+  it('parses villainous choice text into a choose-one modal step', () => {
+    const ir = parseOracleTextToIR(
+      'Target opponent faces a villainous choice — You draw a card, or that player loses 3 life.',
+      'Choice Test'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
       {
-        kind: 'conditional',
-        condition: { kind: 'if', raw: 'you do' },
-        steps: [
+        kind: 'choose_mode',
+        minModes: 1,
+        maxModes: 1,
+        modes: [
           {
-            kind: 'draw',
-            who: { kind: 'you' },
-            amount: { kind: 'number', value: 1 },
-            raw: 'draw a card',
+            label: 'You draw a card',
+            raw: 'You draw a card',
+            steps: [
+              {
+                kind: 'draw',
+                who: { kind: 'you' },
+                amount: { kind: 'number', value: 1 },
+                raw: 'You draw a card',
+              },
+            ],
+          },
+          {
+            label: 'that player loses 3 life',
+            raw: 'that player loses 3 life',
+            steps: [
+              {
+                kind: 'lose_life',
+                who: { kind: 'target_player' },
+                amount: { kind: 'number', value: 3 },
+                raw: 'that player loses 3 life',
+              },
+            ],
           },
         ],
-        raw: 'If you do, draw a card',
+        raw: 'Target opponent faces a villainous choice - You draw a card, or that player loses 3 life',
       },
     ]);
   });
@@ -1272,6 +1482,41 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         who: { kind: 'you' },
         amount: { kind: 'number', value: 3 },
         raw: 'Time travel three times',
+      },
+    ]);
+  });
+
+  it('parses Collect evidence keyword lines into collect-evidence steps', () => {
+    const ir = parseOracleTextToIR('Collect evidence 4', 'Deadly Cover-Up');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'collect_evidence',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 4 },
+        raw: 'Collect evidence 4',
+      },
+    ]);
+  });
+
+  it('parses collect evidence follow-up conditionals into a collect step and wrapper', () => {
+    const ir = parseOracleTextToIR('Collect evidence 4. If evidence was collected, draw a card.', 'Deadly Cover-Up');
+
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'collect_evidence',
+        amount: { kind: 'number', value: 4 },
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: 'evidence was collected' },
+        steps: [
+          {
+            kind: 'draw',
+            who: { kind: 'you' },
+            amount: { kind: 'number', value: 1 },
+          },
+        ],
       },
     ]);
   });
@@ -5704,6 +5949,45 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(impulse.amount).toEqual({ kind: 'number', value: 1 });
     expect(impulse.duration).toBe('until_end_of_next_turn');
     expect(impulse.permission).toBe('play');
+  });
+
+  it('parses temporary evasion text such as Bright-Palm follow-up clauses', () => {
+    const text = "Double the number of +1/+1 counters on target creature. That creature can't be blocked by creatures with power 2 or less this turn.";
+    const ir = parseOracleTextToIR(text, 'Bright-Palm, Soul Awakener');
+    const steps = ir.abilities[0].steps;
+
+    expect(steps[0]).toMatchObject({
+      kind: 'double_counters',
+      target: { kind: 'raw', text: 'target creature' },
+      counter: '+1/+1',
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'grant_temporary_ability',
+      target: { kind: 'raw', text: 'That creature' },
+      duration: 'this_turn',
+      effectText: ["can't be blocked by creatures with power 2 or less"],
+    });
+  });
+
+  it('splits combined temporary keyword and unblockable clauses', () => {
+    const text = 'Target creature gains lifelink until end of turn and can\'t be blocked this turn.';
+    const ir = parseOracleTextToIR(text, 'Escape Tunnel Test');
+    const steps = ir.abilities[0].steps;
+
+    expect(steps).toMatchObject([
+      {
+        kind: 'grant_temporary_ability',
+        target: { kind: 'raw', text: 'Target creature' },
+        duration: 'end_of_turn',
+        abilities: ['lifelink'],
+      },
+      {
+        kind: 'grant_temporary_ability',
+        target: { kind: 'raw', text: 'Target creature' },
+        duration: 'this_turn',
+        effectText: ["can't be blocked"],
+      },
+    ]);
   });
 
   it('parses impulse exile-top inside a modal bullet list for an activated ability', () => {

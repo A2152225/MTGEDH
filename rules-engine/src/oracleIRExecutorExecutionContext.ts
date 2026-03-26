@@ -63,6 +63,9 @@ export function buildOracleIRExecutionContext(
   const hintChosenObjectIds = Array.isArray(hint?.chosenObjectIds)
     ? hint.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
     : undefined;
+  const hintChosenDungeonId = typeof hint?.chosenDungeonId === 'string' ? hint.chosenDungeonId.trim() || undefined : undefined;
+  const hintChosenDungeonRoomId =
+    typeof hint?.chosenDungeonRoomId === 'string' ? hint.chosenDungeonRoomId.trim() || undefined : undefined;
   const hintChosenMana = typeof hint?.chosenMana === 'string' ? hint.chosenMana.trim() || undefined : undefined;
   const hintUnlessPaysLifeChoice =
     hint?.unlessPaysLifeChoice === 'pay' || hint?.unlessPaysLifeChoice === 'decline'
@@ -71,6 +74,9 @@ export function buildOracleIRExecutionContext(
   const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
   const baseTargetPlayerId = normalizeId(baseSel?.targetPlayerId);
   const baseChosenMana = typeof baseSel?.chosenMana === 'string' ? baseSel.chosenMana.trim() || undefined : undefined;
+  const baseChosenDungeonId = typeof baseSel?.chosenDungeonId === 'string' ? baseSel.chosenDungeonId.trim() || undefined : undefined;
+  const baseChosenDungeonRoomId =
+    typeof baseSel?.chosenDungeonRoomId === 'string' ? baseSel.chosenDungeonRoomId.trim() || undefined : undefined;
   const baseUnlessPaysLifeChoice =
     baseSel?.unlessPaysLifeChoice === 'pay' || baseSel?.unlessPaysLifeChoice === 'decline'
       ? baseSel.unlessPaysLifeChoice
@@ -137,6 +143,10 @@ export function buildOracleIRExecutionContext(
           chosenObjectIds: Array.from(new Set([...(baseChosenObjectIds || []), ...((hintChosenObjectIds || []))])),
         }
       : {}),
+    ...(hintChosenDungeonId || baseChosenDungeonId ? { chosenDungeonId: hintChosenDungeonId ?? baseChosenDungeonId } : {}),
+    ...(hintChosenDungeonRoomId || baseChosenDungeonRoomId
+      ? { chosenDungeonRoomId: hintChosenDungeonRoomId ?? baseChosenDungeonRoomId }
+      : {}),
     ...(hintChosenMana || baseChosenMana ? { chosenMana: hintChosenMana ?? baseChosenMana } : {}),
     ...(hintUnlessPaysLifeChoice || baseUnlessPaysLifeChoice
       ? { unlessPaysLifeChoice: hintUnlessPaysLifeChoice ?? baseUnlessPaysLifeChoice }
@@ -166,6 +176,8 @@ export function buildOracleIRExecutionContext(
       !hintEnteredFromZone &&
       !hint?.tapOrUntapChoice &&
       !hintUnlessPaysLifeChoice &&
+      !hintChosenDungeonId &&
+      !hintChosenDungeonRoomId &&
       !hintChosenMana &&
       typeof hint?.wonCoinFlip !== 'boolean' &&
       typeof hint?.winningVoteChoice === 'undefined' &&
