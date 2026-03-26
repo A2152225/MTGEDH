@@ -1,6 +1,7 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleIRExecutionOptions, OracleIRExecutionResult } from './oracleIRExecutor';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from './oracleIRExecutor';
+import { getCopiedSpellReplaySteps } from './oracleIRExecutorCopySpellSupport';
 import { parseOracleTextToIR } from './oracleIRParser';
 import {
   buildEnrichedTriggerExecutionEventData,
@@ -78,6 +79,13 @@ export function executeTriggeredAbilityEffectWithOracleIR(
       : options;
 
   const hint = buildOracleIRExecutionEventHintFromTriggerData(normalizedEventData);
+  const replayStackItem = ((state.stack || []) as any[]).find(
+    item => String((item as any)?.id || '').trim() === String(ability.sourceId || '').trim()
+  ) as any;
+  const replaySteps =
+    steps.some(step => step.kind === 'copy_spell' && step.subject === 'this_spell') && replayStackItem?.card
+      ? getCopiedSpellReplaySteps(replayStackItem.card)
+      : undefined;
   const ctx = buildOracleIRExecutionContext(
     {
       controllerId: (normalizeTriggerContextId(ability.controllerId) ?? ability.controllerId) as PlayerID,
@@ -86,6 +94,10 @@ export function executeTriggeredAbilityEffectWithOracleIR(
     },
     hint
   );
+
+  if (Array.isArray(replaySteps) && replaySteps.length > 0) {
+    (ctx as any).copyReplaySteps = replaySteps;
+  }
 
   return applyOracleIRStepsToGameState(state, steps, ctx, {
     ...executionOptions,
@@ -130,7 +142,12 @@ export function processEventAndExecuteTriggeredOracle(
       const resolutionData =
         options.resolutionEventData ??
         buildResolutionEventDataFromGameState(nextState, ability.controllerId, executionEventData);
-      const stillTrue = evaluateTriggerCondition(resolvedInterveningIfClause, ability.controllerId, resolutionData);
+      const stillTrue = evaluateTriggerCondition(
+        resolvedInterveningIfClause,
+        ability.controllerId,
+        resolutionData,
+        ability.sourceId
+      );
       if (!stillTrue) {
         log.push(`${ability.sourceName} trigger skipped at resolution (intervening-if false)`);
         continue;

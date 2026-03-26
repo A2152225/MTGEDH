@@ -101,7 +101,13 @@ function parseMoveZoneStep(args: {
       : baseToRaw;
   const trailingConditionRaw =
     trailingConditionMatch && effectiveToRaw !== baseToRaw ? String(trailingConditionMatch[2] || '').trim() : '';
-  const what = parseObjectSelector(whatRaw);
+  const normalizedWhatRaw = (() => {
+    const normalized = normalizeOracleText(whatRaw).trim();
+    if (/^this card from your graveyard$/i.test(normalized)) return 'this card';
+    if (/^it from your graveyard$/i.test(normalized)) return 'it';
+    return whatRaw;
+  })();
+  const what = parseObjectSelector(normalizedWhatRaw);
   const to = inferZoneFromDestination(effectiveToRaw);
   const battlefieldController = parseBattlefieldController(to, effectiveToRaw);
   const battlefieldAttachedTo = parseMoveZoneBattlefieldAttachment(to, effectiveToRaw);

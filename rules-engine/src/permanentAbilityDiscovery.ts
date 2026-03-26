@@ -73,6 +73,7 @@ export interface DiscoveredAbility {
   readonly id: string;
   readonly sourceId: string;
   readonly sourceName: string;
+  readonly sourceZone?: 'battlefield' | 'graveyard' | 'hand' | 'exile';
   readonly controllerId: string;
   readonly cost: string;
   readonly effect: string;
@@ -170,11 +171,22 @@ function parseAdditionalCosts(costText: string): Cost[] {
   const costs: Cost[] = [];
   const text = costText.toLowerCase();
   
-  // Check for tap symbol
-  if (text.includes('{t}') || (text.includes('tap') && !text.includes('untap'))) {
+  // Check for tap symbol / explicit tap costs
+  if (text.includes('{t}')) {
     costs.push({
       type: CostType.TAP,
       description: 'Tap this permanent',
+      isOptional: false,
+      isMandatory: true,
+    });
+  }
+  const explicitTapMatches = Array.from(text.matchAll(/\btap\s+([^,]+)/gi));
+  for (const match of explicitTapMatches) {
+    const tapText = String(match[1] || '').trim();
+    if (!tapText) continue;
+    costs.push({
+      type: CostType.TAP,
+      description: `Tap ${tapText}`,
       isOptional: false,
       isMandatory: true,
     });
@@ -189,24 +201,36 @@ function parseAdditionalCosts(costText: string): Cost[] {
       isMandatory: true,
     });
   }
+
+  const revealMatch = text.match(/reveal\s+([^,]+)/i);
+  if (revealMatch) {
+    costs.push({
+      type: CostType.REVEAL,
+      description: `Reveal ${revealMatch[1].trim()}`,
+      isOptional: false,
+      isMandatory: true,
+    });
+  }
   
   // Check for sacrifice costs
-  const sacrificeMatch = text.match(/sacrifice (?:a |an |this )?(\w+)?/i);
+  const sacrificeMatch = text.match(/sacrifice\s+([^,]+)/i);
   if (sacrificeMatch) {
+    const sacrificeText = sacrificeMatch[1].trim();
     costs.push({
       type: CostType.SACRIFICE,
-      description: `Sacrifice ${sacrificeMatch[1] || 'this permanent'}`,
+      description: `Sacrifice ${sacrificeText}`,
       isOptional: false,
       isMandatory: true,
     });
   }
   
   // Check for discard costs
-  const discardMatch = text.match(/discard (?:a card|(\d+) cards?)/i);
+  const discardMatch = text.match(/discard\s+([^,]+)/i);
   if (discardMatch) {
+    const discardText = discardMatch[1].trim();
     costs.push({
       type: CostType.DISCARD,
-      description: `Discard ${discardMatch[1] || '1'} card(s)`,
+      description: `Discard ${discardText}`,
       isOptional: false,
       isMandatory: true,
     });
@@ -224,10 +248,11 @@ function parseAdditionalCosts(costText: string): Cost[] {
   }
   
   // Check for exile costs
-  if (text.includes('exile') && !text.includes('you may exile')) {
+  const exileMatch = text.match(/exile\s+([^,]+)/i);
+  if (exileMatch && !text.includes('you may exile')) {
     costs.push({
       type: CostType.EXILE,
-      description: 'Exile a card',
+      description: `Exile ${exileMatch[1].trim()}`,
       isOptional: false,
       isMandatory: true,
     });
@@ -239,11 +264,13 @@ function parseAdditionalCosts(costText: string): Cost[] {
   const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const counterTypesPattern = KNOWN_COUNTER_TYPES.map(escapeRegex).join('|');
   const counterRegex = new RegExp(`remove (?:a |an |(\\d+) )?(${counterTypesPattern}|\\w+) counters?`, 'i');
-  const counterMatch = text.match(counterRegex);
+  const counterMatch = text.match(new RegExp(`remove (?:a |an |(\\d+) )?(${counterTypesPattern}|\\w+) counters?(?: from ([^,]+))?`, 'i'));
   if (counterMatch) {
     costs.push({
       type: CostType.REMOVE_COUNTER,
-      description: `Remove ${counterMatch[1] || '1'} ${counterMatch[2]} counter(s)`,
+      description: `Remove ${counterMatch[1] || '1'} ${counterMatch[2]} counter(s)${
+        counterMatch[3] ? ` from ${counterMatch[3].trim()}` : ''
+      }`,
       isOptional: false,
       isMandatory: true,
     });
@@ -271,7 +298,8 @@ function parseRestrictions(effectText: string): ActivationRestriction[] {
   
   // Once per turn restriction
   if (text.includes('activate only once') || 
-      text.includes('activate this ability only once')) {
+      text.includes('activate this ability only once') ||
+      text.includes('only once each turn')) {
     restrictions.push({
       type: 'frequency',
       description: 'Activate only once each turn',
@@ -296,6 +324,15 @@ function parseRestrictions(effectText: string): ActivationRestriction[] {
       requiresOwnTurn: true,
     });
   }
+
+  if (text.includes('only during your upkeep')) {
+    restrictions.push({
+      type: 'timing',
+      description: 'Activate only during your upkeep',
+      requiresOwnTurn: true,
+      requiresUpkeep: true,
+    });
+  }
   
   return restrictions;
 }
@@ -305,10 +342,11 @@ function parseRestrictions(effectText: string): ActivationRestriction[] {
  */
 function convertParsedAbility(
   parsedAbility: ParsedAbility,
-  permanentId: string,
+  sourceId: string,
   cardName: string,
   controllerId: string,
   abilityIndex: number,
+  sourceZone: 'battlefield' | 'graveyard' | 'hand' | 'exile' = 'battlefield',
   globalRestrictions?: ActivationRestriction[]
 ): DiscoveredAbility | null {
   // Only convert activated abilities and keyword abilities with costs
@@ -319,8 +357,14 @@ function convertParsedAbility(
   
   const cost = parsedAbility.cost || '';
   const effect = parsedAbility.effect || '';
-  // Use the full text for restriction parsing since restrictions can appear after the effect
-  const fullText = parsedAbility.text || '';
+  // Use the full text for restriction parsing since restrictions can appear after the effect.
+  // Expanded keyword abilities often synthesize those restrictions into the effect text.
+  const fullText =
+    parsedAbility.type === AbilityType.KEYWORD &&
+    effect &&
+    !(parsedAbility.text || '').toLowerCase().includes('activate only')
+      ? `${parsedAbility.text || ''} ${effect}`.trim()
+      : (parsedAbility.text || '');
   
   // Combine restrictions from the ability text and global restrictions
   const abilityRestrictions = parseRestrictions(fullText);
@@ -339,9 +383,10 @@ function convertParsedAbility(
   }
   
   return {
-    id: `${permanentId}-ability-${abilityIndex}`,
-    sourceId: permanentId,
+    id: `${sourceId}-ability-${abilityIndex}`,
+    sourceId,
     sourceName: cardName,
+    sourceZone,
     controllerId,
     cost,
     effect,
@@ -370,16 +415,18 @@ function convertParsedAbility(
  */
 function convertConfigToAbility(
   config: ActivatedAbilityConfig,
-  permanentId: string,
-  controllerId: string
+  sourceId: string,
+  controllerId: string,
+  sourceZone: 'battlefield' | 'graveyard' | 'hand' | 'exile' = 'battlefield'
 ): DiscoveredAbility[] {
   const abilities: DiscoveredAbility[] = [];
   
   if (config.grantedAbility) {
     abilities.push({
-      id: `${permanentId}-granted-ability`,
-      sourceId: permanentId,
+      id: `${sourceId}-granted-ability`,
+      sourceId,
       sourceName: config.cardName,
+      sourceZone,
       controllerId,
       cost: config.grantedAbility.cost,
       effect: config.grantedAbility.effect,
@@ -395,9 +442,10 @@ function convertConfigToAbility(
   
   if (config.tapAbility) {
     abilities.push({
-      id: `${permanentId}-tap-ability`,
-      sourceId: permanentId,
+      id: `${sourceId}-tap-ability`,
+      sourceId,
       sourceName: config.cardName,
+      sourceZone,
       controllerId,
       cost: config.tapAbility.cost,
       effect: config.tapAbility.effect,
@@ -433,7 +481,15 @@ export function discoverPermanentAbilities(
   permanent: BattlefieldPermanent,
   controllerId: string
 ): AbilityDiscoveryResult {
-  const card = permanent.card as KnownCardRef;
+  return discoverCardAbilities(permanent.card as KnownCardRef, permanent.id, controllerId, 'battlefield');
+}
+
+export function discoverCardAbilities(
+  card: KnownCardRef | undefined,
+  sourceId: string,
+  controllerId: string,
+  sourceZone: 'battlefield' | 'graveyard' | 'hand' | 'exile' = 'battlefield'
+): AbilityDiscoveryResult {
   const cardName = card?.name || 'Unknown';
   const oracleText = card?.oracle_text || '';
   
@@ -443,7 +499,7 @@ export function discoverPermanentAbilities(
   if (hasSpecialActivatedAbility(cardName)) {
     const config = getActivatedAbilityConfig(cardName);
     if (config) {
-      abilities.push(...convertConfigToAbility(config, permanent.id, controllerId));
+      abilities.push(...convertConfigToAbility(config, sourceId, controllerId, sourceZone));
     }
   }
   
@@ -458,10 +514,11 @@ export function discoverPermanentAbilities(
   for (const parsedAbility of parseResult.abilities) {
     const converted = convertParsedAbility(
       parsedAbility,
-      permanent.id,
+      sourceId,
       cardName,
       controllerId,
       abilityIndex,
+      sourceZone,
       globalRestrictions
     );
     
@@ -479,7 +536,7 @@ export function discoverPermanentAbilities(
   }
   
   return {
-    permanentId: permanent.id,
+    permanentId: sourceId,
     permanentName: cardName,
     controllerId,
     abilities,
@@ -490,6 +547,15 @@ export function discoverPermanentAbilities(
     hasChoiceRequirements: parseResult.abilities.some(a => a.requiresChoice !== undefined),
     parseResult,
   };
+}
+
+export function discoverZoneCardAbilities(
+  card: KnownCardRef,
+  sourceId: string,
+  controllerId: string,
+  sourceZone: 'graveyard' | 'hand' | 'exile'
+): AbilityDiscoveryResult {
+  return discoverCardAbilities(card, sourceId, controllerId, sourceZone);
 }
 
 /**
@@ -542,6 +608,7 @@ export function toActivatedAbility(discovered: DiscoveredAbility): ActivatedAbil
     id: discovered.id,
     sourceId: discovered.sourceId,
     sourceName: discovered.sourceName,
+    sourceZone: discovered.sourceZone,
     controllerId: discovered.controllerId,
     manaCost: discovered.manaCost,
     additionalCosts: discovered.additionalCosts,

@@ -23,6 +23,10 @@ import {
   registerDelayedTrigger,
 } from './delayedTriggeredAbilities';
 import { createLastKnownPermanentSnapshot, type LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo';
+import {
+  resolveBolsterTargetCreatureIdFromBattlefield,
+  resolveMentorTargetCreatureIdFromBattlefield,
+} from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { getCardManaValue, resolvePlayers } from './oracleIRExecutorPlayerUtils';
 
@@ -33,6 +37,8 @@ type StepApplyResult = {
   readonly lastSacrificedCreaturesPowerTotal?: number;
   readonly lastSacrificedPermanents?: readonly LastKnownPermanentSnapshot[];
   readonly lastMovedCards?: readonly any[];
+  readonly lastTappedMatchingPermanentCount?: number;
+  readonly lastTappedMatchingPermanentIds?: readonly string[];
 };
 
 type StepSkipResult = {
@@ -666,11 +672,27 @@ function resolveContextualBattlefieldPermanents(
 ): BattlefieldPermanent[] {
   if (!target) return [];
 
+  const mentorTargetId = resolveMentorTargetCreatureIdFromBattlefield(battlefield, target as any, ctx);
+  if (mentorTargetId) {
+    const mentorTarget = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === mentorTargetId);
+    return mentorTarget ? [mentorTarget] : [];
+  }
+
+  const bolsterTargetId = resolveBolsterTargetCreatureIdFromBattlefield(battlefield, target as any, ctx);
+  if (bolsterTargetId) {
+    const bolsterTarget = battlefield.find((perm: any) => String((perm as any)?.id || '').trim() === bolsterTargetId);
+    return bolsterTarget ? [bolsterTarget] : [];
+  }
+
   if (target.kind === 'raw') {
     const rawText = String((target as any).text || '').replace(/\u2019/g, "'").trim();
-    const directTargetMatch = rawText.match(/^(?:up to one\s+)?(?:another\s+)?target\s+(.+)$/i);
+    const directTargetMatch = rawText.match(
+      /^(?:each of\s+)?(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?(?:(?:another|other)\s+)?target\s+(.+)$/i
+    );
     if (directTargetMatch) {
       const parsedType = parseSimplePermanentTypeFromText(String(directTargetMatch[1] || '').trim()) || 'permanent';
+      const excludeSource = /(?:^|\s)(?:another|other)\s+target\s+/i.test(rawText);
+      const sourceId = String(ctx.sourceId || '').trim();
       const directTargetIds = [
         String(ctx.targetPermanentId || '').trim(),
         String(ctx.targetCreatureId || '').trim(),
@@ -685,7 +707,9 @@ function resolveContextualBattlefieldPermanents(
         const wantedIds = new Set(directTargetIds);
         return battlefield.filter((perm: any) => {
           const permanentId = String((perm as any)?.id || '').trim();
-          return wantedIds.has(permanentId) && permanentMatchesType(perm, parsedType);
+          if (!wantedIds.has(permanentId)) return false;
+          if (excludeSource && sourceId && permanentId === sourceId) return false;
+          return permanentMatchesType(perm, parsedType);
         });
       }
     }
@@ -921,12 +945,12 @@ function resolveAddCounterAmount(
     }
 
     const powerValue = readCharacteristicNumber((movedCard as any)?.power, (movedCard as any)?.card?.power);
-    if (powerValue !== undefined && /\bwhere x is (?:the exiled card's|that card's|its) power\b/.test(raw)) {
+    if (powerValue !== undefined && /\bwhere x is (?:the exiled card's|that card's|its|this card's) power\b/.test(raw)) {
       return Math.max(0, powerValue);
     }
 
     const toughnessValue = readCharacteristicNumber((movedCard as any)?.toughness, (movedCard as any)?.card?.toughness);
-    if (toughnessValue !== undefined && /\bwhere x is (?:the exiled card's|that card's|its) toughness\b/.test(raw)) {
+    if (toughnessValue !== undefined && /\bwhere x is (?:the exiled card's|that card's|its|this card's) toughness\b/.test(raw)) {
       return Math.max(0, toughnessValue);
     }
   }
@@ -1079,6 +1103,97 @@ export function applyTapOrUntapStep(
   };
 }
 
+function permanentMatchesTappedFilter(perm: any, filterText: string): boolean {
+  const normalizedFilter = String(filterText || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .toLowerCase()
+    .replace(/^an?\s+/i, '')
+    .replace(/\s+you control$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalizedFilter) return true;
+
+  const simpleType = parseSimplePermanentTypeFromText(normalizedFilter);
+  if (simpleType) {
+    if (simpleType === 'permanent') return true;
+    if (simpleType === 'nonland_permanent') return permanentMatchesType(perm, 'permanent') && !permanentMatchesType(perm, 'land');
+    return permanentMatchesType(perm, simpleType);
+  }
+
+  const typeLine = getExecutorTypeLineLower(perm);
+  return new RegExp(`\\b${normalizedFilter.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'i').test(typeLine);
+}
+
+export function applyTapMatchingPermanentsStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'tap_matching_permanents' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped tap matching permanents (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const controllerId = String(players[0] || '').trim();
+  const battlefield = Array.isArray((state.battlefield || [])) ? (state.battlefield as any[]) : [];
+  const eligible = battlefield.filter((perm: any) =>
+    String(perm?.controller || '').trim() === controllerId &&
+    !Boolean(perm?.tapped) &&
+    permanentMatchesTappedFilter(perm, step.filter)
+  );
+
+  const explicitChosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+    ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+    : [];
+  const eligibleIdSet = new Set(eligible.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean));
+  const chosenIds = explicitChosenIds.filter(id => eligibleIdSet.has(id));
+
+  let selectedIds: string[] = [];
+  if (chosenIds.length > 0) {
+    selectedIds = Array.from(new Set(chosenIds));
+  } else if (step.amount.kind === 'x') {
+    selectedIds = eligible.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean);
+  } else {
+    const requested = parseQuantity(step.amount.kind === 'unknown' ? step.amount.raw || '' : String((step.amount as any).value || ''));
+    const exactCount = requested.kind === 'number' ? Math.max(0, requested.value | 0) : null;
+    if (exactCount === null) {
+      return {
+        applied: false,
+        message: `Skipped tap matching permanents (unsupported amount): ${step.raw}`,
+        reason: 'unsupported_target',
+      };
+    }
+    if (eligible.length < exactCount) {
+      return {
+        applied: false,
+        message: `Skipped tap matching permanents (no deterministic target): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    selectedIds = eligible.slice(0, exactCount).map((perm: any) => String(perm?.id || '').trim()).filter(Boolean);
+  }
+
+  const selectedIdSet = new Set(selectedIds);
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String(perm?.id || '').trim();
+    if (!selectedIdSet.has(permanentId)) return perm;
+    return { ...perm, tapped: true };
+  });
+
+  return {
+    applied: true,
+    state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+    log: [`Tapped ${selectedIds.length} matching permanent(s)`],
+    lastTappedMatchingPermanentCount: selectedIds.length,
+    lastTappedMatchingPermanentIds: selectedIds,
+  };
+}
+
 export function applyGrantTemporaryDiesTriggerStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'grant_temporary_dies_trigger' }>,
@@ -1191,6 +1306,50 @@ export function applySuspectStep(
       battlefield: nextBattlefield as any,
     } as GameState,
     log: [`Suspected ${targetIds.length} permanent(s)`],
+  };
+}
+
+export function applyBecomeRenownedStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'become_renowned' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.target as any, runtime);
+  const directTargets = recentTargets.length > 0 ? [] : resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  const targetIds = Array.from(
+    new Set(
+      [...recentTargets, ...directTargets]
+        .map((perm: any) => String((perm as any)?.id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (targetIds.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped become renowned (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const nextBattlefield = battlefield.map((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!targetIds.includes(permanentId)) return perm;
+    return {
+      ...perm,
+      isRenowned: true,
+    } as BattlefieldPermanent;
+  });
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield: nextBattlefield as any,
+    } as GameState,
+    log: [`${targetIds.length} permanent(s) became renowned`],
   };
 }
 
@@ -1588,6 +1747,57 @@ export function applyRemoveCounterStep(
   };
 }
 
+export function applyDoubleCountersStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'double_counters' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  const targets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  if (targets.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped double counters (no deterministic target): ${step.raw}`,
+      reason: targets.length > 1 ? 'player_choice_required' : 'no_deterministic_target',
+      ...(targets.length > 1 ? { options: { classification: 'player_choice' as const } } : {}),
+    };
+  }
+
+  const targetId = String((targets[0] as any)?.id || '').trim();
+  const targetIndex = battlefield.findIndex((perm: any) => String((perm as any)?.id || '').trim() === targetId);
+  if (targetIndex < 0) {
+    return {
+      applied: false,
+      message: `Skipped double counters (target not on battlefield): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const target: any = battlefield[targetIndex] as any;
+  const counters = { ...((target?.counters || {}) as Record<string, number>) };
+  let doubledKinds = 0;
+  for (const [counterName, rawCount] of Object.entries(counters)) {
+    const count = Number(rawCount);
+    if (!Number.isFinite(count) || count <= 0) continue;
+    counters[counterName] = count * 2;
+    doubledKinds += 1;
+  }
+
+  battlefield[targetIndex] = {
+    ...target,
+    counters,
+  } as any;
+
+  return {
+    applied: true,
+    state: {
+      ...(state as any),
+      battlefield,
+    } as GameState,
+    log: [doubledKinds > 0 ? `Doubled ${doubledKinds} counter kind(s) on ${targetId}` : `No counters to double on ${targetId}`],
+  };
+}
+
 export function applyAddCounterStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'add_counter' }>,
@@ -1806,7 +2016,8 @@ export function applyExileStep(
 export function applyScheduleDelayedBattlefieldActionStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'schedule_delayed_battlefield_action' }>,
-  ctx: OracleIRExecutionContext
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const timing =
@@ -1827,7 +2038,11 @@ export function applyScheduleDelayedBattlefieldActionStep(
         : DelayedTriggerTiming.NEXT_END_STEP;
 
   if (step.action === 'exile') {
-    const permanents = resolveDirectBattlefieldPermanents(battlefield, step.object as any, ctx);
+    const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.object as any, runtime);
+    const permanents =
+      recentTargets.length > 0
+        ? recentTargets
+        : resolveDirectBattlefieldPermanents(battlefield, step.object as any, ctx);
     if (permanents.length === 0) {
       return {
         applied: false,
@@ -1838,7 +2053,11 @@ export function applyScheduleDelayedBattlefieldActionStep(
 
     let watchingPermanentId: string | undefined;
     if (timing === DelayedTriggerTiming.WHEN_LEAVES || timing === DelayedTriggerTiming.WHEN_CONTROL_LOST) {
-      const watched = resolveDirectBattlefieldPermanents(battlefield, step.watch as any, ctx);
+      const recentWatched = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.watch as any, runtime);
+      const watched =
+        recentWatched.length > 0
+          ? recentWatched
+          : resolveDirectBattlefieldPermanents(battlefield, step.watch as any, ctx);
       if (watched.length !== 1) {
         return {
           applied: false,

@@ -61,6 +61,7 @@ export type PreventDamageStepHandlerResult = PreventionStepApplyResult | Prevent
 
 type DamageRuntime = {
   readonly lastMovedCards?: readonly any[];
+  readonly lastTappedMatchingPermanentCount?: number;
 };
 
 function readFiniteCardStat(value: unknown): number | null {
@@ -92,6 +93,10 @@ function resolveDamageAmount(
   }
   if (moved.length === 1 && /^(?:its|that card's|that creature's) toughness$/.test(raw)) {
     return readFiniteCardStat((moved[0] as any)?.toughness ?? (moved[0] as any)?.card?.toughness);
+  }
+  if (/^the number of (?:permanents|creatures|myr) tapped this way$/.test(raw)) {
+    const tapped = Number(runtime?.lastTappedMatchingPermanentCount ?? 0);
+    return Number.isFinite(tapped) ? Math.max(0, tapped) : 0;
   }
 
   return null;

@@ -1681,6 +1681,54 @@ describe('Trigger Parsing', () => {
       expect(opposingCreature).toBe(false);
     });
 
+    it('evaluateTriggerCondition supports intervening-if no +1/+1 counters on the dying permanent', () => {
+      const noCounter = evaluateTriggerCondition(
+        'it had no +1/+1 counters on it',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          permanentTypes: ['Creature'],
+          counters: {},
+        } as any
+      );
+      const withCounter = evaluateTriggerCondition(
+        'it had no +1/+1 counters on it',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          permanentTypes: ['Creature'],
+          counters: { '+1/+1': 1 },
+        } as any
+      );
+
+      expect(noCounter).toBe(true);
+      expect(withCounter).toBe(false);
+    });
+
+    it('evaluateTriggerCondition supports intervening-if no -1/-1 counters on the dying permanent', () => {
+      const noCounter = evaluateTriggerCondition(
+        'it had no -1/-1 counters on it',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          permanentTypes: ['Creature'],
+          counters: {},
+        } as any
+      );
+      const withCounter = evaluateTriggerCondition(
+        'it had no -1/-1 counters on it',
+        'p1',
+        {
+          sourceControllerId: 'p1',
+          permanentTypes: ['Creature'],
+          counters: { '-1/-1': 1 },
+        } as any
+      );
+
+      expect(noCounter).toBe(true);
+      expect(withCounter).toBe(false);
+    });
+
     it('processEvent only triggers Luminous Broodmoth for your nonflying dying creature', () => {
       const abilities = parseTriggeredAbilitiesFromText(
         "Whenever a creature you control without flying dies, return it to the battlefield under its owner's control with a flying counter on it.",

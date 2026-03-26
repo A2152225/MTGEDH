@@ -5,6 +5,138 @@ import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower, isExecutorCreature } from './oracleIRExecutorPermanentUtils';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
+function readPowerForComparison(permanent: BattlefieldPermanent | any): number | null {
+  for (const candidate of [
+    (permanent as any)?.effectivePower,
+    (permanent as any)?.power,
+    (permanent as any)?.basePower,
+    (permanent as any)?.card?.power,
+  ]) {
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+
+  return null;
+}
+
+function readToughnessForComparison(permanent: BattlefieldPermanent | any): number | null {
+  for (const candidate of [
+    (permanent as any)?.effectiveToughness,
+    (permanent as any)?.toughness,
+    (permanent as any)?.baseToughness,
+    (permanent as any)?.card?.toughness,
+  ]) {
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+
+  return null;
+}
+
+function isAttackingPermanent(permanent: BattlefieldPermanent | any): boolean {
+  return Boolean((permanent as any)?.attacking || (permanent as any)?.defendingPlayerId || (permanent as any)?.attackingPlayerId);
+}
+
+export function resolveMentorTargetCreatureIdFromBattlefield(
+  battlefield: readonly BattlefieldPermanent[],
+  target: OracleObjectSelector,
+  ctx: OracleIRExecutionContext
+): string | undefined {
+  if (target.kind !== 'raw') return undefined;
+
+  const targetText = normalizeOracleText(target.text);
+  if (targetText !== "target attacking creature with power less than this creature's power") {
+    return undefined;
+  }
+
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return undefined;
+
+  const processedBattlefield = applyStaticAbilitiesToBattlefield([...battlefield]) as BattlefieldPermanent[];
+  const sourcePermanent = processedBattlefield.find(permanent => String((permanent as any)?.id || '').trim() === sourceId);
+  const sourcePower = readPowerForComparison(sourcePermanent);
+  if (!sourcePermanent || sourcePower === null || !isAttackingPermanent(sourcePermanent)) {
+    return undefined;
+  }
+
+  const legalTargets = processedBattlefield.filter(permanent => {
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (!permanentId || permanentId === sourceId) return false;
+    if (!isExecutorCreature(permanent)) return false;
+    if (!isAttackingPermanent(permanent)) return false;
+
+    const targetPower = readPowerForComparison(permanent);
+    return targetPower !== null && targetPower < sourcePower;
+  });
+
+  const chosenIds = [
+    String(ctx.targetCreatureId || '').trim(),
+    String(ctx.targetPermanentId || '').trim(),
+    ...(
+      Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+        : []
+    ),
+  ].filter(Boolean);
+
+  if (chosenIds.length > 0) {
+    const legalIdSet = new Set(legalTargets.map(permanent => String((permanent as any)?.id || '').trim()));
+    const matchedChosenIds = Array.from(new Set(chosenIds)).filter(id => legalIdSet.has(id));
+    return matchedChosenIds.length === 1 ? matchedChosenIds[0] : undefined;
+  }
+
+  return legalTargets.length === 1 ? String((legalTargets[0] as any)?.id || '').trim() || undefined : undefined;
+}
+
+export function resolveBolsterTargetCreatureIdFromBattlefield(
+  battlefield: readonly BattlefieldPermanent[],
+  target: OracleObjectSelector,
+  ctx: OracleIRExecutionContext
+): string | undefined {
+  if (target.kind !== 'raw') return undefined;
+
+  const targetText = normalizeOracleText(target.text);
+  if (targetText !== 'target creature you control with the least toughness among creatures you control') {
+    return undefined;
+  }
+
+  const controllerId = String(ctx.controllerId || '').trim();
+  if (!controllerId) return undefined;
+
+  const processedBattlefield = applyStaticAbilitiesToBattlefield([...battlefield]) as BattlefieldPermanent[];
+  const controlledCreatures = processedBattlefield.filter(permanent => {
+    if (!isExecutorCreature(permanent)) return false;
+    return String((permanent as any)?.controller || '').trim() === controllerId;
+  });
+  if (controlledCreatures.length === 0) return undefined;
+
+  const toughnessValues = controlledCreatures
+    .map(permanent => readToughnessForComparison(permanent))
+    .filter((value): value is number => value !== null);
+  if (toughnessValues.length === 0) return undefined;
+
+  const leastToughness = Math.min(...toughnessValues);
+  const legalTargets = controlledCreatures.filter(permanent => readToughnessForComparison(permanent) === leastToughness);
+
+  const chosenIds = [
+    String(ctx.targetCreatureId || '').trim(),
+    String(ctx.targetPermanentId || '').trim(),
+    ...(
+      Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+        : []
+    ),
+  ].filter(Boolean);
+
+  if (chosenIds.length > 0) {
+    const legalIdSet = new Set(legalTargets.map(permanent => String((permanent as any)?.id || '').trim()));
+    const matchedChosenIds = Array.from(new Set(chosenIds)).filter(id => legalIdSet.has(id));
+    return matchedChosenIds.length === 1 ? matchedChosenIds[0] : undefined;
+  }
+
+  return legalTargets.length === 1 ? String((legalTargets[0] as any)?.id || '').trim() || undefined : undefined;
+}
+
 export function resolveTrepanationBoostTargetCreatureId(
   state: GameState,
   ctx: OracleIRExecutionContext
@@ -37,6 +169,24 @@ export function resolveSingleCreatureTargetId(
 
   if (target.kind === 'equipped_creature') {
     return resolveTrepanationBoostTargetCreatureId(state, ctx);
+  }
+
+  const mentorTargetCreatureId = resolveMentorTargetCreatureIdFromBattlefield(
+    (state.battlefield || []) as BattlefieldPermanent[],
+    target,
+    ctx
+  );
+  if (mentorTargetCreatureId) {
+    return mentorTargetCreatureId;
+  }
+
+  const bolsterTargetCreatureId = resolveBolsterTargetCreatureIdFromBattlefield(
+    (state.battlefield || []) as BattlefieldPermanent[],
+    target,
+    ctx
+  );
+  if (bolsterTargetCreatureId) {
+    return bolsterTargetCreatureId;
   }
 
   if (target.kind !== 'raw') return undefined;
@@ -85,6 +235,35 @@ export function resolveSingleCreatureTargetId(
   }
 
   return undefined;
+}
+
+export function resolveCreatureTargetIds(
+  state: GameState,
+  target: OracleObjectSelector,
+  ctx: OracleIRExecutionContext
+): string[] {
+  const singleTargetId = resolveSingleCreatureTargetId(state, target, ctx);
+  if (singleTargetId) return [singleTargetId];
+
+  if (target.kind !== 'raw') return [];
+
+  const targetText = normalizeOracleText(target.text);
+  if (targetText !== 'each other attacking creature' && targetText !== 'other attacking creatures') {
+    return [];
+  }
+
+  const sourceId = String(ctx.sourceId || '').trim();
+  const battlefield = getProcessedBattlefield(state);
+
+  return battlefield
+    .filter(permanent => {
+      const permanentId = String((permanent as any)?.id || '').trim();
+      if (!permanentId || permanentId === sourceId) return false;
+      if (!isExecutorCreature(permanent)) return false;
+      return isAttackingPermanent(permanent);
+    })
+    .map(permanent => String((permanent as any)?.id || '').trim())
+    .filter(Boolean);
 }
 
 export function applyTemporaryPowerToughnessModifier(

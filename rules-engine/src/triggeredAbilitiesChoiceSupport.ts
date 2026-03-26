@@ -235,6 +235,25 @@ export function buildEnrichedTriggerExecutionEventData(
   })();
   const inferredDamagedByPermanentIds = inferDamageSourceIds();
   const inferredSourceAttachedToPermanentIds = inferSourceAttachedToPermanentIds();
+  const inferredSourceRenowned = (() => {
+    if (typeof normalizedEventData.sourceRenowned === 'boolean') return normalizedEventData.sourceRenowned;
+    if (typeof eventData?.sourceRenowned === 'boolean') return eventData.sourceRenowned;
+    const sourcePermanent = findObjectById(ability.sourceId);
+    if (typeof sourcePermanent?.isRenowned === 'boolean') return Boolean(sourcePermanent.isRenowned);
+    if (typeof sourcePermanent?.renowned === 'boolean') return Boolean(sourcePermanent.renowned);
+    if (sourcePermanent) return false;
+    return undefined;
+  })();
+  const inferredPlayerLifeTotals = (() => {
+    const out: Record<string, number> = {};
+    for (const player of state.players || []) {
+      const playerId = normalizeTriggerContextId((player as any)?.id);
+      const life = Number((player as any)?.life);
+      if (!playerId || !Number.isFinite(life)) continue;
+      out[playerId] = life;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  })();
 
   const hasBaseEventData = Boolean(eventData) || Object.keys(normalizedEventData).length > 0;
   if (
@@ -242,7 +261,9 @@ export function buildEnrichedTriggerExecutionEventData(
     !inferredTargetPermanentId &&
     !inferredTapOrUntapChoice &&
     !inferredDamagedByPermanentIds &&
-    !inferredSourceAttachedToPermanentIds
+    !inferredSourceAttachedToPermanentIds &&
+    typeof inferredSourceRenowned !== 'boolean' &&
+    !inferredPlayerLifeTotals
   ) {
     return undefined;
   }
@@ -256,6 +277,8 @@ export function buildEnrichedTriggerExecutionEventData(
     ...(inferredSourceAttachedToPermanentIds
       ? { sourceAttachedToPermanentIds: inferredSourceAttachedToPermanentIds }
       : {}),
+    ...(typeof inferredSourceRenowned === 'boolean' ? { sourceRenowned: inferredSourceRenowned } : {}),
+    ...(inferredPlayerLifeTotals ? { playerLifeTotals: inferredPlayerLifeTotals } : {}),
   } as TriggerEventData;
 }
 

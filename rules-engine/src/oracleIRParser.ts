@@ -40,9 +40,22 @@ import {
   expandDeterministicMoveZoneFollowupAbilities,
   expandExilePermissionUnknownAbilities,
   expandFreeGraveyardCastPermissionAbilities,
+  expandGraveyardAdditionalCostPermissionAbilities,
+  expandKeywordAdditionalCostGraveyardPermissionAbilities,
+  expandEmbalmKeywordAbilities,
+  expandEternalizeKeywordAbilities,
+  expandDisturbKeywordAbilities,
+  expandKeywordManaCostGraveyardPermissionAbilities,
+  expandScavengeKeywordAbilities,
+  expandTransfigureKeywordAbilities,
+  expandTransmuteKeywordAbilities,
+  expandEncoreKeywordAbilities,
+  expandMyriadKeywordAbilities,
+  expandMobilizeKeywordAbilities,
   expandGraveyardPermissionModifierUnknownAbilities,
   expandGraveyardPermissionUnknownAbilities,
   expandGraveyardOrExilePermissionAbilities,
+  expandUnearthKeywordAbilities,
   expandKeywordActionUnknownAbilities,
   expandMixedBattlefieldAndGraveyardExileAbilities,
   expandMoveZoneCopiedSpellAbilities,
@@ -52,6 +65,7 @@ import {
   expandPreventDamageUnknownAbilities,
   expandPayManaUnknownAbilities,
   expandSimpleConditionalUnknownAbilities,
+  expandTapMatchingPermanentCountAbilities,
   expandUnlessSacrificeAbilities,
   expandMoveZoneAttachUnknownAbilities,
   mergeBattlefieldEntryCharacteristicFollowupAbilities,
@@ -61,7 +75,10 @@ import {
   mergeDeterministicGraveyardPermissionFollowupAbilities,
   mergeDeterministicKeywordFollowupAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
+  mergeConditionalGraveyardReminderFollowupAbilities,
   mergeLookSelectTopFollowupAbilities,
+  pruneRedundantImpulseCleanupUnknownAbilities,
+  pruneDuplicateGraveyardReminderAbilities,
   mergeRevealFollowupAbilities,
   mergeSagaChapterCopyFollowupAbilities,
 } from './oracleIRParserPostprocess';
@@ -1140,6 +1157,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandCopySpellUnknownAbilities(abilities);
   abilities = expandCopyPermanentUnknownAbilities(abilities);
   abilities = expandPreventDamageUnknownAbilities(abilities);
+  abilities = expandTapMatchingPermanentCountAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
   abilities = expandUnlessSacrificeAbilities(abilities);
   abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
@@ -1147,7 +1165,22 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandGraveyardPermissionUnknownAbilities(abilities);
   abilities = expandFreeGraveyardCastPermissionAbilities(abilities);
   abilities = expandGraveyardOrExilePermissionAbilities(abilities);
+  abilities = expandGraveyardAdditionalCostPermissionAbilities(abilities);
   abilities = expandGraveyardPermissionModifierUnknownAbilities(abilities);
+  abilities = expandKeywordAdditionalCostGraveyardPermissionAbilities(abilities);
+  abilities = expandKeywordManaCostGraveyardPermissionAbilities(abilities);
+  abilities = expandDisturbKeywordAbilities(abilities);
+  abilities = expandUnearthKeywordAbilities(abilities);
+  abilities = expandScavengeKeywordAbilities(abilities);
+  abilities = expandTransfigureKeywordAbilities(abilities);
+  abilities = expandTransmuteKeywordAbilities(abilities);
+  abilities = expandEncoreKeywordAbilities(abilities);
+  abilities = expandMyriadKeywordAbilities(abilities);
+  abilities = expandMobilizeKeywordAbilities(abilities);
+  abilities = expandEmbalmKeywordAbilities(abilities);
+  abilities = expandEternalizeKeywordAbilities(abilities);
+  abilities = pruneDuplicateGraveyardReminderAbilities(abilities);
+  abilities = mergeConditionalGraveyardReminderFollowupAbilities(abilities);
   abilities = mergeExilePermissionCastCounterFollowupAbilities(abilities);
   abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);
   abilities = mergeBattlefieldEntryCharacteristicFollowupAbilities(abilities);
@@ -1155,6 +1188,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandKeywordActionUnknownAbilities(abilities);
   abilities = mergeDeterministicKeywordFollowupAbilities(abilities);
   abilities = mergeSagaChapterCopyFollowupAbilities(abilities);
+  abilities = pruneRedundantImpulseCleanupUnknownAbilities(abilities);
   abilities = expandMoveZoneAttachUnknownAbilities(abilities);
   abilities = expandCreateEmblemUnknownAbilities(abilities, cardName);
   abilities = mergeDieRollResultTableAbilities(abilities);

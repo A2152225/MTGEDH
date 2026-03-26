@@ -14,6 +14,12 @@ import type { GameState, CombatInfo, CombatantInfo, BattlefieldPermanent } from 
 import { GameStep as SharedGameStep } from '../../../shared/src';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
+import {
+  createDamageSourceFromPermanent,
+  DamageRecipientType,
+  processDamageToCreature,
+  processDamageToPlayer,
+} from '../damageProcessing';
 import { previewPreventedDamage } from '../oracleIRDamagePrevention';
 import {
   checkAttackCosts,
@@ -1498,6 +1504,56 @@ export function executeCombatDamage(
   
   // Track life gained from lifelink by controller
   const lifelinkGain: Map<string, number> = new Map();
+  const applyPoisonCountersToPlayer = (state: GameState, playerId: string, amount: number): GameState => {
+    if (amount <= 0) return state;
+
+    const nextPlayers = state.players.map((player: any) => {
+      if (player.id !== playerId) return player;
+      const currentPoison = Math.max(
+        0,
+        Number(player?.poisonCounters ?? player?.counters?.poison) || 0
+      );
+      const nextPoison = currentPoison + amount;
+      return {
+        ...player,
+        poisonCounters: nextPoison,
+        counters: {
+          ...((player?.counters || {}) as Record<string, number>),
+          poison: nextPoison,
+        },
+      };
+    });
+
+    return {
+      ...state,
+      players: nextPlayers as any,
+      poisonCounters: {
+        ...(((state as any).poisonCounters || {}) as Record<string, number>),
+        [playerId]: Math.max(
+          0,
+          Number(
+            ((nextPlayers.find((player: any) => player.id === playerId) as any)?.poisonCounters) || 0
+          )
+        ),
+      },
+    } as any;
+  };
+  const addCountersToPermanent = (state: GameState, permanentId: string, counterName: string, amount: number, sourceId?: string): GameState => {
+    if (amount <= 0) return state;
+
+    const nextBattlefield = (state.battlefield || []).map((permanent: any) => {
+      if (permanent.id !== permanentId) return permanent;
+      const nextPermanent = appendDamageSourceId(permanent, sourceId);
+      const currentCounters = { ...((nextPermanent?.counters || {}) as Record<string, number>) };
+      currentCounters[counterName] = (Number(currentCounters[counterName]) || 0) + amount;
+      return {
+        ...nextPermanent,
+        counters: currentCounters,
+      };
+    });
+
+    return { ...state, battlefield: nextBattlefield as any };
+  };
   const appendDamageSourceId = (permanent: any, sourceId: string | undefined): any => {
     const normalizedSourceId = String(sourceId || '').trim();
     if (!normalizedSourceId) return permanent;
@@ -1520,11 +1576,23 @@ export function executeCombatDamage(
   for (const attacker of action.attackers) {
     const creature = attacker.creature;
     const damage = attacker.damage || creature?.power || 0;
+    const processedBattlefield = applyStaticAbilitiesToBattlefield((currentState.battlefield || []) as any[]);
     
     // Find the actual permanent on the battlefield for ability checks
-    const permanentOnBattlefield = currentState.battlefield?.find((p: any) => p.id === attacker.attackerId);
+    const permanentOnBattlefield = processedBattlefield.find((p: any) => p.id === attacker.attackerId);
     const creatureHasLifelink = hasLifelink(permanentOnBattlefield) || hasLifelink(creature);
     const controllerId = permanentOnBattlefield?.controller || creature?.controller;
+    const directDamageCharacteristics = permanentOnBattlefield
+      ? (() => {
+          const source = createDamageSourceFromPermanent(permanentOnBattlefield);
+          return {
+            ...source,
+            // Poisonous is already automated through the triggered-ability path.
+            hasPoisonous: false,
+            poisonousValue: 0,
+          };
+        })()
+      : null;
     
     if (attacker.blockedBy && attacker.blockedBy.length > 0) {
       // Creature is blocked - deal damage to blockers
@@ -1540,30 +1608,59 @@ export function executeCombatDamage(
         }
         
         // Find blocker and assign damage
-        const blocker = currentState.battlefield?.find((p: any) => p.id === block.blockerId);
+        const blocker = processedBattlefield.find((p: any) => p.id === block.blockerId);
         if (blocker) {
-          // Add damage counter (simplified - real implementation needs damage tracking)
-          const updatedBattlefield = (currentState.battlefield || []).map((p: any) => {
-            if (p.id === block.blockerId) {
-              return appendDamageSourceId({
-                ...p,
-                counters: {
-                  ...p.counters,
-                  damage: (p.counters?.damage || 0) + finalDamageToBlocker,
-                },
-              }, attacker.attackerId);
+          if (directDamageCharacteristics) {
+            const blockerToughness = typeof (blocker as any).effectiveToughness === 'number'
+              ? (blocker as any).effectiveToughness
+              : (parseInt(String(blocker?.card?.toughness || (blocker as any)?.toughness || '0'), 10) || 0);
+            const processed = processDamageToCreature({
+              sourceId: directDamageCharacteristics.sourceId,
+              sourceName: directDamageCharacteristics.sourceName,
+              sourceControllerId: directDamageCharacteristics.controllerId,
+              recipientId: block.blockerId,
+              recipientType: DamageRecipientType.CREATURE,
+              amount: finalDamageToBlocker,
+              isCombatDamage: true,
+              characteristics: directDamageCharacteristics,
+            }, blockerToughness);
+
+            if (processed.markedDamage > 0) {
+              currentState = addCountersToPermanent(
+                currentState,
+                block.blockerId,
+                'damage',
+                processed.markedDamage,
+                attacker.attackerId
+              );
             }
-            return p;
-          });
-          
-          currentState = { ...currentState, battlefield: updatedBattlefield };
-          logs.push(`${creature?.name || 'Creature'} deals ${finalDamageToBlocker} damage to ${blocker?.card?.name || 'blocker'}`);
+
+            if (processed.minusCounters > 0) {
+              currentState = addCountersToPermanent(
+                currentState,
+                block.blockerId,
+                '-1/-1',
+                processed.minusCounters,
+                attacker.attackerId
+              );
+            }
+
+            logs.push(...processed.log);
+
+            if (processed.lifelinkHealing > 0 && controllerId) {
+              const currentGain = lifelinkGain.get(controllerId) || 0;
+              lifelinkGain.set(controllerId, currentGain + processed.lifelinkHealing);
+            }
+          } else {
+            currentState = addCountersToPermanent(currentState, block.blockerId, 'damage', finalDamageToBlocker, attacker.attackerId);
+            logs.push(`${creature?.name || 'Creature'} deals ${finalDamageToBlocker} damage to ${blocker?.card?.name || 'blocker'}`);
+          }
           totalDamageDealt += finalDamageToBlocker;
         }
       }
       
       // Apply lifelink for damage dealt to blockers (Rule 702.15b)
-      if (creatureHasLifelink && totalDamageDealt > 0 && controllerId) {
+      if (creatureHasLifelink && totalDamageDealt > 0 && controllerId && !directDamageCharacteristics) {
         const currentGain = lifelinkGain.get(controllerId) || 0;
         lifelinkGain.set(controllerId, currentGain + totalDamageDealt);
       }
@@ -1579,23 +1676,52 @@ export function executeCombatDamage(
           logs.push(`${creature?.name || 'Creature'} has all combat damage prevented`);
           continue;
         }
-        const newLife = (defender.life || 40) - finalDamage;
-        
-        currentState = {
-          ...currentState,
-          players: currentState.players.map(p =>
-            p.id === attacker.defendingPlayerId
-              ? { ...p, life: newLife }
-              : p
-          ),
-        };
-        
-        logs.push(`${creature?.name || 'Creature'} deals ${finalDamage} combat damage to ${attacker.defendingPlayerId}`);
-        
-        // Apply lifelink for damage dealt to player (Rule 702.15b)
-        if (creatureHasLifelink && controllerId) {
-          const currentGain = lifelinkGain.get(controllerId) || 0;
-          lifelinkGain.set(controllerId, currentGain + finalDamage);
+        if (directDamageCharacteristics) {
+          const processed = processDamageToPlayer({
+            sourceId: directDamageCharacteristics.sourceId,
+            sourceName: directDamageCharacteristics.sourceName,
+            sourceControllerId: directDamageCharacteristics.controllerId,
+            recipientId: attacker.defendingPlayerId,
+            recipientType: DamageRecipientType.PLAYER,
+            amount: finalDamage,
+            isCombatDamage: true,
+            characteristics: directDamageCharacteristics,
+          });
+
+          currentState = {
+            ...currentState,
+            players: currentState.players.map(p =>
+              p.id === attacker.defendingPlayerId
+                ? { ...p, life: (p.life || 40) + processed.lifeChange }
+                : p
+            ),
+          };
+          currentState = applyPoisonCountersToPlayer(currentState, attacker.defendingPlayerId, processed.poisonCounters);
+          logs.push(...processed.log);
+
+          if (processed.lifelinkHealing > 0 && controllerId) {
+            const currentGain = lifelinkGain.get(controllerId) || 0;
+            lifelinkGain.set(controllerId, currentGain + processed.lifelinkHealing);
+          }
+        } else {
+          const newLife = (defender.life || 40) - finalDamage;
+
+          currentState = {
+            ...currentState,
+            players: currentState.players.map(p =>
+              p.id === attacker.defendingPlayerId
+                ? { ...p, life: newLife }
+                : p
+            ),
+          };
+
+          logs.push(`${creature?.name || 'Creature'} deals ${finalDamage} combat damage to ${attacker.defendingPlayerId}`);
+
+          // Apply lifelink for damage dealt to player (Rule 702.15b)
+          if (creatureHasLifelink && controllerId) {
+            const currentGain = lifelinkGain.get(controllerId) || 0;
+            lifelinkGain.set(controllerId, currentGain + finalDamage);
+          }
         }
         
         // Handle commander damage

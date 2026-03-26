@@ -146,11 +146,36 @@ function checkCreatureDeaths(state: GameState): {
   
   for (const perm of processedBattlefield) {
     if (!hasPermanentType(perm, 'creature')) continue;
-    
-    const baseToughness = parseInt(String(perm.card.toughness || '0'), 10);
+
+    const hasPrintedToughness =
+      (perm as any).baseToughness !== undefined ||
+      (perm as any).toughness !== undefined ||
+      (typeof perm.card?.toughness === 'string' && perm.card.toughness.trim().length > 0) ||
+      typeof perm.card?.toughness === 'number';
+    const hasPowerToughnessModifiers =
+      ((perm as any).counters?.['+1/+1'] || 0) !== 0 ||
+      ((perm as any).counters?.['-1/-1'] || 0) !== 0 ||
+      (Array.isArray((perm as any).modifiers) &&
+        (perm as any).modifiers.some((mod: any) =>
+          mod?.type === 'powerToughness' ||
+          mod?.type === 'POWER_TOUGHNESS' ||
+          mod?.type === 'setPowerToughness'
+        ));
+    const printedToughnessValue =
+      (hasPrintedToughness || hasPowerToughnessModifiers ? (perm as any).effectiveToughness : undefined) ??
+      (perm as any).baseToughness ??
+      (perm as any).toughness ??
+      perm.card?.toughness;
+    const baseToughness =
+      typeof printedToughnessValue === 'number'
+        ? printedToughnessValue
+        : (typeof printedToughnessValue === 'string' && printedToughnessValue.trim().length > 0
+            ? parseInt(printedToughnessValue, 10)
+            : undefined);
     const toughness = typeof (perm as any).effectiveToughness === 'number'
       ? (perm as any).effectiveToughness
       : baseToughness;
+    if (typeof toughness !== 'number' || Number.isNaN(toughness)) continue;
     const damage = perm.counters?.damage || 0;
     
     // Zero toughness

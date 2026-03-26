@@ -270,6 +270,14 @@ export function tryEvaluateModifyPtWhereTurnStats(args: {
   }
 
   {
+    const m = raw.match(/^x is the number of (?:permanents|creatures|myr) tapped this way$/i);
+    if (m) {
+      const tapped = Number(runtime?.lastTappedMatchingPermanentCount ?? 0);
+      return Number.isFinite(tapped) ? Math.max(0, tapped) : 0;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of creatures that died this turn$/i);
     if (m) {
       const byController = stateAny.creaturesDiedThisTurnByController;

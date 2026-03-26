@@ -247,7 +247,6 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
         if (!isAttackingObject(p)) continue;
         const candidates = [
           (p as any)?.attacking,
-          (p as any)?.attackingPlayerId,
           (p as any)?.defendingPlayerId,
         ];
         for (const value of candidates) {

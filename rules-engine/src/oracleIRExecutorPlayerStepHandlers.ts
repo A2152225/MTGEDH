@@ -3,7 +3,12 @@ import type { OracleEffectStep } from './oracleIR';
 import { createCustomEmblem } from './emblemSupport';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
-import { cardMatchesMoveZoneSingleTargetCriteria, parseSimpleCardTypeFromText, type MoveZoneSingleTargetCriteria } from './oracleIRExecutorZoneOps';
+import {
+  cardMatchesMoveZoneSingleTargetCriteria,
+  createBattlefieldPermanentsFromCards,
+  parseSimpleCardTypeFromText,
+  type MoveZoneSingleTargetCriteria,
+} from './oracleIRExecutorZoneOps';
 import { payManaCost } from './spellCasting';
 import { createEmptyManaPool, type ManaCost } from './types/mana';
 import { parseManaSymbols } from './types/numbers';
@@ -12,6 +17,7 @@ import {
   applyExilePermissionMarkers,
   applyGraveyardPermissionMarkers,
   adjustLife,
+  adjustPlayerCounter,
   discardCardsForPlayer,
   drawCardsForPlayer,
   getCardManaValue,
@@ -22,6 +28,7 @@ import {
   getPlayableUntilTurnForImpulseDuration,
   resolveUnknownMillUntilAmountForPlayer,
   isCardExiledWithSource,
+  normalizeOracleText,
 } from './oracleIRExecutorPlayerUtils';
 
 type StepApplyResult = {
@@ -50,6 +57,75 @@ type UnlessPaysLifeResult =
   | StepSkipResult;
 
 export type PlayerStepHandlerResult = StepApplyResult | StepSkipResult;
+
+function shuffleArray<T>(items: readonly T[]): T[] {
+  const shuffled = [...items];
+  for (let idx = shuffled.length - 1; idx > 0; idx -= 1) {
+    const swapIdx = Math.floor(Math.random() * (idx + 1));
+    [shuffled[idx], shuffled[swapIdx]] = [shuffled[swapIdx], shuffled[idx]];
+  }
+  return shuffled;
+}
+
+function findCardByIdAcrossState(state: GameState, sourceId: string): any | null {
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!normalizedSourceId) return null;
+
+  for (const permanent of Array.isArray(state.battlefield) ? state.battlefield : []) {
+    if (String((permanent as any)?.id || '').trim() === normalizedSourceId) {
+      return (permanent as any)?.card || permanent;
+    }
+    if (String((permanent as any)?.card?.id || '').trim() === normalizedSourceId) {
+      return (permanent as any)?.card || permanent;
+    }
+  }
+
+  for (const player of state.players as any[]) {
+    for (const zoneName of ['hand', 'graveyard', 'library', 'exile']) {
+      const zone = Array.isArray(player?.[zoneName]) ? player[zoneName] : [];
+      const found = zone.find((card: any) => String(card?.id || card?.cardId || '').trim() === normalizedSourceId);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
+function getSearchLibraryMatches(
+  library: readonly any[],
+  step: Extract<OracleEffectStep, { kind: 'search_library' }>,
+  state: GameState,
+  ctx: OracleIRExecutionContext
+): any[] | null {
+  const cards = Array.isArray(library) ? [...library] : [];
+
+  if (step.criteria.kind === 'same_mana_value_as_source') {
+    const criteria = step.criteria;
+    const sourceCard = findCardByIdAcrossState(state, String(ctx.sourceId || '').trim());
+    const sourceManaValue = getCardManaValue(sourceCard);
+    if (sourceManaValue === null) return null;
+    return cards.filter(card => {
+      if (getCardManaValue(card) !== sourceManaValue) return false;
+      if (criteria.requiredCardType === 'creature') {
+        return /\bcreature\b/i.test(String(card?.type_line || ''));
+      }
+      return true;
+    });
+  }
+
+  const criteria = step.criteria;
+  if (criteria.kind === 'mana_value') {
+    return cards.filter(card => getCardManaValue(card) === criteria.value);
+  }
+
+  const normalizedText = normalizeOracleText(criteria.text);
+  if (!normalizedText) return null;
+  return cards.filter(card => {
+    const typeLine = normalizeOracleText(String(card?.type_line || ''));
+    const name = normalizeOracleText(String(card?.name || ''));
+    return typeLine.includes(normalizedText) || name === normalizedText;
+  });
+}
 
 function getChosenObjectIds(ctx: OracleIRExecutionContext): readonly string[] {
   const chosen = Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [];
@@ -499,7 +575,14 @@ export function applyModifyGraveyardPermissionsStep(
       return {
         ...card,
         ...(step.castCost ? { graveyardCastCost: step.castCost } : {}),
+        ...(step.castCostRaw ? { graveyardCastCostRaw: step.castCostRaw } : {}),
         ...(step.withoutPayingManaCost ? { withoutPayingManaCost: true } : {}),
+        ...(step.additionalCost ? { graveyardAdditionalCost: { ...step.additionalCost } } : {}),
+        ...((step as any).exileInsteadOfGraveyard ? { exileInsteadOfGraveyard: true } : {}),
+        ...((step as any).entersBattlefieldTransformed ? { entersBattlefieldTransformed: true } : {}),
+        ...(step.castedPermanentEntersWithCounters
+          ? { entersBattlefieldWithCounters: { ...step.castedPermanentEntersWithCounters } }
+          : {}),
       };
     });
 
@@ -684,6 +767,107 @@ export function applyScryStep(
     log: [`Scry ${amount} (no cards in library): ${step.raw}`],
     lastScryLookedAtCount: 0,
   };
+}
+
+export function applySearchLibraryStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'search_library' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped library search (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+
+  for (const playerId of players) {
+    const player = nextState.players.find(p => p.id === playerId) as any;
+    if (!player) {
+      return {
+        applied: false,
+        message: `Skipped library search (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+
+    const library = Array.isArray(player.library) ? [...player.library] : [];
+    const matches = getSearchLibraryMatches(library, step, nextState, ctx);
+    if (matches === null) {
+      return {
+        applied: false,
+        message: `Skipped library search (criteria unresolved): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+
+    const maxResults = Math.max(1, Number(step.maxResults || 1) || 1);
+    const selected = matches.slice(0, maxResults);
+    const selectedIds = new Set(selected.map(card => String(card?.id || card?.cardId || '').trim()).filter(Boolean));
+    const remainingLibrary = library.filter(card => !selectedIds.has(String(card?.id || card?.cardId || '').trim()));
+    const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
+    const movedCards = selected.map((card: any) => ({
+      ...card,
+      zone: step.destination,
+    }));
+    const enteredBattlefield =
+      step.destination === 'battlefield'
+        ? createBattlefieldPermanentsFromCards(movedCards, playerId, playerId, false, false, undefined, 'library')
+        : [];
+
+    nextState = {
+      ...(nextState as any),
+      players: nextState.players.map((entry: any) => {
+        if (entry.id !== playerId) return entry;
+        const hand = Array.isArray(entry.hand) ? [...entry.hand] : [];
+        const graveyard = Array.isArray(entry.graveyard) ? [...entry.graveyard] : [];
+        const exile = Array.isArray(entry.exile) ? [...entry.exile] : [];
+
+        if (step.destination === 'hand') {
+          return { ...entry, library: shuffledLibrary, hand: [...hand, ...movedCards] };
+        }
+        if (step.destination === 'graveyard') {
+          return { ...entry, library: shuffledLibrary, graveyard: [...graveyard, ...movedCards] };
+        }
+        if (step.destination === 'exile') {
+          return { ...entry, library: shuffledLibrary, exile: [...exile, ...movedCards] };
+        }
+        if (step.destination === 'battlefield') {
+          return { ...entry, library: shuffledLibrary };
+        }
+        if (step.destination === 'top') {
+          return { ...entry, library: [...movedCards, ...shuffledLibrary] };
+        }
+        if (step.destination === 'bottom') {
+          return { ...entry, library: [...shuffledLibrary, ...movedCards] };
+        }
+
+        return { ...entry, library: shuffledLibrary, hand: [...hand, ...movedCards] };
+      }),
+      ...(enteredBattlefield.length > 0
+        ? { battlefield: [...(nextState.battlefield || []), ...enteredBattlefield] }
+        : {}),
+    } as GameState;
+
+    if (step.revealFound && selected.length > 0) {
+      log.push(`${playerId} revealed ${selected.map(card => String(card?.name || 'card')).join(', ')}`);
+    }
+    if (selected.length > 0) {
+      log.push(`${playerId} searched their library and put ${selected.length} card(s) into ${step.destination}`);
+    } else {
+      log.push(`${playerId} searched their library and found no card`);
+    }
+    if (step.shuffle !== false) {
+      log.push(`${playerId} shuffled their library`);
+    }
+  }
+
+  return { applied: true, state: nextState, log };
 }
 
 export function applySurveilStep(
@@ -983,6 +1167,58 @@ export function applyLoseLifeStep(
     const result = adjustLife(nextState, playerId, -amount);
     nextState = result.state;
     log.push(...result.log);
+  }
+
+  return { applied: true, state: nextState, log };
+}
+
+export function applyAddPlayerCounterStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'add_player_counter' }>,
+  ctx: OracleIRExecutionContext,
+  controllerId: PlayerID,
+  runtime?: ModifyPtRuntime,
+  evaluateWhereX?: (
+    state: GameState,
+    controllerId: PlayerID,
+    whereRaw: string,
+    targetCreatureId?: string,
+    ctx?: OracleIRExecutionContext,
+    runtime?: ModifyPtRuntime
+  ) => number | null
+): PlayerStepHandlerResult {
+  const amount = resolveVariableAmount(state, controllerId, step.amount, ctx, runtime, evaluateWhereX);
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped player counter addition (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped player counter addition (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  for (const playerId of players) {
+    const result = adjustPlayerCounter(nextState, playerId, step.counter, amount);
+    log.push(...result.log);
+    if (!result.applied) {
+      return {
+        applied: false,
+        message: log.join('\n') || `Skipped player counter addition (failed to apply): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+    nextState = result.state;
   }
 
   return { applied: true, state: nextState, log };

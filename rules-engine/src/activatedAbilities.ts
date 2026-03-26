@@ -20,6 +20,7 @@ export interface ActivatedAbility {
   readonly id: string;
   readonly sourceId: string;
   readonly sourceName: string;
+  readonly sourceZone?: 'battlefield' | 'graveyard' | 'hand' | 'exile';
   readonly controllerId: string;
   readonly manaCost?: ManaCost;
   readonly additionalCosts?: readonly Cost[];
@@ -40,6 +41,7 @@ export interface ActivationRestriction {
   readonly maxPerTurn?: number;
   readonly requiresCombat?: boolean;
   readonly requiresOwnTurn?: boolean;
+  readonly requiresUpkeep?: boolean;
 }
 
 /**
@@ -51,6 +53,7 @@ export interface ActivationContext {
   readonly isOwnTurn: boolean;
   readonly stackEmpty: boolean;
   readonly isCombat: boolean;
+  readonly isUpkeep: boolean;
   readonly activationsThisTurn: number;
   readonly sourceTapped: boolean;
 }
@@ -97,6 +100,10 @@ export function validateActivationRestrictions(
     // Combat restriction
     if (restriction.requiresCombat && !context.isCombat) {
       return { valid: false, reason: 'Can only activate during combat' };
+    }
+
+    if (restriction.requiresUpkeep && !context.isUpkeep) {
+      return { valid: false, reason: 'Can only activate during your upkeep' };
     }
     
     // Own turn restriction
@@ -259,7 +266,7 @@ export function createActivatedAbility(
  * Parsed cost component from oracle text
  */
 export interface ParsedCostComponent {
-  readonly type: 'mana' | 'tap' | 'untap' | 'sacrifice' | 'discard' | 'pay_life' | 'exile' | 'remove_counter' | 'other';
+  readonly type: 'mana' | 'tap' | 'untap' | 'sacrifice' | 'discard' | 'pay_life' | 'exile' | 'remove_counter' | 'reveal' | 'other';
   readonly manaCost?: ManaCost;
   readonly sacrificeFilter?: string;
   readonly discardCount?: number;
@@ -381,11 +388,20 @@ function parseCostComponents(costText: string): ParsedCostComponent[] {
   const components: ParsedCostComponent[] = [];
   const text = costText.toLowerCase();
   
-  // Check for tap symbol
-  if (text.includes('{t}') || text.includes('tap') && !text.includes('untap')) {
+  // Check for tap symbol / explicit tap costs
+  if (text.includes('{t}')) {
     components.push({
       type: 'tap',
       description: 'Tap this permanent',
+    });
+  }
+  const explicitTapMatches = Array.from(text.matchAll(/\btap\s+([^,]+)/gi));
+  for (const match of explicitTapMatches) {
+    const tapText = String(match[1] || '').trim();
+    if (!tapText) continue;
+    components.push({
+      type: 'tap',
+      description: `Tap ${tapText}`,
     });
   }
   
@@ -396,24 +412,34 @@ function parseCostComponents(costText: string): ParsedCostComponent[] {
       description: 'Untap this permanent',
     });
   }
+
+  const revealMatch = text.match(/reveal\s+([^,]+)/i);
+  if (revealMatch) {
+    components.push({
+      type: 'reveal',
+      description: `Reveal ${revealMatch[1].trim()}`,
+    });
+  }
   
   // Check for sacrifice costs
-  const sacrificeMatch = text.match(/sacrifice (?:a |an |this )?(\w+)?/i);
+  const sacrificeMatch = text.match(/sacrifice\s+([^,]+)/i);
   if (sacrificeMatch) {
+    const sacrificeText = sacrificeMatch[1].trim();
     components.push({
       type: 'sacrifice',
-      sacrificeFilter: sacrificeMatch[1] || 'this',
-      description: `Sacrifice ${sacrificeMatch[1] || 'this permanent'}`,
+      sacrificeFilter: sacrificeText,
+      description: `Sacrifice ${sacrificeText}`,
     });
   }
   
   // Check for discard costs
-  const discardMatch = text.match(/discard (?:a card|(\d+) cards?)/i);
+  const discardMatch = text.match(/discard\s+([^,]+)/i);
   if (discardMatch) {
+    const discardText = discardMatch[1].trim();
     components.push({
       type: 'discard',
-      discardCount: discardMatch[1] ? parseInt(discardMatch[1]) : 1,
-      description: `Discard ${discardMatch[1] || '1'} card(s)`,
+      discardCount: /^\d+\b/.test(discardText) ? parseInt(discardText, 10) : 1,
+      description: `Discard ${discardText}`,
     });
   }
   
@@ -428,21 +454,24 @@ function parseCostComponents(costText: string): ParsedCostComponent[] {
   }
   
   // Check for exile costs
-  if (text.includes('exile') && !text.includes('you may exile')) {
+  const exileMatch = text.match(/exile\s+([^,]+)/i);
+  if (exileMatch && !text.includes('you may exile')) {
     components.push({
       type: 'exile',
-      description: 'Exile a card',
+      description: `Exile ${exileMatch[1].trim()}`,
     });
   }
   
   // Check for remove counter costs
-  const counterMatch = text.match(/remove (?:a |an |(\d+) )?(\+1\/\+1|charge|loyalty|\w+) counters?/i);
+  const counterMatch = text.match(/remove (?:a |an |(\d+) )?(\+1\/\+1|charge|loyalty|\w+) counters?(?: from ([^,]+))?/i);
   if (counterMatch) {
     components.push({
       type: 'remove_counter',
       counterCount: counterMatch[1] ? parseInt(counterMatch[1]) : 1,
       counterType: counterMatch[2],
-      description: `Remove ${counterMatch[1] || '1'} ${counterMatch[2]} counter(s)`,
+      description: `Remove ${counterMatch[1] || '1'} ${counterMatch[2]} counter(s)${
+        counterMatch[3] ? ` from ${counterMatch[3].trim()}` : ''
+      }`,
     });
   }
   

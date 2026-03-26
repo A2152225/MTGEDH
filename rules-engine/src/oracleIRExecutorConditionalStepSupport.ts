@@ -14,6 +14,7 @@ type ConditionalCondition = Extract<OracleEffectStep, { kind: 'conditional' }>['
 type LastActionOutcome = {
   readonly kind: 'applied' | 'choice_required' | 'impossible' | 'unsupported';
   readonly stepKind: OracleEffectStep['kind'];
+  readonly count?: number;
 } | null;
 
 function normalizeContextualReferenceText(value: unknown): string {
@@ -296,6 +297,10 @@ export function evaluateConditionalWrapperCondition(params: {
   }
 
   if (normalizedRaw === 'you do') {
+    if (lastActionOutcome?.kind === 'applied' && lastActionOutcome.stepKind === 'tap_matching_permanents') {
+      const count = Number(lastActionOutcome.count ?? 0);
+      return Number.isFinite(count) ? count > 0 : true;
+    }
     if (lastActionOutcome?.kind === 'applied') return true;
     if (lastActionOutcome?.kind === 'impossible' || lastActionOutcome?.kind === 'choice_required') return false;
     return null;
@@ -313,6 +318,49 @@ export function evaluateConditionalWrapperCondition(params: {
 
   if (normalizedRaw === 'you gained life this turn') {
     return Number(((nextState as any)?.lifeGainedThisTurn || {})?.[controllerId] || 0) > 0;
+  }
+
+  if (
+    normalizedRaw === 'defending player has the most life or is tied for the most life' ||
+    normalizedRaw === 'the defending player has the most life or is tied for the most life'
+  ) {
+    const defendingPlayerId = String(
+      ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || ''
+    ).trim();
+    if (!defendingPlayerId) return null;
+
+    const lifeTotals = ((nextState as any)?.players || [])
+      .map((player: any) => Number(player?.life))
+      .filter((life: number) => Number.isFinite(life));
+    if (lifeTotals.length === 0) return null;
+
+    const defendingPlayer = ((nextState as any)?.players || []).find(
+      (player: any) => String(player?.id || '').trim() === defendingPlayerId
+    );
+    const defendingLife = Number((defendingPlayer as any)?.life);
+    if (!Number.isFinite(defendingLife)) return null;
+
+    return defendingLife === Math.max(...lifeTotals);
+  }
+
+  if (
+    normalizedRaw === "this creature isn't renowned" ||
+    normalizedRaw === "this permanent isn't renowned" ||
+    normalizedRaw === "it isn't renowned" ||
+    normalizedRaw === "this creature is not renowned" ||
+    normalizedRaw === "this permanent is not renowned" ||
+    normalizedRaw === "it is not renowned"
+  ) {
+    const battlefield = getProcessedBattlefield(nextState);
+    const referencedObject = getReferencedConditionalObject(nextState, battlefield, ctx);
+    if (!referencedObject) return null;
+    const isRenowned =
+      typeof (referencedObject as any)?.isRenowned === 'boolean'
+        ? Boolean((referencedObject as any).isRenowned)
+        : typeof (referencedObject as any)?.renowned === 'boolean'
+          ? Boolean((referencedObject as any).renowned)
+          : false;
+    return !isRenowned;
   }
 
   {

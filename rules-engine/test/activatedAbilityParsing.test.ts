@@ -49,6 +49,22 @@ describe('Activated Ability Parsing', () => {
       
       expect(abilities.length).toBeGreaterThan(0);
     });
+
+    it('should preserve filtered discard wording in the additional cost description', () => {
+      const oracleText = 'Discard a land card: Draw a card.';
+      const abilities = parseActivatedAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Land Looter');
+
+      const discardCost = abilities[0].additionalCosts?.find(cost => cost.type === 'discard');
+      expect(discardCost?.description).toBe('Discard a land card');
+    });
+
+    it('should preserve scoped counter-removal wording in the additional cost description', () => {
+      const oracleText = 'Remove a +1/+1 counter from a creature you control: Draw a card.';
+      const abilities = parseActivatedAbilitiesFromText(oracleText, 'perm-1', 'player-1', 'Counter Looter');
+
+      const counterCost = abilities[0].additionalCosts?.find(cost => cost.type === 'remove_counter');
+      expect(counterCost?.description).toBe('Remove 1 +1/+1 counter(s) from a creature you control');
+    });
     
     it('should detect sorcery speed restriction', () => {
       // Note: Restriction detection looks at effect text, so include it in the full pattern

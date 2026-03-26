@@ -166,6 +166,15 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     toughness: 1,
     abilities: ['Flying'],
   },
+  '1/1 White and Black Spirit (Flying)': {
+    name: 'Spirit',
+    colors: ['W', 'B'],
+    types: ['Creature'],
+    subtypes: ['Spirit'],
+    power: 1,
+    toughness: 1,
+    abilities: ['Flying'],
+  },
   '2/2 Zombie': {
     name: 'Zombie',
     colors: ['B'],

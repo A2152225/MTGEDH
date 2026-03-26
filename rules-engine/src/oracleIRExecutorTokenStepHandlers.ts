@@ -169,6 +169,7 @@ type CopyTokenOverrides = {
   readonly addCardTypes?: readonly string[];
   readonly addSubtypes?: readonly string[];
   readonly addAbilities?: readonly string[];
+  readonly removeManaCost?: boolean;
   readonly removeLegendary?: boolean;
 };
 
@@ -238,6 +239,40 @@ function parseCopyTokenOverrides(exceptionText: string): CopyTokenOverrides {
 
   if (/isn't legendary/i.test(exceptionText)) {
     return { removeLegendary: true };
+  }
+
+  const colors = Array.from(
+    new Set(
+      Array.from(normalized.matchAll(/\bit'?s?\s+(white|blue|black|red|green)\b/g))
+        .map(match => COLOR_WORD_TO_SYMBOL[String(match[1] || '').trim().toLowerCase()])
+        .filter(Boolean)
+    )
+  );
+  const ptMatch = normalized.match(/\bit'?s?\s+(\d+)\/(\d+)\b/);
+  const subtypeMatch = normalized.match(/\bit'?s?\s+a\s+([a-z][a-z ]*)\s+in addition to its other types\b/);
+  const addSubtypes = subtypeMatch
+    ? dedupeStrings(
+        String(subtypeMatch[1] || '')
+          .split(/\s+and\s+|\s+/g)
+          .map(word => word.trim())
+          .filter(Boolean)
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      )
+    : undefined;
+  const removeManaCost = /\bhas no mana cost\b/i.test(normalized);
+
+  if (colors.length > 0 || ptMatch || (addSubtypes && addSubtypes.length > 0) || removeManaCost) {
+    return {
+      ...(colors.length > 0 ? { colors } : {}),
+      ...(ptMatch
+        ? {
+            power: Number.parseInt(String(ptMatch[1] || ''), 10),
+            toughness: Number.parseInt(String(ptMatch[2] || ''), 10),
+          }
+        : {}),
+      ...(addSubtypes && addSubtypes.length > 0 ? { addSubtypes } : {}),
+      ...(removeManaCost ? { removeManaCost: true } : {}),
+    };
   }
 
   return {};
@@ -362,6 +397,7 @@ function createCopiedTokenPermanent(params: {
     ...(colors.length > 0 ? { colors: [...colors] } : {}),
     ...(power !== undefined ? { power: String(power) } : {}),
     ...(toughness !== undefined ? { toughness: String(toughness) } : {}),
+    ...(params.overrides.removeManaCost ? { mana_cost: '', manaCost: '' } : {}),
     isToken: true,
     zone: 'battlefield',
   } as any;
@@ -398,6 +434,28 @@ type CopySourceResolution =
   | { readonly kind: 'player_choice_required'; readonly availableIds: readonly string[] }
   | { readonly kind: 'unavailable' };
 
+function findSourceObjectByIdAcrossState(state: GameState, sourceId: string): any | null {
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!normalizedSourceId) return null;
+
+  for (const permanent of Array.isArray(state.battlefield) ? state.battlefield : []) {
+    if (String((permanent as any)?.id || '').trim() === normalizedSourceId) return permanent;
+    if (String((permanent as any)?.card?.id || '').trim() === normalizedSourceId) {
+      return (permanent as any)?.card || permanent;
+    }
+  }
+
+  for (const player of state.players as any[]) {
+    for (const zoneName of ['exile', 'graveyard', 'hand', 'library']) {
+      const zone = Array.isArray(player?.[zoneName]) ? player[zoneName] : [];
+      const found = zone.find((card: any) => String(card?.id || card?.cardId || '').trim() === normalizedSourceId);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
 function resolveCopyTokenSource(
   state: GameState,
   tokenHint: string,
@@ -433,7 +491,9 @@ function resolveCopyTokenSource(
         availableIds: movedCards.map(card => String((card as any)?.id || '').trim()).filter(Boolean),
       };
     }
-    return { kind: 'unavailable' };
+
+    const sourceFallback = findSourceObjectByIdAcrossState(state, String(ctx.sourceId || '').trim());
+    return sourceFallback ? { kind: 'resolved', sourceObject: sourceFallback } : { kind: 'unavailable' };
   }
 
   if (
@@ -494,7 +554,9 @@ function addTokensToBattlefield(
   ctx: OracleIRExecutionContext,
   runtime?: TokenStepRuntime,
   entersTapped?: boolean,
-  withCounters?: Record<string, number>
+  withCounters?: Record<string, number>,
+  attackTargetPlayerId?: string,
+  grantedAbilities?: readonly string[]
 ): StepApplyResult | StepSkipResult {
   const hasOverrides = Boolean(entersTapped) || (withCounters && Object.keys(withCounters).length > 0);
   const copySource = resolveCopyTokenSource(state, tokenHint, ctx, runtime);
@@ -525,8 +587,7 @@ function addTokensToBattlefield(
     const count = Math.max(1, amount | 0);
     const copiedTokens: BattlefieldPermanent[] = [];
     for (let idx = 0; idx < count; idx += 1) {
-      copiedTokens.push(
-        createCopiedTokenPermanent({
+      const token = createCopiedTokenPermanent({
           sourceObject: copySource.sourceObject,
           controllerId,
           sourceId: ctx.sourceId,
@@ -534,8 +595,21 @@ function addTokensToBattlefield(
           entersTapped,
           withCounters,
           overrides,
-        })
-      );
+        }) as any;
+
+      if (attackTargetPlayerId) {
+        token.tapped = true;
+        token.summoningSickness = false;
+        token.attacking = attackTargetPlayerId;
+        token.attackingPlayerId = controllerId;
+        token.defendingPlayerId = attackTargetPlayerId;
+      }
+
+      if (Array.isArray(grantedAbilities) && grantedAbilities.length > 0) {
+        token.grantedAbilities = Array.from(new Set([...(Array.isArray(token.grantedAbilities) ? token.grantedAbilities : []), ...grantedAbilities]));
+      }
+
+      copiedTokens.push(token);
     }
     return {
       applied: true,
@@ -591,7 +665,20 @@ function addTokensToBattlefield(
         : createTokensByName(commonKey, count, controllerId, state.battlefield || [], ctx.sourceId, ctx.sourceName);
 
       if (result) {
-        const tokensToAdd = result.tokens.map(token => token.token);
+        const tokensToAdd = result.tokens.map(token => {
+          const createdToken = token.token as any;
+          if (attackTargetPlayerId) {
+            createdToken.tapped = true;
+            createdToken.summoningSickness = false;
+            createdToken.attacking = attackTargetPlayerId;
+            createdToken.attackingPlayerId = controllerId;
+            createdToken.defendingPlayerId = attackTargetPlayerId;
+          }
+          if (Array.isArray(grantedAbilities) && grantedAbilities.length > 0) {
+            createdToken.grantedAbilities = Array.from(new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...grantedAbilities]));
+          }
+          return createdToken;
+        });
         return {
           applied: true,
           state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
@@ -621,7 +708,20 @@ function addTokensToBattlefield(
         ctx.sourceName
       );
       if (commonParsed) {
-        const tokensToAdd = commonParsed.tokens.map(token => token.token);
+        const tokensToAdd = commonParsed.tokens.map(token => {
+          const createdToken = token.token as any;
+          if (attackTargetPlayerId) {
+            createdToken.tapped = true;
+            createdToken.summoningSickness = false;
+            createdToken.attacking = attackTargetPlayerId;
+            createdToken.attackingPlayerId = controllerId;
+            createdToken.defendingPlayerId = attackTargetPlayerId;
+          }
+          if (Array.isArray(grantedAbilities) && grantedAbilities.length > 0) {
+            createdToken.grantedAbilities = Array.from(new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...grantedAbilities]));
+          }
+          return createdToken;
+        });
         return {
           applied: true,
           state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
@@ -647,7 +747,20 @@ function addTokensToBattlefield(
     state.battlefield || []
   );
 
-  const tokensToAdd = created.tokens.map(token => token.token);
+  const tokensToAdd = created.tokens.map(token => {
+    const createdToken = token.token as any;
+    if (attackTargetPlayerId) {
+      createdToken.tapped = true;
+      createdToken.summoningSickness = false;
+      createdToken.attacking = attackTargetPlayerId;
+      createdToken.attackingPlayerId = controllerId;
+      createdToken.defendingPlayerId = attackTargetPlayerId;
+    }
+    if (Array.isArray(grantedAbilities) && grantedAbilities.length > 0) {
+      createdToken.grantedAbilities = Array.from(new Set([...(Array.isArray(createdToken.grantedAbilities) ? createdToken.grantedAbilities : []), ...grantedAbilities]));
+    }
+    return createdToken;
+  });
   return {
     applied: true,
     state: { ...state, battlefield: [...(state.battlefield || []), ...(tokensToAdd as BattlefieldPermanent[])] },
@@ -739,94 +852,122 @@ export function applyCreateTokenStep(
     };
   }
 
+  const defendingPlayerId = String(
+    ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || ''
+  ).trim();
+  if ((step.attacking === 'each_other_opponent' || step.attacking === 'defending_player') && !defendingPlayerId) {
+    return {
+      applied: false,
+      message: `Skipped token creation (defending player unavailable): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
   let nextState = state;
   const log: string[] = [];
   const allCreatedTokenIds: string[] = [];
   for (const playerId of players) {
-    const result = addTokensToBattlefield(
-      nextState,
-      playerId,
-      amount,
-      step.token,
-      step.raw,
-      ctx,
-      runtime,
-      step.entersTapped,
-      step.withCounters
-    );
-    if (!result.applied) return result;
-    nextState = result.state;
-    log.push(...result.log);
-    allCreatedTokenIds.push(...result.createdTokenIds);
+    const attackTargets =
+      step.attacking === 'each_opponent'
+        ? (nextState.players || [])
+            .map((player: any) => String(player?.id || '').trim())
+            .filter((id: string) => id.length > 0 && id !== playerId)
+        : step.attacking === 'defending_player'
+          ? [defendingPlayerId]
+        : step.attacking === 'each_other_opponent'
+          ? (nextState.players || [])
+              .map((player: any) => String(player?.id || '').trim())
+              .filter((id: string) => id.length > 0 && id !== playerId && id !== defendingPlayerId)
+        : [undefined];
 
-    if (result.createdTokenIds.length > 0 && step.battlefieldAttachedTo) {
-      if ((step.battlefieldAttachedTo as any)?.kind !== 'raw') {
-        return {
-          applied: false,
-          message: `Skipped token creation (unsupported attachment selector): ${step.raw}`,
-          reason: 'unsupported_player_selector',
-        };
-      }
+    for (const attackTarget of attackTargets) {
+      const result = addTokensToBattlefield(
+        nextState,
+        playerId,
+        amount,
+        step.token,
+        step.raw,
+        ctx,
+        runtime,
+        step.entersTapped,
+        step.withCounters,
+        attackTarget,
+        step.grantsHaste ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn
+      );
+      if (!result.applied) return result;
+      nextState = result.state;
+      log.push(...result.log);
+      allCreatedTokenIds.push(...result.createdTokenIds);
 
-      const attachmentTargetText = String((step.battlefieldAttachedTo as any)?.text || '').trim().toLowerCase();
-      const priorMovedIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
-        ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
-        : [];
-      const attachmentTargetId =
-        attachmentTargetText === 'that creature' || attachmentTargetText === 'it'
-          ? priorMovedIds.length === 1
-            ? priorMovedIds[0]
-            : ''
-          : '';
+      if (result.createdTokenIds.length > 0 && step.battlefieldAttachedTo) {
+        if ((step.battlefieldAttachedTo as any)?.kind !== 'raw') {
+          return {
+            applied: false,
+            message: `Skipped token creation (unsupported attachment selector): ${step.raw}`,
+            reason: 'unsupported_player_selector',
+          };
+        }
 
-      if (!attachmentTargetId) {
-        return {
-          applied: false,
-          message: `Skipped token creation (attachment target unavailable): ${step.raw}`,
-          reason: 'unsupported_player_selector',
-        };
-      }
+        const attachmentTargetText = String((step.battlefieldAttachedTo as any)?.text || '').trim().toLowerCase();
+        const priorMovedIds = Array.isArray(runtime?.lastMovedBattlefieldPermanentIds)
+          ? runtime.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
+          : [];
+        const attachmentTargetId =
+          attachmentTargetText === 'that creature' || attachmentTargetText === 'it'
+            ? priorMovedIds.length === 1
+              ? priorMovedIds[0]
+              : ''
+            : '';
 
-      for (const tokenId of result.createdTokenIds) {
-        const attachResult = attachExistingBattlefieldPermanentToTarget(nextState, tokenId, attachmentTargetId);
-        if (attachResult.kind === 'impossible') {
+        if (!attachmentTargetId) {
           return {
             applied: false,
             message: `Skipped token creation (attachment target unavailable): ${step.raw}`,
             reason: 'unsupported_player_selector',
           };
         }
-        nextState = attachResult.state;
-        log.push(...attachResult.log);
+
+        for (const tokenId of result.createdTokenIds) {
+          const attachResult = attachExistingBattlefieldPermanentToTarget(nextState, tokenId, attachmentTargetId);
+          if (attachResult.kind === 'impossible') {
+            return {
+              applied: false,
+              message: `Skipped token creation (attachment target unavailable): ${step.raw}`,
+              reason: 'unsupported_player_selector',
+            };
+          }
+          nextState = attachResult.state;
+          log.push(...attachResult.log);
+        }
       }
-    }
 
-    if (result.createdTokenIds.length > 0 && step.atNextEndStep) {
-      const scheduled = scheduleTokenCleanup(
-        nextState,
-        playerId,
-        ctx.sourceName,
-        ctx.sourceId,
-        result.createdTokenIds,
-        DelayedTriggerTiming.NEXT_END_STEP,
-        step.atNextEndStep
-      );
-      nextState = scheduled.state;
-      log.push(...scheduled.log);
-    }
+      if (result.createdTokenIds.length > 0 && step.atNextEndStep) {
+        const scheduled = scheduleTokenCleanup(
+          nextState,
+          playerId,
+          ctx.sourceName,
+          ctx.sourceId,
+          result.createdTokenIds,
+          DelayedTriggerTiming.NEXT_END_STEP,
+          step.atNextEndStep
+        );
+        nextState = scheduled.state;
+        log.push(...scheduled.log);
+      }
 
-    if (result.createdTokenIds.length > 0 && step.atEndOfCombat) {
-      const scheduled = scheduleTokenCleanup(
-        nextState,
-        playerId,
-        ctx.sourceName,
-        ctx.sourceId,
-        result.createdTokenIds,
-        DelayedTriggerTiming.END_OF_COMBAT,
-        step.atEndOfCombat
-      );
-      nextState = scheduled.state;
-      log.push(...scheduled.log);
+      if (result.createdTokenIds.length > 0 && step.atEndOfCombat) {
+        const scheduled = scheduleTokenCleanup(
+          nextState,
+          playerId,
+          ctx.sourceName,
+          ctx.sourceId,
+          result.createdTokenIds,
+          DelayedTriggerTiming.END_OF_COMBAT,
+          step.atEndOfCombat
+        );
+        nextState = scheduled.state;
+        log.push(...scheduled.log);
+      }
     }
   }
 

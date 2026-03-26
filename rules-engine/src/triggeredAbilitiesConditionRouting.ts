@@ -1,10 +1,21 @@
 import {
+  evaluateBattalionAttackCondition,
+  evaluateControlledPermanentEntersCondition,
   evaluateControlCondition,
+  evaluateDefendingPlayerLifeLeadCondition,
   evaluateDiesTriggerCondition,
+  evaluateEvolveComparisonCondition,
+  evaluateEvolveEntersCondition,
   evaluateGraveyardCondition,
   evaluateHandCondition,
   evaluateLifeTotalCondition,
+  evaluateNoNamedCounterCondition,
   evaluateOpponentControlCondition,
+  evaluateRenownedCondition,
+  evaluateSelfEntersBattlefieldCondition,
+  evaluateSelfCastSpellCondition,
+  evaluateTargetedSpellCastCondition,
+  evaluateTrainingAttackCondition,
   evaluateTapStateTriggerCondition,
 } from './triggeredAbilitiesConditionEvaluators';
 import type { TriggerEventData } from './triggeredAbilitiesEventData';
@@ -62,6 +73,33 @@ function evaluateZoneProvenanceCondition(
   return null;
 }
 
+function evaluateSelfCastCondition(
+  conditionLower: string,
+  controllerId: string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  if (
+    conditionLower !== 'you cast this spell' &&
+    conditionLower !== 'you cast this card' &&
+    conditionLower !== 'you cast this creature'
+  ) {
+    return null;
+  }
+
+  if (String(eventData.sourceControllerId || '').trim() !== String(controllerId || '').trim()) {
+    return false;
+  }
+
+  const normalizedSourceId = String(sourceId || '').trim();
+  const triggeringSourceId = String(eventData.sourceId || '').trim();
+  if (normalizedSourceId && triggeringSourceId) {
+    return normalizedSourceId === triggeringSourceId;
+  }
+
+  return Boolean(triggeringSourceId);
+}
+
 /**
  * Evaluate a trigger condition string against the event data.
  */
@@ -87,6 +125,61 @@ export function evaluateTriggerCondition(
   }
 
   const conditionLower = condition.toLowerCase().trim();
+  if (
+    conditionLower === 'defending player has the most life or is tied for the most life' ||
+    conditionLower === 'the defending player has the most life or is tied for the most life'
+  ) {
+    return evaluateDefendingPlayerLifeLeadCondition(conditionLower, eventData);
+  }
+  const renowned = evaluateRenownedCondition(conditionLower, eventData);
+  if (renowned !== null) {
+    return renowned;
+  }
+  const trainingAttack = evaluateTrainingAttackCondition(conditionLower, controllerId, eventData, sourceId);
+  if (trainingAttack !== null) {
+    return trainingAttack;
+  }
+  const battalionAttack = evaluateBattalionAttackCondition(conditionLower, controllerId, eventData, sourceId);
+  if (battalionAttack !== null) {
+    return battalionAttack;
+  }
+  const targetedSpellCast = evaluateTargetedSpellCastCondition(conditionLower, controllerId, eventData, sourceId);
+  if (targetedSpellCast !== null) {
+    return targetedSpellCast;
+  }
+  const selfCastSpell = evaluateSelfCastSpellCondition(conditionLower, controllerId, eventData, sourceId);
+  if (selfCastSpell !== null) {
+    return selfCastSpell;
+  }
+  const controlledPermanentEnters = evaluateControlledPermanentEntersCondition(
+    conditionLower,
+    controllerId,
+    eventData,
+    sourceId
+  );
+  if (controlledPermanentEnters !== null) {
+    return controlledPermanentEnters;
+  }
+  const selfEnters = evaluateSelfEntersBattlefieldCondition(conditionLower, eventData, sourceId);
+  if (selfEnters !== null) {
+    return selfEnters;
+  }
+  const evolveEnters = evaluateEvolveEntersCondition(conditionLower, controllerId, eventData, sourceId);
+  if (evolveEnters !== null) {
+    return evolveEnters;
+  }
+  const evolveComparison = evaluateEvolveComparisonCondition(conditionLower, eventData, sourceId);
+  if (evolveComparison !== null) {
+    return evolveComparison;
+  }
+  const noNamedCounter = evaluateNoNamedCounterCondition(conditionLower, eventData);
+  if (noNamedCounter !== null) {
+    return noNamedCounter;
+  }
+  const selfCast = evaluateSelfCastCondition(conditionLower, controllerId, eventData, sourceId);
+  if (selfCast !== null) {
+    return selfCast;
+  }
   const andParts = splitCompositeCondition(conditionLower, 'and');
   if (andParts) {
     return andParts.every(part => evaluateTriggerCondition(part, controllerId, eventData, sourceId));

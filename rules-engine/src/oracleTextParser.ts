@@ -27,6 +27,12 @@ import {
   parseKeywordsFromOracleText,
   parseTargets,
 } from './oracleTextParserSupport';
+import {
+  expandKeywordCostAbility,
+  parseKeywordPrefixedActivatedAbility,
+} from './oracleTextParserKeywordCosts';
+import { parseKeywordActionAbility } from './oracleTextParserKeywordActionAbilities';
+import { parseKeywordTriggeredAbility } from './oracleTextParserKeywordTriggers';
 
 /**
  * Parsed ability structure
@@ -116,10 +122,14 @@ const ACTIVATED_ABILITY_PATTERN = /^([^:]+?):\s*([\s\S]+)$/;
 const LOYALTY_ABILITY_PATTERN = /^([+−-]?\d+|0)\s*:\s*([\s\S]+)$/;
 
 /**
- * Keyword ability with cost pattern (Equip, Cycling, etc.)
+ * Keyword lines that behave like activated abilities or special actions once
+ * a cost is supplied. Pure spell modifiers / ability words such as Kicker,
+ * Flashback, Landfall, or Ward are intentionally excluded here so they don't
+ * get misclassified as inert activated keyword stubs.
+ *
  * Captures: keyword (group 1), cost (group 2)
  */
-const KEYWORD_COST_PATTERN = /^(Equip|Cycling|Kicker|Entwine|Flashback|Unearth|Evoke|Emerge|Escalate|Escape|Foretell|Ward|Craft|Overload|Bestow|Dash|Embalm|Eternalize|Morph|Megamorph|Mutate|Ninjutsu|Prototype|Prowl|Spectacle|Suspend|Transfigure|Transmute|Warp|Blitz|Channel|Disturb|Encore|Madness|Miracle|Outlast|Reconfigure|Reinforce|Scavenge|Squad|Sunburst|Umbra armor|Backup|Bargain|Boast|Buyback|Casualty|Cleave|Conspire|Convoke|Crew|Delve|Demonstrate|Devour|Dredge|Echo|Enlist|Epic|Exploit|Extort|Fabricate|Fading|Fortify|Fuse|Graft|Haunt|Hideaway|Improvise|Incubate|Jump-start|Landfall|Level up|Living weapon|Meld|Modular|Monstrosity|Offering|Overrun|Persist|Phasing|Populate|Proliferate|Radiance|Raid|Ravenous|Replicate|Retrace|Riot|Saga|Sneak|Soulbond|Splice|Split second|Storm|Strive|Sunburst|Surge|Undying|Unleash|Vanishing)\s+(.+)$/i;
+const KEYWORD_COST_PATTERN = /^(Buyback|Cycling|Disturb|Embalm|Encore|Equip|Escape|Eternalize|Flashback|Fortify|Jump-start|Level up|Megamorph|Morph|Outlast|Reinforce|Replicate|Retrace|Scavenge|Transfigure|Transmute|Unearth)\s+(.+)$/i;
 
 function isGrantedQuotedActivatedAbilityLine(text: string): boolean {
   const normalized = String(text || '').replace(/\u2019/g, "'").trim();
@@ -158,14 +168,53 @@ export function parseActivatedAbility(text: string): ParsedAbility | null {
       isOptional: false,
     };
   }
+
+  const prefixedKeywordActivated = parseKeywordPrefixedActivatedAbility(text);
+  if (prefixedKeywordActivated) {
+    const isManaAbility =
+      isManaProducingAbility(prefixedKeywordActivated.effect) &&
+      !hasTargeting(prefixedKeywordActivated.effect);
+    return {
+      type: AbilityType.KEYWORD,
+      text: prefixedKeywordActivated.text,
+      cost: prefixedKeywordActivated.cost,
+      effect: prefixedKeywordActivated.effect,
+      isManaAbility,
+      isOptional: prefixedKeywordActivated.effect.toLowerCase().includes('you may'),
+      targets: parseTargets(prefixedKeywordActivated.effect),
+    };
+  }
   
   // Check for keyword with cost
   const keywordMatch = text.match(KEYWORD_COST_PATTERN);
   if (keywordMatch) {
+    const rawCost = keywordMatch[2].trim();
+    const cost = rawCost.replace(/\s+\([^()]*\)\s*$/, '').trim();
+    if (
+      String(keywordMatch[1] || '').trim().toLowerCase() === 'unearth' &&
+      !/\{[^}]+\}/.test(cost || rawCost)
+    ) {
+      return null;
+    }
+    const expandedKeywordAbility = expandKeywordCostAbility(text, keywordMatch[1], cost || rawCost);
+    if (expandedKeywordAbility) {
+      const isManaAbility =
+        isManaProducingAbility(expandedKeywordAbility.effect) &&
+        !hasTargeting(expandedKeywordAbility.effect);
+      return {
+        type: AbilityType.KEYWORD,
+        text: expandedKeywordAbility.text,
+        cost: expandedKeywordAbility.cost,
+        effect: expandedKeywordAbility.effect,
+        isManaAbility,
+        isOptional: expandedKeywordAbility.effect.toLowerCase().includes('you may'),
+        targets: parseTargets(expandedKeywordAbility.effect),
+      };
+    }
     return {
       type: AbilityType.KEYWORD,
       text,
-      cost: keywordMatch[2].trim(),
+      cost: cost || rawCost,
       effect: keywordMatch[1], // The keyword itself is the effect
     };
   }
@@ -734,6 +783,22 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
         continue;
       }
     }
+
+    const keywordTriggered = parseKeywordTriggeredAbility(trimmed);
+    if (keywordTriggered) {
+      abilities.push(keywordTriggered);
+      if (keywordTriggered.targets && keywordTriggered.targets.length > 0) hasTargets = true;
+      continue;
+    }
+
+    const keywordActionAbility = parseKeywordActionAbility(trimmed);
+    if (keywordActionAbility) {
+      abilities.push(keywordActionAbility);
+      if (keywordActionAbility.effect && hasTargeting(keywordActionAbility.effect)) {
+        hasTargets = true;
+      }
+      continue;
+    }
     
     // Parse keyword actions from all text
     const actions = parseKeywordActions(trimmed);
@@ -787,7 +852,15 @@ export function parseOracleText(oracleText: string, cardName?: string): OracleTe
  * Quick check if oracle text contains a triggered ability
  */
 export function hasTriggeredAbility(oracleText: string): boolean {
-  return /\b(when|whenever|at\s+the\s+beginning)\b/i.test(oracleText);
+  if (/\b(when|whenever|at\s+the\s+beginning)\b/i.test(oracleText)) {
+    return true;
+  }
+
+  const lines = String(oracleText || '')
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  return lines.some(line => parseKeywordTriggeredAbility(line) !== null);
 }
 
 /**

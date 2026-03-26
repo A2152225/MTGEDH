@@ -51,6 +51,8 @@ export interface OracleIRExecutionEventHint {
   readonly opponentsDealtDamageIds?: readonly PlayerID[];
   /** Spell type context used by some exile-until templates (for example, Possibility Storm). */
   readonly spellType?: string;
+  /** Spell mana value context used by some exile-until templates (for example, Cascade). */
+  readonly spellManaValue?: number;
   /** Source provenance for the resolving object when known. */
   readonly castFromZone?: string;
   /** Source provenance for the resolving object when known. */
@@ -79,6 +81,8 @@ export interface OracleIRExecutionContext {
   readonly lastExiledCards?: readonly any[];
   /** Internal runtime carry-over for nested follow-up steps that reference cards moved by prior steps. */
   readonly lastMovedCards?: readonly any[];
+  /** Internal runtime carry-over for nested follow-up steps that reference permanents tapped this way. */
+  readonly lastTappedMatchingPermanentCount?: number;
   /** Internal runtime carry-over for nested follow-up steps that reference battlefield permanents moved by prior steps. */
   readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   /** Optional direct target creature binding used by modify_pt where-X evaluation and legacy tests/callers. */
@@ -91,6 +95,8 @@ export interface OracleIRExecutionContext {
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
   /** Normalized reference spell types used by some deterministic unknown-amount loops. */
   readonly referenceSpellTypes?: readonly string[];
+  /** Reference spell mana value used by some deterministic unknown-amount loops. */
+  readonly referenceSpellManaValue?: number;
   /** Result of a relevant coin flip when already known from runtime context. */
   readonly wonCoinFlip?: boolean;
   /** Winning vote choice when already known from runtime context. */

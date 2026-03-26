@@ -140,12 +140,19 @@ export function buildOracleIRExecutionContext(
     (Array.isArray(base.referenceSpellTypes) && base.referenceSpellTypes.length > 0
       ? base.referenceSpellTypes
       : undefined);
+  const referenceSpellManaValue =
+    Number.isFinite(Number(hint?.spellManaValue))
+      ? Number(hint?.spellManaValue)
+      : Number.isFinite(Number(base.referenceSpellManaValue))
+        ? Number(base.referenceSpellManaValue)
+        : undefined;
 
   if (!selectorContext.targetPlayerId && !selectorContext.targetOpponentId && !selectorContext.eachOfThoseOpponents) {
     if (
       normalizedControllerId === base.controllerId &&
       !selectorContext.chosenObjectIds &&
       !referenceSpellTypes &&
+      typeof referenceSpellManaValue === 'undefined' &&
       !hintTargetPermanentId &&
       !hintCastFromZone &&
       !hintEnteredFromZone &&
@@ -164,8 +171,9 @@ export function buildOracleIRExecutionContext(
         ...(hintEnteredFromZone ? { enteredFromZone: hintEnteredFromZone } : {}),
         ...(selectorContext.chosenObjectIds ? { selectorContext } : {}),
         ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
-        ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
+      ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
       ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
+      ...(typeof referenceSpellManaValue !== 'undefined' ? { referenceSpellManaValue } : {}),
       ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
       ...(typeof hint?.winningVoteChoice !== 'undefined' ? { winningVoteChoice: hint.winningVoteChoice } : {}),
     };
@@ -180,6 +188,7 @@ export function buildOracleIRExecutionContext(
     ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
     ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
     ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
+    ...(typeof referenceSpellManaValue !== 'undefined' ? { referenceSpellManaValue } : {}),
     ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
     ...(typeof hint?.winningVoteChoice !== 'undefined' ? { winningVoteChoice: hint.winningVoteChoice } : {}),
   };

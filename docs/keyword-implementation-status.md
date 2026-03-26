@@ -1,11 +1,11 @@
 # Keyword Implementation Status
 
-Generated: 2025-12-21T19:53:37.494Z
+Generated: 2026-03-26T04:58:39.295Z
 
 ## Keyword Abilities & Actions
 
-- Total keywords: 249 (Abilities: 183, Actions: 66)
-- Status counts: ✅ 249 | 🔶 0 | ❌ 0
+- Total keywords: 250 (Abilities: 184, Actions: 66)
+- Status counts: ✅ 250 | 🔶 0 | ❌ 0
 
 | Keyword | Category | Status | Source |
 |---|---|---|---|
@@ -215,6 +215,7 @@ Generated: 2025-12-21T19:53:37.494Z
 | Shadow | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\shadow.ts` |
 | Shuffle | Keyword Action | ✅ Fully Implemented | `rules-engine\src\keywordActions\shuffle.ts` |
 | Skulk | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\skulk.ts` |
+| Sneak | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\sneak.ts` |
 | Solved | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\solved.ts` |
 | Soulbond | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\soulbond.ts` |
 | Soulshift | Keyword Ability | ✅ Fully Implemented | `rules-engine\src\keywordAbilities\soulshift.ts` |

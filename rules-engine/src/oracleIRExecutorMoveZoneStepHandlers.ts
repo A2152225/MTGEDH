@@ -371,6 +371,34 @@ function getTargetObjectId(ctx: OracleIRExecutionContext): string {
   return String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
 }
 
+function getSourcePermanentPower(state: GameState, ctx: OracleIRExecutionContext): number | undefined {
+  const sourceId = String(ctx.sourceId || '').trim();
+  if (!sourceId) return undefined;
+
+  const sourcePermanent = ((state as any).battlefield || []).find(
+    (candidate: any) => String(candidate?.id || '').trim() === sourceId
+  ) as any;
+  if (!sourcePermanent) return undefined;
+
+  if (typeof sourcePermanent.effectivePower === 'number' && Number.isFinite(sourcePermanent.effectivePower)) {
+    return sourcePermanent.effectivePower;
+  }
+
+  let power =
+    typeof sourcePermanent.basePower === 'number' && Number.isFinite(sourcePermanent.basePower)
+      ? sourcePermanent.basePower
+      : Number.parseInt(
+          String(sourcePermanent.power ?? sourcePermanent.card?.power ?? ''),
+          10
+        );
+  if (!Number.isFinite(power)) return undefined;
+
+  const counters = sourcePermanent.counters || {};
+  power += Number(counters['+1/+1'] || 0);
+  power -= Number(counters['-1/-1'] || 0);
+  return power;
+}
+
 function isAnotherTargetReference(what: unknown): boolean {
   const text = String((what as any)?.text || (what as any)?.raw || '')
     .replace(/\u2019/g, "'")
@@ -428,7 +456,8 @@ function resolveUniqueChosenGraveyardTargetId(
   criteria: import('./oracleIRExecutorZoneOps').MoveZoneSingleTargetCriteria,
   ctx: OracleIRExecutionContext,
   runtime: MoveZoneRuntime | undefined,
-  referenceCardName?: string
+  referenceCardName?: string,
+  referencePower?: number
 ): string {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return '';
@@ -447,7 +476,7 @@ function resolveUniqueChosenGraveyardTargetId(
   const matches = graveyard.filter((card: any) => {
     const cardId = String(card?.id || '').trim();
     if (!cardId || !chosen.has(cardId) || excluded.has(cardId)) return false;
-    return cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn);
+    return cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn, referencePower);
   });
 
   return matches.length === 1 ? String((matches[0] as any)?.id || '').trim() : '';
@@ -458,7 +487,8 @@ function resolveUniqueChosenAnyGraveyardTargetId(
   criteria: import('./oracleIRExecutorZoneOps').MoveZoneSingleTargetCriteria,
   ctx: OracleIRExecutionContext,
   runtime: MoveZoneRuntime | undefined,
-  referenceCardName?: string
+  referenceCardName?: string,
+  referencePower?: number
 ): string {
   const chosen = new Set(getChosenObjectIds(ctx));
   if (chosen.size === 0) return '';
@@ -476,7 +506,7 @@ function resolveUniqueChosenAnyGraveyardTargetId(
     for (const card of graveyard) {
       const cardId = String((card as any)?.id || '').trim();
       if (!cardId || !chosen.has(cardId) || excluded.has(cardId)) continue;
-      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn)) continue;
+      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn, referencePower)) continue;
       matches.push(card);
     }
   }
@@ -535,11 +565,13 @@ function resolveSourceCardZoneLocation(
   const rawText = normalizeReferenceText((what as any)?.text || (what as any)?.raw || '');
   if (!rawText) return null;
 
+  const withoutSourceZoneSuffix = rawText.replace(/\s+from your (?:graveyard|hand|exile)$/i, '').trim();
+
   const selfReference = /^(?:this card|this permanent|this aura|this equipment|this enchantment|this artifact|this creature|this land)$/i.test(
-    rawText
+    withoutSourceZoneSuffix
   );
   const sourceNameAliases = new Set(buildNameReferenceAliases(ctx.sourceName));
-  const matchesSourceName = sourceNameAliases.has(rawText);
+  const matchesSourceName = sourceNameAliases.has(rawText) || sourceNameAliases.has(withoutSourceZoneSuffix);
   if (!selfReference && !matchesSourceName) return null;
 
   const sourceId = String(ctx.sourceId || '').trim();
@@ -914,6 +946,7 @@ export function applyMoveZoneStep(
   const parsedTargetPlayerExile = parseMoveZoneAllFromTargetPlayersExile(step.what as any);
   const parsedTargetPlayerGy = parseMoveZoneAllFromTargetPlayersGraveyard(step.what as any);
   const boundTargetObjectId = getBoundTargetObjectId(ctx, step, runtime);
+  const sourcePermanentPower = getSourcePermanentPower(nextState, ctx);
   const contextualBoundCardIds =
     isContextualBoundCardsReference(step.what as any)
       ? Array.from(
@@ -1112,6 +1145,7 @@ export function applyMoveZoneStep(
     const targetObjectId = boundTargetObjectId;
     const libraryPlacement = getLibraryPlacement(step);
     if (!targetObjectId) {
+      if (isUpToOneTargetReference(step.what)) return buildNoOpOptionalSingleTargetResult(nextState, step);
       return {
         applied: false,
         message: `Skipped move zone (unsupported selector): ${step.raw}`,
@@ -1425,10 +1459,12 @@ export function applyMoveZoneStep(
         parsedSingleTargetFromAnyGraveyard,
         ctx,
         runtime,
-        ctx.sourceName
+        ctx.sourceName,
+        sourcePermanentPower
       ) || boundTargetObjectId;
     const libraryPlacement = getLibraryPlacement(step);
     if (!targetObjectId) {
+      if (isUpToOneTargetReference(step.what)) return buildNoOpOptionalSingleTargetResult(nextState, step);
       return {
         applied: false,
         message: `Skipped move zone (unsupported selector): ${step.raw}`,
@@ -1467,7 +1503,8 @@ export function applyMoveZoneStep(
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       ctx.sourceName,
-      battlefieldEntryOverrides
+      battlefieldEntryOverrides,
+      sourcePermanentPower
     );
 
     if (result.kind === 'impossible') {
@@ -1500,7 +1537,8 @@ export function applyMoveZoneStep(
             parsedSingleTargetFromTargetPlayerGraveyard,
             ctx,
             runtime,
-            ctx.sourceName
+            ctx.sourceName,
+            sourcePermanentPower
           )
         : '') ||
       boundTargetObjectId;
@@ -1553,7 +1591,8 @@ export function applyMoveZoneStep(
       effectiveWithCounters,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       undefined,
-      battlefieldEntryOverrides
+      battlefieldEntryOverrides,
+      sourcePermanentPower
     );
 
     if (result.kind === 'impossible') {

@@ -188,12 +188,41 @@ export function checkCreatureDeathsForState(args: {
   for (const perm of processedPermanents) {
     if (!hasPermanentType(perm, 'creature')) continue;
 
-    let toughness = parseInt(String(perm.effectiveToughness ?? perm.baseToughness ?? perm.card?.toughness ?? '0'), 10);
+    const hasPrintedToughness =
+      perm.baseToughness !== undefined ||
+      (perm as any).toughness !== undefined ||
+      (typeof perm.card?.toughness === 'string' && perm.card.toughness.trim().length > 0) ||
+      typeof perm.card?.toughness === 'number';
+    const hasPowerToughnessModifiers =
+      (perm.counters?.['+1/+1'] || 0) !== 0 ||
+      (perm.counters?.['-1/-1'] || 0) !== 0 ||
+      (Array.isArray(perm.modifiers) &&
+        perm.modifiers.some((mod: any) =>
+          mod?.type === 'powerToughness' ||
+          mod?.type === 'POWER_TOUGHNESS' ||
+          mod?.type === 'setPowerToughness'
+        ));
+    const printedToughnessValue =
+      (hasPrintedToughness || hasPowerToughnessModifiers ? perm.effectiveToughness : undefined) ??
+      perm.baseToughness ??
+      (perm as any).toughness ??
+      perm.card?.toughness;
+    let toughness =
+      typeof perm.effectiveToughness === 'number'
+        ? perm.effectiveToughness
+        : (typeof printedToughnessValue === 'number'
+            ? printedToughnessValue
+            : (typeof printedToughnessValue === 'string' && printedToughnessValue.trim().length > 0
+                ? parseInt(printedToughnessValue, 10)
+                : NaN));
+    if (Number.isNaN(toughness)) continue;
     const plusCounters = perm.counters?.['+1/+1'] || 0;
     const minusCounters = perm.counters?.['-1/-1'] || 0;
     const damageMarked = perm.counters?.damage || perm.damageMarked || 0;
 
-    toughness += plusCounters - minusCounters;
+    if (typeof perm.effectiveToughness !== 'number') {
+      toughness += plusCounters - minusCounters;
+    }
 
     if (toughness <= 0) {
       deaths.push(perm.id);

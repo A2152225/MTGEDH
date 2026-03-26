@@ -39,6 +39,7 @@ export type SimpleCardType =
 export type MoveZoneSingleTargetCriteria = {
   readonly cardType: SimpleCardType;
   readonly manaValueLte?: number;
+  readonly manaValueLtReferencePower?: boolean;
   readonly notNamed?: string;
   readonly requiresHistoric?: boolean;
   readonly creatureTypesAnyOf?: readonly string[];
@@ -306,11 +307,21 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
   const constrained = parseStaticManaValueLteConstraint(normalized);
   if (constrained) return constrained;
 
-  const notNamedMatch = normalized.match(/^(.+?)\s+not named\s+(.+)$/i);
-  const nameExclusion = notNamedMatch ? String(notNamedMatch[2] || '').trim() : undefined;
-  const baseTypeText = notNamedMatch ? String(notNamedMatch[1] || '').trim() : normalized;
+  let normalizedTypeText = normalized;
+  let manaValueLtReferencePower = false;
+  const dynamicPowerConstraintMatch = normalizedTypeText.match(
+    /^(.+?)\s+with\s+mana\s+value\s+less\s+than\s+(?:this|that)\s+(?:permanent|creature)'s\s+power$/i
+  );
+  if (dynamicPowerConstraintMatch) {
+    normalizedTypeText = String(dynamicPowerConstraintMatch[1] || '').trim();
+    manaValueLtReferencePower = true;
+  }
 
-  let normalizedTypeText = baseTypeText.replace(/\s+cards?$/i, '').trim();
+  const notNamedMatch = normalizedTypeText.match(/^(.+?)\s+not named\s+(.+)$/i);
+  const nameExclusion = notNamedMatch ? String(notNamedMatch[2] || '').trim() : undefined;
+  const baseTypeText = notNamedMatch ? String(notNamedMatch[1] || '').trim() : normalizedTypeText;
+
+  normalizedTypeText = baseTypeText.replace(/\s+cards?$/i, '').trim();
   if (/^cards?$/i.test(normalizedTypeText)) return { cardType: 'any' };
 
   let noAbilities = false;
@@ -359,19 +370,26 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
     };
   }
 
-  const parsedCardType = parseSimpleCardTypeFromText(normalizedTypeText);
-  if (parsedCardType) {
-    return {
-      cardType: parsedCardType,
-      ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
-      ...(noAbilities ? { noAbilities: true } : {}),
-      ...(requiredCounter ? { requiredCounter } : {}),
-      ...(nameExclusion ? { notNamed: nameExclusion } : {}),
-    };
-  }
-
   const splitTerms = splitTypeCriteriaList(normalizedTypeText);
   if (splitTerms.length > 0) {
+    const negatedTypeTerms = splitTerms
+      .map(term => normalizeTypeCriteriaTerm(term))
+      .map(term => {
+        const match = term.match(/^non-?([a-z]+)$/i);
+        return match ? String(match[1] || '').trim().toLowerCase() : null;
+      });
+    if (negatedTypeTerms.every((term): term is string => Boolean(term))) {
+      return {
+        cardType: 'any',
+        typeLineTermsNoneOf: negatedTypeTerms,
+        ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
+        ...(noAbilities ? { noAbilities: true } : {}),
+        ...(requiredCounter ? { requiredCounter } : {}),
+        ...(nameExclusion ? { notNamed: nameExclusion } : {}),
+        ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
+      };
+    }
+
     const creatureTypes = splitTerms
       .map(term => normalizeCreatureTypeCriteriaTerm(term))
       .filter((term): term is string => Boolean(term));
@@ -383,6 +401,7 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
         ...(noAbilities ? { noAbilities: true } : {}),
         ...(requiredCounter ? { requiredCounter } : {}),
         ...(nameExclusion ? { notNamed: nameExclusion } : {}),
+        ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
       };
     }
 
@@ -393,6 +412,7 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
       ...(noAbilities ? { noAbilities: true } : {}),
       ...(requiredCounter ? { requiredCounter } : {}),
       ...(nameExclusion ? { notNamed: nameExclusion } : {}),
+      ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
     };
   }
 
@@ -405,10 +425,23 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
       ...(noAbilities ? { noAbilities: true } : {}),
       ...(requiredCounter ? { requiredCounter } : {}),
       ...(nameExclusion ? { notNamed: nameExclusion } : {}),
+      ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
     };
   }
 
-  return null;
+  const parsedCardType = parseSimpleCardTypeFromText(normalizedTypeText);
+  if (parsedCardType) {
+    return {
+      cardType: parsedCardType,
+      ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
+      ...(noAbilities ? { noAbilities: true } : {}),
+      ...(requiredCounter ? { requiredCounter } : {}),
+      ...(nameExclusion ? { notNamed: nameExclusion } : {}),
+      ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
+    };
+  }
+
+  return manaValueLtReferencePower ? { cardType: 'any', manaValueLtReferencePower: true } : null;
 }
 
 function stripPutIntoGraveyardThisTurnQualifier(raw: string): {
@@ -436,7 +469,8 @@ export function cardMatchesMoveZoneSingleTargetCriteria(
   card: any,
   criteria: MoveZoneSingleTargetCriteria,
   referenceCardName?: string,
-  currentTurn?: number
+  currentTurn?: number,
+  referencePower?: number
 ): boolean {
   if (!cardMatchesType(card, criteria.cardType)) return false;
   if (criteria.requiresHistoric && !cardMatchesHistoric(card)) return false;
@@ -475,6 +509,17 @@ export function cardMatchesMoveZoneSingleTargetCriteria(
   if (criteria.manaValueLte !== undefined) {
     const manaValue = getCardManaValue(card);
     if (manaValue === null || manaValue > criteria.manaValueLte) return false;
+  }
+
+  if (criteria.manaValueLtReferencePower) {
+    const manaValue = getCardManaValue(card);
+    if (
+      manaValue === null ||
+      !Number.isFinite(referencePower) ||
+      manaValue >= Number(referencePower)
+    ) {
+      return false;
+    }
   }
 
   if (criteria.notNamed) {
@@ -1017,7 +1062,8 @@ export function moveTargetedCardFromGraveyard(
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string,
   referenceCardName?: string,
-  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides
+  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
+  referencePower?: number
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
@@ -1036,7 +1082,7 @@ export function moveTargetedCardFromGraveyard(
   if (index < 0) return { kind: 'impossible' };
 
   const card = graveyard[index];
-  if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, getCurrentTurnNumber(state))) {
+  if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, getCurrentTurnNumber(state), referencePower)) {
     return { kind: 'impossible' };
   }
 
@@ -1126,7 +1172,8 @@ export function moveTargetedCardFromAnyGraveyard(
   withCounters?: Record<string, number>,
   attachedToBattlefieldPermanentId?: string,
   referenceCardName?: string,
-  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides
+  battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
+  referencePower?: number
 ): {
   readonly kind: 'applied';
   readonly state: GameState;
@@ -1152,7 +1199,8 @@ export function moveTargetedCardFromAnyGraveyard(
         withCounters,
         attachedToBattlefieldPermanentId,
         referenceCardName,
-        battlefieldEntryOverrides
+        battlefieldEntryOverrides,
+        referencePower
       );
     }
   }
@@ -1901,7 +1949,7 @@ export function parseMoveZoneAllFromEachOpponentsExile(what: { readonly kind: st
   return { cardType: parsed };
 }
 
-function createBattlefieldPermanentsFromCards(
+export function createBattlefieldPermanentsFromCards(
   moved: readonly any[],
   sourcePlayerId: PlayerID,
   controllerId: PlayerID,

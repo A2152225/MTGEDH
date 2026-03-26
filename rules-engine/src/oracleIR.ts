@@ -3,6 +3,7 @@ import type { AbilityType } from './oracleTextParser';
 export type OracleQuantity =
   | { readonly kind: 'number'; readonly value: number }
   | { readonly kind: 'x' }
+  | { readonly kind: 'spells_cast_before_this_turn' }
   | { readonly kind: 'unknown'; readonly raw?: string };
 
 export type OraclePlayerSelector =
@@ -34,6 +35,32 @@ export type OracleClauseCondition =
   | { readonly kind: 'if'; readonly raw: string }
   | { readonly kind: 'as_long_as'; readonly raw: string }
   | { readonly kind: 'where'; readonly raw: string };
+
+export type OracleGraveyardAdditionalCost =
+  | {
+      readonly kind: 'discard';
+      readonly count: number;
+      readonly filterText?: string;
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'sacrifice';
+      readonly count: number;
+      readonly filterText?: string;
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'exile_from_graveyard';
+      readonly count: number;
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'remove_counter';
+      readonly count: number | 'any';
+      readonly counter?: string;
+      readonly filterText?: string;
+      readonly raw: string;
+    };
 
 export type OracleBattlefieldObjectCondition =
   | {
@@ -87,6 +114,21 @@ export type OracleEffectStep =
       readonly kind: 'draw';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'search_library';
+      readonly who: OraclePlayerSelector;
+      readonly criteria:
+        | { readonly kind: 'same_mana_value_as_source'; readonly requiredCardType?: 'creature' }
+        | { readonly kind: 'mana_value'; readonly value: number }
+        | { readonly kind: 'raw'; readonly text: string };
+      readonly destination: 'hand' | 'battlefield' | 'graveyard' | 'exile' | 'top' | 'bottom';
+      readonly revealFound?: boolean;
+      readonly shuffle?: boolean;
+      readonly maxResults?: number;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -162,6 +204,7 @@ export type OracleEffectStep =
       readonly linkedToSource?: boolean;
       readonly ownedByWho?: 'granted_player';
       readonly castedPermanentEntersWithCounters?: Record<string, number>;
+      readonly withoutPayingManaCost?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -170,7 +213,12 @@ export type OracleEffectStep =
       readonly kind: 'modify_graveyard_permissions';
       readonly scope: 'last_granted_graveyard_cards';
       readonly castCost?: 'mana_cost';
+      readonly castCostRaw?: string;
       readonly withoutPayingManaCost?: boolean;
+      readonly exileInsteadOfGraveyard?: boolean;
+      readonly additionalCost?: OracleGraveyardAdditionalCost;
+      readonly castedPermanentEntersWithCounters?: Record<string, number>;
+      readonly entersBattlefieldTransformed?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -257,10 +305,26 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'add_player_counter';
+      readonly who: OraclePlayerSelector;
+      readonly counter: string;
+      readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'remove_counter';
       readonly target: OracleObjectSelector;
       readonly counter: string;
       readonly amount: OracleQuantity;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'double_counters';
+      readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -368,6 +432,15 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'tap_matching_permanents';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly filter: string;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'create_token';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
@@ -375,6 +448,8 @@ export type OracleEffectStep =
       readonly token: string;
       /** Whether the token enters the battlefield tapped (deterministic). */
       readonly entersTapped?: boolean;
+      /** Whether created tokens enter attacking a deterministic opponent selection. */
+      readonly attacking?: 'defending_player' | 'each_opponent' | 'each_other_opponent';
       /** Counters the token enters with (deterministic, single-clause only). */
       readonly withCounters?: Record<string, number>;
       /** For Aura-style token creation that enters attached to a deterministic object. */
@@ -559,6 +634,7 @@ export type OracleEffectStep =
        */
       readonly kind: 'copy_spell';
       readonly subject: 'this_spell' | 'last_moved_card' | 'linked_exiled_cards';
+      readonly copies?: OracleQuantity;
       readonly withoutPayingManaCost?: boolean;
       /** Alternative cast cost to use instead of the copied card's mana cost. */
       readonly castCost?: 'mana_cost' | string;
@@ -626,6 +702,13 @@ export type OracleEffectStep =
     }
   | {
       readonly kind: 'suspect';
+      readonly target: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'become_renowned';
       readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';

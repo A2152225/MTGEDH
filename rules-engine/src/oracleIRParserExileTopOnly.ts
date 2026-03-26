@@ -3,6 +3,7 @@ import {
   isThoseOpponentsPossessiveSource,
   normalizeClauseForParse,
   normalizeOracleText,
+  parsePlayerSelector,
   parseQuantity,
 } from './oracleIRParserUtils';
 
@@ -45,6 +46,8 @@ export function tryParseExileTopOnly(params: {
   const quantityPattern = '(a|an|\\d+|x|[a-z]+)';
   const sourcePattern =
     "(your|target player's|target opponent's|that player's|that opponent's|each player's|each players'|each opponent's|each opponents'|each of your opponents'|each of those opponents'|those opponents'|all of those opponents'|all those opponents'|their|his or her)";
+  const subjectPattern =
+    "(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 -]*'s (?:controller|owner))";
   const exileSecondClause = /^(?:then\s+)?exile\s+(?:it|that card|them|those cards|the cards)(?:\s+face down)?\s*$/i;
 
   {
@@ -66,6 +69,34 @@ export function tryParseExileTopOnly(params: {
       if (directOne) {
         amount = { kind: 'number', value: 1 };
         who = mapLibrarySourceToPlayerSelector(directOne[1]);
+      }
+    }
+
+    if (!amount) {
+      const subjectMany = firstToParse.match(
+        new RegExp(
+          `^${subjectPattern}\\s+exiles\\s+the\\s+top\\s+${quantityPattern}\\s+cards?\\s+of\\s+(their|his or her|your)\\s+librar(?:y|ies)(?:\\s+face down)?\\s*$`,
+          'i'
+        )
+      );
+      if (subjectMany) {
+        amount = parseQuantity(subjectMany[2]);
+        const parsedWho = parsePlayerSelector(subjectMany[1]);
+        who = parsedWho.kind === 'unknown' ? null : parsedWho;
+      }
+    }
+
+    if (!amount) {
+      const subjectOne = firstToParse.match(
+        new RegExp(
+          `^${subjectPattern}\\s+exiles\\s+the\\s+top\\s+card\\s+of\\s+(their|his or her|your)\\s+librar(?:y|ies)(?:\\s+face down)?\\s*$`,
+          'i'
+        )
+      );
+      if (subjectOne) {
+        amount = { kind: 'number', value: 1 };
+        const parsedWho = parsePlayerSelector(subjectOne[1]);
+        who = parsedWho.kind === 'unknown' ? null : parsedWho;
       }
     }
   }

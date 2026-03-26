@@ -37,6 +37,65 @@ describe('Oracle IR Parser', () => {
     expect((steps[1] as any).amount).toEqual({ kind: 'number', value: 1 });
     expect((steps[1] as any).sequence).toBe('then');
   });
+
+  it('parses Myr Battlesphere into tap-count plus conditional buff-and-damage steps', () => {
+    const text =
+      'Whenever Myr Battlesphere attacks, you may tap X untapped Myr you control. If you do, Myr Battlesphere gets +X/+0 until end of turn and deals X damage to defending player.';
+
+    const ir = parseOracleTextToIR(text, 'Myr Battlesphere');
+    const steps = ir.abilities[0]?.steps as any[];
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0]).toMatchObject({
+      kind: 'tap_matching_permanents',
+      who: { kind: 'you' },
+      amount: { kind: 'x' },
+      filter: 'Myr',
+      optional: true,
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'you do' },
+    });
+    expect(steps[1].steps).toHaveLength(2);
+    expect(steps[1].steps[0]).toMatchObject({
+      kind: 'modify_pt',
+      target: { kind: 'raw', text: 'this permanent' },
+      power: 1,
+      toughness: 0,
+      powerUsesX: true,
+      condition: { kind: 'where', raw: 'x is the number of myr tapped this way' },
+    });
+    expect(steps[1].steps[1]).toMatchObject({
+      kind: 'deal_damage',
+      amount: { kind: 'unknown', raw: 'the number of myr tapped this way' },
+      target: { kind: 'raw', text: 'defending player' },
+    });
+  });
+
+  it('parses Disturb keyword lines into graveyard-cast permission plus transformed-entry metadata', () => {
+    const ir = parseOracleTextToIR('Disturb {1}{W}', 'Benevolent Geist');
+    const steps = ir.abilities[0]?.steps as any[];
+
+    expect(steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_graveyard_permission',
+          who: { kind: 'you' },
+          permission: 'cast',
+          what: { kind: 'raw', text: 'this card' },
+        }),
+        expect.objectContaining({
+          kind: 'modify_graveyard_permissions',
+          castCostRaw: '{1}{W}',
+        }),
+        expect.objectContaining({
+          kind: 'modify_graveyard_permissions',
+          entersBattlefieldTransformed: true,
+        }),
+      ])
+    );
+  });
   
   it('upgrades exile-top into impulse for "cards exiled with this creature" permission', () => {
     const text =
@@ -657,6 +716,189 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
 
     expect(ir.abilities[0].steps.map((step) => step.kind)).toEqual(['draw', 'proliferate']);
     expect((ir.abilities[0].steps[1] as any).sequence).toBe('then');
+  });
+
+  it('parses bare investigate keyword clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Investigate.', 'Thraben Cluekeeper');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'investigate',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+      }),
+    ]);
+  });
+
+  it('merges investigate followups into the same ability when split across sentences', () => {
+    const ir = parseOracleTextToIR('Draw a card. Investigate.', 'Case File');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0].steps.map((step) => step.kind)).toEqual(['draw', 'investigate']);
+  });
+
+  it('parses bare populate keyword clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Populate.', 'Selesnya Orders');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'populate',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+      }),
+    ]);
+  });
+
+  it('parses bare goad keyword clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Goad target creature.', 'Agitator Antenna');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'goad',
+        target: { kind: 'raw', text: 'target creature' },
+      }),
+    ]);
+  });
+
+  it('parses bare suspect keyword clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Suspect target creature.', 'Case Cracker');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'suspect',
+        target: { kind: 'raw', text: 'target creature' },
+      }),
+    ]);
+  });
+
+  it('parses counter-doubling text into a double_counters step', () => {
+    const ir = parseOracleTextToIR(
+      'For each kind of counter on target permanent, put another of that kind of counter on that permanent.',
+      'Gilder Bairn'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'double_counters',
+        target: { kind: 'raw', text: 'target permanent' },
+        raw: 'For each kind of counter on target permanent, put another of that kind of counter on that permanent',
+      },
+    ]);
+  });
+
+  it('parses Support keyword lines into add_counter steps for other target creatures', () => {
+    const ir = parseOracleTextToIR('Support 2', 'Shoulder to Shoulder');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 1 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'each of up to 2 other target creatures' },
+        raw: 'Put a +1/+1 counter on each of up to 2 other target creatures',
+      },
+    ]);
+  });
+
+  it('parses Bolster keyword lines into add_counter steps for the least-toughness creature you control', () => {
+    const ir = parseOracleTextToIR('Bolster 2', 'Abzan Skycaptain');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 2 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'target creature you control with the least toughness among creatures you control' },
+        raw: 'Put 2 +1/+1 counters on target creature you control with the least toughness among creatures you control',
+      },
+    ]);
+  });
+
+  it('parses Proliferate keyword lines into proliferate steps', () => {
+    const ir = parseOracleTextToIR('Proliferate', 'Experimental Augury');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'proliferate',
+        raw: 'Proliferate',
+      },
+    ]);
+  });
+
+  it('parses Investigate keyword lines into investigate steps', () => {
+    const ir = parseOracleTextToIR('Investigate', 'Thraben Inspector');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'investigate',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        raw: 'Investigate',
+      },
+    ]);
+  });
+
+  it('parses Populate keyword lines into populate steps', () => {
+    const ir = parseOracleTextToIR('Populate', 'Eyes in the Skies');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'populate',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        raw: 'Populate',
+      },
+    ]);
+  });
+
+  it('parses Scry keyword lines into scry steps', () => {
+    const ir = parseOracleTextToIR('Scry 2', 'Preordain');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'scry',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+        raw: 'Scry 2',
+      },
+    ]);
+  });
+
+  it('parses Surveil keyword lines into surveil steps', () => {
+    const ir = parseOracleTextToIR('Surveil 2', 'Disinformation Campaign');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'surveil',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+        raw: 'Surveil 2',
+      },
+    ]);
+  });
+
+  it('parses Mill keyword lines into mill steps', () => {
+    const ir = parseOracleTextToIR('Mill 2', 'Merfolk Secretkeeper');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'mill',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+        raw: 'Mill 2 cards',
+      },
+    ]);
+  });
+
+  it('parses The Ring tempts you keyword lines into ring_tempts_you steps', () => {
+    const ir = parseOracleTextToIR('The Ring tempts you', 'Call of the Ring');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'ring_tempts_you',
+        raw: 'The Ring tempts you',
+      },
+    ]);
   });
 
   it('expands simple conditional token followups like Fungal Rebirth', () => {
@@ -6231,14 +6473,755 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
   it('parses flashback keyword lines like Faithless Looting into graveyard-cast permission steps', () => {
     const ir = parseOracleTextToIR('Draw two cards, then discard two cards. Flashback {2}{R}', 'Faithless Looting');
 
-    expect(ir.abilities[1]?.steps).toMatchObject([
+    expect(ir.abilities[1]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_graveyard_permission',
+          who: { kind: 'you' },
+          what: { kind: 'raw', text: 'this card' },
+          permission: 'cast',
+          duration: 'during_resolution',
+          optional: true,
+        }),
+        expect.objectContaining({
+          kind: 'modify_graveyard_permissions',
+          scope: 'last_granted_graveyard_cards',
+          castCostRaw: '{2}{R}',
+        }),
+      ])
+    );
+  });
+
+  it('parses reminder-bearing flashback keyword lines like Bulk Up into graveyard cast-cost metadata', () => {
+    const ir = parseOracleTextToIR(
+      "Double target creature's power until end of turn. Flashback {4}{R}{R} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+      'Bulk Up'
+    );
+
+    expect(ir.abilities[1]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'grant_graveyard_permission',
+          who: { kind: 'you' },
+          what: { kind: 'raw', text: 'this card' },
+          permission: 'cast',
+        }),
+        expect.objectContaining({
+          kind: 'modify_graveyard_permissions',
+          scope: 'last_granted_graveyard_cards',
+          castCostRaw: '{4}{R}{R}',
+        }),
+      ])
+    );
+  });
+
+  it('parses Unearth reminder text into self-return plus delayed exile and leave-battlefield replacement', () => {
+    const ir = parseOracleTextToIR(
+      'Unearth {B} ({B}: Return this card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step or if it would leave the battlefield. Unearth only as a sorcery.)',
+      'Dregscape Zombie'
+    );
+
+    expect(String(ir.abilities[0]?.cost || '')).toContain('{B}');
+    expect(ir.abilities[0]?.steps.map(step => step.kind)).toEqual([
+      'move_zone',
+      'schedule_delayed_battlefield_action',
+      'grant_leave_battlefield_replacement',
+    ]);
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'move_zone',
+      what: { kind: 'raw', text: 'this card' },
+      to: 'battlefield',
+    });
+  });
+
+  it('parses bare Unearth keyword lines without reminder text', () => {
+    const ir = parseOracleTextToIR('Double strike\nUnearth {3}{R}{R}\n(Melds with Mishra, Claimed by Gix.)', 'Phyrexian Dragon Engine');
+
+    expect(ir.abilities.find(ability => ability.cost === '{3}{R}{R}')?.steps.map(step => step.kind)).toEqual([
+      'move_zone',
+      'schedule_delayed_battlefield_action',
+      'grant_leave_battlefield_replacement',
+    ]);
+  });
+
+  it('parses Transmute keyword lines into a reusable library-search step', () => {
+    const ir = parseOracleTextToIR('Transmute {1}{U}{U}', 'Muddle the Mixture');
+    const transmute = ir.abilities.find(ability => String(ability.cost || '').includes('{1}{U}{U}'));
+
+    expect(transmute).toMatchObject({
+      type: 'keyword',
+      cost: '{1}{U}{U}, Discard this card',
+      effectText: 'Search your library for a card with the same mana value as this card, reveal it, put it into your hand, then shuffle. Activate only as a sorcery.',
+    });
+    expect(transmute?.steps).toEqual([
       {
-        kind: 'grant_graveyard_permission',
+        kind: 'search_library',
         who: { kind: 'you' },
+        criteria: { kind: 'same_mana_value_as_source' },
+        destination: 'hand',
+        revealFound: true,
+        shuffle: true,
+        maxResults: 1,
+        raw: 'Search your library for a card with the same mana value as this card, reveal it, put it into your hand, then shuffle.',
+      },
+    ]);
+  });
+
+  it('parses Transfigure keyword lines into a battlefield tutor step with a creature filter', () => {
+    const ir = parseOracleTextToIR('Transfigure {1}{B}{B}', 'Fleshwrither');
+    const transfigure = ir.abilities.find(ability => String(ability.cost || '').includes('{1}{B}{B}'));
+
+    expect(transfigure).toMatchObject({
+      type: 'keyword',
+      cost: '{1}{B}{B}, Sacrifice this permanent',
+      effectText:
+        'Search your library for a creature card with the same mana value as this permanent, put it onto the battlefield, then shuffle. Activate only as a sorcery.',
+    });
+    expect(transfigure?.steps).toEqual([
+      {
+        kind: 'search_library',
+        who: { kind: 'you' },
+        criteria: { kind: 'same_mana_value_as_source', requiredCardType: 'creature' },
+        destination: 'battlefield',
+        shuffle: true,
+        maxResults: 1,
+        raw: 'Search your library for a creature card with the same mana value as this permanent, put it onto the battlefield, then shuffle.',
+      },
+    ]);
+  });
+
+  it('parses Encore keyword lines into exile-plus-copy-token-per-opponent steps', () => {
+    const ir = parseOracleTextToIR('Encore {5}{U}{U}', 'Impaler Shrike');
+    const encore = ir.abilities.find(ability => String(ability.cost || '').includes('{5}{U}{U}'));
+
+    expect(encore).toMatchObject({
+      type: 'keyword',
+      cost: '{5}{U}{U}, Exile this card from your graveyard',
+    });
+    expect(encore?.steps).toEqual([
+      {
+        kind: 'move_zone',
         what: { kind: 'raw', text: 'this card' },
-        permission: 'cast',
-        duration: 'during_resolution',
+        to: 'exile',
+        toRaw: 'exile',
+        raw: 'Exile this card from your graveyard.',
+      },
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        token: 'copy of it',
+        entersTapped: true,
+        attacking: 'each_opponent',
+        grantsHaste: 'permanent',
+        atNextEndStep: 'sacrifice',
+        raw: "For each opponent, create a token that's a copy of it. Those tokens enter tapped and attacking. They gain haste. Sacrifice them at the beginning of the next end step.",
+      },
+    ]);
+  });
+
+  it('parses Myriad keyword lines into an attacks trigger that copies for each other opponent', () => {
+    const ir = parseOracleTextToIR('Myriad', 'Warchief');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature attacks',
+      effectText:
+        "For each opponent other than defending player, create a token that's a copy of it. Those tokens enter tapped and attacking. Exile them at end of combat.",
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        token: 'copy of it',
+        entersTapped: true,
+        attacking: 'each_other_opponent',
+        atEndOfCombat: 'exile',
+        raw: "For each opponent other than defending player, create a token that's a copy of it. Those tokens enter tapped and attacking. Exile them at end of combat.",
+      },
+    ]);
+  });
+
+  it('parses Annihilator keyword lines into an attacks trigger that sacrifices permanents', () => {
+    const ir = parseOracleTextToIR('Annihilator 2', 'Void Colossus');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature attacks',
+      effectText: 'Defending player sacrifices 2 permanents.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'sacrifice',
+        who: { kind: 'target_opponent' },
+        what: { kind: 'raw', text: '2 permanents' },
+      },
+    ]);
+  });
+
+  it('parses Afterlife keyword lines into a dies trigger that creates Spirit tokens', () => {
+    const ir = parseOracleTextToIR('Afterlife 2', 'Imperious Oligarch');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this permanent dies',
+      effectText: 'Create 2 1/1 white and black Spirit creature tokens with flying.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 2 },
+        token: '1/1 white and black Spirit',
+        raw: 'Create 2 1/1 white and black Spirit creature tokens with flying',
+      },
+    ]);
+  });
+
+  it('parses Afflict keyword lines into a becomes-blocked trigger that drains the defending player', () => {
+    const ir = parseOracleTextToIR('Afflict 2', 'Storm Fleet Sprinter');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature becomes blocked',
+      effectText: 'Defending player loses 2 life.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'lose_life',
+        who: { kind: 'target_opponent' },
+        amount: { kind: 'number', value: 2 },
+      },
+    ]);
+  });
+
+  it('parses Renown keyword lines into a combat-damage trigger with a renowned gate and marker step', () => {
+    const ir = parseOracleTextToIR('Renown 1', 'Topan Freeblade');
+    const ability = ir.abilities[0];
+    const steps = unwrapLeadingConditionalSteps(ability?.steps ?? []);
+
+    expect(ability).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature deals combat damage to a player',
+      interveningIf: "this creature isn't renowned",
+      effectText: 'Put 1 +1/+1 counter on this creature. This creature becomes renowned.',
+    });
+    expect(ability?.steps?.[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: "this creature isn't renowned" },
+    });
+    expect(steps).toMatchObject([
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'this creature' },
+        counter: '+1/+1',
+        amount: { kind: 'number', value: 1 },
+      },
+      {
+        kind: 'become_renowned',
+        target: { kind: 'raw', text: 'This creature' },
+      },
+    ]);
+  });
+
+  it('parses Ingest keyword lines into a combat-damage trigger that exiles from that player', () => {
+    const ir = parseOracleTextToIR('Ingest', 'Benthic Infiltrator');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature deals combat damage to a player',
+      effectText: 'That player exiles the top card of their library.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'exile_top',
+        who: { kind: 'target_player' },
+        amount: { kind: 'number', value: 1 },
+      },
+    ]);
+  });
+
+  it('parses Poisonous keyword lines into a combat-damage trigger that gives that player poison counters', () => {
+    const ir = parseOracleTextToIR('Poisonous 3', 'Pit Scorpion');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature deals combat damage to a player',
+      effectText: 'That player gets 3 poison counters.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'add_player_counter',
+        who: { kind: 'target_player' },
+        counter: 'poison',
+        amount: { kind: 'number', value: 3 },
+      },
+    ]);
+  });
+
+  it('parses Fabricate keyword lines into a self-ETB trigger with counters plus a Servo fallback', () => {
+    const ir = parseOracleTextToIR('Fabricate 2', 'Glint-Sleeve Artisan');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this permanent enters the battlefield',
+      effectText: "You may put 2 +1/+1 counters on it. If you don't, create 2 1/1 colorless Servo artifact creature tokens.",
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'it' },
+        counter: '+1/+1',
+        amount: { kind: 'number', value: 2 },
         optional: true,
+      },
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "you don't" },
+        steps: [
+          {
+            kind: 'create_token',
+            token: '1/1 colorless Servo artifact',
+            amount: { kind: 'number', value: 2 },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('parses Storm keyword lines into a self-cast trigger that copies this spell by storm count', () => {
+    const ir = parseOracleTextToIR('Storm', 'Grapeshot');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'you cast this spell',
+      effectText: 'Copy this spell for each spell cast before it this turn. You may choose new targets for the copies.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'copy_spell',
+        subject: 'this_spell',
+        copies: { kind: 'spells_cast_before_this_turn' },
+        allowNewTargets: true,
+      },
+    ]);
+  });
+
+  it('parses Cascade keyword lines into a self-cast trigger with a spell-mana-value exile loop', () => {
+    const ir = parseOracleTextToIR('Cascade', 'Bloodbraid Elf');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'you cast this spell',
+      effectText:
+        "Exile cards from the top of your library until you exile a nonland card whose mana value is less than this spell's mana value. You may cast it without paying its mana cost. Put the exiled cards on the bottom of your library in a random order.",
+    });
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'impulse_exile_top',
+          who: { kind: 'you' },
+          amount: {
+            kind: 'unknown',
+            raw: "until you exile a nonland card whose mana value is less than this spell's mana value",
+          },
+          duration: 'during_resolution',
+          permission: 'cast',
+        }),
+      ])
+    );
+    expect(ir.abilities[0]?.steps.some(step => step.kind === 'unknown')).toBe(true);
+  });
+
+  it('parses Living weapon keyword lines into a Germ token creation plus attach follow-up', () => {
+    const ir = parseOracleTextToIR('Living weapon', 'Flayer Husk');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this equipment enters the battlefield',
+      effectText: 'Create a 0/0 black Phyrexian Germ creature token, then attach this Equipment to it.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        token: '0/0 black Phyrexian Germ',
+      },
+      {
+        kind: 'attach',
+        attachment: { kind: 'raw', text: 'this Equipment' },
+        to: { kind: 'raw', text: 'it' },
+      },
+    ]);
+  });
+
+  it('parses For Mirrodin! keyword lines into a Rebel token creation plus attach follow-up', () => {
+    const ir = parseOracleTextToIR('For Mirrodin!', 'Hexgold Halberd');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this equipment enters the battlefield',
+      effectText: 'Create a 2/2 red Rebel creature token, then attach this Equipment to it.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        token: '2/2 red Rebel',
+      },
+      {
+        kind: 'attach',
+        attachment: { kind: 'raw', text: 'this Equipment' },
+        to: { kind: 'raw', text: 'it' },
+      },
+    ]);
+  });
+
+  it('parses job select keyword lines into a Hero token creation plus attach follow-up', () => {
+    const ir = parseOracleTextToIR('Job select', 'Freelancer Class');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this equipment enters the battlefield',
+      effectText: 'Create a 1/1 colorless Hero creature token, then attach this Equipment to it.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        token: '1/1 colorless Hero',
+      },
+      {
+        kind: 'attach',
+        attachment: { kind: 'raw', text: 'this Equipment' },
+        to: { kind: 'raw', text: 'it' },
+      },
+    ]);
+  });
+
+  it('parses Training keyword lines into an attacks trigger that adds a counter to this creature', () => {
+    const ir = parseOracleTextToIR('Training', 'Hopeful Initiate');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: "this creature and at least one other creature with power greater than this creature's power attack",
+      effectText: 'Put a +1/+1 counter on this creature.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'this creature' },
+        counter: '+1/+1',
+        amount: { kind: 'number', value: 1 },
+      },
+    ]);
+  });
+
+  it('parses Evolve keyword lines into an ETB trigger gated on larger power or toughness', () => {
+    const ir = parseOracleTextToIR('Evolve', 'Cloudfin Raptor');
+    const ability = ir.abilities[0];
+    const steps = unwrapLeadingConditionalSteps(ability?.steps ?? []);
+
+    expect(ability).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'another creature enters the battlefield under your control',
+      interveningIf: "that creature's power is greater than this creature's power or that creature's toughness is greater than this creature's toughness",
+      effectText: 'Put a +1/+1 counter on this creature.',
+    });
+    expect(ability?.steps?.[0]).toMatchObject({
+      kind: 'conditional',
+      condition: {
+        kind: 'if',
+        raw: "that creature's power is greater than this creature's power or that creature's toughness is greater than this creature's toughness",
+      },
+    });
+    expect(steps).toMatchObject([
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'this creature' },
+        counter: '+1/+1',
+        amount: { kind: 'number', value: 1 },
+      },
+    ]);
+  });
+
+  it('parses Exploit keyword lines into a self-ETB trigger with an optional sacrifice step', () => {
+    const ir = parseOracleTextToIR('Exploit', "Sidisi's Faithful");
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this permanent enters the battlefield',
+      effectText: 'You may sacrifice a creature.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'sacrifice',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'a creature' },
+        optional: true,
+      },
+    ]);
+  });
+
+  it('parses Undying keyword lines into a dies trigger gated on missing +1/+1 counters', () => {
+    const ir = parseOracleTextToIR('Undying', 'Young Wolf');
+    const ability = ir.abilities[0];
+    const steps = unwrapLeadingConditionalSteps(ability?.steps ?? []);
+
+    expect(ability).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this permanent dies',
+      interveningIf: 'it had no +1/+1 counters on it',
+      effectText: "Return this card to the battlefield under its owner's control with a +1/+1 counter on it.",
+    });
+    expect(ability?.steps?.[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'it had no +1/+1 counters on it' },
+    });
+    expect(steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        to: 'battlefield',
+        battlefieldController: { kind: 'owner_of_moved_cards' },
+        withCounters: { '+1/+1': 1 },
+      },
+    ]);
+  });
+
+  it('parses Persist keyword lines into a dies trigger gated on missing -1/-1 counters', () => {
+    const ir = parseOracleTextToIR('Persist', 'Kitchen Finks');
+    const ability = ir.abilities[0];
+    const steps = unwrapLeadingConditionalSteps(ability?.steps ?? []);
+
+    expect(ability).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this permanent dies',
+      interveningIf: 'it had no -1/-1 counters on it',
+      effectText: "Return this card to the battlefield under its owner's control with a -1/-1 counter on it.",
+    });
+    expect(ability?.steps?.[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'it had no -1/-1 counters on it' },
+    });
+    expect(steps).toMatchObject([
+      {
+        kind: 'move_zone',
+        to: 'battlefield',
+        battlefieldController: { kind: 'owner_of_moved_cards' },
+        withCounters: { '-1/-1': 1 },
+      },
+    ]);
+  });
+
+  it('parses Exalted keyword lines into an attacks-alone trigger that buffs the attacker', () => {
+    const ir = parseOracleTextToIR('Exalted', 'Akrasan Squire');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'a creature you control attacks alone',
+      effectText: 'That creature gets +1/+1 until end of turn.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'that creature' },
+        power: 1,
+        toughness: 1,
+        duration: 'end_of_turn',
+        raw: 'That creature gets +1/+1 until end of turn',
+      },
+    ]);
+  });
+
+  it('parses Mentor keyword lines into an attacks trigger that adds a counter to a smaller attacker', () => {
+    const ir = parseOracleTextToIR('Mentor', 'Fresh-Faced Recruit');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature attacks',
+      effectText: "Put a +1/+1 counter on target attacking creature with power less than this creature's power.",
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 1 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: "target attacking creature with power less than this creature's power" },
+        raw: "Put a +1/+1 counter on target attacking creature with power less than this creature's power",
+      },
+    ]);
+  });
+
+  it('parses Battle cry keyword lines into an attacks trigger that buffs other attackers', () => {
+    const ir = parseOracleTextToIR('Battle cry', 'Signal Pest');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature attacks',
+      effectText: 'Each other attacking creature gets +1/+0 until end of turn.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'each other attacking creature' },
+        power: 1,
+        toughness: 0,
+        duration: 'end_of_turn',
+        raw: 'Each other attacking creature gets +1/+0 until end of turn',
+      },
+    ]);
+  });
+
+  it('parses Melee keyword lines into an attacks trigger that buffs itself by players attacked', () => {
+    const ir = parseOracleTextToIR('Melee', 'Grenzo Havoc Raiser');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature attacks',
+      effectText: 'This creature gets +X/+X until end of turn where X is the number of players being attacked.',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'this creature' },
+        power: 1,
+        toughness: 1,
+        powerUsesX: true,
+        toughnessUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is the number of players being attacked' },
+        raw: 'This creature gets +X/+X until end of turn where X is the number of players being attacked',
+      },
+    ]);
+  });
+
+  it('parses Dethrone keyword lines into an attacks trigger with an intervening life-lead check', () => {
+    const ir = parseOracleTextToIR('Dethrone', 'Marchesa Initiate');
+    const ability = ir.abilities[0];
+    const steps = unwrapLeadingConditionalSteps(ability?.steps ?? []);
+
+    expect(ability).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature attacks',
+      interveningIf: 'defending player has the most life or is tied for the most life',
+      effectText: 'Put a +1/+1 counter on this creature.',
+    });
+    expect(ability?.steps?.[0]).toMatchObject({
+      kind: 'conditional',
+      condition: { kind: 'if', raw: 'defending player has the most life or is tied for the most life' },
+    });
+    expect(steps[0]).toMatchObject({
+      kind: 'add_counter',
+      target: { kind: 'raw', text: 'this creature' },
+      counter: '+1/+1',
+      amount: { kind: 'number', value: 1 },
+    });
+  });
+
+  it('parses Prowess keyword lines into a noncreature-spell trigger that buffs itself', () => {
+    const ir = parseOracleTextToIR('Prowess', 'Stormchaser Adept');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'you cast a noncreature spell',
+      effectText: 'This creature gets +1/+1 until end of turn.',
+    });
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'this creature' },
+        power: 1,
+        toughness: 1,
+        duration: 'end_of_turn',
+        raw: 'This creature gets +1/+1 until end of turn',
+      },
+    ]);
+  });
+
+  it('parses Mobilize keyword lines into an attacks trigger that creates defending-player tokens', () => {
+    const ir = parseOracleTextToIR('Mobilize 3', 'Warhost Herald');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'this creature attacks',
+      effectText:
+        'Create 3 1/1 red Warrior creature tokens. Those tokens enter tapped and attacking. Sacrifice them at the beginning of the next end step.',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 3 },
+        token: '1/1 red Warrior creature',
+        entersTapped: true,
+        attacking: 'defending_player',
+        atNextEndStep: 'sacrifice',
+        raw: 'Create 3 1/1 red Warrior creature tokens. Those tokens enter tapped and attacking. Sacrifice them at the beginning of the next end step.',
+      },
+    ]);
+  });
+
+  it('preserves Mobilize token count when parsing the expanded reminder text directly', () => {
+    const ir = parseOracleTextToIR(
+      'Create 3 1/1 red Warrior creature tokens. Those tokens enter tapped and attacking. Sacrifice them at the beginning of the next end step.',
+      'Warhost Herald'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 3 },
+        token: '1/1 red Warrior creature',
+        entersTapped: true,
+        attacking: 'defending_player',
+        atNextEndStep: 'sacrifice',
+        raw: 'Create 3 1/1 red Warrior creature tokens. Those tokens enter tapped and attacking. Sacrifice them at the beginning of the next end step.',
+      },
+    ]);
+  });
+
+  it('parses Morph keyword lines into a turn-face-up step', () => {
+    const ir = parseOracleTextToIR('Morph {3}{G}', 'Barkhide Host');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{3}{G}',
+      effectText: 'Turn this permanent face up.',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'turn_face_up',
+        target: { kind: 'raw', text: 'this permanent' },
+        raw: 'Turn this permanent face up',
+      },
+    ]);
+  });
+
+  it('parses Megamorph keyword lines into a turn-face-up plus counter sequence', () => {
+    const ir = parseOracleTextToIR('Megamorph {4}{G}', 'Barkhide Host');
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{4}{G}',
+      effectText: 'Turn this permanent face up. Put a +1/+1 counter on it.',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'turn_face_up',
+        target: { kind: 'raw', text: 'this permanent' },
+        raw: 'Turn this permanent face up',
+      },
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'it' },
+        counter: '+1/+1',
+        amount: { kind: 'number', value: 1 },
+        raw: 'Put a +1/+1 counter on it',
       },
     ]);
   });
@@ -6268,27 +7251,26 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
-  it('parses Torrential Gearhulk into a graveyard permission plus free-cast metadata', () => {
+  it('parses Torrential Gearhulk into a graveyard permission plus free-cast and exile-replacement metadata', () => {
     const ir = parseOracleTextToIR(
       'When this creature enters, you may cast target instant card from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead.',
       'Torrential Gearhulk'
     );
 
-    expect(ir.abilities[0]?.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'grant_graveyard_permission',
-          what: { kind: 'raw', text: 'target instant card' },
-          permission: 'cast',
-          optional: true,
-        }),
-        expect.objectContaining({
-          kind: 'modify_graveyard_permissions',
-          scope: 'last_granted_graveyard_cards',
-          withoutPayingManaCost: true,
-        }),
-      ])
-    );
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_graveyard_permission',
+        what: { kind: 'raw', text: 'target instant card' },
+        permission: 'cast',
+        optional: true,
+      }),
+      expect.objectContaining({
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        withoutPayingManaCost: true,
+        exileInsteadOfGraveyard: true,
+      }),
+    ]);
   });
 
   it("parses Uro, Titan of Nature's Wrath into a sacrifice-unless-escaped conditional", () => {
@@ -6308,6 +7290,61 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
           }),
         ],
       }),
+    ]);
+  });
+
+  it('parses Woe Strider escape text into graveyard permission plus escape-entry counters', () => {
+    const ir = parseOracleTextToIR(
+      'Escape-{3}{B}{B}, Exile four other cards from your graveyard. This creature escapes with two +1/+1 counters on it.',
+      'Woe Strider'
+    );
+
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'this card' },
+        permission: 'cast',
+        duration: 'during_resolution',
+        optional: true,
+      },
+      {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        additionalCost: { kind: 'exile_from_graveyard', count: 4, raw: 'Exile four other cards from your graveyard' },
+      },
+      {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        castedPermanentEntersWithCounters: { '+1/+1': 2 },
+      },
+    ]);
+  });
+
+  it('parses Quilled Greatwurm-style graveyard counter-removal costs into remove-counter metadata', () => {
+    const ir = parseOracleTextToIR(
+      'You may cast this card from your graveyard by removing six counters from among creatures you control in addition to paying its other costs.',
+      'Quilled Greatwurm'
+    );
+
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'this card' },
+        permission: 'cast',
+        duration: 'during_resolution',
+        optional: true,
+      },
+      {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        additionalCost: {
+          kind: 'remove_counter',
+          count: 6,
+          filterText: 'creatures you control',
+        },
+      },
     ]);
   });
 
@@ -6349,6 +7386,12 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         duration: 'during_resolution',
         optional: true,
       },
+      {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        castCost: 'mana_cost',
+        additionalCost: { kind: 'exile_from_graveyard', count: 3, raw: 'exile three other cards from your graveyard' },
+      },
     ]);
   });
 
@@ -6365,7 +7408,42 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         what: { kind: 'raw', text: 'this card' },
         permission: 'cast',
       },
+      {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        additionalCost: {
+          kind: 'sacrifice',
+          count: 3,
+          filterText: 'creatures',
+        },
+      },
     ]);
+  });
+
+  it('prunes flashback reminder duplicates from full Dread Return oracle text while keeping the sacrifice cost metadata', () => {
+    const ir = parseOracleTextToIR(
+      'Return target creature card from your graveyard to the battlefield. Flashback-Sacrifice three creatures. (You may cast this card from your graveyard for its flashback cost. Then exile it.)',
+      'Dread Return'
+    );
+
+    expect(ir.abilities[1]?.steps).toMatchObject([
+      {
+        kind: 'grant_graveyard_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'this card' },
+        permission: 'cast',
+      },
+      {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        additionalCost: {
+          kind: 'sacrifice',
+          count: 3,
+          filterText: 'creatures',
+        },
+      },
+    ]);
+    expect(ir.abilities[1]?.steps).toHaveLength(2);
   });
 
   it('parses turn-gated retrace grants like Six into conditional graveyard-cast permission steps', () => {
@@ -6374,24 +7452,31 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       'Six'
     );
 
-    expect(ir.abilities[0]?.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'conditional',
-          condition: { kind: 'if', raw: "it's your turn" },
-          steps: expect.arrayContaining([
-            expect.objectContaining({
-              kind: 'grant_graveyard_permission',
-              who: { kind: 'you' },
-              what: { kind: 'raw', text: 'nonland permanent' },
-              permission: 'cast',
-              duration: 'this_turn',
-              optional: true,
-            }),
-          ]),
-        }),
-      ])
-    );
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
+        kind: 'conditional',
+        condition: { kind: 'if', raw: "it's your turn" },
+        steps: [
+          {
+            kind: 'grant_graveyard_permission',
+            who: { kind: 'you' },
+            what: { kind: 'raw', text: 'nonland permanent' },
+            permission: 'cast',
+            duration: 'this_turn',
+            optional: true,
+          },
+          {
+            kind: 'modify_graveyard_permissions',
+            scope: 'last_granted_graveyard_cards',
+            additionalCost: {
+              kind: 'discard',
+              count: 1,
+              filterText: 'land',
+            },
+          },
+        ],
+      },
+    ]);
   });
 
   it('parses Gravecrawler into a Zombie-gated graveyard permission wrapper', () => {
@@ -6434,6 +7519,39 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         }),
       ])
     );
+  });
+
+  it('parses Rebound reminder text into a self-exile free-cast permission', () => {
+    const ir = parseOracleTextToIR('Rebound', 'Staggershock');
+
+    expect(ir.abilities[0]?.type).toBe('triggered');
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_exile_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'this card' },
+        permission: 'cast',
+        duration: 'during_resolution',
+        withoutPayingManaCost: true,
+        optional: true,
+      }),
+    ]);
+  });
+
+  it('parses the delayed Rebound cast-from-exile sentence into a self-exile free-cast permission', () => {
+    const ir = parseOracleTextToIR('You may cast this card from exile without paying its mana cost.', 'Staggershock');
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'grant_exile_permission',
+        who: { kind: 'you' },
+        what: { kind: 'raw', text: 'this card' },
+        permission: 'cast',
+        duration: 'during_resolution',
+        withoutPayingManaCost: true,
+        optional: true,
+      }),
+    ]);
   });
 
   it('parses Chainer, Nightmare Adept into a this-turn creature-graveyard permission', () => {
@@ -6505,20 +7623,29 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       'Exploration Broodship'
     );
 
-    expect(ir.abilities[0]?.steps).toEqual([
-      expect.objectContaining({
+    expect(ir.abilities[0]?.steps).toMatchObject([
+      {
         kind: 'conditional',
         condition: { kind: 'as_long_as', raw: "it's your turn" },
         steps: [
-          expect.objectContaining({
+          {
             kind: 'grant_graveyard_permission',
             what: { kind: 'raw', text: 'a permanent spell' },
             permission: 'cast',
             duration: 'this_turn',
             optional: true,
-          }),
+          },
+          {
+            kind: 'modify_graveyard_permissions',
+            scope: 'last_granted_graveyard_cards',
+            additionalCost: {
+              kind: 'sacrifice',
+              count: 1,
+              filterText: 'land',
+            },
+          },
         ],
-      }),
+      },
     ]);
   });
 
@@ -6754,16 +7881,13 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
         duration: 'this_turn',
         optional: true,
       },
+      {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        castCost: 'mana_cost',
+        additionalCost: { kind: 'exile_from_graveyard', count: 2, raw: 'exile two other cards from your graveyard' },
+      },
     ]);
-    expect(ir.abilities[1]?.steps).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'grant_graveyard_permission',
-          what: { kind: 'raw', text: 'it' },
-          duration: 'this_turn',
-        }),
-      ])
-    );
   });
 
   it('parses Gravecrawler into an as-long-as conditional graveyard permission step', () => {
@@ -7298,9 +8422,53 @@ This creature has protection from each of the exiled card's card types. (Artifac
       ]);
     });
 
-    it("parses Wizard's Spellbook into exile, roll_die, and die-roll result branches", () => {
+  it("parses Wizard's Spellbook into exile, roll_die, and die-roll result branches", () => {
+    const ir = parseOracleTextToIR(
+      "{T}: Exile target instant or sorcery card from a graveyard. Roll a d20. Activate only as a sorcery.\n1-9 | Copy that card. You may cast the copy.\n10-19 | Copy that card. You may cast the copy by paying {1} rather than paying its mana cost.\n20 | Copy each card exiled with this artifact. You may cast any number of the copies without paying their mana costs.",
+      "Wizard's Spellbook"
+      );
+
+      expect(ir.abilities).toHaveLength(1);
+      expect(ir.abilities[0]?.type).toBe('activated');
+      expect(ir.abilities[0]?.steps).toEqual([
+        expect.objectContaining({
+          kind: 'move_zone',
+          to: 'exile',
+          what: { kind: 'raw', text: 'target instant or sorcery card from a graveyard' },
+        }),
+        expect.objectContaining({
+          kind: 'roll_die',
+          sides: 20,
+          who: { kind: 'you' },
+        }),
+        expect.objectContaining({
+          kind: 'die_roll_results',
+          sides: 20,
+          who: { kind: 'you' },
+          results: [
+            expect.objectContaining({
+              min: 1,
+              max: 9,
+              steps: [expect.objectContaining({ kind: 'copy_spell', subject: 'last_moved_card', castCost: 'mana_cost' })],
+            }),
+            expect.objectContaining({
+              min: 10,
+              max: 19,
+              steps: [expect.objectContaining({ kind: 'copy_spell', subject: 'last_moved_card', castCost: '{1}' })],
+            }),
+            expect.objectContaining({
+              min: 20,
+              max: 20,
+              steps: [expect.objectContaining({ kind: 'copy_spell', subject: 'linked_exiled_cards', withoutPayingManaCost: true })],
+            }),
+          ],
+        }),
+      ]);
+    });
+
+    it("parses flattened inline Wizard's Spellbook text into exile, roll_die, and die-roll result branches", () => {
       const ir = parseOracleTextToIR(
-        "{T}: Exile target instant or sorcery card from a graveyard. Roll a d20. Activate only as a sorcery.\n1-9 | Copy that card. You may cast the copy.\n10-19 | Copy that card. You may cast the copy by paying {1} rather than paying its mana cost.\n20 | Copy each card exiled with this artifact. You may cast any number of the copies without paying their mana costs.",
+        "{3}{U}, {T}: Exile target instant or sorcery card from a graveyard and roll a d20. 1-9 | Copy that card. You may cast the copy. 10-19 | Copy that card. You may cast the copy by paying {1} rather than paying its mana cost. 20 | Copy each card exiled with this artifact. You may cast any number of the copies without paying their mana costs.",
         "Wizard's Spellbook"
       );
 
@@ -7479,6 +8647,220 @@ This creature has protection from each of the exiled card's card types. (Artifac
       what: { kind: 'raw', text: 'target card from a graveyard' },
       to: 'exile',
       optional: true,
+    });
+    expect(ir.abilities[2]).toMatchObject({
+      type: 'keyword',
+      cost: '{2}{B}, Discard this card',
+    });
+    expect(ir.abilities[2]?.steps[0]).toMatchObject({
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+    });
+  });
+
+  it('parses Equip as an attach activation instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR('Equip {2}', 'Short Sword');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{2}',
+    });
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'attach',
+      to: { kind: 'raw', text: 'target creature you control' },
+    });
+  });
+
+  it('parses Outlast as an add-counter activation instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR('Outlast {1}{W}', 'Abzan Falconer');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{1}{W}, {T}',
+    });
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_counter',
+      target: { kind: 'raw', text: 'this creature' },
+      counter: '+1/+1',
+      amount: { kind: 'number', value: 1 },
+    });
+  });
+
+  it('parses Level up as an add-counter activation instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR('Level up {2}', 'Student of Warfare');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{2}',
+    });
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_counter',
+      target: { kind: 'raw', text: 'this permanent' },
+      counter: 'level',
+      amount: { kind: 'number', value: 1 },
+    });
+  });
+
+  it('parses Reinforce as an explicit discard activation instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR(
+      'Reinforce 2—{1}{W} ({1}{W}, Discard this card: Put two +1/+1 counters on target creature.)',
+      'Burrenton Bombardier'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{1}{W}, Discard this card',
+    });
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_counter',
+      target: { kind: 'raw', text: 'target creature' },
+      counter: '+1/+1',
+      amount: { kind: 'number', value: 2 },
+    });
+  });
+
+  it('parses Scavenge as an exile-plus-counters activation instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR('Scavenge {4}{G}{G}', 'Deadbridge Goliath');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{4}{G}{G}, Exile this card from your graveyard',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'this card' },
+        to: 'exile',
+        toRaw: 'exile',
+        raw: 'Exile this card from your graveyard.',
+      },
+      {
+        kind: 'add_counter',
+        target: { kind: 'raw', text: 'target creature' },
+        counter: '+1/+1',
+        amount: { kind: 'x' },
+        raw: "Put X +1/+1 counters on target creature, where X is this card's power.",
+      },
+    ]);
+  });
+
+  it('parses Embalm as an exile-plus-copy-token activation instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR('Embalm {3}{W}', 'Anointer Priest');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{3}{W}, Exile this card from your graveyard',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'this card' },
+        to: 'exile',
+        toRaw: 'exile',
+        raw: 'Exile this card from your graveyard.',
+      },
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        token: "copy of it, except it's white, it has no mana cost, and it's a Zombie in addition to its other types",
+        amount: { kind: 'number', value: 1 },
+        raw: "Create a token that's a copy of it, except it's white, it has no mana cost, and it's a Zombie in addition to its other types.",
+      },
+    ]);
+  });
+
+  it('parses Eternalize as an exile-plus-copy-token activation instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR('Eternalize {2}{B}{B}', 'Champion of Wits');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{2}{B}{B}, Exile this card from your graveyard',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      {
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'this card' },
+        to: 'exile',
+        toRaw: 'exile',
+        raw: 'Exile this card from your graveyard.',
+      },
+      {
+        kind: 'create_token',
+        who: { kind: 'you' },
+        token: "copy of it, except it's black, it's 4/4, it has no mana cost, and it's a Zombie in addition to its other types",
+        amount: { kind: 'number', value: 1 },
+        raw: "Create a token that's a copy of it, except it's black, it's 4/4, it has no mana cost, and it's a Zombie in addition to its other types.",
+      },
+    ]);
+  });
+
+  it('parses Replicate as an explicit cast-copy keyword line instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR('Replicate {1}{U}', 'Replicate Test');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{1}{U}',
+      effectText:
+        'As an additional cost to cast this spell, you may pay its replicate cost any number of times. When you cast this spell, copy it for each time you paid its replicate cost. You may choose new targets for the copies.',
+    });
+  });
+
+  it('parses Fortify as an attach activation instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR('Fortify {3}', 'Darksteel Garrison');
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{3}',
+    });
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'attach',
+      to: { kind: 'raw', text: 'target land you control' },
+    });
+  });
+
+  it('parses Channel as a discard activation with executable effect text', () => {
+    const ir = parseOracleTextToIR(
+      'Channel — {2}{R}, Discard this card: Draw two cards.',
+      'Tormenting Voice on a Stick'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{2}{R}, Discard this card',
+    });
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'draw',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 2 },
+    });
+  });
+
+  it('parses Exhaust as an executable mana ability instead of a dead keyword stub', () => {
+    const ir = parseOracleTextToIR(
+      'Exhaust — {3}: Add {R}{R}{R}. Activate only once.',
+      'Turbo Charger'
+    );
+
+    expect(ir.abilities).toHaveLength(1);
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'keyword',
+      cost: '{3}',
+    });
+    expect(ir.abilities[0]?.steps[0]).toMatchObject({
+      kind: 'add_mana',
+      who: { kind: 'you' },
+      mana: '{R}{R}{R}',
     });
   });
 

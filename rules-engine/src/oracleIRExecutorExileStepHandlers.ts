@@ -329,6 +329,7 @@ export function applyGrantExilePermissionStep(
         ...card,
         canBePlayedBy: matchingGrantedPlayerId,
         playableUntilTurn: playableUntilTurn ?? Number.MAX_SAFE_INTEGER,
+        ...(step.withoutPayingManaCost ? { withoutPayingManaCost: true } : {}),
         ...(step.castedPermanentEntersWithCounters
           ? { entersBattlefieldWithCounters: { ...step.castedPermanentEntersWithCounters } }
           : {}),

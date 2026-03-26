@@ -332,7 +332,33 @@ export function getCardManaValue(card: any): number | null {
     card?.card?.cmc;
 
   const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
+  if (Number.isFinite(value)) return value;
+
+  const manaCost = String(
+    card?.mana_cost ??
+      card?.manaCost ??
+      card?.card?.mana_cost ??
+      card?.card?.manaCost ??
+      ''
+  ).trim();
+  if (!manaCost) return null;
+
+  const symbols = parseManaSymbols(manaCost);
+  if (symbols.length === 0) return null;
+
+  let total = 0;
+  for (const symbol of symbols) {
+    const normalized = String(symbol || '').trim().toUpperCase();
+    if (!normalized) return null;
+    if (/^\{\d+\}$/.test(normalized)) {
+      total += Number.parseInt(normalized.slice(1, -1), 10);
+      continue;
+    }
+    if (/^\{X\}$/.test(normalized)) continue;
+    total += 1;
+  }
+
+  return total;
 }
 
 export function resolveUnknownExileUntilAmountForPlayer(
@@ -410,6 +436,25 @@ export function resolveUnknownExileUntilAmountForPlayer(
       const cardTypes = getCardTypesFromTypeLine(library[i]);
       if (!cardTypes) return null;
       if (cardTypes.some(type => refTypes.has(type))) return i + 1;
+    }
+    return library.length;
+  }
+
+  if (
+    raw === "until you exile a nonland card whose mana value is less than this spell's mana value" ||
+    raw === "until they exile a nonland card whose mana value is less than this spell's mana value"
+  ) {
+    const referenceManaValue = Number(ctx?.referenceSpellManaValue);
+    if (!Number.isFinite(referenceManaValue)) return null;
+
+    for (let i = 0; i < library.length; i++) {
+      const typeLine = getCardTypeLineLower(library[i]);
+      if (!typeLine) return null;
+      if (typeLine.includes('land')) continue;
+
+      const manaValue = getCardManaValue(library[i]);
+      if (manaValue === null) return null;
+      if (manaValue < referenceManaValue) return i + 1;
     }
     return library.length;
   }
@@ -700,11 +745,18 @@ export function shouldReturnUncastExiledToBottom(step: any): boolean {
     step?.duration === 'during_resolution' &&
     step?.permission === 'cast' &&
     step?.amount?.kind === 'unknown' &&
-    (who === 'target_opponent' || who === 'target_player') &&
-    (amountRaw === 'until they exile an instant or sorcery card' ||
-      amountRaw === 'until you exile an instant or sorcery card' ||
-      amountRaw === 'until they exile a card that shares a card type with it' ||
-      amountRaw === 'until you exile a card that shares a card type with it')
+    (
+      ((who === 'target_opponent' || who === 'target_player') &&
+        (amountRaw === 'until they exile an instant or sorcery card' ||
+          amountRaw === 'until you exile an instant or sorcery card' ||
+          amountRaw === 'until they exile a card that shares a card type with it' ||
+          amountRaw === 'until you exile a card that shares a card type with it' ||
+          amountRaw === "until they exile a nonland card whose mana value is less than this spell's mana value" ||
+          amountRaw === "until you exile a nonland card whose mana value is less than this spell's mana value")) ||
+      (who === 'you' &&
+        (amountRaw === "until they exile a nonland card whose mana value is less than this spell's mana value" ||
+          amountRaw === "until you exile a nonland card whose mana value is less than this spell's mana value"))
+    )
   );
 }
 
@@ -742,6 +794,22 @@ export function splitExiledForShuffleRest(step: any, exiled: readonly any[]): { 
     const hit = typeLine.includes('instant') || typeLine.includes('sorcery');
     if (!hit) return { keepExiled: [], returnToLibrary: all };
     return { keepExiled: [last], returnToLibrary: all.slice(0, -1) };
+  }
+
+  if (
+    amountRaw === "until they exile a nonland card whose mana value is less than this spell's mana value" ||
+    amountRaw === "until you exile a nonland card whose mana value is less than this spell's mana value"
+  ) {
+    const hitIndex = all.findIndex((card: any) => {
+      const typeLine = getCardTypeLineLower(card);
+      const manaValue = getCardManaValue(card);
+      return Boolean(typeLine) && !typeLine.includes('land') && manaValue !== null;
+    });
+    if (hitIndex < 0) return { keepExiled: [], returnToLibrary: all };
+    return {
+      keepExiled: [all[hitIndex]],
+      returnToLibrary: all.filter((_, index) => index !== hitIndex),
+    };
   }
 
   return { keepExiled: all, returnToLibrary: [] };
@@ -800,6 +868,83 @@ export function adjustLife(state: GameState, playerId: PlayerID, delta: number):
   log.push(`${playerId} ${verb} ${Math.abs(delta)} life`);
 
   return { state: { ...state, players: updatedPlayers as any }, log };
+}
+
+function normalizePlayerCounterName(counter: string): string {
+  return String(counter || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\bcounters?\b/gi, '')
+    .trim();
+}
+
+export function adjustPlayerCounter(
+  state: GameState,
+  playerId: PlayerID,
+  counter: string,
+  delta: number
+): { state: GameState; log: string[]; applied: boolean } {
+  const normalizedCounter = normalizePlayerCounterName(counter);
+  const log: string[] = [];
+  if (!normalizedCounter) return { state, log: ['Counter name missing'], applied: false };
+
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false };
+
+  const nextCounters = { ...((player?.counters || {}) as Record<string, number>) };
+  const currentValue = Math.max(
+    0,
+    Number(
+      normalizedCounter === 'poison'
+        ? player?.poisonCounters ?? (state as any)?.poisonCounters?.[playerId] ?? nextCounters.poison
+        : normalizedCounter === 'energy'
+          ? player?.energyCounters ?? player?.energy ?? nextCounters.energy
+          : normalizedCounter === 'experience'
+            ? player?.experienceCounters ?? player?.experience ?? (state as any)?.experienceCounters?.[playerId] ?? nextCounters.experience
+            : normalizedCounter === 'rad'
+              ? player?.radCounters ?? nextCounters.rad
+              : normalizedCounter === 'ticket'
+                ? player?.ticketCounters ?? nextCounters.ticket
+                : nextCounters[normalizedCounter]
+    ) || 0
+  );
+  const nextValue = Math.max(0, currentValue + delta);
+
+  nextCounters[normalizedCounter] = nextValue;
+  const nextPlayer: any = {
+    ...player,
+    counters: nextCounters,
+  };
+  const nextState: any = { ...(state as any) };
+
+  if (normalizedCounter === 'poison') {
+    nextPlayer.poisonCounters = nextValue;
+    nextState.poisonCounters = {
+      ...((nextState.poisonCounters || {}) as Record<string, number>),
+      [playerId]: nextValue,
+    };
+  } else if (normalizedCounter === 'energy') {
+    nextPlayer.energyCounters = nextValue;
+    nextPlayer.energy = nextValue;
+  } else if (normalizedCounter === 'experience') {
+    nextPlayer.experienceCounters = nextValue;
+    nextPlayer.experience = nextValue;
+    nextState.experienceCounters = {
+      ...((nextState.experienceCounters || {}) as Record<string, number>),
+      [playerId]: nextValue,
+    };
+  } else if (normalizedCounter === 'rad') {
+    nextPlayer.radCounters = nextValue;
+  } else if (normalizedCounter === 'ticket') {
+    nextPlayer.ticketCounters = nextValue;
+  }
+
+  nextState.players = state.players.map(p => (p.id === playerId ? nextPlayer : p));
+  const verb = delta >= 0 ? 'gets' : 'loses';
+  log.push(`${playerId} ${verb} ${Math.abs(delta)} ${normalizedCounter} counter${Math.abs(delta) === 1 ? '' : 's'}`);
+
+  return { state: nextState as GameState, log, applied: true };
 }
 
 export function discardCardsForPlayer(

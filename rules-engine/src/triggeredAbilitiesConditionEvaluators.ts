@@ -305,6 +305,350 @@ export function evaluateTapStateTriggerCondition(
   return true;
 }
 
+export function evaluateDefendingPlayerLifeLeadCondition(
+  condition: string,
+  eventData: TriggerEventData
+): boolean {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (
+    normalized !== 'defending player has the most life or is tied for the most life' &&
+    normalized !== 'the defending player has the most life or is tied for the most life'
+  ) {
+    return false;
+  }
+
+  const defendingPlayerId = String(eventData.targetOpponentId || eventData.targetPlayerId || '').trim();
+  const lifeTotals = eventData.playerLifeTotals || {};
+  const defendingLife = Number((lifeTotals as any)?.[defendingPlayerId]);
+  if (!defendingPlayerId || !Number.isFinite(defendingLife)) {
+    return false;
+  }
+
+  const allLifeTotals = Object.values(lifeTotals)
+    .map(value => Number(value))
+    .filter(value => Number.isFinite(value));
+  if (allLifeTotals.length === 0) {
+    return false;
+  }
+
+  const maxLife = Math.max(...allLifeTotals);
+  return defendingLife === maxLife;
+}
+
+export function evaluateRenownedCondition(
+  condition: string,
+  eventData: TriggerEventData
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (
+    normalized !== "this creature isn't renowned" &&
+    normalized !== "this permanent isn't renowned" &&
+    normalized !== "it isn't renowned" &&
+    normalized !== "this creature is not renowned" &&
+    normalized !== "this permanent is not renowned" &&
+    normalized !== "it is not renowned"
+  ) {
+    return null;
+  }
+
+  if (typeof eventData.sourceRenowned !== 'boolean') return null;
+  return eventData.sourceRenowned === false;
+}
+
+export function evaluateNoNamedCounterCondition(
+  condition: string,
+  eventData: TriggerEventData
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  const match = normalized.match(
+    /^(?:it|this creature|this permanent)\s+had\s+no\s+(?:an?\s+)?([^,.]+?)\s+counters?\s+on\s+it$/
+  );
+  if (!match) return null;
+
+  const wantedCounter = String(match[1] || '').trim().toLowerCase();
+  if (!wantedCounter) return null;
+
+  const counters = (eventData.counters || {}) as Record<string, number>;
+  const hasMatchingCounter = Object.entries(counters).some(
+    ([name, amount]) => String(name || '').trim().toLowerCase() === wantedCounter && Number(amount) > 0
+  );
+  return !hasMatchingCounter;
+}
+
+export function evaluateTrainingAttackCondition(
+  condition: string,
+  controllerId: PlayerID | string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (normalized !== "this creature and at least one other creature with power greater than this creature's power attack") {
+    return null;
+  }
+
+  const normalizedSourceId = String(sourceId || eventData.sourceId || '').trim();
+  const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
+  const source = battlefield.find(entry => String(entry?.id || '').trim() === normalizedSourceId);
+  if (!source) return false;
+
+  const sourceControllerId = String(source.controllerId || eventData.sourceControllerId || controllerId || '').trim();
+  const sourcePower = Number(source.power);
+  const sourceIsAttacking = Boolean(source.attacking || source.defendingPlayerId || source.attackingPlayerId);
+  if (!sourceControllerId || !sourceIsAttacking || !Number.isFinite(sourcePower)) {
+    return false;
+  }
+
+  return battlefield.some(entry => {
+    const entryId = String(entry?.id || '').trim();
+    if (!entryId || entryId === normalizedSourceId) return false;
+    if (String(entry?.controllerId || '').trim() !== sourceControllerId) return false;
+    if (!entry?.types?.some(type => String(type || '').toLowerCase() === 'creature')) return false;
+
+    const isAttacking = Boolean(entry.attacking || entry.defendingPlayerId || entry.attackingPlayerId);
+    const power = Number(entry.power);
+    return isAttacking && Number.isFinite(power) && power > sourcePower;
+  });
+}
+
+export function evaluateBattalionAttackCondition(
+  condition: string,
+  controllerId: PlayerID | string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (normalized !== 'this and at least two other creatures attack') {
+    return null;
+  }
+
+  const normalizedSourceId = String(sourceId || eventData.sourceId || '').trim();
+  const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
+  const source = battlefield.find(entry => String(entry?.id || '').trim() === normalizedSourceId);
+  if (!source) return false;
+
+  const sourceControllerId = String(source.controllerId || eventData.sourceControllerId || controllerId || '').trim();
+  const sourceIsAttacking = Boolean(source.attacking || source.defendingPlayerId || source.attackingPlayerId);
+  const sourceIsCreature = Boolean(source.types?.some(type => String(type || '').toLowerCase() === 'creature'));
+  if (!sourceControllerId || !sourceIsAttacking || !sourceIsCreature) {
+    return false;
+  }
+
+  let otherAttackingCreatures = 0;
+  for (const entry of battlefield) {
+    const entryId = String(entry?.id || '').trim();
+    if (!entryId || entryId === normalizedSourceId) continue;
+    if (String(entry?.controllerId || '').trim() !== sourceControllerId) continue;
+    if (!entry?.types?.some(type => String(type || '').toLowerCase() === 'creature')) continue;
+
+    const isAttacking = Boolean(entry.attacking || entry.defendingPlayerId || entry.attackingPlayerId);
+    if (!isAttacking) continue;
+
+    otherAttackingCreatures += 1;
+    if (otherAttackingCreatures >= 2) return true;
+  }
+
+  return false;
+}
+
+export function evaluateControlledPermanentEntersCondition(
+  condition: string,
+  controllerId: PlayerID | string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  const match = normalized.match(/^(?:a|an)\s+([a-z][a-z -]*)\s+enters(?:\s+the\s+battlefield)?\s+under\s+your\s+control$/);
+  if (!match) {
+    return null;
+  }
+
+  const enteringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!enteringPermanentId) return false;
+  if (normalizedSourceId && enteringPermanentId === normalizedSourceId) {
+    return false;
+  }
+
+  const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
+  const enteringPermanent = battlefield.find(entry => String(entry?.id || '').trim() === enteringPermanentId);
+  if (!enteringPermanent) return false;
+
+  const enteringControllerId = String(
+    enteringPermanent.controllerId || eventData.sourceControllerId || controllerId || ''
+  ).trim();
+  if (!enteringControllerId || enteringControllerId !== String(controllerId || '').trim()) {
+    return false;
+  }
+
+  const wantedType = String(match[1] || '').trim().toLowerCase();
+  if (!wantedType || wantedType === 'permanent') return true;
+
+  return Boolean(
+    enteringPermanent.types?.some(type => String(type || '').trim().toLowerCase() === wantedType)
+  );
+}
+
+export function evaluateTargetedSpellCastCondition(
+  condition: string,
+  controllerId: PlayerID | string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (
+    normalized !== 'you cast a spell that targets this creature' &&
+    normalized !== 'you cast a spell that targets this permanent'
+  ) {
+    return null;
+  }
+
+  const normalizedSourceId = String(sourceId || '').trim();
+  const triggeringControllerId = String(eventData.sourceControllerId || '').trim();
+  if (!normalizedSourceId || !triggeringControllerId) {
+    return false;
+  }
+
+  if (triggeringControllerId !== String(controllerId || '').trim()) {
+    return false;
+  }
+
+  const targetedIds = new Set(
+    [
+      String(eventData.targetPermanentId || '').trim(),
+      String(eventData.targetId || '').trim(),
+      ...(
+        Array.isArray(eventData.chosenObjectIds)
+          ? eventData.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+          : []
+      ),
+    ].filter(Boolean)
+  );
+
+  return targetedIds.has(normalizedSourceId);
+}
+
+export function evaluateSelfCastSpellCondition(
+  condition: string,
+  controllerId: PlayerID | string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (
+    normalized !== 'you cast this spell' &&
+    normalized !== 'you cast this card'
+  ) {
+    return null;
+  }
+
+  const normalizedSourceId = String(sourceId || '').trim();
+  const triggeringSpellId = String(eventData.sourceId || '').trim();
+  const triggeringControllerId = String(eventData.sourceControllerId || '').trim();
+  if (!normalizedSourceId || !triggeringSpellId || !triggeringControllerId) {
+    return false;
+  }
+
+  return normalizedSourceId === triggeringSpellId && triggeringControllerId === String(controllerId || '').trim();
+}
+
+export function evaluateEvolveEntersCondition(
+  condition: string,
+  controllerId: PlayerID | string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (normalized !== 'another creature enters the battlefield under your control') {
+    return null;
+  }
+
+  const enteringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!enteringPermanentId) return false;
+  if (normalizedSourceId && enteringPermanentId === normalizedSourceId) return false;
+
+  const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
+  const enteringPermanent = battlefield.find(entry => String(entry?.id || '').trim() === enteringPermanentId);
+  if (!enteringPermanent) return false;
+
+  const enteringControllerId = String(
+    enteringPermanent.controllerId || eventData.sourceControllerId || controllerId || ''
+  ).trim();
+  if (!enteringControllerId || enteringControllerId !== String(controllerId || '').trim()) {
+    return false;
+  }
+
+  return Boolean(enteringPermanent.types?.some(type => String(type || '').toLowerCase() === 'creature'));
+}
+
+export function evaluateSelfEntersBattlefieldCondition(
+  condition: string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  const match = normalized.match(/^this\s+([a-z ]+?)\s+enters(?:\s+the\s+battlefield)?$/i);
+  if (!match) {
+    return null;
+  }
+
+  const triggeringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!triggeringPermanentId || !normalizedSourceId || triggeringPermanentId !== normalizedSourceId) {
+    return false;
+  }
+
+  const subject = String(match[1] || '').trim().toLowerCase();
+  if (!subject || subject === 'permanent') {
+    return true;
+  }
+
+  const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
+  const triggeringPermanent = battlefield.find(entry => String(entry?.id || '').trim() === triggeringPermanentId);
+  if (!triggeringPermanent) return false;
+
+  return Boolean(triggeringPermanent.types?.some(type => String(type || '').toLowerCase() === subject));
+}
+
+export function evaluateEvolveComparisonCondition(
+  condition: string,
+  eventData: TriggerEventData,
+  sourceId?: string
+): boolean | null {
+  const normalized = String(condition || '').trim().toLowerCase();
+  if (
+    normalized !== "that creature's power is greater than this creature's power or that creature's toughness is greater than this creature's toughness"
+  ) {
+    return null;
+  }
+
+  const battlefield = Array.isArray(eventData.battlefield) ? eventData.battlefield : [];
+  const evolvingCreatureId = String(sourceId || '').trim();
+  const enteringPermanentId = String(eventData.targetPermanentId || eventData.sourceId || '').trim();
+  if (!evolvingCreatureId || !enteringPermanentId || evolvingCreatureId === enteringPermanentId) {
+    return false;
+  }
+
+  const evolvingCreature = battlefield.find(entry => String(entry?.id || '').trim() === evolvingCreatureId);
+  const enteringCreature = battlefield.find(entry => String(entry?.id || '').trim() === enteringPermanentId);
+  if (!evolvingCreature || !enteringCreature) return false;
+
+  const evolvingPower = Number(evolvingCreature.power);
+  const evolvingToughness = Number(evolvingCreature.toughness);
+  const enteringPower = Number(enteringCreature.power);
+  const enteringToughness = Number(enteringCreature.toughness);
+  if (
+    !Number.isFinite(evolvingPower) ||
+    !Number.isFinite(evolvingToughness) ||
+    !Number.isFinite(enteringPower) ||
+    !Number.isFinite(enteringToughness)
+  ) {
+    return false;
+  }
+
+  return enteringPower > evolvingPower || enteringToughness > evolvingToughness;
+}
+
 export function evaluateControlCondition(
   condition: string,
   controllerId: PlayerID | string,

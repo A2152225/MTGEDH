@@ -50,8 +50,8 @@ export function detectTriggeredAbilityEvent<T extends string>(
     return { event: triggerEventValues.DIES };
   }
 
-  if (text.includes('attacks')) {
-    if (text.includes('attacks alone')) {
+  if (/\battacks?\b/.test(text)) {
+    if (/\battacks?\s+alone\b/.test(text)) {
       return { event: triggerEventValues.ATTACKS_ALONE };
     }
     return { event: triggerEventValues.ATTACKS };
@@ -118,11 +118,11 @@ export function detectTriggeredAbilityEvent<T extends string>(
   }
 
   if (text.includes('casts a spell') || text.includes('you cast')) {
-    if (text.includes('creature spell')) {
-      return { event: triggerEventValues.CREATURE_SPELL_CAST };
-    }
     if (text.includes('noncreature spell')) {
       return { event: triggerEventValues.NONCREATURE_SPELL_CAST };
+    }
+    if (text.includes('creature spell')) {
+      return { event: triggerEventValues.CREATURE_SPELL_CAST };
     }
     if (text.includes('instant') || text.includes('sorcery')) {
       return { event: triggerEventValues.INSTANT_OR_SORCERY_CAST };

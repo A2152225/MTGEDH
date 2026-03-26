@@ -1,4 +1,5 @@
 import { parseTriggeredAbility } from './oracleTextParser';
+import { parseKeywordTriggeredAbility } from './oracleTextParserKeywordTriggers';
 import { detectTriggeredAbilityEvent } from './triggeredAbilitiesEventDetection';
 import { TriggerEvent, TriggerKeyword, type TriggeredAbility } from './triggeredAbilitiesTypes';
 
@@ -33,6 +34,22 @@ function normalizeSelfNamedTriggerCondition(triggerCondition: string, cardName: 
   }
 
   return trimmed;
+}
+
+function shouldPreserveTriggerConditionFilter(normalizedCondition: string): boolean {
+  return (
+    normalizedCondition === "this creature and at least one other creature with power greater than this creature's power attack" ||
+    normalizedCondition === 'this and at least two other creatures attack' ||
+    normalizedCondition === 'you cast this spell' ||
+    normalizedCondition === 'you cast this card' ||
+    normalizedCondition === 'you cast this creature' ||
+    normalizedCondition === 'you cast a spell that targets this creature' ||
+    normalizedCondition === 'you cast a spell that targets this permanent' ||
+    normalizedCondition === 'another creature enters the battlefield under your control' ||
+    normalizedCondition === 'this permanent enters the battlefield' ||
+    normalizedCondition === 'this creature enters the battlefield' ||
+    /^(?:a|an)\s+[a-z][a-z -]*\s+enters(?:\s+the\s+battlefield)?\s+under\s+your\s+control$/.test(normalizedCondition)
+  );
 }
 
 /**
@@ -70,6 +87,7 @@ export function parseTriggeredAbilitiesFromText(
     );
     let effect = String(parsedAbility.effect || '').trim();
     const normalizedEffect = effect.toLowerCase();
+    const normalizedTriggerCondition = triggerCondition.toLowerCase();
 
     const eventInfo = detectTriggeredAbilityEvent(triggerCondition, TriggerEvent);
     const optional = normalizedEffect.includes('you may') || normalizedEffect.includes('may have');
@@ -85,6 +103,9 @@ export function parseTriggeredAbilitiesFromText(
     }
 
     const triggerFilter = eventInfo.filter;
+    const preservedTriggerFilter = shouldPreserveTriggerConditionFilter(normalizedTriggerCondition)
+      ? triggerCondition
+      : undefined;
     const hasInterveningIf = Boolean(interveningIf);
 
     abilities.push({
@@ -94,12 +115,52 @@ export function parseTriggeredAbilitiesFromText(
       controllerId,
       keyword,
       event: eventInfo.event,
-      condition: triggerFilter || interveningIf,
-      ...(triggerFilter ? { triggerFilter } : {}),
+      condition: preservedTriggerFilter || triggerFilter || interveningIf,
+      ...(preservedTriggerFilter || triggerFilter
+        ? { triggerFilter: preservedTriggerFilter || triggerFilter }
+        : {}),
       ...(interveningIf ? { interveningIfClause: interveningIf } : {}),
       ...(hasInterveningIf ? { hasInterveningIf } : {}),
       effect,
       optional,
+    });
+    index += 1;
+  }
+
+  const lines = normalizedText
+    .split(/\n+/)
+    .map(line => String(line || '').trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    const parsedKeyword = parseKeywordTriggeredAbility(line);
+    if (!parsedKeyword?.triggerCondition || !parsedKeyword.effect) continue;
+
+    const keyword = parsedKeyword.triggerKeyword === 'at'
+      ? TriggerKeyword.AT
+      : parsedKeyword.triggerKeyword === 'when'
+        ? TriggerKeyword.WHEN
+        : TriggerKeyword.WHENEVER;
+    const eventInfo = detectTriggeredAbilityEvent(parsedKeyword.triggerCondition, TriggerEvent);
+    const interveningIf = String(parsedKeyword.interveningIf || '').trim() || undefined;
+    const normalizedKeywordTriggerCondition = String(parsedKeyword.triggerCondition || '').trim().toLowerCase();
+    const preservedKeywordTriggerFilter = shouldPreserveTriggerConditionFilter(normalizedKeywordTriggerCondition)
+      ? String(parsedKeyword.triggerCondition || '').trim()
+      : undefined;
+
+    abilities.push({
+      id: `${permanentId}-trigger-${index}`,
+      sourceId: permanentId,
+      sourceName: cardName,
+      controllerId,
+      keyword,
+      event: eventInfo.event,
+      condition: preservedKeywordTriggerFilter || eventInfo.filter || interveningIf,
+      ...(preservedKeywordTriggerFilter || eventInfo.filter
+        ? { triggerFilter: preservedKeywordTriggerFilter || eventInfo.filter }
+        : {}),
+      ...(interveningIf ? { interveningIfClause: interveningIf, hasInterveningIf: true } : {}),
+      effect: String(parsedKeyword.effect || '').trim(),
+      optional: Boolean(parsedKeyword.isOptional),
     });
     index += 1;
   }

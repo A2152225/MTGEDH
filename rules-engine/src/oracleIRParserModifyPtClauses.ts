@@ -23,7 +23,7 @@ export function tryParseTemporaryModifyPtClause(params: {
   const workingClause = clause;
 
   const match = workingClause.match(
-    /^(?:then\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|enchanted\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
+    /^(?:then\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|each\s+other\s+attacking\s+creature|other\s+attacking\s+creatures|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+gets\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))\s+(.+)$/i
   );
   if (!match) return null;
 
@@ -98,7 +98,7 @@ export function tryParseTemporarySetBasePtClause(params: {
   const { clause, rawClause, withMeta } = params;
 
   const match = clause.match(
-    /^(?:until end of turn,\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|enchanted\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+has\s+(?:the\s+)?base power and toughness\s+(\d+)\s*\/\s*(\d+)(?:\s+until end of turn)?$/i
+    /^(?:until end of turn,\s+)?(target\s+creature(?:\s+you\s+control|\s+your\s+opponents\s+control|\s+an\s+opponent\s+controls)?|enchanted\s+creature|that\s+creature|the\s+creature|this\s+creature|this\s+permanent|it)\s+has\s+(?:the\s+)?base power and toughness\s+(\d+)\s*\/\s*(\d+)(?:\s+until end of turn)?$/i
   );
   if (!match) return null;
 

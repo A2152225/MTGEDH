@@ -5,6 +5,7 @@ import type { LastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInfo
 import {
   applyTemporaryPowerToughnessModifier,
   applyTemporarySetBasePowerToughness,
+  resolveCreatureTargetIds,
   resolveSingleCreatureTargetId,
   resolveTrepanationBoostTargetCreatureId,
 } from './oracleIRExecutorCreatureStepUtils';
@@ -20,6 +21,7 @@ export type ModifyPtRuntime = {
   readonly lastSacrificedPermanents?: readonly LastKnownPermanentSnapshot[];
   readonly lastExcessDamageDealtThisWay?: number;
   readonly lastScryLookedAtCount?: number;
+  readonly lastTappedMatchingPermanentCount?: number;
 };
 
 type StepApplyResult = {
@@ -66,8 +68,8 @@ export function applyModifyPtStep(
     conditionRaw: string
   ) => boolean | null
 ): ModifyPtStepHandlerResult {
-  const targetCreatureId = resolveSingleCreatureTargetId(state, step.target, ctx);
-  if (!targetCreatureId) {
+  const targetCreatureIds = resolveCreatureTargetIds(state, step.target, ctx);
+  if (targetCreatureIds.length === 0) {
     return {
       kind: 'recorded_skip',
       message: `Skipped P/T modifier (no deterministic creature target): ${step.raw}`,
@@ -83,7 +85,7 @@ export function applyModifyPtStep(
         state,
         controllerId,
         step.condition.raw,
-        targetCreatureId,
+        targetCreatureIds[0],
         ctx,
         runtime
       );
@@ -138,27 +140,30 @@ export function applyModifyPtStep(
   const powerBonus = basePower * scale;
   const toughnessBonus = baseToughness * scale;
 
-  const nextState = applyTemporaryPowerToughnessModifier(
-    state,
-    targetCreatureId,
-    ctx,
-    powerBonus,
-    toughnessBonus,
-    step.scaler?.kind === 'per_revealed_this_way'
-  );
+  let nextState: GameState | null = state;
+  for (const targetCreatureId of targetCreatureIds) {
+    nextState = applyTemporaryPowerToughnessModifier(
+      nextState,
+      targetCreatureId,
+      ctx,
+      powerBonus,
+      toughnessBonus,
+      step.scaler?.kind === 'per_revealed_this_way'
+    );
 
-  if (!nextState) {
-    return {
-      kind: 'recorded_skip',
-      message: `Skipped P/T modifier (target not on battlefield): ${step.raw}`,
-      reason: 'target_not_on_battlefield',
-    };
+    if (!nextState) {
+      return {
+        kind: 'recorded_skip',
+        message: `Skipped P/T modifier (target not on battlefield): ${step.raw}`,
+        reason: 'target_not_on_battlefield',
+      };
+    }
   }
 
   return {
     kind: 'applied',
     state: nextState,
-    log: [`${targetCreatureId} gets +${powerBonus}/+${toughnessBonus} until end of turn`],
+    log: [`${targetCreatureIds.length} creature(s) get +${powerBonus}/+${toughnessBonus} until end of turn`],
   };
 }
 

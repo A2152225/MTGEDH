@@ -168,6 +168,18 @@ const WHITE_CREATURE_TOKENS: readonly TokenDefinition[] = [
     sets: ['ISD', 'SOI', 'MID', 'VOW']
   },
   {
+    name: '1/1 White and Black Spirit (Flying)',
+    colors: ['W', 'B'],
+    types: ['Spirit'],
+    cardTypes: ['Creature'],
+    power: 1,
+    toughness: 1,
+    abilities: ['Flying'],
+    shortDescription: 'White and black 1/1 Spirit with flying',
+    fullDescription: 'The Orzhov-aligned Spirit token used by Afterlife and similar effects.',
+    sets: ['RNA', 'MKM']
+  },
+  {
     name: '2/2 Knight',
     colors: ['W'],
     types: ['Knight'],

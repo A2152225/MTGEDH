@@ -25,6 +25,7 @@ import {
   getETBTokenConfig,
 } from '../cards';
 import { hasChangeling, getAllCreatureTypes } from '../tribalSupport';
+import { getCardManaValue } from '../oracleIRExecutorPlayerUtils';
 
 export interface TriggerResult {
   state: GameState;
@@ -57,6 +58,18 @@ export interface CombatDamageTriggerAssignment {
   readonly defendingPlayerId?: string;
   readonly targetPlayerId?: string;
   readonly targetOpponentId?: string;
+}
+
+export interface BecomesBlockedTriggerAssignment {
+  readonly attackerId?: string;
+  readonly defendingPlayerId?: string;
+}
+
+function getStackItems(state: GameState): any[] {
+  const rawStack = (state as any)?.stack;
+  if (Array.isArray(rawStack)) return rawStack;
+  if (Array.isArray((rawStack as any)?.objects)) return [...(rawStack as any).objects];
+  return [];
 }
 
 /**
@@ -266,6 +279,25 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
       }
     }
   }
+
+  for (const stackItem of getStackItems(state)) {
+    if (String((stackItem as any)?.type || '').trim().toLowerCase() !== 'spell') continue;
+
+    const stackCard = (((stackItem as any)?.card || (stackItem as any)?.spell || {}) as KnownCardRef);
+    const stackSpellId = String((stackItem as any)?.id || '').trim();
+    const stackControllerId = String((stackItem as any)?.controller || (stackItem as any)?.controllerId || '').trim();
+    const stackCardName = String((stackItem as any)?.cardName || stackCard?.name || '').trim();
+    const stackOracleText = String(stackCard?.oracle_text || (stackItem as any)?.oracle_text || '').trim();
+    if (!stackSpellId || !stackControllerId || !stackCardName || !stackOracleText) continue;
+
+    const parsedTriggers = parseTriggeredAbilitiesFromText(
+      stackOracleText,
+      stackSpellId,
+      stackControllerId,
+      stackCardName
+    );
+    abilities.push(...parsedTriggers);
+  }
   
   return abilities;
 }
@@ -470,13 +502,25 @@ export function checkLandfallTriggers(
  */
 export function checkSpellCastTriggers(
   state: GameState,
-  casterId: string
+  casterId: string,
+  castSpellId?: string,
+  castCard?: KnownCardRef
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const spellCastAbilities = abilities.filter(a => 
     a.event === TriggerEvent.SPELL_CAST &&
     a.controllerId === casterId
   );
+  const stackSpell = getStackItems(state).find(item => {
+    if (String((item as any)?.type || '').trim().toLowerCase() !== 'spell') return false;
+    const itemId = String((item as any)?.id || '').trim();
+    const itemControllerId = String((item as any)?.controller || (item as any)?.controllerId || '').trim();
+    if (castSpellId && itemId !== String(castSpellId || '').trim()) return false;
+    return itemControllerId === String(casterId || '').trim();
+  }) as any;
+  const stackSpellId = String(castSpellId || stackSpell?.id || '').trim() || undefined;
+  const stackSpellTargets = Array.isArray(stackSpell?.targets) ? stackSpell.targets : [];
+  const spellManaValue = getCardManaValue(castCard || stackSpell?.card);
   
   return processTriggersAutoOracle(
     state,
@@ -485,7 +529,16 @@ export function checkSpellCastTriggers(
     buildResolutionEventDataFromGameState(
       state,
       casterId,
-      buildTriggerEventDataFromPayloads(casterId, { affectedPlayerIds: [casterId] })
+      buildTriggerEventDataFromPayloads(casterId, {
+        sourceId: stackSpellId,
+        sourceControllerId: casterId,
+        targetId: stackSpellTargets[0],
+        targetPermanentId: stackSpellTargets[0],
+        targetPlayerId: stackSpellTargets[0],
+        affectedPlayerIds: [casterId],
+        spellType: String(castCard?.type_line || '').trim() || undefined,
+        ...(spellManaValue !== null ? { spellManaValue } : {}),
+      })
     )
   );
 }
@@ -536,16 +589,204 @@ export function checkCombatDamageToPlayerTriggers(
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const combatAbilities = abilities.filter(a => a.event === TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
+  if (combatAbilities.length === 0) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
 
-  const eventData = buildTriggerEventDataFromPayloads(
-    sourceControllerId,
-    { attackers: assignments }
-  );
+  const assignmentList = Array.isArray(assignments) ? assignments : [];
+  const matchedAbilityIds = new Set<string>();
+  let nextState = state;
+  let triggersAdded = 0;
+  let oracleStepsApplied = 0;
+  let oracleStepsSkipped = 0;
+  let oracleExecutions = 0;
+  let oracleAutomationGaps = 0;
+  const logs: string[] = [];
 
-  return processTriggersAutoOracle(
-    state,
-    TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
-    combatAbilities,
-    eventData
+  for (const assignment of assignmentList) {
+    const attackerId = String(assignment.attackerId || '').trim();
+    if (!attackerId) continue;
+
+    const attacker = ((nextState.battlefield || []) as any[]).find(
+      permanent => String((permanent as any)?.id || '').trim() === attackerId
+    ) as any;
+    const controllerId = String((attacker as any)?.controller || sourceControllerId || '').trim();
+    if (!controllerId) continue;
+
+    const relevantAbilities = combatAbilities.filter(ability => String(ability.sourceId || '').trim() === attackerId);
+    if (relevantAbilities.length === 0) continue;
+
+    for (const ability of relevantAbilities) {
+      const abilityId = String(ability.id || '').trim();
+      if (abilityId) matchedAbilityIds.add(abilityId);
+    }
+
+    const eventData = buildResolutionEventDataFromGameState(
+      nextState,
+      controllerId,
+      buildTriggerEventDataFromPayloads(
+        controllerId,
+        {
+          attackers: [assignment],
+          sourceId: attackerId,
+          targetPermanentId: attackerId,
+          targetOpponentId: String(assignment.defendingPlayerId || assignment.targetOpponentId || '').trim() || undefined,
+          targetPlayerId: String(assignment.defendingPlayerId || assignment.targetPlayerId || '').trim() || undefined,
+          sourceControllerId: controllerId,
+          sourceOwnerId: String((attacker as any)?.owner || (attacker as any)?.ownerId || controllerId).trim() || undefined,
+          sourceRenowned:
+            typeof (attacker as any)?.isRenowned === 'boolean'
+              ? Boolean((attacker as any).isRenowned)
+              : typeof (attacker as any)?.renowned === 'boolean'
+                ? Boolean((attacker as any).renowned)
+                : false,
+          permanentTypes: String((attacker as any)?.card?.type_line || (attacker as any)?.type_line || '')
+            .split(/[\s\u2014-]+/)
+            .map(part => part.trim())
+            .filter(Boolean),
+          creatureTypes: String((attacker as any)?.card?.type_line || (attacker as any)?.type_line || '')
+            .split(/[\s\u2014-]+/)
+            .map(part => part.trim())
+            .filter(Boolean),
+          keywords: Array.isArray((attacker as any)?.card?.keywords) ? (attacker as any).card.keywords : undefined,
+          counters: (attacker as any)?.counters,
+        }
+      )
+    );
+
+    const result = processTriggersAutoOracle(
+      nextState,
+      TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
+      relevantAbilities,
+      eventData
+    );
+    nextState = result.state;
+    triggersAdded += result.triggersAdded;
+    oracleStepsApplied += result.oracleStepsApplied || 0;
+    oracleStepsSkipped += result.oracleStepsSkipped || 0;
+    oracleExecutions += result.oracleExecutions || 0;
+    oracleAutomationGaps += result.oracleAutomationGaps || 0;
+    logs.push(...(result.logs || []));
+  }
+
+  const fallbackAbilities = combatAbilities.filter(
+    ability => !matchedAbilityIds.has(String(ability.id || '').trim())
   );
+  if (fallbackAbilities.length > 0) {
+    const eventData = buildTriggerEventDataFromPayloads(
+      sourceControllerId,
+      { attackers: assignmentList }
+    );
+
+    const result = processTriggersAutoOracle(
+      nextState,
+      TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
+      fallbackAbilities,
+      eventData
+    );
+    nextState = result.state;
+    triggersAdded += result.triggersAdded;
+    oracleStepsApplied += result.oracleStepsApplied || 0;
+    oracleStepsSkipped += result.oracleStepsSkipped || 0;
+    oracleExecutions += result.oracleExecutions || 0;
+    oracleAutomationGaps += result.oracleAutomationGaps || 0;
+    logs.push(...(result.logs || []));
+  }
+
+  return {
+    state: nextState,
+    triggersAdded,
+    oracleStepsApplied,
+    oracleStepsSkipped,
+    oracleExecutions,
+    oracleAutomationGaps,
+    logs,
+  };
+}
+
+/**
+ * Check triggers that care about a creature becoming blocked.
+ * This currently scopes to the blocked attacker itself, which is the needed
+ * runtime seam for self-source keywords like Afflict.
+ */
+export function checkBecomesBlockedTriggers(
+  state: GameState,
+  assignments: readonly BecomesBlockedTriggerAssignment[] = []
+): TriggerResult {
+  const abilities = findTriggeredAbilities(state);
+  const blockedAbilities = abilities.filter(a => a.event === TriggerEvent.BECOMES_BLOCKED);
+  if (blockedAbilities.length === 0 || assignments.length === 0) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  let nextState = state;
+  let triggersAdded = 0;
+  let oracleStepsApplied = 0;
+  let oracleStepsSkipped = 0;
+  let oracleExecutions = 0;
+  let oracleAutomationGaps = 0;
+  const logs: string[] = [];
+
+  for (const assignment of assignments) {
+    const attackerId = String(assignment.attackerId || '').trim();
+    if (!attackerId) continue;
+
+    const attacker = ((nextState.battlefield || []) as any[]).find(
+      permanent => String((permanent as any)?.id || '').trim() === attackerId
+    ) as any;
+    const controllerId = String((attacker as any)?.controller || '').trim();
+    if (!controllerId) continue;
+
+    const relevantAbilities = blockedAbilities.filter(ability => String(ability.sourceId || '').trim() === attackerId);
+    if (relevantAbilities.length === 0) continue;
+
+    const eventData = buildResolutionEventDataFromGameState(
+      nextState,
+      controllerId,
+      buildTriggerEventDataFromPayloads(
+        controllerId,
+        {
+          sourceId: attackerId,
+          targetPermanentId: attackerId,
+          targetOpponentId: String(assignment.defendingPlayerId || '').trim() || undefined,
+          targetPlayerId: String(assignment.defendingPlayerId || '').trim() || undefined,
+          sourceControllerId: controllerId,
+          sourceOwnerId: String((attacker as any)?.owner || (attacker as any)?.ownerId || controllerId).trim() || undefined,
+          permanentTypes: String((attacker as any)?.card?.type_line || (attacker as any)?.type_line || '')
+            .split(/[\s\u2014-]+/)
+            .map(part => part.trim())
+            .filter(Boolean),
+          creatureTypes: String((attacker as any)?.card?.type_line || (attacker as any)?.type_line || '')
+            .split(/[\s\u2014-]+/)
+            .map(part => part.trim())
+            .filter(Boolean),
+        }
+      )
+    );
+
+    const result = processTriggersAutoOracle(
+      nextState,
+      TriggerEvent.BECOMES_BLOCKED,
+      relevantAbilities,
+      eventData
+    );
+
+    nextState = result.state;
+    triggersAdded += result.triggersAdded;
+    oracleStepsApplied += result.oracleStepsApplied || 0;
+    oracleStepsSkipped += result.oracleStepsSkipped || 0;
+    oracleExecutions += result.oracleExecutions || 0;
+    oracleAutomationGaps += result.oracleAutomationGaps || 0;
+    logs.push(...(result.logs || []));
+  }
+
+  return {
+    state: nextState,
+    triggersAdded,
+    oracleStepsApplied,
+    oracleStepsSkipped,
+    oracleExecutions,
+    oracleAutomationGaps,
+    logs,
+  };
 }

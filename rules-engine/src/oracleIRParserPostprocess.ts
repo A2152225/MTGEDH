@@ -1,4 +1,10 @@
-import type { OracleClauseCondition, OracleEffectStep, OracleIRAbility } from './oracleIR';
+import type {
+  OracleClauseCondition,
+  OracleEffectStep,
+  OracleGraveyardAdditionalCost,
+  OracleIRAbility,
+} from './oracleIR';
+import { AbilityType } from './oracleTextParser';
 import {
   inferZoneFromDestination,
   normalizeCounterName,
@@ -1271,6 +1277,109 @@ function parseSimpleConditionalUnknownStep(step: Extract<OracleEffectStep, { kin
   };
 }
 
+function parseTapMatchingPermanentsUnknownStep(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>
+): Extract<OracleEffectStep, { kind: 'tap_matching_permanents' }> | null {
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(/^you may tap\s+(x|a|an|\d+|[a-z]+)\s+untapped\s+(.+?)\s+you control$/i);
+  if (!match) return null;
+
+  return {
+    kind: 'tap_matching_permanents',
+    who: { kind: 'you' },
+    amount: parseQuantity(String(match[1] || '').trim()),
+    filter: String(match[2] || '').trim(),
+    optional: true,
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+}
+
+function parseTapCountBuffDamageFollowupStep(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  tappedFilter: string
+): Extract<OracleEffectStep, { kind: 'conditional' }> | null {
+  const normalized = normalizeOracleText(String(step.raw || '')).trim();
+  if (!normalized) return null;
+
+  const match = normalized.match(
+    /^if you do,\s*(this creature|this permanent|it)\s+gets\s+\+x\/\+0\s+until end of turn and deals x damage to (defending player|the defending player)$/i
+  );
+  if (!match) return null;
+
+  const targetText = String(match[1] || '').trim().toLowerCase();
+  const filterText = normalizeOracleText(String(tappedFilter || ''))
+    .replace(/^an?\s+/i, '')
+    .trim()
+    .toLowerCase();
+
+  return {
+    kind: 'conditional',
+    condition: { kind: 'if', raw: 'you do' },
+    steps: [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: targetText },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: `x is the number of ${filterText} tapped this way` },
+        raw: `${targetText} gets +X/+0 until end of turn where X is the number of ${filterText} tapped this way`,
+      },
+      {
+        kind: 'deal_damage',
+        amount: { kind: 'unknown', raw: `the number of ${filterText} tapped this way` },
+        target: { kind: 'raw', text: String(match[2] || '').trim().toLowerCase() },
+        raw: `deals X damage to ${String(match[2] || '').trim()}`,
+      },
+    ],
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw: normalized,
+  };
+}
+
+export function expandTapMatchingPermanentCountAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const expandedSteps: OracleEffectStep[] = [];
+
+    for (let index = 0; index < ability.steps.length; index += 1) {
+      const step = ability.steps[index];
+      if (step.kind !== 'unknown') {
+        expandedSteps.push(step);
+        continue;
+      }
+
+      const tapStep = parseTapMatchingPermanentsUnknownStep(step);
+      if (!tapStep) {
+        expandedSteps.push(step);
+        continue;
+      }
+
+      const nextStep = ability.steps[index + 1];
+      if (nextStep?.kind === 'unknown') {
+        const followup = parseTapCountBuffDamageFollowupStep(nextStep, tapStep.filter);
+        if (followup) {
+          expandedSteps.push(tapStep, followup);
+          changed = true;
+          index += 1;
+          continue;
+        }
+      }
+
+      expandedSteps.push(tapStep);
+      changed = true;
+    }
+
+    return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
 function invertOtherwiseCondition(previous: Extract<OracleEffectStep, { kind: 'conditional' }>): string | null {
   if (previous.condition.kind !== 'if') return null;
   const text = normalizeLeadingConditionalCondition(String(previous.condition.raw || '').trim());
@@ -1396,6 +1505,20 @@ function parseExilePermissionUnknownStep(
     .trim();
   if (!normalized) return null;
 
+  if (/^(?:at the beginning of your next upkeep,?\s*)?you may cast this card from exile without paying its mana cost\.?$/i.test(normalized)) {
+    return {
+      kind: 'grant_exile_permission',
+      who: { kind: 'you' },
+      what: { kind: 'raw', text: 'this card' },
+      duration: 'during_resolution',
+      permission: 'cast',
+      withoutPayingManaCost: true,
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   const match = normalized.match(
     /^(.+?)\s+may\s+(cast|play)\s+(.+?)\s+from\s+among\s+cards?\s+(?:(you)\s+own\s+)?exiled\s+with\s+this\s+(?:creature|artifact|enchantment|planeswalker|permanent|card|class|saga)$/i
   );
@@ -1429,6 +1552,20 @@ function parseExilePermissionModifierUnknownStep(step: Extract<OracleEffectStep,
     return {
       kind: 'modify_exile_permissions',
       scope: 'last_exiled_cards',
+      withoutPayingManaCost: true,
+      optional: true,
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^you may cast this card from exile without paying its mana cost\.?$/i.test(normalized)) {
+    return {
+      kind: 'grant_exile_permission',
+      who: { kind: 'you' },
+      what: { kind: 'raw', text: 'this card' },
+      duration: 'during_resolution',
+      permission: 'cast',
       withoutPayingManaCost: true,
       optional: true,
       ...(step.sequence ? { sequence: step.sequence } : {}),
@@ -1476,7 +1613,105 @@ function parseGraveyardPermissionModifierUnknownStep(step: Extract<OracleEffectS
     };
   }
 
+  {
+    const match = normalized.match(
+      /^(?:the )?(?:flashback|escape|retrace|jump-start|harmonize) cost is equal to (?:its|their|that card's|that spell's|those cards'|those spells'|the card's) mana cost plus (.+)$/i
+    );
+    if (match) {
+      const additionalCost = parseGraveyardAdditionalCostFromText(String(match[1] || '').trim());
+      if (additionalCost) {
+        return {
+          kind: 'modify_graveyard_permissions',
+          scope: 'last_granted_graveyard_cards',
+          castCost: 'mana_cost',
+          additionalCost,
+          ...(step.sequence ? { sequence: step.sequence } : {}),
+          raw: normalized,
+        };
+      }
+    }
+  }
+
+  {
+    const match = normalized.match(
+      /^(?:this creature|this permanent|it)\s+escapes with\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+on\s+it$/i
+    );
+    if (match) {
+      const amount = parseQuantity(String(match[1] || '').trim());
+      if (amount.kind !== 'number' || amount.value <= 0) return null;
+
+      const counter = normalizeCounterName(String(match[2] || '').trim());
+      if (!counter) return null;
+
+      return {
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        castedPermanentEntersWithCounters: { [counter]: Math.max(0, amount.value | 0) },
+        ...(step.sequence ? { sequence: step.sequence } : {}),
+        raw: normalized,
+      };
+    }
+  }
+
   return null;
+}
+
+function isGraveyardExileReplacementText(rawText: string): boolean {
+  const normalized = normalizeOracleText(String(rawText || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return false;
+
+  return /^if\s+(?:that spell|that card|this card|it|the spell|the card)\s+would be put into (?:your|its|their)\s+graveyard,?\s*exile it instead\.?$/i.test(
+    normalized
+  );
+}
+
+function attachGraveyardExileReplacementModifier(steps: readonly OracleEffectStep[]): readonly OracleEffectStep[] {
+  const nextSteps: OracleEffectStep[] = [];
+
+  for (const step of steps) {
+    if (step.kind === 'conditional') {
+      const nestedSteps = attachGraveyardExileReplacementModifier(step.steps);
+      const updatedConditional =
+        nestedSteps === step.steps ? step : { ...step, steps: nestedSteps };
+
+      if (
+        step.steps.length === 1 &&
+        step.steps[0]?.kind === 'exile' &&
+        isGraveyardExileReplacementText(step.raw)
+      ) {
+        const previous = nextSteps[nextSteps.length - 1];
+        if (previous?.kind === 'modify_graveyard_permissions') {
+          nextSteps[nextSteps.length - 1] = {
+            ...previous,
+            exileInsteadOfGraveyard: true,
+            raw: `${String(previous.raw || '').trim()} ${String(step.raw || '').trim()}`.trim(),
+          };
+          continue;
+        }
+      }
+
+      nextSteps.push(updatedConditional);
+      continue;
+    }
+
+    if (step.kind === 'unknown' && isGraveyardExileReplacementText(step.raw)) {
+      const previous = nextSteps[nextSteps.length - 1];
+      if (previous?.kind === 'modify_graveyard_permissions') {
+        nextSteps[nextSteps.length - 1] = {
+          ...previous,
+          exileInsteadOfGraveyard: true,
+          raw: `${String(previous.raw || '').trim()} ${String(step.raw || '').trim()}`.trim(),
+        };
+        continue;
+      }
+    }
+
+    nextSteps.push(step);
+  }
+
+  return nextSteps;
 }
 
 function parsePayManaUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
@@ -1560,6 +1795,725 @@ export function expandGraveyardPermissionModifierUnknownAbilities(
     });
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
+  });
+}
+
+function normalizeInlineManaCost(rawCost: string | undefined): string | null {
+  const match = String(rawCost || '')
+    .replace(/[.]+$/g, '')
+    .match(/^\s*((?:\{[^}]+\})+)/);
+  const normalized = String(match?.[1] || '')
+    .replace(/\s+/g, '')
+    .trim();
+  if (!normalized) return null;
+  return /^(?:\{[^}]+\})+$/.test(normalized) ? normalized : null;
+}
+
+function parseGraveyardAdditionalCostFromText(rawText: string): OracleGraveyardAdditionalCost | null {
+  let normalized = normalizeOracleText(String(rawText || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return null;
+
+  normalized = normalized.replace(/^(?:flashback|jump-start|retrace|escape|harmonize)\b[:—-]?\s*/i, '').trim();
+  normalized = normalized.replace(/^(?:\{[^}]+\})+(?:,\s*|\s+)/, '').trim();
+
+  const byMatch = normalized.match(
+    /\bby\s+(.+?)\s+in addition to paying (?:its|their|that card's|that spell's|those cards'|those spells') other costs\b/i
+  );
+  if (byMatch) {
+    normalized = String(byMatch[1] || '').trim();
+  }
+
+  const discardMatch = normalized.match(/^(?:discard|discarding)\s+(a|an|\d+|x|[a-z]+)\s+(.+?)$/i);
+  if (discardMatch) {
+    const amount = parseQuantity(String(discardMatch[1] || '').trim());
+    if (amount.kind !== 'number' || amount.value <= 0) return null;
+
+    const rawFilter = String(discardMatch[2] || '')
+      .trim()
+      .replace(/\s+cards?$/i, '')
+      .trim();
+
+    return {
+      kind: 'discard',
+      count: Math.max(0, amount.value | 0),
+      ...(rawFilter && rawFilter !== 'card' ? { filterText: rawFilter } : {}),
+      raw: normalized,
+    };
+  }
+
+  const exileMatch = normalized.match(/^exile\s+(a|an|\d+|x|[a-z]+)\s+other\s+cards?\s+from\s+your\s+graveyard$/i);
+  if (exileMatch) {
+    const amount = parseQuantity(String(exileMatch[1] || '').trim());
+    if (amount.kind !== 'number' || amount.value <= 0) return null;
+
+    return {
+      kind: 'exile_from_graveyard',
+      count: Math.max(0, amount.value | 0),
+      raw: normalized,
+    };
+  }
+
+  const removeCounterWithTypeMatch = normalized.match(
+    /^(?:remove|removing)\s+(any number of|a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+from\s+among\s+(.+)$/i
+  );
+  if (removeCounterWithTypeMatch) {
+    const amountText = String(removeCounterWithTypeMatch[1] || '').trim();
+    const amount =
+      /^any number of$/i.test(amountText)
+        ? 'any'
+        : parseQuantity(amountText);
+    if (amount !== 'any' && (amount.kind !== 'number' || amount.value < 0)) return null;
+
+    const counter = normalizeCounterName(String(removeCounterWithTypeMatch[2] || '').trim());
+    const filterText = String(removeCounterWithTypeMatch[3] || '').trim();
+    if (!filterText) return null;
+
+    return {
+      kind: 'remove_counter',
+      count: amount === 'any' ? 'any' : Math.max(0, amount.value | 0),
+      counter: counter || undefined,
+      filterText,
+      raw: normalized,
+    };
+  }
+
+  const removeCounterMatch = normalized.match(
+    /^(?:remove|removing)\s+(any number of|a|an|\d+|x|[a-z]+)\s+counters?\s+from\s+among\s+(.+)$/i
+  );
+  if (removeCounterMatch) {
+    const amountText = String(removeCounterMatch[1] || '').trim();
+    const amount =
+      /^any number of$/i.test(amountText)
+        ? 'any'
+        : parseQuantity(amountText);
+    if (amount !== 'any' && (amount.kind !== 'number' || amount.value < 0)) return null;
+
+    const filterText = String(removeCounterMatch[2] || '').trim();
+    if (!filterText) return null;
+
+    return {
+      kind: 'remove_counter',
+      count: amount === 'any' ? 'any' : Math.max(0, amount.value | 0),
+      filterText,
+      raw: normalized,
+    };
+  }
+
+  const sacrificeMatch = normalized.match(/^(?:sacrifice|sacrificing)\s+(a|an|\d+|x|[a-z]+)\s+(.+?)$/i);
+  if (sacrificeMatch) {
+    const amount = parseQuantity(String(sacrificeMatch[1] || '').trim());
+    if (amount.kind !== 'number' || amount.value <= 0) return null;
+
+    const rawFilter = String(sacrificeMatch[2] || '')
+      .trim()
+      .replace(/\s+permanents?$/i, '')
+      .trim();
+
+    return {
+      kind: 'sacrifice',
+      count: Math.max(0, amount.value | 0),
+      ...(rawFilter && rawFilter !== 'permanent' ? { filterText: rawFilter } : {}),
+      raw: normalized,
+    };
+  }
+
+  return null;
+}
+
+function appendGrantedGraveyardAdditionalCostModifiers(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const expanded: OracleEffectStep[] = [];
+
+  for (let i = 0; i < steps.length; i += 1) {
+    const step = steps[i];
+    if (step.kind === 'conditional') {
+      const nested = appendGrantedGraveyardAdditionalCostModifiers(step.steps);
+      expanded.push(nested === step.steps ? step : { ...step, steps: nested });
+      continue;
+    }
+
+    expanded.push(step);
+    if (step.kind !== 'grant_graveyard_permission') continue;
+
+    const additionalCost = parseGraveyardAdditionalCostFromText(step.raw);
+    if (!additionalCost) continue;
+
+    const next = steps[i + 1];
+    if (next?.kind === 'modify_graveyard_permissions' && next.additionalCost) continue;
+
+    expanded.push({
+      kind: 'modify_graveyard_permissions',
+      scope: 'last_granted_graveyard_cards',
+      additionalCost,
+      raw: additionalCost.raw,
+    });
+  }
+
+  return expanded;
+}
+
+export function expandGraveyardAdditionalCostPermissionAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => ({
+    ...ability,
+    steps: appendGrantedGraveyardAdditionalCostModifiers(ability.steps),
+  }));
+}
+
+export function expandKeywordManaCostGraveyardPermissionAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const manaCost = normalizeInlineManaCost(ability.cost);
+    if (!manaCost) return ability;
+
+    const hasGrant = ability.steps.some((step) => step.kind === 'grant_graveyard_permission');
+    const alreadyHasCostModifier = ability.steps.some((step) => {
+      if (step.kind !== 'modify_graveyard_permissions') return false;
+      const modifierStep = step as Extract<OracleEffectStep, { kind: 'modify_graveyard_permissions' }>;
+      return modifierStep.castCost === 'mana_cost' || typeof modifierStep.castCostRaw === 'string';
+    });
+    if (!hasGrant || alreadyHasCostModifier) return ability;
+
+    return {
+      ...ability,
+      steps: [
+        ...ability.steps,
+        {
+          kind: 'modify_graveyard_permissions',
+          scope: 'last_granted_graveyard_cards',
+          castCostRaw: manaCost,
+          raw: `cast from your graveyard for ${manaCost}`,
+        },
+      ],
+    };
+  });
+}
+
+export function expandDisturbKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    if (!normalizedText.startsWith('disturb ')) return ability;
+
+    const hasGrant = ability.steps.some((step) => step.kind === 'grant_graveyard_permission');
+    const alreadyMarked = ability.steps.some(
+      (step) => step.kind === 'modify_graveyard_permissions' && Boolean((step as any).entersBattlefieldTransformed)
+    );
+    if (!hasGrant || alreadyMarked) return ability;
+
+    return {
+      ...ability,
+      steps: [
+        ...ability.steps,
+        {
+          kind: 'modify_graveyard_permissions',
+          scope: 'last_granted_graveyard_cards',
+          entersBattlefieldTransformed: true,
+          raw: 'cast this card transformed from your graveyard',
+        },
+      ],
+    };
+  });
+}
+
+export function expandKeywordAdditionalCostGraveyardPermissionAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const additionalCost = parseGraveyardAdditionalCostFromText(String(ability.cost || '').trim());
+    if (!additionalCost) return ability;
+
+    const hasGrant = ability.steps.some((step) => step.kind === 'grant_graveyard_permission');
+    const alreadyHasAdditionalCost = ability.steps.some(
+      (step) => step.kind === 'modify_graveyard_permissions' && Boolean(step.additionalCost)
+    );
+    if (!hasGrant || alreadyHasAdditionalCost) return ability;
+
+    return {
+      ...ability,
+      steps: [
+        ...ability.steps,
+        {
+          kind: 'modify_graveyard_permissions',
+          scope: 'last_granted_graveyard_cards',
+          additionalCost,
+          raw: additionalCost.raw,
+        },
+      ],
+    };
+  });
+}
+
+function extractLeadingInlineManaCost(text: string | undefined): string | null {
+  const normalized = normalizeInlineManaCost(text);
+  if (normalized) return normalized;
+
+  const raw = normalizeOracleText(String(text || '')).trim();
+  const match = raw.match(/^((?:\{[^}]+\})+)/);
+  return match ? match[1] : null;
+}
+
+export function expandUnearthKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const alreadyExpanded =
+      ability.steps.some((step) => step.kind === 'move_zone') &&
+      ability.steps.some((step) => step.kind === 'schedule_delayed_battlefield_action') &&
+      ability.steps.some((step) => step.kind === 'grant_leave_battlefield_replacement');
+    if (alreadyExpanded) {
+      return ability;
+    }
+    if (normalizedEffect !== 'unearth' && !normalizedText.startsWith('unearth ')) {
+      return ability;
+    }
+
+    const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
+    const existingSteps = ability.steps.filter(
+      (step) => !(step.kind === 'unknown' && normalizeOracleText(String(step.raw || '')).trim().toLowerCase() === 'unearth')
+    );
+
+    return {
+      ...ability,
+      ...(manaCost ? { cost: manaCost } : {}),
+      effectText:
+        'Return this card from your graveyard to the battlefield. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.',
+      steps: [
+        {
+          kind: 'move_zone',
+          what: { kind: 'raw', text: 'this card' },
+          to: 'battlefield',
+          toRaw: 'battlefield',
+          battlefieldController: { kind: 'you' },
+          raw: 'Return this card from your graveyard to the battlefield.',
+        },
+        {
+          kind: 'schedule_delayed_battlefield_action',
+          timing: 'next_end_step',
+          action: 'exile',
+          object: { kind: 'raw', text: 'that permanent' },
+          raw: 'Exile it at the beginning of the next end step.',
+        },
+        {
+          kind: 'grant_leave_battlefield_replacement',
+          target: { kind: 'raw', text: 'it' },
+          destination: 'exile',
+          raw: 'If it would leave the battlefield, exile it instead of putting it anywhere else.',
+        },
+        ...existingSteps,
+      ],
+    };
+  });
+}
+
+export function expandScavengeKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const alreadyExpanded =
+      ability.steps.some((step) => step.kind === 'move_zone') &&
+      ability.steps.some((step) => step.kind === 'add_counter');
+    if (alreadyExpanded || !normalizedText.startsWith('scavenge ')) {
+      return ability;
+    }
+
+    const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
+    return {
+      ...ability,
+      ...(manaCost ? { cost: `${manaCost}, Exile this card from your graveyard` } : {}),
+      effectText: "Put X +1/+1 counters on target creature, where X is this card's power. Activate only as a sorcery.",
+      steps: [
+        {
+          kind: 'move_zone',
+          what: { kind: 'raw', text: 'this card' },
+          to: 'exile',
+          toRaw: 'exile',
+          raw: 'Exile this card from your graveyard.',
+        },
+        {
+          kind: 'add_counter',
+          target: { kind: 'raw', text: 'target creature' },
+          counter: '+1/+1',
+          amount: { kind: 'x' },
+          raw: "Put X +1/+1 counters on target creature, where X is this card's power.",
+        },
+      ],
+    };
+  });
+}
+
+export function expandEmbalmKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const alreadyExpanded =
+      ability.steps.some((step) => step.kind === 'move_zone') &&
+      ability.steps.some((step) => step.kind === 'create_token');
+    if (alreadyExpanded || !normalizedText.startsWith('embalm ')) {
+      return ability;
+    }
+
+    const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
+    return {
+      ...ability,
+      ...(manaCost ? { cost: `${manaCost}, Exile this card from your graveyard` } : {}),
+      effectText:
+        "Create a token that's a copy of it, except it's white, it has no mana cost, and it's a Zombie in addition to its other types. Activate only as a sorcery.",
+      steps: [
+        {
+          kind: 'move_zone',
+          what: { kind: 'raw', text: 'this card' },
+          to: 'exile',
+          toRaw: 'exile',
+          raw: 'Exile this card from your graveyard.',
+        },
+        {
+          kind: 'create_token',
+          who: { kind: 'you' },
+          token:
+            "copy of it, except it's white, it has no mana cost, and it's a Zombie in addition to its other types",
+          amount: { kind: 'number', value: 1 },
+          raw: "Create a token that's a copy of it, except it's white, it has no mana cost, and it's a Zombie in addition to its other types.",
+        },
+      ],
+    };
+  });
+}
+
+export function expandEternalizeKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const alreadyExpanded =
+      ability.steps.some((step) => step.kind === 'move_zone') &&
+      ability.steps.some((step) => step.kind === 'create_token');
+    if (alreadyExpanded || !normalizedText.startsWith('eternalize ')) {
+      return ability;
+    }
+
+    const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
+    return {
+      ...ability,
+      ...(manaCost ? { cost: `${manaCost}, Exile this card from your graveyard` } : {}),
+      effectText:
+        "Create a token that's a copy of it, except it's black, it's 4/4, it has no mana cost, and it's a Zombie in addition to its other types. Activate only as a sorcery.",
+      steps: [
+        {
+          kind: 'move_zone',
+          what: { kind: 'raw', text: 'this card' },
+          to: 'exile',
+          toRaw: 'exile',
+          raw: 'Exile this card from your graveyard.',
+        },
+        {
+          kind: 'create_token',
+          who: { kind: 'you' },
+          token:
+            "copy of it, except it's black, it's 4/4, it has no mana cost, and it's a Zombie in addition to its other types",
+          amount: { kind: 'number', value: 1 },
+          raw: "Create a token that's a copy of it, except it's black, it's 4/4, it has no mana cost, and it's a Zombie in addition to its other types.",
+        },
+      ],
+    };
+  });
+}
+
+export function expandTransmuteKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const alreadyExpanded = ability.steps.some((step) => step.kind === 'search_library');
+    const matchesCanonicalEffect =
+      normalizedEffect.startsWith('search your library for a card with the same mana value as this card') ||
+      normalizedText.startsWith('search your library for a card with the same mana value as this card');
+    if (alreadyExpanded || (!normalizedText.startsWith('transmute ') && !matchesCanonicalEffect)) {
+      return ability;
+    }
+
+    const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
+    return {
+      ...ability,
+      ...(manaCost ? { cost: `${manaCost}, Discard this card` } : {}),
+      effectText:
+        'Search your library for a card with the same mana value as this card, reveal it, put it into your hand, then shuffle. Activate only as a sorcery.',
+      steps: [
+        {
+          kind: 'search_library',
+          who: { kind: 'you' },
+          criteria: { kind: 'same_mana_value_as_source' },
+          destination: 'hand',
+          revealFound: true,
+          shuffle: true,
+          maxResults: 1,
+          raw: 'Search your library for a card with the same mana value as this card, reveal it, put it into your hand, then shuffle.',
+        },
+      ],
+    };
+  });
+}
+
+export function expandTransfigureKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const alreadyExpanded = ability.steps.some((step) => step.kind === 'search_library');
+    const canonicalEffectPrefix = 'search your library for a creature card with the same mana value as this permanent';
+    const matchesKeywordLine = normalizedText.startsWith('transfigure ');
+    const matchesCanonicalEffect =
+      normalizedEffect.startsWith(canonicalEffectPrefix) ||
+      normalizedText.startsWith(canonicalEffectPrefix);
+    if (alreadyExpanded || (!matchesKeywordLine && !matchesCanonicalEffect)) {
+      return ability;
+    }
+
+    const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
+    return {
+      ...ability,
+      ...(matchesKeywordLine && manaCost ? { cost: `${manaCost}, Sacrifice this permanent` } : {}),
+      effectText:
+        'Search your library for a creature card with the same mana value as this permanent, put it onto the battlefield, then shuffle. Activate only as a sorcery.',
+      steps: [
+        {
+          kind: 'search_library',
+          who: { kind: 'you' },
+          criteria: { kind: 'same_mana_value_as_source', requiredCardType: 'creature' },
+          destination: 'battlefield',
+          shuffle: true,
+          maxResults: 1,
+          raw: 'Search your library for a creature card with the same mana value as this permanent, put it onto the battlefield, then shuffle.',
+        },
+      ],
+    };
+  });
+}
+
+export function expandEncoreKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const alreadyExpanded =
+      ability.steps.some((step) => step.kind === 'create_token' && (step as any).attacking === 'each_opponent');
+    const canonicalEffectPrefix = "for each opponent, create a token that's a copy of it";
+    const matchesKeywordLine = normalizedText.startsWith('encore ');
+    const matchesCanonicalEffect =
+      normalizedEffect.startsWith(canonicalEffectPrefix) ||
+      normalizedText.startsWith(canonicalEffectPrefix);
+    if (alreadyExpanded || (!matchesKeywordLine && !matchesCanonicalEffect)) {
+      return ability;
+    }
+
+    const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
+    const createTokenStep: OracleEffectStep = {
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      token: "copy of it",
+      entersTapped: true,
+      attacking: 'each_opponent',
+      grantsHaste: 'permanent',
+      atNextEndStep: 'sacrifice',
+      raw: "For each opponent, create a token that's a copy of it. Those tokens enter tapped and attacking. They gain haste. Sacrifice them at the beginning of the next end step.",
+    };
+
+    return {
+      ...ability,
+      ...(matchesKeywordLine && manaCost ? { cost: `${manaCost}, Exile this card from your graveyard` } : {}),
+      effectText:
+        "For each opponent, create a token that's a copy of it. Those tokens enter tapped and attacking. They gain haste. Sacrifice them at the beginning of the next end step. Activate only as a sorcery.",
+      steps: matchesKeywordLine
+        ? [
+            {
+              kind: 'move_zone',
+              what: { kind: 'raw', text: 'this card' },
+              to: 'exile',
+              toRaw: 'exile',
+              raw: 'Exile this card from your graveyard.',
+            },
+            createTokenStep,
+          ]
+        : [createTokenStep],
+    };
+  });
+}
+
+export function expandMyriadKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const alreadyExpanded =
+      ability.triggerCondition === 'this creature attacks' &&
+      ability.steps.some((step) => step.kind === 'create_token' && (step as any).attacking === 'each_other_opponent');
+    const canonicalEffectPrefix =
+      "for each opponent other than defending player, create a token that's a copy of it";
+    const matchesKeywordLine = normalizedText === 'myriad';
+    const matchesCanonicalEffect =
+      normalizedEffect.startsWith(canonicalEffectPrefix) ||
+      normalizedText.startsWith(canonicalEffectPrefix);
+    if (alreadyExpanded || (!matchesKeywordLine && !matchesCanonicalEffect)) {
+      return ability;
+    }
+
+    const createTokenStep: OracleEffectStep = {
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      token: "copy of it",
+      entersTapped: true,
+      attacking: 'each_other_opponent',
+      atEndOfCombat: 'exile',
+      raw: "For each opponent other than defending player, create a token that's a copy of it. Those tokens enter tapped and attacking. Exile them at end of combat.",
+    };
+
+    return {
+      ...ability,
+      type: AbilityType.TRIGGERED,
+      triggerCondition: 'this creature attacks',
+      effectText:
+        "For each opponent other than defending player, create a token that's a copy of it. Those tokens enter tapped and attacking. Exile them at end of combat.",
+      steps: [createTokenStep],
+    };
+  });
+}
+
+export function expandMobilizeKeywordAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    const alreadyExpanded =
+      ability.triggerCondition === 'this creature attacks' &&
+      ability.steps.some((step) => step.kind === 'create_token' && (step as any).attacking === 'defending_player');
+    const mobilizeMatch = normalizedText.match(/^mobilize\s+(\d+)$/i);
+    const canonicalEffectPrefix = 'create ';
+    const matchesCanonicalEffect =
+      normalizedEffect.startsWith(canonicalEffectPrefix) &&
+      normalizedEffect.includes('red warrior creature token') &&
+      normalizedEffect.includes('enter tapped and attacking') &&
+      normalizedEffect.includes('next end step');
+    if (alreadyExpanded || (!mobilizeMatch && !matchesCanonicalEffect)) {
+      return ability;
+    }
+
+    const canonicalAmountMatch = normalizedEffect.match(/^create\s+(a|an|\d+)\s+1\/1 red warrior creature token/);
+    const inferredAmountText = String(mobilizeMatch?.[1] || canonicalAmountMatch?.[1] || '1').trim().toLowerCase();
+    const amount =
+      inferredAmountText === 'a' || inferredAmountText === 'an'
+        ? 1
+        : Number.parseInt(inferredAmountText, 10);
+    const createTokenStep: OracleEffectStep = {
+      kind: 'create_token',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: Number.isFinite(amount) && amount > 0 ? amount : 1 },
+      token: '1/1 red Warrior creature',
+      entersTapped: true,
+      attacking: 'defending_player',
+      atNextEndStep: 'sacrifice',
+      raw: `Create ${Number.isFinite(amount) && amount > 1 ? amount : 'a'} 1/1 red Warrior creature token${Number.isFinite(amount) && amount > 1 ? 's' : ''}. Those tokens enter tapped and attacking. Sacrifice them at the beginning of the next end step.`,
+    };
+
+    return {
+      ...ability,
+      type: AbilityType.TRIGGERED,
+      triggerCondition: 'this creature attacks',
+      effectText: createTokenStep.raw,
+      steps: [createTokenStep],
+    };
+  });
+}
+
+function isReminderSelfGraveyardGrant(step: OracleEffectStep): boolean {
+  if (step.kind !== 'grant_graveyard_permission') return false;
+  if (step.what.kind !== 'raw' || normalizeOracleText(step.what.text) !== 'this card') return false;
+
+  const normalizedRaw = normalizeOracleText(String(step.raw || '')).replace(/^\(\s*/, '').replace(/\s*\)$/, '').trim();
+  return /^you may cast this card from your graveyard for its (?:flashback|escape|retrace|jump-start|harmonize) cost(?: this turn)?$/i.test(
+    normalizedRaw
+  );
+}
+
+function isReminderSelfExileStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'exile') return false;
+  const normalizedRaw = normalizeOracleText(String(step.raw || ''))
+    .replace(/[)\.]+$/g, '')
+    .trim();
+  return /^(?:then )?exile it$/i.test(normalizedRaw);
+}
+
+export function pruneDuplicateGraveyardReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const selfGrantCount = ability.steps.filter(
+      (step) =>
+        step.kind === 'grant_graveyard_permission' &&
+        step.what.kind === 'raw' &&
+        normalizeOracleText(step.what.text) === 'this card'
+    ).length;
+    if (selfGrantCount < 2) return ability;
+
+    const filteredSteps = ability.steps.filter((step) => !isReminderSelfGraveyardGrant(step) && !isReminderSelfExileStep(step));
+    return filteredSteps.length === ability.steps.length ? ability : { ...ability, steps: filteredSteps };
+  });
+}
+
+function isReminderGenericGraveyardGrant(step: OracleEffectStep): boolean {
+  if (step.kind !== 'grant_graveyard_permission') return false;
+  const normalizedRaw = normalizeOracleText(String(step.raw || '')).trim();
+  return /^you may (?:cast|play) .+ from your graveyard\b/i.test(normalizedRaw);
+}
+
+export function mergeConditionalGraveyardReminderFollowupAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const merged: OracleEffectStep[] = [];
+
+    for (let i = 0; i < ability.steps.length; i += 1) {
+      const current = ability.steps[i];
+      const next = ability.steps[i + 1];
+      const nextNext = ability.steps[i + 2];
+
+      if (
+        current?.kind === 'conditional' &&
+        current.steps.some((step) => step.kind === 'grant_graveyard_permission') &&
+        next?.kind === 'grant_graveyard_permission' &&
+        isReminderGenericGraveyardGrant(next)
+      ) {
+        const extraSteps: OracleEffectStep[] = [];
+        if (nextNext?.kind === 'modify_graveyard_permissions') {
+          extraSteps.push(nextNext);
+        }
+
+        merged.push({
+          ...current,
+          steps: [...current.steps, ...extraSteps],
+        });
+        i += extraSteps.length + 1;
+        continue;
+      }
+
+      merged.push(current);
+    }
+
+    return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
   });
 }
 
@@ -1681,11 +2635,32 @@ export function expandChoiceUnknownAbilities(
   });
 }
 
-function parseCopySpellUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
+function parseCopySpellUnknownStep(
+  step: Extract<OracleEffectStep, { kind: 'unknown' }>,
+  nextStep?: OracleEffectStep
+): OracleEffectStep | null {
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
     .trim();
   if (!normalized) return null;
+
+  const nextNormalized =
+    nextStep?.kind === 'unknown'
+      ? normalizeOracleText(String(nextStep.raw || ''))
+          .replace(/^then\b\s*/i, '')
+          .trim()
+      : '';
+
+  if (/^copy this spell for each spell cast before it this turn$/i.test(normalized)) {
+    return {
+      kind: 'copy_spell',
+      subject: 'this_spell',
+      copies: { kind: 'spells_cast_before_this_turn' },
+      allowNewTargets: /^you may choose new targets for the copies$/i.test(nextNormalized),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: nextNormalized ? `${normalized}. ${nextNormalized}` : normalized,
+    };
+  }
 
   if (
     /^you may copy this spell(?:\s+and\s+may choose\s+(?:a new target|new targets)\s+for the copy)?$/i.test(normalized)
@@ -1720,13 +2695,38 @@ export function expandCopySpellUnknownAbilities(
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
     let changed = false;
-    const expandedSteps = ability.steps.map((step) => {
-      if (step.kind !== 'unknown') return step;
-      const expanded = parseCopySpellUnknownStep(step);
-      if (!expanded) return step;
+    const expandedSteps: OracleEffectStep[] = [];
+
+    for (let i = 0; i < ability.steps.length; i += 1) {
+      const step = ability.steps[i];
+      if (step.kind !== 'unknown') {
+        expandedSteps.push(step);
+        continue;
+      }
+
+      const nextStep = ability.steps[i + 1];
+      const expanded = parseCopySpellUnknownStep(step, nextStep);
+      if (!expanded) {
+        expandedSteps.push(step);
+        continue;
+      }
+
       changed = true;
-      return expanded;
-    });
+      expandedSteps.push(expanded);
+      if (
+        expanded.kind === 'copy_spell' &&
+        expanded.subject === 'this_spell' &&
+        expanded.copies?.kind === 'spells_cast_before_this_turn' &&
+        nextStep?.kind === 'unknown' &&
+        /^you may choose new targets for the copies$/i.test(
+          normalizeOracleText(String(nextStep.raw || ''))
+            .replace(/^then\b\s*/i, '')
+            .trim()
+        )
+      ) {
+        i += 1;
+      }
+    }
 
     return changed ? { ...ability, steps: expandedSteps } : ability;
   });
@@ -1857,6 +2857,7 @@ function buildDieRollBand(
 }
 
 function parseDieRollBandAbility(ability: OracleIRAbility): DieRollResultBand | null {
+  if (!ability) return null;
   if (ability.type !== 'static') return null;
 
   const rawText = String(ability.text || '').trim();
@@ -1930,6 +2931,61 @@ function rewriteInlineDieRollTableAbility(ability: OracleIRAbility): OracleIRAbi
   };
 }
 
+function splitActivatedTrailingRollClause(
+  ability: OracleIRAbility
+): { ability: OracleIRAbility; hadInlineRoll: boolean } {
+  if (ability.type !== 'activated') return { ability, hadInlineRoll: false };
+  if (ability.steps.length === 0) return { ability, hadInlineRoll: false };
+
+  const lastStep = ability.steps[ability.steps.length - 1];
+  if (lastStep?.kind !== 'move_zone') return { ability, hadInlineRoll: false };
+
+  const stepRaw = String(lastStep.raw || '').trim();
+  const whatText = lastStep.what.kind === 'raw' ? String(lastStep.what.text || '').trim() : '';
+  const text = String(ability.text || '').trim();
+  const effectText = String(ability.effectText || '').trim();
+
+  if (
+    !/\band roll a d20\.?$/i.test(stepRaw) &&
+    !/\band roll a d20\.?$/i.test(whatText) &&
+    !/\band roll a d20\.?$/i.test(effectText)
+  ) {
+    return { ability, hadInlineRoll: false };
+  }
+
+  const clean = (value: string): string =>
+    value
+      .replace(/\s+and roll a d20\.?$/i, '')
+      .replace(/[.]\s*$/g, '')
+      .trim();
+
+  const cleanedRaw = clean(stepRaw);
+  const cleanedWhatText = clean(whatText);
+  const cleanedEffectText = clean(effectText);
+  const cleanedText = clean(text);
+
+  const rewrittenSteps = [
+    ...ability.steps.slice(0, -1),
+    {
+      ...lastStep,
+      ...(lastStep.what.kind === 'raw' && cleanedWhatText
+        ? { what: { ...lastStep.what, text: cleanedWhatText } }
+        : {}),
+      raw: cleanedRaw || stepRaw,
+    },
+  ] as OracleEffectStep[];
+
+  return {
+    hadInlineRoll: true,
+    ability: {
+      ...ability,
+      text: cleanedText || text,
+      effectText: cleanedEffectText || effectText,
+      steps: rewrittenSteps,
+    },
+  };
+}
+
 export function mergeDieRollResultTableAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -1937,19 +2993,23 @@ export function mergeDieRollResultTableAbilities(
   const merged: OracleIRAbility[] = [];
 
   for (let i = 0; i < mergedInline.length; i += 1) {
-    const current = mergedInline[i];
+    const rewrittenCurrent = splitActivatedTrailingRollClause(mergedInline[i]);
+    const current = rewrittenCurrent.ability;
     const rollAbility = mergedInline[i + 1];
+    const firstBand = parseDieRollBandAbility(mergedInline[i + 1]);
+    const hasSeparateRollAbility =
+      rollAbility?.type === 'static' &&
+      /^Roll a d20\.\s*Activate only as a sorcery\.?$/i.test(String(rollAbility.text || '').trim());
     if (
       current?.type !== 'activated' ||
-      rollAbility?.type !== 'static' ||
-      !/^Roll a d20\.\s*Activate only as a sorcery\.?$/i.test(String(rollAbility.text || '').trim())
+      (!hasSeparateRollAbility && !rewrittenCurrent.hadInlineRoll)
     ) {
       merged.push(current);
       continue;
     }
 
     const bands: DieRollResultBand[] = [];
-    let cursor = i + 2;
+    let cursor = i + (hasSeparateRollAbility ? 2 : 1);
     while (cursor < mergedInline.length) {
       const band = parseDieRollBandAbility(mergedInline[cursor]);
       if (!band) break;
@@ -1964,8 +3024,16 @@ export function mergeDieRollResultTableAbilities(
 
     merged.push({
       ...current,
-      text: [current.text, rollAbility.text, ...bands.map(band => band.raw)].join('\n'),
-      effectText: [current.effectText, rollAbility.effectText, ...bands.map(band => band.raw)].join('\n'),
+      text: [
+        current.text,
+        ...(hasSeparateRollAbility ? [rollAbility.text] : []),
+        ...bands.map(band => band.raw),
+      ].join('\n'),
+      effectText: [
+        current.effectText,
+        ...(hasSeparateRollAbility ? [rollAbility.effectText] : []),
+        ...bands.map(band => band.raw),
+      ].join('\n'),
       steps: [
         ...current.steps,
         {
@@ -2574,6 +3642,46 @@ function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: '
     };
   }
 
+  if (/^investigate$/i.test(normalized)) {
+    return {
+      kind: 'investigate',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  if (/^populate$/i.test(normalized)) {
+    return {
+      kind: 'populate',
+      who: { kind: 'you' },
+      amount: { kind: 'number', value: 1 },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const goadMatch = normalized.match(/^goad\s+(.+)$/i);
+  if (goadMatch) {
+    return {
+      kind: 'goad',
+      target: { kind: 'raw', text: String(goadMatch[1] || '').trim() },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const suspectMatch = normalized.match(/^suspect\s+(.+)$/i);
+  if (suspectMatch) {
+    return {
+      kind: 'suspect',
+      target: { kind: 'raw', text: String(suspectMatch[1] || '').trim() },
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
   return null;
 }
 
@@ -2594,6 +3702,50 @@ export function expandKeywordActionUnknownAbilities(
   });
 }
 
+function isRedundantImpulseCleanupUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return false;
+
+  return (
+    (/\bput\s+the\s+exiled\s+cards\b/.test(normalized) &&
+      /\bon\s+the\s+bottom\s+of\s+(?:that|their|your)\s+library\b/.test(normalized)) ||
+    (/\bput\s+all\s+cards\s+exiled\b/.test(normalized) &&
+      /\bon\s+the\s+bottom\s+of\s+their\s+library\b/.test(normalized)) ||
+    /\bshuffles\s+the\s+rest\s+into\s+their\s+library\b/.test(normalized)
+  );
+}
+
+export function pruneRedundantImpulseCleanupUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const nextSteps: OracleEffectStep[] = [];
+
+    for (const step of ability.steps) {
+      const previous = nextSteps[nextSteps.length - 1];
+      if (
+        previous?.kind === 'impulse_exile_top' &&
+        previous.duration === 'during_resolution' &&
+        previous.permission === 'cast' &&
+        previous.amount?.kind === 'unknown' &&
+        isRedundantImpulseCleanupUnknownStep(step)
+      ) {
+        changed = true;
+        continue;
+      }
+
+      nextSteps.push(step);
+    }
+
+    return changed ? { ...ability, steps: nextSteps } : ability;
+  });
+}
+
 export function mergeDeterministicKeywordFollowupAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -2606,7 +3758,12 @@ export function mergeDeterministicKeywordFollowupAbilities(
     const nextIsKeywordFollowup =
       next?.type === 'static' &&
       next.steps.length === 1 &&
-      (next.steps[0]?.kind === 'proliferate' || next.steps[0]?.kind === 'ring_tempts_you');
+      (
+        next.steps[0]?.kind === 'proliferate' ||
+        next.steps[0]?.kind === 'ring_tempts_you' ||
+        next.steps[0]?.kind === 'investigate' ||
+        next.steps[0]?.kind === 'populate'
+      );
 
     if (!current || !nextIsKeywordFollowup) {
       merged.push(current);
@@ -2629,20 +3786,25 @@ export function mergeDeterministicGraveyardPermissionFollowupAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
   const merged: OracleIRAbility[] = [];
+  const normalizedAbilities = abilities.map((ability) => ({
+    ...ability,
+    steps: attachGraveyardExileReplacementModifier(ability.steps),
+  }));
 
-  for (let i = 0; i < abilities.length; i += 1) {
-    const current = abilities[i];
-    const next = abilities[i + 1];
+  for (let i = 0; i < normalizedAbilities.length; i += 1) {
+    const current = normalizedAbilities[i];
+    const next = normalizedAbilities[i + 1];
 
     const currentHasGraveyardPermission = Boolean(
       current?.steps.some((step) => step.kind === 'grant_graveyard_permission')
     );
-    const nextIsModifier =
+    const nextStartsWithModifier =
       next?.type === 'static' &&
-      next.steps.length === 1 &&
-      next.steps[0]?.kind === 'modify_graveyard_permissions';
+      next.steps.length >= 1 &&
+      next.steps[0]?.kind === 'modify_graveyard_permissions' &&
+      next.steps.slice(1).every((step) => isReminderGenericGraveyardGrant(step));
 
-    if (!current || !currentHasGraveyardPermission || !nextIsModifier) {
+    if (!current || !currentHasGraveyardPermission || !nextStartsWithModifier) {
       merged.push(current);
       continue;
     }
@@ -2651,7 +3813,7 @@ export function mergeDeterministicGraveyardPermissionFollowupAbilities(
       ...current,
       text: `${String(current.text || '').trim()} ${String(next.text || '').trim()}`.trim(),
       effectText: `${String(current.effectText || '').trim()} ${String(next.effectText || '').trim()}`.trim(),
-      steps: [...current.steps, ...next.steps],
+      steps: [...current.steps, next.steps[0]],
     });
     i += 1;
   }
@@ -2712,11 +3874,11 @@ function parseMoveZoneWithAttachFollowup(rawClause: string): readonly OracleEffe
 }
 
 function parseStandaloneAttachUnknownStep(rawClause: string): OracleEffectStep | null {
-  const normalized = normalizeOracleText(rawClause).trim();
+  const normalized = normalizeOracleText(rawClause).replace(/^then\b\s*/i, '').trim();
   if (!normalized) return null;
 
   const match = normalized.match(
-    /^attach\s+(this enchantment|this equipment|this permanent|it)\s+to\s+(target creature(?: you control)?|that creature|it)$/i
+    /^attach\s+(this enchantment|this equipment|this permanent|it)\s+to\s+(target creature(?: you control)?|target land(?: you control)?|that creature|that land|it)$/i
   );
   if (!match) return null;
 

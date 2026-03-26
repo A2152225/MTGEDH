@@ -84,6 +84,21 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addPlayerCounters = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+(${COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?$`, 'i')
+    );
+    if (addPlayerCounters) {
+      return withMeta({
+        kind: 'add_player_counter',
+        who: parsePlayerSelector(addPlayerCounters[1]),
+        amount: parseQuantity(addPlayerCounters[2]),
+        counter: normalizeCounterName(String(addPlayerCounters[3] || '')),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const removeCounters = clause.match(/^remove\s+(a|an|\d+|x|[a-z]+)\s+(.+?)\s+counters?\s+from\s+(.+)$/i);
     if (removeCounters) {
       return withMeta({
@@ -91,6 +106,19 @@ export function tryParseSimpleActionClause(args: {
         amount: parseQuantity(removeCounters[1]),
         counter: normalizeCounterName(String(removeCounters[2] || '')),
         target: parseObjectSelector(removeCounters[3]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const doubleCounters = clause.match(
+      /^for each kind of counter on (.+),\s+put another of that kind of counter on (?:that|the) permanent$/i
+    );
+    if (doubleCounters) {
+      return withMeta({
+        kind: 'double_counters',
+        target: parseObjectSelector(String(doubleCounters[1] || '').trim()),
         raw: rawClause,
       });
     }
@@ -153,6 +181,17 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'suspect',
         target: parseObjectSelector(String(suspectMatch[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const renownedMatch = clause.match(/^(it|this creature|this permanent)\s+becomes\s+renowned$/i);
+    if (renownedMatch) {
+      return withMeta({
+        kind: 'become_renowned',
+        target: parseObjectSelector(String(renownedMatch[1] || '').trim()),
         raw: rawClause,
       });
     }

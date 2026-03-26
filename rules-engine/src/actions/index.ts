@@ -99,9 +99,11 @@ export {
   checkSpellCastTriggers,
   checkDrawTriggers,
   checkCombatDamageToPlayerTriggers,
+  checkBecomesBlockedTriggers,
   type TriggerResult,
   type TriggerProcessingOptions,
   type CombatDamageTriggerAssignment,
+  type BecomesBlockedTriggerAssignment,
 } from './triggersHandler';
 
 // Game setup and mulligan

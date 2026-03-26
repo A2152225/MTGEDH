@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   discoverPermanentAbilities,
+  discoverZoneCardAbilities,
   discoverPlayerAbilities,
   getManaAbilitiesFromPermanent,
   getNonManaAbilitiesFromPermanent,
@@ -110,6 +111,36 @@ describe('Permanent Ability Discovery', () => {
       expect(ability.additionalCosts).toBeDefined();
       expect(ability.additionalCosts?.some(c => c.type === 'sacrifice')).toBe(true);
     });
+
+    it('should preserve filtered discard wording for battlefield ability discovery', () => {
+      const permanent = createTestPermanent(
+        'looter-1',
+        'Filtered Looter',
+        'Discard a land card: Draw a card.',
+        'player-1',
+        'Creature'
+      );
+
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      const ability = result.abilities[0];
+      const discardCost = ability.additionalCosts?.find(c => c.type === 'discard');
+      expect(discardCost?.description).toBe('Discard a land card');
+    });
+
+    it('should preserve scoped counter removal wording for battlefield ability discovery', () => {
+      const permanent = createTestPermanent(
+        'counter-1',
+        'Counter Engine',
+        'Remove a +1/+1 counter from a creature you control: Draw a card.',
+        'player-1',
+        'Creature'
+      );
+
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      const ability = result.abilities[0];
+      const counterCost = ability.additionalCosts?.find(c => c.type === 'remove_counter');
+      expect(counterCost?.description).toBe('Remove 1 +1/+1 counter(s) from a creature you control');
+    });
     
     it('should discover ability with pay life cost', () => {
       const permanent = createTestPermanent(
@@ -126,6 +157,24 @@ describe('Permanent Ability Discovery', () => {
       const ability = result.abilities.find(a => a.isManaAbility);
       expect(ability).toBeDefined();
       expect(ability?.additionalCosts?.some(c => c.type === 'life')).toBe(true);
+    });
+
+    it('should preserve self-exile wording for exile costs', () => {
+      const permanent = createTestPermanent(
+        'bottle-1',
+        'Test Bottle',
+        '{T}, Exile this artifact: Draw a card.',
+        'player-1',
+        'Artifact'
+      );
+
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      const ability = result.abilities[0];
+      const exileCost = ability.additionalCosts?.find(c => c.type === 'exile');
+      expect(exileCost).toBeDefined();
+      expect(exileCost?.description).toBe('Exile this artifact');
     });
     
     it('should not discover triggered abilities as activated', () => {
@@ -197,6 +246,48 @@ describe('Permanent Ability Discovery', () => {
       const equipAbility = result.abilities.find(a => a.isKeywordAbility);
       expect(equipAbility).toBeDefined();
       expect(equipAbility?.cost).toBe('{2}');
+      expect(equipAbility?.effect).toBe('Attach this permanent to target creature you control. Activate only as a sorcery.');
+      expect(equipAbility?.targets).toContain('creature');
+      expect(equipAbility?.restrictions?.some(r => r.requiresSorceryTiming)).toBe(true);
+    });
+
+    it('should discover outlast as a real activated keyword ability', () => {
+      const permanent = createTestPermanent(
+        'falconer-1',
+        'Abzan Falconer',
+        'Outlast {1}{W}',
+        'player-1',
+        'Creature — Human Soldier'
+      );
+
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      const outlastAbility = result.abilities.find(a => a.isKeywordAbility);
+      expect(outlastAbility).toBeDefined();
+      expect(outlastAbility?.cost).toBe('{1}{W}, {T}');
+      expect(outlastAbility?.effect).toBe('Put a +1/+1 counter on this creature. Activate only as a sorcery.');
+      expect(outlastAbility?.restrictions?.some(r => r.requiresSorceryTiming)).toBe(true);
+    });
+
+    it('should discover fortify as a real activated keyword ability', () => {
+      const permanent = createTestPermanent(
+        'garrison-1',
+        'Darksteel Garrison',
+        'Fortify {3}',
+        'player-1',
+        'Artifact — Fortification'
+      );
+
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      const fortifyAbility = result.abilities.find(a => a.isKeywordAbility);
+      expect(fortifyAbility).toBeDefined();
+      expect(fortifyAbility?.cost).toBe('{3}');
+      expect(fortifyAbility?.effect).toBe('Attach this permanent to target land you control. Activate only as a sorcery.');
+      expect(fortifyAbility?.targets).toContain('land');
+      expect(fortifyAbility?.restrictions?.some(r => r.requiresSorceryTiming)).toBe(true);
     });
   });
   
@@ -396,6 +487,140 @@ describe('Permanent Ability Discovery', () => {
         result.abilities.map(a => `${a.cost}:${a.effect}`)
       );
       expect(uniqueAbilities.size).toBe(result.abilities.length);
+    });
+  });
+
+  describe('Zone-scoped ability discovery', () => {
+    it('discovers Summon the School graveyard activation with its filtered tap cost intact', () => {
+      const card: KnownCardRef = {
+        id: 'summon-card',
+        name: 'Summon the School',
+        oracle_text: 'Create two 1/1 blue Merfolk Wizard creature tokens. Tap four untapped Merfolk you control: Return Summon the School from your graveyard to your hand.',
+        type_line: 'Tribal Sorcery - Merfolk',
+      } as KnownCardRef;
+
+      const result = discoverZoneCardAbilities(card, 'summon-card', 'player-1', 'graveyard');
+      const ability = result.abilities[0];
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      expect(ability?.sourceZone).toBe('graveyard');
+      expect(ability?.cost).toBe('Tap four untapped Merfolk you control');
+      expect(ability?.effect).toBe('Return this permanent from your graveyard to your hand.');
+      expect(ability?.additionalCosts?.[0]?.type).toBe('tap');
+      expect(ability?.additionalCosts?.[0]?.description).toBe('Tap four untapped merfolk you control');
+    });
+
+    it('discovers Disturb as a graveyard-zone keyword ability', () => {
+      const card: KnownCardRef = {
+        id: 'geist-front',
+        name: 'Benevolent Geist',
+        oracle_text: 'Disturb {1}{W}',
+        type_line: 'Creature — Spirit',
+      } as KnownCardRef;
+
+      const result = discoverZoneCardAbilities(card, 'geist-front', 'player-1', 'graveyard');
+      const ability = result.abilities[0];
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      expect(ability?.isKeywordAbility).toBe(true);
+      expect(ability?.sourceZone).toBe('graveyard');
+      expect(ability?.cost).toBe('{1}{W}');
+    });
+
+    it('discovers Encore as a graveyard-zone activation with self-exile and sorcery restriction', () => {
+      const card: KnownCardRef = {
+        id: 'encore-card',
+        name: 'Impaler Shrike',
+        oracle_text: 'Flying\nWhen Impaler Shrike dies, you may draw three cards.\nEncore {5}{U}{U}',
+        type_line: 'Creature - Bird Horror',
+      } as KnownCardRef;
+
+      const result = discoverZoneCardAbilities(card, 'encore-card', 'player-1', 'graveyard');
+      const ability = result.abilities.find(candidate => candidate.isKeywordAbility);
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      expect(ability?.sourceZone).toBe('graveyard');
+      expect(ability?.cost).toBe('{5}{U}{U}, Exile this card from your graveyard');
+      expect(ability?.additionalCosts?.map(cost => cost.type)).toContain('exile');
+      expect(ability?.restrictions?.some(restriction => restriction.requiresSorceryTiming)).toBe(true);
+    });
+
+    it('discovers Channel as a hand-zone activation with a discard cost', () => {
+      const card: KnownCardRef = {
+        id: 'channel-card',
+        name: 'Twinshot Sniper',
+        oracle_text: 'Channel — {1}{R}, Discard this card: It deals 2 damage to any target.',
+        type_line: 'Artifact Creature - Goblin Archer',
+      } as KnownCardRef;
+
+      const result = discoverZoneCardAbilities(card, 'channel-card', 'player-1', 'hand');
+      const ability = result.abilities[0];
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      expect(ability?.sourceZone).toBe('hand');
+      expect(ability?.cost).toBe('{1}{R}, Discard this card');
+      expect(ability?.additionalCosts?.map(cost => cost.type)).toContain('discard');
+    });
+
+    it('discovers Forecast as a hand-zone activation with reveal and upkeep restrictions', () => {
+      const card: KnownCardRef = {
+        id: 'forecast-card',
+        name: 'Pride of the Clouds',
+        oracle_text: 'Forecast — {2}{W}, Reveal this card from your hand: Create a 1/1 white and blue Bird creature token with flying. Activate only during your upkeep and only once each turn.',
+        type_line: 'Creature - Human Wizard',
+      } as KnownCardRef;
+
+      const result = discoverZoneCardAbilities(card, 'forecast-card', 'player-1', 'hand');
+      const ability = result.abilities[0];
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      expect(ability?.sourceZone).toBe('hand');
+      expect(ability?.additionalCosts?.map(cost => cost.type)).toContain('reveal');
+      expect(ability?.restrictions?.some(restriction => restriction.requiresUpkeep)).toBe(true);
+      expect(ability?.restrictions?.some(restriction => restriction.maxPerTurn === 1)).toBe(true);
+    });
+
+    it('discovers Transmute as a hand-zone activation with discard and sorcery restrictions', () => {
+      const card: KnownCardRef = {
+        id: 'transmute-card',
+        name: 'Muddle the Mixture',
+        oracle_text: 'Transmute {1}{U}{U}',
+        type_line: 'Instant',
+      } as KnownCardRef;
+
+      const result = discoverZoneCardAbilities(card, 'transmute-card', 'player-1', 'hand');
+      const ability = result.abilities[0];
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      expect(ability?.sourceZone).toBe('hand');
+      expect(ability?.cost).toBe('{1}{U}{U}, Discard this card');
+      expect(ability?.additionalCosts?.map(cost => cost.type)).toContain('discard');
+      expect(ability?.restrictions?.some(restriction => restriction.requiresSorceryTiming)).toBe(true);
+    });
+
+    it('discovers Transfigure as a battlefield activation with a sacrifice cost and sorcery restriction', () => {
+      const card: KnownCardRef = {
+        id: 'transfigure-card',
+        name: 'Fleshwrither',
+        oracle_text: 'Transfigure {1}{B}{B}',
+        type_line: 'Creature - Horror',
+      } as KnownCardRef;
+
+      const permanent = createTestPermanent(
+        'transfigure-card',
+        'Fleshwrither',
+        'Transfigure {1}{B}{B}',
+        'player-1',
+        'Creature - Horror'
+      );
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+      const ability = result.abilities[0];
+
+      expect(result.hasActivatedAbilities).toBe(true);
+      expect(ability?.sourceZone).toBe('battlefield');
+      expect(ability?.cost).toBe('{1}{B}{B}, Sacrifice this permanent');
+      expect(ability?.additionalCosts?.map(cost => cost.type)).toContain('sacrifice');
+      expect(ability?.restrictions?.some(restriction => restriction.requiresSorceryTiming)).toBe(true);
     });
   });
   

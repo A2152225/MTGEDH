@@ -65,23 +65,567 @@ describe('Oracle Text Parser', () => {
       expect(result).not.toBeNull();
       expect(result?.type).toBe(AbilityType.KEYWORD);
       expect(result?.cost).toBe('{2}');
-      expect(result?.effect).toBe('Equip');
+      expect(result?.effect).toBe('Attach this permanent to target creature you control. Activate only as a sorcery.');
     });
 
     it('should parse cycling ability', () => {
       const result = parseActivatedAbility('Cycling {1}');
       expect(result).not.toBeNull();
       expect(result?.type).toBe(AbilityType.KEYWORD);
-      expect(result?.cost).toBe('{1}');
-      expect(result?.effect).toBe('Cycling');
+      expect(result?.cost).toBe('{1}, Discard this card');
+      expect(result?.effect).toBe('Draw a card.');
     });
 
-    it('should parse sneak ability', () => {
-      const result = parseActivatedAbility('Sneak {2}{U}');
+    it('parses buyback into an explicit additional-cost keyword line', () => {
+      const result = parseActivatedAbility('Buyback {3}');
       expect(result).not.toBeNull();
       expect(result?.type).toBe(AbilityType.KEYWORD);
-      expect(result?.cost).toBe('{2}{U}');
-      expect(result?.effect).toBe('Sneak');
+      expect(result?.cost).toBe('{3}');
+      expect(result?.effect).toBe(
+        'You may pay an additional buyback cost as you cast this spell. If the buyback cost was paid, put this spell into your hand instead of into your graveyard as it resolves.'
+      );
+    });
+
+    it('does not treat non-activated keyword cost lines as activated abilities', () => {
+      const result = parseActivatedAbility('Kicker {2}{U}');
+      expect(result).toBeNull();
+    });
+
+    it('parses reinforce into an explicit discard activation', () => {
+      const result = parseActivatedAbility('Reinforce 1—{1}{W} ({1}{W}, Discard this card: Put a +1/+1 counter on target creature.)');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{1}{W}, Discard this card');
+      expect(result?.effect).toBe('Put 1 +1/+1 counter on target creature.');
+      expect(result?.targets).toContain('creature');
+    });
+
+    it('parses reinforce X into an explicit discard activation', () => {
+      const result = parseActivatedAbility('Reinforce X—{X}{W}{W} ({X}{W}{W}, Discard this card: Put X +1/+1 counters on target creature.)');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{X}{W}{W}, Discard this card');
+      expect(result?.effect).toBe('Put X +1/+1 counters on target creature.');
+      expect(result?.targets).toContain('creature');
+    });
+
+    it('parses scavenge into an explicit graveyard exile activation', () => {
+      const result = parseActivatedAbility('Scavenge {4}{G}{G}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{4}{G}{G}, Exile this card from your graveyard');
+      expect(result?.effect).toBe("Put X +1/+1 counters on target creature, where X is this card's power. Activate only as a sorcery.");
+      expect(result?.targets).toContain('creature');
+    });
+
+    it('parses embalm into an explicit graveyard exile token-copy activation', () => {
+      const result = parseActivatedAbility('Embalm {3}{W}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{3}{W}, Exile this card from your graveyard');
+      expect(result?.effect).toBe(
+        "Create a token that's a copy of it, except it's white, it has no mana cost, and it's a Zombie in addition to its other types. Activate only as a sorcery."
+      );
+    });
+
+    it('parses eternalize into an explicit graveyard exile token-copy activation', () => {
+      const result = parseActivatedAbility('Eternalize {2}{B}{B}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{2}{B}{B}, Exile this card from your graveyard');
+      expect(result?.effect).toBe(
+        "Create a token that's a copy of it, except it's black, it's 4/4, it has no mana cost, and it's a Zombie in addition to its other types. Activate only as a sorcery."
+      );
+    });
+
+    it('parses replicate into an explicit cast-copy keyword line', () => {
+      const result = parseActivatedAbility('Replicate {1}{U}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{1}{U}');
+      expect(result?.effect).toBe(
+        'As an additional cost to cast this spell, you may pay its replicate cost any number of times. When you cast this spell, copy it for each time you paid its replicate cost. You may choose new targets for the copies.'
+      );
+    });
+
+    it('parses outlast into an explicit tap activation', () => {
+      const result = parseActivatedAbility('Outlast {1}{W}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{1}{W}, {T}');
+      expect(result?.effect).toBe('Put a +1/+1 counter on this creature. Activate only as a sorcery.');
+    });
+
+    it('parses level up into an explicit activation', () => {
+      const result = parseActivatedAbility('Level up {2}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{2}');
+      expect(result?.effect).toBe('Put a level counter on this permanent. Activate only as a sorcery.');
+    });
+
+    it('parses unearth into an explicit graveyard-return activation', () => {
+      const result = parseActivatedAbility('Unearth {2}{B}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{2}{B}');
+      expect(result?.effect).toBe(
+        'Return this card from your graveyard to the battlefield. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else.'
+      );
+    });
+
+    it('parses morph into a turn-face-up special action', () => {
+      const result = parseActivatedAbility('Morph {3}{G}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{3}{G}');
+      expect(result?.effect).toBe('Turn this permanent face up.');
+    });
+
+    it('parses megamorph into a turn-face-up plus counter action', () => {
+      const result = parseActivatedAbility('Megamorph {4}{G}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{4}{G}');
+      expect(result?.effect).toBe('Turn this permanent face up. Put a +1/+1 counter on it.');
+    });
+
+    it('parses channel as a keyword activation instead of a dead stub', () => {
+      const result = parseActivatedAbility('Channel — {2}{R}, Discard this card: Draw two cards.');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{2}{R}, Discard this card');
+      expect(result?.effect).toBe('Draw two cards.');
+    });
+
+    it('parses forecast as a keyword activation instead of a dead stub', () => {
+      const result = parseActivatedAbility('Forecast — {2}{W}, Reveal this card from your hand: Create a 1/1 white Bird creature token with flying. Activate only during your upkeep and only once each turn.');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{2}{W}, Reveal this card from your hand');
+      expect(result?.effect).toBe('Create a 1/1 white Bird creature token with flying. Activate only during your upkeep and only once each turn.');
+    });
+
+    it('parses transmute as a keyword activation instead of a dead stub', () => {
+      const result = parseActivatedAbility('Transmute {1}{U}{U}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{1}{U}{U}, Discard this card');
+      expect(result?.effect).toBe(
+        'Search your library for a card with the same mana value as this card, reveal it, put it into your hand, then shuffle. Activate only as a sorcery.'
+      );
+    });
+
+    it('parses transfigure as a keyword activation instead of a dead stub', () => {
+      const result = parseActivatedAbility('Transfigure {1}{B}{B}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{1}{B}{B}, Sacrifice this permanent');
+      expect(result?.effect).toBe(
+        'Search your library for a creature card with the same mana value as this permanent, put it onto the battlefield, then shuffle. Activate only as a sorcery.'
+      );
+    });
+
+    it('parses encore as a keyword activation instead of a dead stub', () => {
+      const result = parseActivatedAbility('Encore {5}{U}{U}');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{5}{U}{U}, Exile this card from your graveyard');
+      expect(result?.effect).toBe(
+        "For each opponent, create a token that's a copy of it. Those tokens enter tapped and attacking. They gain haste. Sacrifice them at the beginning of the next end step. Activate only as a sorcery."
+      );
+    });
+
+    it('parses myriad as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Myriad');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature attacks',
+        effect:
+          "For each opponent other than defending player, create a token that's a copy of it. Those tokens enter tapped and attacking. Exile them at end of combat.",
+      });
+    });
+
+    it('parses annihilator as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Annihilator 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature attacks',
+        effect: 'Defending player sacrifices 2 permanents.',
+      });
+    });
+
+    it('parses afterlife as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Afterlife 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'this permanent dies',
+        effect: 'Create 2 1/1 white and black Spirit creature tokens with flying.',
+      });
+    });
+
+    it('parses afflict as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Afflict 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature becomes blocked',
+        effect: 'Defending player loses 2 life.',
+      });
+    });
+
+    it('parses renown as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Renown 1');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature deals combat damage to a player',
+        interveningIf: "this creature isn't renowned",
+        effect: 'Put 1 +1/+1 counter on this creature. This creature becomes renowned.',
+      });
+    });
+
+    it('parses ingest as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Ingest');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature deals combat damage to a player',
+        effect: 'That player exiles the top card of their library.',
+      });
+    });
+
+    it('parses poisonous as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Poisonous 3');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature deals combat damage to a player',
+        effect: 'That player gets 3 poison counters.',
+      });
+    });
+
+    it('parses fabricate as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Fabricate 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'this permanent enters the battlefield',
+        effect: "You may put 2 +1/+1 counters on it. If you don't, create 2 1/1 colorless Servo artifact creature tokens.",
+      });
+    });
+
+    it('parses storm as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Storm');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'you cast this spell',
+        effect: 'Copy this spell for each spell cast before it this turn. You may choose new targets for the copies.',
+      });
+    });
+
+    it('parses rebound as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Rebound');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'at',
+        triggerCondition: 'the beginning of your next upkeep',
+        effect: 'You may cast this card from exile without paying its mana cost.',
+      });
+    });
+
+    it('parses cascade as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Cascade');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'you cast this spell',
+        effect:
+          "Exile cards from the top of your library until you exile a nonland card whose mana value is less than this spell's mana value. You may cast it without paying its mana cost. Put the exiled cards on the bottom of your library in a random order.",
+      });
+    });
+
+    it('parses living weapon as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Living weapon');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'this equipment enters the battlefield',
+        effect: 'Create a 0/0 black Phyrexian Germ creature token, then attach this Equipment to it.',
+      });
+    });
+
+    it('parses For Mirrodin! as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('For Mirrodin!');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'this equipment enters the battlefield',
+        effect: 'Create a 2/2 red Rebel creature token, then attach this Equipment to it.',
+      });
+    });
+
+    it('parses job select as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Job select');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'this equipment enters the battlefield',
+        effect: 'Create a 1/1 colorless Hero creature token, then attach this Equipment to it.',
+      });
+    });
+
+    it('parses training as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Training');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: "this creature and at least one other creature with power greater than this creature's power attack",
+        effect: 'Put a +1/+1 counter on this creature.',
+      });
+    });
+
+    it('parses mentor as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Mentor');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature attacks',
+        effect: "Put a +1/+1 counter on target attacking creature with power less than this creature's power.",
+      });
+    });
+
+    it('parses battle cry as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Battle cry');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature attacks',
+        effect: 'Each other attacking creature gets +1/+0 until end of turn.',
+      });
+    });
+
+    it('parses support as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Support 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Put a +1/+1 counter on each of up to 2 other target creatures.',
+      });
+    });
+
+    it('parses bolster as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Bolster 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Put 2 +1/+1 counters on target creature you control with the least toughness among creatures you control.',
+      });
+    });
+
+    it('parses proliferate as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Proliferate');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Proliferate.',
+      });
+    });
+
+    it('parses investigate as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Investigate');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Investigate.',
+      });
+    });
+
+    it('parses populate as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Populate');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Populate.',
+      });
+    });
+
+    it('parses scry as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Scry 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Scry 2.',
+      });
+    });
+
+    it('parses surveil as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Surveil 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Surveil 2.',
+      });
+    });
+
+    it('parses mill as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('Mill 2');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'Mill 2 cards.',
+      });
+    });
+
+    it('parses the Ring tempts you as a keyword action line instead of a static stub', () => {
+      const result = parseOracleText('The Ring tempts you');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.STATIC,
+        effect: 'The Ring tempts you.',
+      });
+    });
+
+    it('parses evolve as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Evolve');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'another creature enters the battlefield under your control',
+        interveningIf: "that creature's power is greater than this creature's power or that creature's toughness is greater than this creature's toughness",
+        effect: 'Put a +1/+1 counter on this creature.',
+      });
+    });
+
+    it('parses exploit as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Exploit');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'this permanent enters the battlefield',
+        effect: 'You may sacrifice a creature.',
+      });
+    });
+
+    it('parses undying as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Undying');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'this permanent dies',
+        interveningIf: 'it had no +1/+1 counters on it',
+        effect: "Return this card to the battlefield under its owner's control with a +1/+1 counter on it.",
+      });
+    });
+
+    it('parses persist as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Persist');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'when',
+        triggerCondition: 'this permanent dies',
+        interveningIf: 'it had no -1/-1 counters on it',
+        effect: "Return this card to the battlefield under its owner's control with a -1/-1 counter on it.",
+      });
+    });
+
+    it('parses mobilize as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Mobilize 3');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature attacks',
+        effect:
+          'Create 3 1/1 red Warrior creature tokens. Those tokens enter tapped and attacking. Sacrifice them at the beginning of the next end step.',
+      });
+    });
+
+    it('parses melee as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Melee');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature attacks',
+        effect: 'This creature gets +X/+X until end of turn where X is the number of players being attacked.',
+      });
+    });
+
+    it('parses dethrone as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Dethrone');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'this creature attacks',
+        interveningIf: 'defending player has the most life or is tied for the most life',
+        effect: 'Put a +1/+1 counter on this creature.',
+      });
+    });
+
+    it('parses exalted as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Exalted');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'a creature you control attacks alone',
+        effect: 'That creature gets +1/+1 until end of turn.',
+      });
+    });
+
+    it('parses prowess as a keyword-triggered ability instead of a static stub', () => {
+      const result = parseOracleText('Prowess');
+      expect(result.abilities).toHaveLength(1);
+      expect(result.abilities[0]).toMatchObject({
+        type: AbilityType.TRIGGERED,
+        triggerKeyword: 'whenever',
+        triggerCondition: 'you cast a noncreature spell',
+        effect: 'This creature gets +1/+1 until end of turn.',
+      });
+    });
+
+    it('parses boast as a keyword activation instead of a dead stub', () => {
+      const result = parseActivatedAbility('Boast — {1}{R}: Draw a card. Activate only if this creature attacked this turn and only once each turn.');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{1}{R}');
+      expect(result?.effect).toBe('Draw a card. Activate only if this creature attacked this turn and only once each turn.');
+    });
+
+    it('parses exhaust as a keyword activation instead of a dead stub', () => {
+      const result = parseActivatedAbility('Exhaust — {3}: Add {R}{R}{R}. Activate only once.');
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe(AbilityType.KEYWORD);
+      expect(result?.cost).toBe('{3}');
+      expect(result?.effect).toBe('Add {R}{R}{R}. Activate only once.');
+      expect(result?.isManaAbility).toBe(true);
     });
 
     it('should detect optional abilities with "you may"', () => {
@@ -353,6 +897,34 @@ describe('Oracle Text Parser', () => {
 
       it('should detect "at the beginning" triggers', () => {
         expect(hasTriggeredAbility('At the beginning of your upkeep, scry 1.')).toBe(true);
+      });
+
+      it('should detect keyword-triggered lines like Myriad', () => {
+        expect(hasTriggeredAbility('Myriad')).toBe(true);
+      });
+
+      it('should detect keyword-triggered lines like Annihilator', () => {
+        expect(hasTriggeredAbility('Annihilator 2')).toBe(true);
+      });
+
+      it('should detect keyword-triggered lines like Mobilize', () => {
+        expect(hasTriggeredAbility('Mobilize 3')).toBe(true);
+      });
+
+      it('should detect keyword-triggered lines like Melee', () => {
+        expect(hasTriggeredAbility('Melee')).toBe(true);
+      });
+
+      it('should detect keyword-triggered lines like Dethrone', () => {
+        expect(hasTriggeredAbility('Dethrone')).toBe(true);
+      });
+
+      it('should detect keyword-triggered lines like Exalted', () => {
+        expect(hasTriggeredAbility('Exalted')).toBe(true);
+      });
+
+      it('should detect keyword-triggered lines like Prowess', () => {
+        expect(hasTriggeredAbility('Prowess')).toBe(true);
       });
 
       it('should return false for non-triggered text', () => {

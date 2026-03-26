@@ -7,6 +7,7 @@ export interface TriggerEventData {
   readonly sourceOwnerId?: string;
   readonly sourceIsToken?: boolean;
   readonly sourceIsFaceDown?: boolean;
+  readonly sourceRenowned?: boolean;
   readonly castFromZone?: string;
   readonly enteredFromZone?: string;
   readonly attachedByPermanentIds?: readonly string[];
@@ -27,12 +28,14 @@ export interface TriggerEventData {
   readonly enchantmentCount?: number;
   readonly keywords?: readonly string[];
   readonly lifeTotal?: number;
+  readonly playerLifeTotals?: Readonly<Record<string, number>>;
   readonly lifeLost?: number;
   readonly lifeGained?: number;
   readonly damageDealt?: number;
   readonly damagedByPermanentIds?: readonly string[];
   readonly cardsDrawn?: number;
   readonly spellType?: string;
+  readonly spellManaValue?: number;
   readonly wonCoinFlip?: boolean;
   readonly winningVoteChoice?: string | null;
   readonly isYourTurn?: boolean;
@@ -48,7 +51,16 @@ export interface TriggerEventData {
   readonly affectedPlayerIds?: readonly string[];
   readonly affectedOpponentIds?: readonly string[];
   readonly opponentsDealtDamageIds?: readonly string[];
-  readonly battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
+  readonly battlefield?: readonly {
+    id: string;
+    types?: string[];
+    controllerId?: string;
+    power?: number;
+    toughness?: number;
+    attacking?: boolean;
+    attackingPlayerId?: string;
+    defendingPlayerId?: string;
+  }[];
 }
 
 export function buildTriggerEventDataFromPayloads(
@@ -298,6 +310,7 @@ export function buildTriggerEventDataFromPayloads(
     sourceOwnerId: scalarString('sourceOwnerId') ?? scalarString('ownerId') ?? scalarString('owner'),
     sourceIsToken: scalarBool('sourceIsToken') ?? scalarBool('isToken'),
     sourceIsFaceDown: scalarBool('sourceIsFaceDown') ?? scalarBool('faceDown'),
+    sourceRenowned: scalarBool('sourceRenowned') ?? scalarBool('renowned'),
     castFromZone: scalarString('castFromZone'),
     enteredFromZone: scalarString('enteredFromZone'),
     attachedByPermanentIds: (() => {
@@ -331,6 +344,7 @@ export function buildTriggerEventDataFromPayloads(
     })(),
     cardsDrawn: scalarNumber('cardsDrawn'),
     spellType: scalarString('spellType'),
+    spellManaValue: scalarNumber('spellManaValue'),
     wonCoinFlip: scalarBool('wonCoinFlip'),
     winningVoteChoice: scalarString('winningVoteChoice'),
     isYourTurn: scalarBool('isYourTurn'),
@@ -389,7 +403,15 @@ export function buildStackTriggerMetaFromEventData(
     isOpponentsTurn?: boolean;
     hand?: readonly string[];
     handAtBeginningOfTurn?: readonly string[];
-    battlefield?: readonly { id: string; types?: string[]; controllerId?: string }[];
+    battlefield?: readonly {
+      id: string;
+      types?: string[];
+      controllerId?: string;
+      power?: number;
+      attacking?: boolean;
+      attackingPlayerId?: string;
+      defendingPlayerId?: string;
+    }[];
   };
 } {
   const normalized = buildTriggerEventDataFromPayloads(
@@ -500,6 +522,7 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     affectedOpponentIds: dedupedAffectedOpponents,
     opponentsDealtDamageIds: dedupedOpponentsDealtDamage,
     spellType: eventData.spellType,
+    ...(Number.isFinite(Number(eventData.spellManaValue)) ? { spellManaValue: Number(eventData.spellManaValue) } : {}),
     castFromZone: typeof eventData.castFromZone === 'string' ? eventData.castFromZone : undefined,
     enteredFromZone: typeof eventData.enteredFromZone === 'string' ? eventData.enteredFromZone : undefined,
     wonCoinFlip: eventData.wonCoinFlip,
@@ -517,6 +540,7 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     !hint.affectedOpponentIds &&
     !hint.opponentsDealtDamageIds &&
     !hint.spellType &&
+    !Number.isFinite(Number(hint.spellManaValue)) &&
     !hint.castFromZone &&
     !hint.enteredFromZone &&
     typeof hint.wonCoinFlip !== 'boolean' &&
@@ -561,6 +585,26 @@ export function buildResolutionEventDataFromGameState(
   const battlefield = ((state.battlefield || []) as any[]).map(p => ({
     id: normalizeId(p?.id) || '',
     controllerId: normalizeId(p?.controller) || '',
+    power: Number.isFinite(Number(p?.effectivePower))
+      ? Number(p.effectivePower)
+      : Number.isFinite(Number(p?.power))
+        ? Number(p.power)
+        : Number.isFinite(Number(p?.card?.power))
+          ? Number(p.card.power)
+          : undefined,
+    toughness: Number.isFinite(Number(p?.effectiveToughness))
+      ? Number(p.effectiveToughness)
+      : Number.isFinite(Number((p as any)?.toughness))
+        ? Number((p as any).toughness)
+        : Number.isFinite(Number(p?.card?.toughness))
+          ? Number(p.card.toughness)
+          : undefined,
+    attacking:
+      Boolean(p?.attacking) ||
+      Boolean(normalizeId(p?.defendingPlayerId)) ||
+      Boolean(normalizeId(p?.attackingPlayerId)),
+    attackingPlayerId: normalizeId(p?.attackingPlayerId),
+    defendingPlayerId: normalizeId(p?.defendingPlayerId) ?? normalizeId(p?.attacking),
     types: String((p?.card?.type_line || '') as any)
       .split(/[\sâ€”-]+/)
       .map(t => t.trim())
@@ -591,6 +635,16 @@ export function buildResolutionEventDataFromGameState(
     if (Number.isFinite(controllerLife)) return controllerLife;
     const baseLife = Number(base?.lifeTotal);
     return Number.isFinite(baseLife) ? baseLife : undefined;
+  })();
+  const resolvedPlayerLifeTotals = (() => {
+    const out: Record<string, number> = {};
+    for (const player of state.players || []) {
+      const playerId = normalizeId((player as any)?.id);
+      const life = Number((player as any)?.life);
+      if (!playerId || !Number.isFinite(life)) continue;
+      out[playerId] = life;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
   })();
   const resolvedGraveyard = Array.isArray(controller?.graveyard)
     ? controller.graveyard
@@ -638,11 +692,23 @@ export function buildResolutionEventDataFromGameState(
           const attachedToId = normalizeId(sourcePermanent?.attachedTo ?? sourcePermanent?.enchanting);
           return attachedToId ? [attachedToId] : undefined;
         })();
+  const resolvedSourceRenowned =
+    typeof base?.sourceRenowned === 'boolean'
+      ? base.sourceRenowned
+      : typeof (referencedPermanent as any)?.isRenowned === 'boolean'
+        ? Boolean((referencedPermanent as any).isRenowned)
+        : typeof (referencedPermanent as any)?.renowned === 'boolean'
+          ? Boolean((referencedPermanent as any).renowned)
+          : referencedPermanent
+            ? false
+            : undefined;
 
   return {
     ...base,
     sourceControllerId: normalizedControllerId,
+    sourceRenowned: resolvedSourceRenowned,
     lifeTotal: resolvedLifeTotal,
+    ...(resolvedPlayerLifeTotals ? { playerLifeTotals: resolvedPlayerLifeTotals } : {}),
     isYourTurn:
       hasValidController && normalizedTurnPlayerId !== undefined
         ? normalizedTurnPlayerId === normalizedControllerId

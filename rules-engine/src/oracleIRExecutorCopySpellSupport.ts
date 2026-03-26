@@ -145,6 +145,53 @@ export function getCopiedSpellReplaySteps(card: any): readonly OracleEffectStep[
     .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell' && candidate.kind !== 'unknown');
 }
 
+export function getThisSpellReplayStepsFromState(state: GameState, sourceId?: string): readonly OracleEffectStep[] {
+  const normalizedSourceId = String(sourceId || '').trim();
+  if (!normalizedSourceId) return [];
+
+  const stackObject = (state.stack || []).find(
+    (item: any) => String(item?.id || '').trim() === normalizedSourceId && String(item?.type || '').trim() === 'spell'
+  ) as any;
+  if (!stackObject) return [];
+
+  const oracleText = String(
+    stackObject?.card?.oracle_text ||
+      stackObject?.spell?.oracle_text ||
+      stackObject?.oracle_text ||
+      ''
+  ).trim();
+  if (!oracleText) return [];
+
+  const sourceName = String(
+    stackObject?.cardName ||
+      stackObject?.card?.name ||
+      stackObject?.spell?.name ||
+      'Copied Spell'
+  ).trim() || 'Copied Spell';
+
+  const copiedSpellIr = parseOracleTextToIR(oracleText, sourceName);
+  return copiedSpellIr.abilities
+    .flatMap((ability) => ability.steps)
+    .filter((candidate): candidate is OracleEffectStep => candidate.kind !== 'copy_spell' && candidate.kind !== 'unknown');
+}
+
+export function resolveCopySpellCount(
+  state: GameState,
+  controllerId: PlayerID,
+  step: Extract<OracleEffectStep, { kind: 'copy_spell' }>
+): number {
+  if (!step.copies) return 1;
+  if (step.copies.kind === 'number') {
+    return Math.max(0, Number(step.copies.value) || 0);
+  }
+  if (step.copies.kind === 'spells_cast_before_this_turn') {
+    const stateAny = state as any;
+    const totalCastThisTurn = Number((stateAny?.spellsCastThisTurn || {})?.[controllerId] || 0);
+    return Math.max(0, totalCastThisTurn - 1);
+  }
+  return 0;
+}
+
 function parseRomanChapterList(text: string): readonly number[] {
   const chapterMap: Record<string, number> = {
     I: 1,

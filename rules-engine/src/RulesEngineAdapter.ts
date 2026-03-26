@@ -15,6 +15,7 @@
 
 import type { GameState, PlayerID } from '../../shared/src';
 import { GameStep as SharedGameStep } from '../../shared/src';
+import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
 import type { EngineResult } from './index';
 import {
   Phase,
@@ -36,6 +37,7 @@ import {
   keepHand,
 } from './types/gameFlow';
 import { ManaType, type ManaPool as RulesEngineManaPool, type ManaCost } from './types/mana';
+import { CostType } from './types/costs';
 import { emptyManaPool } from './manaAbilities';
 import {
   playerHasCantLoseEffect,
@@ -55,6 +57,12 @@ import {
   processControlLossDelayedTriggersForState,
   processDiesDelayedTriggersForState,
 } from './rulesEngineAdapterDelayedTriggerSupport';
+import {
+  createDelayedTrigger,
+  createDelayedTriggerRegistry,
+  DelayedTriggerTiming,
+  registerDelayedTrigger,
+} from './delayedTriggeredAbilities';
 
 /** Simple mana pool interface for checking mana availability (doesn't need restricted mana info) */
 interface SimpleManaPool {
@@ -95,6 +103,7 @@ import {
   type ActivatedAbility,
   type ActivationContext,
 } from './activatedAbilities';
+import { applyActivatedAbilityCostReductions } from './activatedAbilityCostReduction';
 import {
   createEmptyTriggerQueue,
   processEvent,
@@ -133,7 +142,9 @@ import {
   checkWinConditions,
   executeTurnBasedAction,
   checkCombatDamageToPlayerTriggers,
+  checkBecomesBlockedTriggers,
   checkTribalCastTriggers,
+  checkSpellCastTriggers,
   GamePhase,
   GameStep,
 } from './actions';
@@ -388,11 +399,16 @@ export class RulesEngineAdapter {
     const cardId = String(action.cardId || action.spellId || '');
     const sourceCard = this.findSourceZoneCard(state, action.playerId, cardId, fromZone);
     const ignoresManaCost = Boolean((sourceCard as any)?.withoutPayingManaCost);
+    const intrinsicGraveyardCast = this.getIntrinsicGraveyardCastMetadata(sourceCard, fromZone);
+    const keywordAdjustedManaCostInput = this.getEffectiveKeywordAdjustedManaCostInput(action, sourceCard, fromZone);
     const derivedManaCostInput =
       action.manaCost ??
+      keywordAdjustedManaCostInput ??
       (fromZone === 'exile' ? (sourceCard as any)?.exileCastCost : undefined) ??
-      (fromZone === 'graveyard' && (sourceCard as any)?.graveyardCastCost === 'mana_cost'
-        ? ((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost)
+      (fromZone === 'graveyard'
+        ? ((sourceCard as any)?.graveyardCastCost === 'mana_cost'
+            ? ((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost)
+            : ((sourceCard as any)?.graveyardCastCostRaw ?? intrinsicGraveyardCast.cost))
         : undefined);
 
     // Check mana availability if mana cost is provided
@@ -415,6 +431,15 @@ export class RulesEngineAdapter {
         return {
           legal: false,
           reason: canPay.reason || 'Insufficient mana',
+        };
+      }
+    }
+
+    if (fromZone === 'graveyard' && (sourceCard as any)?.graveyardAdditionalCost) {
+      if (!this.canPayGraveyardAdditionalCost(state, action.playerId, (sourceCard as any).graveyardAdditionalCost)) {
+        return {
+          legal: false,
+          reason: 'Cannot pay required graveyard additional cost',
         };
       }
     }
@@ -515,10 +540,10 @@ export class RulesEngineAdapter {
       if (canBePlayedBy && canBePlayedBy !== action.playerId) {
         return { legal: false, reason: 'Card is not playable by this player' };
       }
-      if (typeof until !== 'number') {
+      if (typeof until !== 'number' && !intrinsicGraveyardCast.cost) {
         return { legal: false, reason: 'No permission to cast this card from graveyard' };
       }
-      if (until < currentTurn) {
+      if (typeof until === 'number' && until < currentTurn) {
         return { legal: false, reason: 'Permission window to cast from graveyard has expired' };
       }
     }
@@ -570,6 +595,320 @@ export class RulesEngineAdapter {
 
     return sourceZoneCards.find((card: any) => String(card?.id || card?.cardId || '') === cardId) || null;
   }
+
+  private extractKeywordCostFromOracleText(card: any, keyword: string): string | undefined {
+    const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+    if (!normalizedKeyword) return undefined;
+
+    const oracleText = String(card?.oracle_text || card?.card?.oracle_text || '');
+    if (!oracleText) return undefined;
+
+    const keywordPattern = new RegExp(`^${normalizedKeyword}\\s+(?:[\\u2014-]\\s*)?(.+)$`, 'i');
+    for (const rawLine of oracleText.split(/\r?\n/)) {
+      const line = String(rawLine || '').trim();
+      if (!line) continue;
+      const match = line.match(keywordPattern);
+      if (!match) continue;
+      const cost = String(match[1] || '')
+        .replace(/\s+\([^()]*\)\s*$/, '')
+        .trim();
+      if (cost) return cost;
+    }
+
+    return undefined;
+  }
+
+  private getIntrinsicGraveyardCastMetadata(sourceCard: any, fromZone: string): {
+    readonly cost?: string;
+    readonly entersBattlefieldTransformed?: boolean;
+  } {
+    if (String(fromZone || '').trim().toLowerCase() !== 'graveyard') return {};
+
+    const disturbCost = this.extractKeywordCostFromOracleText(sourceCard, 'disturb');
+    if (disturbCost) {
+      return {
+        cost: disturbCost,
+        entersBattlefieldTransformed: true,
+      };
+    }
+
+    return {};
+  }
+
+  private buildTransformedCardFace(sourceCard: any): any {
+    const base = sourceCard && typeof sourceCard === 'object' ? sourceCard : {};
+    const faces = Array.isArray(base?.card_faces) ? base.card_faces : [];
+    const backFace = faces.length >= 2 && faces[1] && typeof faces[1] === 'object' ? faces[1] : null;
+    if (!backFace) return base;
+
+    return {
+      ...base,
+      ...backFace,
+      transformed: true,
+      currentFace: 'back',
+    };
+  }
+
+  private addManaCostValues(left: string | ManaCost | undefined, right: string | ManaCost | undefined): ManaCost {
+    const leftCost = this.parseManaCostString(left);
+    const rightCost = this.parseManaCostString(right);
+    return {
+      generic: (leftCost.generic || 0) + (rightCost.generic || 0),
+      white: (leftCost.white || 0) + (rightCost.white || 0),
+      blue: (leftCost.blue || 0) + (rightCost.blue || 0),
+      black: (leftCost.black || 0) + (rightCost.black || 0),
+      red: (leftCost.red || 0) + (rightCost.red || 0),
+      green: (leftCost.green || 0) + (rightCost.green || 0),
+      colorless: (leftCost.colorless || 0) + (rightCost.colorless || 0),
+    };
+  }
+
+  private manaCostsEqual(left: ManaCost, right: ManaCost): boolean {
+    return (
+      (left.generic || 0) === (right.generic || 0) &&
+      (left.white || 0) === (right.white || 0) &&
+      (left.blue || 0) === (right.blue || 0) &&
+      (left.black || 0) === (right.black || 0) &&
+      (left.red || 0) === (right.red || 0) &&
+      (left.green || 0) === (right.green || 0) &&
+      (left.colorless || 0) === (right.colorless || 0)
+    );
+  }
+
+  private multiplyManaCost(cost: string | ManaCost | undefined, count: number): ManaCost {
+    const normalizedCount = Math.max(0, Math.floor(Number(count) || 0));
+    const parsed = this.parseManaCostString(cost);
+    return {
+      generic: (parsed.generic || 0) * normalizedCount,
+      white: (parsed.white || 0) * normalizedCount,
+      blue: (parsed.blue || 0) * normalizedCount,
+      black: (parsed.black || 0) * normalizedCount,
+      red: (parsed.red || 0) * normalizedCount,
+      green: (parsed.green || 0) * normalizedCount,
+      colorless: (parsed.colorless || 0) * normalizedCount,
+    };
+  }
+
+  private shouldPayBuyback(action: any): boolean {
+    if (action?.payBuyback === true || action?.buyback === true) {
+      return true;
+    }
+
+    const additionalCosts = Array.isArray(action?.additionalCosts) ? action.additionalCosts : [];
+    return additionalCosts.some((cost: any) => {
+      if (typeof cost === 'string') {
+        return String(cost).trim().toLowerCase() === 'buyback';
+      }
+
+      const type = String(cost?.type || cost?.keyword || '').trim().toLowerCase();
+      return type === 'buyback';
+    });
+  }
+
+  private getReplicateCount(action: any): number {
+    return Math.max(0, Math.floor(Number(action?.replicateCount) || 0));
+  }
+
+  private getEffectiveKeywordAdjustedManaCostInput(action: any, sourceCard: any, fromZone: string): ManaCost | undefined {
+    if (String(fromZone || '').trim().toLowerCase() !== 'hand') {
+      return undefined;
+    }
+
+    const ignoresManaCost = Boolean((sourceCard as any)?.withoutPayingManaCost);
+    let totalCost = this.parseManaCostString(
+      ignoresManaCost ? {} : ((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost)
+    );
+    let changed = false;
+
+    const replicateCount = this.getReplicateCount(action);
+    if (replicateCount > 0) {
+      const replicateCost = this.extractKeywordCostFromOracleText(sourceCard, 'replicate');
+      if (replicateCost) {
+        totalCost = this.addManaCostValues(totalCost, this.multiplyManaCost(replicateCost, replicateCount));
+        changed = true;
+      }
+    }
+
+    if (this.shouldPayBuyback(action)) {
+      const buybackCost = this.extractKeywordCostFromOracleText(sourceCard, 'buyback');
+      if (buybackCost) {
+        totalCost = this.addManaCostValues(totalCost, buybackCost);
+        changed = true;
+      }
+    }
+
+    return changed ? totalCost : undefined;
+  }
+
+  private getEffectiveBuybackManaCostInput(action: any, sourceCard: any, fromZone: string): ManaCost | undefined {
+    if (String(fromZone || '').trim().toLowerCase() !== 'hand' || !this.shouldPayBuyback(action)) {
+      return undefined;
+    }
+
+    const buybackCost = this.extractKeywordCostFromOracleText(sourceCard, 'buyback');
+    if (!buybackCost) return undefined;
+
+    const baseCost = Boolean((sourceCard as any)?.withoutPayingManaCost)
+      ? {}
+      : ((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost);
+
+    return this.addManaCostValues(baseCost, buybackCost);
+  }
+
+  private didPayBuyback(action: any, sourceCard: any, fromZone: string): boolean {
+    if (String(fromZone || '').trim().toLowerCase() !== 'hand') return false;
+
+    const buybackCost = this.extractKeywordCostFromOracleText(sourceCard, 'buyback');
+    if (!buybackCost) return false;
+
+    if (this.shouldPayBuyback(action)) return true;
+    if (!action?.manaCost) return false;
+
+    const combinedCost = this.addManaCostValues(
+      Boolean((sourceCard as any)?.withoutPayingManaCost)
+        ? {}
+        : ((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost),
+      buybackCost
+    );
+    return this.manaCostsEqual(this.parseManaCostString(action.manaCost), combinedCost);
+  }
+
+  private sanitizeSpellCardAfterStackExit(card: any): any {
+    const strippedPlayableTags = stripPlayableFromGraveyardTags(stripPlayableFromExileTags(card));
+    const {
+      entersBattlefieldWithCounters,
+      entersBattlefieldTransformed,
+      exileInsteadOfGraveyard,
+      returnToHandInsteadOfGraveyard,
+      ...rest
+    } = (strippedPlayableTags || {}) as any;
+    return rest;
+  }
+
+  private moveResolvedNonPermanentSpellToZone(
+    state: GameState,
+    stackObject: any,
+    zone: 'graveyard' | 'exile' | 'hand'
+  ): GameState {
+    const ownerId = String(stackObject?.ownerId || stackObject?.controllerId || '').trim();
+    if (!ownerId) return state;
+
+    const stackCard = stackObject?.card && typeof stackObject.card === 'object'
+      ? stackObject.card
+      : {};
+    const cardToMove = this.sanitizeSpellCardAfterStackExit({
+      ...stackCard,
+      id: String(stackCard?.id || stackObject?.spellId || stackObject?.id || ''),
+      name: String(stackCard?.name || stackObject?.cardName || 'Unknown Card'),
+      type_line: String(stackCard?.type_line || ''),
+      oracle_text: String(stackCard?.oracle_text || stackObject?.triggerMeta?.effectText || ''),
+    });
+
+    const updatedPlayers = (state.players || []).map((player: any) => {
+      if (player.id !== ownerId) return player;
+
+      const zoneCards = Array.isArray(player?.[zone]) ? [...player[zone]] : [];
+      return {
+        ...player,
+        [zone]: [...zoneCards, cardToMove],
+      };
+    });
+
+    return {
+      ...state,
+      players: updatedPlayers as any,
+    };
+  }
+
+  private spellCardHasKeyword(stackObject: any, keyword: string): boolean {
+    const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+    if (!normalizedKeyword) return false;
+
+    const stackCard = stackObject?.card && typeof stackObject.card === 'object'
+      ? stackObject.card
+      : {};
+
+    if (
+      Array.isArray((stackCard as any)?.keywords) &&
+      (stackCard as any).keywords.some((value: unknown) => String(value || '').trim().toLowerCase() === normalizedKeyword)
+    ) {
+      return true;
+    }
+
+    const oracleText = String(stackCard?.oracle_text || stackObject?.triggerMeta?.effectText || '').trim();
+    if (!oracleText) return false;
+
+    return oracleText
+      .split(/\r?\n/)
+      .map(line => String(line || '').trim())
+      .filter(Boolean)
+      .some(line => /^rebound(?:\s|\(|$)/i.test(line));
+  }
+
+  private registerReboundDelayedTrigger(state: GameState, stackObject: any): GameState {
+    const cardId = String(stackObject?.spellId || stackObject?.card?.id || stackObject?.id || '').trim();
+    const controllerId = String(stackObject?.controllerId || stackObject?.controller || '').trim() as PlayerID;
+    const sourceName = String(stackObject?.cardName || stackObject?.card?.name || 'Rebound').trim() || 'Rebound';
+    if (!cardId || !controllerId) return state;
+
+    const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
+    const delayedTrigger = createDelayedTrigger(
+      cardId,
+      sourceName,
+      controllerId,
+      DelayedTriggerTiming.YOUR_NEXT_UPKEEP,
+      'You may cast this card from exile without paying its mana cost.',
+      currentTurn,
+      {
+        eventDataSnapshot: {
+          sourceId: cardId,
+          sourceControllerId: controllerId,
+          chosenObjectIds: [cardId],
+        },
+      }
+    );
+
+    const registry = (state as any).delayedTriggerRegistry || createDelayedTriggerRegistry();
+    const nextRegistry = registerDelayedTrigger(registry, delayedTrigger);
+    return {
+      ...(state as any),
+      delayedTriggerRegistry: nextRegistry,
+    } as GameState;
+  }
+
+  private moveResolvedPermanentSpellToBattlefield(state: GameState, stackObject: any): GameState {
+    const stackCard = stackObject?.card && typeof stackObject.card === 'object'
+      ? stackObject.card
+      : {};
+    const permanentId = String(stackCard?.id || stackObject?.spellId || stackObject?.id || '');
+    const ownerId = String(stackObject?.ownerId || stackObject?.controllerId || '').trim();
+    const controllerId = String(stackObject?.controllerId || ownerId).trim();
+    if (!permanentId || !controllerId) return state;
+
+    const permanent = {
+      id: permanentId,
+      controller: controllerId,
+      owner: ownerId || controllerId,
+      name: String(stackCard?.name || stackObject?.cardName || 'Unknown Permanent'),
+      type_line: String(stackCard?.type_line || ''),
+      manaCost: stackCard?.mana_cost ?? stackCard?.manaCost,
+      power: stackCard?.power,
+      toughness: stackCard?.toughness,
+      tapped: false,
+      summoningSickness: true,
+      counters:
+        stackCard?.entersBattlefieldWithCounters && typeof stackCard.entersBattlefieldWithCounters === 'object'
+          ? { ...(stackCard.entersBattlefieldWithCounters as Record<string, number>) }
+          : {},
+      attachments: [],
+      card: this.sanitizeSpellCardAfterStackExit(stackCard),
+    } as any;
+
+    return {
+      ...(state as any),
+      battlefield: [...((state.battlefield || []) as any[]), permanent],
+    } as any;
+  }
   
   /**
    * Build timing context for spell validation
@@ -594,7 +933,12 @@ export class RulesEngineAdapter {
     const isOwnTurn = activePlayer?.id === playerId;
     
     // Check stack
-    const stackEmpty = !state.stack || state.stack.length === 0;
+    const stackItems = Array.isArray((state as any).stack)
+      ? (state as any).stack
+      : Array.isArray(((state as any).stack || {}).objects)
+        ? ((state as any).stack || {}).objects
+        : [];
+    const stackEmpty = stackItems.length === 0;
     
     // Check priority
     const priorityIndex = state.priorityPlayerIndex ?? activePlayerIndex;
@@ -609,6 +953,1017 @@ export class RulesEngineAdapter {
     };
   }
 
+  private normalizeGraveyardAdditionalCostFilter(filterText?: string): string[] {
+    const normalized = String(filterText || '')
+      .toLowerCase()
+      .replace(/\bcards?\b/g, '')
+      .replace(/\bpermanents?\b/g, '')
+      .replace(/\byou control\b/g, '')
+      .replace(/\bcontrol\b/g, '')
+      .replace(/\bfrom among\b/g, '')
+      .replace(/\bother\b/g, '')
+      .replace(/\band\/or\b/g, ' or ')
+      .replace(/,/g, ' or ')
+      .replace(/\bcreatures\b/g, 'creature')
+      .replace(/\bartifacts\b/g, 'artifact')
+      .replace(/\benchantments\b/g, 'enchantment')
+      .replace(/\bplaneswalkers\b/g, 'planeswalker')
+      .replace(/\blands\b/g, 'land')
+      .replace(/\binstants\b/g, 'instant')
+      .replace(/\bsorceries\b/g, 'sorcery')
+      .replace(/\bbattles\b/g, 'battle')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) return [];
+    return normalized
+      .split(/\bor\b/g)
+      .map(part => part.replace(/^(?:a|an)\s+/i, '').trim())
+      .filter(Boolean);
+  }
+
+  private cardMatchesAdditionalCostFilter(cardLike: any, filterText?: string): boolean {
+    const terms = this.normalizeGraveyardAdditionalCostFilter(filterText);
+    if (terms.length === 0) return true;
+
+    const typeLine = String(cardLike?.type_line || cardLike?.card?.type_line || '').toLowerCase();
+    const isToken = Boolean(cardLike?.isToken || cardLike?.card?.isToken || typeLine.includes('token'));
+
+    return terms.some(term => {
+      if (term === 'card') return true;
+      if (term === 'token') return isToken;
+      return typeLine.includes(term);
+    });
+  }
+
+  private getEligibleDiscardCards(state: GameState, playerId: string, filterText?: string): any[] {
+    const player = state.players.find(p => p.id === playerId) as any;
+    if (!player) return [];
+    const hand = Array.isArray(player.hand) ? player.hand : [];
+    return hand.filter((card: any) => this.cardMatchesAdditionalCostFilter(card, filterText));
+  }
+
+  private getEligibleSacrificePermanents(state: GameState, playerId: string, filterText?: string): any[] {
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    return battlefield.filter(
+      (perm: any) =>
+        String(perm?.controller || '').trim() === playerId &&
+        this.cardMatchesAdditionalCostFilter(perm, filterText)
+    );
+  }
+
+  private getEligibleGraveyardExileCards(state: GameState, playerId: string): any[] {
+    const player = state.players.find(p => p.id === playerId) as any;
+    if (!player) return [];
+    return Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+  }
+
+  private getEligibleCounterRemovalPermanents(
+    state: GameState,
+    playerId: string,
+    filterText?: string,
+    counter?: string
+  ): any[] {
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    return battlefield.filter((perm: any) => {
+      if (String(perm?.controller || '').trim() !== playerId) return false;
+      if (!this.cardMatchesAdditionalCostFilter(perm, filterText)) return false;
+
+      const counters = (perm?.counters || {}) as Record<string, number>;
+      if (counter) {
+        return Number(counters[counter] ?? 0) > 0;
+      }
+
+      return Object.values(counters).some((value) => Number(value) > 0);
+    });
+  }
+
+  private totalRemovableCountersOnPermanent(perm: any, counter?: string): number {
+    const counters = (perm?.counters || {}) as Record<string, number>;
+    if (counter) {
+      return Math.max(0, Number(counters[counter] ?? 0) || 0);
+    }
+    return Object.values(counters).reduce((total, value) => total + Math.max(0, Number(value) || 0), 0);
+  }
+
+  private removeCountersFromEligiblePermanents(
+    state: GameState,
+    playerId: string,
+    amount: number,
+    filterText?: string,
+    counter?: string
+  ): { success: boolean; state: GameState; log: string[] } {
+    const totalAmount = Math.max(0, Number(amount) || 0);
+    if (totalAmount <= 0) {
+      return { success: true, state, log: [] };
+    }
+
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    const eligible = this.getEligibleCounterRemovalPermanents(state, playerId, filterText, counter);
+    const totalAvailable = eligible.reduce((sum, perm) => sum + this.totalRemovableCountersOnPermanent(perm, counter), 0);
+    if (totalAvailable < totalAmount) {
+      return { success: false, state, log: [] };
+    }
+
+    let remaining = totalAmount;
+    const eligibleIds = new Set(eligible.map((perm: any) => String(perm?.id || perm?.cardId || '').trim()).filter(Boolean));
+    const nextBattlefield = battlefield.map((perm: any) => {
+      if (remaining <= 0) return perm;
+      if (String(perm?.controller || '').trim() !== playerId) return perm;
+      const permanentId = String(perm?.id || perm?.cardId || '').trim();
+      if (!eligibleIds.has(permanentId)) return perm;
+
+      const currentCounters = { ...((perm?.counters || {}) as Record<string, number>) };
+      const counterNames = counter ? [counter] : Object.keys(currentCounters).sort();
+      let changed = false;
+
+      for (const counterName of counterNames) {
+        const currentValue = Math.max(0, Number(currentCounters[counterName] ?? 0) || 0);
+        if (currentValue <= 0) continue;
+
+        const removed = Math.min(currentValue, remaining);
+        const nextValue = currentValue - removed;
+        remaining -= removed;
+        changed = true;
+
+        if (nextValue > 0) {
+          currentCounters[counterName] = nextValue;
+        } else {
+          delete currentCounters[counterName];
+        }
+
+        if (remaining <= 0) break;
+      }
+
+      return changed ? { ...perm, counters: currentCounters } : perm;
+    });
+
+    if (remaining > 0) {
+      return { success: false, state, log: [] };
+    }
+
+    return {
+      success: true,
+      state: { ...(state as any), battlefield: nextBattlefield } as GameState,
+      log: [counter ? `${playerId} removes ${totalAmount} ${counter} counter(s)` : `${playerId} removes ${totalAmount} counter(s)`],
+    };
+  }
+
+  private parseLifeAmountFromCostDescription(description?: string): number {
+    const match = String(description || '').match(/pay\s+(\d+)\s+life/i);
+    return Math.max(0, Number(match?.[1] || 0) || 0);
+  }
+
+  private parseCountToken(token: unknown, defaultValue = 1): number {
+    const text = String(token || '').trim().toLowerCase();
+    if (!text) return defaultValue;
+    if (text === 'a' || text === 'an') return 1;
+    const wordCounts: Record<string, number> = {
+      zero: 0,
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+      eleven: 11,
+      twelve: 12,
+    };
+    if (Object.prototype.hasOwnProperty.call(wordCounts, text)) {
+      return wordCounts[text];
+    }
+    const numeric = Number(text);
+    return Math.max(0, Number.isFinite(numeric) ? numeric : defaultValue);
+  }
+
+  private parseTapCostFromDescription(description?: string): { count: number; filterText?: string; selfOnly: boolean } {
+    const normalized = String(description || '').trim();
+    if (!normalized) return { count: 1, filterText: undefined, selfOnly: true };
+
+    const selfMatch = normalized.match(/^tap\s+(this .+)$/i);
+    if (selfMatch) {
+      return {
+        count: 1,
+        filterText: String(selfMatch[1] || '').trim(),
+        selfOnly: true,
+      };
+    }
+
+    const countPattern = '(a|an|\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+    const match = normalized.match(new RegExp(`^tap\\s+${countPattern}\\s+(.+)$`, 'i'));
+    if (!match) {
+      return { count: 1, filterText: undefined, selfOnly: false };
+    }
+
+    const rawFilter = String(match[2] || '').trim();
+    return {
+      count: this.parseCountToken(match[1], 1),
+      filterText: rawFilter
+        .replace(/\buntapped\b/gi, '')
+        .replace(/\byou control\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim() || undefined,
+      selfOnly: false,
+    };
+  }
+
+  private parseDiscardCostFromDescription(description?: string): { count: number; filterText?: string } {
+    const match = String(description || '').match(/discard\s+(a|an|\d+)\s+(.+)/i);
+    const rawFilter = String(match?.[2] || '').trim();
+    return {
+      count: this.parseCountToken(match?.[1], 1),
+      filterText: rawFilter
+        .replace(/card\(s\)/gi, '')
+        .replace(/\bcards?\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim() || undefined,
+    };
+  }
+
+  private parseSacrificeCostFromDescription(description?: string): { count: number; filterText?: string } {
+    const match = String(description || '').match(/sacrifice\s+(a|an|\d+)\s+(.+)/i);
+    if (match) {
+      const rawFilter = String(match[2] || '').trim();
+      return {
+        count: this.parseCountToken(match[1], 1),
+        filterText: rawFilter
+          .replace(/permanent\(s\)/gi, '')
+          .replace(/\bpermanents?\b/gi, '')
+          .replace(/\s+/g, ' ')
+          .trim() || undefined,
+      };
+    }
+
+    const selfMatch = String(description || '').match(/sacrifice\s+(this .+)/i);
+    return {
+      count: 1,
+      filterText: selfMatch ? String(selfMatch[1] || '').trim() : undefined,
+    };
+  }
+
+  private parseCounterRemovalFromCostDescription(description?: string): { count: number; counter?: string; filterText?: string } {
+    const match = String(description || '').match(/remove\s+(a|an|\d+)\s+(.+?)\s+counter\(s\)(?:\s+from\s+(.+))?/i);
+    return {
+      count: this.parseCountToken(match?.[1], 1),
+      counter: String(match?.[2] || '').trim() || undefined,
+      filterText: String(match?.[3] || '').trim() || undefined,
+    };
+  }
+
+  private parseExileCostFromDescription(description?: string): { count: number; filterText?: string } {
+    const match = String(description || '').match(/exile\s+(a|an|\d+)\s+(.+)/i);
+    if (match) {
+      return {
+        count: this.parseCountToken(match?.[1], 1),
+        filterText: String(match?.[2] || '').trim() || undefined,
+      };
+    }
+
+    return { count: 1, filterText: undefined };
+  }
+
+  private resolveActivatedAbilityDiscardCards(
+    state: GameState,
+    playerId: string,
+    action: any,
+    count: number,
+    filterText?: string
+  ): any[] {
+    const player = state.players.find(p => p.id === playerId) as any;
+    const hand = Array.isArray(player?.hand) ? player.hand : [];
+    const eligible = hand.filter((card: any) => this.cardMatchesAdditionalCostFilter(card, filterText));
+    const explicitIds = Array.isArray(action?.additionalCostCardIds)
+      ? action.additionalCostCardIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    if (explicitIds.length > 0) {
+      const selected = eligible.filter((card: any) => explicitIds.includes(String(card?.id || card?.cardId || '').trim()));
+      return selected.length === count ? selected : [];
+    }
+
+    if (eligible.length === count) return eligible.slice(0, count);
+    if (count === 1 && eligible.length === 1) return eligible.slice(0, 1);
+    return [];
+  }
+
+  private getEligibleTapPermanents(state: GameState, playerId: string, filterText?: string): any[] {
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    return battlefield.filter(
+      (perm: any) =>
+        String(perm?.controller || '').trim() === playerId &&
+        !Boolean(perm?.tapped) &&
+        this.cardMatchesAdditionalCostFilter(perm, filterText)
+    );
+  }
+
+  private resolveActivatedAbilityTapPermanents(
+    state: GameState,
+    playerId: string,
+    ability: ActivatedAbility,
+    action: any,
+    description?: string
+  ): any[] {
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    const sourceId = String(ability.sourceId || '').trim();
+    const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId);
+    const parsed = this.parseTapCostFromDescription(description);
+    const explicitIds = Array.isArray(action?.additionalCostPermanentIds)
+      ? action.additionalCostPermanentIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const eligible = this.getEligibleTapPermanents(state, playerId, parsed.filterText);
+
+    if (parsed.selfOnly) {
+      if (
+        sourcePermanent &&
+        !Boolean(sourcePermanent?.tapped) &&
+        String(sourcePermanent?.controller || '').trim() === playerId
+      ) {
+        return [sourcePermanent];
+      }
+      return [];
+    }
+
+    if (explicitIds.length > 0) {
+      const explicitSet = new Set(explicitIds);
+      if (explicitSet.size !== parsed.count) return [];
+      const selected = eligible.filter((perm: any) => explicitSet.has(String(perm?.id || perm?.cardId || '').trim()));
+      return selected.length === parsed.count ? selected : [];
+    }
+
+    if (
+      parsed.count === 1 &&
+      sourcePermanent &&
+      !Boolean(sourcePermanent?.tapped) &&
+      String(sourcePermanent?.controller || '').trim() === playerId &&
+      this.cardMatchesAdditionalCostFilter(sourcePermanent, parsed.filterText)
+    ) {
+      return [sourcePermanent];
+    }
+
+    return eligible.length === parsed.count ? eligible.slice(0, parsed.count) : [];
+  }
+
+  private resolveActivatedAbilitySacrificePermanents(
+    state: GameState,
+    playerId: string,
+    ability: ActivatedAbility,
+    action: any,
+    count: number,
+    description?: string
+  ): any[] {
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    const sourceId = String(ability.sourceId || '').trim();
+    const explicitIds = Array.isArray(action?.additionalCostPermanentIds)
+      ? action.additionalCostPermanentIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    const descriptionText = String(description || '').trim().toLowerCase();
+    const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId);
+    const parsed = this.parseSacrificeCostFromDescription(description);
+    const filterText = parsed.filterText;
+    const eligible = this.getEligibleSacrificePermanents(state, playerId, filterText);
+
+    if (explicitIds.length > 0) {
+      const explicitSet = new Set(explicitIds);
+      const selected = eligible.filter((perm: any) => explicitSet.has(String(perm?.id || perm?.cardId || '').trim()));
+      return selected.length === count ? selected : [];
+    }
+
+    if (descriptionText.includes('this permanent') || descriptionText.includes('this creature') || descriptionText.includes('this artifact')) {
+      return count === 1 && sourcePermanent ? [sourcePermanent] : [];
+    }
+
+    if (count === 1 && sourcePermanent && eligible.length === 1) {
+      return [sourcePermanent];
+    }
+
+    return eligible.length === count ? eligible.slice(0, count) : [];
+  }
+
+  private resolveActivatedAbilityCounterRemovals(
+    state: GameState,
+    playerId: string,
+    ability: ActivatedAbility,
+    action: any,
+    count: number,
+    counter?: string,
+    filterText?: string
+  ): Array<{ permanentId: string; count: number }> {
+    const sourceId = String(ability.sourceId || '').trim();
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    const explicitIds = Array.isArray(action?.additionalCostPermanentIds)
+      ? action.additionalCostPermanentIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    if (explicitIds.length > 0) {
+      const requested = new Map<string, number>();
+      for (const id of explicitIds) {
+        requested.set(id, (requested.get(id) || 0) + 1);
+      }
+
+      const totalRequested = Array.from(requested.values()).reduce((sum, value) => sum + value, 0);
+      if (totalRequested !== count) return [];
+
+      const removals: Array<{ permanentId: string; count: number }> = [];
+      for (const [permanentId, requestedCount] of requested.entries()) {
+        const perm = battlefield.find((entry: any) => String(entry?.id || entry?.cardId || '').trim() === permanentId);
+        if (!perm || String(perm?.controller || '').trim() !== playerId) return [];
+        if (!this.cardMatchesAdditionalCostFilter(perm, filterText)) return [];
+        if (this.totalRemovableCountersOnPermanent(perm, counter) < requestedCount) return [];
+        removals.push({ permanentId, count: requestedCount });
+      }
+      return removals;
+    }
+
+    const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId);
+    if (sourcePermanent && String(sourcePermanent?.controller || '').trim() === playerId) {
+      if (!this.cardMatchesAdditionalCostFilter(sourcePermanent, filterText)) {
+        return [];
+      }
+      const sourceAvailable = this.totalRemovableCountersOnPermanent(sourcePermanent, counter);
+      if (sourceAvailable >= count) {
+        return [{ permanentId: sourceId, count }];
+      }
+    }
+
+    const eligible = this.getEligibleCounterRemovalPermanents(state, playerId, filterText, counter);
+    const totalAvailable = eligible.reduce((sum, perm) => sum + this.totalRemovableCountersOnPermanent(perm, counter), 0);
+    if (totalAvailable < count) return [];
+    if (eligible.length !== 1 && totalAvailable !== count) return [];
+
+    let remaining = count;
+    const removals: Array<{ permanentId: string; count: number }> = [];
+    for (const perm of eligible) {
+      if (remaining <= 0) break;
+      const available = this.totalRemovableCountersOnPermanent(perm, counter);
+      if (available <= 0) continue;
+      const removed = Math.min(available, remaining);
+      removals.push({ permanentId: String(perm?.id || perm?.cardId || '').trim(), count: removed });
+      remaining -= removed;
+    }
+
+    return remaining === 0 ? removals : [];
+  }
+
+  private applyActivatedAbilityCounterRemovals(
+    state: GameState,
+    removals: Array<{ permanentId: string; count: number }>,
+    counter?: string
+  ): GameState {
+    const removalCounts = new Map<string, number>();
+    for (const removal of removals) {
+      removalCounts.set(removal.permanentId, (removalCounts.get(removal.permanentId) || 0) + removal.count);
+    }
+
+    const nextBattlefield = (Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : []).map((perm: any) => {
+      const permanentId = String(perm?.id || perm?.cardId || '').trim();
+      const requested = removalCounts.get(permanentId) || 0;
+      if (requested <= 0) return perm;
+
+      const currentCounters = { ...((perm?.counters || {}) as Record<string, number>) };
+      const counterNames = counter ? [counter] : Object.keys(currentCounters).sort();
+      let remaining = requested;
+
+      for (const counterName of counterNames) {
+        if (remaining <= 0) break;
+        const currentValue = Math.max(0, Number(currentCounters[counterName] ?? 0) || 0);
+        if (currentValue <= 0) continue;
+        const removed = Math.min(currentValue, remaining);
+        const nextValue = currentValue - removed;
+        remaining -= removed;
+        if (nextValue > 0) {
+          currentCounters[counterName] = nextValue;
+        } else {
+          delete currentCounters[counterName];
+        }
+      }
+
+      return { ...perm, counters: currentCounters };
+    });
+
+    return { ...(state as any), battlefield: nextBattlefield } as GameState;
+  }
+
+  private resolveActivatedAbilityExileSelection(
+    state: GameState,
+    playerId: string,
+    ability: ActivatedAbility,
+    action: any,
+    count: number,
+    description?: string
+  ): { permanentIds: string[]; handIds: string[]; graveyardIds: string[] } {
+    const player = state.players.find(p => p.id === playerId) as any;
+    if (!player) {
+      return { permanentIds: [], handIds: [], graveyardIds: [] };
+    }
+
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    const sourceId = String(ability.sourceId || '').trim();
+    const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId);
+    const descriptionText = String(description || '').trim().toLowerCase();
+
+    const explicitPermanentIds = Array.isArray(action?.additionalCostPermanentIds)
+      ? action.additionalCostPermanentIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const explicitCardIds = Array.isArray(action?.additionalCostCardIds)
+      ? action.additionalCostCardIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    if (explicitPermanentIds.length > 0 || explicitCardIds.length > 0) {
+      const controlledBattlefieldIds = new Set(
+        battlefield
+          .filter((perm: any) => String(perm?.controller || '').trim() === playerId)
+          .map((perm: any) => String(perm?.id || perm?.cardId || '').trim())
+          .filter(Boolean)
+      );
+      const handIds = new Set((Array.isArray(player.hand) ? player.hand : []).map((card: any) => String(card?.id || card?.cardId || '').trim()).filter(Boolean));
+      const graveyardIds = new Set((Array.isArray(player.graveyard) ? player.graveyard : []).map((card: any) => String(card?.id || card?.cardId || '').trim()).filter(Boolean));
+
+      const selectedPermanentIds = explicitPermanentIds.filter(id => controlledBattlefieldIds.has(id));
+      const selectedHandIds = explicitCardIds.filter(id => handIds.has(id));
+      const selectedGraveyardIds = explicitCardIds.filter(id => graveyardIds.has(id));
+      const totalSelected = selectedPermanentIds.length + selectedHandIds.length + selectedGraveyardIds.length;
+      if (totalSelected !== count) {
+        return { permanentIds: [], handIds: [], graveyardIds: [] };
+      }
+
+      return {
+        permanentIds: selectedPermanentIds,
+        handIds: selectedHandIds,
+        graveyardIds: selectedGraveyardIds,
+      };
+    }
+
+    if ((descriptionText.includes('this permanent') || descriptionText.includes('this creature') || descriptionText.includes('this artifact')) && count === 1) {
+      if (sourcePermanent && String(sourcePermanent?.controller || '').trim() === playerId) {
+        return { permanentIds: [sourceId], handIds: [], graveyardIds: [] };
+      }
+    }
+
+    if (descriptionText.includes('this card') && count === 1) {
+      const sourceZone = String(ability.sourceZone || '').trim().toLowerCase();
+      if (sourceZone === 'hand') {
+        const sourceCard = (Array.isArray(player.hand) ? player.hand : []).find(
+          (card: any) => String(card?.id || card?.cardId || '').trim() === sourceId
+        );
+        if (sourceCard) {
+          return { permanentIds: [], handIds: [sourceId], graveyardIds: [] };
+        }
+      }
+
+      if (sourceZone === 'graveyard') {
+        const sourceCard = (Array.isArray(player.graveyard) ? player.graveyard : []).find(
+          (card: any) => String(card?.id || card?.cardId || '').trim() === sourceId
+        );
+        if (sourceCard) {
+          return { permanentIds: [], handIds: [], graveyardIds: [sourceId] };
+        }
+      }
+    }
+
+    const zoneCards =
+      descriptionText.includes('graveyard')
+        ? (Array.isArray(player.graveyard) ? player.graveyard : [])
+        : descriptionText.includes('hand')
+          ? (Array.isArray(player.hand) ? player.hand : [])
+          : [];
+    if (zoneCards.length === count) {
+      const ids = zoneCards.map((card: any) => String(card?.id || card?.cardId || '').trim()).filter(Boolean);
+      return descriptionText.includes('graveyard')
+        ? { permanentIds: [], handIds: [], graveyardIds: ids }
+        : { permanentIds: [], handIds: ids, graveyardIds: [] };
+    }
+
+    return { permanentIds: [], handIds: [], graveyardIds: [] };
+  }
+
+  private applyActivatedAbilityExileSelection(
+    state: GameState,
+    playerId: string,
+    selection: { permanentIds: string[]; handIds: string[]; graveyardIds: string[] }
+  ): GameState {
+    const permanentIdSet = new Set(selection.permanentIds);
+    const handIdSet = new Set(selection.handIds);
+    const graveyardIdSet = new Set(selection.graveyardIds);
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+
+    const exiledPermanents = battlefield.filter((perm: any) => permanentIdSet.has(String(perm?.id || perm?.cardId || '').trim()));
+    const nextBattlefield = battlefield.filter((perm: any) => !permanentIdSet.has(String(perm?.id || perm?.cardId || '').trim()));
+
+    const nextPlayers = state.players.map((player: any) => {
+      const ownedExiledPermanents = exiledPermanents
+        .filter((perm: any) => String(perm?.controller || perm?.owner || '').trim() === String(player.id || '').trim())
+        .map((perm: any) => buildZoneObjectWithRetainedCounters(perm.card || perm, perm, 'exile'));
+
+      if (player.id !== playerId) {
+        return ownedExiledPermanents.length > 0
+          ? { ...player, exile: [...(Array.isArray(player.exile) ? player.exile : []), ...ownedExiledPermanents] }
+          : player;
+      }
+
+      const hand = Array.isArray(player.hand) ? player.hand : [];
+      const graveyard = Array.isArray(player.graveyard) ? player.graveyard : [];
+      const exiledHandCards = hand
+        .filter((card: any) => handIdSet.has(String(card?.id || card?.cardId || '').trim()))
+        .map((card: any) => this.sanitizeSpellCardAfterStackExit(card));
+      const exiledGraveyardCards = graveyard
+        .filter((card: any) => graveyardIdSet.has(String(card?.id || card?.cardId || '').trim()))
+        .map((card: any) => this.sanitizeSpellCardAfterStackExit(card));
+
+      return {
+        ...player,
+        hand: hand.filter((card: any) => !handIdSet.has(String(card?.id || card?.cardId || '').trim())),
+        graveyard: graveyard.filter((card: any) => !graveyardIdSet.has(String(card?.id || card?.cardId || '').trim())),
+        exile: [
+          ...(Array.isArray(player.exile) ? player.exile : []),
+          ...exiledHandCards,
+          ...exiledGraveyardCards,
+          ...ownedExiledPermanents,
+        ],
+      };
+    });
+
+    return { ...(state as any), battlefield: nextBattlefield, players: nextPlayers } as GameState;
+  }
+
+  private canPayActivatedAbilityAdditionalCosts(state: GameState, playerId: string, ability: ActivatedAbility, action?: any): boolean {
+    const additionalCosts = Array.isArray(ability.additionalCosts) ? ability.additionalCosts : [];
+    if (additionalCosts.length === 0) return true;
+
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === String(ability.sourceId || '').trim());
+    const player = state.players.find(p => p.id === playerId) as any;
+
+    for (const cost of additionalCosts) {
+      if (!cost || typeof cost !== 'object') continue;
+
+      if (cost.type === CostType.TAP) {
+        if (this.resolveActivatedAbilityTapPermanents(state, playerId, ability, action, cost.description).length <= 0) return false;
+        continue;
+      }
+
+      if (cost.type === CostType.UNTAP) {
+        if (!sourcePermanent || !Boolean(sourcePermanent?.tapped)) return false;
+        continue;
+      }
+
+      if (cost.type === CostType.LIFE) {
+        const amount = this.parseLifeAmountFromCostDescription(cost.description);
+        if (!player || Number(player.life || 0) <= amount) return false;
+        continue;
+      }
+
+      if (cost.type === CostType.DISCARD) {
+        const parsed = this.parseDiscardCostFromDescription(cost.description);
+        const count = Math.max(1, Number((cost as any).count || 0) || parsed.count);
+        const filterText = String((cost as any).filterText || parsed.filterText || '').trim() || undefined;
+        if (this.resolveActivatedAbilityDiscardCards(state, playerId, action, count, filterText).length !== count) return false;
+        continue;
+      }
+
+      if (cost.type === CostType.SACRIFICE) {
+        const parsed = this.parseSacrificeCostFromDescription(cost.description);
+        const count = Math.max(1, Number((cost as any).count || 0) || parsed.count);
+        if (this.resolveActivatedAbilitySacrificePermanents(state, playerId, ability, action, count, cost.description).length !== count) return false;
+        continue;
+      }
+
+      if (cost.type === CostType.REMOVE_COUNTER) {
+        const parsed = this.parseCounterRemovalFromCostDescription(cost.description);
+        const count = Math.max(1, Number((cost as any).count || 0) || parsed.count);
+        const counter = String((cost as any).counterType || parsed.counter || '').trim() || undefined;
+        const filterText = String((cost as any).filterText || parsed.filterText || '').trim() || undefined;
+        const removals = this.resolveActivatedAbilityCounterRemovals(state, playerId, ability, action, count, counter, filterText);
+        if (removals.reduce((sum, removal) => sum + removal.count, 0) !== count) return false;
+        continue;
+      }
+
+      if (cost.type === CostType.EXILE) {
+        const parsed = this.parseExileCostFromDescription(cost.description);
+        const count = Math.max(1, Number((cost as any).count || 0) || parsed.count);
+        const selection = this.resolveActivatedAbilityExileSelection(state, playerId, ability, action, count, cost.description);
+        if (selection.permanentIds.length + selection.handIds.length + selection.graveyardIds.length !== count) return false;
+        continue;
+      }
+
+      if (cost.type === CostType.REVEAL) {
+        const revealCards = this.resolveActivatedAbilityRevealCards(state, playerId, ability, action, cost.description);
+        if (revealCards.length <= 0) return false;
+      }
+    }
+
+    return true;
+  }
+
+  private payActivatedAbilityAdditionalCosts(
+    state: GameState,
+    playerId: string,
+    ability: ActivatedAbility,
+    action?: any
+  ): { success: boolean; state: GameState; log: string[]; tappedSource?: boolean } {
+    const additionalCosts = Array.isArray(ability.additionalCosts) ? ability.additionalCosts : [];
+    if (additionalCosts.length === 0) return { success: true, state, log: [] };
+
+    let nextState = state;
+    const log: string[] = [];
+    let tappedSource = false;
+
+    for (const cost of additionalCosts) {
+      if (!cost || typeof cost !== 'object') continue;
+
+      if (cost.type === CostType.TAP) {
+        const tappedPermanents = this.resolveActivatedAbilityTapPermanents(nextState, playerId, ability, action, cost.description);
+        if (tappedPermanents.length <= 0) {
+          return { success: false, state, log: [] };
+        }
+
+        const sourceId = String(ability.sourceId || '').trim();
+        const tappedIds = new Set(
+          tappedPermanents.map((perm: any) => String(perm?.id || perm?.cardId || '').trim()).filter(Boolean)
+        );
+        const battlefield = Array.isArray((nextState as any).battlefield) ? ((nextState as any).battlefield as any[]) : [];
+        const updatedBattlefield = battlefield.map((perm: any) =>
+          tappedIds.has(String(perm?.id || '').trim()) ? { ...perm, tapped: true } : perm
+        );
+        nextState = { ...(nextState as any), battlefield: updatedBattlefield } as GameState;
+        if (tappedIds.has(sourceId)) tappedSource = true;
+        log.push(`${playerId} tapped ${tappedIds.size} permanent(s) to activate ${ability.sourceName}`);
+        continue;
+      }
+
+      if (cost.type === CostType.UNTAP) {
+        const sourceId = String(ability.sourceId || '').trim();
+        const battlefield = Array.isArray((nextState as any).battlefield) ? ((nextState as any).battlefield as any[]) : [];
+        const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId);
+        if (!sourcePermanent || !Boolean(sourcePermanent?.tapped)) {
+          return { success: false, state, log: [] };
+        }
+
+        const updatedBattlefield = battlefield.map((perm: any) =>
+          String(perm?.id || '').trim() === sourceId ? { ...perm, tapped: false } : perm
+        );
+        nextState = { ...(nextState as any), battlefield: updatedBattlefield } as GameState;
+        log.push(`${ability.sourceName} was untapped to activate its ability`);
+        continue;
+      }
+
+      if (cost.type === CostType.LIFE) {
+        const amount = this.parseLifeAmountFromCostDescription(cost.description);
+        if (amount <= 0) continue;
+        const player = nextState.players.find(entry => entry.id === playerId) as any;
+        if (!player || Number(player.life || 0) <= amount) {
+          return { success: false, state, log: [] };
+        }
+
+        nextState = {
+          ...(nextState as any),
+          players: nextState.players.map((entry: any) =>
+            entry.id === playerId
+              ? { ...entry, life: Number(entry.life || 0) - amount }
+              : entry
+          ),
+        } as GameState;
+        log.push(`${playerId} paid ${amount} life`);
+        continue;
+      }
+
+      if (cost.type === CostType.DISCARD) {
+        const parsed = this.parseDiscardCostFromDescription(cost.description);
+        const count = Math.max(1, Number((cost as any).count || 0) || parsed.count);
+        const filterText = String((cost as any).filterText || parsed.filterText || '').trim() || undefined;
+        const cards = this.resolveActivatedAbilityDiscardCards(nextState, playerId, action, count, filterText);
+        if (cards.length !== count) {
+          return { success: false, state, log: [] };
+        }
+
+        const discardIds = new Set(cards.map((card: any) => String(card?.id || card?.cardId || '').trim()).filter(Boolean));
+        nextState = {
+          ...(nextState as any),
+          players: nextState.players.map((entry: any) => {
+            if (entry.id !== playerId) return entry;
+            const hand = Array.isArray(entry.hand) ? entry.hand : [];
+            const keptHand = hand.filter((card: any) => !discardIds.has(String(card?.id || card?.cardId || '').trim()));
+            const discarded = hand.filter((card: any) => discardIds.has(String(card?.id || card?.cardId || '').trim()));
+            return {
+              ...entry,
+              hand: keptHand,
+              graveyard: [...(Array.isArray(entry.graveyard) ? entry.graveyard : []), ...discarded],
+            };
+          }),
+        } as GameState;
+        log.push(`${playerId} discarded ${count} card(s)`);
+        continue;
+      }
+
+      if (cost.type === CostType.SACRIFICE) {
+        const parsed = this.parseSacrificeCostFromDescription(cost.description);
+        const count = Math.max(1, Number((cost as any).count || 0) || parsed.count);
+        const permanents = this.resolveActivatedAbilitySacrificePermanents(nextState, playerId, ability, action, count, cost.description);
+        if (permanents.length !== count) {
+          return { success: false, state, log: [] };
+        }
+
+        for (const permanent of permanents) {
+          nextState = movePermanentToGraveyard(nextState, permanent);
+        }
+        log.push(`${playerId} sacrificed ${count} permanent(s)`);
+        continue;
+      }
+
+      if (cost.type === CostType.REMOVE_COUNTER) {
+        const parsed = this.parseCounterRemovalFromCostDescription(cost.description);
+        const count = Math.max(1, Number((cost as any).count || 0) || parsed.count);
+        const counter = String((cost as any).counterType || parsed.counter || '').trim() || undefined;
+        const filterText = String((cost as any).filterText || parsed.filterText || '').trim() || undefined;
+        const removals = this.resolveActivatedAbilityCounterRemovals(nextState, playerId, ability, action, count, counter, filterText);
+        if (removals.reduce((sum, removal) => sum + removal.count, 0) !== count) {
+          return { success: false, state, log: [] };
+        }
+
+        nextState = this.applyActivatedAbilityCounterRemovals(nextState, removals, counter);
+        log.push(counter ? `${playerId} removed ${count} ${counter} counter(s)` : `${playerId} removed ${count} counter(s)`);
+        continue;
+      }
+
+      if (cost.type === CostType.EXILE) {
+        const parsed = this.parseExileCostFromDescription(cost.description);
+        const count = Math.max(1, Number((cost as any).count || 0) || parsed.count);
+        const selection = this.resolveActivatedAbilityExileSelection(nextState, playerId, ability, action, count, cost.description);
+        if (selection.permanentIds.length + selection.handIds.length + selection.graveyardIds.length !== count) {
+          return { success: false, state, log: [] };
+        }
+
+        nextState = this.applyActivatedAbilityExileSelection(nextState, playerId, selection);
+        log.push(`${playerId} exiled ${count} object(s)`);
+        continue;
+      }
+
+      if (cost.type === CostType.REVEAL) {
+        const revealCards = this.resolveActivatedAbilityRevealCards(nextState, playerId, ability, action, cost.description);
+        if (revealCards.length <= 0) {
+          return { success: false, state, log: [] };
+        }
+
+        log.push(`${playerId} revealed ${revealCards.length} card(s)`);
+      }
+    }
+
+    return { success: true, state: nextState, log, tappedSource };
+  }
+
+  private resolveActivatedAbilityRevealCards(
+    state: GameState,
+    playerId: string,
+    ability: ActivatedAbility,
+    action: any,
+    description: string
+  ): any[] {
+    const player = state.players.find(p => p.id === playerId) as any;
+    if (!player) return [];
+
+    const hand = Array.isArray(player.hand) ? player.hand : [];
+    const descriptionText = String(description || '').trim().toLowerCase();
+    const explicitCardIds = Array.isArray(action?.additionalCostCardIds)
+      ? action.additionalCostCardIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (explicitCardIds.length > 0) {
+      const revealable = hand.filter((card: any) =>
+        explicitCardIds.includes(String(card?.id || card?.cardId || '').trim())
+      );
+      return revealable.length === explicitCardIds.length ? revealable : [];
+    }
+
+    if (
+      descriptionText.includes('this card') &&
+      String(ability.sourceZone || '').trim().toLowerCase() === 'hand'
+    ) {
+      const sourceId = String(ability.sourceId || '').trim();
+      const sourceCard = hand.find((card: any) => String(card?.id || card?.cardId || '').trim() === sourceId);
+      return sourceCard ? [sourceCard] : [];
+    }
+
+    return [];
+  }
+
+  private canPayGraveyardAdditionalCost(state: GameState, playerId: string, cost: any): boolean {
+    if (!cost || typeof cost !== 'object') return true;
+    if (cost.kind === 'discard') {
+      return this.getEligibleDiscardCards(state, playerId, cost.filterText).length >= Number(cost.count || 0);
+    }
+    if (cost.kind === 'sacrifice') {
+      return this.getEligibleSacrificePermanents(state, playerId, cost.filterText).length >= Number(cost.count || 0);
+    }
+    if (cost.kind === 'exile_from_graveyard') {
+      return this.getEligibleGraveyardExileCards(state, playerId).length >= Number(cost.count || 0);
+    }
+    if (cost.kind === 'remove_counter') {
+      if (cost.count === 'any') return true;
+      return (
+        this.getEligibleCounterRemovalPermanents(state, playerId, cost.filterText, cost.counter).reduce(
+          (sum, perm) => sum + this.totalRemovableCountersOnPermanent(perm, cost.counter),
+          0
+        ) >= Number(cost.count || 0)
+      );
+    }
+    return false;
+  }
+
+  private payGraveyardAdditionalCost(
+    state: GameState,
+    playerId: string,
+    cost: any
+  ): { success: boolean; state: GameState; log: string[] } {
+    if (!cost || typeof cost !== 'object') return { success: true, state, log: [] };
+
+    if (cost.kind === 'discard') {
+      const amount = Math.max(0, Number(cost.count) || 0);
+      const cards = this.getEligibleDiscardCards(state, playerId, cost.filterText).slice(0, amount);
+      if (cards.length < amount) return { success: false, state, log: [] };
+
+      const discardIds = new Set(cards.map((card: any) => String(card?.id || card?.cardId || '').trim()).filter(Boolean));
+      const updatedPlayers = state.players.map((player: any) => {
+        if (player.id !== playerId) return player;
+        const hand = Array.isArray(player.hand) ? player.hand : [];
+        const keptHand = hand.filter((card: any) => !discardIds.has(String(card?.id || card?.cardId || '').trim()));
+        const discarded = hand.filter((card: any) => discardIds.has(String(card?.id || card?.cardId || '').trim()));
+        return {
+          ...player,
+          hand: keptHand,
+          graveyard: [...(Array.isArray(player.graveyard) ? player.graveyard : []), ...discarded],
+        };
+      });
+
+      return {
+        success: true,
+        state: { ...(state as any), players: updatedPlayers as any } as any,
+        log: [`${playerId} discards ${amount} card(s)`],
+      };
+    }
+
+    if (cost.kind === 'sacrifice') {
+      const amount = Math.max(0, Number(cost.count) || 0);
+      const permanents = this.getEligibleSacrificePermanents(state, playerId, cost.filterText).slice(0, amount);
+      if (permanents.length < amount) return { success: false, state, log: [] };
+
+      let nextState = state;
+      for (const permanent of permanents) {
+        nextState = movePermanentToGraveyard(nextState, permanent);
+      }
+
+      return {
+        success: true,
+        state: nextState,
+        log: [`${playerId} sacrifices ${amount} permanent(s)`],
+      };
+    }
+
+    if (cost.kind === 'exile_from_graveyard') {
+      const amount = Math.max(0, Number(cost.count) || 0);
+      const cards = this.getEligibleGraveyardExileCards(state, playerId).slice(0, amount);
+      if (cards.length < amount) return { success: false, state, log: [] };
+
+      const exileIds = new Set(cards.map((card: any) => String(card?.id || card?.cardId || '').trim()).filter(Boolean));
+      const updatedPlayers = state.players.map((player: any) => {
+        if (player.id !== playerId) return player;
+        const graveyard = Array.isArray(player.graveyard) ? player.graveyard : [];
+        const keptGraveyard = graveyard.filter((card: any) => !exileIds.has(String(card?.id || card?.cardId || '').trim()));
+        const exiledCards = graveyard
+          .filter((card: any) => exileIds.has(String(card?.id || card?.cardId || '').trim()))
+          .map((card: any) => this.sanitizeSpellCardAfterStackExit(card));
+        return {
+          ...player,
+          graveyard: keptGraveyard,
+          exile: [...(Array.isArray(player.exile) ? player.exile : []), ...exiledCards],
+        };
+      });
+
+      return {
+        success: true,
+        state: { ...(state as any), players: updatedPlayers as any } as any,
+        log: [`${playerId} exiles ${amount} card(s) from their graveyard`],
+      };
+    }
+
+    if (cost.kind === 'remove_counter') {
+      if (cost.count === 'any') {
+        return { success: true, state, log: [`${playerId} may remove any number of counters`].filter(Boolean) };
+      }
+
+      return this.removeCountersFromEligiblePermanents(
+        state,
+        playerId,
+        Math.max(0, Number(cost.count) || 0),
+        cost.filterText,
+        cost.counter
+      );
+    }
+
+    return { success: false, state, log: [] };
+  }
+  
   /** Build a de-duplicated target id list from normalized trigger event data. */
   private collectTargetIdsFromEventData(eventData?: TriggerEventData): string[] {
     if (!eventData) return [];
@@ -814,7 +2169,31 @@ export class RulesEngineAdapter {
         tapForMana: () => this.tapForManaAction(gameId, action),
         activateAbility: () => this.activateAbilityAction(gameId, action),
         declareAttackers: () => executeDeclareAttackers(gameId, action, actionContext),
-        declareBlockers: () => executeDeclareBlockers(gameId, action, actionContext),
+        declareBlockers: () => {
+          const blockersResult = executeDeclareBlockers(gameId, action, actionContext);
+          const blockedAssignments = Array.from(
+            new Map(
+              (action.blockers || []).map((blocker: any) => {
+                const attackerId = String(blocker?.attackerId || '').trim();
+                const defendingPlayerId = String(
+                  ((blockersResult.next.combat?.attackers || []) as any[]).find(
+                    attacker => String((attacker as any)?.permanentId || '').trim() === attackerId
+                  )?.defending || ''
+                ).trim();
+                return [attackerId, { attackerId, defendingPlayerId }];
+              })
+            ).values()
+          ).filter((assignment: any) => Boolean(String(assignment?.attackerId || '').trim()));
+
+          const triggerResult = checkBecomesBlockedTriggers(blockersResult.next, blockedAssignments as any);
+          return {
+            next: triggerResult.state,
+            log: [
+              ...(blockersResult.log || []),
+              ...(triggerResult.logs || []),
+            ],
+          };
+        },
         resolveStack: () => this.resolveStackTop(gameId),
         advanceGame: () => advanceGame(gameId, actionContext),
         sacrifice: () => executeSacrifice(gameId, action, actionContext),
@@ -968,6 +2347,8 @@ export class RulesEngineAdapter {
     const fromZone = String(action.fromZone || 'hand').toLowerCase();
     const cardId = String(action.cardId || '');
     const sourceCard = this.findSourceZoneCard(state, action.playerId, cardId, fromZone);
+    const intrinsicGraveyardCast = this.getIntrinsicGraveyardCastMetadata(sourceCard, fromZone);
+    const keywordAdjustedManaCostInput = this.getEffectiveKeywordAdjustedManaCostInput(action, sourceCard, fromZone);
 
     const spellTargetHints = buildTriggerEventDataFromPayloads(
       action.playerId,
@@ -981,14 +2362,20 @@ export class RulesEngineAdapter {
     
     // Prepare casting context
     const manaCost = (sourceCard as any)?.withoutPayingManaCost
-      ? {}
+      ? (keywordAdjustedManaCostInput ?? {})
       : action.manaCost
         ? this.parseManaCostString(action.manaCost)
+        : keywordAdjustedManaCostInput
+          ? this.parseManaCostString(keywordAdjustedManaCostInput)
         : fromZone === 'exile' && (sourceCard as any)?.exileCastCost
           ? this.parseManaCostString((sourceCard as any)?.exileCastCost)
-        : fromZone === 'graveyard' && (sourceCard as any)?.graveyardCastCost === 'mana_cost'
-          ? this.parseManaCostString((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost)
-        : {};
+        : fromZone === 'graveyard'
+          ? this.parseManaCostString(
+              (sourceCard as any)?.graveyardCastCost === 'mana_cost'
+                ? ((sourceCard as any)?.mana_cost ?? (sourceCard as any)?.manaCost)
+                : ((sourceCard as any)?.graveyardCastCostRaw ?? intrinsicGraveyardCast.cost)
+            )
+          : {};
     const context: SpellCastingContext = {
       spellId: action.cardId,
       cardName: String(action.cardName || action.card?.name || sourceCard?.name || 'Unknown Card'),
@@ -1066,6 +2453,18 @@ export class RulesEngineAdapter {
       players: updatedPlayers,
     };
 
+    if (fromZone === 'graveyard' && (sourceCard as any)?.graveyardAdditionalCost) {
+      const additionalCostPayment = this.payGraveyardAdditionalCost(
+        nextState,
+        action.playerId,
+        (sourceCard as any).graveyardAdditionalCost
+      );
+      if (!additionalCostPayment.success) {
+        return { next: state, log: ['Cannot pay required graveyard additional cost'] };
+      }
+      nextState = additionalCostPayment.state;
+    }
+
     // Clear any playable-from-exile marker if we cast from exile.
     if (fromZone === 'exile' && cardId) {
       nextState = consumePlayableFromExileForCard(nextState, action.playerId, cardId) as any;
@@ -1115,35 +2514,60 @@ export class RulesEngineAdapter {
       }
     );
 
+    const castSource =
+      intrinsicGraveyardCast.entersBattlefieldTransformed || (sourceCard as any)?.entersBattlefieldTransformed
+        ? this.buildTransformedCardFace(sourceCard)
+        : (sourceCard || {});
+
+    const castCard = {
+      ...castSource,
+      ...(action.card || {}),
+      id: cardId || String(sourceCard?.id || action.card?.id || ''),
+      name: String(action.cardName || action.card?.name || castSource?.name || sourceCard?.name || 'Unknown Card'),
+      type_line: String(action.card?.type_line || castSource?.type_line || sourceCard?.type_line || ''),
+      oracle_text: String(action.oracleText || action.card?.oracle_text || castSource?.oracle_text || sourceCard?.oracle_text || spellEffectText || ''),
+    } as any;
+
     const spellStackObject: any = {
       id: castResult.stackObjectId!,
       spellId: action.cardId,
       cardName: context.cardName,
       controllerId: action.playerId,
+      ownerId: String((sourceCard as any)?.ownerId || action.playerId),
+      castFromZone: fromZone,
       targets: selectedSpellTargets,
       triggerMeta: spellTriggerMeta,
+      card: castCard,
+      ...(castCard?.exileInsteadOfGraveyard ? { exileInsteadOfGraveyard: true } : {}),
+      ...(this.didPayBuyback(action, sourceCard, fromZone) ? { returnToHandInsteadOfGraveyard: true } : {}),
+      ...(this.getReplicateCount(action) > 0 ? { replicateCount: this.getReplicateCount(action) } : {}),
       timestamp: Date.now(),
       type: 'spell' as const,
     };
 
     const stack = this.stacks.get(gameId)!;
     let stackAfterSpell = pushToStack(stack, spellStackObject).stack;
-
-    const castCard = {
-      ...(sourceCard || {}),
-      ...(action.card || {}),
-      id: cardId || String(sourceCard?.id || action.card?.id || ''),
-      name: String(action.cardName || action.card?.name || sourceCard?.name || 'Unknown Card'),
-      type_line: String(action.card?.type_line || sourceCard?.type_line || ''),
-      oracle_text: String(action.oracleText || action.card?.oracle_text || sourceCard?.oracle_text || spellEffectText || ''),
+    const spellsCastThisTurn = {
+      ...((((nextState as any)?.spellsCastThisTurn || {}) as Record<string, number>) || {}),
+      [action.playerId]: Number((((nextState as any)?.spellsCastThisTurn || {})?.[action.playerId] || 0)) + 1,
+    };
+    const triggerState = {
+      ...(nextState as any),
+      stack: stackAfterSpell as any,
+      spellsCastThisTurn,
     } as any;
 
-    const triggerResult = checkTribalCastTriggers(nextState, castCard, action.playerId, {
+    const tribalTriggerResult = checkTribalCastTriggers(triggerState, castCard, action.playerId, {
       autoExecuteOracle: false,
     });
-    const triggerStackObjects = Array.isArray((triggerResult.state as any)?.stack)
-      ? ((triggerResult.state as any).stack as any[])
-      : [];
+    const spellTriggerResult = checkSpellCastTriggers(triggerState, action.playerId, castResult.stackObjectId, castCard);
+    const triggerStackObjects = [
+      ...(Array.isArray((tribalTriggerResult.state as any)?.stack) ? ((tribalTriggerResult.state as any).stack as any[]) : []),
+      ...(Array.isArray((spellTriggerResult.state as any)?.stack) ? ((spellTriggerResult.state as any).stack as any[]) : []),
+    ].filter((item, index, all) => {
+      const id = String((item as any)?.id || '').trim();
+      return Boolean(id) && all.findIndex(candidate => String((candidate as any)?.id || '').trim() === id) === index;
+    });
 
     for (const triggerObject of triggerStackObjects) {
       stackAfterSpell = pushToStack(stackAfterSpell, triggerObject).stack;
@@ -1174,12 +2598,13 @@ export class RulesEngineAdapter {
     
     return {
       next: {
-        ...triggerResult.state,
+        ...triggerState,
         stack: nextState.stack,
       },
       log: [
         ...(castResult.log || [`${action.playerId} cast ${context.cardName}`]),
-        ...(triggerResult.logs || []),
+        ...(tribalTriggerResult.logs || []),
+        ...(spellTriggerResult.logs || []),
       ],
     };
   }
@@ -1377,13 +2802,25 @@ export class RulesEngineAdapter {
       isOwnTurn: activePlayer?.id === action.playerId,
       stackEmpty: checkStackEmpty(this.stacks.get(gameId)!),
       isCombat: state.phase === 'combat',
+      isUpkeep: String((state as any).step || '').trim().toLowerCase() === 'upkeep',
       activationsThisTurn: action.activationsThisTurn || 0,
       sourceTapped: action.sourceTapped || false,
     };
+
+    if (!this.canPayActivatedAbilityAdditionalCosts(state, action.playerId, ability, action)) {
+      return { next: state, log: ['Cannot pay required activated ability additional cost'] };
+    }
     
     const manaPool = player.manaPool || emptyManaPool();
-
-    const result = activateAbility(ability, manaPool, activationContext);
+    const reducedCost = applyActivatedAbilityCostReductions({
+      state,
+      playerId: action.playerId,
+      ability,
+    });
+    const abilityWithReducedCost = reducedCost.manaCost && reducedCost.manaCost !== ability.manaCost
+      ? { ...ability, manaCost: reducedCost.manaCost }
+      : ability;
+    const result = activateAbility(abilityWithReducedCost, manaPool, activationContext);
 
     if (!result.success) {
       return { next: state, log: [result.error || 'Failed to activate ability'] };
@@ -1395,11 +2832,17 @@ export class RulesEngineAdapter {
         ? { ...p, manaPool: result.manaPoolAfter! }
         : p
     );
-    
-    const nextState: GameState = {
+
+    let nextState: GameState = {
       ...state,
       players: updatedPlayers,
     };
+
+    const additionalCostPayment = this.payActivatedAbilityAdditionalCosts(nextState, action.playerId, ability, action);
+    if (!additionalCostPayment.success) {
+      return { next: state, log: ['Cannot pay required activated ability additional cost'] };
+    }
+    nextState = additionalCostPayment.state;
     
     // Add to stack
     const abilityTargetHints = buildTriggerEventDataFromPayloads(
@@ -1460,10 +2903,26 @@ export class RulesEngineAdapter {
         controller: action.playerId,
       },
     });
+
+    if (additionalCostPayment.tappedSource) {
+      this.emit({
+        type: RulesEngineEvent.PERMANENT_TAPPED,
+        timestamp: Date.now(),
+        gameId,
+        data: {
+          permanentId: ability.sourceId,
+          controllerId: action.playerId,
+        },
+      });
+    }
     
     return {
       next: nextState,
-      log: result.log || [`Activated ${ability.sourceName} ability`],
+      log: [
+        ...(result.log || [`Activated ${ability.sourceName} ability`]),
+        ...reducedCost.log,
+        ...additionalCostPayment.log,
+      ],
     };
   }
   
@@ -1598,9 +3057,15 @@ export class RulesEngineAdapter {
 
     let nextState = state;
     const oracleLogs: string[] = [];
+    const stackObjectAny = popResult.object as any;
+    const spellTypeLine = String(stackObjectAny.card?.type_line || '').toLowerCase();
+    const isPermanentSpell =
+      popResult.object.type === 'spell' &&
+      ['creature', 'artifact', 'enchantment', 'planeswalker', 'battle', 'land'].some(type =>
+        spellTypeLine.includes(type)
+      );
     if (!resolveResult.countered) {
       if (popResult.object.type === 'spell') {
-        const stackObjectAny = popResult.object as any;
         const spellOracleText = String(stackObjectAny.card?.oracle_text || '');
         const temporaryWinLossResult = applyTemporaryCantLoseAndOpponentsCantWinEffect(
           nextState,
@@ -1619,7 +3084,7 @@ export class RulesEngineAdapter {
       const triggerMeta = popResult.object.triggerMeta;
       const effectText = triggerMeta?.effectText;
 
-      if (effectText && effectText.trim().length > 0) {
+      if (!isPermanentSpell && effectText && effectText.trim().length > 0) {
         const normalizedStackTargets = Array.isArray(popResult.object.targets)
           ? popResult.object.targets
               .map((id: any) => String(id || '').trim())
@@ -1708,7 +3173,9 @@ export class RulesEngineAdapter {
               nextState,
               {
                 controllerId: popResult.object.controllerId,
-                sourceId: popResult.object.spellId,
+                sourceId:
+                  triggerMeta?.triggerEventDataSnapshot?.sourceId ??
+                  popResult.object.spellId,
                 sourceName: triggerMeta?.sourceName || popResult.object.cardName,
                 effect: effectText,
               },
@@ -1768,7 +3235,93 @@ export class RulesEngineAdapter {
           });
           oracleLogs.push(`[oracle-ir] Trigger requires player choice: ${popResult.object.cardName}`);
         }
+
+        const replicateCount = this.getReplicateCount(stackObjectAny);
+        if (replicateCount > 0) {
+          for (let copyIndex = 0; copyIndex < replicateCount; copyIndex += 1) {
+            const copyResult = executeTriggeredAbilityEffectWithOracleIR(
+              nextState,
+              {
+                controllerId: popResult.object.controllerId,
+                sourceId: popResult.object.spellId,
+                sourceName: triggerMeta?.sourceName || popResult.object.cardName,
+                effect: effectText,
+              },
+              resolutionEventData,
+              { allowOptional: false }
+            );
+
+            nextState = copyResult.state;
+            oracleLogs.push(
+              `[oracle-ir] Replicate copy ${copyIndex + 1}/${replicateCount} resolved for ${popResult.object.cardName}`
+            );
+            oracleLogs.push(...(copyResult.log || []));
+
+            if ((copyResult.automationGaps || []).length > 0) {
+              this.emit({
+                type: RulesEngineEvent.ORACLE_AUTOMATION_GAP_RECORDED,
+                timestamp: Date.now(),
+                gameId,
+                data: {
+                  stackObjectId: popResult.object.id,
+                  sourceId: popResult.object.spellId,
+                  sourceName: triggerMeta?.sourceName || popResult.object.cardName,
+                  controllerId: popResult.object.controllerId,
+                  count: copyResult.automationGaps.length,
+                  records: copyResult.automationGaps,
+                },
+              });
+            }
+          }
+        }
       }
+    }
+
+    if (popResult.object.type === 'spell' && !isPermanentSpell) {
+      const exileInsteadOfGraveyard = Boolean(
+        stackObjectAny.exileInsteadOfGraveyard || stackObjectAny.card?.exileInsteadOfGraveyard
+      );
+      const returnToHandInsteadOfGraveyard = Boolean(
+        stackObjectAny.returnToHandInsteadOfGraveyard || stackObjectAny.card?.returnToHandInsteadOfGraveyard
+      );
+      const castFromZone = String(
+        stackObjectAny.castFromZone || stackObjectAny.card?.castFromZone || ''
+      ).trim().toLowerCase();
+      const reboundApplies =
+        resolveResult.destination === 'graveyard' &&
+        !exileInsteadOfGraveyard &&
+        !returnToHandInsteadOfGraveyard &&
+        castFromZone === 'hand' &&
+        this.spellCardHasKeyword(stackObjectAny, 'rebound');
+      const destinationZone =
+        reboundApplies
+          ? 'exile'
+          : resolveResult.destination === 'graveyard' && exileInsteadOfGraveyard
+          ? 'exile'
+          : resolveResult.destination === 'graveyard' && returnToHandInsteadOfGraveyard
+            ? 'hand'
+          : resolveResult.destination;
+
+      if (destinationZone === 'graveyard' || destinationZone === 'exile' || destinationZone === 'hand') {
+        nextState = this.moveResolvedNonPermanentSpellToZone(nextState, stackObjectAny, destinationZone);
+        if (reboundApplies && destinationZone === 'exile') {
+          nextState = this.registerReboundDelayedTrigger(nextState, stackObjectAny);
+          oracleLogs.push(
+            `[oracle-ir] ${popResult.object.cardName} was exiled with Rebound and a delayed upkeep trigger was scheduled`
+          );
+        } else {
+          oracleLogs.push(
+            destinationZone === 'exile'
+              ? `[oracle-ir] ${popResult.object.cardName} was exiled after leaving the stack`
+              : destinationZone === 'hand'
+                ? `[oracle-ir] ${popResult.object.cardName} was returned to its owner's hand after leaving the stack`
+                : `[oracle-ir] ${popResult.object.cardName} was put into its owner's graveyard after leaving the stack`
+          );
+        }
+      }
+    } else if (popResult.object.type === 'spell' && isPermanentSpell && !resolveResult.countered) {
+      nextState = this.moveResolvedPermanentSpellToBattlefield(nextState, stackObjectAny);
+      oracleLogs.push(`[oracle-ir] ${popResult.object.cardName} entered the battlefield`);
     }
     
     return {
