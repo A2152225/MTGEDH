@@ -190,8 +190,19 @@ export function resolveSingleCreatureTargetId(
   }
 
   if (target.kind !== 'raw') return undefined;
-  const targetText = String(target.text || '').trim().toLowerCase();
   const battlefield = getProcessedBattlefield(state);
+  const targetText = normalizeOracleText(target.text);
+  const directTargetPermanentId = String(ctx.targetPermanentId || '').trim();
+  if (
+    directTargetPermanentId &&
+    /^(?:that|the|this) creature$|^(?:that|this) permanent$|^it$/.test(targetText)
+  ) {
+    const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === directTargetPermanentId);
+    if (matched && isExecutorCreature(matched)) {
+      return directTargetPermanentId;
+    }
+  }
+
   const creatures = battlefield.filter(permanent => isExecutorCreature(permanent));
   const sourceId = String(ctx.sourceId || '').trim();
 
@@ -291,6 +302,8 @@ export function applyTemporaryPowerToughnessModifier(
   const nextPermanent: any = {
     ...permanent,
     modifiers,
+    effectivePower: undefined,
+    effectiveToughness: undefined,
   };
 
   if (markTrepanation) {
@@ -299,6 +312,27 @@ export function applyTemporaryPowerToughnessModifier(
   }
 
   battlefield[index] = nextPermanent as any;
+  const recalculatedBattlefield = getProcessedBattlefield({ ...(state as any), battlefield } as any);
+  const recalculatedPermanent = recalculatedBattlefield.find(
+    permanent => String((permanent as any)?.id || '').trim() === creatureId
+  ) as any;
+  if (recalculatedPermanent) {
+    battlefield[index] = {
+      ...nextPermanent,
+      power:
+        typeof recalculatedPermanent.effectivePower === 'number'
+          ? recalculatedPermanent.effectivePower
+          : nextPermanent.power,
+      toughness:
+        typeof recalculatedPermanent.effectiveToughness === 'number'
+          ? recalculatedPermanent.effectiveToughness
+          : nextPermanent.toughness,
+      effectivePower: recalculatedPermanent.effectivePower,
+      effectiveToughness: recalculatedPermanent.effectiveToughness,
+      grantedAbilities: recalculatedPermanent.grantedAbilities,
+    } as any;
+  }
+
   return { ...(state as any), battlefield } as any;
 }
 
@@ -329,6 +363,27 @@ export function applyTemporarySetBasePowerToughness(
     effectivePower: undefined,
     effectiveToughness: undefined,
   } as any;
+  const recalculatedBattlefield = getProcessedBattlefield({ ...(state as any), battlefield } as any);
+  const recalculatedPermanent = recalculatedBattlefield.find(
+    permanent => String((permanent as any)?.id || '').trim() === creatureId
+  ) as any;
+  if (recalculatedPermanent) {
+    battlefield[index] = {
+      ...(battlefield[index] as any),
+      power:
+        typeof recalculatedPermanent.effectivePower === 'number'
+          ? recalculatedPermanent.effectivePower
+          : (battlefield[index] as any)?.power,
+      toughness:
+        typeof recalculatedPermanent.effectiveToughness === 'number'
+          ? recalculatedPermanent.effectiveToughness
+          : (battlefield[index] as any)?.toughness,
+      effectivePower: recalculatedPermanent.effectivePower,
+      effectiveToughness: recalculatedPermanent.effectiveToughness,
+      grantedAbilities: recalculatedPermanent.grantedAbilities,
+    } as any;
+  }
+
   return { ...(state as any), battlefield } as any;
 }
 

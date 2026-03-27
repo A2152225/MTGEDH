@@ -12,6 +12,21 @@ export type AbilityActivatedEvent = {
   stackItemId?: string;
 };
 
+export type AbilityActivatedTriggeredStackItem = {
+  id: string;
+  type: 'triggered_ability';
+  controller: PlayerID;
+  source: string;
+  sourceName: string;
+  description: string;
+  effect: string;
+  triggerType: 'ability_activated';
+  mandatory: boolean;
+  triggeringPlayer: PlayerID;
+  activatedAbilityIsManaAbility: boolean;
+  triggeringStackItemId?: string;
+};
+
 function isOpponent(ctx: GameContext, a: PlayerID, b: PlayerID): boolean {
   if (!a || !b) return false;
   // In multiplayer EDH, "opponent" means any other player.
@@ -30,22 +45,41 @@ function pushTriggeredAbility(
   description: string,
   fullOracleForInterveningIf: string,
   e: AbilityActivatedEvent
-): void {
+): AbilityActivatedTriggeredStackItem {
   const state: any = ctx.state as any;
   state.stack = state.stack || [];
-  state.stack.push({
+  const triggerItem: AbilityActivatedTriggeredStackItem = {
     id: uid('trigger'),
     type: 'triggered_ability',
     controller,
-    source: triggerSource?.id,
+    source: String(triggerSource?.id || ''),
     sourceName: triggerSource?.card?.name || 'Triggered ability',
     description, // effect-only for execution
     effect: fullOracleForInterveningIf, // full line so intervening-if extraction works
     triggerType: 'ability_activated',
+    mandatory: false,
     triggeringPlayer: e.activatedBy,
     activatedAbilityIsManaAbility: e.isManaAbility,
     triggeringStackItemId: e.stackItemId,
-  } as any);
+  };
+  state.stack.push(triggerItem as any);
+  return triggerItem;
+}
+
+export function serializeAbilityActivatedTriggeredStackItem(triggerItem: AbilityActivatedTriggeredStackItem): Record<string, unknown> {
+  return {
+    triggerId: triggerItem.id,
+    sourceId: triggerItem.source,
+    sourceName: triggerItem.sourceName,
+    controllerId: triggerItem.controller,
+    description: triggerItem.description,
+    triggerType: triggerItem.triggerType,
+    effect: triggerItem.effect,
+    mandatory: triggerItem.mandatory,
+    triggeringPlayer: triggerItem.triggeringPlayer,
+    activatedAbilityIsManaAbility: triggerItem.activatedAbilityIsManaAbility,
+    triggeringStackItemId: triggerItem.triggeringStackItemId,
+  };
 }
 
 /**
@@ -54,12 +88,13 @@ function pushTriggeredAbility(
  * This is intentionally conservative and currently focuses on the AtomicCards
  * intervening-if family "if it isn't a mana ability".
  */
-export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActivatedEvent): void {
+export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActivatedEvent): AbilityActivatedTriggeredStackItem[] {
   const state: any = ctx.state as any;
   const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const sourcePermanent = battlefield.find((p) => p && p.id === e.sourcePermanentId);
+  const createdTriggers: AbilityActivatedTriggeredStackItem[] = [];
 
-  if (!sourcePermanent) return;
+  if (!sourcePermanent) return createdTriggers;
 
   for (const permanent of battlefield) {
     if (!permanent?.card?.name) continue;
@@ -87,14 +122,14 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
       } as any);
       if (ok === false) continue;
 
-      pushTriggeredAbility(
+      createdTriggers.push(pushTriggeredAbility(
         ctx,
         permanent,
         controller,
         'Harsh Mentor deals 2 damage to that player.',
         full,
         e
-      );
+      ));
       debug(2, `[ability-activated] Harsh Mentor triggered vs ${String(e.activatedBy)} (source=${String(sourcePermanent?.card?.name || e.sourcePermanentId)})`);
       continue;
     }
@@ -111,7 +146,7 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
         activatedAbilityIsManaAbility: e.isManaAbility,
       } as any);
       if (ok === false) continue;
-      pushTriggeredAbility(ctx, permanent, controller, 'You may pay {R}. If you do, copy that ability.', full, e);
+      createdTriggers.push(pushTriggeredAbility(ctx, permanent, controller, 'You may pay {R}. If you do, copy that ability.', full, e));
       continue;
     }
 
@@ -125,7 +160,7 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
         activatedAbilityIsManaAbility: e.isManaAbility,
       } as any);
       if (ok === false) continue;
-      pushTriggeredAbility(ctx, permanent, controller, 'You may pay {2}. If you do, copy that ability. You may choose new targets for the copy.', full, e);
+      createdTriggers.push(pushTriggeredAbility(ctx, permanent, controller, 'You may pay {2}. If you do, copy that ability. You may choose new targets for the copy.', full, e));
       continue;
     }
 
@@ -154,8 +189,10 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
           ? 'You may pay {1}. If you do, copy that ability. You may choose new targets for the copy.'
           : 'Copy that ability. You may choose new targets for the copy.';
 
-      pushTriggeredAbility(ctx, permanent, controller, effectOnly, full, e);
+      createdTriggers.push(pushTriggeredAbility(ctx, permanent, controller, effectOnly, full, e));
       continue;
     }
   }
+
+  return createdTriggers;
 }

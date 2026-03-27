@@ -93,6 +93,8 @@ describe('disturb graveyard replay semantics (integration)', () => {
     expect(stack[0]?.card?.id).toBe('disturb_card_1');
     expect(stack[0]?.card?.castWithAbility).toBe('disturb');
     expect(Boolean(stack[0]?.card?.transformed)).toBe(true);
+    expect(Boolean((game.state as any).castFromGraveyardThisTurn?.[playerId])).toBe(true);
+    expect(Boolean((game.state as any).cardLeftGraveyardThisTurn?.[playerId])).toBe(true);
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 

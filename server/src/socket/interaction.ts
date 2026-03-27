@@ -12,6 +12,7 @@ import {
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
 import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility } from "../state/modules/triggered-abilities";
 import { triggerETBEffectsForToken } from "../state/modules/stack";
+import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { 
   getManaAbilitiesForPermanent, 
   getManaMultiplier, 
@@ -31,7 +32,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { registerManaHandlers } from "./mana-handlers.js";
 import { parseTargetRequirements } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
-import { triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
+import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { isCreatureNow } from "../state/creatureTypeNow.js";
 
 function cardHasSplitSecond(card: any): boolean {
@@ -39,6 +40,16 @@ function cardHasSplitSecond(card: any): boolean {
   const keywords = Array.isArray(card.keywords) ? card.keywords : [];
   const oracleText = String(card.oracle_text || '').toLowerCase();
   return keywords.some((k: any) => String(k).toLowerCase() === 'split second') || oracleText.includes('split second');
+}
+
+function persistAbilityActivatedTriggerPushes(gameId: string, game: any, triggeredAbilities: any[]): void {
+  for (const triggeredAbility of Array.isArray(triggeredAbilities) ? triggeredAbilities : []) {
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeAbilityActivatedTriggeredStackItem(triggeredAbility));
+    } catch (err) {
+      debugWarn(1, '[activateBattlefieldAbility] appendEvent(pushTriggeredAbility ability-activated) failed:', err);
+    }
+  }
 }
 
 function isSplitSecondLockActive(state: any): boolean {
@@ -437,7 +448,7 @@ function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; 
   return extracted;
 }
 
-function getActivatedAbilityScopeText(oracleText: string, abilityId: string): {
+export function getActivatedAbilityScopeText(oracleText: string, abilityId: string): {
   abilityText: string;
   fullAbilityText: string;
 } {
@@ -749,6 +760,29 @@ function getCastFromGraveyardActivationCost(card: any, abilityId: string): { man
   };
 }
 
+function getCastFromGraveyardDiscardCost(abilityId: string): { discardCount: number; discardTypeRestriction?: string } | undefined {
+  const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
+  if (normalizedAbilityId === 'jump-start') {
+    return { discardCount: 1 };
+  }
+  if (normalizedAbilityId === 'retrace') {
+    return { discardCount: 1, discardTypeRestriction: 'land' };
+  }
+  return undefined;
+}
+
+function getCastFromGraveyardExileCost(card: any, abilityId: string): { exileCount: number } | undefined {
+  const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
+  if (normalizedAbilityId !== 'escape') return undefined;
+
+  const oracleText = String(card?.oracle_text || '');
+  const exileMatch = oracleText.match(/exile\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+other\s+cards?\s+from\s+your\s+graveyard/i);
+  if (!exileMatch) return undefined;
+
+  const exileCount = parseWordNumber(String(exileMatch[1] || ''), 0);
+  return exileCount > 0 ? { exileCount } : undefined;
+}
+
 function getKeywordGraveyardActivationManaCost(card: any, abilityId: string): string | undefined {
   const oracleText = String(card?.oracle_text || '');
   const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
@@ -757,6 +791,51 @@ function getKeywordGraveyardActivationManaCost(card: any, abilityId: string): st
   const escapedAbilityId = normalizedAbilityId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const keywordMatch = oracleText.match(new RegExp(`${escapedAbilityId}\\s*[—-]?\\s*(\\{[^}]+\\}(?:\\{[^}]+\\})*)`, 'i'));
   return keywordMatch?.[1]?.trim() || undefined;
+}
+
+function getExplicitGraveyardActivationCost(card: any): { manaCost?: string; exileSourceFromGraveyard?: boolean } {
+  const oracleText = String(card?.oracle_text || '');
+  const lines = oracleText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const activationMatch = line.match(/^([^:]+):\s*(.+)$/);
+    if (!activationMatch) continue;
+    if (!/from\s+(?:your\s+)?graveyard/i.test(line)) continue;
+
+    const costText = activationMatch[1].trim();
+    const manaMatch = costText.match(/(\{[^}]+\}(?:\{[^}]+\})*)/);
+    const exileSourceFromGraveyard = /exile\s+(?:this card|this|~|it)\s+from\s+(?:your\s+)?graveyard/i.test(costText);
+
+    if (manaMatch || exileSourceFromGraveyard) {
+      return {
+        ...(manaMatch?.[1] ? { manaCost: manaMatch[1].trim() } : {}),
+        ...(exileSourceFromGraveyard ? { exileSourceFromGraveyard: true } : {}),
+      };
+    }
+  }
+
+  return {};
+}
+
+function markCardLeftGraveyardLive(game: any, playerId: string, card: any): void {
+  try {
+    recordCardLeftGraveyardThisTurn({ state: game.state } as any, String(playerId), card);
+  } catch {
+    // best-effort only
+  }
+}
+
+function markCastFromGraveyardLive(game: any, playerId: string): void {
+  try {
+    const stateAny = game.state as any;
+    stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
+    stateAny.castFromGraveyardThisTurn[String(playerId)] = true;
+  } catch {
+    // best-effort only
+  }
 }
 
 function getNextEndStepFireTurnNumber(state: any): number {
@@ -837,6 +916,7 @@ export function detectTutorEffect(oracleText: string): TutorInfo {
     let searchCriteria = '';
     let destination = 'hand'; // Default destination
     let maxSelections = 1;
+    const entersTapped = text.includes('battlefield tapped') || text.includes('enters tapped');
     
     // Detect what type of card to search for
     const forMatch = text.match(/search your library for (?:a|an|up to (\w+)) ([^,\.]+)/i);
@@ -916,7 +996,7 @@ export function detectTutorEffect(oracleText: string): TutorInfo {
       destination = 'hand';
     }
     
-    return { isTutor: true, searchCriteria, destination, maxSelections };
+    return { isTutor: true, searchCriteria, destination, maxSelections, entersTapped };
   }
   
   return { isTutor: false };
@@ -1551,6 +1631,116 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const activationCost = getCastFromGraveyardActivationCost(card, abilityId);
       const recordedManaCost = String(activationCost.manaCost || '').trim();
       const recordedLifeCost = Number(activationCost.lifeCost || 0);
+      const discardCost = getCastFromGraveyardDiscardCost(abilityId);
+      const exileCost = getCastFromGraveyardExileCost(card, abilityId);
+
+      if (discardCost) {
+        const hand = Array.isArray(zones.hand) ? zones.hand : [];
+        const eligibleHand = discardCost.discardTypeRestriction
+          ? hand.filter((entry: any) => String(entry?.type_line || '').toLowerCase().includes(discardCost.discardTypeRestriction as string))
+          : hand;
+
+        if (eligibleHand.length < discardCost.discardCount) {
+          socket.emit("error", {
+            code: "CANNOT_PAY_COST",
+            message: discardCost.discardTypeRestriction
+              ? `Cannot cast ${cardName} using ${abilityId}: you need to discard ${discardCost.discardCount} ${discardCost.discardTypeRestriction} card${discardCost.discardCount === 1 ? '' : 's'}.`
+              : `Cannot cast ${cardName} using ${abilityId}: you need to discard ${discardCost.discardCount} card${discardCost.discardCount === 1 ? '' : 's'}.`,
+          });
+          return;
+        }
+
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, pid as any)
+          .find(
+            (s: any) =>
+              s?.type === ResolutionStepType.DISCARD_SELECTION &&
+              (s as any)?.graveyardCastDiscardAsCost === true &&
+              String((s as any)?.cardId || s?.sourceId || '') === String(cardId)
+          );
+
+        if (!existing) {
+          const discardTypeLabel = discardCost.discardTypeRestriction ? `${discardCost.discardTypeRestriction} ` : '';
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.DISCARD_SELECTION,
+            playerId: pid as PlayerID,
+            sourceId: cardId,
+            sourceName: cardName,
+            sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+            description: `${cardName}: Discard ${discardCost.discardCount} ${discardTypeLabel}card${discardCost.discardCount === 1 ? '' : 's'} to cast it using ${abilityId}.`,
+            mandatory: false,
+            hand: eligibleHand,
+            discardCount: discardCost.discardCount,
+            currentHandSize: eligibleHand.length,
+            maxHandSize: Math.max(7, eligibleHand.length),
+            reason: 'activation_cost',
+            graveyardCastDiscardAsCost: true,
+            cardId,
+            abilityId,
+            cardName,
+            manaCost: recordedManaCost || undefined,
+            lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+            discardTypeRestriction: discardCost.discardTypeRestriction || undefined,
+          } as any);
+        }
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      if (exileCost) {
+        const graveyardCards = Array.isArray(zones.graveyard) ? zones.graveyard : [];
+        const eligibleGraveyardCards = graveyardCards.filter((entry: any) => String(entry?.id || '') !== String(cardId));
+
+        if (eligibleGraveyardCards.length < exileCost.exileCount) {
+          socket.emit("error", {
+            code: "CANNOT_PAY_COST",
+            message: `Cannot cast ${cardName} using ${abilityId}: you need to exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard.`,
+          });
+          return;
+        }
+
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, pid as any)
+          .find(
+            (s: any) =>
+              s?.type === ResolutionStepType.GRAVEYARD_SELECTION &&
+              (s as any)?.graveyardCastExileAsCost === true &&
+              String((s as any)?.cardId || s?.sourceId || '') === String(cardId)
+          );
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.GRAVEYARD_SELECTION,
+            playerId: pid as PlayerID,
+            sourceId: cardId,
+            sourceName: cardName,
+            sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+            description: `${cardName}: Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard to cast it using ${abilityId}.`,
+            mandatory: false,
+            targetPlayerId: pid,
+            minTargets: exileCost.exileCount,
+            maxTargets: exileCost.exileCount,
+            destination: 'exile',
+            cardId,
+            cardName,
+            title: `Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} for ${cardName}`,
+            validTargets: eligibleGraveyardCards.map((graveyardCard: any) => ({
+              id: graveyardCard.id,
+              label: graveyardCard.name || 'Card',
+              description: graveyardCard.type_line || 'Card',
+              imageUrl: graveyardCard.image_uris?.small || graveyardCard.image_uris?.normal,
+            })),
+            graveyardCastExileAsCost: true,
+            abilityId,
+            manaCost: recordedManaCost || undefined,
+            lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+          } as any);
+        }
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
 
       if (recordedManaCost) {
         const parsedCost = parseManaCost(recordedManaCost);
@@ -1588,6 +1778,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Remove from graveyard
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
+      markCardLeftGraveyardLive(game, pid, card);
+      markCastFromGraveyardLive(game, pid);
       
       // Add to stack
       const stackItem = {
@@ -1639,6 +1831,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Return to battlefield
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
+      markCardLeftGraveyardLive(game, pid, card);
       
       // Add to battlefield
       game.state.battlefield = game.state.battlefield || [];
@@ -1692,6 +1885,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Exile original from graveyard
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
+      markCardLeftGraveyardLive(game, pid, card);
       
       // Move to exile
       zones.exile = zones.exile || [];
@@ -1740,6 +1934,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Generic return from graveyard ability (like Magma Phoenix, Summon the School)
       // Parse the oracle text to determine the destination and mana cost
       const oracleText = (card.oracle_text || "").toLowerCase();
+      const explicitActivationCost = getExplicitGraveyardActivationCost(card);
       let recordedManaCost: string | undefined;
       
       // Check for creature tap costs (Summon the School style: "Tap four untapped Merfolk you control:")
@@ -1801,14 +1996,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      // Parse mana cost from oracle text for graveyard abilities
-      // Pattern: "{3}{R}{R}: Return this card from your graveyard to your hand"
-      const graveyardAbilityMatch = oracleText.match(/(\{[^}]+\}(?:\{[^}]+\})*)\s*:\s*return\s+(?:this|~|(?:this card|it))\s+from\s+(?:your\s+)?graveyard\s+to\s+(?:your\s+)?hand/i);
-      
-      if (graveyardAbilityMatch) {
-        const manaCost = graveyardAbilityMatch[1];
-        recordedManaCost = manaCost;
-        const parsedCost = parseManaCost(manaCost);
+      if (explicitActivationCost.manaCost) {
+        recordedManaCost = explicitActivationCost.manaCost;
+        const parsedCost = parseManaCost(recordedManaCost);
         const pool = getOrInitManaPool(game.state, pid);
         const totalAvailable = calculateTotalAvailableMana(pool, []);
         
@@ -1817,7 +2007,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (validationError) {
           socket.emit("error", {
             code: "INSUFFICIENT_MANA",
-            message: `Cannot pay ${manaCost}: ${validationError}`,
+            message: `Cannot pay ${recordedManaCost}: ${validationError}`,
           });
           return;
         }
@@ -1830,6 +2020,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const tutorInfo = detectTutorEffect(card.oracle_text || "");
       
       if (tutorInfo.isTutor) {
+        if (explicitActivationCost.exileSourceFromGraveyard) {
+          const [exiledSourceCard] = zones.graveyard.splice(cardIndex, 1);
+          zones.graveyardCount = zones.graveyard.length;
+          markCardLeftGraveyardLive(game, pid, exiledSourceCard);
+          zones.exile = zones.exile || [];
+          zones.exile.push({ ...exiledSourceCard, zone: 'exile' });
+          zones.exileCount = zones.exile.length;
+        }
+
         // This ability involves searching the library
         // Don't remove from graveyard yet - the search needs to resolve first
         const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
@@ -1849,6 +2048,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           abilityId,
           isTutor: true,
           manaCost: recordedManaCost,
+          exileSourceOnActivate: explicitActivationCost.exileSourceFromGraveyard || undefined,
           searchCriteria: tutorInfo.searchCriteria || 'any card',
           destination,
           maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
@@ -1907,6 +2107,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Remove from graveyard
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
+      markCardLeftGraveyardLive(game, pid, card);
       
       if (destination === "battlefield") {
         // Move to battlefield
@@ -1973,6 +2174,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Scavenge - exile from graveyard (player needs to manually target creature for counters)
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
+      markCardLeftGraveyardLive(game, pid, card);
       
       // Move to exile
       zones.exile = zones.exile || [];
@@ -2020,6 +2222,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Encore - exile from graveyard (creates tokens)
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
+      markCardLeftGraveyardLive(game, pid, card);
       
       // Move to exile
       zones.exile = zones.exile || [];
@@ -2083,6 +2286,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Disturb - cast transformed from graveyard
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
+      markCardLeftGraveyardLive(game, pid, card);
+      markCastFromGraveyardLive(game, pid);
       
       // Add to stack (transformed)
       const stackItem = {
@@ -2147,6 +2352,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Remove from graveyard
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
+      markCardLeftGraveyardLive(game, pid, card);
       
       // Move to exile
       zones.exile = zones.exile || [];
@@ -2198,6 +2404,33 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const tutorInfo = detectTutorEffect(card.oracle_text || "");
       
       if (tutorInfo.isTutor) {
+        const explicitActivationCost = getExplicitGraveyardActivationCost(card);
+        const recordedManaCost = String(explicitActivationCost.manaCost || '').trim() || undefined;
+        if (recordedManaCost) {
+          const parsedCost = parseManaCost(recordedManaCost);
+          const pool = getOrInitManaPool(game.state, pid);
+          const totalAvailable = calculateTotalAvailableMana(pool, []);
+          const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+          if (validationError) {
+            socket.emit("error", {
+              code: "INSUFFICIENT_MANA",
+              message: `Cannot pay ${recordedManaCost}: ${validationError}`,
+            });
+            return;
+          }
+
+          consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
+        }
+
+        if (explicitActivationCost.exileSourceFromGraveyard) {
+          const [exiledSourceCard] = zones.graveyard.splice(cardIndex, 1);
+          zones.graveyardCount = zones.graveyard.length;
+          markCardLeftGraveyardLive(game, pid, exiledSourceCard);
+          zones.exile = zones.exile || [];
+          zones.exile.push({ ...exiledSourceCard, zone: 'exile' });
+          zones.exileCount = zones.exile.length;
+        }
+
         // This ability involves searching the library
         const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
         const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
@@ -2214,6 +2447,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           cardId,
           abilityId,
           isTutor: true,
+          manaCost: recordedManaCost,
+          exileSourceOnActivate: explicitActivationCost.exileSourceFromGraveyard || undefined,
           searchCriteria: tutorInfo.searchCriteria || 'any card',
           destination,
           maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
@@ -3192,12 +3427,18 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       isGenericActivatedAbilityId &&
       /you may play/i.test(scopedAbilityFullText) &&
       /exiled/i.test(scopedAbilityFullText);
+    const hasLegacyAbilityToken = (token: string) => !abilityId.includes('-ability-') && abilityId.includes(token);
+    const hasLegacyHybridManaSpecialLandAbilityId = hasLegacyAbilityToken('hybrid-mana');
+    const hasLegacyStorageAddCounterAbilityId = hasLegacyAbilityToken('add-counter');
+    const hasLegacyStorageRemoveCountersAbilityId = hasLegacyAbilityToken('remove-counters');
+    const hasLegacyAnimateSpecialLandAbilityId = hasLegacyAbilityToken('animate');
+    const hasLegacyHideawayPlayAbilityId = hasLegacyAbilityToken('play-hideaway');
 
     // If a special land ability will return early, we still need to enforce chosen-name activation lockouts.
     // Best-effort mapping for our special ability IDs.
     const isSpecialLandManaAbility =
-      (specialLandConfig?.type === 'hybrid_mana_production' && (abilityId.includes('hybrid-mana') || isGenericHybridManaSpecialLandAbility)) ||
-      (specialLandConfig?.type === 'storage_counter' && (abilityId.includes('remove-counters') || isGenericStorageRemoveCountersAbility));
+      (specialLandConfig?.type === 'hybrid_mana_production' && (hasLegacyHybridManaSpecialLandAbilityId || isGenericHybridManaSpecialLandAbility)) ||
+      (specialLandConfig?.type === 'storage_counter' && (hasLegacyStorageRemoveCountersAbilityId || isGenericStorageRemoveCountersAbility));
 
     const earlyRestriction = isAbilityActivationProhibitedByChosenName(game.state, pid as any, cardName, isSpecialLandManaAbility);
     if (earlyRestriction.prohibited) {
@@ -3210,7 +3451,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // 1. GRAVEN CAIRNS - Hybrid Mana Production Lands
-    if (specialLandConfig?.type === 'hybrid_mana_production' && (abilityId.includes('hybrid-mana') || isGenericHybridManaSpecialLandAbility)) {
+    if (specialLandConfig?.type === 'hybrid_mana_production' && (hasLegacyHybridManaSpecialLandAbilityId || isGenericHybridManaSpecialLandAbility)) {
       // Validate: permanent must not be tapped
       if ((permanent as any).tapped) {
         socket.emit("error", {
@@ -3314,7 +3555,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // 2. CALCIFORM POOLS - Storage Counter Lands
     if (specialLandConfig?.type === 'storage_counter') {
       // Handle storage counter abilities
-      if (abilityId.includes('add-counter') || isGenericStorageAddCounterAbility) {
+      if (hasLegacyStorageAddCounterAbilityId || isGenericStorageAddCounterAbility) {
         // {1}, {T}: Put a storage counter on ~
         // Validate: permanent must not be tapped
         if ((permanent as any).tapped) {
@@ -3361,7 +3602,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
         broadcastGame(io, game, gameId);
         return;
-      } else if (abilityId.includes('remove-counters') || isGenericStorageRemoveCountersAbility) {
+      } else if (hasLegacyStorageRemoveCountersAbilityId || isGenericStorageRemoveCountersAbility) {
         // {T}, Remove X storage counters from ~: Add X mana in any combination of colors
         // This requires X selection UI - for now, we'll implement basic version
         // Future: Add X-cost selection modal
@@ -3419,7 +3660,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // 3. MUTAVAULT - Land Animation
-    if (specialLandConfig?.type === 'animate' && (abilityId.includes('animate') || isGenericAnimateSpecialLandAbility)) {
+    if (specialLandConfig?.type === 'animate' && (hasLegacyAnimateSpecialLandAbilityId || isGenericAnimateSpecialLandAbility)) {
       // {1}: ~ becomes a 2/2 creature with all creature types until end of turn
       // Validate: permanent must not be tapped for activation
       
@@ -3488,7 +3729,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // 4. HIDEAWAY - Face-down Exile Implementation
     // Hideaway is handled during ETB (Enter the Battlefield), not as activated ability
     // The activated ability is just playing the exiled card
-    if (specialLandConfig?.type === 'hideaway' && (abilityId.includes('play-hideaway') || isGenericHideawayPlayAbility)) {
+    if (specialLandConfig?.type === 'hideaway' && (hasLegacyHideawayPlayAbilityId || isGenericHideawayPlayAbility)) {
       // Split Second: playing/casting is not allowed.
       if (splitSecondLockActive) {
         socket.emit('error', {
@@ -3570,7 +3811,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
        (oracleText.match(/search[^.]*for[^.]*(?:forest|plains|island|swamp|mountain)/) !== null));
     
     // Exclude creatures and non-land artifacts from fetch land detection
-    const isFetchLandAbility = (abilityId === "fetch-land" || abilityId.includes("-fetch-")) && 
+    const isFetchLandAbility = (abilityId === "fetch-land" || hasLegacyAbilityToken("-fetch-")) && 
       isLand && !isCreature && !isArtifact && hasFetchPattern;
     if (isFetchLandAbility) {
       // Split Second: can't activate non-mana abilities.
@@ -3769,7 +4010,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // The client generates abilityId like "{cardId}-ability-{index}" for general activated abilities
     // Only process if oracle text actually has the sacrifice-to-draw pattern
     const hasSacrificeDrawPattern = scopedAbilityFullText.includes("sacrifice") && scopedAbilityFullText.includes("draw a card");
-    const isSacrificeDrawAbility = (abilityId.includes("sacrifice-draw") || abilityId.includes("-ability-")) && hasSacrificeDrawPattern;
+    const isSacrificeDrawAbility = (hasLegacyAbilityToken("sacrifice-draw") || abilityId.includes("-ability-")) && hasSacrificeDrawPattern;
     if (isSacrificeDrawAbility) {
       // Parse optional mana/tap costs from oracle text.
       const sacrificeCostMatch = scopedAbilityFullText.match(/^(?:(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*)?(?:(\{T\})\s*,\s*)?sacrifice[^:]*:\s*draw a card\.?$/i);
@@ -5258,7 +5499,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // Handle creature upgrade abilities (Figure of Destiny, Warden of the First Tree, etc.)
     // These are activated abilities that transform or upgrade a creature
     const upgradeAbilities = parseCreatureUpgradeAbilities(oracleText, cardName);
-    const hasExplicitUpgradeAbilityId = abilityId.startsWith("upgrade-") || abilityId.includes("-becomes-");
+    const hasExplicitUpgradeAbilityId = !abilityId.includes('-ability-') && (abilityId.startsWith("upgrade-") || abilityId.includes("-becomes-"));
     const normalizedScopedUpgradeText = String(scopedAbilityFullText || scopedAbilityText || '')
       .replace(new RegExp(String(cardName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '~')
       .replace(/\s+/g, ' ')
@@ -5353,13 +5594,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Fire triggers that care about ability activation (e.g., Harsh Mentor, Rings of Brighthearth).
       // Best-effort: non-mana abilities use the stack.
       try {
-        triggerAbilityActivatedTriggers(game as any, {
+        const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
           activatedBy: pid as any,
           sourcePermanentId: permanentId as any,
           isManaAbility: false,
           abilityText: normalizedScopedUpgradeText || upgrade.fullText,
           stackItemId: stackItem.id,
         });
+        persistAbilityActivatedTriggerPushes(gameId, game, triggeredAbilities);
       } catch {}
       
       // Emit stack update
@@ -5402,7 +5644,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // Handle mana abilities (tap-mana-* or native_*)
-    if (abilityId.startsWith("tap-mana") || abilityId.startsWith("native_")) {
+    if (!abilityId.includes('-ability-') && (abilityId.startsWith("tap-mana") || abilityId.startsWith("native_"))) {
       // Validate: permanent must not be tapped
       if ((permanent as any).tapped) {
         socket.emit("error", {
@@ -5703,7 +5945,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     // Handle planeswalker abilities (pw-ability-N)
-    if (abilityId.startsWith("pw-ability-")) {
+    if (/^pw-ability-\d+$/i.test(abilityId)) {
       // Parse ability index
       const abilityIndex = parseInt(abilityId.replace("pw-ability-", ""), 10);
       
@@ -5974,13 +6216,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
       try {
-        triggerAbilityActivatedTriggers(game as any, {
+        const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
           activatedBy: pid as any,
           sourcePermanentId: permanentId as any,
           isManaAbility: false,
           abilityText: ability.text,
           stackItemId: stackItem.id,
         });
+        persistAbilityActivatedTriggerPushes(gameId, game, triggeredAbilities);
       } catch {}
       
       // Emit stack update
@@ -6505,6 +6748,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             .find((s: any) => s?.type === ResolutionStepType.TAP_UNTAP_TARGET && (s as any)?.tapOtherAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
 
           if (!existing) {
+            const activatedAbilityText = (() => {
+              const scopedAbilityText = String(abilityConditionText || '').trim();
+              if (scopedAbilityText.includes(':')) return scopedAbilityText;
+              return costStr ? `${costStr}: ${abilityText}` : (scopedAbilityText || abilityText);
+            })();
             ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.TAP_UNTAP_TARGET,
               playerId: pid as PlayerID,
@@ -6533,6 +6781,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               abilityId,
               cardName,
               abilityText,
+              activatedAbilityText,
               manaCost: costStr,
               requiresTap: Boolean(requiresTap),
               lifeToPayForCost,
@@ -7217,6 +7466,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 .find((step: any) => step?.type === ResolutionStepType.MANA_PAYMENT_CHOICE && step?.phyrexianManaChoice === true && String(step?.permanentId || step?.sourceId) === String(permanentId));
 
               if (!existingPhyrexianPrompt) {
+                const activatedAbilityText = (() => {
+                  const scopedAbilityText = String(abilityConditionText || '').trim();
+                  if (scopedAbilityText.includes(':')) return scopedAbilityText;
+                  return manaOnly ? `${manaOnly}: ${abilityText}` : (scopedAbilityText || abilityText);
+                })();
                 const phyrexianChoices = phyrexianCosts.map((options: string[], index: number) => {
                   const colorOption = options.find((option: string) => !option.startsWith('LIFE:') && !option.startsWith('GENERIC:'));
                   const lifeOption = options.find((option: string) => option.startsWith('LIFE:'));
@@ -7255,6 +7509,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                   abilityId,
                   cardName,
                   abilityText,
+                  activatedAbilityText,
                   manaCost: manaOnly,
                   totalManaCost: manaOnly,
                   genericCost: parsedCost.generic,
@@ -7291,6 +7546,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.sacrificeAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
 
       if (!existing) {
+        const activatedAbilityText = String(abilityConditionText || '').trim() || `${String(manaCost || '').trim()}: ${abilityText}`;
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as PlayerID,
@@ -7314,6 +7570,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           manaCost,
           oracleText: (card?.oracle_text || oracleText || ''),
           requiresTap,
+          activatedAbilityText,
           sacrificeType,
           sacrificeSubtype,
           sacrificeCount,
@@ -7803,6 +8060,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               );
 
             if (!existing) {
+              const activatedAbilityText = String(abilityConditionText || '').trim() || `${costStr}: ${abilityText}`;
               ResolutionQueueManager.addStep(gameId, {
                 type: ResolutionStepType.TARGET_SELECTION,
                 playerId: pid as PlayerID,
@@ -7825,6 +8083,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 abilityText,
                 manaCost: costStr,
                 requiresTap,
+                activatedAbilityText,
                 removeCount,
                 counterType,
                 counterKeyCandidates,
@@ -8237,6 +8496,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             .find((s: any) => s?.type === ResolutionStepType.DISCARD_SELECTION && (s as any)?.discardAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
 
           if (!existing) {
+            const activatedAbilityText = String(abilityConditionText || '').trim() || `${String(manaCost || '').trim()}: ${abilityText}`;
             ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.DISCARD_SELECTION,
               playerId: pid as PlayerID,
@@ -8258,6 +8518,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               abilityText,
               manaCost,
               requiresTap,
+              activatedAbilityText,
               discardTypeRestriction: typedRestriction || undefined,
               lifeToPayForCost,
             } as any);
@@ -8461,6 +8722,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           
           if (phyrexianCosts.length > 0) {
             const pendingPhyrexianId = `phyrexian_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const activatedAbilityText = (() => {
+              const scopedAbilityText = String(abilityConditionText || '').trim();
+              if (scopedAbilityText.includes(':')) return scopedAbilityText;
+              return manaOnly ? `${manaOnly}: ${abilityText}` : (scopedAbilityText || abilityText);
+            })();
             
             // Build the choice options for each Phyrexian mana symbol
             const phyrexianChoices = phyrexianCosts.map((options: string[], index: number) => {
@@ -8499,6 +8765,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               abilityId,
               cardName,
               abilityText,
+              activatedAbilityText,
               manaCost: manaOnly,
               totalManaCost: manaOnly,
               genericCost: parsedCost.generic,
@@ -8981,12 +9248,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Fire triggers that care about ability activation.
       // Many will be filtered out by intervening-if ("if it isn't a mana ability").
       try {
-        triggerAbilityActivatedTriggers(game as any, {
+        const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
           activatedBy: pid as any,
           sourcePermanentId: permanentId as any,
           isManaAbility: true,
           abilityText,
         });
+        persistAbilityActivatedTriggerPushes(gameId, game, triggeredAbilities);
       } catch {}
       
       const colorToPoolKey: Record<string, string> = {

@@ -51,6 +51,62 @@ export interface TapTrigger {
   };
 }
 
+export type TapTriggeredStackItem = {
+  id: string;
+  type: 'triggered_ability';
+  controller: string;
+  source: string;
+  sourceName: string;
+  description: string;
+  effect: string;
+  triggerType: 'tap';
+  mandatory: boolean;
+  triggeringPermanentId: string;
+  effectData?: {
+    createsToken: boolean;
+    tokenDetails?: TapTrigger['tokenDetails'];
+  };
+};
+
+export function buildTapTriggeredStackItem(trigger: TapTrigger, tappedPermanentId: string, triggerId: string): TapTriggeredStackItem {
+  const stackItem: TapTriggeredStackItem = {
+    id: triggerId,
+    type: 'triggered_ability',
+    controller: String(trigger.controllerId || ''),
+    source: String(trigger.permanentId || ''),
+    sourceName: String(trigger.cardName || 'Triggered ability'),
+    description: String(trigger.description || ''),
+    effect: String(trigger.effect || trigger.description || ''),
+    triggerType: 'tap',
+    mandatory: Boolean(trigger.mandatory),
+    triggeringPermanentId: String(tappedPermanentId || ''),
+  };
+
+  if (trigger.createsToken) {
+    stackItem.effectData = {
+      createsToken: true,
+      tokenDetails: trigger.tokenDetails,
+    };
+  }
+
+  return stackItem;
+}
+
+export function serializeTapTriggeredStackItem(stackItem: TapTriggeredStackItem): Record<string, unknown> {
+  return {
+    triggerId: stackItem.id,
+    sourceId: stackItem.source,
+    sourceName: stackItem.sourceName,
+    controllerId: stackItem.controller,
+    description: stackItem.description,
+    triggerType: stackItem.triggerType,
+    effect: stackItem.effect,
+    mandatory: stackItem.mandatory,
+    triggeringPermanentId: stackItem.triggeringPermanentId,
+    ...(stackItem.effectData ? { effectData: stackItem.effectData } : null),
+  };
+}
+
 // ============================================================================
 // Untap Trigger Detection (Bear Umbra, Nature's Will, etc.)
 // ============================================================================

@@ -16,6 +16,7 @@ export interface GraveyardAbility {
   label: string;
   description: string;
   cost?: string;
+  activatable?: boolean;
 }
 
 export interface GraveyardViewModalProps {
@@ -36,7 +37,7 @@ export interface GraveyardViewModalProps {
 /**
  * Parse graveyard-activatable abilities from a card's oracle text
  */
-function parseGraveyardAbilities(card: KnownCardRef): GraveyardAbility[] {
+export function parseGraveyardAbilities(card: KnownCardRef): GraveyardAbility[] {
   const abilities: GraveyardAbility[] = [];
   const oracleText = (card.oracle_text || '').toLowerCase();
   
@@ -165,6 +166,33 @@ function parseGraveyardAbilities(card: KnownCardRef): GraveyardAbility[] {
       cost,
     });
   }
+
+  const exileToAddCountersMatch = card.oracle_text?.match(/(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*exile this card from your graveyard:\s*put a \+1\/\+1 counter on each ([^.]+?) you control/i);
+  if (exileToAddCountersMatch) {
+    const cost = exileToAddCountersMatch[1];
+    const creatureGroup = exileToAddCountersMatch[2].trim();
+    abilities.push({
+      id: 'exile-to-add-counters',
+      label: 'Exile for Counters',
+      description: `Exile from graveyard to put a +1/+1 counter on each ${creatureGroup} you control for ${cost}`,
+      cost,
+    });
+  }
+
+  const explicitGraveyardActivationMatch = card.oracle_text?.match(/([^.:\n]+from your graveyard[^:\n]*):\s*([^.]+(?:\.[^.]+)?)/i);
+  if (
+    explicitGraveyardActivationMatch &&
+    !abilities.some((ability) => ability.id === 'return-from-graveyard' || ability.id === 'exile-to-add-counters')
+  ) {
+    const cost = explicitGraveyardActivationMatch[1].trim();
+    const effect = explicitGraveyardActivationMatch[2].trim();
+    abilities.push({
+      id: 'graveyard-activated',
+      label: effect.toLowerCase().includes('search your library') ? 'Graveyard Tutor' : 'Graveyard Ability',
+      description: `${cost}: ${effect}`,
+      cost,
+    });
+  }
   
   // Encore - create token copies that attack each opponent
   if (oracleText.includes('encore')) {
@@ -194,9 +222,10 @@ function parseGraveyardAbilities(card: KnownCardRef): GraveyardAbility[] {
   if (oracleText.includes('persist')) {
     abilities.push({
       id: 'persist-info',
-      label: 'Has Persist',
+      label: 'Persist',
       description: 'When this dies without -1/-1 counter, it returns',
       cost: 'automatic',
+      activatable: false,
     });
   }
   
@@ -204,9 +233,10 @@ function parseGraveyardAbilities(card: KnownCardRef): GraveyardAbility[] {
   if (oracleText.includes('undying')) {
     abilities.push({
       id: 'undying-info',
-      label: 'Has Undying',
+      label: 'Undying',
       description: 'When this dies without +1/+1 counter, it returns',
       cost: 'automatic',
+      activatable: false,
     });
   }
   
@@ -545,21 +575,21 @@ export function GraveyardViewModal({
                 {parseGraveyardAbilities(selectedCard).map((ability) => (
                   <button
                     key={ability.id}
-                    onClick={() => canActivate && handleActivate(selectedCard, ability.id)}
-                    disabled={!canActivate}
+                    onClick={() => canActivate && ability.activatable !== false && handleActivate(selectedCard, ability.id)}
+                    disabled={!canActivate || ability.activatable === false}
                     style={{
                       padding: '8px 16px',
                       borderRadius: 6,
                       border: 'none',
-                      backgroundColor: canActivate ? '#3b82f6' : '#4a4a6a',
+                      backgroundColor: ability.activatable === false ? '#4b5563' : (canActivate ? '#3b82f6' : '#4a4a6a'),
                       color: '#fff',
                       fontSize: 13,
-                      cursor: canActivate ? 'pointer' : 'not-allowed',
+                      cursor: canActivate && ability.activatable !== false ? 'pointer' : 'not-allowed',
                       fontWeight: 500,
                     }}
                     title={ability.description}
                   >
-                    {ability.label}: {ability.cost}
+                    {ability.activatable === false ? ability.label : `${ability.label}: ${ability.cost}`}
                   </button>
                 ))}
               </div>

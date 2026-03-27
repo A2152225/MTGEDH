@@ -57,6 +57,80 @@ export function executeTriggeredAbilityEffectWithOracleIR(
   eventData?: TriggerEventData,
   options: OracleIRExecutionOptions = {}
 ): OracleIRExecutionResult {
+  const normalizedEffect = String(ability.effect || '').replace(/\u2019/g, "'").trim();
+  const unlessPaysManaMatch = normalizedEffect.match(
+    /^that player may pay (\{[^}]+\})\.\s*if they do(?:n't| not),\s*(.+)$/i
+  );
+  const explicitUnlessPaysChoice = eventData?.unlessPaysLifeChoice;
+
+  if (unlessPaysManaMatch && (explicitUnlessPaysChoice === 'pay' || explicitUnlessPaysChoice === 'decline')) {
+    const [, manaCost, followUpEffect] = unlessPaysManaMatch;
+
+    if (explicitUnlessPaysChoice === 'pay') {
+      return {
+        state,
+        log: [`Resolved unless-pays-mana step (payer chose to pay ${manaCost}): ${ability.effect}`],
+        appliedSteps: [],
+        skippedSteps: [],
+        automationGaps: [],
+        pendingOptionalSteps: [],
+      };
+    }
+
+    const declinedResult = executeTriggeredAbilityEffectWithOracleIR(
+      state,
+      {
+        ...ability,
+        effect: followUpEffect,
+      },
+      eventData,
+      options
+    );
+
+    return {
+      ...declinedResult,
+      log: [
+        `Resolved unless-pays-mana step (payer declined to pay ${manaCost}): ${ability.effect}`,
+        ...declinedResult.log,
+      ],
+    };
+  }
+
+  const tokenChoiceMatch = normalizedEffect.match(/^create a ([a-z0-9'+ -]+) token or a ([a-z0-9'+ -]+) token\.?$/i);
+  const selectedModeIds = Array.isArray(eventData?.selectedModeIds) ? eventData.selectedModeIds : [];
+
+  if (tokenChoiceMatch && selectedModeIds.length > 0) {
+    const [, firstTokenName, secondTokenName] = tokenChoiceMatch;
+    const normalizedSelections = selectedModeIds.map(id => String(id || '').trim().toLowerCase()).filter(Boolean);
+    const chooseToken = (tokenName: string): boolean => {
+      const normalizedTokenName = String(tokenName || '').trim().toLowerCase();
+      return normalizedSelections.some(
+        selection =>
+          selection === normalizedTokenName ||
+          selection === `${normalizedTokenName} token` ||
+          selection.includes(normalizedTokenName)
+      );
+    };
+
+    const chosenTokenName = chooseToken(secondTokenName)
+      ? secondTokenName
+      : chooseToken(firstTokenName)
+        ? firstTokenName
+        : undefined;
+
+    if (chosenTokenName) {
+      return executeTriggeredAbilityEffectWithOracleIR(
+        state,
+        {
+          ...ability,
+          effect: `Create a ${chosenTokenName} token.`,
+        },
+        eventData,
+        options
+      );
+    }
+  }
+
   const ir = parseOracleTextToIR(ability.effect, ability.sourceName);
   const steps = ir.abilities.flatMap(a => a.steps);
   const normalizedEventData = buildEnrichedTriggerExecutionEventData(state, ability, eventData, {

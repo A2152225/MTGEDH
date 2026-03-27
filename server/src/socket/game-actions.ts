@@ -34,7 +34,7 @@ import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
-import { triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
+import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
 
 // Import land-related helpers from modularized module
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -6841,6 +6841,14 @@ export function registerGameActions(io: Server, socket: Socket) {
       } catch (e) {
         debugWarn(1, 'appendEvent(castSpell) failed:', e);
       }
+
+      const persistTriggeredAbilityPush = (payload: Record<string, unknown>, reason: string) => {
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', payload);
+        } catch (err) {
+          debugWarn(1, `[castSpellFromHand] appendEvent(pushTriggeredAbility ${reason}) failed:`, err);
+        }
+      };
       
       // Check for "When you cast this spell" triggers on the spell itself (Kozilek, Ulamog, etc.)
       try {
@@ -7189,6 +7197,19 @@ export function registerGameActions(io: Server, socket: Socket) {
               requiresTarget: true,
               targetType: trigger.targetType || 'permanent',
             } as any);
+
+            persistTriggeredAbilityPush({
+              triggerId,
+              sourceId: trigger.permanentId,
+              sourceName: trigger.cardName,
+              controllerId: playerId,
+              description: trigger.description,
+              triggerType: 'cast_creature_type',
+              effect: trigger.effect,
+              mandatory: trigger.mandatory,
+              requiresTarget: true,
+              targetType: trigger.targetType || 'permanent',
+            }, 'spell-cast targeted');
             
             debug(2, `[castSpellFromHand] Pushed ${trigger.cardName} trigger to stack for target selection`);
             
@@ -7306,6 +7327,20 @@ export function registerGameActions(io: Server, socket: Socket) {
             },
           };
           game.state.stack.push(stackItem);
+
+          persistTriggeredAbilityPush({
+            triggerId,
+            sourceId: trigger.permanentId,
+            sourceName: trigger.cardName,
+            controllerId: trigger.controllerId,
+            description: trigger.description,
+            triggerType: trigger.triggerType,
+            effect: (trigger as any).effect || trigger.description,
+            mandatory: trigger.mandatory,
+            targetPlayer: stackItem.targetPlayer,
+            triggeringPlayer: stackItem.triggeringPlayer,
+            effectData: stackItem.effectData,
+          }, 'opponent spell-cast');
           
           // Emit trigger notification
           if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, trigger.controllerId, trigger.cardName, trigger.mandatory)) {
@@ -7751,6 +7786,8 @@ export function registerGameActions(io: Server, socket: Socket) {
                 playerId: pendingSkip.requestedBy,
                 from: 'BEGIN_COMBAT',
                 to: pendingSkip.targetStep,
+                targetPhase: pendingSkip.targetPhase,
+                targetStep: pendingSkip.targetStep,
                 auto: true,
                 reason: 'combat_triggers_resolved',
               });
@@ -8674,6 +8711,14 @@ export function registerGameActions(io: Server, socket: Socket) {
       const targetStepNormalized = targetStep.toLowerCase().replace(/_/g, '');
       const currentIdx = currentPhaseOrder.indexOf(currentStepNormalized);
       const targetIdx = currentPhaseOrder.indexOf(targetStepNormalized);
+
+      const persistTriggeredAbilityPush = (payload: Record<string, unknown>, reason: string) => {
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', payload);
+        } catch (err) {
+          debugWarn(1, `[skipToPhase] appendEvent(pushTriggeredAbility ${reason}) failed:`, err);
+        }
+      };
       
       // Helper function to stop at a specific phase and process triggers
       const stopAtPhaseForTriggers = (
@@ -8747,6 +8792,12 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Group triggers by controller for APNAP ordering
         const triggersByController = new Map<string, typeof triggers>();
+        const triggerItemsByController = new Map<string, Array<{
+          id: string;
+          sourceName: string;
+          effect: string;
+          imageUrl?: string;
+        }>>();
         for (const trigger of filteredTriggers) {
           const controller = trigger.controllerId || turnPlayer;
           const existing = triggersByController.get(controller) || [];
@@ -8781,10 +8832,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                 imageUrl: trigger.imageUrl,
               };
             });
+            triggerItemsByController.set(String(playerId), triggerItems);
             
             // Add all triggers to the stack first
             for (const item of triggerItems) {
-              (game.state as any).stack.push({
+              const stackItem = {
                 id: item.id,
                 type: 'triggered_ability',
                 controller: playerId,
@@ -8794,7 +8846,20 @@ export function registerGameActions(io: Server, socket: Socket) {
                 triggerType,
                 mandatory: item.mandatory,
                 effect: item.effect,
-              });
+                triggeringPlayer: turnPlayer,
+              };
+              (game.state as any).stack.push(stackItem);
+              persistTriggeredAbilityPush({
+                triggerId: item.id,
+                sourceId: item.sourceId,
+                sourceName: item.sourceName,
+                controllerId: playerId,
+                description: item.effect,
+                triggerType,
+                effect: item.effect,
+                mandatory: item.mandatory,
+                triggeringPlayer: turnPlayer,
+              }, `${triggerType} skip trigger`);
             }
             
             // Add Resolution Queue step for trigger ordering
@@ -8817,7 +8882,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             // Single trigger - push directly to stack
             const trigger = playerTriggers[0];
             const triggerId = uid(`${triggerType}_trigger`);
-            (game.state as any).stack.push({
+            const stackItem = {
               id: triggerId,
               type: 'triggered_ability',
               controller: playerId,
@@ -8827,7 +8892,20 @@ export function registerGameActions(io: Server, socket: Socket) {
               triggerType: triggerType,
               mandatory: trigger.mandatory !== false,
               effect: trigger.effect,
-            });
+              triggeringPlayer: turnPlayer,
+            };
+            (game.state as any).stack.push(stackItem);
+            persistTriggeredAbilityPush({
+              triggerId,
+              sourceId: trigger.permanentId,
+              sourceName: trigger.cardName,
+              controllerId: playerId,
+              description: trigger.description || trigger.effect,
+              triggerType,
+              effect: trigger.effect,
+              mandatory: trigger.mandatory !== false,
+              triggeringPlayer: turnPlayer,
+            }, `${triggerType} skip trigger`);
           }
         }
         
@@ -8841,11 +8919,42 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Append skipToPhase event
         try {
+          const triggerOrderRequests = orderedPlayers
+            .map((orderedPlayerId) => {
+              const playerTriggers = triggersByController.get(orderedPlayerId) || [];
+              if (playerTriggers.length <= 1) {
+                return null;
+              }
+
+              return {
+                playerId: orderedPlayerId,
+                description: `Choose the order to put ${playerTriggers.length} triggered abilities on the stack`,
+                requireAll: true,
+                triggers: (triggerItemsByController.get(String(orderedPlayerId)) || []).map((item) => ({
+                  id: item.id,
+                  sourceName: item.sourceName,
+                  effect: item.effect,
+                  imageUrl: item.imageUrl,
+                })),
+              };
+            })
+            .filter(Boolean);
+
           appendEvent(gameId, (game as any).seq || 0, "skipToPhase", {
             playerId,
             from: currentStep,
             to: stopStep,
-            finalTarget: targetStep,
+            targetPhase: stopPhase,
+            targetStep: stopStep,
+            finalTargetPhase: targetPhase,
+            finalTargetStep: targetStep,
+            pendingPhaseSkip: {
+              targetPhase,
+              targetStep,
+              requestedBy: playerId,
+            },
+            priority: turnPlayer,
+            triggerOrderRequests,
           });
         } catch (e) {
           debugWarn(1, "appendEvent(skipToPhase) failed:", e);
@@ -10859,13 +10968,20 @@ export function registerGameActions(io: Server, socket: Socket) {
       game.state.stack.push(stackItem);
 
       try {
-        triggerAbilityActivatedTriggers(game as any, {
+        const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
           activatedBy: playerId as any,
           sourcePermanentId: equipmentId as any,
           isManaAbility: false,
           abilityText: activatedAbilityText,
           stackItemId: stackItem.id,
         });
+        for (const triggeredAbility of triggeredAbilities) {
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeAbilityActivatedTriggeredStackItem(triggeredAbility));
+          } catch (err) {
+            debugWarn(1, 'appendEvent(pushTriggeredAbility equip ability-activated) failed:', err);
+          }
+        }
       } catch {}
 
       try {

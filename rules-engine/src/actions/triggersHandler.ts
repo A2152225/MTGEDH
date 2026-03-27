@@ -8,6 +8,7 @@
 import type { GameState, KnownCardRef, BattlefieldPermanent } from '../../../shared/src';
 import {
   TriggerEvent,
+  executeTriggeredAbilityEffectWithOracleIR,
   processEvent,
   processEventAndExecuteTriggeredOracle,
   putTriggersOnStack,
@@ -18,6 +19,11 @@ import {
   type TriggerEventData,
   parseTriggeredAbilitiesFromText,
 } from '../triggeredAbilities';
+import {
+  checkDelayedTriggers,
+  processDelayedTriggers,
+  type DelayedTriggerRegistry,
+} from '../delayedTriggeredAbilities';
 import { 
   hasSpecialTriggeredAbility, 
   getTriggeredAbilityConfig,
@@ -52,12 +58,78 @@ export interface TriggerProcessingOptions {
   resolutionEventData?: TriggerEventData;
 }
 
+export interface StepTriggerProcessingOptions extends TriggerProcessingOptions {
+  /** Optional delayed trigger registry to consume for this step. Defaults to state.delayedTriggerRegistry. */
+  delayedTriggerRegistry?: DelayedTriggerRegistry;
+  /** Current turn number for delayed-trigger timing checks. Defaults to state.turnNumber/state.turn. */
+  turnNumber?: number;
+}
+
+export interface ETBTriggerProcessingOptions extends TriggerProcessingOptions {
+  /** Optional explicit event data to merge into the entering permanent context. */
+  eventData?: TriggerEventData;
+}
+
+export interface LandfallTriggerProcessingOptions extends Omit<TriggerProcessingOptions, 'autoExecuteOracle'> {
+  /** Optional explicit event data to merge into the landfall trigger context. */
+  eventData?: TriggerEventData;
+}
+
+export interface DiesTriggerProcessingOptions extends TriggerProcessingOptions {
+  /** Optional explicit event data for the dying object when current state cannot fully infer it. */
+  eventData?: TriggerEventData;
+  /** Include battlefield abilities that watch a controlled creature dying. Defaults to true. */
+  includeControlledCreatureDeath?: boolean;
+}
+
+export interface SpellCastTriggerProcessingOptions extends TriggerProcessingOptions {
+  /** Optional explicit event data to merge into the cast-spell context. */
+  eventData?: TriggerEventData;
+}
+
+export interface DrawTriggerProcessingOptions extends TriggerProcessingOptions {
+  /** Optional explicit event data to merge into the draw trigger context. */
+  eventData?: TriggerEventData;
+}
+
+export interface CombatDamageTriggerProcessingOptions extends TriggerProcessingOptions {
+  /** Optional explicit event data to merge into each combat-damage assignment context. */
+  eventData?: TriggerEventData;
+}
+
+export interface BecomesBlockedTriggerProcessingOptions extends TriggerProcessingOptions {
+  /** Optional explicit event data to merge into the blocked-attacker context. */
+  eventData?: TriggerEventData;
+}
+
+export interface DelayedTriggerEventCheck {
+  readonly type: 'end_step' | 'upkeep' | 'combat_end' | 'combat_begin' | 'cleanup' | 'permanent_left' | 'dies' | 'control_lost' | 'turn_start';
+  readonly playerId?: string;
+  readonly activePlayerId?: string;
+  readonly permanentId?: string;
+  readonly currentTurn?: number;
+  readonly eligibleTriggerIds?: ReadonlySet<string>;
+}
+
+export interface DelayedEventTriggerProcessingOptions extends TriggerProcessingOptions {
+  /** Optional delayed trigger registry to process. Defaults to state.delayedTriggerRegistry. */
+  delayedTriggerRegistry?: DelayedTriggerRegistry;
+}
+
 export interface CombatDamageTriggerAssignment {
   readonly attackerId?: string;
   readonly damage?: number;
   readonly defendingPlayerId?: string;
   readonly targetPlayerId?: string;
   readonly targetOpponentId?: string;
+}
+
+export interface AttackTriggerAssignment {
+  readonly attackerId?: string;
+  readonly defendingPlayerId?: string;
+  readonly targetPlayerId?: string;
+  readonly targetOpponentId?: string;
+  readonly eventData?: TriggerEventData;
 }
 
 export interface BecomesBlockedTriggerAssignment {
@@ -70,6 +142,40 @@ function getStackItems(state: GameState): any[] {
   if (Array.isArray(rawStack)) return rawStack;
   if (Array.isArray((rawStack as any)?.objects)) return [...(rawStack as any).objects];
   return [];
+}
+
+function findCardInPlayersGraveyards(state: GameState, cardId: string): { playerId: string; card: any } | null {
+  const normalizedCardId = String(cardId || '').trim();
+  if (!normalizedCardId) return null;
+
+  for (const player of state.players || []) {
+    const playerId = String((player as any)?.id || '').trim();
+    const graveyard = Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : [];
+    const card = graveyard.find((entry: any) => String(entry?.id || '').trim() === normalizedCardId);
+    if (card && playerId) {
+      return { playerId, card };
+    }
+  }
+
+  return null;
+}
+
+function buildObjectTypeTokens(object: any): string[] {
+  return String(object?.type_line || object?.card?.type_line || '')
+    .split(/[\s\u2014-]+/)
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function looksLikeSelfDiesTrigger(ability: TriggeredAbility): boolean {
+  const sourceText = `${String((ability as any)?.triggerFilter || '')} ${String((ability as any)?.condition || '')}`.toLowerCase();
+  return (
+    sourceText.includes('this creature') ||
+    sourceText.includes('this permanent') ||
+    sourceText.includes('this card') ||
+    sourceText.includes('it had no +1/+1 counters on it') ||
+    sourceText.includes('it had no -1/-1 counters on it')
+  );
 }
 
 /**
@@ -188,6 +294,22 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
       normalized.includes('cast this card from your graveyard')
     );
   };
+  const normalizeTriggerEffectText = (text: string): string =>
+    String(text || '')
+      .replace(/\u2019/g, "'")
+      .trim()
+      .toLowerCase()
+      .replace(
+        /\bthat player may pay (\{[^}]+\})\.\s*if they do(?:n't| not),\s*/g,
+        'unless that player pays $1 '
+      )
+      .replace(
+        /\byou create a ([^.]+?) unless that player pays (\{[^}]+\})\.?/g,
+        'unless that player pays $2 create a $1'
+      )
+      .replace(/\byou\s+(create|gain|draw|return|put|copy|sacrifice|exile|destroy|tap|untap)\b/g, '$1')
+      .replace(/^you\s+/, '')
+      .replace(/\s+/g, ' ');
   
   // Scan all permanents on centralized battlefield for triggered abilities
   for (const perm of state.battlefield || []) {
@@ -199,21 +321,22 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
     const controllerId = perm.controller || '';
     
     // Check for special card-specific triggers first
-    if (hasSpecialTriggeredAbility(cardName)) {
-      const config = getTriggeredAbilityConfig(cardName);
-      if (config) {
+    const specialTriggerConfig = hasSpecialTriggeredAbility(cardName)
+      ? getTriggeredAbilityConfig(cardName)
+      : undefined;
+
+    if (specialTriggerConfig) {
         abilities.push({
           id: `${perm.id}-special-trigger`,
           sourceId: perm.id,
           sourceName: cardName,
           controllerId: controllerId,
           keyword: 'whenever' as any,
-          event: config.triggerEvent,
-          condition: config.triggerCondition,
-          effect: config.effect,
-          optional: config.requiresChoice,
+          event: specialTriggerConfig.triggerEvent,
+          condition: specialTriggerConfig.triggerCondition,
+          effect: specialTriggerConfig.effect,
+          optional: specialTriggerConfig.requiresChoice,
         });
-      }
     }
     
     // Check for ETB token creator triggers
@@ -238,7 +361,14 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
       perm.id,
       controllerId,
       cardName
-    );
+    ).filter(trigger => {
+      if (!specialTriggerConfig) return true;
+      return !(
+        trigger.event === specialTriggerConfig.triggerEvent &&
+        normalizeTriggerEffectText(String(trigger.effect || '')) ===
+          normalizeTriggerEffectText(String(specialTriggerConfig.effect || ''))
+      );
+    });
     abilities.push(...parsedTriggers);
   }
 
@@ -298,8 +428,33 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
     );
     abilities.push(...parsedTriggers);
   }
-  
-  return abilities;
+
+  const dedupedAbilities: TriggeredAbility[] = [];
+  const seenAbilitySignatures = new Set<string>();
+  const normalizeSignaturePart = (value: unknown): string =>
+    String(value ?? '')
+      .replace(/\u2019/g, "'")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+
+  for (const ability of abilities) {
+    const signature = [
+      normalizeSignaturePart((ability as any)?.sourceId),
+      normalizeSignaturePart((ability as any)?.controllerId),
+      normalizeSignaturePart((ability as any)?.event),
+      normalizeSignaturePart((ability as any)?.condition),
+      normalizeSignaturePart((ability as any)?.triggerFilter),
+      normalizeSignaturePart((ability as any)?.interveningIfClause),
+      normalizeTriggerEffectText(String((ability as any)?.effect || '')),
+    ].join('|');
+
+    if (seenAbilitySignatures.has(signature)) continue;
+    seenAbilitySignatures.add(signature);
+    dedupedAbilities.push(ability);
+  }
+
+  return dedupedAbilities;
 }
 
 /**
@@ -308,7 +463,8 @@ export function findTriggeredAbilities(state: GameState): TriggeredAbility[] {
 export function checkETBTriggers(
   state: GameState,
   permanentId: string,
-  controllerId: string
+  controllerId: string,
+  options: ETBTriggerProcessingOptions = {}
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const enteringPermanent = ((state.battlefield || []) as any[]).find(
@@ -325,6 +481,7 @@ export function checkETBTriggers(
     controllerId,
     buildTriggerEventDataFromPayloads(
       controllerId,
+      options.eventData,
       {
         sourceId: permanentId,
         targetPermanentId: permanentId,
@@ -350,7 +507,7 @@ export function checkETBTriggers(
     )
   );
 
-  return processTriggers(state, TriggerEvent.ENTERS_BATTLEFIELD, etbAbilities, eventData);
+  return processTriggers(state, TriggerEvent.ENTERS_BATTLEFIELD, etbAbilities, eventData, options);
 }
 
 /**
@@ -358,14 +515,102 @@ export function checkETBTriggers(
  */
 export function checkDiesTriggers(
   state: GameState,
-  permanentId: string
+  permanentId: string,
+  options: DiesTriggerProcessingOptions = {}
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
-  const diesAbilities = abilities.filter(a => 
-    a.event === TriggerEvent.DIES
+  const graveyardMatch = findCardInPlayersGraveyards(state, permanentId);
+  const inferredCard = graveyardMatch?.card;
+  const inferredOwnerId = graveyardMatch?.playerId;
+  const inferredControllerId =
+    String(options.eventData?.sourceControllerId || inferredCard?.controller || inferredOwnerId || '').trim() || undefined;
+  const deadCardTriggers =
+    inferredCard?.oracle_text && inferredControllerId
+      ? parseTriggeredAbilitiesFromText(
+          String(inferredCard.oracle_text || ''),
+          String(permanentId || '').trim(),
+          inferredControllerId,
+          String(inferredCard.name || permanentId || '').trim() || String(permanentId || '').trim()
+        ).filter(ability => ability.event === TriggerEvent.DIES && looksLikeSelfDiesTrigger(ability))
+      : [];
+
+  const diesAbilities = [
+    ...abilities.filter(a => a.event === TriggerEvent.DIES),
+    ...deadCardTriggers,
+  ];
+  const controlledCreatureDiesAbilities =
+    options.includeControlledCreatureDeath === false
+      ? []
+      : abilities.filter(a => a.event === TriggerEvent.CONTROLLED_CREATURE_DIED);
+
+  const baseEventData = buildTriggerEventDataFromPayloads(
+    inferredControllerId || inferredOwnerId,
+    {
+      sourceId: permanentId,
+      targetPermanentId: permanentId,
+      targetId: permanentId,
+      sourceControllerId: inferredControllerId,
+      sourceOwnerId: options.eventData?.sourceOwnerId || inferredOwnerId,
+      sourceIsToken: options.eventData?.sourceIsToken ?? Boolean((inferredCard as any)?.isToken),
+      sourceIsFaceDown: options.eventData?.sourceIsFaceDown ?? Boolean((inferredCard as any)?.faceDown),
+      permanentTypes:
+        options.eventData?.permanentTypes ||
+        buildObjectTypeTokens(inferredCard),
+      creatureTypes:
+        options.eventData?.creatureTypes ||
+        buildObjectTypeTokens(inferredCard),
+      keywords:
+        options.eventData?.keywords ||
+        (Array.isArray((inferredCard as any)?.keywords) ? (inferredCard as any).keywords : undefined),
+      colors:
+        options.eventData?.colors ||
+        (Array.isArray((inferredCard as any)?.colors) ? (inferredCard as any).colors : undefined),
+      counters: options.eventData?.counters || (inferredCard as any)?.counters,
+      attachedByPermanentIds: options.eventData?.attachedByPermanentIds,
+      castFromZone: options.eventData?.castFromZone || String((inferredCard as any)?.castFromZone || '').trim() || undefined,
+      enteredFromZone:
+        options.eventData?.enteredFromZone || String((inferredCard as any)?.enteredFromZone || '').trim() || undefined,
+    },
+    options.eventData
   );
-  
-  return processTriggers(state, TriggerEvent.DIES, diesAbilities);
+  const eventData = buildResolutionEventDataFromGameState(
+    state,
+    inferredControllerId || inferredOwnerId || '',
+    baseEventData
+  );
+
+  let nextState = state;
+  let triggersAdded = 0;
+  let oracleStepsApplied = 0;
+  let oracleStepsSkipped = 0;
+  let oracleExecutions = 0;
+  let oracleAutomationGaps = 0;
+  const logs: string[] = [];
+
+  const processEventType = (event: TriggerEvent, registeredAbilities: TriggeredAbility[]): void => {
+    if (registeredAbilities.length === 0) return;
+    const result = processTriggers(nextState, event, registeredAbilities, eventData, options);
+    nextState = result.state;
+    triggersAdded += result.triggersAdded;
+    oracleStepsApplied += result.oracleStepsApplied || 0;
+    oracleStepsSkipped += result.oracleStepsSkipped || 0;
+    oracleExecutions += result.oracleExecutions || 0;
+    oracleAutomationGaps += result.oracleAutomationGaps || 0;
+    logs.push(...(result.logs || []));
+  };
+
+  processEventType(TriggerEvent.DIES, diesAbilities);
+  processEventType(TriggerEvent.CONTROLLED_CREATURE_DIED, controlledCreatureDiesAbilities);
+
+  return {
+    state: nextState,
+    triggersAdded,
+    oracleStepsApplied,
+    oracleStepsSkipped,
+    oracleExecutions,
+    oracleAutomationGaps,
+    logs,
+  };
 }
 
 /**
@@ -374,19 +619,272 @@ export function checkDiesTriggers(
 export function checkStepTriggers(
   state: GameState,
   event: TriggerEvent,
-  activePlayerId?: string
+  activePlayerId?: string,
+  options: StepTriggerProcessingOptions = {}
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const stepAbilities = abilities.filter(a => a.event === event);
+  const logs: string[] = [];
+  const autoExecuteOracle = Boolean(options.autoExecuteOracle);
+  let nextState = state;
+  let triggerInstances: any[] = [];
+  let oracleStepsApplied = 0;
+  let oracleStepsSkipped = 0;
+  let oracleExecutions = 0;
+  let oracleAutomationGaps = 0;
 
-  const eventData = activePlayerId
-    ? {
-        sourceControllerId: activePlayerId,
-        isYourTurn: true,
+  const controllerIds = Array.from(
+    new Set(stepAbilities.map(ability => String(ability.controllerId || '').trim()).filter(Boolean))
+  );
+
+  if (controllerIds.length === 0 && activePlayerId) {
+    controllerIds.push(String(activePlayerId).trim());
+  }
+
+  for (const controllerId of controllerIds) {
+    const controllerAbilities = stepAbilities.filter(
+      ability => String(ability.controllerId || '').trim() === controllerId
+    );
+    if (controllerAbilities.length === 0) continue;
+
+    const eventData = buildResolutionEventDataFromGameState(
+      nextState,
+      controllerId,
+      buildTriggerEventDataFromPayloads(activePlayerId || controllerId, {
+        sourceControllerId: activePlayerId || controllerId,
+        affectedPlayerIds: activePlayerId ? [activePlayerId] : undefined,
+      })
+    );
+
+    if (autoExecuteOracle) {
+      const execution = processEventAndExecuteTriggeredOracle(
+        nextState,
+        event,
+        controllerAbilities,
+        eventData,
+        {
+          allowOptional: options.allowOptional,
+          resolutionEventData: options.resolutionEventData,
+        }
+      );
+      nextState = execution.state;
+      triggerInstances.push(...execution.triggers);
+      oracleStepsApplied += execution.executions.reduce((sum, r) => sum + (r.appliedSteps?.length || 0), 0);
+      oracleStepsSkipped += execution.executions.reduce((sum, r) => sum + (r.skippedSteps?.length || 0), 0);
+      oracleAutomationGaps += execution.executions.reduce((sum, r) => sum + (r.automationGaps?.length || 0), 0);
+      oracleExecutions += execution.executions.length;
+      logs.push(...execution.log);
+      continue;
+    }
+
+    triggerInstances.push(...processEvent(event, controllerAbilities, eventData));
+  }
+
+  const delayedTriggerRegistry =
+    options.delayedTriggerRegistry ||
+    (((state as any).delayedTriggerRegistry || undefined) as DelayedTriggerRegistry | undefined);
+  let updatedDelayedRegistry = delayedTriggerRegistry;
+  const delayedEventType =
+    event === TriggerEvent.BEGINNING_OF_UPKEEP
+      ? 'upkeep'
+      : event === TriggerEvent.BEGINNING_OF_END_STEP
+        ? 'end_step'
+        : event === TriggerEvent.BEGINNING_OF_COMBAT
+          ? 'combat_begin'
+          : event === TriggerEvent.END_OF_COMBAT
+            ? 'combat_end'
+            : event === TriggerEvent.CLEANUP_STEP
+              ? 'cleanup'
+              : null;
+
+  if (delayedTriggerRegistry && delayedEventType) {
+    const delayedCheck = checkDelayedTriggers(delayedTriggerRegistry, {
+      type: delayedEventType,
+      activePlayerId: activePlayerId as any,
+      currentTurn:
+        options.turnNumber ??
+        Number((state as any).turnNumber ?? (state as any).turn ?? 0) ??
+        0,
+    });
+
+    if (delayedCheck.triggersToFire.length > 0) {
+      updatedDelayedRegistry = {
+        ...delayedTriggerRegistry,
+        triggers: delayedCheck.remainingTriggers,
+        firedTriggerIds: [
+          ...(Array.isArray(delayedTriggerRegistry.firedTriggerIds) ? delayedTriggerRegistry.firedTriggerIds : []),
+          ...delayedCheck.triggersToFire.map(trigger => trigger.id),
+        ],
+      };
+
+      triggerInstances.push(...processDelayedTriggers(delayedCheck.triggersToFire, Date.now()));
+      logs.push(...delayedCheck.triggersToFire.map(trigger => `${trigger.sourceName} delayed trigger processed`));
+
+      if (autoExecuteOracle) {
+        for (const delayedTrigger of delayedCheck.triggersToFire) {
+          const execution = executeTriggeredAbilityEffectWithOracleIR(
+            nextState,
+            {
+              controllerId: delayedTrigger.controllerId,
+              sourceId: delayedTrigger.sourceId,
+              sourceName: delayedTrigger.sourceName,
+              effect: delayedTrigger.effect,
+            },
+            delayedTrigger.eventDataSnapshot,
+            { allowOptional: options.allowOptional }
+          );
+          nextState = execution.state;
+          oracleExecutions += 1;
+          oracleStepsApplied += execution.appliedSteps.length;
+          oracleStepsSkipped += execution.skippedSteps.length;
+          oracleAutomationGaps += execution.automationGaps.length;
+          logs.push(...execution.log);
+        }
       }
-    : undefined;
+    }
+  }
 
-  return processTriggers(state, event, stepAbilities, eventData);
+  if (autoExecuteOracle) {
+    logs.unshift(
+      `[triggers] Oracle auto-execution: executions=${oracleExecutions}, applied=${oracleStepsApplied}, skipped=${oracleStepsSkipped}, gaps=${oracleAutomationGaps}`
+    );
+  }
+
+  if (triggerInstances.length === 0) {
+    return {
+      state: updatedDelayedRegistry
+        ? ({ ...(nextState as any), delayedTriggerRegistry: updatedDelayedRegistry } as any)
+        : nextState,
+      triggersAdded: 0,
+      oracleStepsApplied,
+      oracleStepsSkipped,
+      oracleExecutions,
+      oracleAutomationGaps,
+      logs,
+    };
+  }
+
+  let queue = createEmptyTriggerQueue();
+  for (const trigger of triggerInstances) {
+    queue = { triggers: [...queue.triggers, trigger] };
+  }
+
+  const activeId = activePlayerId || state.players[state.activePlayerIndex || 0]?.id || '';
+  const apnapTurnOrder = (() => {
+    const ids = (state.players || []).map(p => String((p as any)?.id || '').trim()).filter(Boolean);
+    if (ids.length === 0) return ids;
+    const activeIdx = ids.indexOf(activeId);
+    if (activeIdx < 0) return ids;
+    return [...ids.slice(activeIdx), ...ids.slice(0, activeIdx)];
+  })();
+  const { stackObjects, log } = putTriggersOnStack(queue, activeId, apnapTurnOrder);
+  logs.push(...log);
+
+  return {
+    state: {
+      ...(nextState as any),
+      ...(updatedDelayedRegistry ? { delayedTriggerRegistry: updatedDelayedRegistry } : {}),
+      stack: [...(nextState.stack || []), ...stackObjects] as any,
+    } as any,
+    triggersAdded: stackObjects.length,
+    oracleStepsApplied,
+    oracleStepsSkipped,
+    oracleExecutions,
+    oracleAutomationGaps,
+    logs,
+  };
+}
+
+/**
+ * Check delayed triggers tied to non-step events such as dies, leaves, and control-loss.
+ */
+export function checkDelayedEventTriggers(
+  state: GameState,
+  currentEvent: DelayedTriggerEventCheck,
+  options: DelayedEventTriggerProcessingOptions = {}
+): TriggerResult {
+  const delayedTriggerRegistry =
+    options.delayedTriggerRegistry ||
+    (((state as any).delayedTriggerRegistry || undefined) as DelayedTriggerRegistry | undefined);
+
+  if (!delayedTriggerRegistry) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  const delayedCheck = checkDelayedTriggers(delayedTriggerRegistry, currentEvent as any);
+  if (delayedCheck.triggersToFire.length === 0) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  const updatedDelayedRegistry: DelayedTriggerRegistry = {
+    ...delayedTriggerRegistry,
+    triggers: delayedCheck.remainingTriggers,
+    firedTriggerIds: [
+      ...(Array.isArray(delayedTriggerRegistry.firedTriggerIds) ? delayedTriggerRegistry.firedTriggerIds : []),
+      ...delayedCheck.triggersToFire.map(trigger => trigger.id),
+    ],
+  };
+
+  const logs = delayedCheck.triggersToFire.map(trigger => `${trigger.sourceName} delayed trigger processed`);
+  const autoExecuteOracle = Boolean(options.autoExecuteOracle);
+  let nextState = state;
+  let oracleStepsApplied = 0;
+  let oracleStepsSkipped = 0;
+  let oracleExecutions = 0;
+  let oracleAutomationGaps = 0;
+
+  if (autoExecuteOracle) {
+    for (const delayedTrigger of delayedCheck.triggersToFire) {
+      const execution = executeTriggeredAbilityEffectWithOracleIR(
+        nextState,
+        {
+          controllerId: delayedTrigger.controllerId,
+          sourceId: delayedTrigger.sourceId,
+          sourceName: delayedTrigger.sourceName,
+          effect: delayedTrigger.effect,
+        },
+        delayedTrigger.eventDataSnapshot,
+        { allowOptional: options.allowOptional }
+      );
+      nextState = execution.state;
+      oracleExecutions += 1;
+      oracleStepsApplied += execution.appliedSteps.length;
+      oracleStepsSkipped += execution.skippedSteps.length;
+      oracleAutomationGaps += execution.automationGaps.length;
+      logs.push(...execution.log);
+    }
+
+    logs.unshift(
+      `[triggers] Oracle auto-execution: executions=${oracleExecutions}, applied=${oracleStepsApplied}, skipped=${oracleStepsSkipped}, gaps=${oracleAutomationGaps}`
+    );
+  }
+
+  const triggerInstances = processDelayedTriggers(delayedCheck.triggersToFire, Date.now());
+  const activePlayerId =
+    String(currentEvent.activePlayerId || state.players[state.activePlayerIndex || 0]?.id || (state as any).turnPlayer || '').trim();
+  const apnapTurnOrder = (() => {
+    const ids = (state.players || []).map(p => String((p as any)?.id || '').trim()).filter(Boolean);
+    if (ids.length === 0) return ids;
+    const activeIdx = ids.indexOf(activePlayerId);
+    if (activeIdx < 0) return ids;
+    return [...ids.slice(activeIdx), ...ids.slice(0, activeIdx)];
+  })();
+  const { stackObjects, log } = putTriggersOnStack({ triggers: triggerInstances }, activePlayerId, apnapTurnOrder);
+  logs.push(...log);
+
+  return {
+    state: {
+      ...(nextState as any),
+      delayedTriggerRegistry: updatedDelayedRegistry,
+      stack: [...(nextState.stack || []), ...stackObjects] as any,
+    } as any,
+    triggersAdded: stackObjects.length,
+    oracleStepsApplied,
+    oracleStepsSkipped,
+    oracleExecutions,
+    oracleAutomationGaps,
+    logs,
+  };
 }
 
 /**
@@ -477,7 +975,8 @@ export function checkTribalCastTriggers(
  */
 export function checkLandfallTriggers(
   state: GameState,
-  landPlayerId: string
+  landPlayerId: string,
+  options: LandfallTriggerProcessingOptions = {}
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const landfallAbilities = abilities.filter(a => 
@@ -492,8 +991,9 @@ export function checkLandfallTriggers(
     buildResolutionEventDataFromGameState(
       state,
       landPlayerId,
-      buildTriggerEventDataFromPayloads(landPlayerId, { affectedPlayerIds: [landPlayerId] })
-    )
+      buildTriggerEventDataFromPayloads(landPlayerId, options.eventData, { affectedPlayerIds: [landPlayerId] })
+    ),
+    options
   );
 }
 
@@ -504,7 +1004,8 @@ export function checkSpellCastTriggers(
   state: GameState,
   casterId: string,
   castSpellId?: string,
-  castCard?: KnownCardRef
+  castCard?: KnownCardRef,
+  options: SpellCastTriggerProcessingOptions = {}
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const stackSpell = getStackItems(state).find(item => {
@@ -538,18 +1039,22 @@ export function checkSpellCastTriggers(
     }
   }
 
-  const baseEventData = buildTriggerEventDataFromPayloads(casterId, {
-    sourceId: stackSpellId,
-    sourceControllerId: casterId,
-    targetId: stackSpellTargets[0],
-    targetPermanentId: stackSpellTargets[0],
-    targetPlayerId: stackSpellTargets[0],
-    affectedPlayerIds: [casterId],
-    spellType: resolvedSpellType || undefined,
-    ...(spellManaValue !== null ? { spellManaValue } : {}),
-    ...(Number.isFinite(spellCastCountThisTurn) ? { spellCastCountThisTurn } : {}),
-    ...(Number.isFinite(noncreatureSpellCastCountThisTurn) ? { noncreatureSpellCastCountThisTurn } : {}),
-  });
+  const baseEventData = buildTriggerEventDataFromPayloads(
+    casterId,
+    options.eventData,
+    {
+      sourceId: stackSpellId,
+      sourceControllerId: casterId,
+      targetId: stackSpellTargets[0],
+      targetPermanentId: stackSpellTargets[0],
+      targetPlayerId: stackSpellTargets[0],
+      affectedPlayerIds: [casterId],
+      spellType: resolvedSpellType || undefined,
+      ...(spellManaValue !== null ? { spellManaValue } : {}),
+      ...(Number.isFinite(spellCastCountThisTurn) ? { spellCastCountThisTurn } : {}),
+      ...(Number.isFinite(noncreatureSpellCastCountThisTurn) ? { noncreatureSpellCastCountThisTurn } : {}),
+    }
+  );
 
   let nextState = state;
   let triggersAdded = 0;
@@ -575,7 +1080,7 @@ export function checkSpellCastTriggers(
         abilityControllerId,
         baseEventData
       );
-      const result = processTriggersAutoOracle(nextState, event, controllerAbilities, eventData);
+      const result = processTriggersAutoOracle(nextState, event, controllerAbilities, eventData, options);
       nextState = result.state;
       triggersAdded += result.triggersAdded;
       oracleStepsApplied += result.oracleStepsApplied || 0;
@@ -603,7 +1108,8 @@ export function checkSpellCastTriggers(
 export function checkDrawTriggers(
   state: GameState,
   drawingPlayerId: string,
-  isOpponentDraw: boolean = false
+  isOpponentDraw: boolean = false,
+  options: DrawTriggerProcessingOptions = {}
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const drawAbilities = abilities.filter(a => {
@@ -620,16 +1126,167 @@ export function checkDrawTriggers(
     state,
     TriggerEvent.DRAWN,
     drawAbilities,
-    buildTriggerEventDataFromPayloads(
-      undefined,
-      {
-        targetPlayerId: drawingPlayerId,
-        ...(isOpponentDraw ? { targetOpponentId: drawingPlayerId } : {}),
-        affectedPlayerIds: [drawingPlayerId],
-        affectedOpponentIds: isOpponentDraw ? [drawingPlayerId] : undefined,
-      }
-    )
+    buildResolutionEventDataFromGameState(
+      state,
+      drawingPlayerId,
+      buildTriggerEventDataFromPayloads(
+        drawingPlayerId,
+        options.eventData,
+        {
+          targetPlayerId: drawingPlayerId,
+          ...(isOpponentDraw ? { targetOpponentId: drawingPlayerId } : {}),
+          affectedPlayerIds: [drawingPlayerId],
+          affectedOpponentIds: isOpponentDraw ? [drawingPlayerId] : undefined,
+        }
+      )
+    ),
+    options
   );
+}
+
+/**
+ * Check triggers that fire when one or more creatures attack.
+ */
+export function checkAttackTriggers(
+  state: GameState,
+  assignments: readonly AttackTriggerAssignment[] = [],
+  options: Omit<TriggerProcessingOptions, 'resolutionEventData'> & { resolutionEventData?: TriggerEventData } = {}
+): TriggerResult {
+  const abilities = findTriggeredAbilities(state);
+  const attackAbilities = abilities.filter(a => a.event === TriggerEvent.ATTACKS);
+  if (attackAbilities.length === 0) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  const assignmentList = Array.isArray(assignments) ? assignments : [];
+  let nextState = state;
+  let triggersAdded = 0;
+  let oracleStepsApplied = 0;
+  let oracleStepsSkipped = 0;
+  let oracleExecutions = 0;
+  let oracleAutomationGaps = 0;
+  const logs: string[] = [];
+
+  const attackedOpponentsByController = new Map<string, string[]>();
+  for (const assignment of assignmentList) {
+    const attackerId = String(assignment.attackerId || '').trim();
+    if (!attackerId) continue;
+    const attacker = ((state.battlefield || []) as any[]).find(
+      permanent => String((permanent as any)?.id || '').trim() === attackerId
+    ) as any;
+    const controllerId = String((attacker as any)?.controller || '').trim();
+    const opponentId = String(
+      assignment.defendingPlayerId || assignment.targetOpponentId || assignment.targetPlayerId || ''
+    ).trim();
+    if (!controllerId || !opponentId) continue;
+    const current = attackedOpponentsByController.get(controllerId) || [];
+    if (!current.includes(opponentId)) current.push(opponentId);
+    attackedOpponentsByController.set(controllerId, current);
+  }
+
+  for (const assignment of assignmentList) {
+    const attackerId = String(assignment.attackerId || '').trim();
+    if (!attackerId) continue;
+
+    const attacker = ((nextState.battlefield || []) as any[]).find(
+      permanent => String((permanent as any)?.id || '').trim() === attackerId
+    ) as any;
+    const controllerId = String((attacker as any)?.controller || '').trim();
+    if (!controllerId) continue;
+
+    const relevantAbilities = attackAbilities.filter(ability => String(ability.sourceId || '').trim() === attackerId);
+    if (relevantAbilities.length === 0) continue;
+
+    const targetOpponentId =
+      String(assignment.targetOpponentId || assignment.defendingPlayerId || '').trim() || undefined;
+    const targetPlayerId =
+      String(assignment.targetPlayerId || assignment.defendingPlayerId || '').trim() || undefined;
+
+    const eventData = buildResolutionEventDataFromGameState(
+      nextState,
+      controllerId,
+      buildTriggerEventDataFromPayloads(
+        controllerId,
+        {
+          sourceId: attackerId,
+          sourceControllerId: controllerId,
+          sourceOwnerId: String((attacker as any)?.owner || (attacker as any)?.ownerId || controllerId).trim() || undefined,
+          targetOpponentId,
+          targetPlayerId,
+          affectedOpponentIds: attackedOpponentsByController.get(controllerId),
+        },
+        assignment.eventData
+      )
+    );
+
+    const result = processTriggersAutoOracle(nextState, TriggerEvent.ATTACKS, relevantAbilities, eventData, options);
+    nextState = result.state;
+    triggersAdded += result.triggersAdded;
+    oracleStepsApplied += result.oracleStepsApplied || 0;
+    oracleStepsSkipped += result.oracleStepsSkipped || 0;
+    oracleExecutions += result.oracleExecutions || 0;
+    oracleAutomationGaps += result.oracleAutomationGaps || 0;
+    logs.push(...(result.logs || []));
+  }
+
+  return {
+    state: nextState,
+    triggersAdded,
+    oracleStepsApplied,
+    oracleStepsSkipped,
+    oracleExecutions,
+    oracleAutomationGaps,
+    logs,
+  };
+}
+
+/**
+ * Check triggers that fire when a creature attacks alone.
+ */
+export function checkAttacksAloneTriggers(
+  state: GameState,
+  attackerId: string,
+  options: Omit<TriggerProcessingOptions, 'resolutionEventData'> & { resolutionEventData?: TriggerEventData } = {}
+): TriggerResult {
+  const abilities = findTriggeredAbilities(state);
+  const aloneAbilities = abilities.filter(a => a.event === TriggerEvent.ATTACKS_ALONE);
+  if (aloneAbilities.length === 0) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  const attacker = ((state.battlefield || []) as any[]).find(
+    permanent => String((permanent as any)?.id || '').trim() === String(attackerId || '').trim()
+  ) as any;
+  const controllerId = String((attacker as any)?.controller || '').trim();
+  if (!controllerId) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  const controllerAbilities = aloneAbilities.filter(
+    ability => String(ability.controllerId || '').trim() === controllerId
+  );
+  if (controllerAbilities.length === 0) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  const defendingPlayerId =
+    String((attacker as any)?.defendingPlayerId || (attacker as any)?.attacking || '').trim() || undefined;
+  const eventData = buildResolutionEventDataFromGameState(
+    state,
+    controllerId,
+    buildTriggerEventDataFromPayloads(controllerId, {
+      sourceId: attackerId,
+      targetPermanentId: attackerId,
+      targetId: attackerId,
+      sourceControllerId: controllerId,
+      sourceOwnerId: String((attacker as any)?.owner || (attacker as any)?.ownerId || controllerId).trim() || undefined,
+      targetOpponentId: defendingPlayerId,
+      targetPlayerId: defendingPlayerId,
+      affectedOpponentIds: defendingPlayerId ? [defendingPlayerId] : undefined,
+    })
+  );
+
+  return processTriggersAutoOracle(state, TriggerEvent.ATTACKS_ALONE, controllerAbilities, eventData, options);
 }
 
 /**
@@ -639,7 +1296,8 @@ export function checkDrawTriggers(
 export function checkCombatDamageToPlayerTriggers(
   state: GameState,
   sourceControllerId: string,
-  assignments: readonly CombatDamageTriggerAssignment[] = []
+  assignments: readonly CombatDamageTriggerAssignment[] = [],
+  options: CombatDamageTriggerProcessingOptions = {}
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const combatAbilities = abilities.filter(a => a.event === TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
@@ -680,6 +1338,7 @@ export function checkCombatDamageToPlayerTriggers(
       controllerId,
       buildTriggerEventDataFromPayloads(
         controllerId,
+        options.eventData,
         {
           attackers: [assignment],
           sourceId: attackerId,
@@ -712,7 +1371,8 @@ export function checkCombatDamageToPlayerTriggers(
       nextState,
       TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
       relevantAbilities,
-      eventData
+      eventData,
+      options
     );
     nextState = result.state;
     triggersAdded += result.triggersAdded;
@@ -727,16 +1387,22 @@ export function checkCombatDamageToPlayerTriggers(
     ability => !matchedAbilityIds.has(String(ability.id || '').trim())
   );
   if (fallbackAbilities.length > 0) {
-    const eventData = buildTriggerEventDataFromPayloads(
+    const eventData = buildResolutionEventDataFromGameState(
+      nextState,
       sourceControllerId,
-      { attackers: assignmentList }
+      buildTriggerEventDataFromPayloads(
+        sourceControllerId,
+        options.eventData,
+        { attackers: assignmentList }
+      )
     );
 
     const result = processTriggersAutoOracle(
       nextState,
       TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
       fallbackAbilities,
-      eventData
+      eventData,
+      options
     );
     nextState = result.state;
     triggersAdded += result.triggersAdded;
@@ -765,7 +1431,8 @@ export function checkCombatDamageToPlayerTriggers(
  */
 export function checkBecomesBlockedTriggers(
   state: GameState,
-  assignments: readonly BecomesBlockedTriggerAssignment[] = []
+  assignments: readonly BecomesBlockedTriggerAssignment[] = [],
+  options: BecomesBlockedTriggerProcessingOptions = {}
 ): TriggerResult {
   const abilities = findTriggeredAbilities(state);
   const blockedAbilities = abilities.filter(a => a.event === TriggerEvent.BECOMES_BLOCKED);
@@ -799,6 +1466,7 @@ export function checkBecomesBlockedTriggers(
       controllerId,
       buildTriggerEventDataFromPayloads(
         controllerId,
+        options.eventData,
         {
           sourceId: attackerId,
           targetPermanentId: attackerId,
@@ -822,7 +1490,8 @@ export function checkBecomesBlockedTriggers(
       nextState,
       TriggerEvent.BECOMES_BLOCKED,
       relevantAbilities,
-      eventData
+      eventData,
+      options
     );
 
     nextState = result.state;

@@ -139,10 +139,11 @@ function assumeCanPayUnknownCost(cardName: string, mechanicName: string): boolea
 }
 
 /**
- * Check if a card is marked as playable from exile
- * Handles both array and object formats for playableFromExile state
+ * Check if a card is marked as playable from exile.
+ * Handles both legacy array format and object entries that may store
+ * boolean flags or numeric "playable until turn" expirations.
  */
-function isCardPlayableFromExile(playableCards: any, cardId: string): boolean {
+function isCardPlayableFromExile(playableCards: any, cardId: string, currentTurn: number): boolean {
   if (!playableCards) return false;
   
   // Handle array format: ['card1', 'card2']
@@ -150,8 +151,8 @@ function isCardPlayableFromExile(playableCards: any, cardId: string): boolean {
     return playableCards.includes(cardId);
   }
   
-  // Handle object format: { 'card1': true, 'card2': true }
-  return Boolean(playableCards[cardId]);
+  const entry = playableCards[cardId];
+  return typeof entry === 'number' ? entry >= currentTurn : Boolean(entry);
 }
 
 /**
@@ -671,9 +672,10 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
         if (stateAny.playableFromExile?.[playerId]) {
           const playableCards = stateAny.playableFromExile[playerId];
           const cardId = card.id || card.name;
+          const currentTurn = Number(stateAny?.turnNumber ?? 0);
           
           // Check if this card is marked as playable from exile
-          if (isCardPlayableFromExile(playableCards, cardId)) {
+          if (isCardPlayableFromExile(playableCards, cardId, currentTurn)) {
             // Check if player can pay the normal mana cost
             const manaCost = card.mana_cost || "";
             const parsedCost = parseManaCost(manaCost);
@@ -1444,7 +1446,13 @@ function hasPlayFromZoneEffect(ctx: GameContext, playerId: PlayerID, zone: strin
     const stateAny = state as any;
     if (zone === "exile" && stateAny.playableFromExile) {
       const playableCards = stateAny.playableFromExile[playerId];
-      if (playableCards && (Array.isArray(playableCards) ? playableCards.length > 0 : Object.keys(playableCards).length > 0)) {
+      const currentTurn = Number(stateAny?.turnNumber ?? 0);
+      const hasUsableEntry = Array.isArray(playableCards)
+        ? playableCards.length > 0
+        : Object.keys(playableCards || {}).some((cardId) =>
+            isCardPlayableFromExile(playableCards, cardId, currentTurn)
+          );
+      if (hasUsableEntry) {
         return true;
       }
     }
@@ -2209,9 +2217,10 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         if (stateAny.playableFromExile?.[playerId]) {
           const playableCards = stateAny.playableFromExile[playerId];
           const cardId = card.id || card.name;
+          const currentTurn = Number(stateAny?.turnNumber ?? 0);
           
           // Check if this card is marked as playable from exile
-          if (isCardPlayableFromExile(playableCards, cardId)) {
+          if (isCardPlayableFromExile(playableCards, cardId, currentTurn)) {
             // Check if player can pay the normal mana cost
             const manaCost = card.mana_cost || "";
             const parsedCost = parseManaCost(manaCost);

@@ -87,6 +87,56 @@ function seedGame(gameId: string) {
   return { game, playerId };
 }
 
+function seedExileTutorGame(gameId: string) {
+  createGameIfNotExists(gameId, 'commander', 40);
+  const game = ensureGame(gameId);
+  if (!game) throw new Error('ensureGame returned undefined');
+
+  const playerId = 'p1';
+  const library = [
+    {
+      id: 'desert_lib_1',
+      name: 'Sunscorched Desert',
+      type_line: 'Land - Desert',
+      oracle_text: 'When Sunscorched Desert enters, it deals 1 damage to target player.',
+      zone: 'library',
+    },
+    {
+      id: 'forest_lib_2',
+      name: 'Forest',
+      type_line: 'Basic Land - Forest',
+      oracle_text: '',
+      zone: 'library',
+    },
+  ];
+
+  (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+  game.importDeckResolved(playerId as any, library as any);
+  (game.state as any).zones = {
+    [playerId]: {
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: library.length,
+      graveyard: [
+        {
+          id: 'grave_exile_tutor_1',
+          name: 'Colossal Rattlewurm',
+          type_line: 'Creature - Wurm',
+          oracle_text: '{1}{G}, Exile this card from your graveyard: Search your library for a Desert card, put it onto the battlefield tapped, then shuffle.',
+          zone: 'graveyard',
+        },
+      ],
+      graveyardCount: 1,
+      exile: [],
+      exileCount: 0,
+    },
+  };
+  (game.state as any).zones[playerId].libraryCount = library.length;
+
+  return { game, playerId };
+}
+
 describe('graveyard tutor library-search replay semantics (integration)', () => {
   const gameId = 'test_graveyard_tutor_library_search_replay';
 
@@ -185,5 +235,163 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     expect(searchStep.sourceId).toBe('grave_tutor_1');
     expect(searchStep.searchCriteria).toBe('basic land card');
     expect((searchStep.availableCards || []).some((card: any) => card.id === 'forest_lib_1')).toBe(true);
+  });
+
+  it('exiles the source and spends mana for graveyard tutor activations with exile-in-cost text', async () => {
+    const exileGameId = `${gameId}_exile_cost_live`;
+    const { game, playerId } = seedExileTutorGame(exileGameId);
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, exileGameId, emitted);
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+    };
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: exileGameId,
+      cardId: 'grave_exile_tutor_1',
+      abilityId: 'graveyard-activated',
+    });
+
+    const activateEvent = [...getEvents(exileGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
+    expect(activateEvent).toBeDefined();
+    expect(activateEvent.payload?.manaCost).toBe('{1}{G}');
+    expect(activateEvent.payload?.exileSourceOnActivate).toBe(true);
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect((zones?.exile || []).map((card: any) => card.id)).toEqual(['grave_exile_tutor_1']);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(exileGameId, playerId);
+    const searchStep = steps.find(step => step.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(searchStep.destination).toBe('battlefield');
+    expect(searchStep.entersTapped).toBe(true);
+    expect(searchStep.searchCriteria).toBe('desert card');
+
+    await handlers['submitResolutionResponse']({
+      gameId: exileGameId,
+      stepId: String(searchStep.id),
+      selections: ['desert_lib_1'],
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    const desertPermanent = battlefield.find((perm: any) => perm?.card?.id === 'desert_lib_1');
+    expect(desertPermanent).toBeDefined();
+    expect(desertPermanent.tapped).toBe(true);
+    expect((zones?.exile || []).map((card: any) => card.id)).toEqual(['grave_exile_tutor_1']);
+  });
+
+  it('persists and replays self ETB triggers for battlefield tutor resolutions', async () => {
+    const exileGameId = `${gameId}_self_etb_persistence_live`;
+    const { game, playerId } = seedExileTutorGame(exileGameId);
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const { socket, handlers } = createMockSocket(playerId, exileGameId, emitted);
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+    };
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateGraveyardAbility']({
+      gameId: exileGameId,
+      cardId: 'grave_exile_tutor_1',
+      abilityId: 'graveyard-activated',
+    });
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(exileGameId, playerId);
+    const searchStep = steps.find(step => step.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: exileGameId,
+      stepId: String(searchStep.id),
+      selections: ['desert_lib_1'],
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    const desertPermanent = battlefield.find((perm: any) => perm?.card?.id === 'desert_lib_1');
+    expect(desertPermanent).toBeDefined();
+
+    const liveStack = (game.state as any).stack || [];
+    const liveTrigger = liveStack.find((item: any) => item?.type === 'triggered_ability' && item?.source === desertPermanent.id);
+    expect(liveTrigger).toMatchObject({
+      source: desertPermanent.id,
+      permanentId: desertPermanent.id,
+      sourceName: 'Sunscorched Desert',
+      triggerType: 'etb',
+    });
+
+    const triggerEvent = [...getEvents(exileGameId)]
+      .reverse()
+      .find((event: any) => event.type === 'pushTriggeredAbility' && event.payload?.sourceName === 'Sunscorched Desert') as any;
+    expect(triggerEvent).toBeDefined();
+    expect(triggerEvent.payload).toMatchObject({
+      sourceId: desertPermanent.id,
+      permanentId: desertPermanent.id,
+      sourceName: 'Sunscorched Desert',
+      triggerType: 'etb',
+    });
+
+    const replayGameId = `${exileGameId}_replay`;
+    const { game: replayGame } = seedExileTutorGame(replayGameId);
+    replayGame.applyEvent({
+      type: 'pushTriggeredAbility',
+      ...(triggerEvent.payload || {}),
+    });
+
+    const replayStack = (replayGame.state as any).stack || [];
+    expect(replayStack).toHaveLength(1);
+    expect(replayStack[0]).toMatchObject({
+      source: desertPermanent.id,
+      permanentId: desertPermanent.id,
+      sourceName: 'Sunscorched Desert',
+      triggerType: 'etb',
+    });
+  });
+
+  it('replays unresolved exile-cost graveyard tutor activations with source exile and mana spend', () => {
+    const replayGameId = `${gameId}_exile_cost_pending`;
+    const { game, playerId } = seedExileTutorGame(replayGameId);
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+    };
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'grave_exile_tutor_1',
+      abilityId: 'graveyard-activated',
+      isTutor: true,
+      manaCost: '{1}{G}',
+      exileSourceOnActivate: true,
+      searchCriteria: 'Desert card',
+      destination: 'battlefield',
+      maxSelections: 1,
+      splitDestination: false,
+      toBattlefield: 1,
+      toHand: 1,
+      entersTapped: true,
+      filter: { types: ['land'], subtypes: ['desert'] },
+    });
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect((zones?.exile || []).map((card: any) => card.id)).toEqual(['grave_exile_tutor_1']);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId);
+    const searchStep = steps.find(step => step.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(searchStep.sourceId).toBe('grave_exile_tutor_1');
+    expect(searchStep.searchCriteria).toBe('Desert card');
+    expect(searchStep.entersTapped).toBe(true);
+    expect((searchStep.availableCards || []).some((card: any) => card.id === 'desert_lib_1')).toBe(true);
   });
 });

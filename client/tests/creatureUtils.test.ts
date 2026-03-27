@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { isCurrentlyCreature } from '../src/utils/creatureUtils';
-import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
+import type { BattlefieldPermanent, KnownCardRef } from '../../shared/src';
 
 // Helper to create a mock permanent
 function createMockPermanent(

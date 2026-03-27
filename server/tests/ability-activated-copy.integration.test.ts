@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
@@ -295,6 +295,14 @@ describe('ability-activated copy triggers (integration)', () => {
     const originalAbility = (game.state as any).stack[0];
     expect(originalAbility.targets).toEqual(['creature_1']);
     expect(originalAbility.copyRetargetValidTargets.map((target: any) => target.id)).toEqual(['creature_1', 'creature_2']);
+    const triggerPushEvents = getEvents(gameId).filter((event) => String(event?.type) === 'pushTriggeredAbility');
+    expect(triggerPushEvents.length).toBeGreaterThan(0);
+    const lastTriggerPush = triggerPushEvents[triggerPushEvents.length - 1] as any;
+    expect(String(lastTriggerPush?.payload?.sourceName || '')).toBe('Rings of Brighthearth');
+    expect(String(lastTriggerPush?.payload?.triggerType || '')).toBe('ability_activated');
+    expect(Boolean(lastTriggerPush?.payload?.mandatory)).toBe(false);
+    expect(String(lastTriggerPush?.payload?.triggeringStackItemId || '')).toBe(String(originalAbility.id));
+    expect(lastTriggerPush?.payload?.activatedAbilityIsManaAbility).toBe(false);
 
     game.resolveTopOfStack();
 

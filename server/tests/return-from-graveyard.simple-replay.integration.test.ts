@@ -88,6 +88,7 @@ describe('simple return-from-graveyard replay semantics (integration)', () => {
     expect(zones?.graveyardCount).toBe(0);
     expect(zones?.handCount).toBe(1);
     expect((zones?.hand || [])[0]?.id).toBe('phoenix_card_1');
+    expect((game.state as any).cardLeftGraveyardThisTurn?.[playerId]).toBe(true);
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run typecheck"
+    "test": "npm run typecheck && npm run test:vitest",
+    "test:vitest": "vitest run tests"
   },
   "dependencies": {
     "react": "^18.3.1",

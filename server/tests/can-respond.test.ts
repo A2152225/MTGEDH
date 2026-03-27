@@ -757,6 +757,68 @@ describe('canRespond', () => {
     
     expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
   });
+
+  it('should honor numeric playable-from-exile entries for the current turn', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+        },
+      },
+      exile: {
+        p1: [
+          {
+            id: 'bolt_turn_0',
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+            mana_cost: '{R}',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          },
+        ],
+      },
+      playableFromExile: {
+        p1: { bolt_turn_0: 0 },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+      },
+      turnNumber: 0,
+    });
+
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should ignore expired numeric playable-from-exile entries', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+        },
+      },
+      exile: {
+        p1: [
+          {
+            id: 'bolt_expired',
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+            mana_cost: '{R}',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          },
+        ],
+      },
+      playableFromExile: {
+        p1: { bolt_expired: 4 },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+      },
+      turnNumber: 5,
+    });
+
+    expect(canRespond(ctx, 'p1' as PlayerID)).toBe(false);
+  });
 });
 
 describe('canAct', () => {
@@ -875,5 +937,102 @@ describe('canAct', () => {
     });
     
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should honor numeric playable-from-exile entries in main phase', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+        },
+      },
+      exile: {
+        p1: [
+          {
+            id: 'creature_turn_3',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            mana_cost: '{1}{G}',
+            oracle_text: '',
+          },
+        ],
+      },
+      playableFromExile: {
+        p1: { creature_turn_3: 3 },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+      },
+      step: 'MAIN1',
+      stack: [],
+      turnNumber: 3,
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should ignore expired numeric playable-from-exile entries in main phase', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+        },
+      },
+      exile: {
+        p1: [
+          {
+            id: 'creature_expired',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            mana_cost: '{1}{G}',
+            oracle_text: '',
+          },
+        ],
+      },
+      playableFromExile: {
+        p1: { creature_expired: 2 },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+      },
+      step: 'MAIN1',
+      stack: [],
+      turnNumber: 3,
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should ignore expired numeric land permissions from exile', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          exile: [
+            {
+              id: 'land_expired',
+              name: 'Mountain',
+              type_line: 'Basic Land — Mountain',
+              oracle_text: '',
+            },
+          ],
+        },
+      },
+      playableFromExile: {
+        p1: { land_expired: 2 },
+      },
+      battlefield: [],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      stack: [],
+      turnNumber: 3,
+      turnPlayer: 'p1',
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(false);
   });
 });

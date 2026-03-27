@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -134,6 +134,8 @@ describe('Tap-other-as-activation-cost via Resolution Queue (integration)', () =
     expect(step.targetFilter?.controller).toBe('you');
     expect(step.targetFilter?.tapStatus).toBe('untapped');
     expect(step.tapOtherAbilityAsCost).toBe(true);
+    expect(String(step.activatedAbilityText || '').toLowerCase()).toContain('tap an untapped creature you control');
+    expect(String(step.activatedAbilityText || '').toLowerCase()).toContain('draw a card.');
 
     expect(typeof handlers['submitResolutionResponse']).toBe('function');
     await handlers['submitResolutionResponse']({
@@ -151,6 +153,14 @@ describe('Tap-other-as-activation-cost via Resolution Queue (integration)', () =
     expect(String(stack[0].type)).toBe('ability');
     expect(String(stack[0].source)).toBe('src_1');
     expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
+    expect(String(stack[0].activatedAbilityText || '').toLowerCase()).toContain('tap an untapped creature you control');
+
+    const events = getEvents(gameId);
+    const activationEvents = events.filter((event) => String(event?.type) === 'activateBattlefieldAbility');
+    expect(activationEvents.length).toBeGreaterThan(0);
+    const lastActivation = activationEvents[activationEvents.length - 1] as any;
+    expect(String(lastActivation?.payload?.activatedAbilityText || '').toLowerCase()).toContain('tap an untapped creature you control');
+    expect((lastActivation?.payload?.tappedPermanents || []).map(String)).toContain('c_1');
 
     // Sanity: stack update emitted.
     expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);

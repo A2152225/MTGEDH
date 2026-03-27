@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
@@ -186,5 +186,13 @@ describe('Drowner of Secrets activation (integration)', () => {
     expect(stackAfterJudge.map((item: any) => item.sourceName)).toEqual(
       expect.arrayContaining(['Drowner of Secrets', 'Judge of Currents'])
     );
+
+    const triggerPushEvents = getEvents(gameId).filter((event) => String(event?.type) === 'pushTriggeredAbility');
+    expect(triggerPushEvents.length).toBeGreaterThan(0);
+    const lastTriggerPush = triggerPushEvents[triggerPushEvents.length - 1] as any;
+    expect(String(lastTriggerPush?.payload?.sourceName || '')).toBe('Judge of Currents');
+    expect(String(lastTriggerPush?.payload?.triggerType || '')).toBe('tap');
+    expect(Boolean(lastTriggerPush?.payload?.mandatory)).toBe(false);
+    expect(String(lastTriggerPush?.payload?.triggeringPermanentId || '')).toBe('judge');
   });
 });

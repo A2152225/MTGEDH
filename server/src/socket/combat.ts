@@ -10,6 +10,7 @@ import { ensureGame, broadcastGame, getPlayerName, emitToPlayer, getEffectivePow
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { getTapTriggers, type TriggeredAbility } from "../state/modules/triggered-abilities.js";
+import { buildTapTriggeredStackItem, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
 import { getAttackTriggersForCreatures } from "../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if.js";
 import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
@@ -18,6 +19,19 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
+
+function persistTriggeredAbilityPush(
+  gameId: string,
+  game: any,
+  payload: Record<string, unknown>,
+  reason: string
+): void {
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', payload);
+  } catch (err) {
+    debugWarn(1, `[combat] appendEvent(pushTriggeredAbility ${reason}) failed:`, err);
+  }
+}
 
 export type PendingAttackTriggerManaPayment = {
   permanentId: string;
@@ -257,7 +271,7 @@ function processTapTriggersForAttackers(
     };
     
     // Check for tap triggers for each creature that was tapped
-    const allTapTriggers: any[] = [];
+    const allTapTriggers: Array<{ trigger: any; tappedPermanentId: string }> = [];
     for (const attacker of attackers) {
       const creature = battlefield.find((p: any) => p?.id === attacker.creatureId);
       if (!creature) continue;
@@ -268,7 +282,7 @@ function processTapTriggersForAttackers(
         // Get the actual controller of the creature (may be different from attackingPlayerId in controlled combat)
         const creatureController = creature.controller || attackingPlayerId;
         const tapTriggers = getTapTriggers(ctx as any, creature, creatureController);
-        allTapTriggers.push(...tapTriggers);
+        allTapTriggers.push(...tapTriggers.map((trigger: any) => ({ trigger, tappedPermanentId: String(creature.id) })));
       }
     }
     
@@ -276,7 +290,8 @@ function processTapTriggersForAttackers(
     if (allTapTriggers.length > 0) {
       debug(2, `[combat] Found ${allTapTriggers.length} tap trigger(s) for game ${gameId}`);
       
-      for (const trigger of allTapTriggers) {
+      for (const tapTrigger of allTapTriggers) {
+        const trigger = tapTrigger.trigger;
         // Intervening-if (Rule 603.4): if recognized and false at trigger time, do not trigger.
         const triggerControllerId = (trigger.controllerId || attackingPlayerId) as PlayerID;
         try {
@@ -312,26 +327,17 @@ function processTapTriggersForAttackers(
         // Push trigger onto stack
         game.state.stack = game.state.stack || [];
         const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const stackItem: any = {
-          id: triggerId,
-          type: 'triggered_ability',
-          controller: triggerControllerId,
-          source: trigger.permanentId,
-          sourceName: trigger.cardName,
-          description: trigger.description,
-          triggerType: 'tap',
-          mandatory: trigger.mandatory,
-        };
-        
-        // Add effect data if present
-        if (trigger.createsToken) {
-          stackItem.effectData = {
-            createsToken: true,
-            tokenDetails: trigger.tokenDetails,
-          };
-        }
-        
+        const stackItem: any = buildTapTriggeredStackItem({
+          ...trigger,
+          controllerId: String(triggerControllerId),
+        } as any, tapTrigger.tappedPermanentId, triggerId);
         game.state.stack.push(stackItem);
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeTapTriggeredStackItem(stackItem));
+        } catch (err) {
+          debugWarn(1, '[combat] appendEvent(pushTriggeredAbility tap trigger) failed:', err);
+        }
         
         // Notify players about the trigger
         if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, triggerControllerId, trigger.cardName, trigger.mandatory)) {
@@ -2105,6 +2111,21 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 }
                 
                 game.state.stack.push(stackItem);
+                persistTriggeredAbilityPush(gameId, game, {
+                  triggerId,
+                  sourceId: trigger.permanentId,
+                  sourceName: trigger.cardName,
+                  controllerId: triggerControllerId,
+                  description: trigger.description,
+                  triggerType: trigger.triggerType,
+                  effect: trigger.description,
+                  mandatory: trigger.mandatory,
+                  triggeringPlayer: playerId,
+                  ...(typeof stackItem.value !== 'undefined' ? { value: stackItem.value } : {}),
+                  ...(stackItem.effectData && typeof stackItem.effectData === 'object' ? { effectData: stackItem.effectData } : {}),
+                  ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : {}),
+                  ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : {}),
+                }, `attack ${trigger.triggerType || 'trigger'}`);
                 
                 // Notify players about the trigger
                 if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, triggerControllerId, trigger.cardName, trigger.mandatory)) {
@@ -2619,6 +2640,17 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
               };
               
               game.state.stack.push(stackItem);
+              persistTriggeredAbilityPush(gameId, game, {
+                triggerId,
+                sourceId: trigger.permanentId,
+                sourceName: trigger.cardName,
+                controllerId: triggerControllerId,
+                description: trigger.description,
+                triggerType: 'blocks',
+                effect: trigger.description,
+                mandatory: trigger.mandatory,
+                ...(typeof trigger.value !== 'undefined' ? { value: trigger.value } : {}),
+              }, 'block trigger');
               
               // Notify players about the trigger
               if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, triggerControllerId, trigger.cardName, trigger.mandatory)) {

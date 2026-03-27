@@ -52,14 +52,15 @@ import { creatureHasHaste, formatManaCostWithReduction, requestCastSpellForSocke
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
+import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
 import { buildResolutionEventDataFromGameState, buildTriggeredAbilityEventDataFromChoices, executeTriggeredAbilityEffectWithOracleIR } from "../../../rules-engine/src/triggeredAbilities.js";
-import { getTapTriggers } from "../state/modules/triggers/tap-untap.js";
-import { triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
+import { buildTapTriggeredStackItem, getTapTriggers, serializeTapTriggeredStackItem } from "../state/modules/triggers/tap-untap.js";
+import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
@@ -73,27 +74,15 @@ function pushTapTriggerOntoStack(
 ): void {
   game.state.stack = game.state.stack || [];
   const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const stackItem: any = {
-    id: triggerId,
-    type: 'triggered_ability',
-    controller: trigger.controllerId,
-    source: trigger.permanentId,
-    sourceName: trigger.cardName,
-    description: trigger.description,
-    effect: trigger.effect,
-    triggerType: 'tap',
-    mandatory: trigger.mandatory,
-    triggeringPermanentId: tappedPermanentId,
-  };
-
-  if (trigger.createsToken) {
-    stackItem.effectData = {
-      createsToken: true,
-      tokenDetails: trigger.tokenDetails,
-    };
-  }
+  const stackItem = buildTapTriggeredStackItem(trigger, tappedPermanentId, triggerId);
 
   game.state.stack.push(stackItem);
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeTapTriggeredStackItem(stackItem));
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility tap trigger) failed:', err);
+  }
 
   if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, trigger.controllerId, trigger.cardName, trigger.mandatory)) {
     io.to(gameId).emit('triggeredAbility', {
@@ -172,15 +161,24 @@ function fireBattlefieldAbilityActivatedTriggers(
   controllerId: string,
   permanentId: string,
   abilityText: string,
+  gameId: string,
   stackItemId?: string,
 ): void {
-  triggerAbilityActivatedTriggers(game as any, {
+  const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
     activatedBy: controllerId as any,
     sourcePermanentId: permanentId as any,
     isManaAbility: false,
     abilityText,
     ...(stackItemId ? { stackItemId } : null),
   });
+
+  for (const triggeredAbility of triggeredAbilities) {
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeAbilityActivatedTriggeredStackItem(triggeredAbility));
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility ability-activated) failed:', err);
+    }
+  }
 }
 
 /** Remove all pending may callbacks for a game (call on game teardown). */
@@ -1608,7 +1606,6 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       hasPending: summary.hasPending,
       pendingCount: summary.pendingCount,
       pendingTypes: summary.pendingTypes,
-      myPendingSteps: visibleSteps,
       seq: queue.seq,
     });
   });
@@ -6869,7 +6866,7 @@ async function handleStepResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
-        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
+        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
         io.to(gameId).emit('stackUpdate', {
           gameId,
@@ -6902,6 +6899,7 @@ async function handleStepResponse(
             abilityId: abilityId || undefined,
             cardName,
             abilityText,
+            activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
             tappedPermanents: tappedPermanentsForCost,
             lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
           });
@@ -7732,6 +7730,8 @@ async function handleStepResponse(
       const permanentId = String(stepData.permanentId || step.sourceId || '');
       const cardName = String(stepData.cardName || step.sourceName || '');
       const abilityText = String(stepData.abilityText || step.description || '');
+      const activationCostText = String(stepData.totalManaCost || stepData.manaCost || '').trim();
+      const activatedAbilityText = String(stepData.activatedAbilityText || '').trim() || (activationCostText ? `${activationCostText}: ${abilityText}` : abilityText);
       const requiresTap = Boolean(stepData.requiresTap);
 
       const battlefield = game.state?.battlefield || [];
@@ -7925,6 +7925,7 @@ async function handleStepResponse(
           abilityId: stepData.abilityId,
           cardName,
           abilityText,
+          activatedAbilityText,
           manaCost: '',
           requiresTap: false,
           sacrificeType,
@@ -7959,6 +7960,7 @@ async function handleStepResponse(
           source: permanentId,
           sourceName: cardName,
           description: abilityText,
+          activatedAbilityText,
         } as any;
 
         if (treasureMeta.manaFromTreasureSpentKnown === true && typeof treasureMeta.manaFromTreasureSpent === 'boolean') {
@@ -7968,7 +7970,7 @@ async function handleStepResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
-        fireBattlefieldAbilityActivatedTriggers(game, pid, permanentId, abilityText, stackItem.id);
+        fireBattlefieldAbilityActivatedTriggers(game, pid, permanentId, abilityText, gameId, stackItem.id);
 
         io.to(gameId).emit('stackUpdate', {
           gameId,
@@ -8004,6 +8006,7 @@ async function handleStepResponse(
           abilityId: stepData.abilityId,
           cardName,
           abilityText,
+          activatedAbilityText: activatedAbilityText || undefined,
           tappedPermanents: tappedPermanentsForCost,
           sacrificedPermanents: [],
           removedCountersForCost: [],
@@ -9463,6 +9466,18 @@ async function handleDiscardResponse(
       });
     }
 
+    if ((step as any)?.graveyardCastDiscardAsCost === true) {
+      const pid = response.playerId;
+      const cardName = String((step as any)?.cardName || step.sourceName || 'Spell');
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${cardName}: ${getPlayerName(game, pid)} cancelled the graveyard cast.`,
+        ts: Date.now(),
+      });
+    }
+
     if ((step as any)?.exileFromHandAbilityAsCost === true) {
       const pid = response.playerId;
       const cardName = String((step as any)?.cardName || step.sourceName || 'Ability');
@@ -9518,7 +9533,8 @@ async function handleDiscardResponse(
   // Otherwise, we could discard/exile a card and then discover mana can't be paid.
   const isDiscardCostActivation = (step as any)?.discardAbilityAsCost === true;
   const isExileFromHandCostActivation = (step as any)?.exileFromHandAbilityAsCost === true;
-  if (isDiscardCostActivation || isExileFromHandCostActivation) {
+  const isGraveyardCastDiscardActivation = (step as any)?.graveyardCastDiscardAsCost === true;
+  if (isDiscardCostActivation || isExileFromHandCostActivation || isGraveyardCastDiscardActivation) {
     const stepAny = step as any;
     const controllerId = String(pid);
     const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
@@ -9526,19 +9542,29 @@ async function handleDiscardResponse(
     const requiresTap = Boolean(stepAny?.requiresTap);
     const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
 
-    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
-    const sourcePerm = permanentId ? battlefield.find((p: any) => p && String(p.id) === String(permanentId)) : undefined;
-    if (!sourcePerm) {
-      emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
-      return;
-    }
-    if (String(sourcePerm.controller || '') !== controllerId) {
-      emitToPlayer(io, controllerId, 'error', { code: 'NOT_CONTROLLER', message: 'You no longer control that permanent' });
-      return;
-    }
-    if (requiresTap && (sourcePerm as any).tapped) {
-      emitToPlayer(io, controllerId, 'error', { code: 'ALREADY_TAPPED', message: 'Permanent is already tapped' });
-      return;
+    if (isGraveyardCastDiscardActivation) {
+      const graveyardCardId = String(stepAny?.cardId || step.sourceId || '').trim();
+      const graveyardNow: any[] = Array.isArray(zones.graveyard) ? zones.graveyard : [];
+      const sourceCard = graveyardCardId ? graveyardNow.find((entry: any) => entry && String(entry.id) === graveyardCardId) : undefined;
+      if (!sourceCard) {
+        emitToPlayer(io, controllerId, 'error', { code: 'CARD_NOT_IN_GRAVEYARD', message: 'Card not found in graveyard' });
+        return;
+      }
+    } else {
+      const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+      const sourcePerm = permanentId ? battlefield.find((p: any) => p && String(p.id) === String(permanentId)) : undefined;
+      if (!sourcePerm) {
+        emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+        return;
+      }
+      if (String(sourcePerm.controller || '') !== controllerId) {
+        emitToPlayer(io, controllerId, 'error', { code: 'NOT_CONTROLLER', message: 'You no longer control that permanent' });
+        return;
+      }
+      if (requiresTap && (sourcePerm as any).tapped) {
+        emitToPlayer(io, controllerId, 'error', { code: 'ALREADY_TAPPED', message: 'Permanent is already tapped' });
+        return;
+      }
     }
 
     let remainingNonManaCostText = (isExileFromHandCostActivation
@@ -9667,6 +9693,93 @@ async function handleDiscardResponse(
         : `${getPlayerName(game, pid)} discarded ${selections.length} card(s).`,
     ts: Date.now(),
   });
+
+  if ((step as any)?.graveyardCastDiscardAsCost === true) {
+    try {
+      const stepAny = step as any;
+      const controllerId = String(pid);
+      const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
+      const abilityId = String(stepAny?.abilityId || '').trim();
+      const cardName = String(stepAny?.cardName || step.sourceName || 'Spell');
+      const manaCost = String(stepAny?.manaCost || '').trim();
+      const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
+
+      const playerZones = (game.state as any)?.zones?.[controllerId];
+      const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+      const cardIndex = graveyard.findIndex((entry: any) => entry && String(entry.id) === cardId);
+      if (cardIndex === -1) {
+        emitToPlayer(io, controllerId, 'error', { code: 'CARD_NOT_IN_GRAVEYARD', message: 'Card not found in graveyard' });
+        return;
+      }
+
+      if (manaCost) {
+        const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
+        const pool = getOrInitManaPool(game.state, controllerId) as any;
+        const paid = validateAndConsumeManaCostFromPool(pool, manaCost, { logPrefix: '[graveyardCastDiscardAsCost]' });
+        if (!paid.ok) {
+          emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
+          return;
+        }
+      }
+
+      if (lifeToPayForCost > 0) {
+        const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+        if (!Number.isFinite(currentLife) || currentLife <= lifeToPayForCost) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'INSUFFICIENT_LIFE',
+            message: `Cannot pay ${lifeToPayForCost} life (you have ${Number.isFinite(currentLife) ? currentLife : 0} life).`,
+          });
+          return;
+        }
+        (game.state as any).life = (game.state as any).life || {};
+        (game.state as any).life[controllerId] = currentLife - lifeToPayForCost;
+      }
+
+      const [card] = graveyard.splice(cardIndex, 1);
+      playerZones.graveyardCount = graveyard.length;
+      recordCardLeftGraveyardThisTurn({ state: game.state } as any, controllerId, card);
+
+      game.state.stack = game.state.stack || [];
+      (game.state.stack as any[]).push({
+        id: `stack_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        controller: controllerId,
+        card: { ...card, zone: 'stack', castWithAbility: abilityId },
+        targets: [],
+      });
+
+      const stateAny = game.state as any;
+      stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
+      stateAny.castFromGraveyardThisTurn[String(controllerId)] = true;
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, controllerId)} cast ${cardName} using ${abilityId}.`,
+        ts: Date.now(),
+      });
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateGraveyardAbility', {
+          playerId: controllerId,
+          cardId,
+          abilityId: abilityId || undefined,
+          manaCost: manaCost || undefined,
+          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+          discardedCardIds: selections,
+        });
+      } catch {
+        // ignore persistence failures
+      }
+
+      broadcastGame(io, game, gameId);
+      return;
+    } catch (err) {
+      debugError(1, '[Resolution] Failed to resume graveyard discard-cost cast', err);
+    }
+  }
 
   // Activated-ability discard-cost flow: resume the activation after the discard is applied.
   if ((step as any)?.discardAbilityAsCost === true) {
@@ -9901,7 +10014,7 @@ async function handleDiscardResponse(
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
-      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
+      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
       io.to(gameId).emit('stackUpdate', {
         gameId,
@@ -9934,6 +10047,7 @@ async function handleDiscardResponse(
           abilityId: abilityId || undefined,
           cardName,
           abilityText,
+          activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || undefined,
           tappedPermanents: tappedPermanentsForCost,
           discardedCardIds: selections,
           lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
@@ -10041,7 +10155,7 @@ async function handleDiscardResponse(
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
-      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
+      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
       io.to(gameId).emit('stackUpdate', {
         gameId,
@@ -11097,7 +11211,7 @@ async function handleTargetSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
     io.to(gameId).emit('stackUpdate', {
       gameId,
@@ -11130,6 +11244,7 @@ async function handleTargetSelectionResponse(
         abilityId: abilityId || undefined,
         cardName,
         abilityText,
+        activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || undefined,
         tappedPermanents: allTappedPermanentsForCost,
         sacrificedPermanents: sacrificedIds,
         discardedCardIds: Array.isArray((stepAny as any)?.discardedCardIdsForCost)
@@ -11289,7 +11404,7 @@ async function handleTargetSelectionResponse(
     } as any;
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-    fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, stackItem.id);
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, gameId, stackItem.id);
 
     io.to(gameId).emit('stackUpdate', {
       gameId,
@@ -11323,6 +11438,7 @@ async function handleTargetSelectionResponse(
         abilityId: abilityId || undefined,
         cardName,
         abilityText,
+        activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || undefined,
         tappedPermanents: tappedPermanentsForCost,
         removedCountersForCost: [{ permanentId: String(chosenTargetId), counterType: actualKey, count: removeCount }],
       });
@@ -11509,7 +11625,7 @@ async function handleTargetSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-  fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, stackItem.id);
+  fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, gameId, stackItem.id);
 
     io.to(gameId).emit('stackUpdate', {
       gameId,
@@ -11669,7 +11785,7 @@ async function handleTargetSelectionResponse(
 
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
+    fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
     io.to(gameId).emit('stackUpdate', {
       gameId,
@@ -12187,7 +12303,7 @@ async function handleTargetSelectionResponse(
 
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
-        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
+        fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
         io.to(gameId).emit('stackUpdate', {
           gameId,
@@ -12661,63 +12777,64 @@ async function handleTargetSelectionResponse(
     const sourceName = String((step as any).sacrificeWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = (step as any).sacrificeWhenYouDoSourcePermanentId as string | undefined;
     const permanentIdToSac = selections[0];
+    const sacrificedPermanent = (game.state?.battlefield || []).find((p: any) => p?.id === permanentIdToSac);
+    const sacrificedName = String(sacrificedPermanent?.card?.name || '').trim() || `a ${subtype}`;
+    const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const triggerDescription = `${sourceName} deals ${damage} damage to any target and you gain ${lifeGain} life.`;
 
-    const ctx = {
-      state: game.state,
-      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-      zones: game.state?.zones,
-      gameId,
-    } as unknown as GameContext;
+    game.applyEvent({
+      type: 'sacrificeWhenYouDoResolve',
+      playerId: controllerId,
+      sourceName,
+      sourcePermanentId,
+      sacrificedPermanentId: permanentIdToSac,
+      subtype,
+      damage,
+      lifeGain,
+      triggerId,
+      description: triggerDescription,
+    } as any);
 
-    const sacrificedName = sacrificePermanent(ctx, permanentIdToSac, controllerId);
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${sourceName}: ${getPlayerName(game, controllerId)} sacrificed ${sacrificedName || 'a ' + subtype}.`,
+      message: `${sourceName}: ${getPlayerName(game, controllerId)} sacrificed ${sacrificedName}.`,
       ts: Date.now(),
     });
 
-    // Put the reflexive trigger on the stack
-    game.state.stack = game.state.stack || [];
-    const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    game.state.stack.push({
-      id: triggerId,
-      type: 'triggered_ability',
-      controller: controllerId,
-      source: sourcePermanentId || null,
-      sourceName,
-      description: `${sourceName} deals ${damage} damage to any target and you gain ${lifeGain} life.`,
-    } as any);
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'sacrificeWhenYouDoResolve', {
+        playerId: controllerId,
+        sourceName,
+        sourcePermanentId,
+        sacrificedPermanentId: permanentIdToSac,
+        subtype,
+        damage,
+        lifeGain,
+        triggerId,
+        description: triggerDescription,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist sacrificeWhenYouDoResolve event:', err);
+    }
 
-    // Ask for "any target" for the reflexive trigger
-    const validAnyTarget = [
-      ...(game.state.players || []).map((p: any) => ({
-        id: p.id,
-        label: p.name || p.id,
-        description: 'player',
-      })),
-      ...(game.state.battlefield || []).map((p: any) => ({
-        id: p.id,
-        label: p.card?.name || 'Permanent',
-        description: p.card?.type_line || 'permanent',
-        imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-      })),
-    ];
-
-    ResolutionQueueManager.addStep(gameId, {
-      type: ResolutionStepType.TARGET_SELECTION,
-      playerId: controllerId as PlayerID,
-      description: `Choose any target for ${sourceName}`,
-      mandatory: true,
-      sourceId: triggerId,
-      sourceName,
-      validTargets: validAnyTarget,
-      targetTypes: ['any_target'],
-      minTargets: 1,
-      maxTargets: 1,
-      targetDescription: 'any target',
-    } as any);
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+        triggerId,
+        sourceId: sourcePermanentId || null,
+        ...(sourcePermanentId ? { permanentId: sourcePermanentId } : null),
+        sourceName,
+        controllerId,
+        description: triggerDescription,
+        effect: triggerDescription,
+        mandatory: true,
+        requiresTarget: true,
+        targetType: 'any_target',
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist pushTriggeredAbility for sacrificeWhenYouDo:', err);
+    }
 
     broadcastGame(io, game, gameId);
     return;
@@ -13416,7 +13533,7 @@ async function handleTargetSelectionResponse(
     
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
-    fireBattlefieldAbilityActivatedTriggers(game, String(pid), String(permanentId), abilityText, stackItem.id);
+    fireBattlefieldAbilityActivatedTriggers(game, String(pid), String(permanentId), abilityText, gameId, stackItem.id);
     
     // Emit stack update
     io.to(gameId).emit("stackUpdate", {
@@ -16568,8 +16685,9 @@ async function putCardOntoBattlefield(
       if (ok === false) continue;
 
       state.stack = state.stack || [];
-      state.stack.push({
-        id: uid("trigger"),
+      const triggerId = uid("trigger");
+      const stackItem = {
+        id: triggerId,
         type: 'triggered_ability',
         controller,
         source: newPermanent.id,
@@ -16578,7 +16696,47 @@ async function putCardOntoBattlefield(
         triggerType: trigger.triggerType,
         mandatory: trigger.mandatory,
         permanentId: newPermanent.id,
-      } as any);
+        effect: trigger.effect || trigger.description,
+        requiresChoice: trigger.requiresChoice,
+        requiresTarget: trigger.requiresTarget,
+        targetType: trigger.targetType,
+        targetConstraint: trigger.targetConstraint,
+        needsTargetSelection: trigger.requiresTarget || false,
+        isModal: trigger.isModal,
+        modalOptions: trigger.modalOptions,
+        targetPlayer: trigger.targetPlayer,
+        value: trigger.value,
+        effectData: trigger.effectData,
+      } as any;
+      state.stack.push(stackItem);
+
+      if (gameId) {
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+            triggerId,
+            sourceId: newPermanent.id,
+            permanentId: newPermanent.id,
+            sourceName: trigger.cardName,
+            controllerId: controller,
+            description: trigger.description,
+            triggerType: trigger.triggerType,
+            effect: trigger.effect || trigger.description,
+            mandatory: trigger.mandatory,
+            requiresChoice: trigger.requiresChoice,
+            requiresTarget: trigger.requiresTarget,
+            targetType: trigger.targetType,
+            targetConstraint: trigger.targetConstraint,
+            needsTargetSelection: trigger.requiresTarget || false,
+            isModal: trigger.isModal,
+            modalOptions: trigger.modalOptions,
+            targetPlayer: trigger.targetPlayer,
+            value: trigger.value,
+            effectData: trigger.effectData,
+          });
+        } catch (err) {
+          debugWarn(1, '[putCardOntoBattlefield] appendEvent(pushTriggeredAbility self ETB) failed:', err);
+        }
+      }
     }
   }
   
@@ -18625,6 +18783,7 @@ async function handleOptionChoiceResponse(
         playerId,
         permanentId,
         payMana: paid,
+        manaCost,
         cardName,
       });
     } catch (e) {
@@ -21425,6 +21584,17 @@ async function handleGraveyardSelectionResponse(
       });
     }
 
+    if ((step as any)?.graveyardCastExileAsCost === true) {
+      const spellName = String((step as any)?.cardName || step.sourceName || 'Spell');
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${spellName}: ${getPlayerName(game, pid)} cancelled the graveyard cast.`,
+        ts: Date.now(),
+      });
+    }
+
      // For cast continuations (e.g., optional collect evidence), treat cancel as decline and continue.
      const castArgs = stepData.castSpellFromHandArgs as any;
      if (castArgs && typeof castArgs === 'object' && castArgs.cardId) {
@@ -21604,6 +21774,57 @@ async function handleGraveyardSelectionResponse(
     }
   }
 
+  if ((step as any)?.graveyardCastExileAsCost === true) {
+    const stepAny = step as any;
+    const controllerId = String(pid);
+    const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
+    const manaCost = String(stepAny?.manaCost || '');
+    const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
+
+    const sourceCard = cardId
+      ? (srcZones.graveyard as any[]).find((entry: any) => entry && String(entry.id) === cardId)
+      : undefined;
+    if (!sourceCard) {
+      emitToPlayer(io, controllerId, 'error', { code: 'CARD_NOT_IN_GRAVEYARD', message: 'Card not found in graveyard' });
+      return;
+    }
+
+    const manaSymbols = manaCost.match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+    const manaOnly = manaSymbols
+      .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
+      .join('');
+    if (/\{[^}]*\/P\}/i.test(manaOnly) || /\{[^}]*X[^}]*\}/i.test(manaOnly)) {
+      emitToPlayer(io, controllerId, 'error', { code: 'UNSUPPORTED_COST', message: `Unsupported activation cost (${manaOnly || 'complex cost'})` });
+      return;
+    }
+    if (manaOnly) {
+      const { getOrInitManaPool, resolveManaCostForPoolPayment, calculateTotalAvailableMana, validateManaPayment } = await import('./util.js');
+      const pool = getOrInitManaPool(game.state, controllerId) as any;
+      const resolved = resolveManaCostForPoolPayment(pool, manaOnly);
+      if (!resolved.ok) {
+        emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (resolved as any).error || 'Insufficient mana.' });
+        return;
+      }
+      const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+      const validationError = validateManaPayment(totalAvailable, resolved.coloredCost, resolved.genericCost);
+      if (validationError) {
+        emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: validationError });
+        return;
+      }
+    }
+
+    if (Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0) {
+      const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+      if (!Number.isFinite(currentLife) || currentLife < lifeToPayForCost) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'INSUFFICIENT_LIFE',
+          message: `Need to pay ${lifeToPayForCost} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
+        });
+        return;
+      }
+    }
+  }
+
   for (const cardId of selectedCardIds) {
     const idx = (srcZones.graveyard as any[]).findIndex((c: any) => c && String(c.id) === String(cardId));
     if (idx === -1) continue;
@@ -21695,6 +21916,93 @@ async function handleGraveyardSelectionResponse(
       message: `${getPlayerName(game, pid)} moves ${movedCards.join(', ')} from graveyard to ${destName} (${cardName}).`,
       ts: Date.now(),
     });
+  }
+
+  if ((step as any)?.graveyardCastExileAsCost === true) {
+    try {
+      const stepAny = step as any;
+      const controllerId = String(pid);
+      const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
+      const abilityId = String(stepAny?.abilityId || '').trim();
+      const cardName = String(stepAny?.cardName || step.sourceName || 'Spell');
+      const manaCost = String(stepAny?.manaCost || '').trim();
+      const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
+
+      const playerZones = (game.state as any)?.zones?.[controllerId];
+      const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+      const cardIndex = graveyard.findIndex((entry: any) => entry && String(entry.id) === cardId);
+      if (cardIndex === -1) {
+        emitToPlayer(io, controllerId, 'error', { code: 'CARD_NOT_IN_GRAVEYARD', message: 'Card not found in graveyard' });
+        return;
+      }
+
+      if (manaCost) {
+        const { getOrInitManaPool, validateAndConsumeManaCostFromPool } = await import('./util.js');
+        const pool = getOrInitManaPool(game.state, controllerId) as any;
+        const paid = validateAndConsumeManaCostFromPool(pool, manaCost, { logPrefix: '[graveyardCastExileAsCost]' });
+        if (!paid.ok) {
+          emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
+          return;
+        }
+      }
+
+      if (lifeToPayForCost > 0) {
+        const currentLife = Number((game.state as any)?.life?.[controllerId] ?? 40);
+        if (!Number.isFinite(currentLife) || currentLife <= lifeToPayForCost) {
+          emitToPlayer(io, controllerId, 'error', {
+            code: 'INSUFFICIENT_LIFE',
+            message: `Cannot pay ${lifeToPayForCost} life (you have ${Number.isFinite(currentLife) ? currentLife : 0} life).`,
+          });
+          return;
+        }
+        (game.state as any).life = (game.state as any).life || {};
+        (game.state as any).life[controllerId] = currentLife - lifeToPayForCost;
+      }
+
+      const [card] = graveyard.splice(cardIndex, 1);
+      playerZones.graveyardCount = graveyard.length;
+      recordCardLeftGraveyardThisTurn({ state: game.state } as any, controllerId, card);
+
+      game.state.stack = game.state.stack || [];
+      (game.state.stack as any[]).push({
+        id: `stack_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        controller: controllerId,
+        card: { ...card, zone: 'stack', castWithAbility: abilityId },
+        targets: [],
+      });
+
+      const stateAny = game.state as any;
+      stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
+      stateAny.castFromGraveyardThisTurn[String(controllerId)] = true;
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, controllerId)} cast ${cardName} using ${abilityId}.`,
+        ts: Date.now(),
+      });
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateGraveyardAbility', {
+          playerId: controllerId,
+          cardId,
+          abilityId: abilityId || undefined,
+          manaCost: manaCost || undefined,
+          lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+          exiledCardIdsFromGraveyardForCost: movedCardIds,
+        });
+      } catch {
+        // ignore persistence failures
+      }
+
+      broadcastGame(io, game, gameId);
+      return;
+    } catch (err) {
+      debugError(1, '[Resolution] Failed to resume graveyard exile-cost cast', err);
+    }
   }
 
   // Activated-ability exile-from-graveyard-cost flow: resume the activation after the exile is applied.
@@ -21796,7 +22104,7 @@ async function handleGraveyardSelectionResponse(
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
-      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, stackItem.id);
+      fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
       io.to(gameId).emit('stackUpdate', {
         gameId,

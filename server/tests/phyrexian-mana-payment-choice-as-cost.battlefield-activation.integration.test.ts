@@ -135,6 +135,8 @@ describe('Phyrexian mana payment choice as activation cost (integration)', () =>
     expect(step.type).toBe('mana_payment_choice');
     expect(step.playerId).toBe(p1);
     expect(step.phyrexianManaChoice).toBe(true);
+    expect(String(step.activatedAbilityText || '').toLowerCase()).toContain('{g/p}');
+    expect(String(step.activatedAbilityText || '').toLowerCase()).toContain('you gain 1 life.');
 
     // Choose to pay with life.
     await handlers['submitResolutionResponse']({
@@ -153,6 +155,8 @@ describe('Phyrexian mana payment choice as activation cost (integration)', () =>
     expect(activationEvents.length).toBeGreaterThan(0);
     const lastActivation = activationEvents[activationEvents.length - 1] as any;
 
+    expect(String(lastActivation?.payload?.activatedAbilityText || '').toLowerCase()).toContain('{g/p}');
+    expect(String(lastActivation?.payload?.activatedAbilityText || '').toLowerCase()).toContain('you gain 1 life.');
     expect(lastActivation?.payload?.lifePaidForCost).toBe(2);
     expect(Array.isArray(lastActivation?.payload?.tappedPermanents)).toBe(true);
     expect((lastActivation?.payload?.tappedPermanents || []).map(String)).toContain('src_1');
@@ -313,5 +317,117 @@ describe('Phyrexian mana payment choice as activation cost (integration)', () =>
     const errs = emitted.filter((e) => e.event === 'error');
     expect(errs.length).toBeGreaterThan(0);
     expect(String(errs[errs.length - 1]?.payload?.code || '')).toBe('INSUFFICIENT_MANA');
+  });
+
+  it('propagates activatedAbilityText into the follow-up sacrifice step after Phyrexian payment choice', async () => {
+    const gameId = 'test_phyrexian_choice_preserves_activation_text_for_sacrifice_step';
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        graveyard: [],
+        exile: [],
+        handCount: 0,
+        graveyardCount: 0,
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'src_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        isToken: false,
+        card: {
+          name: 'Phyrexian Foundry',
+          type_line: 'Artifact',
+          oracle_text: '{G/P}, Sacrifice an artifact: Draw a card.',
+          image_uris: { small: 'https://example.com/foundry.jpg' },
+        },
+      },
+      {
+        id: 'fodder_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        isToken: false,
+        card: {
+          name: 'Servo Token',
+          type_line: 'Artifact Creature — Servo',
+          oracle_text: '',
+          image_uris: { small: 'https://example.com/servo.jpg' },
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    ResolutionQueueManager.addStep(gameId, {
+      type: 'mana_payment_choice',
+      playerId: p1,
+      sourceId: 'src_1',
+      sourceName: 'Phyrexian Foundry',
+      description: 'Choose how to pay Phyrexian mana for Phyrexian Foundry.',
+      mandatory: true,
+      phyrexianManaChoice: true,
+      permanentId: 'src_1',
+      abilityId: 'src_1-ability-0',
+      cardName: 'Phyrexian Foundry',
+      abilityText: 'Draw a card.',
+      activatedAbilityText: '{G/P}, Sacrifice an artifact: Draw a card.',
+      manaCost: '{G/P}',
+      totalManaCost: '{G/P}',
+      genericCost: 0,
+      phyrexianChoices: [{ index: 0, colorOption: 'G', colorName: 'green', lifeAmount: 2, hasColorMana: false, symbol: '{G/P}' }],
+      playerLife: 40,
+      parsedCost: { colors: {}, generic: 0, hybrids: [['G', 'LIFE:2']] },
+      phyrexianCosts: [['G', 'LIFE:2']],
+      requiresTap: false,
+      sacrificeType: 'artifact',
+      sacrificeCount: 1,
+      mustBeOther: false,
+    } as any);
+
+    const initialQueue = ResolutionQueueManager.getQueue(gameId);
+    expect(initialQueue.steps.length).toBe(1);
+    const phyrexianStep = initialQueue.steps[0] as any;
+    expect(phyrexianStep.type).toBe('mana_payment_choice');
+    expect(phyrexianStep.phyrexianManaChoice).toBe(true);
+    expect(String(phyrexianStep.activatedAbilityText || '').toLowerCase()).toContain('{g/p}');
+    expect(String(phyrexianStep.activatedAbilityText || '').toLowerCase()).toContain('draw a card.');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: phyrexianStep.id,
+      selections: [{ index: 0, payWithLife: true }],
+    });
+
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfter.steps.length).toBe(1);
+    const sacrificeStep = queueAfter.steps[0] as any;
+    expect(sacrificeStep.type).toBe('target_selection');
+    expect(sacrificeStep.sacrificeAbilityAsCost).toBe(true);
+    expect(String(sacrificeStep.activatedAbilityText || '').toLowerCase()).toContain('{g/p}');
+    expect(String(sacrificeStep.activatedAbilityText || '').toLowerCase()).toContain('draw a card.');
   });
 });

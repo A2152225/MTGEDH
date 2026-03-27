@@ -288,6 +288,7 @@ export function buildTriggerEventDataFromPayloads(
 
   const sourceId = scalarString('sourceId');
   const chosenObjectIds = collectIds('chosenObjectIds', 'cardId', 'objectId');
+  const selectedModeIds = collectStrings('selectedModeIds');
   const permanentTypes = collectStrings('permanentTypes');
   const creatureTypes = collectStrings('creatureTypes');
   const colors = collectStrings('colors');
@@ -327,6 +328,7 @@ export function buildTriggerEventDataFromPayloads(
     targetControllerId: scalarString('targetControllerId'),
     targetPermanentId,
     chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
+    selectedModeIds: selectedModeIds.length > 0 ? selectedModeIds : undefined,
     targetPlayerId,
     targetOpponentId,
     tapOrUntapChoice,
@@ -384,8 +386,9 @@ export function buildStackTriggerMetaFromEventData(
       sourceAttachedToPermanentIds?: readonly string[];
       targetId?: string;
     targetControllerId?: string;
-    targetPermanentId?: string;
+      targetPermanentId?: string;
       chosenObjectIds?: readonly string[];
+      selectedModeIds?: readonly string[];
       targetPlayerId?: string;
       targetOpponentId?: string;
       tapOrUntapChoice?: 'tap' | 'untap';
@@ -443,6 +446,7 @@ export function buildStackTriggerMetaFromEventData(
       targetControllerId: normalized.targetControllerId,
       targetPermanentId: normalized.targetPermanentId,
       chosenObjectIds: normalized.chosenObjectIds,
+      selectedModeIds: normalized.selectedModeIds,
       targetPlayerId: normalized.targetPlayerId,
       targetOpponentId: normalized.targetOpponentId,
       tapOrUntapChoice: normalized.tapOrUntapChoice,

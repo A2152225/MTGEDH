@@ -7,12 +7,23 @@ import {
   checkETBTriggers,
   checkBecomesBlockedTriggers,
   checkCombatDamageToPlayerTriggers,
+  checkAttackTriggers,
+  checkAttacksAloneTriggers,
+  checkDiesTriggers,
+  checkDelayedEventTriggers,
   checkLandfallTriggers,
   checkSpellCastTriggers,
+  checkStepTriggers,
   checkTribalCastTriggers,
   checkDrawTriggers,
   findTriggeredAbilities,
 } from '../src/actions/triggersHandler';
+import {
+  createDelayedTrigger,
+  createDelayedTriggerRegistry,
+  DelayedTriggerTiming,
+  registerDelayedTrigger,
+} from '../src/delayedTriggeredAbilities';
 import { makeMerfolkIterationState } from './helpers/merfolkIterationFixture';
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
@@ -628,6 +639,94 @@ describe('triggersHandler Oracle automation', () => {
     expect(prowessTrigger?.effect).toBe('This creature gets +1/+1 until end of turn.');
   });
 
+  it('dedupes duplicate battlefield trigger discovery for special plus parsed trigger text', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'reservoir',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'reservoir-card',
+            name: 'Aetherflux Reservoir',
+            type_line: 'Artifact',
+            oracle_text: "Whenever you cast a spell, you gain 1 life for each spell you've cast this turn.",
+          },
+        } as any,
+        {
+          id: 'tithe',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'tithe-card',
+            name: 'Smothering Tithe',
+            type_line: 'Enchantment',
+            oracle_text: 'Whenever an opponent draws a card, that player may pay {2}. If they do not, create a Treasure token.',
+          },
+        } as any,
+      ],
+    });
+
+    const abilities = findTriggeredAbilities(start);
+    const reservoirTriggers = abilities.filter(ability => ability.sourceId === 'reservoir');
+    const titheTriggers = abilities.filter(ability => ability.sourceId === 'tithe');
+
+    expect(reservoirTriggers).toHaveLength(1);
+    expect(titheTriggers).toHaveLength(1);
+  });
+
+  it('finds For Mirrodin! as a synthesized ETB trigger on the battlefield', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'mirrodin-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'mirrodin-card',
+            name: 'Bladehold War-Whip',
+            type_line: 'Artifact - Equipment',
+            oracle_text: 'For Mirrodin!',
+          },
+        } as any,
+      ],
+    });
+
+    const abilities = findTriggeredAbilities(start);
+    const mirrodinTrigger = abilities.find(ability => ability.sourceId === 'mirrodin-perm');
+
+    expect(mirrodinTrigger).toBeTruthy();
+    expect(mirrodinTrigger?.event).toBe(TriggerEvent.ENTERS_BATTLEFIELD);
+    expect(mirrodinTrigger?.effect).toBe('Create a 2/2 red Rebel creature token, then attach this Equipment to it.');
+  });
+
+  it('finds Job select as a synthesized ETB trigger on the battlefield', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'job-select-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'job-select-card',
+            name: "Black Mage's Rod",
+            type_line: 'Artifact - Equipment',
+            oracle_text: 'Job select',
+          },
+        } as any,
+      ],
+    });
+
+    const abilities = findTriggeredAbilities(start);
+    const jobSelectTrigger = abilities.find(ability => ability.sourceId === 'job-select-perm');
+
+    expect(jobSelectTrigger).toBeTruthy();
+    expect(jobSelectTrigger?.event).toBe(TriggerEvent.ENTERS_BATTLEFIELD);
+    expect(jobSelectTrigger?.effect).toBe('Create a 1/1 colorless Hero creature token, then attach this Equipment to it.');
+  });
+
   it('checkLandfallTriggers discovers Skyclave Shade in the graveyard and queues its optional landfall trigger', () => {
     const start = makeState({
       turnNumber: 11 as any,
@@ -668,6 +767,115 @@ describe('triggersHandler Oracle automation', () => {
     expect(result.triggersAdded).toBeGreaterThan(0);
     expect((result.state.stack || []).length).toBeGreaterThan(0);
     expect(result.logs.some(entry => entry.includes('Skyclave Shade triggered ability processed'))).toBe(true);
+  });
+
+  it('checkLandfallTriggers auto-executes Skyclave Shade by granting this-turn graveyard cast permission', () => {
+    const start = makeState({
+      turnNumber: 11 as any,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [
+            {
+              id: 'shade',
+              name: 'Skyclave Shade',
+              type_line: 'Creature - Shade',
+              oracle_text:
+                "Landfall - Whenever a land you control enters, if this card is in your graveyard and it's your turn, you may cast it from your graveyard this turn.",
+            },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = checkLandfallTriggers(start, 'p1', { allowOptional: true });
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((result.state as any).playableFromGraveyard?.p1?.shade).toBe(11);
+  });
+
+  it('checkLandfallTriggers auto-executes Tireless Provisioner with the Treasure mode', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'provisioner',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'provisioner-card',
+            name: 'Tireless Provisioner',
+            type_line: 'Creature - Elf Scout',
+            oracle_text: 'Landfall - Create a Food token or a Treasure token.',
+            power: '3',
+            toughness: '2',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkLandfallTriggers(start, 'p1', {
+      allowOptional: true,
+      eventData: { selectedModeIds: ['Treasure'] } as any,
+    });
+    const treasures = (result.state.battlefield || []).filter((perm: any) => perm?.card?.name === 'Treasure');
+    const foods = (result.state.battlefield || []).filter((perm: any) => perm?.card?.name === 'Food');
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(treasures).toHaveLength(1);
+    expect(foods).toHaveLength(0);
+  });
+
+  it('checkLandfallTriggers auto-executes Tireless Provisioner with the Food mode', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'provisioner',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'provisioner-card',
+            name: 'Tireless Provisioner',
+            type_line: 'Creature - Elf Scout',
+            oracle_text: 'Landfall - Create a Food token or a Treasure token.',
+            power: '3',
+            toughness: '2',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkLandfallTriggers(start, 'p1', {
+      allowOptional: true,
+      eventData: { selectedModeIds: ['Food'] } as any,
+    });
+    const treasures = (result.state.battlefield || []).filter((perm: any) => perm?.card?.name === 'Treasure');
+    const foods = (result.state.battlefield || []).filter((perm: any) => perm?.card?.name === 'Food');
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(treasures).toHaveLength(0);
+    expect(foods).toHaveLength(1);
   });
 
   it('checkETBTriggers queues graveyard-provenance ETB triggers for Rocket-Powered Goblin Glider and Prized Amalgam', () => {
@@ -741,6 +949,492 @@ describe('triggersHandler Oracle automation', () => {
     expect((rocketResult.state.stack || []).length).toBeGreaterThan(0);
     expect(prizedResult.triggersAdded).toBeGreaterThan(0);
     expect((prizedResult.state.stack || []).length).toBeGreaterThan(0);
+  });
+
+  it('checkETBTriggers auto-executes Living weapon on self ETB', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'living-weapon-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          counters: {},
+          card: {
+            id: 'living-weapon-card',
+            name: 'Flayer Husk',
+            type_line: 'Artifact - Equipment',
+            oracle_text: 'Living weapon',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkETBTriggers(start, 'living-weapon-perm', 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+    const equipment = (result.state.battlefield || []).find((perm: any) => perm.id === 'living-weapon-perm') as any;
+    const germ = (result.state.battlefield || []).find((perm: any) => perm.id !== 'living-weapon-perm') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) >= 2).toBe(true);
+    expect(germ?.isToken).toBe(true);
+    expect(germ?.basePower).toBe(0);
+    expect(germ?.baseToughness).toBe(0);
+    expect(equipment?.attachedTo).toBe(germ?.id);
+  });
+
+  it('checkETBTriggers auto-executes For Mirrodin! on self ETB', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'mirrodin-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          counters: {},
+          card: {
+            id: 'mirrodin-card',
+            name: 'Bladehold War-Whip',
+            type_line: 'Artifact - Equipment',
+            oracle_text: 'For Mirrodin!',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkETBTriggers(start, 'mirrodin-perm', 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+    const equipment = (result.state.battlefield || []).find((perm: any) => perm.id === 'mirrodin-perm') as any;
+    const rebel = (result.state.battlefield || []).find((perm: any) => perm.id !== 'mirrodin-perm') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) >= 2).toBe(true);
+    expect(rebel?.isToken).toBe(true);
+    expect(rebel?.basePower).toBe(2);
+    expect(rebel?.baseToughness).toBe(2);
+    expect(rebel?.controller).toBe('p1');
+    expect(equipment?.attachedTo).toBe(rebel?.id);
+  });
+
+  it('checkETBTriggers auto-executes Job select on self ETB', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'job-select-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          counters: {},
+          card: {
+            id: 'job-select-card',
+            name: "Black Mage's Rod",
+            type_line: 'Artifact - Equipment',
+            oracle_text: 'Job select',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkETBTriggers(start, 'job-select-perm', 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+    const equipment = (result.state.battlefield || []).find((perm: any) => perm.id === 'job-select-perm') as any;
+    const hero = (result.state.battlefield || []).find((perm: any) => perm.id !== 'job-select-perm') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) >= 2).toBe(true);
+    expect(hero?.isToken).toBe(true);
+    expect(hero?.basePower).toBe(1);
+    expect(hero?.baseToughness).toBe(1);
+    expect(hero?.controller).toBe('p1');
+    expect(equipment?.attachedTo).toBe(hero?.id);
+  });
+
+  it('checkETBTriggers auto-executes Evolve only for another creature with greater power or toughness', () => {
+    const triggeringState = makeState({
+      battlefield: [
+        {
+          id: 'evolve-source',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          power: 1,
+          toughness: 1,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            id: 'evolve-source-card',
+            name: 'Cloudfin Raptor',
+            type_line: 'Creature - Bird Mutant',
+            oracle_text: 'Flying\nEvolve',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+        {
+          id: 'bigger-entrant',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          power: 2,
+          toughness: 1,
+          basePower: 2,
+          baseToughness: 1,
+          card: {
+            id: 'bigger-entrant-card',
+            name: 'Crocanura',
+            type_line: 'Creature - Crocodile Frog',
+            oracle_text: '',
+            power: '2',
+            toughness: '1',
+          },
+        } as any,
+      ],
+    });
+    const blockedState = makeState({
+      battlefield: [
+        triggeringState.battlefield?.[0] as any,
+        {
+          id: 'equal-entrant',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          power: 1,
+          toughness: 1,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            id: 'equal-entrant-card',
+            name: 'Adaptive Familiar',
+            type_line: 'Creature - Beast',
+            oracle_text: '',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+      ],
+    });
+
+    const triggered = checkETBTriggers(triggeringState, 'bigger-entrant', 'p1', {
+      autoExecuteOracle: true,
+    });
+    const triggeredSource = (triggered.state.battlefield || []).find((perm: any) => perm.id === 'evolve-source') as any;
+
+    expect(triggered.triggersAdded).toBe(1);
+    expect(triggered.oracleExecutions).toBe(1);
+    expect((triggeredSource?.counters || {})['+1/+1']).toBe(1);
+
+    const blocked = checkETBTriggers(blockedState, 'equal-entrant', 'p1', {
+      autoExecuteOracle: true,
+    });
+    const blockedSource = (blocked.state.battlefield || []).find((perm: any) => perm.id === 'evolve-source') as any;
+
+    expect(blocked.triggersAdded).toBe(0);
+    expect(blocked.oracleExecutions || 0).toBe(0);
+    expect((blockedSource?.counters || {})['+1/+1'] || 0).toBe(0);
+  });
+
+  it('checkETBTriggers auto-executes Constellation only when an enchantment enters under your control', () => {
+    const triggeringState = makeState({
+      battlefield: [
+        {
+          id: 'constellation-source',
+          controller: 'p1',
+          owner: 'p1',
+          power: 2,
+          toughness: 3,
+          basePower: 2,
+          baseToughness: 3,
+          card: {
+            id: 'constellation-source-card',
+            name: 'Grim Guardian',
+            type_line: 'Enchantment Creature - Zombie',
+            oracle_text: 'Constellation - Whenever an enchantment enters the battlefield under your control, each opponent loses 1 life.',
+            power: '2',
+            toughness: '3',
+          },
+        } as any,
+        {
+          id: 'enchantment-entrant',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'enchantment-entrant-card',
+            name: 'Pacifism',
+            type_line: 'Enchantment - Aura',
+            oracle_text: '',
+          },
+        } as any,
+      ],
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+    const blockedState = makeState({
+      ...triggeringState,
+      battlefield: [
+        triggeringState.battlefield?.[0] as any,
+        {
+          id: 'non-enchantment-entrant',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'non-enchantment-entrant-card',
+            name: 'Silvercoat Lion',
+            type_line: 'Creature - Cat',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ] as any,
+    });
+
+    const triggered = checkETBTriggers(triggeringState, 'enchantment-entrant', 'p1', {
+      autoExecuteOracle: true,
+    });
+    const triggeredOpponent = triggered.state.players.find(player => player.id === 'p2') as any;
+
+    expect(triggered.triggersAdded).toBe(1);
+    expect(triggered.oracleExecutions).toBe(1);
+    expect((triggered.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(triggeredOpponent?.life).toBe(39);
+
+    const blocked = checkETBTriggers(blockedState, 'non-enchantment-entrant', 'p1', {
+      autoExecuteOracle: true,
+    });
+    const blockedOpponent = blocked.state.players.find(player => player.id === 'p2') as any;
+
+    expect(blocked.triggersAdded).toBe(0);
+    expect(blocked.oracleExecutions || 0).toBe(0);
+    expect(blockedOpponent?.life).toBe(40);
+  });
+
+  it('checkETBTriggers auto-executes Exploit only when the source itself enters the battlefield', () => {
+    const selfEtbState = makeState({
+      battlefield: [
+        {
+          id: 'exploit-source',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          power: 0,
+          toughness: 4,
+          basePower: 0,
+          baseToughness: 4,
+          card: {
+            id: 'exploit-source-card',
+            name: "Sidisi's Faithful",
+            type_line: 'Creature - Naga Wizard',
+            oracle_text: 'Exploit',
+            power: '0',
+            toughness: '4',
+          },
+        } as any,
+      ],
+    });
+    const otherEtbState = makeState({
+      battlefield: [
+        selfEtbState.battlefield?.[0] as any,
+        {
+          id: 'other-entrant',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'other-entrant-card',
+            name: 'Bear Cub',
+            type_line: 'Creature - Bear',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ],
+    });
+
+    const selfTriggered = checkETBTriggers(selfEtbState, 'exploit-source', 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+
+    expect(selfTriggered.triggersAdded).toBe(1);
+    expect(selfTriggered.oracleExecutions).toBe(1);
+    expect((selfTriggered.oracleStepsApplied || 0) > 0).toBe(true);
+
+    const blocked = checkETBTriggers(otherEtbState, 'other-entrant', 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+
+    expect(blocked.triggersAdded).toBe(0);
+    expect(blocked.oracleExecutions || 0).toBe(0);
+  });
+
+  it('checkETBTriggers auto-executes Fabricate on self ETB with the counter branch', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'fabricate-source',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          power: 2,
+          toughness: 3,
+          basePower: 2,
+          baseToughness: 3,
+          card: {
+            id: 'fabricate-source-card',
+            name: 'Glint-Sleeve Artisan',
+            type_line: 'Creature - Dwarf Artificer',
+            oracle_text: 'Fabricate 2',
+            power: '2',
+            toughness: '3',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkETBTriggers(start, 'fabricate-source', 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+    const source = (result.state.battlefield || []).find((perm: any) => perm.id === 'fabricate-source') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((source?.counters || {})['+1/+1'] || 0).toBe(2);
+    expect((result.state.battlefield || []).filter((perm: any) => perm?.card?.name === 'Servo')).toHaveLength(0);
+  });
+
+  it('checkETBTriggers auto-executes Rocket-Powered Goblin Glider when target context is supplied', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'rocket-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          castFromZone: 'graveyard',
+          card: {
+            id: 'rocket-card',
+            name: 'Rocket-Powered Goblin Glider',
+            type_line: 'Artifact - Equipment',
+            oracle_text:
+              'When this Equipment enters, if it was cast from your graveyard, attach it to target creature you control.',
+            castFromZone: 'graveyard',
+          },
+        } as any,
+        {
+          id: 'bear-target',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'bear-target-card',
+            name: 'Target Bear',
+            type_line: 'Creature - Bear',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkETBTriggers(start, 'rocket-perm', 'p1', {
+      autoExecuteOracle: true,
+      eventData: {
+        targetCreatureId: 'bear-target',
+        targetPermanentId: 'bear-target',
+        chosenObjectIds: ['bear-target'],
+      } as any,
+    });
+    const rocket = (result.state.battlefield || []).find((perm: any) => perm.id === 'rocket-perm') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(rocket?.attachedTo).toBe('bear-target');
+  });
+
+  it('checkETBTriggers auto-executes Prized Amalgam by scheduling the delayed return at the next end step', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'reanimated-bear',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          enteredFromZone: 'graveyard',
+          card: {
+            id: 'bear-card',
+            name: 'Reanimated Bear',
+            type_line: 'Creature - Bear',
+            enteredFromZone: 'graveyard',
+          },
+        } as any,
+      ] as any,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [
+            {
+              id: 'amalgam',
+              name: 'Prized Amalgam',
+              type_line: 'Creature - Zombie',
+              oracle_text:
+                'Whenever a creature enters, if it entered from your graveyard or you cast it from your graveyard, return this card from your graveyard to the battlefield tapped at the beginning of the next end step.',
+            },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = checkETBTriggers(start, 'reanimated-bear', 'p1', {
+      autoExecuteOracle: true,
+    });
+    const delayedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(Array.isArray(delayedRegistry?.triggers)).toBe(true);
+    expect(delayedRegistry?.triggers || []).toHaveLength(1);
+    expect(delayedRegistry?.triggers?.[0]?.sourceId).toBe('amalgam');
+    expect(String(delayedRegistry?.triggers?.[0]?.effect || '')).toContain(
+      'return this card from your graveyard to the battlefield tapped'
+    );
   });
 
   it('keeps legacy behavior when autoExecuteOracle is disabled', () => {
@@ -1293,6 +1987,937 @@ describe('triggersHandler Oracle automation', () => {
     expect(goblinCount).toBe(4);
   });
 
+  it('checkSpellCastTriggers auto-executes Aetherflux Reservoir without duplicate battlefield triggers', () => {
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'reservoir',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'reservoir-card',
+            name: 'Aetherflux Reservoir',
+            type_line: 'Artifact',
+            oracle_text: "Whenever you cast a spell, you gain 1 life for each spell you've cast this turn.",
+          },
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'opt-spell',
+          type: 'spell',
+          controller: 'p1',
+          card: {
+            id: 'opt-card',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+          },
+        } as any,
+      ],
+      spellsCastThisTurn: { p1: 3 },
+      noncreatureSpellsCastThisTurn: { p1: 3 },
+    } as any);
+
+    const result = checkSpellCastTriggers(start, 'p1');
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(p1.life > 40).toBe(true);
+  });
+
+  it('checkSpellCastTriggers executes Heroic only when your spell targets the source creature', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'heroic-source',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          power: 1,
+          toughness: 2,
+          basePower: 1,
+          baseToughness: 2,
+          card: {
+            id: 'heroic-source-card',
+            name: 'Favored Hoplite',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: 'Heroic - Whenever you cast a spell that targets this creature, put a +1/+1 counter on this creature.',
+            power: '1',
+            toughness: '2',
+          },
+        } as any,
+        {
+          id: 'other-creature',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'other-creature-card',
+            name: 'Other Creature',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'guiding-spell',
+          type: 'spell',
+          controller: 'p1',
+          targets: ['heroic-source'],
+          card: {
+            id: 'guiding-spell-card',
+            name: 'Guiding Spell',
+            type_line: 'Instant',
+            oracle_text: 'Target creature gets +1/+1 until end of turn.',
+          },
+        } as any,
+      ],
+    });
+
+    const triggered = checkSpellCastTriggers(start, 'p1', 'guiding-spell', undefined, {
+      eventData: { chosenObjectIds: ['heroic-source'] } as any,
+    });
+    const heroicSource = (triggered.state.battlefield as any[]).find((perm: any) => perm.id === 'heroic-source');
+
+    expect(triggered.triggersAdded).toBe(1);
+    expect(triggered.oracleExecutions).toBe(1);
+    expect((triggered.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((heroicSource?.counters || {})['+1/+1']).toBe(1);
+
+    const blockedState = {
+      ...start,
+      stack: [
+        {
+          ...(start.stack?.[0] as any),
+          targets: ['other-creature'],
+        } as any,
+      ],
+    } as any;
+    const blocked = checkSpellCastTriggers(blockedState, 'p1', 'guiding-spell', undefined, {
+      eventData: { chosenObjectIds: ['other-creature'] } as any,
+    });
+
+    expect(blocked.triggersAdded).toBe(0);
+    expect(blocked.oracleExecutions || 0).toBe(0);
+  });
+
+  it('checkSpellCastTriggers fans one instant cast across spell-cast, noncreature, and instant-or-sorcery seams', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'reservoir',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'reservoir-card',
+            name: 'Aetherflux Reservoir',
+            type_line: 'Artifact',
+            oracle_text: "Whenever you cast a spell, you gain 1 life for each spell you've cast this turn.",
+          },
+        } as any,
+        {
+          id: 'prowess-source',
+          controller: 'p1',
+          owner: 'p1',
+          counters: {},
+          power: 1,
+          toughness: 3,
+          basePower: 1,
+          baseToughness: 3,
+          card: {
+            id: 'prowess-source-card',
+            name: 'Jeskai Student',
+            type_line: 'Creature - Human Monk',
+            oracle_text: 'Prowess',
+            power: '1',
+            toughness: '3',
+          },
+        } as any,
+        {
+          id: 'spell-scholar',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'spell-scholar-card',
+            name: 'Spell Scholar',
+            type_line: 'Creature - Human Wizard',
+            oracle_text: 'Whenever you cast an instant or sorcery spell, draw a card.',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'opt-spell',
+          type: 'spell',
+          controller: 'p1',
+          card: {
+            id: 'opt-card',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+          },
+        } as any,
+      ],
+      spellsCastThisTurn: { p1: 2 },
+      noncreatureSpellsCastThisTurn: { p1: 2 },
+    } as any);
+
+    const result = checkSpellCastTriggers(start, 'p1');
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const prowessSource = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'prowess-source');
+    const prowessModifier = (Array.isArray(prowessSource?.modifiers) ? prowessSource.modifiers : []).find(
+      (modifier: any) => modifier?.type === 'powerToughness'
+    );
+
+    expect(result.triggersAdded).toBe(3);
+    expect(result.oracleExecutions).toBe(3);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(p1.life > 40).toBe(true);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['p1c1']);
+    expect(prowessModifier).toBeTruthy();
+  });
+
+  it('checkAttackTriggers executes Myriad against each other opponent but not the defending player', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'myriad-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          summoningSickness: false,
+          power: 4,
+          toughness: 4,
+          basePower: 4,
+          baseToughness: 4,
+          card: {
+            id: 'myriad-card',
+            name: 'Blade Envoy',
+            type_line: 'Creature - Human Warrior',
+            oracle_text: 'Myriad',
+            power: '4',
+            toughness: '4',
+          },
+        } as any,
+      ],
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p4', name: 'P4', seat: 3, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+
+    const result = checkAttackTriggers(start, [{ attackerId: 'myriad-perm', defendingPlayerId: 'p2' }]);
+    const tokens = (result.state.battlefield as any[]).filter((perm: any) => perm.isToken);
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(tokens).toHaveLength(2);
+    expect(tokens.map((token: any) => token.defendingPlayerId).sort()).toEqual(['p3', 'p4']);
+  });
+
+  it('checkAttackTriggers executes Annihilator against the defending player', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'annihilator-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'annihilator-card',
+            name: 'Void Colossus',
+            type_line: 'Creature - Eldrazi',
+            oracle_text: 'Annihilator 2',
+          },
+        },
+        {
+          id: 'p2creature',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'p2creature-card', name: 'Hill Giant', type_line: 'Creature - Giant' },
+        },
+        {
+          id: 'p2artifact',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'p2artifact-card', name: 'Sol Ring', type_line: 'Artifact' },
+        },
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+
+    const result = checkAttackTriggers(start, [{ attackerId: 'annihilator-perm', defendingPlayerId: 'p2' }]);
+    const p2 = result.state.players.find(player => player.id === 'p2') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(result.state.battlefield).toHaveLength(1);
+    expect((p2.graveyard || []).map((card: any) => card.id).sort()).toEqual(['p2artifact-card', 'p2creature-card']);
+  });
+
+  it('checkAttackTriggers executes Mobilize against the defending player', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'mobilize-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          card: {
+            id: 'mobilize-card',
+            name: 'Warhost Herald',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: 'Mobilize 3',
+          },
+        },
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+
+    const result = checkAttackTriggers(start, [{ attackerId: 'mobilize-perm', defendingPlayerId: 'p2' }]);
+    const tokens = (result.state.battlefield as any[]).filter((perm: any) => perm.isToken);
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(tokens).toHaveLength(3);
+    expect(tokens.every((token: any) => token.defendingPlayerId === 'p2')).toBe(true);
+  });
+
+  it('checkAttackTriggers executes Melee using the current set of players being attacked', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'melee-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          power: 3,
+          toughness: 3,
+          basePower: 3,
+          baseToughness: 3,
+          card: {
+            id: 'melee-source-card',
+            name: 'Bloodboil Marauder',
+            type_line: 'Creature - Human Berserker',
+            oracle_text: 'Melee',
+            power: '3',
+            toughness: '3',
+          },
+        } as any,
+        {
+          id: 'other-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p3',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p3',
+          summoningSickness: false,
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'other-attacker-card',
+            name: 'Support Raider',
+            type_line: 'Creature - Human Warrior',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+
+    const result = checkAttackTriggers(start, [
+      { attackerId: 'melee-source', defendingPlayerId: 'p2' },
+      { attackerId: 'other-attacker', defendingPlayerId: 'p3' },
+    ]);
+    const source = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'melee-source');
+    const ptMod = (Array.isArray(source?.modifiers) ? source.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(ptMod?.power).toBe(2);
+    expect(ptMod?.toughness).toBe(2);
+  });
+
+  it('checkAttackTriggers executes Dethrone when the defending player has the highest life total', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'dethrone-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'dethrone-source-card',
+            name: 'Marchesa Initiate',
+            type_line: 'Creature - Human Wizard',
+            oracle_text: 'Dethrone',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 30, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 35, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+
+    const result = checkAttackTriggers(start, [{ attackerId: 'dethrone-source', defendingPlayerId: 'p2' }]);
+    const source = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'dethrone-source');
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((source?.counters || {})['+1/+1']).toBe(1);
+  });
+
+  it('checkAttacksAloneTriggers executes Exalted on the lone attacker from event context', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'exalted-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          summoningSickness: false,
+          power: 1,
+          toughness: 1,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            id: 'exalted-source-card',
+            name: 'Akrasan Squire',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: 'Exalted',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+        {
+          id: 'solo-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'solo-attacker-card',
+            name: 'Lone Attacker',
+            type_line: 'Creature - Soldier',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ] as any,
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+
+    const result = checkAttacksAloneTriggers(start, 'solo-attacker');
+    const attacker = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'solo-attacker');
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(attacker?.power).toBe(3);
+    expect(attacker?.toughness).toBe(3);
+  });
+
+  it('checkAttackTriggers executes Training only when a larger allied attacker is also attacking', () => {
+    const withLargerAlly = makeState({
+      battlefield: [
+        {
+          id: 'training-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          counters: {},
+          power: 1,
+          toughness: 1,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            id: 'training-source-card',
+            name: 'Hopeful Initiate',
+            type_line: 'Creature - Human Warlock',
+            oracle_text: 'Training',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+        {
+          id: 'bigger-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p3',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p3',
+          summoningSickness: false,
+          power: 3,
+          toughness: 3,
+          basePower: 3,
+          baseToughness: 3,
+          card: {
+            id: 'bigger-attacker-card',
+            name: 'Bigger Ally',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: '',
+            power: '3',
+            toughness: '3',
+          },
+        } as any,
+      ],
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+    const withEqualAlly = makeState({
+      ...withLargerAlly,
+      battlefield: [
+        withLargerAlly.battlefield?.[0] as any,
+        {
+          ...((withLargerAlly.battlefield?.[1] as any) || {}),
+          id: 'equal-attacker',
+          power: 1,
+          toughness: 1,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            ...((((withLargerAlly.battlefield?.[1] as any) || {}).card || {}) as any),
+            id: 'equal-attacker-card',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+      ] as any,
+    });
+
+    const success = checkAttackTriggers(withLargerAlly, [
+      { attackerId: 'training-source', defendingPlayerId: 'p2' },
+      { attackerId: 'bigger-attacker', defendingPlayerId: 'p3' },
+    ]);
+    const successSource = (success.state.battlefield as any[]).find((perm: any) => perm.id === 'training-source');
+
+    expect(success.triggersAdded).toBe(1);
+    expect((success.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((successSource?.counters || {})['+1/+1']).toBe(1);
+
+    const blocked = checkAttackTriggers(withEqualAlly, [
+      { attackerId: 'training-source', defendingPlayerId: 'p2' },
+      { attackerId: 'equal-attacker', defendingPlayerId: 'p3' },
+    ]);
+    const blockedSource = (blocked.state.battlefield as any[]).find((perm: any) => perm.id === 'training-source');
+
+    expect(blocked.triggersAdded).toBe(0);
+    expect(blocked.oracleExecutions || 0).toBe(0);
+    expect((blockedSource?.counters || {})['+1/+1'] || 0).toBe(0);
+  });
+
+  it('checkAttackTriggers executes Mentor when exactly one smaller attacking creature is legal', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'mentor-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          counters: {},
+          power: 3,
+          toughness: 3,
+          basePower: 3,
+          baseToughness: 3,
+          card: {
+            id: 'mentor-source-card',
+            name: 'Fresh-Faced Recruit',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: 'Mentor',
+            power: '3',
+            toughness: '3',
+          },
+        } as any,
+        {
+          id: 'smaller-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          counters: {},
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'smaller-attacker-card',
+            name: 'Smaller Ally',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ],
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+
+    const result = checkAttackTriggers(start, [
+      { attackerId: 'mentor-source', defendingPlayerId: 'p2' },
+      { attackerId: 'smaller-attacker', defendingPlayerId: 'p2' },
+    ]);
+    const smallerAttacker = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'smaller-attacker');
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((smallerAttacker?.counters || {})['+1/+1']).toBe(1);
+  });
+
+  it('checkAttackTriggers executes Mentor for a chosen smaller attacker when multiple are legal', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'mentor-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          counters: {},
+          power: 4,
+          toughness: 4,
+          basePower: 4,
+          baseToughness: 4,
+          card: {
+            id: 'mentor-source-card',
+            name: 'Fresh-Faced Recruit',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: 'Mentor',
+            power: '4',
+            toughness: '4',
+          },
+        } as any,
+        {
+          id: 'first-smaller-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          counters: {},
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'first-smaller-attacker-card',
+            name: 'First Smaller Ally',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+        {
+          id: 'second-smaller-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          counters: {},
+          power: 1,
+          toughness: 1,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            id: 'second-smaller-attacker-card',
+            name: 'Second Smaller Ally',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: '',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+      ],
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+
+    const result = checkAttackTriggers(start, [
+      {
+        attackerId: 'mentor-source',
+        defendingPlayerId: 'p2',
+        eventData: {
+          targetCreatureId: 'second-smaller-attacker',
+          chosenObjectIds: ['second-smaller-attacker'],
+        } as any,
+      },
+      { attackerId: 'first-smaller-attacker', defendingPlayerId: 'p2' },
+      { attackerId: 'second-smaller-attacker', defendingPlayerId: 'p2' },
+    ]);
+    const firstSmallerAttacker = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'first-smaller-attacker');
+    const secondSmallerAttacker = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'second-smaller-attacker');
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((firstSmallerAttacker?.counters || {})['+1/+1'] || 0).toBe(0);
+    expect((secondSmallerAttacker?.counters || {})['+1/+1']).toBe(1);
+  });
+
+  it('checkAttackTriggers executes Battle cry by buffing each other attacker', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'battle-cry-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          power: 1,
+          toughness: 1,
+          basePower: 1,
+          baseToughness: 1,
+          card: {
+            id: 'battle-cry-source-card',
+            name: 'Signal Pest',
+            type_line: 'Artifact Creature - Pest',
+            oracle_text: 'Battle cry',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+        {
+          id: 'other-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          summoningSickness: false,
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'other-attacker-card',
+            name: 'Other Attacker',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+        {
+          id: 'non-attacker',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          summoningSickness: false,
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'non-attacker-card',
+            name: 'Non Attacker',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ],
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+
+    const result = checkAttackTriggers(start, [
+      { attackerId: 'battle-cry-source', defendingPlayerId: 'p2' },
+      { attackerId: 'other-attacker', defendingPlayerId: 'p2' },
+    ]);
+    const otherAttacker = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'other-attacker');
+    const nonAttacker = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'non-attacker');
+    const otherAttackerModifier = (Array.isArray(otherAttacker?.modifiers) ? otherAttacker.modifiers : []).find(
+      (modifier: any) => modifier?.type === 'powerToughness'
+    );
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(otherAttackerModifier?.power).toBe(1);
+    expect(otherAttackerModifier?.toughness).toBe(0);
+    expect(Array.isArray(nonAttacker?.modifiers) ? nonAttacker.modifiers : []).toHaveLength(0);
+  });
+
+  it('checkAttackTriggers executes Battalion only when two other allied creatures are attacking', () => {
+    const triggeringState = makeState({
+      battlefield: [
+        {
+          id: 'battalion-source',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'battalion-source-card',
+            name: 'Boros Elite',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: 'Battalion — Whenever this and at least two other creatures attack, this creature gets +2/+2 until end of turn.',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+        {
+          id: 'battalion-ally-1',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p2',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p2',
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: { id: 'battalion-ally-1-card', name: 'Ally One', type_line: 'Creature - Human Soldier', oracle_text: '', power: '2', toughness: '2' },
+        } as any,
+        {
+          id: 'battalion-ally-2',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          attacking: 'p3',
+          attackingPlayerId: 'p1',
+          defendingPlayerId: 'p3',
+          power: 1,
+          toughness: 1,
+          basePower: 1,
+          baseToughness: 1,
+          card: { id: 'battalion-ally-2-card', name: 'Ally Two', type_line: 'Creature - Human Soldier', oracle_text: '', power: '1', toughness: '1' },
+        } as any,
+      ],
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        { id: 'p3', name: 'P3', seat: 2, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+      ],
+    });
+    const blockedState = makeState({
+      ...triggeringState,
+      battlefield: [
+        triggeringState.battlefield?.[0] as any,
+        triggeringState.battlefield?.[1] as any,
+      ] as any,
+    });
+
+    const triggered = checkAttackTriggers(triggeringState, [
+      { attackerId: 'battalion-source', defendingPlayerId: 'p2' },
+      { attackerId: 'battalion-ally-1', defendingPlayerId: 'p2' },
+      { attackerId: 'battalion-ally-2', defendingPlayerId: 'p3' },
+    ]);
+    const triggeredSource = (triggered.state.battlefield as any[]).find((perm: any) => perm.id === 'battalion-source');
+    const triggeredModifier = (Array.isArray(triggeredSource?.modifiers) ? triggeredSource.modifiers : []).find(
+      (modifier: any) => modifier?.type === 'powerToughness'
+    );
+
+    expect(triggered.triggersAdded).toBe(1);
+    expect((triggered.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(triggeredModifier?.power).toBe(2);
+    expect(triggeredModifier?.toughness).toBe(2);
+
+    const blocked = checkAttackTriggers(blockedState, [
+      { attackerId: 'battalion-source', defendingPlayerId: 'p2' },
+      { attackerId: 'battalion-ally-1', defendingPlayerId: 'p2' },
+    ]);
+
+    expect(blocked.triggersAdded).toBe(0);
+    expect(blocked.oracleExecutions || 0).toBe(0);
+  });
+
   it('finds Cascade as a synthesized cast trigger on a spell on the stack', () => {
     const start = makeState({
       stack: [
@@ -1650,6 +3275,96 @@ describe('triggersHandler Oracle automation', () => {
     expect(equipment?.attachedTo).toBe(germ?.id);
   });
 
+  it('processTriggersAutoOracle resolves For Mirrodin! on self ETB by creating and attaching a Rebel token', () => {
+    const selfEtbState = makeState({
+      battlefield: [
+        {
+          id: 'bladehold-war-whip',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          counters: {},
+          card: {
+            id: 'bladehold-war-whip-card',
+            name: 'Bladehold War-Whip',
+            type_line: 'Artifact - Equipment',
+            oracle_text: 'For Mirrodin!',
+          },
+        } as any,
+      ],
+    });
+
+    const abilities = findTriggeredAbilities(selfEtbState).filter(ability => ability.sourceId === 'bladehold-war-whip');
+    const result = processTriggersAutoOracle(
+      selfEtbState,
+      TriggerEvent.ENTERS_BATTLEFIELD,
+      abilities,
+      {
+        sourceId: 'bladehold-war-whip',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'bladehold-war-whip',
+      }
+    );
+
+    const equipment = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'bladehold-war-whip');
+    const rebel = (result.state.battlefield as any[]).find((perm: any) => perm.id !== 'bladehold-war-whip');
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) >= 2).toBe(true);
+    expect(rebel?.isToken).toBe(true);
+    expect(rebel?.basePower).toBe(2);
+    expect(rebel?.baseToughness).toBe(2);
+    expect(rebel?.card?.colors).toContain('R');
+    expect(rebel?.controller).toBe('p1');
+    expect(equipment?.attachedTo).toBe(rebel?.id);
+  });
+
+  it('processTriggersAutoOracle resolves Job select on self ETB by creating and attaching a Hero token', () => {
+    const selfEtbState = makeState({
+      battlefield: [
+        {
+          id: 'black-mages-rod',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: false,
+          counters: {},
+          card: {
+            id: 'black-mages-rod-card',
+            name: "Black Mage's Rod",
+            type_line: 'Artifact - Equipment',
+            oracle_text: 'Job select',
+          },
+        } as any,
+      ],
+    });
+
+    const abilities = findTriggeredAbilities(selfEtbState).filter(ability => ability.sourceId === 'black-mages-rod');
+    const result = processTriggersAutoOracle(
+      selfEtbState,
+      TriggerEvent.ENTERS_BATTLEFIELD,
+      abilities,
+      {
+        sourceId: 'black-mages-rod',
+        sourceControllerId: 'p1',
+        targetPermanentId: 'black-mages-rod',
+      }
+    );
+
+    const equipment = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'black-mages-rod');
+    const hero = (result.state.battlefield as any[]).find((perm: any) => perm.id !== 'black-mages-rod');
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) >= 2).toBe(true);
+    expect(hero?.isToken).toBe(true);
+    expect(hero?.basePower).toBe(1);
+    expect(hero?.baseToughness).toBe(1);
+    expect(hero?.card?.colors || []).toEqual([]);
+    expect(hero?.controller).toBe('p1');
+    expect(equipment?.attachedTo).toBe(hero?.id);
+  });
+
   it('processTriggers uses resolutionEventData to recheck intervening-if during auto Oracle execution', () => {
     const start = makeState();
     const abilities = [
@@ -1841,6 +3556,53 @@ describe('triggersHandler Oracle automation', () => {
     expect((result.oracleStepsApplied || 0) > 0).toBe(true);
     expect(p2.life).toBe(38);
     expect(p3.life).toBe(40);
+  });
+
+  it('checkBecomesBlockedTriggers scopes Afflict independently for multiple blocked attackers', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'afflict-two',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: {
+            id: 'afflict-two-card',
+            name: 'Afflict Two',
+            type_line: 'Creature - Orc Pirate',
+            oracle_text: 'Afflict 2',
+            power: '3',
+            toughness: '2',
+          },
+        } as any,
+        {
+          id: 'afflict-three',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: {
+            id: 'afflict-three-card',
+            name: 'Afflict Three',
+            type_line: 'Creature - Horror',
+            oracle_text: 'Afflict 3',
+            power: '4',
+            toughness: '3',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkBecomesBlockedTriggers(start, [
+      { attackerId: 'afflict-two', defendingPlayerId: 'p2' },
+      { attackerId: 'afflict-three', defendingPlayerId: 'p3' },
+    ]);
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.triggersAdded).toBe(2);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(p2.life).toBe(38);
+    expect(p3.life).toBe(37);
   });
 
   it('checkCombatDamageToPlayerTriggers resolves Renown once for the matching attacker and then stops', () => {
@@ -2050,6 +3812,113 @@ describe('triggersHandler Oracle automation', () => {
     expect(p2.poisonCounters).toBe(3);
     expect((p2.counters || {}).poison).toBe(3);
     expect(p3.poisonCounters || 0).toBe(0);
+  });
+
+  it('checkCombatDamageToPlayerTriggers resolves Renown, Ingest, and Poisonous together in one combat batch', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'renown-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          counters: {},
+          power: 2,
+          toughness: 2,
+          basePower: 2,
+          baseToughness: 2,
+          card: {
+            id: 'renown-card',
+            name: 'Topan Freeblade',
+            type_line: 'Creature - Human Soldier',
+            oracle_text: 'Renown 1',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+        {
+          id: 'ingest-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: {
+            id: 'ingest-card',
+            name: 'Benthic Infiltrator',
+            type_line: 'Creature - Eldrazi Drone',
+            oracle_text: 'Ingest',
+            power: '1',
+            toughness: '4',
+          },
+        } as any,
+        {
+          id: 'poisonous-perm',
+          controller: 'p1',
+          owner: 'p1',
+          tapped: true,
+          card: {
+            id: 'poisonous-card',
+            name: 'Pit Scorpion',
+            type_line: 'Creature - Scorpion',
+            oracle_text: 'Poisonous 3',
+            power: '1',
+            toughness: '1',
+          },
+        } as any,
+      ],
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+          counters: {},
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+          counters: {},
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [{ id: 'p3c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+          counters: {},
+        } as any,
+      ],
+    });
+
+    const result = checkCombatDamageToPlayerTriggers(start, 'p1', [
+      { attackerId: 'renown-perm', defendingPlayerId: 'p2', damage: 2 },
+      { attackerId: 'ingest-perm', defendingPlayerId: 'p2', damage: 1 },
+      { attackerId: 'poisonous-perm', defendingPlayerId: 'p3', damage: 1 },
+    ]);
+    const renownSource = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'renown-perm');
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+    const p3 = result.state.players.find(p => p.id === 'p3') as any;
+
+    expect(result.triggersAdded).toBe(3);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((renownSource?.counters || {})['+1/+1']).toBe(1);
+    expect(renownSource?.isRenowned).toBe(true);
+    expect((p2.library || []).map((card: any) => card.id)).toEqual(['p2c2']);
+    expect((p2.exile || []).map((card: any) => card.id)).toEqual(['p2c1']);
+    expect(p3.poisonCounters).toBe(3);
+    expect((p3.counters || {}).poison).toBe(3);
   });
 
   it('processTriggersAutoOracle executes Training only when a larger allied attacker is also attacking', () => {
@@ -3272,6 +5141,276 @@ describe('triggersHandler Oracle automation', () => {
     expect(returned?.counters?.flying).toBe(1);
   });
 
+  it('checkDiesTriggers auto-executes Afterlife from the dead card now in the graveyard', () => {
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [
+            {
+              id: 'afterlife-perm',
+              name: 'Imperious Oligarch',
+              type_line: 'Creature - Human Cleric',
+              oracle_text: 'Afterlife 2',
+              power: '2',
+              toughness: '1',
+            },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = checkDiesTriggers(start, 'afterlife-perm', { autoExecuteOracle: true });
+    const spiritTokens = (result.state.battlefield || []).filter((perm: any) => perm?.isToken);
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(spiritTokens).toHaveLength(2);
+    expect(spiritTokens.every((perm: any) => perm.controller === 'p1')).toBe(true);
+  });
+
+  it('checkDiesTriggers auto-executes Undying from the dead card now in the graveyard', () => {
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [
+            {
+              id: 'young-wolf',
+              name: 'Young Wolf',
+              type_line: 'Creature - Wolf',
+              oracle_text: 'Undying',
+              power: '1',
+              toughness: '1',
+              counters: {},
+            },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+    });
+
+    const result = checkDiesTriggers(start, 'young-wolf', { autoExecuteOracle: true });
+    const returned = (result.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'young-wolf'
+    ) as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(returned?.controller).toBe('p1');
+    expect((returned?.counters || {})['+1/+1']).toBe(1);
+  });
+
+  it('checkDiesTriggers auto-executes controlled-creature death watchers like Luminous Broodmoth', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'broodmoth-1',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'broodmoth-card',
+            name: 'Luminous Broodmoth',
+            type_line: 'Creature - Insect',
+            oracle_text:
+              "Flying\nWhenever a creature you control without flying dies, return it to the battlefield under its owner's control with a flying counter on it.",
+            power: '3',
+            toughness: '4',
+          },
+        } as any,
+      ],
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [{ id: 'bear-1', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = checkDiesTriggers(start, 'bear-1', { autoExecuteOracle: true });
+    const returned = (result.state.battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || perm?.id || '') === 'bear-1'
+    ) as any;
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((p1.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect(returned?.controller).toBe('p1');
+    expect(returned?.counters?.flying).toBe(1);
+  });
+
+  it('checkDiesTriggers applies Athreos, God of Passage when the targeted opponent chooses to pay 3 life', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'athreos',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'athreos-card',
+            name: 'Athreos, God of Passage',
+            type_line: 'Legendary Enchantment Creature - God',
+            oracle_text: 'Whenever another creature you own dies, return it to your hand unless target opponent pays 3 life.',
+          },
+        } as any,
+      ],
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [{ id: 'dead-cleric', name: 'Dead Cleric', type_line: 'Creature - Cleric', power: '2', toughness: '2' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 5,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = checkDiesTriggers(start, 'dead-cleric', {
+      autoExecuteOracle: true,
+      eventData: {
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p1',
+        targetOpponentId: 'p2',
+        chosenObjectIds: ['dead-cleric'],
+        permanentTypes: ['Creature'],
+        creatureTypes: ['Cleric'],
+        unlessPaysLifeChoice: 'pay',
+      } as any,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.graveyard || []).map((card: any) => card.id)).toEqual(['dead-cleric']);
+    expect(p2.life).toBe(2);
+  });
+
+  it('checkDiesTriggers applies Athreos, God of Passage when the targeted opponent declines to pay 3 life', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'athreos',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'athreos-card',
+            name: 'Athreos, God of Passage',
+            type_line: 'Legendary Enchantment Creature - God',
+            oracle_text: 'Whenever another creature you own dies, return it to your hand unless target opponent pays 3 life.',
+          },
+        } as any,
+      ],
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [{ id: 'dead-cleric', name: 'Dead Cleric', type_line: 'Creature - Cleric', power: '2', toughness: '2' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 5,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+    });
+
+    const result = checkDiesTriggers(start, 'dead-cleric', {
+      autoExecuteOracle: true,
+      eventData: {
+        sourceControllerId: 'p2',
+        sourceOwnerId: 'p1',
+        targetOpponentId: 'p2',
+        chosenObjectIds: ['dead-cleric'],
+        permanentTypes: ['Creature'],
+        creatureTypes: ['Cleric'],
+        unlessPaysLifeChoice: 'decline',
+      } as any,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['dead-cleric']);
+    expect((p1.graveyard || []).map((card: any) => card.id)).toEqual([]);
+    expect(p2.life).toBe(5);
+  });
+
   it('checkDrawTriggers binds "that player" to the drawing opponent in opponent-draw context', () => {
     const start = makeState({
       battlefield: [
@@ -3297,6 +5436,718 @@ describe('triggersHandler Oracle automation', () => {
     expect(p1.life).toBe(40);
     expect(p2.life).toBe(39);
     expect(p3.life).toBe(40);
+  });
+
+  it('checkDrawTriggers lets the drawing opponent pay for Smothering Tithe and skip the Treasure token', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'smothering-tithe',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'smothering-tithe-card',
+            name: 'Smothering Tithe',
+            type_line: 'Enchantment',
+            oracle_text: 'Whenever an opponent draws a card, that player may pay {2}. If they do not, create a Treasure token.',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkDrawTriggers(start, 'p2', true, {
+      allowOptional: true,
+      eventData: { unlessPaysLifeChoice: 'pay' } as any,
+    });
+    const treasures = (result.state.battlefield || []).filter((perm: any) => perm?.card?.name === 'Treasure');
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect(treasures).toHaveLength(0);
+  });
+
+  it('checkDrawTriggers creates a Treasure token for Smothering Tithe when the drawing opponent declines to pay', () => {
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'smothering-tithe',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'smothering-tithe-card',
+            name: 'Smothering Tithe',
+            type_line: 'Enchantment',
+            oracle_text: 'Whenever an opponent draws a card, that player may pay {2}. If they do not, create a Treasure token.',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkDrawTriggers(start, 'p2', true, {
+      allowOptional: true,
+      eventData: { unlessPaysLifeChoice: 'decline' } as any,
+    });
+    const treasures = (result.state.battlefield || []).filter((perm: any) => perm?.card?.name === 'Treasure');
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(treasures.length > 0).toBe(true);
+  });
+
+  it('checkStepTriggers auto-executes beginning-of-combat triggers for the active player', () => {
+    const start = makeState({
+      turnPlayer: 'p1',
+      activePlayerIndex: 0 as any,
+      battlefield: [
+        {
+          id: 'warboss',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'warboss-card',
+            name: 'Legion Warboss',
+            type_line: 'Creature - Goblin Soldier',
+            oracle_text: 'At the beginning of combat on your turn, create a 1/1 red Goblin creature token.',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+        {
+          id: 'other-warboss',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'other-warboss-card',
+            name: 'Legion Warboss',
+            type_line: 'Creature - Goblin Soldier',
+            oracle_text: 'At the beginning of combat on your turn, create a 1/1 red Goblin creature token.',
+            power: '2',
+            toughness: '2',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkStepTriggers(start, TriggerEvent.BEGINNING_OF_COMBAT, 'p1', {
+      autoExecuteOracle: true,
+    });
+    const goblins = (result.state.battlefield || []).filter((perm: any) => perm?.card?.name === 'Goblin');
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(goblins).toHaveLength(1);
+    expect(goblins[0]?.controller).toBe('p1');
+  });
+
+  it('checkStepTriggers consumes delayed next-combat triggers at beginning of combat', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'combat-rally',
+      'Combat Rally',
+      'p1',
+      DelayedTriggerTiming.NEXT_COMBAT,
+      'Draw a card.',
+      5,
+      {
+        eventDataSnapshot: {
+          sourceId: 'combat-rally',
+          sourceControllerId: 'p1',
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      turnPlayer: 'p1',
+      activePlayerIndex: 0 as any,
+      turnNumber: 6 as any,
+      delayedTriggerRegistry: delayedRegistry as any,
+    });
+
+    const result = checkStepTriggers(start, TriggerEvent.BEGINNING_OF_COMBAT, 'p1', {
+      autoExecuteOracle: true,
+      delayedTriggerRegistry: delayedRegistry,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['p1c1']);
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkStepTriggers auto-executes only the active player\'s "your upkeep" triggers', () => {
+    const start = makeState({
+      turnPlayer: 'p1',
+      activePlayerIndex: 0 as any,
+      battlefield: [
+        {
+          id: 'arena-p1',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'arena-p1-card',
+            name: 'Phyrexian Arena',
+            type_line: 'Enchantment',
+            oracle_text: 'At the beginning of your upkeep, draw a card.',
+          },
+        } as any,
+        {
+          id: 'arena-p2',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'arena-p2-card',
+            name: 'Phyrexian Arena',
+            type_line: 'Enchantment',
+            oracle_text: 'At the beginning of your upkeep, draw a card.',
+          },
+        } as any,
+      ],
+    });
+
+    const result = checkStepTriggers(start, TriggerEvent.BEGINNING_OF_UPKEEP, 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const p2 = result.state.players.find(p => p.id === 'p2') as any;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['p1c1']);
+    expect((p2.hand || []).map((card: any) => card.id)).toEqual([]);
+  });
+
+  it('checkStepTriggers consumes delayed your-next-upkeep triggers and grants rebound-style exile permission', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'staggershock',
+      'Staggershock',
+      'p1',
+      DelayedTriggerTiming.YOUR_NEXT_UPKEEP,
+      'You may cast this card from exile without paying its mana cost.',
+      5,
+      {
+        eventDataSnapshot: {
+          sourceId: 'staggershock',
+          sourceControllerId: 'p1',
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      turnPlayer: 'p1',
+      activePlayerIndex: 0 as any,
+      turnNumber: 6 as any,
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }, { id: 'p1c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [
+            {
+              id: 'staggershock',
+              name: 'Staggershock',
+              type_line: 'Instant',
+              oracle_text: 'Staggershock deals 2 damage to any target.\nRebound',
+              mana_cost: '{2}{R}',
+            },
+          ],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }, { id: 'p2c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p3',
+          name: 'P3',
+          seat: 2,
+          life: 40,
+          library: [{ id: 'p3c1' }, { id: 'p3c2' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const result = checkStepTriggers(start, TriggerEvent.BEGINNING_OF_UPKEEP, 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const reboundCard = (p1.exile || []).find((card: any) => card.id === 'staggershock');
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(reboundCard?.canBePlayedBy).toBe('p1');
+    expect(reboundCard?.withoutPayingManaCost).toBe(true);
+    expect((result.state as any).playableFromExile?.p1?.staggershock).toBe(6);
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkStepTriggers auto-executes delayed next-end-step sacrifice cleanup for bound tokens', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'mobilize-source',
+      'Warhost Herald',
+      'p1',
+      DelayedTriggerTiming.NEXT_END_STEP,
+      'Sacrifice those tokens.',
+      9,
+      {
+        eventDataSnapshot: {
+          sourceId: 'mobilize-source',
+          sourceControllerId: 'p1',
+          chosenObjectIds: ['bound-token-a', 'bound-token-b'],
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      turnPlayer: 'p2',
+      activePlayerIndex: 1 as any,
+      turnNumber: 10 as any,
+      battlefield: [
+        {
+          id: 'bound-token-a',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'bound-token-a-card', name: 'Warrior', type_line: 'Token Creature - Warrior' },
+        } as any,
+        {
+          id: 'bound-token-b',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'bound-token-b-card', name: 'Warrior', type_line: 'Token Creature - Warrior' },
+        } as any,
+        {
+          id: 'unbound-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'unbound-token-card', name: 'Warrior', type_line: 'Token Creature - Warrior' },
+        } as any,
+      ],
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const result = checkStepTriggers(start, TriggerEvent.BEGINNING_OF_END_STEP, 'p2', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+
+    const battlefieldIds = (result.state.battlefield || []).map((perm: any) => perm.id);
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(battlefieldIds).toEqual(['unbound-token']);
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkStepTriggers auto-executes delayed end-of-combat exile cleanup for bound tokens', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'myriad-source',
+      'Battle Charger',
+      'p1',
+      DelayedTriggerTiming.END_OF_COMBAT,
+      'Exile those tokens.',
+      10,
+      {
+        eventDataSnapshot: {
+          sourceId: 'myriad-source',
+          sourceControllerId: 'p1',
+          chosenObjectIds: ['bound-token-a', 'bound-token-b'],
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      turnPlayer: 'p1',
+      activePlayerIndex: 0 as any,
+      turnNumber: 10 as any,
+      battlefield: [
+        {
+          id: 'bound-token-a',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'bound-token-a-card', name: 'Elemental', type_line: 'Token Creature - Elemental' },
+        } as any,
+        {
+          id: 'bound-token-b',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'bound-token-b-card', name: 'Elemental', type_line: 'Token Creature - Elemental' },
+        } as any,
+        {
+          id: 'unbound-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'unbound-token-card', name: 'Elemental', type_line: 'Token Creature - Elemental' },
+        } as any,
+      ],
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const result = checkStepTriggers(start, TriggerEvent.END_OF_COMBAT, 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+
+    const battlefieldIds = (result.state.battlefield || []).map((perm: any) => perm.id);
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(battlefieldIds).toEqual(['unbound-token']);
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkStepTriggers only fires delayed your-next-end-step cleanup on that controller\'s end step', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'dash-source',
+      'Ball Lightning',
+      'p1',
+      DelayedTriggerTiming.YOUR_NEXT_END_STEP,
+      'You sacrifice that creature.',
+      11,
+      {
+        eventDataSnapshot: {
+          sourceId: 'dash-source',
+          sourceControllerId: 'p1',
+          targetPermanentId: 'self-cleanup-creature',
+          chosenObjectIds: ['self-cleanup-creature'],
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      turnPlayer: 'p2',
+      activePlayerIndex: 1 as any,
+      turnNumber: 11 as any,
+      battlefield: [
+        {
+          id: 'self-cleanup-creature',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'self-cleanup-card', name: 'Ball Lightning', type_line: 'Creature - Elemental' },
+        } as any,
+      ],
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const noFire = checkStepTriggers(start, TriggerEvent.BEGINNING_OF_END_STEP, 'p2', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+
+    expect(noFire.triggersAdded).toBe(0);
+    expect(noFire.oracleExecutions).toBe(0);
+    expect((noFire.state.battlefield || []).map((perm: any) => perm.id)).toEqual(['self-cleanup-creature']);
+    expect(((noFire.state as any).delayedTriggerRegistry?.triggers || []).map((trigger: any) => trigger.id)).toEqual([
+      delayedTrigger.id,
+    ]);
+
+    const fire = checkStepTriggers(noFire.state as any, TriggerEvent.BEGINNING_OF_END_STEP, 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+    const updatedRegistry = (fire.state as any).delayedTriggerRegistry;
+
+    expect(fire.triggersAdded).toBe(1);
+    expect(fire.oracleExecutions).toBe(1);
+    expect((fire.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(fire.state.battlefield).toHaveLength(0);
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkStepTriggers auto-executes delayed next-cleanup-step sacrifice cleanup', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'cleanup-aura',
+      'Test Aura',
+      'p1',
+      DelayedTriggerTiming.NEXT_CLEANUP,
+      'You sacrifice this Aura.',
+      12,
+      {
+        eventDataSnapshot: {
+          sourceId: 'cleanup-aura',
+          sourceControllerId: 'p1',
+          targetPermanentId: 'cleanup-aura',
+          chosenObjectIds: ['cleanup-aura'],
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      turnPlayer: 'p1',
+      activePlayerIndex: 0 as any,
+      turnNumber: 12 as any,
+      battlefield: [
+        {
+          id: 'cleanup-aura',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'cleanup-aura-card', name: 'Test Aura', type_line: 'Enchantment - Aura' },
+        } as any,
+      ],
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const result = checkStepTriggers(start, TriggerEvent.CLEANUP_STEP, 'p1', {
+      autoExecuteOracle: true,
+      allowOptional: true,
+    });
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(result.state.battlefield).toHaveLength(0);
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkStepTriggers keeps repeating each-end-step delayed triggers registered after they fire', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'court-source',
+      'Court Trigger',
+      'p1',
+      DelayedTriggerTiming.EACH_END_STEP,
+      'Draw a card.',
+      12,
+      {
+        oneShot: false,
+        eventDataSnapshot: {
+          sourceId: 'court-source',
+          sourceControllerId: 'p1',
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      turnPlayer: 'p2',
+      activePlayerIndex: 1 as any,
+      turnNumber: 13 as any,
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const result = checkStepTriggers(start, TriggerEvent.BEGINNING_OF_END_STEP, 'p2', {
+      autoExecuteOracle: true,
+    });
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['p1c1']);
+    expect(updatedRegistry?.triggers || []).toHaveLength(1);
+    expect(updatedRegistry?.triggers?.[0]?.id).toBe(delayedTrigger.id);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkDelayedEventTriggers auto-executes watched dies delayed triggers', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'fake-your-own-death',
+      'Fake Your Own Death',
+      'p1',
+      DelayedTriggerTiming.WHEN_DIES,
+      "Return it to the battlefield under its owner's control, then create a Treasure token.",
+      9,
+      {
+        watchingPermanentId: 'bear',
+        eventDataSnapshot: {
+          sourceId: 'bear',
+          sourceControllerId: 'p1',
+          sourceOwnerId: 'p1',
+          targetPermanentId: 'bear',
+          chosenObjectIds: ['bear'],
+          permanentTypes: ['Creature'],
+          creatureTypes: ['Bear'],
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [{ id: 'bear', name: 'Test Bear', type_line: 'Creature - Bear', power: '2', toughness: '2' }],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [],
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const result = checkDelayedEventTriggers(start, { type: 'dies', permanentId: 'bear' }, {
+      autoExecuteOracle: true,
+    });
+    const battlefieldNames = (result.state.battlefield || []).map((perm: any) => String(perm?.card?.name || perm?.id || ''));
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(battlefieldNames).toContain('Test Bear');
+    expect(battlefieldNames).toContain('Treasure');
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkDelayedEventTriggers auto-executes watched control-loss delayed triggers', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'seraph-source',
+      'Seraph',
+      'p1',
+      DelayedTriggerTiming.WHEN_CONTROL_LOST,
+      'Sacrifice that creature.',
+      8,
+      {
+        watchingPermanentId: 'seraph-source',
+        eventDataSnapshot: {
+          sourceId: 'seraph-source',
+          sourceControllerId: 'p1',
+          targetPermanentId: 'borrowed-creature',
+          chosenObjectIds: ['borrowed-creature'],
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'seraph-source',
+          controller: 'p2',
+          owner: 'p1',
+          card: { id: 'seraph-card', name: 'Seraph', type_line: 'Creature - Angel' },
+        } as any,
+        {
+          id: 'borrowed-creature',
+          controller: 'p1',
+          owner: 'p2',
+          card: { id: 'borrowed-card', name: 'Borrowed Bear', type_line: 'Creature - Bear' },
+        } as any,
+      ],
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const result = checkDelayedEventTriggers(start, {
+      type: 'control_lost',
+      permanentId: 'seraph-source',
+      playerId: 'p1',
+    }, {
+      autoExecuteOracle: true,
+    });
+    const battlefieldIds = (result.state.battlefield || []).map((perm: any) => perm.id);
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(battlefieldIds).toEqual(['seraph-source']);
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
+  });
+
+  it('checkDelayedEventTriggers auto-executes watched leaves-the-battlefield delayed triggers', () => {
+    const delayedTrigger = createDelayedTrigger(
+      'stangg-perm',
+      'Stangg',
+      'p1',
+      DelayedTriggerTiming.WHEN_LEAVES,
+      'Sacrifice that token.',
+      8,
+      {
+        watchingPermanentId: 'stangg-token',
+        eventDataSnapshot: {
+          sourceId: 'stangg-perm',
+          sourceControllerId: 'p1',
+          targetPermanentId: 'stangg-perm',
+          chosenObjectIds: ['stangg-perm'],
+        } as any,
+      }
+    );
+    const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
+    const start = makeState({
+      battlefield: [
+        {
+          id: 'stangg-perm',
+          controller: 'p1',
+          owner: 'p1',
+          card: { id: 'stangg-card', name: 'Stangg', type_line: 'Legendary Creature - Human Warrior' },
+        } as any,
+        {
+          id: 'stangg-token',
+          controller: 'p1',
+          owner: 'p1',
+          isToken: true,
+          card: { id: 'stangg-token-card', name: 'Stangg Twin', type_line: 'Legendary Creature - Human Warrior' },
+        } as any,
+      ],
+      delayedTriggerRegistry: delayedRegistry as any,
+    } as any);
+
+    const result = checkDelayedEventTriggers(start, {
+      type: 'permanent_left',
+      permanentId: 'stangg-token',
+    }, {
+      autoExecuteOracle: true,
+    });
+    const battlefieldIds = (result.state.battlefield || []).map((perm: any) => perm.id);
+    const updatedRegistry = (result.state as any).delayedTriggerRegistry;
+
+    expect(result.triggersAdded).toBe(1);
+    expect(result.oracleExecutions).toBe(1);
+    expect((result.oracleStepsApplied || 0) > 0).toBe(true);
+    expect(battlefieldIds).toEqual(['stangg-token']);
+    expect(updatedRegistry?.triggers || []).toHaveLength(0);
+    expect(updatedRegistry?.firedTriggerIds || []).toContain(delayedTrigger.id);
   });
 
   it('processTriggers auto-executes Merrow Reejerey untap when trigger context provides target permanent and choice', () => {
@@ -3339,6 +6190,30 @@ describe('triggersHandler Oracle automation', () => {
     expect(nykthos.tapped).toBe(false);
   });
 
+  it('checkTribalCastTriggers treats changeling creature spells as matching tribal cast triggers', () => {
+    const start = makeMerfolkIterationState();
+    const startingTokenCount = ((start.battlefield || []) as any[]).filter((perm: any) => perm?.isToken).length;
+
+    const result = checkTribalCastTriggers(
+      start,
+      {
+        name: 'Universal Automaton',
+        type_line: 'Artifact Creature - Shapeshifter',
+        oracle_text: 'Changeling',
+        power: '1',
+        toughness: '1',
+      } as any,
+      'p1'
+    );
+
+    const createdTokens = ((result.state as any).battlefield || []).filter((perm: any) => perm?.isToken);
+
+    expect(result.triggersAdded).toBe(2);
+    expect(createdTokens.length - startingTokenCount).toBe(4);
+    expect(result.logs.some(x => x.includes('Deeproot Waters triggered from casting Universal Automaton'))).toBe(true);
+    expect(result.logs.some(x => x.includes('Merrow Reejerey triggered from casting Universal Automaton'))).toBe(true);
+  });
+
   it('checkTribalCastTriggers uses the merfolk iteration fixture to stack Deeproot Waters token doublers', () => {
     const start = makeMerfolkIterationState();
     const startingTokenCount = ((start.battlefield || []) as any[]).filter((perm: any) => perm?.isToken).length;
@@ -3362,5 +6237,26 @@ describe('triggersHandler Oracle automation', () => {
     expect(result.logs.some(x => x.includes('Deeproot Waters triggered from casting Summon the School'))).toBe(true);
     expect(result.logs.some(x => x.includes('Merrow Reejerey triggered from casting Summon the School'))).toBe(true);
     expect((result.oracleStepsSkipped || 0) > 0).toBe(true);
+  });
+
+  it('checkTribalCastTriggers ignores nonmatching creature spells', () => {
+    const start = makeMerfolkIterationState();
+
+    const result = checkTribalCastTriggers(
+      start,
+      {
+        name: 'Silvercoat Lion',
+        type_line: 'Creature - Cat',
+        oracle_text: '',
+        power: '2',
+        toughness: '2',
+      } as any,
+      'p1'
+    );
+
+    expect(result.triggersAdded).toBe(0);
+    expect((result.state.battlefield || []).filter((perm: any) => perm?.isToken)).toHaveLength(0);
+    expect(result.logs.some(x => x.includes('Deeproot Waters'))).toBe(false);
+    expect(result.logs.some(x => x.includes('Merrow Reejerey'))).toBe(false);
   });
 });

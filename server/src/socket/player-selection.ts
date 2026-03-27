@@ -53,6 +53,62 @@ export interface PlayerSelectionEffectData {
   ) => void;
 }
 
+function getActiveTurnOrder(state: any): string[] {
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const activePlayerIds = players
+    .filter((player: any) => player?.id && !player?.hasLost)
+    .map((player: any) => String(player.id));
+
+  const ordered = Array.isArray(state?.turnOrder)
+    ? state.turnOrder.map((playerId: any) => String(playerId)).filter((playerId: string) => activePlayerIds.includes(playerId))
+    : [];
+
+  for (const playerId of activePlayerIds) {
+    if (!ordered.includes(playerId)) {
+      ordered.push(playerId);
+    }
+  }
+
+  return ordered;
+}
+
+function getNextTurnNumberForPlayer(state: any, playerId: PlayerID): number {
+  const currentTurn = Number(state?.turnNumber ?? state?.turn ?? 0) || 0;
+  const targetPlayerId = String(playerId || '');
+  if (!targetPlayerId) {
+    return currentTurn + 1;
+  }
+
+  const extraTurns = Array.isArray(state?.extraTurns) ? state.extraTurns : [];
+  const extraTurnIndex = extraTurns.findIndex((entry: any) => String(entry?.playerId || '') === targetPlayerId);
+  if (extraTurnIndex >= 0) {
+    return currentTurn + extraTurnIndex + 1;
+  }
+
+  const turnOrder = getActiveTurnOrder(state);
+  if (turnOrder.length === 0) {
+    return currentTurn + 1;
+  }
+
+  const currentPlayerId = String(state?.turnPlayer || turnOrder[0] || '');
+  const currentIndex = turnOrder.indexOf(currentPlayerId);
+  const targetIndex = turnOrder.indexOf(targetPlayerId);
+  if (currentIndex < 0 || targetIndex < 0) {
+    return currentTurn + 1;
+  }
+
+  const turnDirection = Number(state?.turnDirection) === -1 ? -1 : 1;
+  let stepsUntilTurn = turnDirection === -1
+    ? (currentIndex - targetIndex + turnOrder.length) % turnOrder.length
+    : (targetIndex - currentIndex + turnOrder.length) % turnOrder.length;
+
+  if (stepsUntilTurn === 0) {
+    stepsUntilTurn = turnOrder.length;
+  }
+
+  return currentTurn + extraTurns.length + stepsUntilTurn;
+}
+
 /**
  * Pending player selection request
  */
@@ -193,6 +249,7 @@ export function applyPlayerSelectionEffect(
   if (!game) return;
   
   const battlefield = game.state?.battlefield || [];
+  let appliedGoadExpiryTurn: number | undefined;
   
   switch (effectData.type) {
     case 'set_chosen_player': {
@@ -218,15 +275,15 @@ export function applyPlayerSelectionEffect(
           
           // Apply goad if specified
           if (effectData.goadsOnChange) {
-            const currentTurn = (game.state as any).turnNumber || (game.state as any).turn || 0;
             const goadedBy = (permanent as any).goadedBy || [];
             const goadedUntil = (permanent as any).goadedUntil || {};
             
             if (!goadedBy.includes(choosingPlayerId)) {
+              appliedGoadExpiryTurn = getNextTurnNumberForPlayer(game.state, choosingPlayerId);
               (permanent as any).goadedBy = [...goadedBy, choosingPlayerId];
               (permanent as any).goadedUntil = {
                 ...goadedUntil,
-                [choosingPlayerId]: currentTurn + 2, // Goaded until their next turn
+                [choosingPlayerId]: appliedGoadExpiryTurn,
               };
             }
           }
@@ -314,6 +371,17 @@ export function applyPlayerSelectionEffect(
     cardName,
     effectType: effectData.type,
     permanentId: effectData.permanentId,
+    effectData: {
+      type: effectData.type,
+      permanentId: effectData.permanentId,
+      spellId: effectData.spellId,
+      abilityId: effectData.abilityId,
+      goadsOnChange: effectData.goadsOnChange === true,
+      mustAttackEachCombat: effectData.mustAttackEachCombat === true,
+      cantAttackOwner: effectData.cantAttackOwner === true,
+      drawCards: Number(effectData.drawCards || 0),
+    },
+    goadExpiryTurn: appliedGoadExpiryTurn,
     wasTimeout,
   });
   
