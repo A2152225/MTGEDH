@@ -153,6 +153,57 @@ describe('unearth graveyard replay semantics (integration)', () => {
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
   });
 
+  it('replays persisted unearth life payments on non-cast graveyard branches', () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'unearth_card_1',
+            name: 'Hellspark Elemental',
+            type_line: 'Creature - Elemental',
+            oracle_text: 'Trample, haste\nUnearth {1}{R}',
+            power: '3',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'unearth_card_1',
+      abilityId: 'unearth',
+      manaCost: '{1}{R}',
+      lifePaidForCost: 2,
+      createdPermanentIds: ['perm_unearth_live_2'],
+    });
+
+    expect((game.state as any).life?.[playerId]).toBe(38);
+    expect((game.state as any).lifeLostThisTurn?.[playerId]).toBe(2);
+    expect((game.state as any).battlefield[0]?.id).toBe('perm_unearth_live_2');
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
   it('falls back to deterministic unearth permanent ids for legacy events without created ids', () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

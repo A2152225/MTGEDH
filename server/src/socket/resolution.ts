@@ -41,6 +41,7 @@ import type { PlayerID } from "../../../shared/src/types.js";
 import { isShockLand } from "./land-helpers.js";
 import type { GameContext } from "../state/context.js";
 import { handleKynaiosChoiceResponse as handleKynaiosChoiceResponseBatched } from "../state/resolution/handlers/kynaiosChoice.js";
+import { applyTriggerOrderToStack } from "../state/resolution/handlers/triggerOrder.js";
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
@@ -52,6 +53,7 @@ import { creatureHasHaste, formatManaCostWithReduction, requestCastSpellForSocke
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
+import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
@@ -13791,42 +13793,27 @@ function handleTriggerOrderResponse(
   // Triggers from other players may already be above these in the stack. We must not
   // remove-and-push (which would move them to the very top). Instead, reorder in-place
   // within the stack slots currently occupied by the chosen triggers.
-  const stack = game.state?.stack || [];
+  const count = applyTriggerOrderToStack(game.state, orderedTriggerIds);
 
-  const itemsById = new Map<string, any>();
-  const indices: number[] = [];
-
-  for (const triggerId of orderedTriggerIds) {
-    const idx = stack.findIndex((item: any) => item?.id === triggerId || item?.triggerId === triggerId);
-    if (idx === -1) continue;
-    indices.push(idx);
-    itemsById.set(triggerId, stack[idx]);
-  }
-
-  if (indices.length === 0) {
+  if (count === 0) {
     debugWarn(2, `[Resolution] No trigger items found on stack to reorder`);
     debug(1, `[Resolution] Trigger order: ${orderedTriggerIds?.join(', ')}`);
     return;
   }
 
-  // Preserve the set of stack positions currently used by these triggers.
-  const targetIndices = indices.slice().sort((a, b) => a - b);
-
-  // Place items so that orderedTriggerIds[0] resolves first.
-  // That means it must be the top-most among these triggers (highest index).
-  const placementOrder = orderedTriggerIds
-    .map((id) => itemsById.get(id))
-    .filter(Boolean)
-    .reverse();
-
-  const count = Math.min(targetIndices.length, placementOrder.length);
-  for (let i = 0; i < count; i++) {
-    stack[targetIndices[i]] = placementOrder[i];
-  }
-
   debug(1, `[Resolution] Reordered ${count} triggers on stack (in-place)`);
   
   debug(1, `[Resolution] Trigger order: ${orderedTriggerIds?.join(', ')}`);
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'triggerOrderResponse', {
+      stepId: String((step as any).id || ''),
+      playerId: pid,
+      orderedTriggerIds: orderedTriggerIds.map((id: any) => String(id || '')).filter(Boolean),
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(triggerOrderResponse) failed:', err);
+  }
   
   // Clear legacy pending state if present
   if (game.state.pendingTriggerOrdering?.[pid]) {
@@ -14185,6 +14172,7 @@ function handleJoinForcesResponse(
   const cardName = stepData.cardName || step.sourceName || 'Join Forces';
   const initiator = stepData.initiator;
   const availableMana = stepData.availableMana || 0;
+  const tappedPermanentIds: string[] = [];
   
   // Validate contribution doesn't exceed available mana
   if (contribution > availableMana) {
@@ -14214,6 +14202,7 @@ function handleJoinForcesResponse(
         if (!typeLine.includes('land')) continue;
 
         perm.tapped = true;
+        tappedPermanentIds.push(String(perm.id));
         remaining -= globalLandExtra ? 2 : 1;
       }
 
@@ -14238,6 +14227,7 @@ function handleJoinForcesResponse(
           }
 
           perm.tapped = true;
+          tappedPermanentIds.push(String(perm.id));
           remaining -= 1;
         }
       }
@@ -14262,6 +14252,19 @@ function handleJoinForcesResponse(
   };
   game.state.joinForcesContributions[cardName].total += contribution;
   game.state.joinForcesContributions[cardName].byPlayer[pid] = contribution;
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'joinForcesContribution', {
+      stepId: String((step as any).id || ''),
+      playerId: pid,
+      cardName,
+      initiator,
+      contribution,
+      tappedPermanentIds,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(joinForcesContribution) failed:', err);
+  }
   
   // Notify players of the contribution
   io.to(gameId).emit("chat", {
@@ -14286,7 +14289,19 @@ function handleJoinForcesResponse(
     const contributions = game.state.joinForcesContributions[cardName];
     const total = contributions.total;
     
-    applyJoinForcesEffect(io, game, gameId, cardName, total, contributions.byPlayer, initiator);
+    const completionPayload = applyJoinForcesEffect(io, game, gameId, cardName, total, contributions.byPlayer, initiator);
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'joinForcesComplete', {
+        cardName,
+        initiator,
+        totalContributions: total,
+        byPlayer: { ...(contributions.byPlayer || {}) },
+        ...(completionPayload || {}),
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(joinForcesComplete) failed:', err);
+    }
     
     // Clean up
     delete game.state.joinForcesContributions[cardName];
@@ -14308,10 +14323,11 @@ function applyJoinForcesEffect(
   totalContributions: number,
   byPlayer: Record<string, number>,
   initiator: string
-): void {
+): Record<string, any> | undefined {
   const cardNameLower = cardName.toLowerCase();
   const players = game.state?.players || [];
   const battlefield = game.state.battlefield = game.state.battlefield || [];
+  const result: Record<string, any> = {};
   
   debug(1, `[Resolution] Applying Join Forces effect: ${cardName} with ${totalContributions} total mana`);
   
@@ -14369,8 +14385,10 @@ function applyJoinForcesEffect(
   }
   // Alliance of Arms: Each player creates X Soldier tokens
   else if (cardNameLower.includes('alliance of arms')) {
+    const createdPermanentIdsByPlayer: Record<string, string[]> = {};
     for (const p of players) {
       if (p.hasLost) continue;
+      createdPermanentIdsByPlayer[String(p.id)] = [];
       for (let i = 0; i < totalContributions; i++) {
         const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${i}`;
         battlefield.push({
@@ -14389,8 +14407,10 @@ function applyJoinForcesEffect(
             colors: ['W'],
           },
         });
+        createdPermanentIdsByPlayer[String(p.id)].push(tokenId);
       }
     }
+    result.createdPermanentIdsByPlayer = createdPermanentIdsByPlayer;
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -14416,6 +14436,8 @@ function applyJoinForcesEffect(
       ts: Date.now(),
     });
   }
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 /**
@@ -14459,6 +14481,18 @@ function handleTemptingOfferResponse(
   if (accepted) {
     game.state.temptingOfferResponses[cardName].acceptedBy.push(pid);
   }
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'temptingOfferResponse', {
+      stepId: String((step as any).id || ''),
+      playerId: pid,
+      cardName,
+      initiator,
+      accepted,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(temptingOfferResponse) failed:', err);
+  }
   
   // Notify players of the response
   io.to(gameId).emit("chat", {
@@ -14484,7 +14518,19 @@ function handleTemptingOfferResponse(
     const acceptedBy = responses.acceptedBy;
     const initiatorBonusCount = 1 + acceptedBy.length; // Initiator gets effect once plus for each acceptor
     
-    applyTemptingOfferEffect(io, game, gameId, cardName, acceptedBy, initiator, initiatorBonusCount);
+    const completionPayload = applyTemptingOfferEffect(io, game, gameId, cardName, acceptedBy, initiator, initiatorBonusCount);
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'temptingOfferComplete', {
+        cardName,
+        initiator,
+        acceptedBy: [...acceptedBy],
+        initiatorBonusCount,
+        ...(completionPayload || {}),
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(temptingOfferComplete) failed:', err);
+    }
     
     // Clean up
     delete game.state.temptingOfferResponses[cardName];
@@ -14506,9 +14552,10 @@ function applyTemptingOfferEffect(
   acceptedBy: string[],
   initiator: string,
   initiatorBonusCount: number
-): void {
+): Record<string, any> | undefined {
   const cardNameLower = cardName.toLowerCase();
   const battlefield = game.state.battlefield = game.state.battlefield || [];
+  const result: Record<string, any> = {};
   
   debug(2, `[Resolution] Applying Tempting Offer effect: ${cardName}, ${acceptedBy.length} accepted, initiator gets ${initiatorBonusCount}x`);
   
@@ -14584,6 +14631,7 @@ function applyTemptingOfferEffect(
   else if (cardNameLower.includes('vengeance')) {
     // NOTE: True X should come from the spell's X value; this matches the prior legacy behavior.
     const xValue = 3;
+    const createdPermanentIdsByPlayer: Record<string, string[]> = {};
 
     const elementalImageUrls = getTokenImageUrls('Elemental', 1, 1, ['R']);
     const ctx = { state: game.state } as any;
@@ -14591,6 +14639,7 @@ function applyTemptingOfferEffect(
     const createdTokens: Array<{ token: any; controller: string }> = [];
 
     const initiatorTokenCount = xValue * initiatorBonusCount;
+    createdPermanentIdsByPlayer[String(initiator)] = [];
     for (let i = 0; i < initiatorTokenCount; i++) {
       const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${i}`;
       const token = {
@@ -14615,9 +14664,11 @@ function applyTemptingOfferEffect(
       };
       battlefield.push(token);
       createdTokens.push({ token, controller: initiator });
+      createdPermanentIdsByPlayer[String(initiator)].push(tokenId);
     }
 
     for (const opponentId of acceptedBy) {
+      createdPermanentIdsByPlayer[String(opponentId)] = [];
       for (let i = 0; i < xValue; i++) {
         const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_opp_${i}`;
         const token = {
@@ -14642,8 +14693,12 @@ function applyTemptingOfferEffect(
         };
         battlefield.push(token);
         createdTokens.push({ token, controller: opponentId });
+        createdPermanentIdsByPlayer[String(opponentId)].push(tokenId);
       }
     }
+
+    result.xValue = xValue;
+    result.createdPermanentIdsByPlayer = createdPermanentIdsByPlayer;
 
     for (const { token, controller } of createdTokens) {
       triggerETBEffectsForToken(ctx, token, controller);
@@ -14661,9 +14716,11 @@ function applyTemptingOfferEffect(
   else if (cardNameLower.includes('bunnies')) {
     const rabbitImageUrls = getTokenImageUrls('Rabbit', 1, 1, ['W']);
     const ctx = { state: game.state } as any;
+    const createdPermanentIdsByPlayer: Record<string, string[]> = {};
 
     const createdTokens: Array<{ token: any; controller: string }> = [];
 
+    createdPermanentIdsByPlayer[String(initiator)] = [];
     for (let i = 0; i < initiatorBonusCount; i++) {
       const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_bunny_${i}`;
       const token = {
@@ -14687,9 +14744,11 @@ function applyTemptingOfferEffect(
       };
       battlefield.push(token);
       createdTokens.push({ token, controller: initiator });
+      createdPermanentIdsByPlayer[String(initiator)].push(tokenId);
     }
 
     for (const opponentId of acceptedBy) {
+      createdPermanentIdsByPlayer[String(opponentId)] = [];
       const tokenId = `tok_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_bunny_opp`;
       const token = {
         id: tokenId,
@@ -14712,7 +14771,10 @@ function applyTemptingOfferEffect(
       };
       battlefield.push(token);
       createdTokens.push({ token, controller: opponentId });
+      createdPermanentIdsByPlayer[String(opponentId)].push(tokenId);
     }
+
+    result.createdPermanentIdsByPlayer = createdPermanentIdsByPlayer;
 
     for (const { token, controller } of createdTokens) {
       triggerETBEffectsForToken(ctx, token, controller);
@@ -14736,6 +14798,8 @@ function applyTemptingOfferEffect(
       ts: Date.now(),
     });
   }
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 /**
@@ -14823,6 +14887,19 @@ function handleReturnControlledPermanentChoiceResponse(
       stack.splice(stackIndex, 1);
       debug(2, `[Resolution] Removed bounce land trigger from stack (id: ${stackItemId})`);
     }
+  }
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'bounceLandChoice', {
+      playerId: pid,
+      returnedLandId: returnPermanentId,
+      returnPermanentId,
+      destination,
+      stackItemId: stackItemId ? String(stackItemId) : undefined,
+      sourceName,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(bounceLandChoice) failed:', err);
   }
   
   // Send chat message
@@ -15608,10 +15685,15 @@ function handleProliferateResponse(
     if (permanent && permanent.counters) {
       // Add one counter of each kind the permanent has
       const counters = permanent.counters as Record<string, number>;
+      const deltas: Record<string, number> = {};
       for (const counterType of Object.keys(counters)) {
         if (counters[counterType] > 0) {
+          deltas[counterType] = 1;
           (permanent.counters as any)[counterType] = counters[counterType] + 1;
         }
+      }
+      if (Object.keys(deltas).length > 0) {
+        trackCountersPlacedThisTurn(game.state, permanent, String(targetId), deltas);
       }
       proliferatedTargets.push(permanent.card?.name || 'permanent');
       continue;

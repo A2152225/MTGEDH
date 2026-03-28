@@ -1,4 +1,3 @@
-import { enqueueEdictCreatureSacrificeStep } from './sacrifice-resolution.js';
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
@@ -10,7 +9,8 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
-import { getDeathTriggers, getPlayersWhoMustSacrifice, getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility } from "../state/modules/triggered-abilities";
+import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility } from "../state/modules/triggered-abilities";
+import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { 
@@ -3271,19 +3271,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
     
-    // Remove from battlefield
-    battlefield.splice(permIndex, 1);
-    
-    // Move to graveyard
-    const zones = (game.state as any)?.zones?.[pid];
-    if (zones) {
-      zones.graveyard = zones.graveyard || [];
-      zones.graveyard.push({ ...card, zone: "graveyard" });
-      zones.graveyardCount = zones.graveyard.length;
-    }
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
+    trackPermanentSacrificedThisTurn(game.state, permanent);
+
+    const moved = movePermanentToGraveyard(game as any, String(permanentId), true);
+    if (!moved) {
+      socket.emit("error", {
+        code: "PERMANENT_NOT_FOUND",
+        message: "Permanent no longer on battlefield",
+      });
+      return;
     }
     
     appendEvent(gameId, (game as any).seq ?? 0, "sacrificePermanent", { playerId: pid, permanentId });
@@ -3295,40 +3291,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       message: `${getPlayerName(game, pid)} sacrificed ${cardName}.`,
       ts: Date.now(),
     });
-    
-    // Check for death triggers (Grave Pact, Blood Artist, etc.) if this was a creature
-    if (isCreature) {
-      try {
-        const deathTriggers = getDeathTriggers(game as any, permanent, pid);
-        
-        for (const trigger of deathTriggers) {
-          // Emit a chat message about the trigger
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}_${trigger.source.permanentId}`,
-            gameId,
-            from: "system",
-            message: `⚡ ${trigger.source.cardName} triggers: ${trigger.effect}`,
-            ts: Date.now(),
-          });
-          
-          // If this trigger requires sacrifice selection (Grave Pact, Dictate of Erebos, etc.)
-          if (trigger.requiresSacrificeSelection) {
-            const playersToSacrifice = getPlayersWhoMustSacrifice(game as any, trigger.source.controllerId);
-            
-            for (const targetPlayerId of playersToSacrifice) {
-              enqueueEdictCreatureSacrificeStep(io as any, game as any, gameId, targetPlayerId, {
-                sourceName: trigger.source.cardName,
-                sourceControllerId: trigger.source.controllerId,
-                reason: trigger.effect,
-                sourceId: trigger.source.permanentId,
-              });
-            }
-          }
-        }
-      } catch (err) {
-        debugWarn(1, "[sacrificePermanent] Error processing death triggers:", err);
-      }
-    }
     
     // If this was a fetch land, trigger library search
     if (isFetchLand) {
@@ -3869,11 +3831,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      let manaCostStr = '';
       // Parse and validate mana cost from oracle text
       // Examples: "{2}, {T}, Sacrifice ~" (Myriad Landscape), "{3}{G}, {T}, Sacrifice ~" (Blighted Woodland)
       const manaCostMatch = oracleText.match(/\{[^}]+\}(?:\s*,\s*\{[^}]+\})*(?=\s*,\s*\{t\})/i);
       if (manaCostMatch) {
-        const manaCostStr = manaCostMatch[0];
+        manaCostStr = manaCostMatch[0];
         const parsedCost = parseManaCost(manaCostStr);
         const manaPool = getOrInitManaPool(game.state, pid);
         
@@ -3929,6 +3892,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (player) {
           (player as any).life = newLife;
         }
+
+        try {
+          (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+          (game.state as any).lifeLostThisTurn[String(pid)] = ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + 1;
+        } catch {}
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
@@ -3943,14 +3911,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       (permanent as any).tapped = true;
       
       // Remove from battlefield (sacrifice - part of cost, paid immediately)
-      battlefield.splice(permIndex, 1);
-      
-      // Move to graveyard
-      const zones = (game.state as any)?.zones?.[pid];
-      if (zones) {
-        zones.graveyard = zones.graveyard || [];
-        zones.graveyard.push({ ...card, zone: "graveyard" });
-        zones.graveyardCount = zones.graveyard.length;
+      {
+        const { movePermanentToGraveyard } = await import('../state/modules/counters_tokens.js');
+        movePermanentToGraveyard(game as any, String(permanentId), true);
       }
       
       // Parse what land types this fetch can find
@@ -4026,6 +3989,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         abilityId, 
         cardName,
         stackId: abilityStackId,
+        activatedAbilityText: scopedAbilityFullText,
+        ...(manaCostStr ? { manaCost: manaCostStr } : {}),
+        ...(isTrueFetch ? { lifePaidForCost: 1 } : {}),
+        searchParams: {
+          filter,
+          searchDescription,
+          isTrueFetch,
+          maxSelections,
+          entersTapped,
+          cardImageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+        },
       });
       
       io.to(gameId).emit("chat", {

@@ -4220,6 +4220,37 @@ function executeTriggerEffect(
       turnOrder,
       controller
     );
+
+    try {
+      const queue = ResolutionQueueManager.getQueue(gameId);
+      const persistedSteps = queue.steps
+        .filter((step: any) => step?.type === ResolutionStepType.JOIN_FORCES && String((step as any).cardName || '') === String(sourceName || 'Join Forces Ability'))
+        .map((step: any) => ({
+          id: String(step.id),
+          type: String(step.type),
+          playerId: String(step.playerId),
+          description: String(step.description || ''),
+          mandatory: step.mandatory !== false,
+          sourceId: step.sourceId ? String(step.sourceId) : undefined,
+          sourceName: step.sourceName ? String(step.sourceName) : undefined,
+          sourceImage: step.sourceImage,
+          cardName: step.cardName ? String(step.cardName) : undefined,
+          effectDescription: step.effectDescription ? String(step.effectDescription) : undefined,
+          cardImageUrl: step.cardImageUrl,
+          initiator: step.initiator ? String(step.initiator) : undefined,
+          availableMana: Number(step.availableMana || 0),
+          isInitiator: step.isInitiator === true,
+          priority: Number(step.priority || 0),
+        }));
+
+      appendEvent(gameId, Number((ctx as any).seq?.value ?? 0), 'joinForcesInitiated', {
+        cardName: sourceName || 'Join Forces Ability',
+        initiator: controller,
+        steps: persistedSteps,
+      });
+    } catch (err) {
+      debugWarn(1, '[executeTriggerEffect] Failed to persist joinForcesInitiated event:', err);
+    }
     
     debug(1, `[executeTriggerEffect] Join Forces attack trigger from ${sourceName} - created ${players.length} resolution steps`);
     return;
@@ -4801,6 +4832,50 @@ function executeTriggerEffect(
       turnOrder,
       activePlayerId
     );
+
+    try {
+      const queue = ResolutionQueueManager.getQueue(gameId);
+      const persistedSteps = queue.steps
+        .filter((step: any) => step?.type === ResolutionStepType.KYNAIOS_CHOICE && String((step as any).kynaiosBatchId || '') === kynaiosBatchId)
+        .map((step: any) => ({
+          id: String(step.id),
+          type: String(step.type),
+          playerId: String(step.playerId),
+          description: String(step.description || ''),
+          mandatory: step.mandatory !== false,
+          sourceId: step.sourceId ? String(step.sourceId) : undefined,
+          sourceName: step.sourceName ? String(step.sourceName) : undefined,
+          sourceImage: step.sourceImage,
+          kynaiosBatchId: String((step as any).kynaiosBatchId || kynaiosBatchId),
+          isController: (step as any).isController === true,
+          sourceController: (step as any).sourceController ? String((step as any).sourceController) : undefined,
+          canPlayLand: (step as any).canPlayLand !== false,
+          landsInHand: Array.isArray((step as any).landsInHand) ? (step as any).landsInHand.map((card: any) => ({
+            id: String(card?.id || ''),
+            name: String(card?.name || ''),
+            imageUrl: card?.imageUrl,
+          })) : [],
+          options: Array.isArray((step as any).options) ? (step as any).options.map((option: any) => String(option)) : [],
+          landPlayOrFallbackIsController: (step as any).landPlayOrFallbackIsController === true,
+          landPlayOrFallbackSourceController: (step as any).landPlayOrFallbackSourceController ? String((step as any).landPlayOrFallbackSourceController) : undefined,
+          landPlayOrFallbackCanPlayLand: (step as any).landPlayOrFallbackCanPlayLand !== false,
+          landPlayOrFallbackLandsInHand: Array.isArray((step as any).landPlayOrFallbackLandsInHand) ? (step as any).landPlayOrFallbackLandsInHand.map((card: any) => ({
+            id: String(card?.id || ''),
+            name: String(card?.name || ''),
+            imageUrl: card?.imageUrl,
+          })) : [],
+          landPlayOrFallbackOptions: Array.isArray((step as any).landPlayOrFallbackOptions) ? (step as any).landPlayOrFallbackOptions.map((option: any) => String(option)) : [],
+        }));
+
+      appendEvent(gameId, Number((ctx as any).seq?.value ?? 0), 'kynaiosChoiceInitiated', {
+        batchId: kynaiosBatchId,
+        sourceName,
+        sourceController: controller,
+        steps: persistedSteps,
+      });
+    } catch (err) {
+      debugWarn(1, '[executeTriggerEffect] Failed to persist kynaiosChoiceInitiated event:', err);
+    }
     
     debug(1, `[executeTriggerEffect] ${sourceName}: ${controller} draws 1, created ${players.length} resolution steps for land/draw choices (gameId: ${gameId})`);
     return;
@@ -10378,6 +10453,37 @@ export function resolveTopOfStack(ctx: GameContext) {
           turnOrder,
           controller // Start with caster, not active player
         );
+
+        try {
+          const queue = ResolutionQueueManager.getQueue(gameId);
+          const persistedSteps = queue.steps
+            .filter((step: any) => step?.type === ResolutionStepType.JOIN_FORCES && String((step as any).cardName || '') === String(effectiveCard.name || 'Join Forces Spell'))
+            .map((step: any) => ({
+              id: String(step.id),
+              type: String(step.type),
+              playerId: String(step.playerId),
+              description: String(step.description || ''),
+              mandatory: step.mandatory !== false,
+              sourceId: step.sourceId ? String(step.sourceId) : undefined,
+              sourceName: step.sourceName ? String(step.sourceName) : undefined,
+              sourceImage: step.sourceImage,
+              cardName: step.cardName ? String(step.cardName) : undefined,
+              effectDescription: step.effectDescription ? String(step.effectDescription) : undefined,
+              cardImageUrl: step.cardImageUrl,
+              initiator: step.initiator ? String(step.initiator) : undefined,
+              availableMana: Number(step.availableMana || 0),
+              isInitiator: step.isInitiator === true,
+              priority: Number(step.priority || 0),
+            }));
+
+          appendEvent(gameId, Number((ctx as any).seq?.value ?? 0), 'joinForcesInitiated', {
+            cardName: effectiveCard.name || 'Join Forces Spell',
+            initiator: controller,
+            steps: persistedSteps,
+          });
+        } catch (err) {
+          debugWarn(1, '[resolveTopOfStack] Failed to persist joinForcesInitiated event:', err);
+        }
         
         debug(1, `[resolveTopOfStack] Join Forces spell ${effectiveCard.name} created ${allPlayers.length} resolution steps for contributions`);
       } else {
@@ -10431,6 +10537,36 @@ export function resolveTopOfStack(ctx: GameContext) {
             turnOrder,
             (state as any).activePlayer || controller
           );
+
+          try {
+            const queue = ResolutionQueueManager.getQueue(gameId);
+            const persistedSteps = queue.steps
+              .filter((step: any) => step?.type === ResolutionStepType.TEMPTING_OFFER && String((step as any).cardName || '') === String(effectiveCard.name || 'Tempting Offer Spell'))
+              .map((step: any) => ({
+                id: String(step.id),
+                type: String(step.type),
+                playerId: String(step.playerId),
+                description: String(step.description || ''),
+                mandatory: step.mandatory !== false,
+                sourceId: step.sourceId ? String(step.sourceId) : undefined,
+                sourceName: step.sourceName ? String(step.sourceName) : undefined,
+                sourceImage: step.sourceImage,
+                cardName: step.cardName ? String(step.cardName) : undefined,
+                effectDescription: step.effectDescription ? String(step.effectDescription) : undefined,
+                cardImageUrl: step.cardImageUrl,
+                initiator: step.initiator ? String(step.initiator) : undefined,
+                isOpponent: step.isOpponent === true,
+                priority: Number(step.priority || 0),
+              }));
+
+            appendEvent(gameId, Number((ctx as any).seq?.value ?? 0), 'temptingOfferInitiated', {
+              cardName: effectiveCard.name || 'Tempting Offer Spell',
+              initiator: controller,
+              steps: persistedSteps,
+            });
+          } catch (err) {
+            debugWarn(1, '[resolveTopOfStack] Failed to persist temptingOfferInitiated event:', err);
+          }
           
           debug(2, `[resolveTopOfStack] Tempting Offer spell ${effectiveCard.name} created ${opponents.length} resolution steps for opponent responses`);
         } else {

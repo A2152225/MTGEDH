@@ -5,6 +5,7 @@ import {
   type ResolutionStep,
   type ResolutionStepResponse,
 } from '../index.js';
+import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
 
 function parseKynaiosChoice(selection: any): { choice: string; landCardId?: string } {
@@ -36,6 +37,44 @@ function ensureFinalizedMap(state: any): Record<string, true> {
   return state.kynaiosFinalizedBatches as Record<string, true>;
 }
 
+export function moveKynaiosLandFromHandToBattlefield(
+  game: any,
+  playerId: PlayerID,
+  landCardId: string,
+  createdPermanentId?: string
+): { moved: boolean; permanentId?: string; cardName?: string } {
+  const zones = game?.state?.zones?.[playerId];
+  if (!zones?.hand || !Array.isArray(zones.hand)) {
+    return { moved: false };
+  }
+
+  const cardIndex = zones.hand.findIndex((card: any) => String(card?.id || '') === String(landCardId));
+  if (cardIndex === -1) {
+    return { moved: false };
+  }
+
+  const [card] = zones.hand.splice(cardIndex, 1);
+  const permanentId = String(createdPermanentId || `perm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
+  const permanent = {
+    id: permanentId,
+    controller: playerId,
+    owner: playerId,
+    tapped: false,
+    counters: {},
+    card: { ...card, zone: 'battlefield' },
+  };
+
+  game.state.battlefield = Array.isArray(game.state.battlefield) ? game.state.battlefield : [];
+  game.state.battlefield.push(permanent);
+  zones.handCount = zones.hand.length;
+
+  return {
+    moved: true,
+    permanentId,
+    cardName: card?.name || 'a land',
+  };
+}
+
 function maybeFinalizeKynaiosBatch(
   io: any,
   game: any,
@@ -44,25 +83,26 @@ function maybeFinalizeKynaiosBatch(
   sourceController: PlayerID,
   sourceName: string,
   getPlayerName: (game: any, playerId: PlayerID) => string
-): void {
+): string[] | null {
   const state = game?.state as any;
-  if (!state) return;
+  if (!state) return null;
 
   const finalized = ensureFinalizedMap(state);
-  if (finalized[batchId]) return;
+  if (finalized[batchId]) return null;
 
   const queue = ResolutionQueueManager.getQueue(gameId);
 
   const hasRemaining = queue.steps.some(
     (s: any) => s && s.type === ResolutionStepType.KYNAIOS_CHOICE && String((s as any).kynaiosBatchId || '') === batchId
   );
-  if (hasRemaining) return;
+  if (hasRemaining) return null;
 
   const batchSteps = queue.completedSteps.filter(
     (s: any) => s && s.type === ResolutionStepType.KYNAIOS_CHOICE && String((s as any).kynaiosBatchId || '') === batchId
   );
 
   let drew = 0;
+  const drawnPlayerIds: string[] = [];
   state.pendingDraws = state.pendingDraws || {};
 
   for (const step of batchSteps) {
@@ -76,6 +116,7 @@ function maybeFinalizeKynaiosBatch(
 
     state.pendingDraws[pid] = (state.pendingDraws[pid] || 0) + 1;
     drew++;
+    drawnPlayerIds.push(String(pid));
     emitChat(io, gameId, `${getPlayerName(game, pid)} draws a card (${sourceName}).`);
   }
 
@@ -83,6 +124,8 @@ function maybeFinalizeKynaiosBatch(
   if (drew === 0) {
     emitChat(io, gameId, `${sourceName}: No opponents drew a card.`);
   }
+
+  return drawnPlayerIds;
 }
 
 /**
@@ -110,6 +153,7 @@ export function handleKynaiosChoiceResponse(
   const landsInHand = stepData.landPlayOrFallbackLandsInHand || stepData.landsInHand || [];
   const options = stepData.landPlayOrFallbackOptions || stepData.options || ['play_land', 'draw_card', 'decline'];
   const batchId = String(stepData.kynaiosBatchId || step.id);
+  let createdPermanentId: string | undefined;
 
   if (!options.includes(choice as any)) {
     debugWarn(1, `[Resolution] Invalid Kynaios choice: ${choice} not in allowed options`);
@@ -131,31 +175,13 @@ export function handleKynaiosChoiceResponse(
       return;
     }
 
-    const zones = game.state?.zones?.[pid];
-    if (zones?.hand) {
-      const cardIndex = zones.hand.findIndex((c: any) => c.id === landCardId);
-      if (cardIndex !== -1) {
-        const [card] = zones.hand.splice(cardIndex, 1);
-        const cardName = card?.name || 'a land';
-
-        const permanentId = `perm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-        const permanent = {
-          id: permanentId,
-          controller: pid,
-          owner: pid,
-          tapped: false,
-          counters: {},
-          card: { ...card, zone: 'battlefield' },
-        };
-
-        game.state.battlefield = game.state.battlefield || [];
-        game.state.battlefield.push(permanent);
-
-        zones.handCount = zones.hand.length;
-
-        emitChat(io, gameId, `${deps.getPlayerName(game, pid)} puts ${cardName} onto the battlefield (${sourceName}).`);
-      }
+    const moveResult = moveKynaiosLandFromHandToBattlefield(game, pid, String(landCardId));
+    if (!moveResult.moved) {
+      debugWarn(1, `[Resolution] Failed to move Kynaios land choice ${landCardId} for ${pid}`);
+      return;
     }
+    createdPermanentId = moveResult.permanentId;
+    emitChat(io, gameId, `${deps.getPlayerName(game, pid)} puts ${moveResult.cardName || 'a land'} onto the battlefield (${sourceName}).`);
   } else {
     // Do NOT draw immediately; draws happen only after all players have made their land-drop choice.
     if (!isController) {
@@ -165,5 +191,32 @@ export function handleKynaiosChoiceResponse(
     }
   }
 
-  maybeFinalizeKynaiosBatch(io, game, gameId, batchId, sourceController, sourceName, deps.getPlayerName);
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'kynaiosChoiceResponse', {
+      stepId: String((step as any).id || ''),
+      batchId,
+      playerId: pid,
+      sourceController,
+      sourceName,
+      choice,
+      landCardId: landCardId ? String(landCardId) : undefined,
+      createdPermanentId,
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(kynaiosChoiceResponse) failed:', err);
+  }
+
+  const drawnPlayerIds = maybeFinalizeKynaiosBatch(io, game, gameId, batchId, sourceController, sourceName, deps.getPlayerName);
+  if (drawnPlayerIds) {
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'kynaiosChoiceComplete', {
+        batchId,
+        sourceController,
+        sourceName,
+        drawnPlayerIds,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(kynaiosChoiceComplete) failed:', err);
+    }
+  }
 }

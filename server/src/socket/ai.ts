@@ -5277,24 +5277,9 @@ async function executeAIActivateAbility(
           
           // Pay the costs BEFORE adding to stack (costs are paid on activation)
           if (requiresSacrifice) {
-            // Remove the fetchland from battlefield and put it in graveyard
-            const idx = battlefield.findIndex((p: any) => p.id === permanent.id);
-            if (idx !== -1) {
-              const sacrificedLand = battlefield.splice(idx, 1)[0];
-              persistedSacrificedPermanents = [String(sacrificedLand.id)];
-              
-              // Add to graveyard
-              const zones = (game.state as any).zones || {};
-              const playerZone = zones[playerId] || { graveyard: [], graveyardCount: 0 };
-              zones[playerId] = playerZone;
-              playerZone.graveyard = playerZone.graveyard || [];
-              playerZone.graveyard.push({
-                ...sacrificedLand.card,
-                zone: 'graveyard',
-              });
-              playerZone.graveyardCount = playerZone.graveyard.length;
-              (game.state as any).zones = zones;
-              
+            const moved = movePermanentToGraveyard(game as any, String(permanent.id), true);
+            if (moved) {
+              persistedSacrificedPermanents = [String(permanent.id)];
               debug(1, '[AI] Sacrificed fetchland as cost:', card.name);
             }
           }

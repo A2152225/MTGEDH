@@ -37,6 +37,9 @@ describe('proliferate, fateseal, and clash replay semantics', () => {
     const permanent = ((game.state as any).battlefield || [])[0];
     expect(permanent.counters).toEqual({ '+1/+1': 3, charge: 2 });
     expect((playerTwo as any).counters).toEqual({ poison: 2 });
+    expect((game.state as any).putCounterOnCreatureThisTurn?.[p1]).toBe(true);
+    expect((game.state as any).countersPutThisTurnByPermanentId?.perm_1).toBe(1);
+    expect((game.state as any).plusOneCountersPutThisTurnByPermanentId?.perm_1).toBe(1);
   });
 
   it('replays fateseal by restoring the chosen top and bottom library order', () => {

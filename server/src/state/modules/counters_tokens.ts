@@ -28,6 +28,40 @@ interface CounterModifier {
   addsBonusCounter: number; // For Hardened Scales (+1)
 }
 
+export function trackPermanentSacrificedThisTurn(state: any, permanent: any): void {
+  try {
+    const controllerId = permanent?.controller != null ? String(permanent.controller) : '';
+    if (!controllerId) return;
+
+    const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+    const cardName = String(permanent?.card?.name || '').toLowerCase();
+    const stateAny = state as any;
+
+    const isClue = typeLine.includes('clue') && (typeLine.includes('artifact') || typeLine.includes('token'));
+    if (isClue && (cardName === 'clue' || typeLine.includes('— clue') || typeLine.includes('- clue') || typeLine.includes('clue'))) {
+      stateAny.sacrificedCluesThisTurn = stateAny.sacrificedCluesThisTurn || {};
+      stateAny.sacrificedCluesThisTurn[controllerId] = (stateAny.sacrificedCluesThisTurn[controllerId] || 0) + 1;
+
+      stateAny.cluesSacrificedThisTurn = stateAny.cluesSacrificedThisTurn || {};
+      stateAny.cluesSacrificedThisTurn[controllerId] = (stateAny.cluesSacrificedThisTurn[controllerId] || 0) + 1;
+
+      stateAny.cluesSacrificedThisTurnCount = stateAny.cluesSacrificedThisTurnCount || {};
+      stateAny.cluesSacrificedThisTurnCount[controllerId] = (stateAny.cluesSacrificedThisTurnCount[controllerId] || 0) + 1;
+    }
+
+    stateAny.permanentsSacrificedThisTurn = stateAny.permanentsSacrificedThisTurn || {};
+    stateAny.permanentsSacrificedThisTurn[controllerId] = (stateAny.permanentsSacrificedThisTurn[controllerId] || 0) + 1;
+
+    const isFood = typeLine.includes('food') && (typeLine.includes('artifact') || typeLine.includes('token'));
+    if (isFood && (cardName === 'food' || typeLine.includes('— food') || typeLine.includes('- food') || typeLine.includes('food'))) {
+      stateAny.foodsSacrificedThisTurn = stateAny.foodsSacrificedThisTurn || {};
+      stateAny.foodsSacrificedThisTurn[controllerId] = (stateAny.foodsSacrificedThisTurn[controllerId] || 0) + 1;
+    }
+  } catch {
+    // best-effort tracking only
+  }
+}
+
 /**
  * Detect counter modification effects on the battlefield
  * Patterns:
@@ -205,21 +239,44 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
   // Apply counter modification effects (Vorinclex, Doubling Season, Hardened Scales, etc.)
   const modifiedDeltas = applyCounterModifications(state, permanentId, deltas);
 
+  trackCountersPlacedThisTurn(state, p, permanentId, modifiedDeltas);
+  
+  const current: Record<string, number> = { ...(p.counters ?? {}) };
+  for (const [k, vRaw] of Object.entries(modifiedDeltas)) {
+    const v = Math.floor(Number(vRaw) || 0);
+    if (!v) continue;
+    current[k] = (current[k] ?? 0) + v;
+    if (current[k] <= 0) delete current[k];
+  }
+  p.counters = Object.keys(current).length ? current : undefined;
+  bumpSeq();
+  runSBA(ctx);
+}
+
+export function trackCountersPlacedThisTurn(
+  state: any,
+  permanent: any,
+  permanentId: string,
+  deltas: Record<string, number>
+): void {
+  const isPlusOneCounterKey = (key: string): boolean => {
+    const normalized = String(key || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized === '+1/+1' || normalized === 'p1p1' || normalized === 'plus_one' || normalized === 'plusone' || normalized === 'plus1plus1' || normalized === '+1+1';
+  };
+
   // Turn-tracking for intervening-if templates like:
-  // "if a +1/+1 counter was put on a permanent under your control this turn" (Fairgrounds Trumpeter).
-  // Note: counts counters placed on ANY permanent you control, regardless of who controlled the effect.
+  // "if a +1/+1 counter was put on a permanent under your control this turn".
   try {
-    const controllerId = String((p as any).controller || '').trim();
+    const controllerId = String((permanent as any)?.controller || '').trim();
     if (controllerId) {
-      const placedPlusOne = Object.entries(modifiedDeltas).some(
+      const placedPlusOne = Object.entries(deltas).some(
         ([counterType, amount]) => isPlusOneCounterKey(counterType) && Number(amount) > 0
       );
       if (placedPlusOne) {
         const stateAny = state as any;
         stateAny.putPlusOneCounterOnPermanentThisTurn = stateAny.putPlusOneCounterOnPermanentThisTurn || {};
         stateAny.putPlusOneCounterOnPermanentThisTurn[controllerId] = true;
-
-        // Additional aliases consumed by intervening-if.
         stateAny.placedPlusOneCounterOnPermanentThisTurn = stateAny.placedPlusOneCounterOnPermanentThisTurn || {};
         stateAny.plusOneCounterPlacedOnPermanentThisTurn = stateAny.plusOneCounterPlacedOnPermanentThisTurn || {};
         stateAny.placedPlusOneCounterOnPermanentThisTurn[controllerId] = true;
@@ -232,15 +289,14 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
 
   // Turn-tracking for intervening-if templates like:
   // "if you put a counter on a creature this turn".
-  // Best-effort: treat "you" as the controller of the creature receiving the counter.
   try {
-    const stateAny = state as any;
-    const controllerId = String((p as any).controller || '').trim();
+    const controllerId = String((permanent as any)?.controller || '').trim();
     if (controllerId) {
-      const typeLine = String((p as any)?.card?.type_line || '').toLowerCase();
+      const typeLine = String((permanent as any)?.card?.type_line || '').toLowerCase();
       const isCreature = typeLine.includes('creature');
-      const anyPositive = Object.values(modifiedDeltas).some((amount) => Number(amount) > 0);
+      const anyPositive = Object.values(deltas).some((amount) => Number(amount) > 0);
       if (isCreature && anyPositive) {
+        const stateAny = state as any;
         stateAny.putCounterOnCreatureThisTurn = stateAny.putCounterOnCreatureThisTurn || {};
         stateAny.placedCounterOnCreatureThisTurn = stateAny.placedCounterOnCreatureThisTurn || {};
         stateAny.countersPlacedOnCreaturesThisTurn = stateAny.countersPlacedOnCreaturesThisTurn || {};
@@ -253,23 +309,19 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
     // best-effort only
   }
 
-  // Turn-tracking for intervening-if templates like:
-  // - "if it's the first time counters have been put on that creature this turn"
-  // - "if it's the first time +1/+1 counters have been put on that permanent this turn"
-  // These are tracked as *event counts*, not total number of counters.
+  // Event-count tracking for "first time counters were put on that permanent this turn"-style checks.
   try {
     const stateAny = state as any;
-    const anyPositive = Object.values(modifiedDeltas).some((amount) => Number(amount) > 0);
+    const anyPositive = Object.values(deltas).some((amount) => Number(amount) > 0);
     if (anyPositive) {
       stateAny.putCounterOnPermanentThisTurnByPermanentId = stateAny.putCounterOnPermanentThisTurnByPermanentId || {};
       stateAny.putCounterOnPermanentThisTurnByPermanentId[String(permanentId)] = true;
-
       stateAny.countersPutThisTurnByPermanentId = stateAny.countersPutThisTurnByPermanentId || {};
       stateAny.countersPutThisTurnByPermanentId[String(permanentId)] =
         Number(stateAny.countersPutThisTurnByPermanentId[String(permanentId)] || 0) + 1;
     }
 
-    const plusOnePositive = Object.entries(modifiedDeltas).some(
+    const plusOnePositive = Object.entries(deltas).some(
       ([counterType, amount]) => isPlusOneCounterKey(counterType) && Number(amount) > 0
     );
     if (plusOnePositive) {
@@ -280,17 +332,6 @@ export function updateCounters(ctx: GameContext, permanentId: string, deltas: Re
   } catch {
     // best-effort only
   }
-  
-  const current: Record<string, number> = { ...(p.counters ?? {}) };
-  for (const [k, vRaw] of Object.entries(modifiedDeltas)) {
-    const v = Math.floor(Number(vRaw) || 0);
-    if (!v) continue;
-    current[k] = (current[k] ?? 0) + v;
-    if (current[k] <= 0) delete current[k];
-  }
-  p.counters = Object.keys(current).length ? current : undefined;
-  bumpSeq();
-  runSBA(ctx);
 }
 
 export function applyUpdateCountersBulk(ctx: GameContext, updates:{ permanentId:string; deltas:Record<string,number> }[]) {

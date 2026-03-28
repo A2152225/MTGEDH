@@ -9143,6 +9143,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         (currentStep === "" || currentStep === "UNTAP" || currentStep === "UPKEEP") && 
         (isTargetMainPhase || targetStepUpper === "BEGIN_COMBAT" || targetStepUpper === "DECLARE_ATTACKERS");
 
+      const untappedPermanentIds: string[] = [];
+
       // Execute untap if needed
       if (needsUntap && turnPlayer) {
         try {
@@ -9154,6 +9156,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               // Check for "doesn't untap" effects
               if (!permanent.doesntUntap) {
                 permanent.tapped = false;
+                untappedPermanentIds.push(String(permanent.id || ''));
                 untappedCount++;
               }
             }
@@ -9352,7 +9355,12 @@ export function registerGameActions(io: Server, socket: Socket) {
           gameId,
           (game as any).seq || 0,
           "skipToPhase",
-          { by: playerId, targetPhase, targetStep }
+          {
+            by: playerId,
+            targetPhase,
+            targetStep,
+            ...(untappedPermanentIds.length > 0 ? { untappedPermanentIds } : {}),
+          }
         );
       } catch (e) {
         debugWarn(1, "appendEvent(skipToPhase) failed", e);

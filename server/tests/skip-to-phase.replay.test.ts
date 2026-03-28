@@ -137,4 +137,91 @@ describe('skipToPhase replay semantics', () => {
     expect(String((game.state as any).step || '')).toBe('MAIN2');
     expect((game.state as any).pendingPhaseSkip).toBeUndefined();
   });
+
+  it('replays skipToPhase untap side effects from the live skip path', () => {
+    const gameId = 't_skip_to_phase_untap_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'perm_tapped_1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        card: { id: 'card_1', name: 'Tapped Land', type_line: 'Land', oracle_text: '' },
+      },
+      {
+        id: 'perm_untapped_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: { id: 'card_2', name: 'Untapped Land', type_line: 'Land', oracle_text: '' },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'skipToPhase',
+      by: p1,
+      targetPhase: 'precombatMain',
+      targetStep: 'MAIN1',
+      untappedPermanentIds: ['perm_tapped_1'],
+    } as any);
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield.find((permanent: any) => permanent.id === 'perm_tapped_1')?.tapped).toBe(false);
+    expect(battlefield.find((permanent: any) => permanent.id === 'perm_untapped_1')?.tapped).toBe(false);
+    expect(String((game.state as any).phase || '')).toBe('precombatMain');
+    expect(String((game.state as any).step || '')).toBe('MAIN1');
+  });
+
+  it('replays final skipToPhase events by clearing combat state and restoring turn-player priority', () => {
+    const gameId = 't_skip_to_phase_final_state_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p2;
+    (game.state as any).combat = { attackers: ['perm_attacker_1'] };
+    (game.state as any).battlefield = [
+      {
+        id: 'perm_attacker_1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        attacking: p2,
+        blockedBy: ['perm_blocker_1'],
+        card: { id: 'card_attacker_1', name: 'Attacker', type_line: 'Creature', oracle_text: '' },
+      },
+      {
+        id: 'perm_blocker_1',
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        blocking: 'perm_attacker_1',
+        card: { id: 'card_blocker_1', name: 'Blocker', type_line: 'Creature', oracle_text: '' },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'skipToPhase',
+      by: p1,
+      targetPhase: 'postcombatMain',
+      targetStep: 'MAIN2',
+    } as any);
+
+    expect((game.state as any).combat).toBeUndefined();
+    expect((game.state as any).priority).toBe(p1);
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield.find((permanent: any) => permanent.id === 'perm_attacker_1')?.attacking).toBeUndefined();
+    expect(battlefield.find((permanent: any) => permanent.id === 'perm_attacker_1')?.blockedBy).toBeUndefined();
+    expect(battlefield.find((permanent: any) => permanent.id === 'perm_blocker_1')?.blocking).toBeUndefined();
+  });
 });

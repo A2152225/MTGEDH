@@ -129,6 +129,8 @@ describe('AI activated ability replay semantics', () => {
     } as any);
 
     expect((game.state as any).life[p1]).toBe(39);
+    expect((game.state as any).players.find((player: any) => player.id === p1)?.life).toBe(39);
+    expect((game.state as any).lifeLostThisTurn?.[p1]).toBe(1);
     expect((game.state as any).battlefield).toHaveLength(0);
     expect((game.state as any).zones[p1].graveyard).toHaveLength(1);
     expect((game.state as any).zones[p1].graveyard[0].name).toBe('Polluted Delta');
