@@ -89,16 +89,27 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
         game.applyEvent({
           type: "opponentMayPayResolve",
           playerId: decidingPlayer,
+          decidingPlayer,
           promptId,
           willPay,
+          sourceName,
+          sourceController,
+          manaCost,
+          declineEffect: declineEffectText,
+          triggerText: triggerTextValue,
         });
 
         appendEvent(gameId, game.seq, "opponentMayPayResolve", {
           playerId: decidingPlayer,
+          decidingPlayer,
           promptId,
           willPay,
           auto: true,
           sourceName,
+          sourceController,
+          manaCost,
+          declineEffect: declineEffectText,
+          triggerText: triggerTextValue,
         });
 
         io.to(gameId).emit("chat", {
@@ -147,16 +158,27 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
         game.applyEvent({
           type: 'opponentMayPayResolve',
           playerId: decidingPlayer,
+          decidingPlayer,
           promptId,
           willPay: true,
+          sourceName,
+          sourceController,
+          manaCost,
+          declineEffect: declineEffectText,
+          triggerText: triggerTextValue,
         });
 
         try {
           appendEvent(gameId, game.seq ?? 0, 'opponentMayPayResolve', {
             playerId: decidingPlayer,
+            decidingPlayer,
             promptId,
             willPay: true,
             sourceName,
+            sourceController,
+            manaCost,
+            declineEffect: declineEffectText,
+            triggerText: triggerTextValue,
           });
         } catch (e) {
           /* best-effort */
@@ -168,16 +190,27 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
         game.applyEvent({
           type: 'opponentMayPayResolve',
           playerId: decidingPlayer,
+          decidingPlayer,
           promptId,
           willPay: false,
+          sourceName,
+          sourceController,
+          manaCost,
+          declineEffect: declineEffectText,
+          triggerText: triggerTextValue,
         });
 
         try {
           appendEvent(gameId, game.seq ?? 0, 'opponentMayPayResolve', {
             playerId: decidingPlayer,
+            decidingPlayer,
             promptId,
             willPay: false,
             sourceName,
+            sourceController,
+            manaCost,
+            declineEffect: declineEffectText,
+            triggerText: triggerTextValue,
           });
         } catch (e) {
           /* best-effort */

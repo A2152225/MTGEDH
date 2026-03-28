@@ -5740,6 +5740,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       const poolKey = colorToPoolKey[actualColor] || 'colorless';
       (game.state.manaPool[pid] as any)[poolKey] = ((game.state.manaPool[pid] as any)[poolKey] || 0) + manaAmount;
+      const addedMana = { [poolKey]: manaAmount };
       
       // Create chat message with correct amount
       const manaDescription = manaAmount > 1 
@@ -5772,12 +5773,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       ]);
       
       const lowerName = cardName.toLowerCase();
-      if ((isPainLand || PAIN_LANDS.has(lowerName)) && isTappingForColoredMana) {
+      const painLifeLost = ((isPainLand || PAIN_LANDS.has(lowerName)) && isTappingForColoredMana) ? 1 : 0;
+      if (painLifeLost > 0) {
         // Deal 1 damage to controller
         game.state.life = game.state.life || {};
         const startingLife = game.state.startingLife || 40;
         const currentLife = game.state.life[pid] ?? startingLife;
-        game.state.life[pid] = currentLife - 1;
+        game.state.life[pid] = currentLife - painLifeLost;
 
         // Track per-turn damage and life lost.
         try {
@@ -5856,7 +5858,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         (stateAny.addedManaWithThisAbilityThisTurn[String(pid)] as any)[k] = true;
       } catch {}
       
-      appendEvent(gameId, (game as any).seq ?? 0, "activateManaAbility", { playerId: pid, permanentId, abilityId, manaColor });
+      appendEvent(gameId, (game as any).seq ?? 0, "activateManaAbility", {
+        playerId: pid,
+        permanentId,
+        abilityId,
+        manaColor,
+        addedMana,
+        lifeLost: painLifeLost || undefined,
+      });
       
       broadcastGame(io, game, gameId);
       return;

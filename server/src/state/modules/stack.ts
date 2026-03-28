@@ -21,6 +21,7 @@ import {
 } from "./keyword-handlers.js";
 import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { appendEvent } from '../../db/index.js';
 import { 
   getETBTriggersForPermanent, 
   processLinkedExileReturns, 
@@ -52,7 +53,7 @@ import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } f
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { broadcastGame, consumeManaFromPool, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
-import { getSavedMayAbilityTriggerDecision } from "../../socket/trigger-shortcuts.js";
+import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
 import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser.js";
@@ -89,6 +90,204 @@ function resolveOracleWhoToPlayerIds(who: OraclePlayerSelector, caster: PlayerID
 
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const DIRECT_COPY_ABILITY_PATTERN = /^copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
+const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
+  'rhystic_study',
+  'mystic_remora',
+  'esper_sentinel',
+  'smothering_tithe',
+]);
+
+function resolveOpponentMayPayDeclineEffectFromStackItem(item: any): string {
+  const effectData = item?.effectData;
+  const benefitIfNotPaid = String(effectData?.benefitIfNotPaid || '').trim();
+  if (benefitIfNotPaid) {
+    return benefitIfNotPaid;
+  }
+
+  const sourceName = String(item?.sourceName || '').trim().toLowerCase();
+  if (
+    sourceName.includes('rhystic study') ||
+    sourceName.includes('mystic remora') ||
+    sourceName.includes('esper sentinel')
+  ) {
+    return 'Draw a card';
+  }
+
+  return '';
+}
+
+function applyLiveOpponentMayPayOutcome(
+  ctx: GameContext,
+  params: {
+    sourceName: string;
+    sourceController: PlayerID;
+    decidingPlayer: PlayerID;
+    manaCost: string;
+    declineEffect: string;
+    willPay: boolean;
+  }
+): void {
+  const { state } = ctx;
+  const { sourceName, sourceController, decidingPlayer, manaCost, declineEffect, willPay } = params;
+
+  if (willPay) {
+    const parsedCost = parseManaCost(manaCost);
+    const pool = getOrInitManaPool(state as any, decidingPlayer);
+    consumeManaFromPool(pool as any, parsedCost.colors, parsedCost.generic, `[opponentMayPay:${sourceName}]`);
+    return;
+  }
+
+  const declineText = String(declineEffect || '').trim().toLowerCase();
+  if (declineText.includes('draw a card')) {
+    drawCardsFromZone(ctx as any, sourceController, 1);
+    return;
+  }
+
+  if (declineText.includes('treasure')) {
+    createToken(
+      ctx as any,
+      sourceController,
+      'Treasure',
+      1,
+      undefined,
+      undefined,
+      {
+        colors: [],
+        typeLine: 'Token Artifact — Treasure',
+        abilities: ['{T}, Sacrifice this artifact: Add one mana of any color.'],
+        isArtifact: true,
+      }
+    );
+    return;
+  }
+}
+
+function maybeQueueOpponentMayPaySpellCastTrigger(
+  ctx: GameContext,
+  item: any,
+  triggerController: PlayerID,
+  sourceName: string,
+  sourceId: string
+): boolean {
+  const triggerType = String(item?.triggerType || '').trim();
+  if (!OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES.has(triggerType)) {
+    return false;
+  }
+
+  const effectData = item?.effectData || {};
+  const decidingPlayer = String(effectData?.casterId || item?.triggeringPlayer || item?.targetPlayer || '').trim() as PlayerID;
+  const manaCost = String(effectData?.paymentCost || '').trim();
+  const declineEffect = resolveOpponentMayPayDeclineEffectFromStackItem(item);
+  const triggerText = String(item?.description || '').trim();
+  const gameId = String((ctx as any).gameId || '').trim();
+
+  if (!decidingPlayer || !manaCost || !gameId || gameId === 'unknown') {
+    return false;
+  }
+
+  if ((ctx as any).isReplaying) {
+    return true;
+  }
+
+  const io = (ctx as any).io;
+  const promptId = `opponent_pay_${String(item?.id || sourceId || sourceName || 'trigger')}`;
+  const savedPreference = getSavedTriggerShortcutPreference((ctx as any).state, decidingPlayer, sourceName);
+
+  const persistOutcome = (willPay: boolean, auto = false) => {
+    try {
+      appendEvent(gameId, Number((ctx as any).seq?.value ?? 0), 'opponentMayPayResolve', {
+        playerId: decidingPlayer,
+        decidingPlayer,
+        promptId,
+        willPay,
+        ...(auto ? { auto: true } : {}),
+        sourceName,
+        sourceController: triggerController,
+        manaCost,
+        declineEffect,
+        triggerText,
+      });
+    } catch (err) {
+      debugWarn(1, '[resolveTopOfStack] Failed to persist opponentMayPayResolve event:', err);
+    }
+  };
+
+  const finalizeOutcome = (willPay: boolean, auto = false) => {
+    applyLiveOpponentMayPayOutcome(ctx, {
+      sourceName,
+      sourceController: triggerController,
+      decidingPlayer,
+      manaCost,
+      declineEffect,
+      willPay,
+    });
+    persistOutcome(willPay, auto);
+    if (io) {
+      broadcastGame(io as any, ctx as any, gameId);
+    }
+  };
+
+  if (savedPreference === 'always_pay' || savedPreference === 'never_pay') {
+    let willPay = savedPreference === 'always_pay';
+    if (willPay) {
+      try {
+        const parsedCost = parseManaCost(manaCost);
+        const pool = getOrInitManaPool((ctx as any).state as any, decidingPlayer);
+        const colorEntries = Object.entries(parsedCost.colors || {});
+        const hasColoredMana = colorEntries.every(([color, amount]) => {
+          const colorKey = ({ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' } as any)[String(color).toUpperCase()];
+          return Number((pool as any)?.[colorKey] || 0) >= Number(amount || 0);
+        });
+        const totalMana = ['white', 'blue', 'black', 'red', 'green', 'colorless']
+          .reduce((sum, key) => sum + Number((pool as any)?.[key] || 0), 0);
+        const totalCost = Number(parsedCost.generic || 0) + colorEntries.reduce((sum, [, amount]) => sum + Number(amount || 0), 0);
+        if (!hasColoredMana || totalMana < totalCost) {
+          willPay = false;
+        }
+      } catch {
+        willPay = false;
+      }
+    }
+
+    finalizeOutcome(willPay, true);
+    return true;
+  }
+
+  queueOptionalPaymentStep(gameId, {
+    playerId: decidingPlayer,
+    sourceName,
+    sourceId: String(item?.source || sourceId || '').trim() || undefined,
+    description: triggerText || `${sourceName}: ${String(decidingPlayer)} may pay ${manaCost}.`,
+    mandatory: true,
+    payChoiceId: 'pay',
+    payLabel: `Pay ${manaCost}`,
+    payDescription: `Pay ${manaCost}`,
+    declineChoiceId: 'decline',
+    declineLabel: 'Decline',
+    declineDescription: declineEffect || 'Decline to pay',
+    validationKind: 'mana',
+    manaCost,
+    stepData: {
+      opponentMayPayChoice: true,
+      promptId,
+      sourceName,
+      sourceController: triggerController,
+      decidingPlayer,
+      manaCost,
+      declineEffect,
+      triggerText,
+      availableMana: ((ctx as any).state?.manaPool || {})[decidingPlayer] || {},
+    },
+    onPay: async () => {
+      finalizeOutcome(true);
+    },
+    onDecline: async () => {
+      finalizeOutcome(false);
+    },
+  });
+
+  return true;
+}
 
 function cloneStackItemForAbilityCopy(
   ctx: GameContext,
@@ -7456,6 +7655,11 @@ export function resolveTopOfStack(ctx: GameContext) {
       return;
     }
 
+    if (maybeQueueOpponentMayPaySpellCastTrigger(ctx, item, triggerController as PlayerID, sourceName, sourceId)) {
+      debug(2, `[resolveTopOfStack] Deferred opponent-pay trigger for ${sourceName} (${triggerController})`);
+      return;
+    }
+
     if ((item as any).mandatory === false && !optionalTriggeredAbilityDecisionApplied) {
       const savedTriggerDecision = getSavedMayAbilityTriggerDecision(state as any, triggerController, sourceName);
       if (savedTriggerDecision === 'yes') {
@@ -7492,7 +7696,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         return;
       }
     }
-    
+
     // ========================================================================
     // RETURN CONTROLLED PERMANENT TRIGGER: add a resolution step before the ETB resolves.
     // Bounce lands currently use this generic payload with the legacy wire step value.

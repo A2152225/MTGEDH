@@ -58,7 +58,7 @@ import { processLifeChange } from "./game-state-effects";
 import { sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { parseManaCost } from "./mana-check.js";
-import { consumeManaFromPool, resolveManaCostForPoolPayment } from "../../socket/util.js";
+import { calculateManaProduction, consumeManaFromPool, getOrInitManaPool, resolveManaCostForPoolPayment } from "../../socket/util.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
 import { detectTutorEffect, getActivatedAbilityScopeText, parseSearchCriteria } from "../../socket/interaction.js";
 
@@ -78,6 +78,129 @@ function generateDeterministicId(ctx: any, prefix: string, cardId: string): stri
   // Fallback: use card ID with a counter (incremented on ctx)
   ctx._idCounter = (ctx._idCounter || 0) + 1;
   return `${prefix}_${cardId}_${ctx._idCounter}`;
+}
+
+const MANA_CODE_TO_POOL_KEY: Record<string, string> = {
+  W: 'white',
+  U: 'blue',
+  B: 'black',
+  R: 'red',
+  G: 'green',
+  C: 'colorless',
+};
+
+const MANA_NAME_TO_CODE: Record<string, string> = {
+  white: 'W',
+  blue: 'U',
+  black: 'B',
+  red: 'R',
+  green: 'G',
+  colorless: 'C',
+};
+
+const PAIN_LANDS = new Set([
+  'shivan reef', 'llanowar wastes', 'caves of koilos', 'adarkar wastes',
+  'sulfurous springs', 'underground river', 'karplusan forest', 'battlefield forge',
+  'brushland', 'yavimaya coast',
+  'horizon canopy', 'nurturing peatland', 'fiery islet', 'sunbaked canyon',
+  'silent clearing', 'waterlogged grove',
+]);
+
+function normalizeManaColorCode(value: unknown): string | undefined {
+  const raw = String(value ?? '').trim();
+  if (!raw) return undefined;
+  const upper = raw.toUpperCase();
+  if (MANA_CODE_TO_POOL_KEY[upper]) return upper;
+  const lower = raw.toLowerCase();
+  return MANA_NAME_TO_CODE[lower];
+}
+
+function normalizeRecordedManaMap(raw: unknown): Record<string, number> {
+  const normalized: Record<string, number> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return normalized;
+
+  for (const [key, amountRaw] of Object.entries(raw as Record<string, unknown>)) {
+    const amount = Number(amountRaw || 0);
+    if (!Number.isFinite(amount)) continue;
+
+    const lowerKey = String(key || '').trim().toLowerCase();
+    if (lowerKey && Object.values(MANA_CODE_TO_POOL_KEY).includes(lowerKey)) {
+      normalized[lowerKey] = (normalized[lowerKey] || 0) + amount;
+      continue;
+    }
+
+    const code = normalizeManaColorCode(key);
+    const poolKey = code ? MANA_CODE_TO_POOL_KEY[code] : undefined;
+    if (poolKey) {
+      normalized[poolKey] = (normalized[poolKey] || 0) + amount;
+    }
+  }
+
+  return normalized;
+}
+
+function inferLegacyManaReplay(rawState: any, permanent: any, playerId: string, manaColor: unknown): Record<string, number> {
+  const chosenColor = normalizeManaColorCode(manaColor);
+  if (String(manaColor || '').toUpperCase() === 'MULTI') return {};
+
+  const manaProduction = calculateManaProduction(rawState, permanent, playerId, chosenColor);
+  const producedColor = chosenColor || normalizeManaColorCode(manaProduction.colors?.[0]);
+  const poolKey = producedColor ? MANA_CODE_TO_POOL_KEY[producedColor] : undefined;
+  if (!poolKey) return {};
+
+  return {
+    [poolKey]: Number(manaProduction.totalAmount || 0),
+  };
+}
+
+function applyRecordedManaToPool(ctx: any, playerId: string, rawMana: unknown): void {
+  const normalized = normalizeRecordedManaMap(rawMana);
+  if (Object.keys(normalized).length === 0) return;
+
+  const pool = getOrInitManaPool(ctx.state, playerId);
+  for (const [poolKey, amount] of Object.entries(normalized)) {
+    pool[poolKey] = Number(pool[poolKey] || 0) + Number(amount || 0);
+  }
+}
+
+function inferLegacyManaLifeLoss(permanent: any, manaColor: unknown): number {
+  const chosenColor = normalizeManaColorCode(manaColor);
+  if (!chosenColor || chosenColor === 'C') return 0;
+
+  const cardName = String(permanent?.card?.name || '').toLowerCase();
+  const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
+  const isPainLand = oracleText.includes('deals 1 damage to you') ||
+    (oracleText.includes('{t},') && oracleText.includes('pay 1 life')) ||
+    PAIN_LANDS.has(cardName);
+
+  return isPainLand ? 1 : 0;
+}
+
+function applyManaAbilityLifeLoss(ctx: any, playerId: string, amount: number): void {
+  const finalAmount = Number(amount || 0);
+  if (!playerId || finalAmount <= 0) return;
+
+  (ctx.state as any).life = (ctx.state as any).life || {};
+  const startingLife = Number((ctx.state as any).startingLife || 40);
+  const currentLife = Number((ctx.state as any).life?.[playerId] ?? startingLife);
+  (ctx.state as any).life[playerId] = Math.max(0, currentLife - finalAmount);
+
+  try {
+    (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
+    (ctx.state as any).damageTakenThisTurnByPlayer[String(playerId)] =
+      (((ctx.state as any).damageTakenThisTurnByPlayer[String(playerId)] || 0) + finalAmount);
+
+    (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+    (ctx.state as any).lifeLostThisTurn[String(playerId)] =
+      (((ctx.state as any).lifeLostThisTurn[String(playerId)] || 0) + finalAmount);
+  } catch {
+    // best-effort only
+  }
+
+  const player = ((ctx.state as any).players || []).find((p: any) => p?.id === playerId);
+  if (player) {
+    player.life = (ctx.state as any).life[playerId];
+  }
 }
 
 function consumeRecordedManaCostFromPool(pool: Record<string, number>, manaCost?: string): void {
@@ -120,6 +243,245 @@ function consumeRecordedManaCostFromPool(pool: Record<string, number>, manaCost?
     pool[poolKey] = available - spent;
     remainingGeneric -= spent;
   }
+}
+
+function resolveOpponentMayPaySourceController(ctx: GameContext, e: any): string {
+  const persistedSourceController = String(e?.sourceController || '').trim();
+  if (persistedSourceController) {
+    return persistedSourceController;
+  }
+
+  const sourceName = String(e?.sourceName || '').trim().toLowerCase();
+  if (!sourceName) {
+    return '';
+  }
+
+  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  const matches = battlefield.filter((permanent: any) =>
+    String(permanent?.card?.name || '').trim().toLowerCase() === sourceName
+  );
+
+  if (matches.length === 1) {
+    return String(matches[0]?.controller || '').trim();
+  }
+
+  return '';
+}
+
+function applyAIActivateAbilityReplay(ctx: GameContext, e: any): void {
+  const playerId = String(e?.playerId || '').trim();
+  const permanentId = String(e?.permanentId || '').trim();
+  if (!playerId || !permanentId) {
+    return;
+  }
+
+  const stateAny = ctx.state as any;
+  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === permanentId);
+  const sourceName = String(e?.cardName || permanent?.card?.name || 'Ability').trim() || 'Ability';
+  const abilityType = String(e?.abilityType || '').trim().toLowerCase();
+  const activatedAbilityText = String(e?.activatedAbilityText || e?.abilityText || permanent?.card?.oracle_text || '').trim();
+
+  try {
+    const tapped = Array.isArray(e?.tappedPermanents) ? e.tappedPermanents : [];
+    if (tapped.length > 0) {
+      const tappedSet = new Set(tapped.map((id: any) => String(id)));
+      for (const entry of battlefield as any[]) {
+        if (entry && tappedSet.has(String(entry.id || ''))) {
+          (entry as any).tapped = true;
+        }
+      }
+    }
+  } catch {
+    // best-effort only
+  }
+
+  try {
+    const paid = Number(e?.lifePaidForCost || 0);
+    if (Number.isFinite(paid) && paid > 0) {
+      stateAny.life = stateAny.life || {};
+      const current = Number(stateAny.life?.[playerId] ?? ctx.state.startingLife ?? 40);
+      stateAny.life[playerId] = Math.max(0, current - paid);
+    }
+  } catch {
+    // best-effort only
+  }
+
+  try {
+    const sacrificed = Array.isArray(e?.sacrificedPermanents) ? e.sacrificedPermanents : [];
+    for (const rawId of sacrificed) {
+      const id = String(rawId || '').trim();
+      if (!id) continue;
+      const stillOnBattlefield = Array.isArray(ctx.state?.battlefield)
+        ? (ctx.state.battlefield as any[]).some((entry: any) => entry && String(entry.id || '') === id)
+        : false;
+      if (!stillOnBattlefield) continue;
+      movePermanentToGraveyard(ctx as any, id, true);
+    }
+  } catch {
+    // best-effort only
+  }
+
+  if (abilityType === 'humble-defector') {
+    drawCards(ctx as any, playerId, 2);
+
+    const targetOpponentId = String(e?.targetOpponentId || '').trim();
+    if (targetOpponentId) {
+      const humbleDefector = Array.isArray(ctx.state?.battlefield)
+        ? (ctx.state.battlefield as any[]).find((entry: any) => entry && String(entry.id || '') === permanentId)
+        : null;
+      if (humbleDefector) {
+        (humbleDefector as any).controller = targetOpponentId;
+        (humbleDefector as any).summoningSickness = true;
+      }
+    }
+
+    ctx.bumpSeq();
+    return;
+  }
+
+  const usesStack = e?.usesStack !== false;
+  if (!usesStack || !activatedAbilityText) {
+    ctx.bumpSeq();
+    return;
+  }
+
+  stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
+  const stack = stateAny.stack as any[];
+  const existing = stack.find((item: any) =>
+    item &&
+    String(item.type || '') === 'ability' &&
+    String(item.controller || '') === playerId &&
+    String(item.source || '') === permanentId &&
+    String(item.activatedAbilityText || item.description || '') === activatedAbilityText
+  );
+  if (existing) {
+    ctx.bumpSeq();
+    return;
+  }
+
+  const stackItem: any = {
+    id: generateDeterministicId(ctx, 'ability_ai', `${permanentId}:${abilityType || activatedAbilityText}`),
+    type: 'ability',
+    controller: playerId,
+    source: permanentId,
+    sourceName,
+    description: activatedAbilityText,
+    activatedAbilityText,
+    card: {
+      id: permanentId,
+      name: `${sourceName} (ability)`,
+      type_line: 'Activated Ability',
+      oracle_text: activatedAbilityText || String(permanent?.card?.oracle_text || ''),
+      image_uris: permanent?.card?.image_uris,
+    },
+    targets: [],
+  };
+
+  if (abilityType === 'fetch-land') {
+    stackItem.abilityType = 'fetch-land';
+    stackItem.searchParams = e?.searchParams ? { ...(e.searchParams as Record<string, unknown>) } : undefined;
+  }
+
+  stack.push(stackItem);
+  ctx.bumpSeq();
+}
+
+function getOpponentMayPayDrawCount(sourceName: string, effectText: string): number {
+  const normalizedSourceName = String(sourceName || '').trim().toLowerCase();
+  const normalizedEffectText = String(effectText || '').trim().toLowerCase();
+
+  if (
+    normalizedSourceName.includes('rhystic study') ||
+    normalizedSourceName.includes('mystic remora') ||
+    normalizedSourceName.includes('esper sentinel')
+  ) {
+    return 1;
+  }
+
+  if (/draws?\s+a\s+card/i.test(normalizedEffectText)) {
+    return 1;
+  }
+
+  const drawCountMatch = normalizedEffectText.match(/draws?\s+(\d+)\s+cards?/i);
+  if (drawCountMatch) {
+    return Math.max(0, parseInt(drawCountMatch[1], 10) || 0);
+  }
+
+  return 0;
+}
+
+function createsTreasureOnOpponentMayPayDecline(sourceName: string, effectText: string): boolean {
+  const normalizedSourceName = String(sourceName || '').trim().toLowerCase();
+  const normalizedEffectText = String(effectText || '').trim().toLowerCase();
+
+  if (normalizedSourceName.includes('smothering tithe')) {
+    return true;
+  }
+
+  return /create\s+(?:a|an|one|two|three|four|five|\d+)?\s*treasure(?:\s+token)?/i.test(normalizedEffectText);
+}
+
+function applyOpponentMayPayResolve(ctx: GameContext, e: any): void {
+  const decidingPlayer = String(e?.decidingPlayer || e?.playerId || '').trim();
+  const sourceName = String(e?.sourceName || '').trim();
+  const manaCost = String(e?.manaCost || '').trim();
+  const willPay = e?.willPay === true;
+  const effectText = String(e?.declineEffect || e?.triggerText || '').trim();
+
+  if (willPay) {
+    if (decidingPlayer && manaCost) {
+      const stateAny = ctx.state as any;
+      stateAny.manaPool = stateAny.manaPool || {};
+      stateAny.manaPool[decidingPlayer] = stateAny.manaPool[decidingPlayer] || {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 0,
+      };
+
+      consumeRecordedManaCostFromPool(stateAny.manaPool[decidingPlayer], manaCost);
+      ctx.bumpSeq();
+    }
+    return;
+  }
+
+  const sourceController = resolveOpponentMayPaySourceController(ctx, e);
+  if (!sourceController) {
+    debugWarn(2, `[applyEvent] opponentMayPayResolve: missing sourceController for ${sourceName || 'unknown source'}`);
+    return;
+  }
+
+  const drawCount = getOpponentMayPayDrawCount(sourceName, effectText);
+  if (drawCount > 0) {
+    drawCards(ctx as any, sourceController as PlayerID, drawCount);
+    return;
+  }
+
+  if (createsTreasureOnOpponentMayPayDecline(sourceName, effectText)) {
+    createToken(
+      ctx as any,
+      sourceController as PlayerID,
+      'Treasure',
+      1,
+      undefined,
+      undefined,
+      {
+        colors: [],
+        typeLine: 'Token Artifact — Treasure',
+        abilities: ['{T}, Sacrifice this artifact: Add one mana of any color.'],
+        isArtifact: true,
+      }
+    );
+    return;
+  }
+
+  debugWarn(
+    2,
+    `[applyEvent] opponentMayPayResolve: unsupported decline effect for ${sourceName || 'unknown source'} (${effectText || 'no effect text'})`
+  );
 }
 
 function extractReplayActivationCost(fullAbilityText: string): {
@@ -1559,6 +1921,111 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "proliferateResolve": {
+        try {
+          const targetIds = Array.isArray((e as any).targetIds)
+            ? ((e as any).targetIds as any[])
+                .map((value: any) => String(value || '').trim())
+                .filter((value: string) => value.length > 0)
+            : [];
+
+          if (targetIds.length === 0) break;
+
+          const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+          const players = Array.isArray(ctx.state?.players) ? ctx.state.players : [];
+
+          for (const targetId of targetIds) {
+            const permanent = battlefield.find((perm: any) => perm && String(perm.id || '') === targetId);
+            if (permanent && permanent.counters && typeof permanent.counters === 'object') {
+              for (const [counterType, count] of Object.entries(permanent.counters as Record<string, number>)) {
+                if (Number(count || 0) > 0) {
+                  (permanent.counters as any)[counterType] = Number(count || 0) + 1;
+                }
+              }
+              continue;
+            }
+
+            const player = players.find((entry: any) => entry && String(entry.id || '') === targetId);
+            if (player && player.counters && typeof player.counters === 'object') {
+              for (const [counterType, count] of Object.entries(player.counters as Record<string, number>)) {
+                if (Number(count || 0) > 0) {
+                  (player.counters as any)[counterType] = Number(count || 0) + 1;
+                }
+              }
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(proliferateResolve): failed', err);
+        }
+        break;
+      }
+
+      case "fatesealResolve": {
+        try {
+          const opponentId = String((e as any).opponentId || '').trim();
+          if (!opponentId) break;
+
+          const keepTopOrder = Array.isArray((e as any).keepTopOrder) ? (e as any).keepTopOrder : [];
+          const bottomOrder = Array.isArray((e as any).bottomOrder) ? (e as any).bottomOrder : [];
+          const totalCards = keepTopOrder.length + bottomOrder.length;
+          if (totalCards <= 0) break;
+
+          const lib = (ctx as any).libraries?.get?.(opponentId);
+          if (!Array.isArray(lib)) break;
+
+          lib.splice(0, totalCards);
+          for (let index = keepTopOrder.length - 1; index >= 0; index--) {
+            lib.unshift({ ...keepTopOrder[index], zone: 'library' });
+          }
+          for (const card of bottomOrder) {
+            lib.push({ ...card, zone: 'library' });
+          }
+
+          (ctx as any).libraries?.set?.(opponentId, lib);
+          const zones = ((ctx.state as any).zones = (ctx.state as any).zones || {});
+          const playerZones = (zones[opponentId] = zones[opponentId] || {});
+          playerZones.libraryCount = lib.length;
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(fatesealResolve): failed', err);
+        }
+        break;
+      }
+
+      case "clashResolve": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const revealedCard = (e as any).revealedCard;
+          const putOnBottom = Boolean((e as any).putOnBottom);
+          if (!playerId || !revealedCard) break;
+
+          const lib = (ctx as any).libraries?.get?.(playerId);
+          if (!Array.isArray(lib)) break;
+
+          if (putOnBottom) {
+            const revealedId = String((revealedCard as any).id || '').trim();
+            const revealedIndex = lib.findIndex((card: any) => card && String(card.id || '') === revealedId);
+            if (revealedIndex >= 0) {
+              const [card] = lib.splice(revealedIndex, 1);
+              if (card) {
+                lib.push({ ...card, zone: 'library' });
+              }
+            }
+          }
+
+          (ctx as any).libraries?.set?.(playerId, lib);
+          const zones = ((ctx.state as any).zones = (ctx.state as any).zones || {});
+          const playerZones = (zones[playerId] = zones[playerId] || {});
+          playerZones.libraryCount = lib.length;
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(clashResolve): failed', err);
+        }
+        break;
+      }
+
       case "exploreResolve": {
         applyExplore(
           ctx as any,
@@ -2316,14 +2783,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Mana ability activation: tap permanent, add mana
         const permId = (e as any).permanentId;
         const manaColor = (e as any).manaColor;
+        const playerId = (e as any).playerId != null ? String((e as any).playerId) : '';
         try {
           // Replay-stable per-turn tracking for intervening-if templates like
           // "if you haven't added mana with this ability this turn".
           try {
             const stateAny = ctx.state as any;
-            const playerId = (e as any).playerId;
             const abilityId = (e as any).abilityId;
-            const playerKey = playerId != null ? String(playerId) : '';
+            const playerKey = playerId;
             const permKey = permId != null ? String(permId) : '';
             const abilityKeyRaw = abilityId != null ? String(abilityId) : '';
             if (playerKey && permKey) {
@@ -2341,6 +2808,20 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           if (permId) {
             const battlefield = ctx.state.battlefield || [];
             const perm = battlefield.find((p: any) => p.id === permId);
+            if (playerId) {
+              const recordedMana = normalizeRecordedManaMap((e as any).addedMana);
+              const manaToApply = Object.keys(recordedMana).length > 0
+                ? recordedMana
+                : (perm ? inferLegacyManaReplay(ctx.state, perm, playerId, manaColor) : {});
+              applyRecordedManaToPool(ctx, playerId, manaToApply);
+
+              const explicitLifeLost = Number((e as any).lifeLost || 0);
+              const replayLifeLost = explicitLifeLost > 0
+                ? explicitLifeLost
+                : (perm ? inferLegacyManaLifeLoss(perm, manaColor) : 0);
+              applyManaAbilityLifeLoss(ctx, playerId, replayLifeLost);
+            }
+
             if (perm) {
               (perm as any).tapped = true;
               
@@ -2363,6 +2844,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(activateManaAbility): failed", err);
+        }
+        break;
+      }
+
+      case "activateAbility": {
+        try {
+          applyAIActivateAbilityReplay(ctx as any, e as any);
+        } catch (err) {
+          debugWarn(1, 'applyEvent(activateAbility): failed', err);
         }
         break;
       }
@@ -4115,6 +4605,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const perm = battlefield.find((p: any) => p.id === permId);
             if (perm) {
               (perm as any).chosenCreatureType = creatureType;
+
+              const permCardName = String((perm as any)?.card?.name || '').toLowerCase();
+              if (permCardName.includes('morophon')) {
+                const stateAny = ctx.state as any;
+                const morophonChosenType = (stateAny.morophonChosenType || {}) as Record<string, string>;
+                morophonChosenType[String(permId)] = String(creatureType);
+                stateAny.morophonChosenType = morophonChosenType;
+              }
             }
           }
           ctx.bumpSeq();
@@ -4818,11 +5316,32 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         }
         break;
       }
+
+      case "opponentMayPayResolve": {
+        try {
+          applyOpponentMayPayResolve(ctx as any, e as any);
+        } catch (err) {
+          debugWarn(1, 'applyEvent(opponentMayPayResolve): failed', err);
+        }
+        break;
+      }
       
       case "colorChoice": {
-        // Player chose a color for a permanent (e.g., Throne of Eldraine, Caged Sun)
+        // Player chose a color for a permanent or spell (e.g., Brave the Elements)
         try {
-          const { playerId, permanentId, color } = e as any;
+          const { permanentId, spellId, color } = e as any;
+          const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
+          const stackItem = stack.find((item: any) =>
+            item && (String(item.id || '') === String(spellId || '') || String(item.cardId || '') === String(spellId || ''))
+          );
+
+          if (stackItem && color) {
+            (stackItem as any).chosenColor = color;
+            debug(2, `[applyEvent] Applied spell color choice: ${stackItem.card?.name || stackItem.sourceName || spellId} -> ${color}`);
+            ctx.bumpSeq();
+            break;
+          }
+
           const battlefield = ctx.state.battlefield || [];
           const permanent = battlefield.find((p: any) => p.id === permanentId);
           
@@ -4830,7 +5349,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (permanent as any).chosenColor = color;
             debug(2, `[applyEvent] Applied color choice: ${permanent.card?.name} -> ${color}`);
           } else {
-            debugWarn(2, `[applyEvent] colorChoice: permanent ${permanentId} not found`);
+            debugWarn(2, `[applyEvent] colorChoice: target not found (permanent=${permanentId}, spell=${spellId})`);
           }
           
           ctx.bumpSeq();

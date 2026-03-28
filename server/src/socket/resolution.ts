@@ -7405,6 +7405,7 @@ async function handleStepResponse(
         green: 'G',
         colorless: 'C',
       };
+      const addedMana: Record<string, number> = {};
 
       if (selectionKind === 'distribution') {
         const distribution = response.selections as any;
@@ -7468,6 +7469,7 @@ async function handleStepResponse(
           const poolKey = codeToPoolKey[color];
           if (poolKey) {
             manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
+            addedMana[String(poolKey)] = (addedMana[String(poolKey)] || 0) + amount;
             if (isTreasureSource) {
               try {
                 recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, amount);
@@ -7527,6 +7529,7 @@ async function handleStepResponse(
         }
 
         manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
+        addedMana[String(poolKey)] = (addedMana[String(poolKey)] || 0) + amount;
         if (isTreasureSource) {
           try {
             recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, amount);
@@ -7613,6 +7616,7 @@ async function handleStepResponse(
           permanentId,
           abilityId,
           manaColor,
+          addedMana,
         });
       } catch (e) {
         debugWarn(1, 'appendEvent(activateManaAbility) failed:', e);
@@ -18926,16 +18930,27 @@ async function handleOptionChoiceResponse(
     game.applyEvent({
       type: 'opponentMayPayResolve',
       playerId,
+      decidingPlayer: playerId,
       promptId,
       willPay,
+      sourceName: stepData?.sourceName,
+      sourceController: stepData?.sourceController,
+      manaCost: stepData?.manaCost,
+      declineEffect: stepData?.declineEffect,
+      triggerText: stepData?.triggerText,
     });
 
     try {
       appendEvent(gameId, (game as any).seq ?? 0, 'opponentMayPayResolve', {
         playerId,
+        decidingPlayer: playerId,
         promptId,
         willPay,
         sourceName: stepData?.sourceName,
+        sourceController: stepData?.sourceController,
+        manaCost: stepData?.manaCost,
+        declineEffect: stepData?.declineEffect,
+        triggerText: stepData?.triggerText,
       });
     } catch (e) {
       debugWarn(1, '[Resolution] Failed to persist opponentMayPayResolve event:', e);

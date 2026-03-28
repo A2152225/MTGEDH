@@ -457,6 +457,10 @@ export function createToken(
     if (name) parts.push(`— ${name}`);
     typeLine = parts.join(' ');
   }
+
+  const tokenAbilities = Array.isArray(options?.abilities) ? options.abilities : [];
+  const tokenIsCreature = String(typeLine || '').toLowerCase().includes('creature');
+  const tokenHasHaste = tokenAbilities.some((ability) => /\bhaste\b/i.test(String(ability || '')));
   
   // Get token image URLs from the token service (pass abilities for exact matching)
   const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, options?.abilities);
@@ -484,7 +488,7 @@ export function createToken(
       counters: Object.keys(initialCounters).length ? { ...initialCounters } : {},
       basePower,
       baseToughness,
-      summoningSickness: true, // Creatures have summoning sickness when they enter
+      summoningSickness: tokenIsCreature && !tokenHasHaste,
       isToken: true,
       card: { 
         id: uid("card"), 
@@ -563,6 +567,10 @@ export function createCopyTokensOfCard(
 
   const typeLine = String(sourceCard?.type_line || '');
   const isCreature = typeLine.toLowerCase().includes('creature');
+  const sourceKeywords = Array.isArray((sourceCard as any)?.keywords) ? (sourceCard as any).keywords : [];
+  const sourceOracleText = String(sourceCard?.oracle_text || '');
+  const hasHaste = sourceKeywords.some((keyword: any) => /\bhaste\b/i.test(String(keyword || '')))
+    || /\bhaste\b/i.test(sourceOracleText);
   const basePower = isCreature ? parsePT(sourceCard?.power) : undefined;
   const baseToughness = isCreature ? parsePT(sourceCard?.toughness) : undefined;
 
@@ -580,7 +588,7 @@ export function createCopyTokensOfCard(
       counters: {},
       basePower,
       baseToughness,
-      summoningSickness: isCreature,
+      summoningSickness: isCreature && !hasHaste,
       isToken: true,
       card: {
         ...JSON.parse(JSON.stringify(sourceCard)),

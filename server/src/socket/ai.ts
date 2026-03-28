@@ -12,9 +12,10 @@
 
 import { randomBytes } from "crypto";
 import type { Server, Socket } from "socket.io";
+import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
 import { cardAnalyzer, CardCategory, SynergyArchetype, type DeckArchetypeProfile } from "../../../rules-engine/src/CardAnalyzer.js";
-import { ensureGame, broadcastGame, getPlayerName } from "./util.js";
+import { calculateManaProduction, ensureGame, broadcastGame, getPlayerName, getOrInitManaPool } from "./util.js";
 import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
@@ -52,6 +53,16 @@ const COLOR_IDENTITY_MAP: Record<string, string> = {
   'R': 'red',
   'G': 'green',
 };
+
+const AI_MANA_COLOR_PRIORITY = ['W', 'U', 'B', 'R', 'G', 'C'];
+
+const AI_PAIN_LANDS = new Set([
+  'shivan reef', 'llanowar wastes', 'caves of koilos', 'adarkar wastes',
+  'sulfurous springs', 'underground river', 'karplusan forest', 'battlefield forge',
+  'brushland', 'yavimaya coast',
+  'horizon canopy', 'nurturing peatland', 'fiery islet', 'sunbaked canyon',
+  'silent clearing', 'waterlogged grove',
+]);
 
 /**
  * Extract color identity from a card's mana cost and oracle text
@@ -2376,6 +2387,88 @@ function getManaProduction(card: any): string[] {
   
   // Remove duplicates
   return [...new Set(colors)];
+}
+
+function getAIManaProductionOptions(game: any, playerId: PlayerID, permanent: any): string[] {
+  let producedColors = getManaProduction(permanent?.card);
+
+  if (producedColors.length === 0) {
+    const cardName = String(permanent?.card?.name || '').toLowerCase();
+    const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
+
+    if ((cardName.includes('exotic orchard') || cardName.includes('fellwar stone')) &&
+        oracleText.includes('land an opponent controls')) {
+      const opponentColors = new Set<string>();
+      const battlefield = game.state?.battlefield || [];
+
+      for (const opponentPerm of battlefield) {
+        if (!opponentPerm || opponentPerm.controller === playerId) continue;
+
+        const opponentTypeLine = String(opponentPerm.card?.type_line || '').toLowerCase();
+        if (!opponentTypeLine.includes('land')) continue;
+
+        const opponentLandColors = getManaProduction(opponentPerm.card);
+        for (const color of opponentLandColors) opponentColors.add(color);
+      }
+
+      producedColors = Array.from(opponentColors);
+    }
+  }
+
+  return [...new Set(producedColors.filter((color) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(String(color).toUpperCase())))];
+}
+
+function chooseAIManaColorForActivation(game: any, playerId: PlayerID, producedColors: string[]): string {
+  if (producedColors.length === 0) return 'C';
+
+  const manaPool = (game.state?.manaPool || {})[playerId] || {
+    white: 0,
+    blue: 0,
+    black: 0,
+    red: 0,
+    green: 0,
+    colorless: 0,
+  };
+
+  const coloredCandidates = producedColors.filter((color) => color !== 'C');
+  const candidates = coloredCandidates.length > 0 ? coloredCandidates : producedColors;
+
+  return [...candidates].sort((left, right) => {
+    const leftKey = COLOR_IDENTITY_MAP[left] || 'colorless';
+    const rightKey = COLOR_IDENTITY_MAP[right] || 'colorless';
+    const leftCount = Number((manaPool as any)[leftKey] || 0);
+    const rightCount = Number((manaPool as any)[rightKey] || 0);
+
+    if (leftCount !== rightCount) return leftCount - rightCount;
+    return AI_MANA_COLOR_PRIORITY.indexOf(left) - AI_MANA_COLOR_PRIORITY.indexOf(right);
+  })[0] || 'C';
+}
+
+function applyAIManaLifeLoss(game: any, playerId: PlayerID, amount: number): void {
+  const finalAmount = Number(amount || 0);
+  if (finalAmount <= 0) return;
+
+  game.state.life = game.state.life || {};
+  const startingLife = Number(game.state.startingLife || 40);
+  const currentLife = Number(game.state.life?.[playerId] ?? startingLife);
+  game.state.life[playerId] = Math.max(0, currentLife - finalAmount);
+
+  try {
+    (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+    (game.state as any).damageTakenThisTurnByPlayer[String(playerId)] =
+      (((game.state as any).damageTakenThisTurnByPlayer[String(playerId)] || 0) + finalAmount);
+
+    (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+    (game.state as any).lifeLostThisTurn[String(playerId)] =
+      (((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + finalAmount);
+  } catch {
+    // best-effort only
+  }
+
+  const player = (game.state.players || []).find((entry: any) => entry?.id === playerId);
+  if (player) {
+    player.life = game.state.life[playerId];
+  }
 }
 
 /**
@@ -4950,6 +5043,14 @@ async function executeAIActivateAbility(
     
     const card = permanent.card;
     const abilityText = (card?.oracle_text || '').toLowerCase();
+    const activatedAbilityText = String(action?.abilityText || card?.oracle_text || '').trim();
+    const tappedPermanents: string[] = [];
+    let persistedAbilityType = 'generic';
+    let persistedUsesStack = false;
+    let persistedLifePaidForCost = 0;
+    let persistedSacrificedPermanents: string[] = [];
+    let persistedSearchParams: any = undefined;
+    let persistedChosenOpponentId = '';
     
     // Check if this is a tap ability
     const isTapAbility = abilityText.includes('{t}:') || abilityText.includes('{t},');
@@ -4957,6 +5058,7 @@ async function executeAIActivateAbility(
     // Tap the permanent if it's a tap ability
     if (isTapAbility && !permanent.tapped) {
       permanent.tapped = true;
+      tappedPermanents.push(String(permanent.id));
       debug(1, '[AI] Tapped permanent for ability:', card.name);
     }
     
@@ -4964,6 +5066,7 @@ async function executeAIActivateAbility(
     
     // HUMBLE DEFECTOR: Draw two cards, give control to opponent
     if (abilityText.includes('draw two cards') && abilityText.includes('opponent') && abilityText.includes('control')) {
+      persistedAbilityType = 'humble-defector';
       debug(1, '[AI] Activating Humble Defector ability');
       
       // Draw two cards
@@ -4979,6 +5082,7 @@ async function executeAIActivateAbility(
       
       if (opponents.length > 0) {
         const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+        persistedChosenOpponentId = String(randomOpponent);
         permanent.controller = randomOpponent;
         
         // Reset summoning sickness for the new controller
@@ -5011,13 +5115,56 @@ async function executeAIActivateAbility(
       const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
       
       if (isManaAbility) {
+        persistedAbilityType = 'mana';
+        const costSection = abilityText.split(':')[0] || '';
+        const lifeCostMatch = costSection.match(/pay\s+(\d+)\s+life/i);
+        const manaCostLifePaid = lifeCostMatch ? Math.max(0, Number(lifeCostMatch[1] || 0)) : 0;
+        const lowerCardName = (card.name || '').toLowerCase();
+        const sacrificeSelfPattern = new RegExp(
+          `sacrifice\\s+(?:~|this|it|this\\s+(?:artifact|creature|land|permanent)|${lowerCardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`,
+          'i'
+        );
+        const requiresSelfSacrifice = sacrificeSelfPattern.test(costSection);
+
         // Mana abilities resolve immediately - don't put on stack
-        // The mana will be added to the mana pool by the game engine
         debug(1, '[AI] Tapped for mana ability (resolves immediately, not on stack):', card.name);
+
+        if (manaCostLifePaid > 0) {
+          persistedLifePaidForCost = manaCostLifePaid;
+          applyAIManaLifeLoss(game, playerId, manaCostLifePaid);
+        }
+
+        if (requiresSelfSacrifice) {
+          try {
+            movePermanentToGraveyard(game as any, String(permanent.id), true);
+            persistedSacrificedPermanents = [String(permanent.id)];
+          } catch (err) {
+            debugWarn(1, '[AI] Failed to sacrifice mana source as activation cost:', err);
+          }
+        }
+
+        const producedColors = getAIManaProductionOptions(game, playerId, permanent);
+        const chosenManaColor = chooseAIManaColorForActivation(game, playerId, producedColors);
+        const manaProduction = calculateManaProduction(game.state, permanent, String(playerId), chosenManaColor);
+        const resolvedManaColor = String(manaProduction.colors?.[0] || chosenManaColor || 'C').toUpperCase();
+        const manaPoolKey = COLOR_IDENTITY_MAP[resolvedManaColor] || 'colorless';
+        const manaAmount = Math.max(0, Number(manaProduction.totalAmount || 0));
+        const manaPool = getOrInitManaPool(game.state, String(playerId));
+        if (manaAmount > 0) {
+          (manaPool as any)[manaPoolKey] = Number((manaPool as any)[manaPoolKey] || 0) + manaAmount;
+        }
+        const addedMana = manaAmount > 0 ? { [manaPoolKey]: manaAmount } : undefined;
+
+        const isPainLand = (card.oracle_text || '').toLowerCase().includes('deals 1 damage to you') ||
+          ((card.oracle_text || '').toLowerCase().includes('{t},') && (card.oracle_text || '').toLowerCase().includes('pay 1 life') && resolvedManaColor !== 'C') ||
+          (AI_PAIN_LANDS.has(lowerCardName) && resolvedManaColor !== 'C');
+        const painLifeLost = isPainLand ? 1 : 0;
+        if (painLifeLost > 0) {
+          applyAIManaLifeLoss(game, playerId, painLifeLost);
+        }
         
         // Handle special lands that create tokens for opponents (Forbidden Orchard)
-        const cardNameLower = (card.name || '').toLowerCase();
-        if (cardNameLower === 'forbidden orchard') {
+        if (lowerCardName === 'forbidden orchard') {
           // Get opponents
           const players = game.state?.players || [];
           const opponents = players.filter((p: any) => p?.id != null && p.id !== playerId && !p.hasLost);
@@ -5026,6 +5173,7 @@ async function executeAIActivateAbility(
             // AI auto-selects a random opponent for the token
             const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
             const targetOpponentId = randomOpponent.id;
+            persistedChosenOpponentId = String(targetOpponentId);
             
             // Create 1/1 colorless Spirit token for the target opponent
             const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -5063,6 +5211,49 @@ async function executeAIActivateAbility(
             });
           }
         }
+
+        try {
+          if (persistedLifePaidForCost > 0 || persistedSacrificedPermanents.length > 0) {
+            await appendEvent(gameId, (game as any).seq || 0, 'activateBattlefieldAbility', {
+              playerId,
+              permanentId: action.permanentId,
+              abilityId: typeof action?.abilityId === 'string' && action.abilityId.trim() ? action.abilityId : undefined,
+              cardName: action.cardName,
+              abilityText: activatedAbilityText,
+              activatedAbilityText,
+              tappedPermanents,
+              sacrificedPermanents: persistedSacrificedPermanents,
+              removedCountersForCost: [],
+              lifePaidForCost: persistedLifePaidForCost,
+            });
+          }
+
+          await appendEvent(gameId, (game as any).seq || 0, 'activateManaAbility', {
+            playerId,
+            permanentId: action.permanentId,
+            abilityId: typeof action?.abilityId === 'string' && action.abilityId.trim() ? action.abilityId : undefined,
+            manaColor: resolvedManaColor,
+            addedMana,
+            lifeLost: painLifeLost || undefined,
+            isAI: true,
+          });
+
+          if (persistedChosenOpponentId) {
+            await appendEvent(gameId, (game as any).seq || 0, 'confirmForbiddenOrchardTarget', {
+              playerId,
+              permanentId: action.permanentId,
+              targetOpponentId: persistedChosenOpponentId,
+            });
+          }
+        } catch (e) {
+          debugWarn(1, '[AI] Failed to persist mana ability activation event:', e);
+        }
+
+        if (typeof (game as any).bumpSeq === 'function') {
+          (game as any).bumpSeq();
+        }
+
+        broadcastGame(io, game, gameId);
         
         // Mana abilities don't pass priority - they resolve instantly
         // Continue AI turn after instant resolution
@@ -5074,6 +5265,7 @@ async function executeAIActivateAbility(
         return;
       } else {
         // For non-mana tap abilities, put them on the stack
+        persistedUsesStack = true;
         game.state.stack = game.state.stack || [];
         
         // Check if this is a fetch land ability
@@ -5084,6 +5276,7 @@ async function executeAIActivateAbility(
                             /(put it onto the battlefield|put it.*onto the battlefield)/i.test(abilityText);
         
         if (isFetchLand) {
+          persistedAbilityType = 'fetch-land';
           // Check if the ability requires sacrifice using generic pattern detection
           // This handles all fetchlands including future ones by checking oracle text
           // Pattern: "sacrifice ~" or "sacrifice this" or "sacrifice it" in cost section (before colon)
@@ -5100,6 +5293,7 @@ async function executeAIActivateAbility(
             const idx = battlefield.findIndex((p: any) => p.id === permanent.id);
             if (idx !== -1) {
               const sacrificedLand = battlefield.splice(idx, 1)[0];
+              persistedSacrificedPermanents = [String(sacrificedLand.id)];
               
               // Add to graveyard
               const zones = (game.state as any).zones || {};
@@ -5123,6 +5317,7 @@ async function executeAIActivateAbility(
             const currentLife = (game.state as any).life?.[playerId] ?? startingLife;
             (game.state as any).life = (game.state as any).life || {};
             (game.state as any).life[playerId] = currentLife - lifeCost;
+            persistedLifePaidForCost = lifeCost;
 
             // Track life lost this turn.
             try {
@@ -5180,6 +5375,8 @@ async function executeAIActivateAbility(
             controller: playerId,
             source: permanent.id,
             sourceName: card.name,
+            description: activatedAbilityText,
+            activatedAbilityText,
             card: {
               id: permanent.id,
               name: `${card.name} (ability)`,
@@ -5195,17 +5392,21 @@ async function executeAIActivateAbility(
               cardImageUrl: card.image_uris?.small || card.image_uris?.normal,
             },
           };
+          persistedSearchParams = { ...(stackItem as any).searchParams };
           
           game.state.stack.push(stackItem as any);
           debug(1, '[AI] Added FETCH LAND ability to stack:', card.name);
         } else {
           // Regular non-mana ability
+          persistedAbilityType = 'generic';
           const stackItem = {
             id: `stack_ability_${Date.now()}_${permanent.id}`,
             type: 'ability',
             controller: playerId,
             source: permanent.id,
             sourceName: card.name,
+            description: activatedAbilityText,
+            activatedAbilityText,
             card: {
               id: permanent.id,
               name: `${card.name} (ability)`,
@@ -5228,6 +5429,15 @@ async function executeAIActivateAbility(
         playerId,
         permanentId: action.permanentId,
         cardName: action.cardName,
+        abilityType: persistedAbilityType,
+        abilityText: activatedAbilityText,
+        activatedAbilityText,
+        usesStack: persistedUsesStack,
+        ...(tappedPermanents.length > 0 ? { tappedPermanents } : {}),
+        ...(persistedSacrificedPermanents.length > 0 ? { sacrificedPermanents: persistedSacrificedPermanents } : {}),
+        ...(persistedLifePaidForCost > 0 ? { lifePaidForCost: persistedLifePaidForCost } : {}),
+        ...(persistedSearchParams ? { searchParams: persistedSearchParams } : {}),
+        ...(persistedChosenOpponentId ? { targetOpponentId: persistedChosenOpponentId } : {}),
         isAI: true,
       });
     } catch (e) {

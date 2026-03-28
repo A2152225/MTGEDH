@@ -163,6 +163,9 @@ describe('Pay-life + sacrifice-self mana ability with color choice (integration)
 
     const manaEvents = events.filter((e) => String(e?.type) === 'activateManaAbility');
     expect(manaEvents.length).toBeGreaterThan(0);
+    const lastManaEvent = manaEvents[manaEvents.length - 1] as any;
+    expect(lastManaEvent?.payload?.manaColor).toBe('green');
+    expect(lastManaEvent?.payload?.addedMana).toEqual({ green: 1 });
   });
 
   it('does not consume the step on invalid color selection', async () => {

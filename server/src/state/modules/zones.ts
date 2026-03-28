@@ -10,6 +10,7 @@ import type { GameContext } from "../context.js";
 import { uid } from "../utils.js";
 import { checkEmptyLibraryDraw, hasDrawWinReplacement, hasCantLoseEffect } from "./game-state-effects.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { appendEvent } from '../../db/index.js';
 import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
 import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattlefieldThisTurn } from "./turn-tracking.js";
@@ -228,6 +229,7 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number): 
 function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID, cardsDrawn: number) {
   const battlefield = ctx.state.battlefield || [];
   const players = (ctx.state as any).players || [];
+  const gameId = String((ctx as any).gameId || '').trim();
   
   for (const perm of battlefield) {
     if (!perm || !perm.card) continue;
@@ -259,6 +261,60 @@ function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID, cardsD
         oracleText.includes('whenever you draw') && 
         perm.controller === drawingPlayerId) {
       debug(2, `[drawTrigger] Niv-Mizzet: ${cardsDrawn} damage trigger(s)`);
+    }
+
+    if (
+      perm.controller !== drawingPlayerId &&
+      (permName.includes('smothering tithe') ||
+        (oracleText.includes('whenever an opponent draws a card') &&
+          oracleText.includes('may pay {2}') &&
+          oracleText.includes('treasure token')))
+    ) {
+      ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
+
+      for (let index = 0; index < cardsDrawn; index++) {
+        const triggerId = uid('trigger');
+        const stackItem = {
+          id: triggerId,
+          type: 'triggered_ability',
+          controller: perm.controller,
+          source: perm.id,
+          sourceName: perm.card?.name || 'Smothering Tithe',
+          description: 'Whenever an opponent draws a card, that player may pay {2}. If the player doesn\'t, you create a Treasure token.',
+          effect: 'Create a Treasure token',
+          triggerType: 'smothering_tithe',
+          mandatory: true,
+          targetPlayer: drawingPlayerId,
+          triggeringPlayer: drawingPlayerId,
+          effectData: {
+            drawingPlayerId,
+            paymentCost: '{2}',
+            benefitIfNotPaid: 'Create a Treasure token',
+          },
+        } as any;
+
+        (ctx.state.stack as any[]).push(stackItem);
+
+        if (gameId && gameId !== 'unknown') {
+          try {
+            appendEvent(gameId, Number((ctx as any).seq?.value ?? 0), 'pushTriggeredAbility', {
+              triggerId,
+              sourceId: perm.id,
+              sourceName: perm.card?.name || 'Smothering Tithe',
+              controllerId: perm.controller,
+              description: stackItem.description,
+              triggerType: 'smothering_tithe',
+              effect: 'Create a Treasure token',
+              mandatory: true,
+              targetPlayer: drawingPlayerId,
+              triggeringPlayer: drawingPlayerId,
+              effectData: stackItem.effectData,
+            });
+          } catch (err) {
+            debugWarn(1, '[drawTrigger] Failed to persist Smothering Tithe trigger:', err);
+          }
+        }
+      }
     }
   }
 }
