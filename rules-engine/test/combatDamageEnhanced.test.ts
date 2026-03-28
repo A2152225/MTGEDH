@@ -240,6 +240,16 @@ describe('Unblocked Attacker', () => {
       expect(fs).not.toBeNull();
       expect(reg).not.toBeNull();
     });
+
+    it('should carry infect on unblocked attacker damage assignments', () => {
+      const attacker = createTestPermanent('1', 'Plague Stinger', 1, 1, 'Flying, infect');
+
+      const assignment = processUnblockedAttacker(attacker, 'player2', CombatDamagePhase.REGULAR);
+
+      expect(assignment).not.toBeNull();
+      expect(assignment!.properties.infect).toBe(true);
+      expect(assignment!.properties.wither).toBe(false);
+    });
   });
 });
 
@@ -254,6 +264,17 @@ describe('Blocker Damage to Attacker', () => {
       expect(assignment).not.toBeNull();
       expect(assignment!.amount).toBe(2);
       expect(assignment!.targetId).toBe(attacker.id);
+    });
+
+    it('should carry wither on blocker damage assignments', () => {
+      const blocker = createTestPermanent('1', 'Sickle Ripper', 2, 1, 'Wither');
+      const attacker = createTestPermanent('2', 'Soldier', 2, 2);
+
+      const assignment = processBlockerDamageToAttacker(blocker, attacker, CombatDamagePhase.REGULAR);
+
+      expect(assignment).not.toBeNull();
+      expect(assignment!.properties.wither).toBe(true);
+      expect(assignment!.properties.infect).toBe(false);
     });
   });
 });
@@ -405,6 +426,27 @@ describe('Creature Deaths', () => {
       
       expect(deaths).toHaveLength(0);
     });
+
+    it('should still kill an indestructible creature reduced to zero toughness by infect counters', () => {
+      const assignments = [
+        {
+          sourceId: 'a1',
+          sourceName: 'Ichorclaw Myr',
+          sourceController: 'player1',
+          targetId: 'blocker1',
+          targetType: 'creature' as const,
+          amount: 2,
+          phase: CombatDamagePhase.REGULAR,
+          properties: { deathtouch: false, lifelink: false, trample: false, infect: true, wither: false },
+        },
+      ];
+
+      const deaths = determineCreatureDeaths(assignments, {
+        blocker1: { toughness: 2, existingDamage: 0, indestructible: true },
+      });
+
+      expect(deaths).toContain('blocker1');
+    });
   });
 });
 
@@ -544,6 +586,22 @@ describe('Full Combat Damage Calculation', () => {
       const playerDamage = result.assignments.filter(a => a.targetType === 'player');
       expect(playerDamage.length).toBeGreaterThan(0);
       expect(playerDamage[0].properties.trample).toBe(true);
+    });
+
+    it('should convert infect combat damage to poison instead of life loss', () => {
+      const attacker = createTestPermanent('1', 'Plague Stinger', 1, 1, 'Flying, infect', 'player1');
+
+      const result = calculateCombatDamage(
+        [{ attacker, defendingPlayerId: 'player2', orderedBlockers: [] }],
+        { player1: 40, player2: 40 },
+        {},
+        Date.now()
+      );
+
+      expect(result.assignments).toHaveLength(1);
+      expect(result.assignments[0].properties.infect).toBe(true);
+      expect(result.poisonChanges['player2']).toBe(1);
+      expect(result.lifeChanges['player2'] || 0).toBe(0);
     });
   });
 });

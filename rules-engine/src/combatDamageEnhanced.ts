@@ -31,6 +31,7 @@ import {
 } from './combatAutomation';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { TriggerEvent, type TriggerInstance, createTriggerInstance, type TriggeredAbility } from './triggeredAbilities';
+import { createDamageSourceFromPermanent } from './damageProcessing';
 
 /**
  * Combat damage phase (first strike or regular)
@@ -120,6 +121,22 @@ export function calculateLethalDamageForBlocker(
   return Math.max(0, remainingToughness);
 }
 
+function buildDamageProperties(
+  source: BattlefieldPermanent,
+  trampleOverride?: boolean
+): DetailedDamageAssignment['properties'] {
+  const combatKeywords = extractCombatKeywords(source);
+  const damageSource = createDamageSourceFromPermanent(source);
+
+  return {
+    deathtouch: combatKeywords.deathtouch,
+    lifelink: combatKeywords.lifelink,
+    trample: trampleOverride ?? combatKeywords.trample,
+    infect: damageSource.hasInfect,
+    wither: damageSource.hasWither,
+  };
+}
+
 /**
  * Auto-assign damage from attacker to ordered blockers
  * Uses optimal damage assignment (lethal to each blocker, excess tramples through)
@@ -161,13 +178,7 @@ export function assignDamageToBlockers(
         targetName: blockerCard?.name,
         amount: damageToBlocker,
         phase,
-        properties: {
-          deathtouch: attackerKeywords.deathtouch,
-          lifelink: attackerKeywords.lifelink,
-          trample: attackerKeywords.trample,
-          infect: false, // TODO: Add infect detection
-          wither: false, // TODO: Add wither detection
-        },
+        properties: buildDamageProperties(attacker),
       });
       
       remaining -= damageToBlocker;
@@ -217,13 +228,7 @@ export function calculateTrampleToPlayer(
     targetType: 'player',
     amount: excessDamage,
     phase,
-    properties: {
-      deathtouch: attackerKeywords.deathtouch,
-      lifelink: attackerKeywords.lifelink,
-      trample: true,
-      infect: false,
-      wither: false,
-    },
+    properties: buildDamageProperties(attacker, true),
   };
 }
 
@@ -259,13 +264,7 @@ export function processUnblockedAttacker(
     targetType: 'player',
     amount: attackerPower,
     phase,
-    properties: {
-      deathtouch: attackerKeywords.deathtouch,
-      lifelink: attackerKeywords.lifelink,
-      trample: attackerKeywords.trample,
-      infect: false,
-      wither: false,
-    },
+    properties: buildDamageProperties(attacker),
   };
 }
 
@@ -303,13 +302,7 @@ export function processBlockerDamageToAttacker(
     targetName: attackerCard?.name,
     amount: blockerPower,
     phase,
-    properties: {
-      deathtouch: blockerKeywords.deathtouch,
-      lifelink: blockerKeywords.lifelink,
-      trample: false, // Blockers don't trample to players
-      infect: false,
-      wither: false,
-    },
+    properties: buildDamageProperties(blocker, false),
   };
 }
 
@@ -339,13 +332,23 @@ export function determineCreatureDeaths(
   creatureState: Record<string, { toughness: number; existingDamage: number; indestructible: boolean }>
 ): string[] {
   const dying: string[] = [];
-  const damageByCreature: Record<string, { total: number; hasDeathtouch: boolean }> = {};
+  const damageByCreature: Record<string, { markedDamage: number; minusCounters: number; total: number; hasDeathtouch: boolean }> = {};
   
   // Accumulate damage to each creature
   for (const assignment of assignments) {
     if (assignment.targetType === 'creature') {
       if (!damageByCreature[assignment.targetId]) {
-        damageByCreature[assignment.targetId] = { total: 0, hasDeathtouch: false };
+        damageByCreature[assignment.targetId] = {
+          markedDamage: 0,
+          minusCounters: 0,
+          total: 0,
+          hasDeathtouch: false,
+        };
+      }
+      if (assignment.properties.infect || assignment.properties.wither) {
+        damageByCreature[assignment.targetId].minusCounters += assignment.amount;
+      } else {
+        damageByCreature[assignment.targetId].markedDamage += assignment.amount;
       }
       damageByCreature[assignment.targetId].total += assignment.amount;
       if (assignment.properties.deathtouch) {
@@ -357,12 +360,17 @@ export function determineCreatureDeaths(
   // Check for lethal damage
   for (const [creatureId, damage] of Object.entries(damageByCreature)) {
     const state = creatureState[creatureId];
-    if (!state || state.indestructible) continue;
+    if (!state) continue;
     
-    const totalDamage = state.existingDamage + damage.total;
-    const isLethal = totalDamage >= state.toughness || (damage.hasDeathtouch && damage.total > 0);
+    const effectiveToughness = state.toughness - damage.minusCounters;
+    const diesFromZeroToughness = effectiveToughness <= 0;
+    const totalMarkedDamage = state.existingDamage + damage.markedDamage;
+    const diesFromDamage = !state.indestructible && (
+      totalMarkedDamage >= effectiveToughness ||
+      (damage.hasDeathtouch && damage.total > 0)
+    );
     
-    if (isLethal) {
+    if (diesFromZeroToughness || diesFromDamage) {
       dying.push(creatureId);
     }
   }
@@ -583,9 +591,14 @@ export function calculateCombatDamage(
   
   // Calculate life changes (damage minus lifelink)
   const lifeChanges: Record<PlayerID, number> = { ...lifelinkGains };
+  const poisonChanges: Record<PlayerID, number> = {};
   for (const assignment of allAssignments) {
     if (assignment.targetType === 'player') {
-      lifeChanges[assignment.targetId] = (lifeChanges[assignment.targetId] || 0) - assignment.amount;
+      if (assignment.properties.infect) {
+        poisonChanges[assignment.targetId] = (poisonChanges[assignment.targetId] || 0) + assignment.amount;
+      } else {
+        lifeChanges[assignment.targetId] = (lifeChanges[assignment.targetId] || 0) - assignment.amount;
+      }
     }
   }
   
@@ -613,7 +626,7 @@ export function calculateCombatDamage(
     firstStrikeAssignments,
     regularAssignments,
     lifeChanges,
-    poisonChanges: {}, // TODO: Handle infect
+    poisonChanges,
     creaturesKilled,
     planeswalkersDamaged,
     triggers,
