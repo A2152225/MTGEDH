@@ -131,4 +131,119 @@ describe('OPENING_HAND_ACTIONS validate-before-complete (integration)', () => {
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
   });
+
+  it('puts Gemstone Caverns onto the battlefield with a luck counter for a non-starting player', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).phase = 'PRE_GAME';
+    (game.state as any).startingPlayerId = p1;
+
+    const caverns = {
+      id: 'g1',
+      name: 'Gemstone Caverns',
+      oracle_text: "If Gemstone Caverns is in your opening hand and you're not playing first, you may begin the game with it on the battlefield with a luck counter on it.",
+      type_line: 'Legendary Land',
+      image_uris: {},
+    };
+
+    (game.state as any).zones = {
+      [p2]: {
+        hand: [caverns],
+        handCount: 1,
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPENING_HAND_ACTIONS,
+      playerId: p2 as any,
+      description: 'Opening hand actions',
+      mandatory: false,
+      leylineCount: 1,
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p2, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const stepId = String(ResolutionQueueManager.getQueue(gameId).steps[0].id);
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: ['g1'] });
+
+    expect((game.state as any).zones?.[p2]?.handCount).toBe(0);
+    const permanent = ((game.state as any).battlefield || []).find((perm: any) => perm.id === 'g1');
+    expect(permanent).toBeDefined();
+    expect(permanent?.counters).toEqual({ luck: 1 });
+  });
+
+  it('rejects Gemstone Caverns for the starting player and keeps the step active', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).phase = 'PRE_GAME';
+    (game.state as any).startingPlayerId = p1;
+
+    const caverns = {
+      id: 'g_start',
+      name: 'Gemstone Caverns',
+      oracle_text: "If Gemstone Caverns is in your opening hand and you're not playing first, you may begin the game with it on the battlefield with a luck counter on it.",
+      type_line: 'Legendary Land',
+      image_uris: {},
+    };
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [caverns],
+        handCount: 1,
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPENING_HAND_ACTIONS,
+      playerId: p1 as any,
+      description: 'Opening hand actions',
+      mandatory: false,
+      leylineCount: 1,
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const stepId = String(ResolutionQueueManager.getQueue(gameId).steps[0].id);
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: ['g_start'] });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('INVALID_SELECTION');
+    expect(((game.state as any).battlefield || []).length).toBe(0);
+    expect((game.state as any).zones?.[p1]?.handCount).toBe(1);
+    expect(ResolutionQueueManager.getQueue(gameId).steps.some((s: any) => String(s.id) === stepId)).toBe(true);
+  });
 });

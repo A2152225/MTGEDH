@@ -12,6 +12,7 @@ import { ensureGame, broadcastGame, getPlayerName, getOrInitManaPool, resolveMan
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
+import { buildOpponentMayPayRecordedOutcome } from "../state/modules/opponent-may-pay-utils.js";
 
 /**
  * Register opponent may pay socket handlers
@@ -40,6 +41,10 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
     const triggerText = payload?.triggerText;
     const declineEffectText = typeof declineEffect === 'string' ? declineEffect : undefined;
     const triggerTextValue = typeof triggerText === 'string' ? triggerText : undefined;
+    const recordedDeclineOutcome = buildOpponentMayPayRecordedOutcome(
+      typeof sourceName === 'string' ? sourceName : '',
+      declineEffectText || triggerTextValue || ''
+    );
 
     if (!gameId || typeof gameId !== 'string') return;
     if (!decidingPlayer || typeof decidingPlayer !== 'string') return;
@@ -97,6 +102,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
           manaCost,
           declineEffect: declineEffectText,
           triggerText: triggerTextValue,
+          ...recordedDeclineOutcome,
         });
 
         appendEvent(gameId, game.seq, "opponentMayPayResolve", {
@@ -110,6 +116,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
           manaCost,
           declineEffect: declineEffectText,
           triggerText: triggerTextValue,
+          ...recordedDeclineOutcome,
         });
 
         io.to(gameId).emit("chat", {
@@ -152,6 +159,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
         manaCost,
         declineEffect: declineEffectText,
         triggerText: triggerTextValue,
+        ...recordedDeclineOutcome,
         availableMana: manaPool,
       },
       onPay: async () => {
@@ -166,6 +174,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
           manaCost,
           declineEffect: declineEffectText,
           triggerText: triggerTextValue,
+          ...recordedDeclineOutcome,
         });
 
         try {
@@ -179,6 +188,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
             manaCost,
             declineEffect: declineEffectText,
             triggerText: triggerTextValue,
+            ...recordedDeclineOutcome,
           });
         } catch (e) {
           /* best-effort */
@@ -198,6 +208,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
           manaCost,
           declineEffect: declineEffectText,
           triggerText: triggerTextValue,
+          ...recordedDeclineOutcome,
         });
 
         try {
@@ -211,6 +222,7 @@ export function registerOpponentMayPayHandlers(io: Server, socket: Socket): void
             manaCost,
             declineEffect: declineEffectText,
             triggerText: triggerTextValue,
+            ...recordedDeclineOutcome,
           });
         } catch (e) {
           /* best-effort */

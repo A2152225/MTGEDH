@@ -133,6 +133,7 @@ describe('simple return-from-graveyard replay semantics (integration)', () => {
       abilityId: 'return-from-graveyard',
       destination: 'battlefield',
       manaCost: '{2}{B}{B}',
+      createdPermanentIds: ['perm_return_live_1'],
     });
 
     const zones = (game.state as any).zones?.[playerId];
@@ -140,7 +141,57 @@ describe('simple return-from-graveyard replay semantics (integration)', () => {
 
     const battlefield = (game.state as any).battlefield || [];
     expect(battlefield).toHaveLength(1);
+    expect(battlefield[0]?.id).toBe('perm_return_live_1');
     expect(battlefield[0]?.card?.id).toBe('bloodghast_card_1');
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
+  it('falls back to deterministic ids for legacy return-from-graveyard battlefield events', () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'bloodghast_card_1',
+            name: 'Bloodghast Echo',
+            type_line: 'Creature - Spirit',
+            oracle_text: '{2}{B}: Return this card from your graveyard to the battlefield.',
+            power: '2',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 2, red: 0, green: 0, colorless: 2 },
+    };
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'bloodghast_card_1',
+      abilityId: 'return-from-graveyard',
+      destination: 'battlefield',
+      manaCost: '{2}{B}{B}',
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(1);
+    expect(String(battlefield[0]?.id || '')).toMatch(/^perm_/);
+    expect(battlefield[0]?.id).not.toBe('perm_return_live_1');
   });
 });

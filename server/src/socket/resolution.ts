@@ -31,7 +31,7 @@ import {
   validateAndConsumeManaCostFromPool,
   broadcastManaPoolUpdate,
 } from "./util.js";
-import { checkAndPromptOpeningHandActions } from "./opening-hand.js";
+import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
 import { parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -3072,21 +3072,13 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
             const byId = new Map(hand.map((c: any) => [String(c?.id), c]));
 
-            const isLeyline = (card: any): boolean => {
-              const oracleText = String(card?.oracle_text || '').toLowerCase();
-              const cardName = String(card?.name || '').toLowerCase();
-              const hasLeylineAbility = oracleText.includes('in your opening hand') && (oracleText.includes('begin the game with') || oracleText.includes('begin the game with it on the battlefield'));
-              const isKnownLeyline = cardName.startsWith('leyline of') || cardName === 'gemstone caverns';
-              return hasLeylineAbility || isKnownLeyline;
-            };
-
             for (const id of selectedIds) {
               const card = byId.get(String(id));
               if (!card) {
                 socket.emit('error', { code: 'CARD_NOT_IN_HAND', message: 'Selected card not found in hand' });
                 return;
               }
-              if (!isLeyline(card)) {
+              if (!isOpeningHandBattlefieldCard(card, pid, game.state)) {
                 socket.emit('error', { code: 'INVALID_SELECTION', message: 'Selected card cannot be put onto the battlefield from opening hand' });
                 return;
               }
@@ -5948,20 +5940,11 @@ async function handleStepResponse(
       }
 
       const playedCards: string[] = [];
-      // Use the same Leyline detection heuristic as the opening-hand prompt.
-      const isLeyline = (card: any): boolean => {
-        const oracleText = String(card?.oracle_text || '').toLowerCase();
-        const cardName = String(card?.name || '').toLowerCase();
-        const hasLeylineAbility = oracleText.includes('in your opening hand') && (oracleText.includes('begin the game with') || oracleText.includes('begin the game with it on the battlefield'));
-        const isKnownLeyline = cardName.startsWith('leyline of') || cardName === 'gemstone caverns';
-        return hasLeylineAbility || isKnownLeyline;
-      };
-
       for (const cardId of selectedCardIds) {
         const idx = hand.findIndex((c: any) => c?.id === cardId);
         if (idx === -1) continue;
         const card = hand[idx];
-        if (!isLeyline(card)) continue;
+        if (!isOpeningHandBattlefieldCard(card, pid, game.state)) continue;
         hand.splice(idx, 1);
 
         battlefield.push({
@@ -5973,7 +5956,7 @@ async function handleStepResponse(
           controller: pid,
           owner: pid,
           tapped: false,
-          counters: {},
+          counters: getOpeningHandBattlefieldCounters(card, pid, game.state),
         } as any);
         playedCards.push(String(card?.name || 'Unknown'));
       }
@@ -15937,6 +15920,7 @@ function handleVoteResponse(
     appendEvent(gameId, game.seq ?? 0, "voteSubmit", { 
       playerId: pid, 
       voteId,
+      choices,
       choice,
       voteCount
     });
@@ -16217,6 +16201,7 @@ async function handleLibrarySearchResponse(
   };
 
   const selectedCards = selectedIds.map(id => takeCard(id)).filter(Boolean);
+    const createdPermanentIds: string[] = [];
 
   // Optional additional constraints (used by some planeswalker templates)
   const maxTypes = (searchStep as any).maxTypes as Record<string, number> | undefined;
@@ -16273,7 +16258,8 @@ async function handleLibrarySearchResponse(
     for (const cardId of battlefieldIds || []) {
       const card = selectedCards.find(c => c && c.id === cardId);
       if (card) {
-        await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+        createdPermanentIds.push(createdPermanentId);
 
         // Optional: add extra counters as part of the effect (planeswalker templates).
         const addCounters = (searchStep as any).addCounters as Record<string, number> | undefined;
@@ -16308,7 +16294,8 @@ async function handleLibrarySearchResponse(
       if (!card) continue;
       
       if (destination === 'battlefield') {
-        await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+        createdPermanentIds.push(createdPermanentId);
 
         // Optional: add extra counters as part of the effect (planeswalker templates).
         const addCounters = (searchStep as any).addCounters as Record<string, number> | undefined;
@@ -16461,6 +16448,7 @@ async function handleLibrarySearchResponse(
         abilityId: String((searchStep as any).persistLibrarySearchResolveAbilityId || ''),
         selectedCardIds: selectedCards.map((card: any) => String(card?.id || '')).filter(Boolean),
         selectedCards: selectedCards.map((card: any) => ({ ...card })),
+        createdPermanentIds: createdPermanentIds.length > 0 ? [...createdPermanentIds] : undefined,
         destination,
         splitAssignments: splitAssignments || undefined,
         entersTapped,
@@ -16574,7 +16562,7 @@ async function putCardOntoBattlefield(
   game: any,
   io?: Server,
   gameId?: string
-): Promise<void> {
+): Promise<string> {
   const tl = (card.type_line || '').toLowerCase();
   const isCreature = tl.includes('creature');
   const isPlaneswalker = tl.includes('planeswalker');
@@ -16753,6 +16741,8 @@ async function putCardOntoBattlefield(
     players: state.players 
   };
   triggerETBEffectsForPermanent(ctx as any, newPermanent, controller);
+
+  return String(newPermanent.id);
 }
 
 /**
@@ -18938,6 +18928,8 @@ async function handleOptionChoiceResponse(
       manaCost: stepData?.manaCost,
       declineEffect: stepData?.declineEffect,
       triggerText: stepData?.triggerText,
+      declineDrawCount: stepData?.declineDrawCount,
+      declineTreasureCount: stepData?.declineTreasureCount,
     });
 
     try {
@@ -18951,6 +18943,8 @@ async function handleOptionChoiceResponse(
         manaCost: stepData?.manaCost,
         declineEffect: stepData?.declineEffect,
         triggerText: stepData?.triggerText,
+        declineDrawCount: stepData?.declineDrawCount,
+        declineTreasureCount: stepData?.declineTreasureCount,
       });
     } catch (e) {
       debugWarn(1, '[Resolution] Failed to persist opponentMayPayResolve event:', e);
@@ -19005,6 +18999,10 @@ async function handleOptionChoiceResponse(
         if (player) {
           (player as any).life = newLife;
         }
+
+        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+        (game.state as any).lifeLostThisTurn[playerId] =
+          Number((game.state as any).lifeLostThisTurn[playerId] || 0) + payLifeAmount;
 
         (permanent as any).tapped = false;
 
@@ -21675,6 +21673,7 @@ async function handleGraveyardSelectionResponse(
 
   const movedCards: string[] = [];
   const movedCardIds: string[] = [];
+  const createdPermanentIds: string[] = [];
 
   // Collect evidence validation: ensure the chosen cards meet the required total mana value.
   let evidenceCollected = false;
@@ -21853,8 +21852,9 @@ async function handleGraveyardSelectionResponse(
       const battlefield = (game.state as any).battlefield = (game.state as any).battlefield || [];
       const typeLine = String((card as any)?.type_line || '').toLowerCase();
       const isCreature = typeLine.includes('creature');
+      const permanentId = uid('perm');
       battlefield.push({
-        id: uid('perm'),
+        id: permanentId,
         controller: pid,
         owner: pid,
         tapped: false,
@@ -21864,6 +21864,7 @@ async function handleGraveyardSelectionResponse(
         summoningSickness: isCreature,
         card: { ...(card as any), zone: 'battlefield' },
       });
+      createdPermanentIds.push(permanentId);
     } else if (destination === 'library_top' || destination === 'library_bottom') {
       const lib = (game as any).libraries?.get(pid) || [];
       const libCard = { ...(card as any), zone: 'library' };
@@ -21903,6 +21904,7 @@ async function handleGraveyardSelectionResponse(
       playerId: pid,
       effectId,
       selectedCardIds: movedCardIds,
+      createdPermanentIds: createdPermanentIds.length > 0 ? createdPermanentIds : undefined,
       destination,
       movedCards,
       purpose: purpose || undefined,

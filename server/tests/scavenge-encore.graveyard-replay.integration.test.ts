@@ -225,6 +225,7 @@ describe('scavenge and encore graveyard replay semantics (integration)', () => {
       cardId: 'encore_card_1',
       abilityId: 'encore',
       manaCost: '{3}{R}{R}',
+      createdPermanentIds: ['encore_live_token_1', 'encore_live_token_2'],
       encoreTargetPlayerIds: [opponentA, opponentB],
     });
 
@@ -236,6 +237,7 @@ describe('scavenge and encore graveyard replay semantics (integration)', () => {
 
     const battlefield = (game.state as any).battlefield || [];
     expect(battlefield).toHaveLength(2);
+    expect(battlefield.map((perm: any) => perm.id)).toEqual(['encore_live_token_1', 'encore_live_token_2']);
     const targetIds = battlefield.map((perm: any) => perm.encoreAttackPlayerId).sort();
     expect(targetIds).toEqual([opponentA, opponentB]);
     expect(battlefield.every((perm: any) => perm.isToken)).toBe(true);
@@ -244,5 +246,6 @@ describe('scavenge and encore graveyard replay semantics (integration)', () => {
     const delayed = (game.state as any).pendingSacrificeAtNextEndStep || [];
     expect(delayed).toHaveLength(2);
     expect(delayed.every((entry: any) => entry.createdBy === playerId)).toBe(true);
+    expect(delayed.map((entry: any) => entry.permanentId)).toEqual(['encore_live_token_1', 'encore_live_token_2']);
   });
 });

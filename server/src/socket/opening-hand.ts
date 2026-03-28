@@ -32,11 +32,43 @@ function isLeylineCard(card: any): boolean {
   return hasLeylineAbility || isKnownLeyline;
 }
 
+function getStartingPlayerId(state: any): string {
+  return String(state?.startingPlayerId || state?.startingPlayer || state?.turnPlayer || '').trim();
+}
+
+export function isOpeningHandBattlefieldCard(card: any, playerId?: string, state?: any): boolean {
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
+  const cardName = String(card?.name || '').toLowerCase();
+  const hasLeylineAbility = (
+    oracleText.includes('in your opening hand') &&
+    (oracleText.includes('begin the game with') || oracleText.includes('begin the game with it on the battlefield'))
+  );
+
+  if (cardName === 'gemstone caverns') {
+    const startingPlayerId = getStartingPlayerId(state);
+    if (startingPlayerId && playerId && playerId === startingPlayerId) {
+      return false;
+    }
+    return true;
+  }
+
+  return hasLeylineAbility || cardName.startsWith('leyline of');
+}
+
+export function getOpeningHandBattlefieldCounters(card: any, playerId?: string, state?: any): Record<string, number> {
+  const cardName = String(card?.name || '').toLowerCase();
+  const startingPlayerId = getStartingPlayerId(state);
+  if (cardName === 'gemstone caverns' && startingPlayerId && playerId && playerId !== startingPlayerId) {
+    return { luck: 1 };
+  }
+  return {};
+}
+
 /**
  * Find all Leyline cards in a player's hand
  */
-function findLeylineCards(hand: any[]): any[] {
-  return hand.filter(card => card && isLeylineCard(card));
+function findLeylineCards(hand: any[], playerId?: string, state?: any): any[] {
+  return hand.filter(card => card && isOpeningHandBattlefieldCard(card, playerId, state));
 }
 
 export function registerOpeningHandHandlers(io: Server, socket: Socket) {
@@ -61,7 +93,7 @@ export function checkAndPromptOpeningHandActions(
     }
 
     const hand = zones.hand;
-    const leylineCards = findLeylineCards(hand);
+    const leylineCards = findLeylineCards(hand, playerId, game.state);
 
     if (leylineCards.length > 0) {
       const existing = ResolutionQueueManager

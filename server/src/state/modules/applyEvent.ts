@@ -45,15 +45,29 @@ import {
   movePermanentToExile,
 } from "./counters_tokens";
 import { cleanupCardLeavingExile } from "./playable-from-exile";
-import { pushStack, resolveTopOfStack, playLand, castSpell } from "./stack";
+import { pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
+
+function getReplayStartingPlayerId(state: any): string {
+  return String(state?.startingPlayerId || state?.startingPlayer || state?.turnPlayer || '').trim();
+}
+
+function getReplayOpeningHandBattlefieldCounters(state: any, card: any, playerId?: string): Record<string, number> {
+  const cardName = String(card?.name || '').toLowerCase();
+  const startingPlayerId = getReplayStartingPlayerId(state);
+  if (cardName === 'gemstone caverns' && startingPlayerId && playerId && playerId !== startingPlayerId) {
+    return { luck: 1 };
+  }
+  return {};
+}
 import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
 import { evaluateAction } from "../../rules-engine/index";
 import { mulberry32 } from "../../utils/rng";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { checkGraveyardTrigger, parsePlaneswalkerAbilities } from "./triggered-abilities.js";
+import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { processLifeChange } from "./game-state-effects";
 import { sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
@@ -61,6 +75,7 @@ import { parseManaCost } from "./mana-check.js";
 import { calculateManaProduction, consumeManaFromPool, getOrInitManaPool, resolveManaCostForPoolPayment } from "../../socket/util.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../../rules-engine/src/creatureUpgradeAbilities.js";
 import { detectTutorEffect, getActivatedAbilityScopeText, parseSearchCriteria } from "../../socket/interaction.js";
+import { getOpponentMayPayDrawCount, getOpponentMayPayTreasureCount } from "./opponent-may-pay-utils.js";
 
 /* -------- Helpers ---------- */
 
@@ -387,41 +402,6 @@ function applyAIActivateAbilityReplay(ctx: GameContext, e: any): void {
   ctx.bumpSeq();
 }
 
-function getOpponentMayPayDrawCount(sourceName: string, effectText: string): number {
-  const normalizedSourceName = String(sourceName || '').trim().toLowerCase();
-  const normalizedEffectText = String(effectText || '').trim().toLowerCase();
-
-  if (
-    normalizedSourceName.includes('rhystic study') ||
-    normalizedSourceName.includes('mystic remora') ||
-    normalizedSourceName.includes('esper sentinel')
-  ) {
-    return 1;
-  }
-
-  if (/draws?\s+a\s+card/i.test(normalizedEffectText)) {
-    return 1;
-  }
-
-  const drawCountMatch = normalizedEffectText.match(/draws?\s+(\d+)\s+cards?/i);
-  if (drawCountMatch) {
-    return Math.max(0, parseInt(drawCountMatch[1], 10) || 0);
-  }
-
-  return 0;
-}
-
-function createsTreasureOnOpponentMayPayDecline(sourceName: string, effectText: string): boolean {
-  const normalizedSourceName = String(sourceName || '').trim().toLowerCase();
-  const normalizedEffectText = String(effectText || '').trim().toLowerCase();
-
-  if (normalizedSourceName.includes('smothering tithe')) {
-    return true;
-  }
-
-  return /create\s+(?:a|an|one|two|three|four|five|\d+)?\s*treasure(?:\s+token)?/i.test(normalizedEffectText);
-}
-
 function applyOpponentMayPayResolve(ctx: GameContext, e: any): void {
   const decidingPlayer = String(e?.decidingPlayer || e?.playerId || '').trim();
   const sourceName = String(e?.sourceName || '').trim();
@@ -454,18 +434,25 @@ function applyOpponentMayPayResolve(ctx: GameContext, e: any): void {
     return;
   }
 
-  const drawCount = getOpponentMayPayDrawCount(sourceName, effectText);
+  const recordedDrawCount = Math.max(0, Number(e?.declineDrawCount ?? 0) || 0);
+  const recordedTreasureCount = Math.max(0, Number(e?.declineTreasureCount ?? 0) || 0);
+  const drawCount = recordedDrawCount > 0 ? recordedDrawCount : getOpponentMayPayDrawCount(sourceName, effectText);
+  const treasureCount = recordedTreasureCount > 0
+    ? recordedTreasureCount
+    : getOpponentMayPayTreasureCount(sourceName, effectText);
+
+  let appliedDeclineOutcome = false;
   if (drawCount > 0) {
     drawCards(ctx as any, sourceController as PlayerID, drawCount);
-    return;
+    appliedDeclineOutcome = true;
   }
 
-  if (createsTreasureOnOpponentMayPayDecline(sourceName, effectText)) {
+  if (treasureCount > 0) {
     createToken(
       ctx as any,
       sourceController as PlayerID,
       'Treasure',
-      1,
+      treasureCount,
       undefined,
       undefined,
       {
@@ -475,6 +462,10 @@ function applyOpponentMayPayResolve(ctx: GameContext, e: any): void {
         isArtifact: true,
       }
     );
+    appliedDeclineOutcome = true;
+  }
+
+  if (appliedDeclineOutcome) {
     return;
   }
 
@@ -2065,12 +2056,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Mark player as having kept their hand
         // This is important for tracking mulligan state during replay
         const pid = (e as any).playerId;
+        const mulligansTaken = Math.max(0, Number((e as any).mulligansTaken ?? 0) || 0);
         if (!pid) break;
         try {
           const state = ctx.state as any;
           state.mulliganState = state.mulliganState || {};
-          state.mulliganState[pid] = state.mulliganState[pid] || {};
-          state.mulliganState[pid].hasKeptHand = true;
+          state.mulliganState[pid] = {
+            ...(state.mulliganState[pid] || {}),
+            hasKeptHand: true,
+            mulligansTaken,
+            pendingBottomCount: 0,
+            pendingBottomStepId: null,
+          };
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(keepHand): failed", err);
@@ -2082,6 +2079,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // London mulligan: move selected cards from hand to bottom of library
         const pid = (e as any).playerId;
         const cardIds = (e as any).cardIds as string[] || [];
+        const mulligansTaken = Math.max(0, Number((e as any).mulligansTaken ?? 0) || 0);
         if (!pid || cardIds.length === 0) break;
         try {
           const zones = ctx.state.zones || {};
@@ -2108,8 +2106,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // Mark hand as kept after putting cards on bottom
           const state = ctx.state as any;
           state.mulliganState = state.mulliganState || {};
-          state.mulliganState[pid] = state.mulliganState[pid] || {};
-          state.mulliganState[pid].hasKeptHand = true;
+          state.mulliganState[pid] = {
+            ...(state.mulliganState[pid] || {}),
+            hasKeptHand: true,
+            mulligansTaken,
+            pendingBottomCount: 0,
+            pendingBottomStepId: null,
+          };
           
           ctx.bumpSeq();
         } catch (err) {
@@ -2251,10 +2254,36 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Tap or untap a permanent
         const permId = (e as any).permanentId;
         const tapped = e.type === "tapPermanent";
+        const playerId = String((e as any).playerId || '').trim();
         if (!permId) break;
         try {
           const battlefield = ctx.state.battlefield || [];
           const perm = battlefield.find((p: any) => p.id === permId);
+          if (tapped && playerId) {
+            const stateAny = ctx.state as any;
+            stateAny.manaPool = stateAny.manaPool || {};
+            stateAny.manaPool[playerId] = stateAny.manaPool[playerId] || {
+              white: 0,
+              blue: 0,
+              black: 0,
+              red: 0,
+              green: 0,
+              colorless: 0,
+            };
+
+            const manaCost = String((e as any).manaCost || '').trim();
+            if (manaCost) {
+              consumeRecordedManaCostFromPool(stateAny.manaPool[playerId], manaCost);
+            }
+
+            const recordedMana = normalizeRecordedManaMap((e as any).addedMana);
+            applyRecordedManaToPool(ctx, playerId, recordedMana);
+
+            const explicitLifeLost = Number((e as any).lifeLost || 0);
+            if (Number.isFinite(explicitLifeLost) && explicitLifeLost > 0) {
+              applyManaAbilityLifeLoss(ctx, playerId, explicitLifeLost);
+            }
+          }
           if (perm) {
             (perm as any).tapped = tapped;
 
@@ -2262,7 +2291,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // Conservative: only set true on positive evidence when the event includes playerId.
             if (tapped) {
               try {
-                const pid = String((e as any).playerId || '').trim();
+                const pid = playerId;
                 const tl = String((perm as any)?.card?.type_line || '').toLowerCase();
                 const isLand = tl.includes('land');
                 if (pid && !isLand) {
@@ -2716,6 +2745,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // Each creature deals damage to the other equal to its power
             (source as any).damage = ((source as any).damage || 0) + targetPower;
             (target as any).damage = ((target as any).damage || 0) + sourcePower;
+
+            const queueDamageTrigger = (perm: any, damageAmount: number) => {
+              processDamageReceivedTriggers(ctx as any, perm, damageAmount, (triggerInfo) => {
+                const stateAny = ctx.state as any;
+                stateAny.pendingDamageTriggers = stateAny.pendingDamageTriggers || {};
+                stateAny.pendingDamageTriggers[triggerInfo.triggerId] = {
+                  sourceId: triggerInfo.sourceId,
+                  sourceName: triggerInfo.sourceName,
+                  controller: triggerInfo.controller,
+                  damageAmount: triggerInfo.damageAmount,
+                  triggerType: 'dealt_damage',
+                  targetType: triggerInfo.targetType,
+                  ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
+                };
+              });
+            };
+
+            queueDamageTrigger(source, targetPower);
+            queueDamageTrigger(target, sourcePower);
             
             // Run SBA to check for lethal damage
             try {
@@ -3003,6 +3051,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               (ctx.state as any).life = (ctx.state as any).life || {};
               const cur = Number((ctx.state as any).life?.[pid] ?? 40);
               (ctx.state as any).life[pid] = Math.max(0, cur - paid);
+              (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+              (ctx.state as any).lifeLostThisTurn[pid] = ((ctx.state as any).lifeLostThisTurn[pid] || 0) + paid;
+
+              const player = Array.isArray((ctx.state as any).players)
+                ? (ctx.state as any).players.find((entry: any) => entry && String(entry.id || '') === pid)
+                : null;
+              if (player) {
+                player.life = (ctx.state as any).life[pid];
+              }
             }
           } catch {
             // best-effort only
@@ -3770,9 +3827,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   (ctx.state as any).lifeLostThisTurn[String(pid)] = ((ctx.state as any).lifeLostThisTurn[String(pid)] || 0) + paidLife;
                 }
 
+                const stackId = String((e as any).stackId || '').trim() || generateDeterministicId(ctx, 'stack', String(cardId));
                 ctx.state.stack = ctx.state.stack || [];
                 (ctx.state.stack as any[]).push({
-                  id: generateDeterministicId(ctx, 'stack', String(cardId)),
+                  id: stackId,
                   controller: pid,
                   card: { ...card, zone: 'stack', castWithAbility: String(abilityType) },
                   targets: [],
@@ -3801,9 +3859,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   consumeRecordedManaCostFromPool(manaPool, manaCost);
                 }
 
+                const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
+                  ? ((e as any).createdPermanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+                  : [];
+
                 ctx.state.battlefield = ctx.state.battlefield || [];
                 (ctx.state.battlefield as any[]).push({
-                  id: generateDeterministicId(ctx, 'perm', String(cardId)),
+                  id: createdPermanentIds.shift() || generateDeterministicId(ctx, 'perm', String(cardId)),
                   controller: pid,
                   owner: pid,
                   tapped: false,
@@ -3836,11 +3898,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 (z.exile as any[]).push({ ...card, zone: 'exile' });
                 z.exileCount = (z.exile as any[]).length;
 
+                const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
+                  ? ((e as any).createdPermanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+                  : [];
                 const cardName = String(card?.name || 'Unknown');
                 const tokenName = abilityType === 'eternalize' ? `${cardName} (4/4 Zombie)` : `${cardName} (Zombie)`;
                 ctx.state.battlefield = ctx.state.battlefield || [];
                 (ctx.state.battlefield as any[]).push({
-                  id: generateDeterministicId(ctx, abilityType === 'eternalize' ? 'token_eternalize' : 'token_embalm', String(cardId)),
+                  id: createdPermanentIds.shift() || generateDeterministicId(ctx, abilityType === 'eternalize' ? 'token_eternalize' : 'token_embalm', String(cardId)),
                   controller: pid,
                   owner: pid,
                   tapped: false,
@@ -3881,9 +3946,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
                 stateAny.castFromGraveyardThisTurn[String(pid)] = true;
 
+                const stackId = String((e as any).stackId || '').trim() || generateDeterministicId(ctx, 'stack', String(cardId));
                 ctx.state.stack = ctx.state.stack || [];
                 (ctx.state.stack as any[]).push({
-                  id: generateDeterministicId(ctx, 'stack', String(cardId)),
+                  id: stackId,
                   controller: pid,
                   card: { ...card, zone: 'stack', castWithAbility: 'disturb', transformed: true },
                   targets: [],
@@ -3914,6 +3980,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
                 if (abilityType === 'encore') {
                   const stateAny = ctx.state as any;
+                  const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
+                    ? ((e as any).createdPermanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+                    : [];
                   const players = Array.isArray(stateAny?.players) ? stateAny.players : [];
                   const encoreTargetPlayerIds = Array.isArray((e as any).encoreTargetPlayerIds)
                     ? (e as any).encoreTargetPlayerIds.map((value: any) => String(value))
@@ -3943,7 +4012,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     : `${oracleText}${oracleText ? '\n' : ''}Haste`;
 
                   for (const targetPlayerId of encoreTargetPlayerIds) {
-                    const tokenId = generateDeterministicId(ctx, 'token_encore', `${String(cardId)}:${String(targetPlayerId)}`);
+                    const tokenId = createdPermanentIds.shift() || generateDeterministicId(ctx, 'token_encore', `${String(cardId)}:${String(targetPlayerId)}`);
                     (ctx.state.battlefield as any[]).push({
                       id: tokenId,
                       controller: pid,
@@ -4130,10 +4199,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     stateAny.tappedNonlandPermanentThisTurnByPlayer[String(pid)] = true;
                   }
 
+                  const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
+                    ? ((e as any).createdPermanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+                    : [];
                   if (destination === 'battlefield') {
                     ctx.state.battlefield = ctx.state.battlefield || [];
                     (ctx.state.battlefield as any[]).push({
-                      id: generateDeterministicId(ctx, 'perm', String(cardId)),
+                      id: createdPermanentIds.shift() || generateDeterministicId(ctx, 'perm', String(cardId)),
                       controller: pid,
                       owner: pid,
                       tapped: false,
@@ -4269,6 +4341,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (ctx as any).life[pid] = next;
             if (player) player.life = next;
 
+            if (permId) {
+              const battlefield = ctx.state.battlefield || [];
+              const perm = battlefield.find((p: any) => p.id === permId);
+              if (perm) {
+                (perm as any).tapped = false;
+              }
+            }
+
             // Track life lost this turn.
             try {
               (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
@@ -4373,9 +4453,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // Put Mox Diamond on battlefield
             if (moxCard) {
               ctx.state.battlefield = ctx.state.battlefield || [];
-              const permId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
               ctx.state.battlefield.push({
-                id: permId,
+                id: String(stackItemId || generateDeterministicId(ctx, 'perm', String(moxCard?.id || 'mox_diamond'))),
                 controller: pid,
                 owner: pid,
                 tapped: false,
@@ -4478,6 +4557,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const destinationFaceDown = (e as any).destinationFaceDown === true;
         const grantPlayableFromExileToController = (e as any).grantPlayableFromExileToController === true;
         const playableFromExileTypeKey = String((e as any).playableFromExileTypeKey || '').toLowerCase();
+        const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
+          ? ((e as any).createdPermanentIds as any[]).map((id: any) => String(id || '').trim()).filter(Boolean)
+          : [];
         const selectedCards = Array.isArray((e as any).selectedCards) ? (e as any).selectedCards as any[] : [];
         const selectedCardMap = new Map(selectedCards.map((card: any) => [String(card?.id || ''), card]));
         const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
@@ -4512,8 +4594,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const typeLine = String(card?.type_line || '').toLowerCase();
             const isCreature = typeLine.includes('creature');
             ctx.state.battlefield = ctx.state.battlefield || [];
+            const createdPermanentId = createdPermanentIds.shift() || generateDeterministicId(ctx, 'perm', String(card?.id || 'library_search'));
             (ctx.state.battlefield as any[]).push({
-              id: generateDeterministicId(ctx, 'perm', String(card?.id || 'library_search')),
+              id: createdPermanentId,
               controller: pid,
               owner: pid,
               tapped: entersTapped,
@@ -4643,7 +4726,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     controller: pid,
                     owner: pid,
                     tapped: false,
-                    counters: {},
+                    counters: getReplayOpeningHandBattlefieldCounters(ctx.state, card, pid),
                     card: { ...card, zone: "battlefield" },
                   } as any);
                 }
@@ -5183,6 +5266,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Move cards from graveyard to another zone
         const pid = (e as any).playerId;
         const selectedCardIds = (e as any).selectedCardIds as string[] || [];
+        const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
+          ? ((e as any).createdPermanentIds as any[]).map((value: any) => String(value || '').trim())
+          : [];
         const destination = (e as any).destination;
         
         try {
@@ -5216,8 +5302,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 ctx.state.battlefield = ctx.state.battlefield || [];
                 const typeLine = (card.type_line || '').toLowerCase();
                 const isCreature = typeLine.includes('creature');
+                const createdPermanentId = createdPermanentIds.shift() || generateDeterministicId(ctx, 'perm', cardId);
                 ctx.state.battlefield.push({
-                  id: generateDeterministicId(ctx, 'perm', cardId),
+                  id: createdPermanentId,
                   controller: pid,
                   owner: pid,
                   tapped: false,
@@ -5289,7 +5376,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
           ctx.state.battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
           const tokenId = generateDeterministicId(ctx, 'token_forbidden_orchard', `${permanentId}:${targetOpponentId}`);
-          (ctx.state.battlefield as any[]).push({
+          const spiritToken = {
             id: tokenId,
             controller: targetOpponentId,
             owner: targetOpponentId,
@@ -5308,7 +5395,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             basePower: 1,
             baseToughness: 1,
             isToken: true,
-          });
+          };
+          (ctx.state.battlefield as any[]).push(spiritToken);
+          triggerETBEffectsForToken(ctx as any, spiritToken as any, targetOpponentId as PlayerID);
 
           ctx.bumpSeq();
         } catch (err) {
@@ -5492,6 +5581,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const choice = String((e as any).choice || '').trim();
           const voteCountRaw = Number((e as any).voteCount ?? 1);
           const voteCount = Number.isFinite(voteCountRaw) && voteCountRaw > 0 ? Math.floor(voteCountRaw) : 1;
+          const persistedChoices = Array.isArray((e as any).choices)
+            ? ((e as any).choices as any[])
+                .map((value: any) => String(value || '').trim())
+                .filter((value: string) => value.length > 0)
+            : [];
 
           if (!voteId || !playerId || !choice) {
             debugWarn(2, `[applyEvent] voteSubmit: invalid payload voteId=${voteId} playerId=${playerId} choice=${choice}`);
@@ -5503,7 +5597,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
           if (!stateAny.activeVotes[voteId]) {
             stateAny.activeVotes[voteId] = {
-              choices: [],
+              choices: persistedChoices.length > 0 ? [...persistedChoices] : [],
               votes: [],
             };
           }
@@ -5511,6 +5605,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const activeVote = stateAny.activeVotes[voteId];
           if (!Array.isArray(activeVote.choices)) {
             activeVote.choices = [];
+          }
+          if (persistedChoices.length > 0) {
+            activeVote.choices = [...persistedChoices];
           }
           if (!activeVote.choices.includes(choice)) {
             activeVote.choices.push(choice);

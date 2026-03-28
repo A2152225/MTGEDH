@@ -102,4 +102,65 @@ describe('opponent may pay replay semantics', () => {
     expect(treasures).toHaveLength(1);
     expect(treasures[0]?.card?.type_line).toBe('Token Artifact — Treasure');
   });
+
+  it('prefers persisted declined draw counts over replay heuristics', () => {
+    const game = createInitialGameState('t_opponent_may_pay_replay_recorded_draw');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    game.importDeckResolved(p2, [
+      {
+        id: 'recorded_draw_1',
+        name: 'Island',
+        type_line: 'Basic Land — Island',
+        oracle_text: '({T}: Add {U}.)',
+      },
+    ]);
+
+    game.applyEvent({
+      type: 'opponentMayPayResolve',
+      playerId: p1,
+      decidingPlayer: p1,
+      promptId: 'prompt_recorded_draw',
+      willPay: false,
+      sourceName: 'Custom Archive Trigger',
+      sourceController: p2,
+      declineEffect: 'Do the unusual archive thing.',
+      triggerText: 'Custom Archive Trigger resolves.',
+      declineDrawCount: 1,
+    } as any);
+
+    expect(((game.state as any).zones?.[p2]?.hand || []).map((card: any) => card?.id)).toEqual(['recorded_draw_1']);
+    expect((game.state as any).zones?.[p2]?.libraryCount).toBe(0);
+  });
+
+  it('prefers persisted declined treasure counts over replay heuristics', () => {
+    const game = createInitialGameState('t_opponent_may_pay_replay_recorded_treasure');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    game.applyEvent({
+      type: 'opponentMayPayResolve',
+      playerId: p1,
+      decidingPlayer: p1,
+      promptId: 'prompt_recorded_treasure',
+      willPay: false,
+      sourceName: 'Custom Cache Trigger',
+      sourceController: p2,
+      declineEffect: 'Do the unusual cache thing.',
+      triggerText: 'Custom Cache Trigger resolves.',
+      declineTreasureCount: 2,
+    } as any);
+
+    const treasures = ((game.state as any).battlefield || []).filter(
+      (perm: any) => perm?.controller === p2 && perm?.card?.name === 'Treasure'
+    );
+    expect(treasures).toHaveLength(2);
+  });
 });

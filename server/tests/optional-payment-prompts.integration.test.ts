@@ -4,7 +4,7 @@ import { initDb, createGameIfNotExists } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
-import { queueOptionalPaymentStep } from '../src/socket/optional-payment-prompts.js';
+import { queueOptionalPaymentStep, queueShockLandPaymentStep } from '../src/socket/optional-payment-prompts.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 
@@ -148,5 +148,51 @@ describe('shared optional payment prompts (integration)', () => {
     expect(ResolutionQueueManager.getQueue(gameId).steps.some((s: any) => String(s.id) === stepId)).toBe(false);
     expect(Number((game.state as any).life[playerId])).toBe(3);
     expect(Boolean(permanent.tapped)).toBe(false);
+  });
+
+  it('tracks shock-land life payments as life lost this turn when the player pays', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).battlefield = [
+      {
+        id: 'shock_live_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: true,
+        card: {
+          id: 'card_live_1',
+          name: 'Watery Grave',
+          type_line: 'Land — Island Swamp',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    queueShockLandPaymentStep(io as any, game as any, gameId, playerId, (game.state as any).battlefield[0], 'Watery Grave');
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => (s as any).shockLandChoice === true);
+    expect(step).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((step as any).id),
+      selections: 'pay_2_life',
+    });
+
+    expect(Number((game.state as any).life[playerId])).toBe(38);
+    expect(Number((game.state as any).players[0]?.life)).toBe(38);
+    expect(Number((game.state as any).lifeLostThisTurn?.[playerId] || 0)).toBe(2);
   });
 });

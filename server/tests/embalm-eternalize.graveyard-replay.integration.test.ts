@@ -138,6 +138,7 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
       cardId: 'eternalize_card_1',
       abilityId: 'eternalize',
       manaCost: '{5}{U}{U}',
+      createdPermanentIds: ['token_eternalize_live_1'],
     });
 
     const zones = (game.state as any).zones?.[playerId];
@@ -147,11 +148,60 @@ describe('embalm and eternalize graveyard replay semantics (integration)', () =>
 
     const battlefield = (game.state as any).battlefield || [];
     expect(battlefield).toHaveLength(1);
+    expect(battlefield[0]?.id).toBe('token_eternalize_live_1');
     expect(Boolean(battlefield[0]?.isToken)).toBe(true);
     expect(String(battlefield[0]?.card?.name || '')).toContain('(4/4 Zombie)');
     expect(String(battlefield[0]?.card?.type_line || '')).toContain('Zombie');
     expect(battlefield[0]?.basePower).toBe(4);
     expect(battlefield[0]?.baseToughness).toBe(4);
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
+  it('falls back to deterministic embalm token ids for legacy events without created ids', () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'embalm_card_1',
+            name: 'Sacred Cat',
+            type_line: 'Creature - Cat',
+            oracle_text: 'Lifelink\nEmbalm {W}',
+            power: '1',
+            toughness: '1',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [];
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'embalm_card_1',
+      abilityId: 'embalm',
+      manaCost: '{W}',
+    });
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(1);
+    expect(String(battlefield[0]?.id || '')).toMatch(/^token_embalm_/);
+    expect(battlefield[0]?.id).not.toBe('token_eternalize_live_1');
   });
 });

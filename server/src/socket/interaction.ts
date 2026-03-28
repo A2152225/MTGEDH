@@ -1782,8 +1782,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       markCastFromGraveyardLive(game, pid);
       
       // Add to stack
+      const stackId = generateId("stack");
       const stackItem = {
-        id: generateId("stack"),
+        id: stackId,
         controller: pid,
         card: { ...card, zone: "stack", castWithAbility: abilityId },
         targets: [],
@@ -1800,6 +1801,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         cardId,
         abilityId,
+        stackId,
         manaCost: recordedManaCost || undefined,
         lifePaidForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
       });
@@ -1835,8 +1837,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Add to battlefield
       game.state.battlefield = game.state.battlefield || [];
-      game.state.battlefield.push({
-        id: generateId("perm"),
+        const createdPermanentId = generateId("perm");
+        game.state.battlefield.push({
+          id: createdPermanentId,
         controller: pid,
         owner: pid,
         tapped: false,
@@ -1855,6 +1858,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         cardId,
         abilityId,
         manaCost: recordedManaCost || undefined,
+        createdPermanentIds: [createdPermanentId],
       });
       
       io.to(gameId).emit("chat", {
@@ -1895,8 +1899,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Create token on battlefield
       const tokenName = abilityId === "eternalize" ? `${cardName} (4/4 Zombie)` : `${cardName} (Zombie)`;
       game.state.battlefield = game.state.battlefield || [];
+      const createdPermanentId = generateId("token");
       game.state.battlefield.push({
-        id: generateId("token"),
+        id: createdPermanentId,
         controller: pid,
         owner: pid,
         tapped: false,
@@ -1921,6 +1926,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         cardId,
         abilityId,
         manaCost: recordedManaCost || undefined,
+        createdPermanentIds: [createdPermanentId],
       });
       
       io.to(gameId).emit("chat", {
@@ -2108,12 +2114,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       zones.graveyard.splice(cardIndex, 1);
       zones.graveyardCount = zones.graveyard.length;
       markCardLeftGraveyardLive(game, pid, card);
+      let createdPermanentId: string | undefined;
       
       if (destination === "battlefield") {
         // Move to battlefield
         game.state.battlefield = game.state.battlefield || [];
+        createdPermanentId = generateId("perm");
         game.state.battlefield.push({
-          id: generateId("perm"),
+          id: createdPermanentId,
           controller: pid,
           owner: pid,
           tapped: false,
@@ -2153,6 +2161,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         abilityId,
         destination,
         manaCost: recordedManaCost,
+        createdPermanentIds: destination === "battlefield" ? [createdPermanentId] : undefined,
       });
     } else if (abilityId === "scavenge") {
       const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
@@ -2230,6 +2239,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       zones.exileCount = zones.exile.length;
 
       const encoreTargetPlayerIds = getEncoreTargetPlayerIds(game.state, pid);
+      const createdPermanentIds: string[] = [];
       const fireAtTurnNumber = getNextEndStepFireTurnNumber(game.state);
       game.state.battlefield = game.state.battlefield || [];
       (game.state as any).pendingSacrificeAtNextEndStep = Array.isArray((game.state as any).pendingSacrificeAtNextEndStep)
@@ -2237,6 +2247,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         : [];
       for (const targetPlayerId of encoreTargetPlayerIds) {
         const tokenId = generateId("token");
+        createdPermanentIds.push(tokenId);
         game.state.battlefield.push(createEncoreToken(game.state, pid, card, tokenId, targetPlayerId));
         (game.state as any).pendingSacrificeAtNextEndStep.push({
           permanentId: tokenId,
@@ -2256,6 +2267,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         cardId,
         abilityId,
         manaCost: recordedManaCost || undefined,
+        createdPermanentIds,
         encoreTargetPlayerIds,
       });
       
@@ -2290,8 +2302,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       markCastFromGraveyardLive(game, pid);
       
       // Add to stack (transformed)
+      const stackId = generateId("stack");
       const stackItem = {
-        id: generateId("stack"),
+        id: stackId,
         controller: pid,
         card: { ...card, zone: "stack", castWithAbility: "disturb", transformed: true },
         targets: [],
@@ -2308,6 +2321,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid,
         cardId,
         abilityId,
+        stackId,
         manaCost: recordedManaCost || undefined,
       });
       
@@ -2633,6 +2647,15 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // If so, add the produced mana to the player's mana pool
     const isBasic = typeLine.includes("basic");
     const isTreasureSource = /\btreasure\b/.test(typeLine);
+    const recordedAddedMana: Record<string, number> = {};
+    let recordedManaCost: string | undefined;
+    let recordedLifeLost = 0;
+
+    const recordAddedMana = (poolKey: string, amount: number) => {
+      if (!poolKey) return;
+      if (!Number.isFinite(amount) || amount === 0) return;
+      recordedAddedMana[poolKey] = (recordedAddedMana[poolKey] || 0) + amount;
+    };
     
     // ========================================================================
     // Check for devotion-based or creature-count-based mana abilities FIRST
@@ -2705,6 +2728,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const totalAmount = baseAmount * effectiveMultiplier;
         const poolKey = colorToPoolKey[devotionMana.color] || 'green';
         (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+        recordAddedMana(poolKey, totalAmount);
         if (isTreasureSource) {
           try {
             recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, totalAmount);
@@ -2733,6 +2757,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // Handle activation cost (like Three Tree City's {2})
         if ((creatureCountMana as any).activationCost) {
           const activationCost = (creatureCountMana as any).activationCost;
+          recordedManaCost = activationCost;
           const parsedCost = parseManaCost(activationCost);
           const pool = getOrInitManaPool(game.state, pid);
           const totalAvailable = calculateTotalAvailableMana(pool, []);
@@ -2802,6 +2827,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         } else {
           const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
           (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+          recordAddedMana(poolKey, totalAmount);
           if (isTreasureSource) {
             try {
               recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, totalAmount);
@@ -2864,6 +2890,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 // Pay the life cost
                 if (!game.state.life) game.state.life = {};
                 game.state.life[pid] = currentLife - cost.amount;
+                recordedLifeLost += Number(cost.amount) || 0;
 
                 // Track life lost this turn.
                 try {
@@ -2891,6 +2918,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             
             if (!game.state.life) game.state.life = {};
             game.state.life[pid] = currentLife - damageAmount;
+            recordedLifeLost += Number(damageAmount) || 0;
 
             // Track per-turn damage and life lost.
             try {
@@ -2923,6 +2951,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             for (const manaColor of produces) {
               const poolKey = colorToPoolKey[manaColor] || 'colorless';
               (game.state.manaPool[pid] as any)[poolKey] += effectiveMultiplier;
+              recordAddedMana(poolKey, effectiveMultiplier);
               if (isTreasureSource) {
                 try {
                   recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, effectiveMultiplier);
@@ -3008,6 +3037,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             for (const extra of extraMana) {
               const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
               (game.state.manaPool[pid] as any)[extraPoolKey] += extra.amount;
+              recordAddedMana(extraPoolKey, extra.amount);
               if (isTreasureSource) {
                 try {
                   recordTreasureManaProduced(game.state, String(pid), String(extraPoolKey) as any, extra.amount);
@@ -3018,6 +3048,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             
             // Add the base mana (after multiplier)
             (game.state.manaPool[pid] as any)[poolKey] += baseAmount * effectiveMultiplier;
+            recordAddedMana(poolKey, baseAmount * effectiveMultiplier);
             if (isTreasureSource) {
               try {
                 recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, baseAmount * effectiveMultiplier);
@@ -3057,7 +3088,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.bumpSeq();
     }
     
-    appendEvent(gameId, (game as any).seq ?? 0, "tapPermanent", { playerId: pid, permanentId });
+        appendEvent(gameId, (game as any).seq ?? 0, "tapPermanent", {
+          playerId: pid,
+          permanentId,
+          addedMana: Object.keys(recordedAddedMana).length > 0 ? { ...recordedAddedMana } : undefined,
+          manaCost: recordedManaCost || undefined,
+          lifeLost: recordedLifeLost > 0 ? recordedLifeLost : undefined,
+        });
     
     broadcastGame(io, game, gameId);
     }

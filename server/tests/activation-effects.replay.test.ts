@@ -475,6 +475,8 @@ describe('activation effect replay semantics', () => {
     } as any);
 
     expect((game.state as any).life[p1]).toBe(38);
+    expect((game.state as any).players?.find((player: any) => player.id === p1)?.life).toBe(38);
+    expect((game.state as any).lifeLostThisTurn?.[p1]).toBe(2);
     const stack = (game.state as any).stack || [];
     expect(stack).toHaveLength(1);
     expect(String(stack[0]?.description || '')).toBe('Draw a card.');

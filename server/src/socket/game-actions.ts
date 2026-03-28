@@ -9956,7 +9956,10 @@ export function registerGameActions(io: Server, socket: Socket) {
 
         // Persist the event
         try {
-          appendEvent(gameId, (game as any).seq ?? 0, "keepHand", { playerId });
+          appendEvent(gameId, (game as any).seq ?? 0, "keepHand", {
+            playerId,
+            mulligansTaken,
+          });
         } catch (e) {
           debugWarn(1, "appendEvent(keepHand) failed:", e);
         }

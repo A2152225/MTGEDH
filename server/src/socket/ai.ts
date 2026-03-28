@@ -27,6 +27,7 @@ import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManag
 import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { runSBA } from "../state/modules/counters_tokens.js";
+import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -901,26 +902,13 @@ export async function handleAIGameFlow(
         // Players with Leylines in hand will have a pending prompt
         // We need to wait for them to either play or skip Leylines
         
-        // Use the same Leyline detection logic from opening-hand.ts
-        const isLeylineCard = (card: any): boolean => {
-          if (!card) return false;
-          const oracleText = (card.oracle_text || '').toLowerCase();
-          const cardName = (card.name || '').toLowerCase();
-          return (
-            (oracleText.includes('in your opening hand') &&
-             oracleText.includes('begin the game with')) ||
-            cardName.startsWith('leyline of') ||
-            cardName === 'gemstone caverns'
-          );
-        };
-        
         let hasPendingLeylineActions = false;
         for (const player of allPlayers) {
           const pid = player.id;
           // Check if player has Leyline cards in hand
           const pZones = game.state.zones?.[pid];
           if (pZones && Array.isArray(pZones.hand)) {
-            const hasLeylines = pZones.hand.some(isLeylineCard);
+            const hasLeylines = pZones.hand.some((card: any) => isOpeningHandBattlefieldCard(card, pid, game.state));
             
             if (hasLeylines && !isAIPlayer(gameId, pid)) {
               // Human player has Leylines - they might still need to resolve them

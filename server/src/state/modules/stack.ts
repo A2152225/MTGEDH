@@ -61,6 +61,7 @@ import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
 import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
+import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
 
 function resolveOracleQuantityToNumber(q: OracleQuantity, xValue?: number): number | null {
   if (!q) return null;
@@ -137,18 +138,20 @@ function applyLiveOpponentMayPayOutcome(
     return;
   }
 
-  const declineText = String(declineEffect || '').trim().toLowerCase();
-  if (declineText.includes('draw a card')) {
-    drawCardsFromZone(ctx as any, sourceController, 1);
-    return;
+  const recordedOutcome = buildOpponentMayPayRecordedOutcome(sourceName, declineEffect);
+  let appliedDeclineOutcome = false;
+
+  if (Number(recordedOutcome.declineDrawCount || 0) > 0) {
+    drawCardsFromZone(ctx as any, sourceController, Number(recordedOutcome.declineDrawCount || 0));
+    appliedDeclineOutcome = true;
   }
 
-  if (declineText.includes('treasure')) {
+  if (Number(recordedOutcome.declineTreasureCount || 0) > 0) {
     createToken(
       ctx as any,
       sourceController,
       'Treasure',
-      1,
+      Number(recordedOutcome.declineTreasureCount || 0),
       undefined,
       undefined,
       {
@@ -158,6 +161,10 @@ function applyLiveOpponentMayPayOutcome(
         isArtifact: true,
       }
     );
+    appliedDeclineOutcome = true;
+  }
+
+  if (appliedDeclineOutcome) {
     return;
   }
 }
@@ -179,6 +186,7 @@ function maybeQueueOpponentMayPaySpellCastTrigger(
   const manaCost = String(effectData?.paymentCost || '').trim();
   const declineEffect = resolveOpponentMayPayDeclineEffectFromStackItem(item);
   const triggerText = String(item?.description || '').trim();
+  const recordedDeclineOutcome = buildOpponentMayPayRecordedOutcome(sourceName, declineEffect || triggerText);
   const gameId = String((ctx as any).gameId || '').trim();
 
   if (!decidingPlayer || !manaCost || !gameId || gameId === 'unknown') {
@@ -206,6 +214,7 @@ function maybeQueueOpponentMayPaySpellCastTrigger(
         manaCost,
         declineEffect,
         triggerText,
+        ...recordedDeclineOutcome,
       });
     } catch (err) {
       debugWarn(1, '[resolveTopOfStack] Failed to persist opponentMayPayResolve event:', err);
@@ -276,6 +285,7 @@ function maybeQueueOpponentMayPaySpellCastTrigger(
       manaCost,
       declineEffect,
       triggerText,
+      ...recordedDeclineOutcome,
       availableMana: ((ctx as any).state?.manaPool || {})[decidingPlayer] || {},
     },
     onPay: async () => {

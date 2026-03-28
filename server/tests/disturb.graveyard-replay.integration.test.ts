@@ -137,6 +137,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
       playerId,
       cardId: 'disturb_card_1',
       abilityId: 'disturb',
+      stackId: 'stack_disturb_live_1',
       manaCost: '{2}{U}',
     });
 
@@ -146,6 +147,7 @@ describe('disturb graveyard replay semantics (integration)', () => {
 
     const stack = (game.state as any).stack || [];
     expect(stack).toHaveLength(1);
+    expect(stack[0]?.id).toBe('stack_disturb_live_1');
     expect(stack[0]?.card?.id).toBe('disturb_card_1');
     expect(stack[0]?.card?.castWithAbility).toBe('disturb');
     expect(Boolean(stack[0]?.card?.transformed)).toBe(true);

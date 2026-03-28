@@ -271,6 +271,30 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     });
   }
 
+  it('replays cast-from-graveyard abilities using the persisted live stack id when present', () => {
+    const replayGameId = `${gameId}_flashback_stack_id`;
+    const { game, playerId } = seedGame(replayGameId, 'flashback_stack_id_1', 'Target player draws two cards.\nFlashback—{1}{U}, Pay 3 life.', {
+      manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
+      life: 20,
+    });
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'flashback_stack_id_1',
+      abilityId: 'flashback',
+      stackId: 'stack_flashback_live_1',
+      manaCost: '{1}{U}',
+      lifePaidForCost: 3,
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]?.id).toBe('stack_flashback_live_1');
+    expect(stack[0]?.card?.id).toBe('flashback_stack_id_1');
+    expect(stack[0]?.card?.castWithAbility).toBe('flashback');
+  });
+
   it('replay applies recorded jump-start discard choices before moving the spell to the stack', () => {
     const replayGameId = `${gameId}_jump_start_replay`;
     const { game, playerId } = seedGame(replayGameId, 'jump_start_replay_1', 'Draw a card.\nJump-start {1}{U}', {

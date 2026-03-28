@@ -134,4 +134,63 @@ describe('land choice replay semantics', () => {
 
     expect(Boolean((game.state as any).battlefield[0]?.tapped)).toBe(true);
   });
+
+  it('replays shock-land life payment as real life loss this turn', () => {
+    const game = createInitialGameState('t_shock_land_choice_replay_pay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).battlefield = [
+      {
+        id: 'shock_1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        card: { id: 'shock_card', name: 'Watery Grave', type_line: 'Land' },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'shockLandChoice',
+      playerId: p1,
+      permanentId: 'shock_1',
+      payLife: true,
+      cardName: 'Watery Grave',
+    } as any);
+
+    expect((game.state as any).life?.[p1]).toBe(38);
+    expect((game.state as any).players?.[0]?.life).toBe(38);
+    expect((game.state as any).lifeLostThisTurn?.[p1]).toBe(2);
+    expect(Boolean((game.state as any).battlefield[0]?.tapped)).toBe(false);
+  });
+
+  it('replays shock-land decline by keeping the land tapped without losing life', () => {
+    const game = createInitialGameState('t_shock_land_choice_replay_decline');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).battlefield = [
+      {
+        id: 'shock_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: { id: 'shock_card', name: 'Watery Grave', type_line: 'Land' },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'shockLandChoice',
+      playerId: p1,
+      permanentId: 'shock_1',
+      payLife: false,
+      cardName: 'Watery Grave',
+    } as any);
+
+    expect((game.state as any).life?.[p1]).toBe(40);
+    expect((game.state as any).lifeLostThisTurn?.[p1] ?? 0).toBe(0);
+    expect(Boolean((game.state as any).battlefield[0]?.tapped)).toBe(true);
+  });
 });

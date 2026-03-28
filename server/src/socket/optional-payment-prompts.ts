@@ -227,6 +227,10 @@ export function queueShockLandPaymentStep(
         (player as any).life = newLife;
       }
 
+      (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+      (game.state as any).lifeLostThisTurn[playerId] =
+        Number((game.state as any).lifeLostThisTurn[playerId] || 0) + 2;
+
       (permanent as any).tapped = false;
 
       io?.to?.(gameId)?.emit?.('chat', {
