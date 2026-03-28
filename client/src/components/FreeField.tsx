@@ -9,6 +9,7 @@ import { AbilitySelectionModal } from './AbilitySelectionModal';
 import { parseActivatedAbilities, canActivateTapAbility, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
+import { hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
 
 function parsePT(raw?: string | number): number | undefined {
   if (typeof raw === 'number') return raw;
@@ -202,22 +203,6 @@ export function FreeField(props: {
     abilities: { ability: ParsedActivatedAbility; canActivate: boolean; reason?: string }[];
   } | null>(null);
 
-  // Check if a creature has haste (for summoning sickness check)
-  const hasHaste = useCallback((perm: BattlefieldPermanent): boolean => {
-    const abilities = perm.grantedAbilities || [];
-    if (abilities.some(a => a.toLowerCase() === 'haste')) return true;
-    const kc = perm.card as KnownCardRef;
-    const oracleText = (kc?.oracle_text || '').toLowerCase();
-    return oracleText.includes('haste');
-  }, []);
-
-  // Check if a permanent is a creature
-  const isCreature = useCallback((perm: BattlefieldPermanent): boolean => {
-    const kc = perm.card as KnownCardRef;
-    const typeLine = (kc?.type_line || '').toLowerCase();
-    return typeLine.includes('creature');
-  }, []);
-
   // Get loyalty counters for planeswalkers
   const getLoyaltyCounters = useCallback((perm: BattlefieldPermanent): number | undefined => {
     if (perm.loyalty !== undefined) return perm.loyalty;
@@ -239,8 +224,8 @@ export function FreeField(props: {
     // Build activation context
     const context: ActivationContext = {
       isTapped: !!perm.tapped,
-      hasSummoningSickness: !!perm.summoningSickness && isCreature(perm),
-      hasHaste: hasHaste(perm),
+      hasSummoningSickness: !!perm.summoningSickness && isCurrentlyCreature(perm),
+      hasHaste: hasCurrentHaste(perm, allBattlefieldPerms || perms),
       hasThousandYearElixirEffect,
       loyaltyCounters: getLoyaltyCounters(perm),
       controllerHasPriority: hasPriority,
@@ -304,7 +289,7 @@ export function FreeField(props: {
 
     // If multiple abilities, show the selection modal
     setAbilitySelectionModal({ permanent: perm, abilities: annotatedAbilities });
-  }, [canActivate, onActivateAbility, playerId, hasHaste, isCreature, getLoyaltyCounters,
+  }, [allBattlefieldPerms, canActivate, onActivateAbility, playerId, getLoyaltyCounters,
       hasPriority, isMainPhase, isOwnTurn, stackEmpty, hasThousandYearElixirEffect]);
 
   // Handle ability selection from modal
@@ -1135,6 +1120,7 @@ export function FreeField(props: {
             {showActivatedAbilityButtons && raw.controller === playerId && !isPlaneswalker && (
               <ActivatedAbilityButtons
                 perm={raw}
+                battlefield={allBattlefieldPerms || perms}
                 tileWidth={tileWidth}
                 hasPriority={hasPriority}
                 isOwnTurn={isOwnTurn}
@@ -1153,6 +1139,7 @@ export function FreeField(props: {
               <>
                 <ActivatedAbilityButtons
                   perm={raw}
+                  battlefield={allBattlefieldPerms || perms}
                   tileWidth={tileWidth}
                   hasPriority={hasPriority}
                   isOwnTurn={isOwnTurn}

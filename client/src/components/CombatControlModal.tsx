@@ -15,8 +15,9 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef, CombatControlEffect } from '../../../shared/src';
-import { isCurrentlyCreature } from '../utils/creatureUtils';
+import { canCreatureAttackNow, hasCurrentKeyword, isCurrentlyCreature } from '../utils/creatureUtils';
 import { getBlockerCapacity } from '../utils/blockerCapacity';
+import { getCombinedPermanentText } from '../utils/permanentText';
 
 export interface CombatControlModalProps {
   open: boolean;
@@ -84,11 +85,12 @@ interface CreatureInfo {
 function getCreatureInfo(
   perm: BattlefieldPermanent, 
   players: PlayerRef[],
-  mode: 'attackers' | 'blockers'
+  mode: 'attackers' | 'blockers',
+  battlefield: BattlefieldPermanent[],
 ): CreatureInfo {
   const card = perm.card as KnownCardRef | undefined;
   const name = card?.name || perm.id;
-  const oracleText = (card?.oracle_text || '').toLowerCase();
+  const combinedText = getCombinedPermanentText(perm);
   const typeLine = (card?.type_line || '').toLowerCase();
   
   // Calculate effective P/T
@@ -127,42 +129,29 @@ function getCreatureInfo(
     blockReason = blockReason || 'Tapped';
   }
   
-  // Check defender
-  if (oracleText.includes('defender')) {
+  if (mode === 'attackers' && canAttack && !canCreatureAttackNow(perm, battlefield)) {
     canAttack = false;
-    attackReason = attackReason || 'Has defender';
-  }
-  
-  // Check summoning sickness for attackers
-  if (mode === 'attackers' && perm.summoningSickness) {
-    const hasHaste = oracleText.includes('haste') || 
-      (perm.grantedAbilities || []).some(a => 
-        typeof a === 'string' ? a.toLowerCase() === 'haste' : false
-      );
-    if (!hasHaste) {
-      canAttack = false;
-      attackReason = attackReason || 'Summoning sickness';
-    }
+    attackReason = attackReason || (hasCurrentKeyword(perm, 'defender', battlefield) ? 'Has defender' : 'Summoning sickness');
   }
   
   // Check can't block
-  if (oracleText.includes("can't block") && !oracleText.includes("can't be blocked")) {
+  if (combinedText.includes("can't block") && !combinedText.includes("can't be blocked")) {
     canBlock = false;
     blockReason = blockReason || "Can't block";
   }
   
   // Extract keywords for display
   const keywords: string[] = [];
-  if (oracleText.includes('flying')) keywords.push('Flying');
-  if (oracleText.includes('first strike')) keywords.push('First Strike');
-  if (oracleText.includes('double strike')) keywords.push('Double Strike');
-  if (oracleText.includes('trample')) keywords.push('Trample');
-  if (oracleText.includes('vigilance')) keywords.push('Vigilance');
-  if (oracleText.includes('lifelink')) keywords.push('Lifelink');
-  if (oracleText.includes('deathtouch')) keywords.push('Deathtouch');
-  if (oracleText.includes('haste')) keywords.push('Haste');
-  if (oracleText.includes('reach')) keywords.push('Reach');
-  if (oracleText.includes('defender')) keywords.push('Defender');
+  if (hasCurrentKeyword(perm, 'flying', battlefield)) keywords.push('Flying');
+  if (hasCurrentKeyword(perm, 'first strike', battlefield)) keywords.push('First Strike');
+  if (hasCurrentKeyword(perm, 'double strike', battlefield)) keywords.push('Double Strike');
+  if (hasCurrentKeyword(perm, 'trample', battlefield)) keywords.push('Trample');
+  if (hasCurrentKeyword(perm, 'vigilance', battlefield)) keywords.push('Vigilance');
+  if (hasCurrentKeyword(perm, 'lifelink', battlefield)) keywords.push('Lifelink');
+  if (hasCurrentKeyword(perm, 'deathtouch', battlefield)) keywords.push('Deathtouch');
+  if (hasCurrentKeyword(perm, 'haste', battlefield)) keywords.push('Haste');
+  if (hasCurrentKeyword(perm, 'reach', battlefield)) keywords.push('Reach');
+  if (hasCurrentKeyword(perm, 'defender', battlefield)) keywords.push('Defender');
   
   return {
     id: perm.id,
@@ -185,30 +174,26 @@ function getCreatureInfo(
  */
 function canBlockAttacker(
   blocker: BattlefieldPermanent,
-  attacker: BattlefieldPermanent
+  attacker: BattlefieldPermanent,
+  battlefield: BattlefieldPermanent[],
 ): { canBlock: boolean; reason?: string } {
-  const blockerCard = blocker.card as KnownCardRef | undefined;
-  const attackerCard = attacker.card as KnownCardRef | undefined;
-  const blockerText = (blockerCard?.oracle_text || '').toLowerCase();
-  const attackerText = (attackerCard?.oracle_text || '').toLowerCase();
-  
   // Flying - need flying or reach
-  if (attackerText.includes('flying')) {
-    if (!blockerText.includes('flying') && !blockerText.includes('reach')) {
+  if (hasCurrentKeyword(attacker, 'flying', battlefield)) {
+    if (!hasCurrentKeyword(blocker, 'flying', battlefield) && !hasCurrentKeyword(blocker, 'reach', battlefield)) {
       return { canBlock: false, reason: "Can't block flying" };
     }
   }
   
   // Shadow - need shadow
-  if (attackerText.includes('shadow')) {
-    if (!blockerText.includes('shadow')) {
+  if (hasCurrentKeyword(attacker, 'shadow', battlefield)) {
+    if (!hasCurrentKeyword(blocker, 'shadow', battlefield)) {
       return { canBlock: false, reason: "Can't block shadow" };
     }
   }
   
   // Horsemanship - need horsemanship
-  if (attackerText.includes('horsemanship')) {
-    if (!blockerText.includes('horsemanship')) {
+  if (hasCurrentKeyword(attacker, 'horsemanship', battlefield)) {
+    if (!hasCurrentKeyword(blocker, 'horsemanship', battlefield)) {
       return { canBlock: false, reason: "Can't block horsemanship" };
     }
   }
@@ -252,7 +237,7 @@ export function CombatControlModal({
       // Only include creatures
       if (!typeLine.includes('creature')) continue;
       
-      const info = getCreatureInfo(creature, players, mode);
+      const info = getCreatureInfo(creature, players, mode, allCreatures);
       
       if (!result.has(creature.controller)) {
         result.set(creature.controller, []);
@@ -265,7 +250,7 @@ export function CombatControlModal({
   
   // Get attackers for blocker mode
   const attackerInfos = useMemo(() => {
-    return currentAttackers.map(a => getCreatureInfo(a, players, 'blockers'));
+    return currentAttackers.map(a => getCreatureInfo(a, players, 'blockers', allCreatures));
   }, [currentAttackers, players]);
   
   // Get potential blockers (creatures controlled by defending players)
@@ -289,7 +274,7 @@ export function CombatControlModal({
       const typeLine = (card?.type_line || '').toLowerCase();
       if (!typeLine.includes('creature')) continue;
       
-      blockers.push(getCreatureInfo(creature, players, 'blockers'));
+      blockers.push(getCreatureInfo(creature, players, 'blockers', allCreatures));
     }
     
     return blockers;
@@ -756,7 +741,7 @@ export function CombatControlModal({
                               const blockerPerm = allCreatures.find(c => c.id === blocker.id);
                               if (!attackerPerm || !blockerPerm) return null;
 
-                              const { canBlock, reason } = canBlockAttacker(blockerPerm, attackerPerm);
+                              const { canBlock, reason } = canBlockAttacker(blockerPerm, attackerPerm, allCreatures);
                               const isAssignedToAttacker = blockedAttackerIds.includes(attacker.id);
                               const canAssignMore = isAssignedToAttacker || blockedAttackerIds.length < blockerCapacity;
 

@@ -136,7 +136,7 @@ function parseBlockerCapacityValue(token?: string): number {
 }
 
 export function getBlockerCapacity(permanent: any): number {
-  const combinedText = getPermanentTextFragments(permanent).join('\n').toLowerCase();
+  const combinedText = getCombinedPermanentText(permanent);
 
   if (!combinedText) {
     return 1;
@@ -146,12 +146,8 @@ export function getBlockerCapacity(permanent: any): number {
     return Number.POSITIVE_INFINITY;
   }
 
-  if (/can block an additional creature (?:each combat|this turn)/.test(combinedText)) {
-    return 2;
-  }
-
   let additionalCreatures = 0;
-  const additionalCreaturePattern = /can block an additional ((?:\d+|[a-z]+(?:[ -][a-z]+)*)?) creatures (?:each combat|this turn)/g;
+  const additionalCreaturePattern = /can block an additional(?: ((?:\d+|[a-z]+(?:[ -][a-z]+)*)))? creature(?:s)? (?:each combat|this turn)/g;
 
   for (const match of combinedText.matchAll(additionalCreaturePattern)) {
     additionalCreatures += parseBlockerCapacityValue(match[1] || '1');

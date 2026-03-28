@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent } from '../../../shared/src';
+import { getCombinedPermanentText } from './permanentText';
 
 const BLOCKER_CAPACITY_WORDS: Record<string, number> = {
   a: 1,
@@ -32,24 +33,6 @@ const BLOCKER_CAPACITY_WORDS: Record<string, number> = {
   ninety: 90,
 };
 
-function getPermanentTextFragments(permanent: BattlefieldPermanent): string[] {
-  const fragments: string[] = [];
-
-  const cardOracle = String((permanent.card as any)?.oracle_text || '').trim();
-  if (cardOracle) fragments.push(cardOracle);
-
-  const permanentOracle = String((permanent as any).oracle_text || '').trim();
-  if (permanentOracle && permanentOracle !== cardOracle) {
-    fragments.push(permanentOracle);
-  }
-
-  if (Array.isArray((permanent as any).grantedAbilities) && (permanent as any).grantedAbilities.length > 0) {
-    fragments.push((permanent as any).grantedAbilities.join('\n'));
-  }
-
-  return fragments;
-}
-
 function parseBlockerCapacityValue(token?: string): number {
   if (!token) return 1;
 
@@ -81,7 +64,7 @@ function parseBlockerCapacityValue(token?: string): number {
 }
 
 export function getBlockerCapacity(permanent: BattlefieldPermanent): number {
-  const combinedText = getPermanentTextFragments(permanent).join('\n').toLowerCase();
+  const combinedText = getCombinedPermanentText(permanent);
 
   if (!combinedText) {
     return 1;
@@ -91,12 +74,8 @@ export function getBlockerCapacity(permanent: BattlefieldPermanent): number {
     return Number.POSITIVE_INFINITY;
   }
 
-  if (/can block an additional creature (?:each combat|this turn)/.test(combinedText)) {
-    return 2;
-  }
-
   let additionalCreatures = 0;
-  const additionalCreaturePattern = /can block an additional ((?:\d+|[a-z]+(?:[ -][a-z]+)*)?) creatures (?:each combat|this turn)/g;
+  const additionalCreaturePattern = /can block an additional(?: ((?:\d+|[a-z]+(?:[ -][a-z]+)*)))? creature(?:s)? (?:each combat|this turn)/g;
 
   for (const match of combinedText.matchAll(additionalCreaturePattern)) {
     additionalCreatures += parseBlockerCapacityValue(match[1] || '1');

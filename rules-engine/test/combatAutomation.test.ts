@@ -412,6 +412,26 @@ describe('Combat Triggers', () => {
     expect(triggers).toHaveLength(1);
     expect(triggers[0].triggerType).toBe('damage_dealt');
   });
+
+  it('should detect keyword-triggered poisonous damage triggers', () => {
+    const perm = createTestPermanent('1', 'Pit Scorpion', 1, 1, 'Poisonous 3');
+    const triggers = detectCombatTriggers(perm, 'damage_dealt');
+
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].triggerType).toBe('damage_dealt');
+    expect(triggers[0].effect).toBe('That player gets 3 poison counters.');
+  });
+
+  it('should detect granted attack triggers from combined permanent text', () => {
+    const perm = createTestPermanent('1', 'Soldier', 2, 2, '', 'player1', {
+      grantedAbilities: ['Whenever this creature attacks, create a Treasure token.'],
+    });
+    const triggers = detectCombatTriggers(perm, 'attack');
+
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].triggerType).toBe('attack');
+    expect(triggers[0].effect.toLowerCase()).toContain('create a treasure token');
+  });
 });
 
 describe('Full Combat Resolution', () => {

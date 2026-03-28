@@ -9,6 +9,7 @@
 import React, { useState, useMemo } from 'react';
 import type { BattlefieldPermanent, PlayerRef, PlayerID, KnownCardRef } from '../../../shared/src';
 import { getBlockerCapacity } from '../utils/blockerCapacity';
+import { getCombinedPermanentText } from '../utils/permanentText';
 
 export interface CombatSelectionModalProps {
   open: boolean;
@@ -96,17 +97,12 @@ function getCreatureInfo(perm: BattlefieldPermanent): {
   
   const card = perm.card as KnownCardRef | undefined;
   const name = card?.name || perm.id || 'Unknown';
-  const oracleText = (card?.oracle_text || '').toLowerCase();
+  const combinedText = getCombinedPermanentText(perm);
   
   // Check for Lure effect - from the creature itself or from attached auras
   // Lure: "All creatures able to block enchanted creature do so"
-  // Also check grantedAbilities for lure effects
-  const grantedAbilities = (perm as any).grantedAbilities || [];
-  const hasLure = oracleText.includes('must be blocked') || 
-                  oracleText.includes('all creatures able to block') ||
-                  grantedAbilities.some((a: string) => 
-                    a && (a.toLowerCase().includes('must be blocked') || 
-                          a.toLowerCase().includes('all creatures able to block')));
+  const hasLure = combinedText.includes('must be blocked') || 
+                  combinedText.includes('all creatures able to block');
   
   // Use pre-calculated effective P/T if available
   let effectivePower = perm.effectivePower;
@@ -151,16 +147,11 @@ function getCreatureInfo(perm: BattlefieldPermanent): {
   
   const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;
   
-  // Check for granted abilities and card text for danger indicators
-  // Note: grantedAbilities was already declared above (line ~98), reuse it here
-  const lowerGrantedAbilities = grantedAbilities.map((a: string) => (a || '').toLowerCase());
-  const hasAbility = (keyword: string) => 
-    lowerGrantedAbilities.some((a: string) => a.includes(keyword)) || 
-    oracleText.includes(keyword);
+  const hasAbility = (keyword: string) => combinedText.includes(keyword);
   
   // Parse toxic value
   let toxicValue = 0;
-  const toxicMatch = oracleText.match(/toxic\s+(\d+)/i);
+  const toxicMatch = combinedText.match(/toxic\s+(\d+)/i);
   if (toxicMatch) {
     toxicValue = parseInt(toxicMatch[1], 10);
   }

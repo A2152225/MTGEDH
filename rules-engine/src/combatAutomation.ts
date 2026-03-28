@@ -18,6 +18,7 @@
 
 import type { BattlefieldPermanent, PlayerID, KnownCardRef } from '../../shared/src';
 import { getCombinedPermanentText } from './permanentText';
+import { TriggerEvent, parseTriggeredAbilitiesFromText } from './triggeredAbilities';
 
 /**
  * Combat keyword abilities
@@ -591,66 +592,32 @@ export function detectCombatTriggers(
   perm: BattlefieldPermanent,
   triggerType: 'attack' | 'block' | 'damage_dealt' | 'damage_received'
 ): CombatTrigger[] {
-  const triggers: CombatTrigger[] = [];
   const card = perm.card as KnownCardRef;
-  const oracleText = (card?.oracle_text || '').toLowerCase();
   const permName = card?.name || 'Creature';
-  
-  // Attack triggers
-  if (triggerType === 'attack') {
-    // "Whenever ~ attacks"
-    if (oracleText.includes('whenever') && oracleText.includes('attacks')) {
-      const match = oracleText.match(/whenever .* attacks,?\s*([^.]+)/i);
-      if (match) {
-        triggers.push({
-          sourceId: perm.id,
-          sourceName: permName,
-          controllerId: perm.controller,
-          triggerType: 'attack',
-          effect: match[1].trim(),
-          requiresChoice: match[1].includes('may') || match[1].includes('target'),
-        });
-      }
-    }
-  }
-  
-  // Block triggers
-  if (triggerType === 'block') {
-    // "Whenever ~ blocks"
-    if (oracleText.includes('whenever') && oracleText.includes('blocks')) {
-      const match = oracleText.match(/whenever .* blocks,?\s*([^.]+)/i);
-      if (match) {
-        triggers.push({
-          sourceId: perm.id,
-          sourceName: permName,
-          controllerId: perm.controller,
-          triggerType: 'block',
-          effect: match[1].trim(),
-          requiresChoice: match[1].includes('may') || match[1].includes('target'),
-        });
-      }
-    }
-  }
-  
-  // Damage dealt triggers
-  if (triggerType === 'damage_dealt') {
-    // "Whenever ~ deals combat damage"
-    if (oracleText.includes('whenever') && oracleText.includes('deals') && oracleText.includes('damage')) {
-      const match = oracleText.match(/whenever .* deals (?:combat )?damage[^,]*,?\s*([^.]+)/i);
-      if (match) {
-        triggers.push({
-          sourceId: perm.id,
-          sourceName: permName,
-          controllerId: perm.controller,
-          triggerType: 'damage_dealt',
-          effect: match[1].trim(),
-          requiresChoice: match[1].includes('may') || match[1].includes('target'),
-        });
-      }
-    }
-  }
-  
-  return triggers;
+  const combinedText = getCombinedPermanentText(perm);
+  const relevantEvents =
+    triggerType === 'attack'
+      ? new Set<TriggerEvent>([TriggerEvent.ATTACKS, TriggerEvent.ATTACKS_ALONE])
+      : triggerType === 'block'
+        ? new Set<TriggerEvent>([TriggerEvent.BLOCKS])
+        : triggerType === 'damage_dealt'
+          ? new Set<TriggerEvent>([
+              TriggerEvent.DEALS_DAMAGE,
+              TriggerEvent.DEALS_COMBAT_DAMAGE,
+              TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
+            ])
+          : new Set<TriggerEvent>();
+
+  return parseTriggeredAbilitiesFromText(combinedText, perm.id, perm.controller, permName)
+    .filter(trigger => relevantEvents.has(trigger.event))
+    .map(trigger => ({
+      sourceId: perm.id,
+      sourceName: permName,
+      controllerId: perm.controller,
+      triggerType,
+      effect: trigger.effect,
+      requiresChoice: Boolean(trigger.optional || /\btarget\b/i.test(trigger.effect)),
+    }));
 }
 
 /**

@@ -182,6 +182,22 @@ describe('CardAnalyzer', () => {
       expect(analysis.details.hasDeathTrigger).toBe(true);
       expect(analysis.details.deathTriggerBenefitsMe).toBe(true);
     });
+
+    it('should detect keyword-triggered death abilities like Afterlife', () => {
+      const ministrant = createMockCard({
+        name: 'Imperious Oligarch',
+        type_line: 'Creature — Human Cleric',
+        oracle_text: 'Vigilance\nAfterlife 2',
+        power: '2',
+        toughness: '1',
+      });
+
+      const analysis = cardAnalyzer.analyzeCard(ministrant);
+
+      expect(analysis.details.hasDeathTrigger).toBe(true);
+      expect(analysis.categories).toContain(CardCategory.DEATH_TRIGGER);
+      expect((analysis.details.deathTriggerEffect || '').toLowerCase()).toContain('spirit');
+    });
     
     it('should detect death triggers on Solemn Simulacrum', () => {
       const solemn = createMockCard({
@@ -505,6 +521,22 @@ describe('CardAnalyzer', () => {
       const analysis = cardAnalyzer.analyzeCard(etbCreature);
       expect(analysis.details.hasETBTrigger).toBe(true);
       expect(analysis.details.drawsCards).toBe(true);
+    });
+
+    it('should detect keyword-triggered ETB abilities like Fabricate', () => {
+      const fabricateCreature = createMockCard({
+        name: 'Weaponcraft Enthusiast',
+        type_line: 'Creature — Aetherborn Artificer',
+        oracle_text: 'Fabricate 2',
+        power: '0',
+        toughness: '1',
+      });
+
+      const analysis = cardAnalyzer.analyzeCard(fabricateCreature);
+
+      expect(analysis.details.hasETBTrigger).toBe(true);
+      expect(analysis.categories).toContain(CardCategory.ETB_TRIGGER);
+      expect((analysis.details.etbTriggerEffect || '').toLowerCase()).toContain('servo');
     });
     
     it('should detect activated abilities', () => {

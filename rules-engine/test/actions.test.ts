@@ -1304,6 +1304,22 @@ describe('Combat Validation in Actions', () => {
     expect(getBlockerCapacity(blocker)).toBe(2);
   });
 
+  it('should stack multiple singular additional-creature blocking grants', () => {
+    const blocker = {
+      id: 'blocker1',
+      controller: 'player2',
+      owner: 'player2',
+      card: {
+        name: 'Resolute Guardian',
+        type_line: 'Creature — Human Soldier',
+        oracle_text: 'Resolute Guardian can block an additional creature each combat.',
+      },
+      grantedAbilities: ['Resolute Guardian can block an additional creature this turn.'],
+    };
+
+    expect(getBlockerCapacity(blocker)).toBe(3);
+  });
+
   it('should parse temporary any-number blocking text that lasts this turn', () => {
     const blocker = {
       id: 'blocker1',
@@ -1318,5 +1334,23 @@ describe('Combat Validation in Actions', () => {
     };
 
     expect(getBlockerCapacity(blocker)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('should parse blocker-capacity text from temporary effect descriptions', () => {
+    const blocker = {
+      id: 'blocker1',
+      controller: 'player2',
+      owner: 'player2',
+      card: {
+        name: 'Shield Bearer',
+        type_line: 'Creature — Human Soldier',
+        oracle_text: '',
+      },
+      temporaryEffects: [
+        { description: 'Shield Bearer can block an additional two creatures this turn.' },
+      ],
+    };
+
+    expect(getBlockerCapacity(blocker)).toBe(3);
   });
 });

@@ -11,6 +11,7 @@ import {
   type ParsedActivatedAbility,
   type ActivationContext,
 } from '../utils/activatedAbilityParser';
+import { hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
 import { KeywordHighlighter } from './KeywordHighlighter';
 import { XValueSelectionModal } from './XValueSelectionModal';
 
@@ -77,6 +78,7 @@ type ColorScheme = {
 
 export interface ActivatedAbilityButtonsProps {
   perm: BattlefieldPermanent;
+  battlefield?: BattlefieldPermanent[];
   tileWidth: number;
   // Activation context
   hasPriority: boolean;
@@ -391,33 +393,6 @@ function CompactLoyaltyButton({
 }
 
 /**
- * Check if a creature has haste (from granted abilities or oracle text)
- */
-function hasHaste(perm: BattlefieldPermanent): boolean {
-  const abilities = perm.grantedAbilities || [];
-  if (abilities.some(a => a.toLowerCase() === 'haste')) {
-    return true;
-  }
-  
-  const kc = perm.card as KnownCardRef;
-  const oracleText = (kc?.oracle_text || '').toLowerCase();
-  if (oracleText.includes('haste')) {
-    return true;
-  }
-  
-  return false;
-}
-
-/**
- * Check if a permanent is a creature (for summoning sickness)
- */
-function isCreature(perm: BattlefieldPermanent): boolean {
-  const kc = perm.card as KnownCardRef;
-  const typeLine = (kc?.type_line || '').toLowerCase();
-  return typeLine.includes('creature');
-}
-
-/**
  * Check if a permanent is a planeswalker
  */
 function isPlaneswalker(perm: BattlefieldPermanent): boolean {
@@ -441,6 +416,7 @@ function getLoyaltyCounters(perm: BattlefieldPermanent): number | undefined {
 
 export function ActivatedAbilityButtons({
   perm,
+  battlefield,
   tileWidth,
   hasPriority,
   isOwnTurn,
@@ -494,15 +470,15 @@ export function ActivatedAbilityButtons({
   // Build activation context
   const context: ActivationContext = useMemo(() => ({
     isTapped: !!perm.tapped,
-    hasSummoningSickness: !!perm.summoningSickness && isCreature(perm),
-    hasHaste: hasHaste(perm),
+    hasSummoningSickness: !!perm.summoningSickness && isCurrentlyCreature(perm),
+    hasHaste: hasCurrentHaste(perm, battlefield),
     hasThousandYearElixirEffect,
     loyaltyCounters: getLoyaltyCounters(perm),
     controllerHasPriority: hasPriority,
     isMainPhase,
     isOwnTurn,
     stackEmpty,
-  }), [perm, hasPriority, isMainPhase, isOwnTurn, stackEmpty, hasThousandYearElixirEffect]);
+  }), [battlefield, perm, hasPriority, isMainPhase, isOwnTurn, stackEmpty, hasThousandYearElixirEffect]);
   
   // Filter and annotate abilities with activation status
   const annotatedAbilities = useMemo(() => {

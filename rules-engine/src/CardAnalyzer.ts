@@ -14,6 +14,7 @@
  */
 
 import type { BattlefieldPermanent, KnownCardRef } from '../../shared/src';
+import { TriggerEvent, parseTriggeredAbilitiesFromText } from './triggeredAbilities';
 
 // ============================================================================
 // Card Categories
@@ -249,6 +250,18 @@ const PATTERNS = {
   LIFE_DRAIN: /each opponent loses.*life|deals.*damage to each opponent/i,
   COMMANDER_DAMAGE: /commander damage/i,
 };
+
+function getAnalyzerParsedTriggers(oracleText: string, cardName: string) {
+  return parseTriggeredAbilitiesFromText(oracleText, 'analysis-source', 'analysis-controller', cardName);
+}
+
+function isAnalyzerDeathTrigger(event: TriggerEvent): boolean {
+  return event === TriggerEvent.DIES || event === TriggerEvent.CONTROLLED_CREATURE_DIED;
+}
+
+function isAnalyzerEtbTrigger(event: TriggerEvent): boolean {
+  return event === TriggerEvent.ENTERS_BATTLEFIELD;
+}
 
 // Known combo pieces and their partners
 const KNOWN_COMBOS: Record<string, string[]> = {
@@ -874,6 +887,9 @@ export class CardAnalyzer {
     const { typeLine, oracleText, name } = cardData;
     const type = typeLine.toLowerCase();
     const text = oracleText.toLowerCase();
+    const parsedTriggers = getAnalyzerParsedTriggers(oracleText, name);
+    const hasDeathTrigger = parsedTriggers.some(trigger => isAnalyzerDeathTrigger(trigger.event));
+    const hasEtbTrigger = parsedTriggers.some(trigger => isAnalyzerEtbTrigger(trigger.event));
     const categories: CardCategory[] = [];
     
     // Type-based categorization
@@ -908,10 +924,10 @@ export class CardAnalyzer {
     if (PATTERNS.SACRIFICE_OUTLET.test(text)) {
       categories.push(CardCategory.SACRIFICE_OUTLET);
     }
-    if (PATTERNS.DEATH_TRIGGER.test(text)) {
+    if (hasDeathTrigger) {
       categories.push(CardCategory.DEATH_TRIGGER);
     }
-    if (PATTERNS.ETB_TRIGGER.test(text)) {
+    if (hasEtbTrigger) {
       categories.push(CardCategory.ETB_TRIGGER);
     }
     if (PATTERNS.CREATE_TOKEN.test(text)) {
@@ -952,6 +968,9 @@ export class CardAnalyzer {
     const { oracleText, typeLine, power, toughness, name } = cardData;
     const text = oracleText.toLowerCase();
     const type = typeLine.toLowerCase();
+    const parsedTriggers = getAnalyzerParsedTriggers(oracleText, name);
+    const deathTriggers = parsedTriggers.filter(trigger => isAnalyzerDeathTrigger(trigger.event));
+    const etbTriggers = parsedTriggers.filter(trigger => isAnalyzerEtbTrigger(trigger.event));
     
     // Combat keywords
     const combatKeywords: string[] = [];
@@ -967,28 +986,25 @@ export class CardAnalyzer {
     if (PATTERNS.HEXPROOF.test(text)) combatKeywords.push('hexproof');
     
     // Death trigger analysis
-    const hasDeathTrigger = PATTERNS.DEATH_TRIGGER.test(text);
+    const hasDeathTrigger = deathTriggers.length > 0;
     let deathTriggerEffect: string | undefined;
     let deathTriggerBenefitsMe = false;
     let deathTriggerSymmetric = false;
     
     if (hasDeathTrigger) {
-      // Extract death trigger effect
-      const match = text.match(/when(?:ever)?.*dies?,?\s*([^.]+)/i);
-      if (match) {
-        deathTriggerEffect = match[1];
-      }
+      deathTriggerEffect = deathTriggers[0]?.effect;
+      const deathTriggerText = deathTriggers.map(trigger => trigger.effect).join(' ').toLowerCase();
       
       // Check if it benefits the controller
       const beneficialPatterns = [
         /search.*library/, /draw/, /create.*token/, /return.*to.*hand/,
         /gain.*life/, /opponent.*loses/, /damage.*opponent/
       ];
-      deathTriggerBenefitsMe = beneficialPatterns.some(p => p.test(text));
+      deathTriggerBenefitsMe = beneficialPatterns.some(p => p.test(deathTriggerText));
       
       // Check if symmetric (helps all players)
       const symmetricPatterns = [/each player/];
-      deathTriggerSymmetric = symmetricPatterns.some(p => p.test(text));
+      deathTriggerSymmetric = symmetricPatterns.some(p => p.test(deathTriggerText));
       
       // Check known beneficial death cards
       const knownDeath = BENEFICIAL_DEATH_CARDS[name.toLowerCase()];
@@ -1031,13 +1047,10 @@ export class CardAnalyzer {
     }
     
     // ETB trigger
-    const hasETBTrigger = PATTERNS.ETB_TRIGGER.test(text);
+    const hasETBTrigger = etbTriggers.length > 0;
     let etbTriggerEffect: string | undefined;
     if (hasETBTrigger) {
-      const match = text.match(/enters the battlefield[^,]*,?\s*([^.]+)/i);
-      if (match) {
-        etbTriggerEffect = match[1];
-      }
+      etbTriggerEffect = etbTriggers[0]?.effect;
     }
     
     return {

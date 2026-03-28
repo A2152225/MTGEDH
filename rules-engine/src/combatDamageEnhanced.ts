@@ -30,7 +30,7 @@ import {
   type CombatKeywords,
 } from './combatAutomation';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
-import { TriggerEvent, type TriggerInstance, createTriggerInstance, type TriggeredAbility } from './triggeredAbilities';
+import { TriggerEvent, type TriggerInstance, createTriggerInstance, parseTriggeredAbilitiesFromText, type TriggeredAbility } from './triggeredAbilities';
 import { createDamageSourceFromPermanent } from './damageProcessing';
 
 /**
@@ -75,6 +75,21 @@ export interface CombatDamageCalculation {
   readonly planeswalkersDamaged: readonly { id: string; damage: number }[];
   readonly triggers: readonly TriggerInstance[];
   readonly log: readonly string[];
+}
+
+function buildToxicValueBySource(
+  permanents: readonly BattlefieldPermanent[]
+): Record<string, number> {
+  const toxicBySource: Record<string, number> = {};
+
+  for (const permanent of permanents) {
+    const damageSource = createDamageSourceFromPermanent(permanent);
+    if (damageSource.hasToxic && damageSource.toxicValue > 0) {
+      toxicBySource[permanent.id] = damageSource.toxicValue;
+    }
+  }
+
+  return toxicBySource;
 }
 
 /**
@@ -387,58 +402,37 @@ export function createCombatDamageTriggers(
   timestamp: number
 ): TriggerInstance[] {
   const triggers: TriggerInstance[] = [];
-  
+  const triggeredEventsBySourceAndPhase = new Map<string, Set<TriggerEvent>>();
+
   for (const assignment of assignments) {
-    // Find the source permanent
-    const source = permanents.find(p => p.id === assignment.sourceId);
-    if (!source) continue;
-    
-    const card = source.card as KnownCardRef;
-    const oracleText = (card?.oracle_text || '').toLowerCase();
-    
-    // Check for damage dealt triggers
+    const key = `${assignment.sourceId}:${assignment.phase}`;
+    let events = triggeredEventsBySourceAndPhase.get(key);
+    if (!events) {
+      events = new Set<TriggerEvent>();
+      triggeredEventsBySourceAndPhase.set(key, events);
+    }
+
+    events.add(TriggerEvent.DEALS_DAMAGE);
+    events.add(TriggerEvent.DEALS_COMBAT_DAMAGE);
     if (assignment.targetType === 'player') {
-      // "Whenever this creature deals combat damage to a player"
-      if (oracleText.includes('deals combat damage to a player') || 
-          oracleText.includes('deals combat damage to an opponent')) {
-        const ability: TriggeredAbility = {
-          id: `${source.id}-combat-damage-player`,
-          sourceId: source.id,
-          sourceName: card?.name || 'Creature',
-          controllerId: source.controller,
-          keyword: 'whenever' as any,
-          event: TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER,
-          effect: 'Combat damage to player trigger',
-        };
-        triggers.push(createTriggerInstance(ability, timestamp));
-      }
+      events.add(TriggerEvent.DEALS_COMBAT_DAMAGE_TO_PLAYER);
     }
-    
-    // "Whenever this creature deals combat damage"
-    if (oracleText.includes('deals combat damage') && !oracleText.includes('to a player')) {
-      const ability: TriggeredAbility = {
-        id: `${source.id}-combat-damage`,
-        sourceId: source.id,
-        sourceName: card?.name || 'Creature',
-        controllerId: source.controller,
-        keyword: 'whenever' as any,
-        event: TriggerEvent.DEALS_COMBAT_DAMAGE,
-        effect: 'Combat damage trigger',
-      };
-      triggers.push(createTriggerInstance(ability, timestamp));
-    }
-    
-    // "Whenever this creature deals damage"
-    if (oracleText.includes('deals damage') && !oracleText.includes('combat damage')) {
-      const ability: TriggeredAbility = {
-        id: `${source.id}-damage`,
-        sourceId: source.id,
-        sourceName: card?.name || 'Creature',
-        controllerId: source.controller,
-        keyword: 'whenever' as any,
-        event: TriggerEvent.DEALS_DAMAGE,
-        effect: 'Damage trigger',
-      };
+  }
+
+  for (const [key, events] of triggeredEventsBySourceAndPhase.entries()) {
+    const [sourceId] = key.split(':');
+    const source = permanents.find(p => p.id === sourceId);
+    if (!source) continue;
+
+    const card = source.card as KnownCardRef;
+    const parsedTriggers = parseTriggeredAbilitiesFromText(
+      card?.oracle_text || '',
+      source.id,
+      source.controller,
+      card?.name || 'Creature'
+    ).filter(trigger => events.has(trigger.event));
+
+    for (const ability of parsedTriggers) {
       triggers.push(createTriggerInstance(ability, timestamp));
     }
   }
@@ -588,6 +582,7 @@ export function calculateCombatDamage(
   
   // Calculate lifelink gains
   const lifelinkGains = calculateLifelinkGains(allAssignments);
+  const toxicValueBySource = buildToxicValueBySource(allPermanents);
   
   // Calculate life changes (damage minus lifelink)
   const lifeChanges: Record<PlayerID, number> = { ...lifelinkGains };
@@ -598,6 +593,10 @@ export function calculateCombatDamage(
         poisonChanges[assignment.targetId] = (poisonChanges[assignment.targetId] || 0) + assignment.amount;
       } else {
         lifeChanges[assignment.targetId] = (lifeChanges[assignment.targetId] || 0) - assignment.amount;
+        const toxicValue = toxicValueBySource[assignment.sourceId] || 0;
+        if (toxicValue > 0) {
+          poisonChanges[assignment.targetId] = (poisonChanges[assignment.targetId] || 0) + toxicValue;
+        }
       }
     }
   }

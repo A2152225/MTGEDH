@@ -14,6 +14,7 @@ import {
   calculateLifelinkGains,
   determineCreatureDeaths,
   hasFirstStrikersInCombat,
+  createCombatDamageTriggers,
   calculateCombatDamage,
 } from '../src/combatDamageEnhanced';
 import { extractCombatKeywords } from '../src/combatAutomation';
@@ -475,6 +476,75 @@ describe('First Strikers Detection', () => {
   });
 });
 
+describe('Combat Damage Triggers', () => {
+  it('should synthesize Poisonous as a combat-damage-to-player trigger', () => {
+    const attacker = createTestPermanent('1', 'Pit Scorpion', 1, 1, 'Poisonous 3', 'player1');
+
+    const triggers = createCombatDamageTriggers(
+      [
+        {
+          sourceId: attacker.id,
+          sourceName: 'Pit Scorpion',
+          sourceController: 'player1',
+          targetId: 'player2',
+          targetType: 'player',
+          amount: 1,
+          phase: CombatDamagePhase.REGULAR,
+          properties: { deathtouch: false, lifelink: false, trample: false, infect: false, wither: false },
+        },
+      ],
+      [attacker],
+      123
+    );
+
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].sourceId).toBe(attacker.id);
+    expect(triggers[0].effect).toBe('That player gets 3 poison counters.');
+  });
+
+  it('should not duplicate a combat-damage-to-player trigger for simultaneous trample assignments', () => {
+    const attacker = createTestPermanent(
+      '1',
+      'Ohran Frostfang',
+      4,
+      4,
+      'Trample\nWhenever this creature deals combat damage to a player, draw a card.',
+      'player1'
+    );
+
+    const triggers = createCombatDamageTriggers(
+      [
+        {
+          sourceId: attacker.id,
+          sourceName: 'Ohran Frostfang',
+          sourceController: 'player1',
+          targetId: 'blocker1',
+          targetType: 'creature',
+          targetName: 'Soldier',
+          amount: 2,
+          phase: CombatDamagePhase.REGULAR,
+          properties: { deathtouch: false, lifelink: false, trample: true, infect: false, wither: false },
+        },
+        {
+          sourceId: attacker.id,
+          sourceName: 'Ohran Frostfang',
+          sourceController: 'player1',
+          targetId: 'player2',
+          targetType: 'player',
+          amount: 2,
+          phase: CombatDamagePhase.REGULAR,
+          properties: { deathtouch: false, lifelink: false, trample: true, infect: false, wither: false },
+        },
+      ],
+      [attacker],
+      456
+    );
+
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].effect).toBe('draw a card.');
+  });
+});
+
 describe('Full Combat Damage Calculation', () => {
   describe('calculateCombatDamage', () => {
     it('should calculate unblocked damage', () => {
@@ -602,6 +672,22 @@ describe('Full Combat Damage Calculation', () => {
       expect(result.assignments[0].properties.infect).toBe(true);
       expect(result.poisonChanges['player2']).toBe(1);
       expect(result.lifeChanges['player2'] || 0).toBe(0);
+    });
+
+    it('should add toxic poison counters in addition to combat life loss', () => {
+      const attacker = createTestPermanent('1', 'Bilious Skulldweller', 1, 1, 'Deathtouch, toxic 1', 'player1');
+
+      const result = calculateCombatDamage(
+        [{ attacker, defendingPlayerId: 'player2', orderedBlockers: [] }],
+        { player1: 40, player2: 40 },
+        {},
+        Date.now()
+      );
+
+      expect(result.assignments).toHaveLength(1);
+      expect(result.assignments[0].properties.infect).toBe(false);
+      expect(result.lifeChanges['player2']).toBe(-1);
+      expect(result.poisonChanges['player2']).toBe(1);
     });
   });
 });

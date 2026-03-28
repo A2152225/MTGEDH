@@ -84,7 +84,7 @@ import {
   getTextColorsForBackground,
 } from "./utils/appearanceSettings";
 import { prettyPhase, prettyStep, isLandTypeLine } from "./utils/gameDisplayHelpers";
-import { isCurrentlyCreature } from "./utils/creatureUtils";
+import { canCreatureAttackNow, canCreatureUseTapAbilityNow, isCurrentlyCreature } from "./utils/creatureUtils";
 import { IgnoredTriggersPanel } from "./components/IgnoredTriggersPanel";
 import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
@@ -1396,16 +1396,12 @@ export function App() {
     const canRespond = (safeView as any).canRespond ?? canAct;
     
     // Check if player has creatures for combat (must be untapped and not have summoning sickness)
-    const playerCreatures = (safeView.battlefield || []).filter((p: any) => {
+    const battlefield = safeView.battlefield || [];
+    const playerCreatures = battlefield.filter((p: any) => {
       if (p.controller !== you) return false;
-      if (!(p.card?.type_line || '').toLowerCase().includes('creature')) return false;
+      if (!isCurrentlyCreature(p)) return false;
       if (p.tapped) return false;
-      // Check summoning sickness - creature must have been on battlefield since start of turn
-      // If the creature has 'Haste' keyword, it can attack immediately
-      const hasHaste = (p.card?.keywords || []).some((k: string) => k.toLowerCase() === 'haste') ||
-                      (p.card?.oracle_text || '').toLowerCase().includes('haste');
-      if (p.summoningSick && !hasHaste) return false;
-      return true;
+      return canCreatureAttackNow(p, battlefield);
     });
     const hasCreaturesToAttack = playerCreatures.length > 0;
     
@@ -3265,72 +3261,7 @@ export function App() {
    * @returns true if the creature can use tap abilities
    */
   const canCreatureUseTapAbility = (perm: BattlefieldPermanent): boolean => {
-    // If creature doesn't have summoning sickness, it can tap
-    if (!perm.summoningSickness) {
-      return true;
-    }
-    
-    // Check for haste - creature can tap even with summoning sickness
-    const card = perm.card as KnownCardRef;
-    if (!card) return false;
-    
-    const oracleText = (card.oracle_text || '').toLowerCase();
-    // Keywords array from Scryfall data (not in TypeScript interface but present at runtime)
-    const rawKeywords = (card as any).keywords;
-    const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
-    const rawGrantedAbilities = (perm as any).grantedAbilities;
-    const grantedAbilities = Array.isArray(rawGrantedAbilities) ? rawGrantedAbilities : [];
-    
-    // Check for haste in multiple places:
-    // 1. Keywords array from Scryfall data
-    // 2. Granted abilities from effects
-    // 3. Oracle text (with specific matching)
-    if (keywords.some((k: string) => k.toLowerCase() === 'haste') ||
-        grantedAbilities.some((a: string) => a.toLowerCase().includes('haste')) ||
-        /\bhaste\b/i.test(oracleText)) {
-      return true;
-    }
-    
-    // 4. Check attached equipment for haste grants (e.g., Lightning Greaves, Swiftfoot Boots)
-    const battlefield = safeView?.battlefield || [];
-    
-    // Helper function to detect if equipment grants haste
-    const equipmentGrantsHaste = (equipOracle: string): boolean => {
-      if (!equipOracle.includes('equipped creature') && !equipOracle.includes('enchanted creature')) {
-        return false;
-      }
-      return equipOracle.includes('has haste') || 
-             equipOracle.includes('have haste') ||
-             equipOracle.includes('gains haste') ||
-             /(?:equipped|enchanted) creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle);
-    };
-    
-    // Check attachedEquipment array
-    const attachedEquipment = (perm as any).attachedEquipment || [];
-    for (const equipId of attachedEquipment) {
-      const equipment = battlefield.find((p: any) => p.id === equipId);
-      if (equipment && equipment.card) {
-        const equipOracle = ((equipment.card as any).oracle_text || '').toLowerCase();
-        if (equipmentGrantsHaste(equipOracle)) {
-          return true;
-        }
-      }
-    }
-    
-    // Also check by attachedTo relationship (in case attachedEquipment isn't set)
-    for (const equip of battlefield) {
-      if (!equip || !equip.card) continue;
-      const equipTypeLine = ((equip.card as any).type_line || '').toLowerCase();
-      if (!equipTypeLine.includes('equipment') && !equipTypeLine.includes('aura')) continue;
-      if ((equip as any).attachedTo !== perm.id) continue;
-      
-      const equipOracle = ((equip.card as any).oracle_text || '').toLowerCase();
-      if (equipmentGrantsHaste(equipOracle)) {
-        return true;
-      }
-    }
-    
-    return false;
+    return canCreatureUseTapAbilityNow(perm, safeView?.battlefield || []);
   };
 
   // Color mapping for mana symbols - extracted as constant to avoid recreation
@@ -4110,86 +4041,7 @@ export function App() {
   };
 
   const canCreatureAttack = (perm: BattlefieldPermanent): boolean => {
-    const card = perm.card as KnownCardRef;
-    if (!card) return false;
-    
-    const oracleText = (card.oracle_text || '').toLowerCase();
-    // Keywords array from Scryfall data (not in TypeScript interface but present at runtime)
-    const rawKeywords = (card as any).keywords;
-    const keywords = Array.isArray(rawKeywords) ? rawKeywords : [];
-    const rawGrantedAbilities = (perm as any).grantedAbilities;
-    const grantedAbilities = Array.isArray(rawGrantedAbilities) ? rawGrantedAbilities : [];
-    
-    // Check for defender - creatures with defender can't attack (unless granted by effects)
-    const hasDefender = 
-      keywords.some((k: string) => k.toLowerCase() === 'defender') ||
-      /\bdefender\b/i.test(oracleText);
-    
-    // Check if defender has been removed by effects (e.g., "creatures with defender can attack")
-    const defenderCanAttack = grantedAbilities.some((a: string) => 
-      a.toLowerCase().includes('defender') && a.toLowerCase().includes('attack')
-    );
-    
-    if (hasDefender && !defenderCanAttack) {
-      return false;
-    }
-    
-    // Check summoning sickness - only matters if creature has it
-    if (!perm.summoningSickness) {
-      return true;
-    }
-    
-    // Check for haste - creature can attack even with summoning sickness
-    // Sources: own oracle text, keywords, granted abilities, and attached equipment
-    
-    // 1. Check own oracle text and keywords
-    if (keywords.some((k: string) => k.toLowerCase() === 'haste') ||
-        grantedAbilities.some((a: string) => a.toLowerCase().includes('haste')) ||
-        /\bhaste\b/i.test(oracleText)) {
-      return true;
-    }
-    
-    // 2. Check attached equipment for haste grants (e.g., Lightning Greaves, Swiftfoot Boots)
-    // Pattern: "Equipped creature has haste" or "Equipped creature has shroud and haste"
-    const battlefield = safeView?.battlefield || [];
-    
-    // Helper function to detect if equipment grants haste
-    const equipmentGrantsHaste = (equipOracle: string): boolean => {
-      if (!equipOracle.includes('equipped creature') && !equipOracle.includes('enchanted creature')) {
-        return false;
-      }
-      return equipOracle.includes('has haste') || 
-             equipOracle.includes('have haste') ||
-             equipOracle.includes('gains haste') ||
-             /(?:equipped|enchanted) creature has (?:[\w\s,]+\s+and\s+)?haste/i.test(equipOracle);
-    };
-    
-    // Check attachedEquipment array
-    const attachedEquipment = (perm as any).attachedEquipment || [];
-    for (const equipId of attachedEquipment) {
-      const equipment = battlefield.find((p: any) => p.id === equipId);
-      if (equipment && equipment.card) {
-        const equipOracle = ((equipment.card as any).oracle_text || '').toLowerCase();
-        if (equipmentGrantsHaste(equipOracle)) {
-          return true;
-        }
-      }
-    }
-    
-    // Also check by attachedTo relationship (in case attachedEquipment isn't set)
-    for (const equip of battlefield) {
-      if (!equip || !equip.card) continue;
-      const equipTypeLine = ((equip.card as any).type_line || '').toLowerCase();
-      if (!equipTypeLine.includes('equipment') && !equipTypeLine.includes('aura')) continue;
-      if ((equip as any).attachedTo !== perm.id) continue;
-      
-      const equipOracle = ((equip.card as any).oracle_text || '').toLowerCase();
-      if (equipmentGrantsHaste(equipOracle)) {
-        return true;
-      }
-    }
-    
-    return false;
+    return canCreatureAttackNow(perm, safeView?.battlefield || []);
   };
 
   // Get creatures for combat modal - filter to only those that can attack

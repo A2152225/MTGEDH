@@ -9,7 +9,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isCurrentlyCreature } from '../src/utils/creatureUtils';
+import {
+  canCreatureAttackNow,
+  canCreatureUseTapAbilityNow,
+  hasCurrentKeyword,
+  hasCurrentHaste,
+  isCurrentlyCreature,
+} from '../src/utils/creatureUtils';
 import type { BattlefieldPermanent, KnownCardRef } from '../../shared/src';
 
 // Helper to create a mock permanent
@@ -203,5 +209,59 @@ describe('isCurrentlyCreature', () => {
       );
       expect(isCurrentlyCreature(attached)).toBe(false);
     });
+  });
+});
+
+describe('current combat keyword helpers', () => {
+  it('treats attached equipment haste grants as current haste', () => {
+    const creature = {
+      ...createMockPermanent('Creature — Human', ''),
+      id: 'creature-1',
+      summoningSickness: true,
+    } as BattlefieldPermanent;
+    const equipment = {
+      ...createMockPermanent('Artifact — Equipment', 'Equipped creature has haste and shroud.'),
+      id: 'equipment-1',
+      attachedTo: 'creature-1',
+    } as BattlefieldPermanent;
+
+    const battlefield = [creature, equipment];
+
+    expect(hasCurrentHaste(creature, battlefield)).toBe(true);
+    expect(canCreatureUseTapAbilityNow(creature, battlefield)).toBe(true);
+    expect(canCreatureAttackNow(creature, battlefield)).toBe(true);
+  });
+
+  it('treats attached keyword-granting text as current evasion keywords', () => {
+    const creature = {
+      ...createMockPermanent('Creature — Human Soldier', ''),
+      id: 'creature-1',
+    } as BattlefieldPermanent;
+    const equipment = {
+      ...createMockPermanent('Artifact — Equipment', 'Equipped creature has flying.'),
+      id: 'equipment-1',
+      attachedTo: 'creature-1',
+    } as BattlefieldPermanent;
+
+    expect(hasCurrentKeyword(creature, 'flying', [creature, equipment])).toBe(true);
+  });
+
+  it('prevents defender creatures from attacking without an override', () => {
+    const creature = {
+      ...createMockPermanent('Creature — Wall', 'Defender'),
+      summoningSickness: false,
+    } as BattlefieldPermanent;
+
+    expect(canCreatureAttackNow(creature)).toBe(false);
+  });
+
+  it('allows defender creatures to attack when current text grants it', () => {
+    const creature = {
+      ...createMockPermanent('Creature — Wall', 'Defender'),
+      summoningSickness: false,
+      grantedAbilities: ["This creature can attack as though it didn't have defender."],
+    } as BattlefieldPermanent;
+
+    expect(canCreatureAttackNow(creature)).toBe(true);
   });
 });
