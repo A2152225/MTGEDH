@@ -5640,6 +5640,24 @@ export function executeTriggerEffect(
     }
     return;
   }
+
+  const millTargetPlayerMatch = desc.match(/target (?:player|opponent) mills? ([a-z]+|\d+) cards?/i);
+  if (millTargetPlayerMatch) {
+    const millCount = parseNumberWord(millTargetPlayerMatch[1], 1);
+    const targets = triggerItem.targets || [];
+    const targetPlayerId = String(targets[0] || (opponents[0]?.id) || '').trim();
+
+    if (targetPlayerId && millCount > 0) {
+      executeSpellEffect(
+        ctx,
+        { kind: 'MillCards', playerId: targetPlayerId, count: millCount } as any,
+        controller,
+        sourceName,
+        String((triggerItem as any)?.source || '') || null
+      );
+    }
+    return;
+  }
   
   // Pattern: "scry X" or "scry 1"
   const scryMatch = desc.match(/scry (\d+)/i);

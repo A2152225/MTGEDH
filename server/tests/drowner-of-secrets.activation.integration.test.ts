@@ -195,4 +195,101 @@ describe('Drowner of Secrets activation (integration)', () => {
     expect(Boolean(lastTriggerPush?.payload?.mandatory)).toBe(false);
     expect(String(lastTriggerPush?.payload?.triggeringPermanentId || '')).toBe('judge');
   });
+
+  it('mills the chosen player when the live targeted activation resolves', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'drowner',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Drowner of Secrets',
+          type_line: 'Creature — Merfolk Wizard',
+          oracle_text: 'Tap an untapped Merfolk you control: Target player mills a card.',
+          image_uris: { small: 'https://example.com/drowner.jpg' },
+        },
+      },
+      {
+        id: 'helper',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Merfolk Helper',
+          type_line: 'Creature — Merfolk Wizard',
+          oracle_text: '',
+          image_uris: { small: 'https://example.com/helper.jpg' },
+        },
+      },
+    ];
+
+    game.importDeckResolved(p2 as any, [
+      {
+        id: 'milled_1',
+        name: 'Top Card',
+        type_line: 'Artifact',
+        oracle_text: '',
+      },
+    ] as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'drowner', abilityId: 'drowner-ability-0' });
+
+    const tapStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(tapStep.type).toBe('tap_untap_target');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: tapStep.id,
+      selections: { targetIds: ['helper'], action: 'tap' },
+    });
+
+    const playerStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(playerStep.type).toBe('target_selection');
+    expect(playerStep.targetTypes).toContain('player');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: playerStep.id,
+      selections: [p2],
+    });
+
+    const stackBeforeResolve = (game.state as any).stack || [];
+    expect(stackBeforeResolve).toHaveLength(1);
+    expect(String(stackBeforeResolve[0]?.description || '')).toBe('target player mills a card.');
+    expect(stackBeforeResolve[0]?.targets).toEqual([p2]);
+
+    game.resolveTopOfStack();
+
+    expect((game.state as any).zones[p2].libraryCount).toBe(0);
+    expect((game.state as any).zones[p2].graveyard).toHaveLength(1);
+    expect((game.state as any).zones[p2].graveyard[0]?.id).toBe('milled_1');
+
+    const helper = (game.state as any).battlefield.find((perm: any) => perm.id === 'helper');
+    expect(Boolean(helper?.tapped)).toBe(true);
+  });
 });
