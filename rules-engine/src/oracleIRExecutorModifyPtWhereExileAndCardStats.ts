@@ -7,7 +7,7 @@ type CountCardsExiledWithSource = (
   sourceId: string,
   typeFilter?: string
 ) => number;
-type NormalizeOracleText = (value: string) => string;
+type FindObjectByName = (name: string) => unknown | null;
 type GreatestPowerAmongCreatureCards = (cards: readonly unknown[]) => number;
 type GreatestManaValueAmongCards = (cards: readonly unknown[]) => number;
 
@@ -19,7 +19,7 @@ export function tryEvaluateModifyPtWhereExileAndCardStats(args: {
   ctx?: OracleIRExecutionContext;
   runtime?: ModifyPtRuntime;
   countCardsExiledWithSource: CountCardsExiledWithSource;
-  normalizeOracleText: NormalizeOracleText;
+  findObjectByName: FindObjectByName;
   greatestPowerAmongCreatureCards: GreatestPowerAmongCreatureCards;
   greatestManaValueAmongCards: GreatestManaValueAmongCards;
 }): number | null {
@@ -31,7 +31,7 @@ export function tryEvaluateModifyPtWhereExileAndCardStats(args: {
     ctx,
     runtime,
     countCardsExiledWithSource,
-    normalizeOracleText,
+    findObjectByName,
     greatestPowerAmongCreatureCards,
     greatestManaValueAmongCards,
   } = args;
@@ -48,12 +48,7 @@ export function tryEvaluateModifyPtWhereExileAndCardStats(args: {
   {
     const m = raw.match(/^x is the number of (?:(nonland permanent|permanent|artifact|battle|creature|enchantment|instant|land|planeswalker|sorcery) )?cards? exiled with (?!this\b)([a-z][a-z0-9 ,.'\u2019-]*)$/i);
     if (m) {
-      const wantedName = normalizeOracleText(String(m[2] || ''));
-      if (!wantedName) return null;
-      const namedPermanent = (battlefield as any[]).find((p: any) => {
-        const name = normalizeOracleText(String((p as any)?.name || (p as any)?.card?.name || ''));
-        return Boolean(name && name === wantedName);
-      });
+      const namedPermanent = findObjectByName(String(m[2] || '')) as any;
       const namedId = String((namedPermanent as any)?.id || '').trim();
       if (!namedId) return null;
 

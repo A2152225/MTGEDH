@@ -95,7 +95,6 @@ import type { GameState, PlayerID, BattlefieldPermanent, KnownCardRef } from '..
 import { 
   canPermanentAttack,
   canPermanentBlock,
-  isCurrentlyCreature,
   isGoaded,
   getGoadedBy,
 } from './actions/combat';
@@ -104,6 +103,7 @@ import {
   calculateLethalDamage,
   type CombatKeywords,
 } from './combatAutomation';
+import { hasPermanentType } from './permanentTypeUtils';
 import {
   COMMON_TOKENS,
   createTokensByName,
@@ -253,33 +253,7 @@ export class AIEngine {
   }
 
   private hasPermanentType(perm: BattlefieldPermanent, type: string): boolean {
-    const targetType = type.toLowerCase();
-
-    if (targetType === 'creature' && isCurrentlyCreature(perm)) {
-      return true;
-    }
-
-    const effectiveTypes = Array.isArray((perm as any).effectiveTypes)
-      ? (perm as any).effectiveTypes
-      : [];
-    if (effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-      return true;
-    }
-
-    const grantedTypes = Array.isArray((perm as any).grantedTypes)
-      ? (perm as any).grantedTypes
-      : [];
-    if (grantedTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-      return true;
-    }
-
-    const cardType = String((perm as any).cardType || '').toLowerCase();
-    if (cardType.includes(targetType)) {
-      return true;
-    }
-
-    const typeLine = String((perm.card as KnownCardRef | undefined)?.type_line || (perm as any).type_line || '').toLowerCase();
-    return typeLine.includes(targetType);
+    return hasPermanentType(perm, type);
   }
   
   /**

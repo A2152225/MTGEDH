@@ -64,7 +64,7 @@ export function tryEvaluateModifyPtWhereLateReferenceStats(args: {
   }
 
   {
-    const m = raw.match(/^x is (?:the number of|the amount of) (.+?) counters? on ([a-z0-9][a-z0-9 ,'.-]{2,60})$/i);
+    const m = raw.match(/^x is (?:the number of|the amount of) (.+?) counters? on ([a-z0-9][a-z0-9 ,'.\u2019-]{2,60})$/i);
     if (m) {
       const counterType = String(m[1] || '').trim();
       const cardName = String(m[2] || '').trim();
@@ -81,8 +81,8 @@ export function tryEvaluateModifyPtWhereLateReferenceStats(args: {
       if (!refId) return null;
       const target = battlefield.find((p: any) => String((p as any)?.id || '').trim() === refId) as any;
       if (!target) return null;
-      const pw = Number(target?.power);
-      const tg = Number(target?.toughness);
+      const pw = Number(target?.power ?? target?.card?.power);
+      const tg = Number(target?.toughness ?? target?.card?.toughness);
       if (!Number.isFinite(pw) || !Number.isFinite(tg)) return null;
       return Math.abs(pw - tg);
     }
@@ -174,7 +174,7 @@ export function tryEvaluateModifyPtWhereLateReferenceStats(args: {
       if (!refId) return null;
       const target = battlefield.find((p: any) => String((p as any)?.id || '').trim() === refId) as any;
       if (!target) return null;
-      const pw = Number(target?.power);
+      const pw = Number(target?.power ?? target?.card?.power);
       if (!Number.isFinite(pw)) return null;
       return pw < 0 ? Math.abs(pw) : 0;
     }

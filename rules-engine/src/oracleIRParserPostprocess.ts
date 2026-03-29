@@ -1545,7 +1545,7 @@ function parseExilePermissionModifierUnknownStep(step: Extract<OracleEffectStep,
   if (!normalized) return null;
 
   if (
-    /^you may (?:cast|play) (?:(?:cards?|spells?) this way|(?:those|the exiled) (?:cards?|spells?)|that card|that spell|it|them) without paying (?:its|their|that spell(?:'s)?|those spells(?:')?) mana costs?$/i.test(
+    /^you may (?:cast|play) (?:(?:cards?|spells?) this way|(?:cards?|spells?) exiled this way|(?:those|the exiled) (?:cards?|spells?)|that card|that spell|it|them) without paying (?:its|their|that spell(?:'s)?|those spells(?:')?) mana costs?$/i.test(
       normalized
     )
   ) {
@@ -4491,6 +4491,48 @@ export function mergeDeterministicGraveyardPermissionFollowupAbilities(
   return merged;
 }
 
+function convertReminderSelfExileStepsToPermissionModifiers(
+  steps: readonly OracleEffectStep[]
+): readonly OracleEffectStep[] {
+  const nextSteps: OracleEffectStep[] = [];
+
+  for (let i = 0; i < steps.length; i += 1) {
+    const current = steps[i];
+    if (current.kind === 'conditional') {
+      const nested = convertReminderSelfExileStepsToPermissionModifiers(current.steps);
+      nextSteps.push(nested === current.steps ? current : { ...current, steps: nested });
+      continue;
+    }
+
+    const next = steps[i + 1];
+    if (isReminderSelfGraveyardGrant(current) && next && isReminderSelfExileStep(next)) {
+      nextSteps.push(current);
+      nextSteps.push({
+        kind: 'modify_graveyard_permissions',
+        scope: 'last_granted_graveyard_cards',
+        exileInsteadOfGraveyard: true,
+        ...(next.sequence ? { sequence: next.sequence } : {}),
+        raw: String(next.raw || '').trim(),
+      });
+      i += 1;
+      continue;
+    }
+
+    nextSteps.push(current);
+  }
+
+  return nextSteps;
+}
+
+export function convertReminderSelfExilePermissionAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const converted = convertReminderSelfExileStepsToPermissionModifiers(ability.steps);
+    return converted === ability.steps ? ability : { ...ability, steps: converted };
+  });
+}
+
 function parseBattlefieldControllerForPostprocess(toRaw: string) {
   const normalized = normalizeOracleText(toRaw).toLowerCase();
   if (/\bunder\s+your\s+control\b/i.test(normalized)) return { kind: 'you' } as const;
@@ -4563,9 +4605,25 @@ function parseStandaloneAttachUnknownStep(rawClause: string): OracleEffectStep |
 export function expandMoveZoneAttachUnknownAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  return abilities.map((ability) => {
+  const expandSteps = (steps: readonly OracleEffectStep[]): { readonly steps: readonly OracleEffectStep[]; readonly changed: boolean } => {
     let changed = false;
-    const expandedSteps = ability.steps.flatMap((step) => {
+    const expandedSteps = steps.flatMap((step) => {
+      if (step.kind === 'conditional') {
+        const expandedNested = expandSteps(step.steps);
+        if (!expandedNested.changed) return [step];
+        changed = true;
+        return [{ ...step, steps: expandedNested.steps }];
+      }
+
+      if (step.kind === 'move_zone') {
+        const expanded = parseMoveZoneWithAttachFollowup(String(step.raw || ''));
+        if (expanded) {
+          changed = true;
+          return [...expanded];
+        }
+        return [step];
+      }
+
       if (step.kind !== 'unknown') return [step];
       const expanded = parseMoveZoneWithAttachFollowup(step.raw);
       if (expanded) {
@@ -4578,7 +4636,12 @@ export function expandMoveZoneAttachUnknownAbilities(
       return [standaloneAttach];
     });
 
-    return changed ? { ...ability, steps: expandedSteps } : ability;
+    return { steps: expandedSteps, changed };
+  };
+
+  return abilities.map((ability) => {
+    const expanded = expandSteps(ability.steps);
+    return expanded.changed ? { ...ability, steps: expanded.steps } : ability;
   });
 }
 

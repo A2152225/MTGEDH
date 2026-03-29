@@ -1419,6 +1419,24 @@ export function applyOracleIRStepsToGameStateImpl(
         }
 
         if (conditionEvaluation === null) {
+          const normalizedConditionRaw = String(step.condition.raw || '')
+            .replace(/\u2019/g, "'")
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+          if (/^not \((?:you|that player|target player|target opponent|that opponent|an opponent) pay \{[^}]+\}\)$/i.test(normalizedConditionRaw)) {
+            const nestedChoiceStep = step.steps.length === 1 ? step.steps[0] : step;
+            recordSkippedStep(
+              nestedChoiceStep,
+              `Skipped ${nestedChoiceStep.kind} (requires player choice): ${nestedChoiceStep.raw}`,
+              'player_choice_required',
+              {
+                classification: 'player_choice',
+              }
+            );
+            break;
+          }
+
           lastConditionalEvaluation = null;
           recordSkippedStep(
             step,

@@ -173,9 +173,15 @@ export function getBlockerCapacity(permanent: any): number {
 export function isCurrentlyCreature(permanent: any): boolean {
   if (!permanent) return false;
   
-  // Check type_line from card data
-  const typeLine = permanent.card?.type_line?.toLowerCase() || 
-                   permanent.type_line?.toLowerCase() || '';
+  // Include cardType for executor fixtures that omit a full type_line.
+  const typeLine = [
+    permanent.cardType,
+    permanent.card?.type_line,
+    permanent.type_line,
+  ]
+    .map(value => String(value || '').toLowerCase().trim())
+    .filter(Boolean)
+    .join(' ');
   const oracleText = permanent.card?.oracle_text?.toLowerCase() || 
                      permanent.oracle_text?.toLowerCase() || '';
   
@@ -338,10 +344,19 @@ export function hasDefender(permanent: any): boolean {
   const combinedText = getCombinedPermanentText(permanent);
   if (combinedText.includes('defender')) return true;
   
-  // Check type line (some cards have it inline like "Creature — Wall")
+  // Preserve legacy fixture compatibility for tests that still encode
+  // defender directly in type text or keyword arrays.
   const typeLine = permanent.card?.type_line?.toLowerCase() || 
                    permanent.type_line?.toLowerCase() || '';
-  // Walls historically had defender, but since 2004 it's explicit
+  if (typeLine.includes('defender')) {
+    return true;
+  }
+
+  if (permanent.keywords && Array.isArray(permanent.keywords)) {
+    if (permanent.keywords.some((keyword: string) => keyword.toLowerCase() === 'defender')) {
+      return true;
+    }
+  }
   
   // Check granted abilities
   if (permanent.grantedAbilities && Array.isArray(permanent.grantedAbilities)) {

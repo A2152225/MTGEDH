@@ -191,7 +191,7 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
   }
 
   {
-    const m = raw.match(/^x is the number of (.+) counters? on ([a-z0-9 ,.'-]+)$/i);
+    const m = raw.match(/^x is the number of (.+) counters? on ([a-z0-9 ,.'\u2019-]+)$/i);
     if (m) {
       const counterName = String(m[1] || '');
       const objectName = String(m[2] || '').trim();
@@ -227,7 +227,7 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
       return battlefield.filter((p: any) => {
         if (String((p as any)?.controller || '').trim() !== targetPlayerId) return false;
         if (!hasExecutorClass(p, 'land')) return false;
-        return (p as any)?.tapped !== true;
+        return (p as any)?.tapped !== true && (p as any)?.isTapped !== true;
       }).length;
     }
   }
@@ -253,7 +253,7 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
       return snapshot.filter((p: any) => {
         if (String((p as any)?.controller || '').trim() !== targetPlayerId) return false;
         if (!hasExecutorClass(p, 'land')) return false;
-        return (p as any)?.tapped !== true;
+        return (p as any)?.tapped !== true && (p as any)?.isTapped !== true;
       }).length;
     }
   }

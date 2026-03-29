@@ -19,29 +19,9 @@
 
 import type { GameState, BattlefieldPermanent, StackItem, PlayerRef, ManaPool } from '../../shared/src';
 import { previewPreventedDamage } from './oracleIRDamagePrevention';
+import { hasPermanentType } from './permanentTypeUtils';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { clearEndOfTurnWinLossEffects } from './winEffectCards';
-
-function hasPermanentType(perm: any, type: string): boolean {
-  const targetType = type.toLowerCase();
-  const effectiveTypes = Array.isArray(perm?.effectiveTypes) ? perm.effectiveTypes : [];
-  if (effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-    return true;
-  }
-
-  const grantedTypes = Array.isArray(perm?.grantedTypes) ? perm.grantedTypes : [];
-  if (grantedTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-    return true;
-  }
-
-  const cardType = String(perm?.cardType || '').toLowerCase();
-  if (cardType.includes(targetType)) {
-    return true;
-  }
-
-  const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
-  return typeLine.includes(targetType);
-}
 
 /** Type for mana color keys (subset of ManaPool that are numeric) */
 type ManaColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';

@@ -2,7 +2,7 @@ import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src
 import type { OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
-import { getExecutorTypeLineLower, isExecutorCreature } from './oracleIRExecutorPermanentUtils';
+import { getExecutorTypeLineLower, hasExecutorClass, isExecutorCreature } from './oracleIRExecutorPermanentUtils';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 function readPowerForComparison(permanent: BattlefieldPermanent | any): number | null {
@@ -517,11 +517,17 @@ export function countControlledByClass(
   klass: string,
   typeLineLower: (permanent: any) => string
 ): number {
-  if (klass === 'permanent') return controlled.length;
-  if (klass === 'nonland permanent') {
-    return controlled.filter(permanent => !typeLineLower(permanent).includes('land')).length;
-  }
-  return controlled.filter(permanent => typeLineLower(permanent).includes(klass)).length;
+  return controlled.filter(permanent => {
+    if (klass === 'permanent' || klass === 'nonland permanent') {
+      return hasExecutorClass(permanent, klass);
+    }
+
+    if (hasExecutorClass(permanent, klass)) {
+      return true;
+    }
+
+    return typeLineLower(permanent).includes(klass);
+  }).length;
 }
 
 export function normalizeControlledClassKey(text: string): string | null {

@@ -1,5 +1,6 @@
 import type { BattlefieldPermanent, GameState } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { hasDefender } from './actions/combat';
 
 type TypeLineLower = (obj: unknown) => string;
 type IsAttackingObject = (obj: unknown) => boolean;
@@ -8,6 +9,7 @@ type HasExecutorClass = (obj: unknown, klass: string) => boolean;
 type GetExcludedId = () => string;
 type ParseClassList = (value: string) => readonly string[] | null;
 type FindObjectById = (id: string) => unknown | null;
+type NormalizeOracleText = (value: string) => string;
 
 export function tryEvaluateModifyPtWhereMiscCounts(args: {
   state: GameState;
@@ -24,6 +26,7 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
   getExcludedId: GetExcludedId;
   parseClassList: ParseClassList;
   findObjectById: FindObjectById;
+  normalizeOracleText: NormalizeOracleText;
 }): number | null {
   const {
     state,
@@ -40,6 +43,7 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
     getExcludedId,
     parseClassList,
     findObjectById,
+    normalizeOracleText,
   } = args;
 
   {
@@ -49,7 +53,7 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
       const classes = parseClassList(String(m[2] || ''));
       if (!classes) return null;
       return controlled.filter((p: any) => {
-        const tapped = Boolean((p as any)?.tapped);
+        const tapped = Boolean((p as any)?.tapped || (p as any)?.isTapped);
         if (which === 'tapped' ? !tapped : tapped) return false;
         return classes.some((klass) => hasExecutorClass(p, klass));
       }).length;
@@ -62,7 +66,7 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
       const which = String(m[1] || '').toLowerCase();
       return controlled.filter((p: any) => {
         if (!hasExecutorClass(p, 'creature')) return false;
-        const tapped = Boolean((p as any)?.tapped);
+        const tapped = Boolean((p as any)?.tapped || (p as any)?.isTapped);
         return which === 'tapped' ? tapped : !tapped;
       }).length;
     }
@@ -92,11 +96,7 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
   {
     const m = raw.match(/^x is the number of creatures you control with defender$/i);
     if (m) {
-      return controlled.filter((p: any) => {
-        const tl = typeLineLower(p);
-        const keywords = String((p as any)?.keywords || (p as any)?.card?.keywords || '').toLowerCase();
-        return hasExecutorClass(p, 'creature') && (tl.includes('defender') || keywords.includes('defender'));
-      }).length;
+      return controlled.filter((p: any) => hasExecutorClass(p, 'creature') && hasDefender(p)).length;
     }
   }
 
@@ -127,7 +127,9 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
       return controlled.reduce((sum: number, p: any) => {
         if (!hasExecutorClass(p, 'creature')) return sum;
         if (excludedId && String((p as any)?.id || '').trim() === excludedId) return sum;
-        const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
+        const n = Number(which === 'power'
+          ? ((p as any)?.power ?? (p as any)?.card?.power)
+          : ((p as any)?.toughness ?? (p as any)?.card?.toughness));
         return sum + (Number.isFinite(n) ? n : 0);
       }, 0);
     }
@@ -139,7 +141,7 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
       const threshold = Math.max(0, parseInt(String(m[1] || '0'), 10) || 0);
       return controlled.filter((p: any) => {
         if (!hasExecutorClass(p, 'creature')) return false;
-        const n = Number((p as any)?.power);
+        const n = Number((p as any)?.power ?? (p as any)?.card?.power);
         return Number.isFinite(n) && n >= threshold;
       }).length;
     }
@@ -151,7 +153,7 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
       const seen = new Set<string>();
       for (const p of controlled as any[]) {
         if (!hasExecutorClass(p, 'land')) continue;
-        const name = String((p as any)?.name || (p as any)?.card?.name || '').trim().toLowerCase();
+        const name = normalizeOracleText(String((p as any)?.name || (p as any)?.card?.name || ''));
         if (!name) continue;
         seen.add(name);
       }
@@ -173,7 +175,7 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
         return pool.filter((p: any) => {
           if (excludedId && String((p as any)?.id || '').trim() === excludedId) return false;
           if (!hasExecutorClass(p, 'creature')) return false;
-          return String((p as any)?.attacking || '').trim().length > 0;
+          return isAttackingObject(p);
         }).length;
       }
     }
@@ -221,7 +223,9 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
         if (!hasExecutorClass(p, 'creature')) return sum;
         if (!isAttackingObject(p)) return sum;
         if (excludedId && String((p as any)?.id || '').trim() === excludedId) return sum;
-        const n = Number(which === 'power' ? (p as any)?.power : (p as any)?.toughness);
+        const n = Number(which === 'power'
+          ? ((p as any)?.power ?? (p as any)?.card?.power)
+          : ((p as any)?.toughness ?? (p as any)?.card?.toughness));
         return sum + (Number.isFinite(n) ? n : 0);
       }, 0);
     }

@@ -1023,7 +1023,7 @@ describe('Oracle IR Executor', () => {
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'creature1' });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
     expect(p2.library.map((c: any) => c.id)).toEqual(['p2c3']);
@@ -1065,7 +1065,7 @@ describe('Oracle IR Executor', () => {
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'targetToughnessThat' });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
     expect(result.appliedSteps.some(s => s.kind === 'impulse_exile_top')).toBe(true);
@@ -1108,7 +1108,10 @@ describe('Oracle IR Executor', () => {
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'target1',
+    });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
     expect(p2.library.map((c: any) => c.id)).toEqual(['p2c3']);
@@ -1212,7 +1215,10 @@ describe('Oracle IR Executor', () => {
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetCreatureId: 'target1' },
+    });
     const p2 = result.state.players.find(p => p.id === 'p2') as any;
 
     expect(p2.library.map((c: any) => c.id)).toEqual(['p2c3']);
@@ -1301,7 +1307,7 @@ describe('Oracle IR Executor', () => {
       ],
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'targetBattlefieldNoArticle' });
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
 
     expect(p1.library).toHaveLength(1);
@@ -21873,6 +21879,68 @@ describe('Oracle IR Executor', () => {
     expect(ptMod.toughness).toBe(2);
   });
 
+  it('applies modify_pt when the artifact condition is satisfied by effective current types', () => {
+    const ir = parseOracleTextToIR(
+      'If you control an artifact, target creature gets +2/+2 until end of turn.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1c1' }],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Test Bear',
+          cardType: 'Creature',
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+        {
+          id: 'effectiveArtifact1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Transmuted Blessing',
+          cardType: 'Enchantment',
+          type_line: 'Enchantment',
+          effectiveTypes: ['Enchantment', 'Artifact'],
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'creature1') as any;
+    const modifiers = Array.isArray(creature?.modifiers) ? creature.modifiers : [];
+    const ptMod = modifiers.find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'modify_pt')).toBe(false);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(2);
+    expect(ptMod.toughness).toBe(2);
+  });
+
   it('applies modify_pt with supported where-clause condition metadata', () => {
     const ir = parseOracleTextToIR(
       'Target creature gets +2/+2 until end of turn where X is the number of artifacts you control.',
@@ -22266,7 +22334,7 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         {
-          id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 4, toughness: 2,
+          id: 'creature1', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', card: { id: 'creature1-card', name: 'Test Bear', type_line: 'Creature', oracle_text: '', power: 4, toughness: 2 } as any,
           tapped: false, summoningSick: false, counters: {},
         } as any,
       ],
@@ -22326,7 +22394,7 @@ describe('Oracle IR Executor', () => {
       ],
       battlefield: [
         {
-          id: 'itsPowerTarget', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 7, toughness: 2,
+          id: 'itsPowerTarget', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', card: { id: 'itsPowerTarget-card', name: 'Test Bear', type_line: 'Creature', oracle_text: '', power: 7, toughness: 2 } as any,
           tapped: false, summoningSick: false, counters: {},
         } as any,
       ],
@@ -27719,7 +27787,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'sName1', name: 'Shock', type_line: 'Instant' },
+            { id: 'sName1', name: "Urza's Saga", type_line: 'Enchantment Land — Urza’s Saga' },
             { id: 'sName2', name: 'Opt', type_line: 'Instant' },
           ],
           exile: [],
@@ -27732,14 +27800,14 @@ This creature has protection from each of the exiled card's card types. (Artifac
           library: [{ id: 'p2c1' }],
           hand: [],
           graveyard: [
-            { id: 'sName3', name: 'Shock', type_line: 'Instant' },
-            { id: 'sName4', name: 'Shock', type_line: 'Instant' },
+            { id: 'sName3', name: 'Urza’s Saga', type_line: 'Enchantment Land — Urza’s Saga' },
+            { id: 'sName4', name: "Urza's Saga", type_line: 'Enchantment Land — Urza’s Saga' },
           ],
           exile: [],
         } as any,
       ],
       stack: [
-        { id: 'spellNameRef', type: 'spell', cardName: 'Shock', spell: { name: 'Shock' } } as any,
+        { id: 'spellNameRef', type: 'spell', cardName: "Urza's Saga", spell: { name: "Urza's Saga" } } as any,
       ],
       battlefield: [
         { id: 'targetSameName', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
@@ -29468,7 +29536,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'sacrificedCreature1', name: 'Sacrificed Beast', type_line: 'Creature � Beast', power: 5, toughness: 3, manaValue: 6 },
+            { id: 'sacrificedCreature1', name: 'Sacrificed Beast', type_line: 'Creature � Beast', power: 8, toughness: 3, manaValue: 6, card: { id: 'sacrificedCreature1-card', name: 'Sacrificed Beast', type_line: 'Creature � Beast', power: 5, toughness: 3, manaValue: 6 } },
           ],
           exile: [],
         } as any,
@@ -29485,7 +29553,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(5);
+    expect(ptMod.power).toBe(8);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -29506,7 +29574,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
           library: [{ id: 'p1c1' }],
           hand: [],
           graveyard: [
-            { id: 'sacrificedCreatureToughness', name: 'Sacrificed Turtle', type_line: 'Creature � Turtle', power: 2, toughness: 7, manaValue: 5 },
+            { id: 'sacrificedCreatureToughness', name: 'Sacrificed Turtle', type_line: 'Creature � Turtle', power: 2, toughness: 9, manaValue: 5, card: { id: 'sacrificedCreatureToughness-card', name: 'Sacrificed Turtle', type_line: 'Creature � Turtle', power: 2, toughness: 7, manaValue: 5 } },
           ],
           exile: [],
         } as any,
@@ -29523,7 +29591,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(7);
+    expect(ptMod.power).toBe(9);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -29935,18 +30003,22 @@ This creature has protection from each of the exiled card's card types. (Artifac
       ],
       battlefield: [
         { id: 'target1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: true, summoningSick: false, counters: {} } as any,
+        { id: 'altTappedCreature1', ownerId: 'p1', controller: 'p1', name: 'Alt Tapped Rogue', cardType: 'Creature', power: 1, toughness: 1, isTapped: true, summoningSick: false, counters: {} } as any,
         { id: 'artifact1', ownerId: 'p1', controller: 'p1', name: 'Relic', cardType: 'Artifact', tapped: true, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
     });
 
-    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetCreatureId: 'target1',
+    });
     const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'target1') as any;
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(1);
+    expect(ptMod.power).toBe(2);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -29965,6 +30037,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'targetTappedArtifacts', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'artifactTapped1', ownerId: 'p1', controller: 'p1', name: 'Relic One', type_line: 'Artifact', tapped: true, summoningSick: false, counters: {} } as any,
         { id: 'artifactTapped2', ownerId: 'p1', controller: 'p1', name: 'Relic Two', type_line: 'Artifact', tapped: true, summoningSick: false, counters: {} } as any,
+        { id: 'artifactAltTapped', ownerId: 'p1', controller: 'p1', name: 'Relic Four', type_line: 'Artifact', isTapped: true, summoningSick: false, counters: {} } as any,
         { id: 'artifactUntapped', ownerId: 'p1', controller: 'p1', name: 'Relic Three', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -29976,7 +30049,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(2);
+    expect(ptMod.power).toBe(3);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -29996,6 +30069,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'eqAttack1', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetAttack1', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetAttack1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, attacking: 'p2', tapped: true, summoningSick: false, counters: {} } as any,
         { id: 'attackerAttack1', ownerId: 'p2', controller: 'p2', name: 'Attacker', cardType: 'Creature', power: 3, toughness: 3, attacking: 'p1', tapped: true, summoningSick: false, counters: {} } as any,
+        { id: 'attackerAttack1DefendingId', ownerId: 'p2', controller: 'p2', name: 'Attacker via Defending Id', cardType: 'Creature', power: 4, toughness: 4, defendingPlayerId: 'p1', tapped: true, summoningSick: false, counters: {} } as any,
         { id: 'notAttacking1', ownerId: 'p2', controller: 'p2', name: 'Not Attacking', cardType: 'Creature', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -30007,7 +30081,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(2);
+    expect(ptMod.power).toBe(3);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -30027,6 +30101,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'eqAttack2', ownerId: 'p1', controller: 'p1', name: 'Equipment', cardType: 'Artifact', attachedTo: 'targetAttack2', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'targetAttack2', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'oppAttacker2', ownerId: 'p2', controller: 'p2', name: 'Opp Attacker', cardType: 'Creature', power: 3, toughness: 3, attacking: 'p1', tapped: true, summoningSick: false, counters: {} } as any,
+        { id: 'oppAttacker2ByFlag', ownerId: 'p2', controller: 'p2', name: 'Opp Attacker By Flag', cardType: 'Creature', power: 4, toughness: 4, isAttacking: true, tapped: true, summoningSick: false, counters: {} } as any,
         { id: 'youAttacker2', ownerId: 'p1', controller: 'p1', name: 'Your Attacker', cardType: 'Creature', power: 3, toughness: 3, attacking: 'p2', tapped: true, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -30038,7 +30113,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(1);
+    expect(ptMod.power).toBe(2);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -30384,6 +30459,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'targetLegendaryEffective', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'printedLegendary', ownerId: 'p1', controller: 'p1', name: 'Printed Legend', type_line: 'Legendary Creature - Human Wizard', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'effectiveLegendary', ownerId: 'p1', controller: 'p1', name: 'Animated Hero', cardType: 'Artifact', type_line: 'Artifact', effectiveTypes: ['Legendary', 'Creature', 'Artifact'], power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'supertypeLegendary', ownerId: 'p1', controller: 'p1', name: 'Crowned Hero', supertypes: ['Legendary'], effectiveTypes: ['Creature'], power: 5, toughness: 5, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'plainArtifact', ownerId: 'p1', controller: 'p1', name: 'Plain Relic', cardType: 'Artifact', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -30395,7 +30471,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(2);
+    expect(ptMod.power).toBe(3);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -30415,6 +30491,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'targetDefender', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'wall1', ownerId: 'p1', controller: 'p1', name: 'Wall', type_line: 'Creature � Wall Defender', power: 0, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'wall2', ownerId: 'p1', controller: 'p1', name: 'Keyword Defender', type_line: 'Creature � Human Soldier', keywords: ['Defender'], power: 1, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'wall3', ownerId: 'p1', controller: 'p1', name: 'Granted Defender', type_line: 'Creature � Bird', grantedAbilities: ['defender'], power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'attacker', ownerId: 'p1', controller: 'p1', name: 'Attacker', type_line: 'Creature � Goblin', power: 2, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -30426,7 +30503,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(2);
+    expect(ptMod.power).toBe(3);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -30447,6 +30524,8 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'landA1', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land � Forest', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'landA2', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land � Forest', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'landB', ownerId: 'p1', controller: 'p1', name: 'Island', type_line: 'Basic Land � Island', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landSagaStraight', ownerId: 'p1', controller: 'p1', name: "Urza's Saga", type_line: 'Enchantment Land � Urza\'s', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'landSagaCurly', ownerId: 'p1', controller: 'p1', name: 'Urza’s Saga', type_line: 'Enchantment Land � Urza\'s', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'landC', ownerId: 'p1', controller: 'p1', name: 'Command Tower', type_line: 'Land', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -30458,7 +30537,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(3);
+    expect(ptMod.power).toBe(4);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -30477,7 +30556,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'target1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'land1', ownerId: 'p1', controller: 'p1', name: 'Tropical', type_line: 'Land � Forest Island', tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'land2', ownerId: 'p1', controller: 'p1', name: 'Badlands', type_line: 'Land � Swamp Mountain', tapped: false, summoningSick: false, counters: {} } as any,
-        { id: 'land3', ownerId: 'p1', controller: 'p1', name: 'Plains', type_line: 'Basic Land � Plains', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'land4', ownerId: 'p1', controller: 'p1', name: 'Subtype Tundra', effectiveTypes: ['Land'], subtypes: ['Plains'], tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -30678,6 +30757,44 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqBattlefieldCreatures' });
     const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetBattlefieldCreatures') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the number of creatures on battlefield', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is the number of creatures on battlefield' },
+        raw: 'Target creature gets +X/+0 until end of turn where X is the number of creatures on battlefield.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'targetBattlefieldNoArticle', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherCreatureNoArticleA', ownerId: 'p1', controller: 'p1', name: 'Bear Cub', type_line: 'Creature - Bear', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'otherCreatureNoArticleB', ownerId: 'p2', controller: 'p2', name: 'Opponent Goblin', type_line: 'Creature - Goblin', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'nonCreatureNoArticle', ownerId: 'p1', controller: 'p1', name: 'Signet', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', targetCreatureId: 'targetBattlefieldNoArticle' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetBattlefieldNoArticle') as any;
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
@@ -31173,6 +31290,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'targetTotalPower', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'ally1', ownerId: 'p1', controller: 'p1', name: 'Ally 1', type_line: 'Creature � Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'ally2', ownerId: 'p1', controller: 'p1', name: 'Ally 2', type_line: 'Creature � Human', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyCardPower', ownerId: 'p1', controller: 'p1', name: 'Card Power Ally', type_line: 'Creature � Soldier', card: { power: 5, toughness: 5 } as any, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'nonCreature', ownerId: 'p1', controller: 'p1', name: 'Relic', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -31184,7 +31302,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(9);
+    expect(ptMod.power).toBe(14);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -31204,6 +31322,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'targetTotalToughness', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 5, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'allyTough1', ownerId: 'p1', controller: 'p1', name: 'Ally 1', type_line: 'Creature � Elf', power: 3, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'allyTough2', ownerId: 'p1', controller: 'p1', name: 'Ally 2', type_line: 'Creature � Human', power: 4, toughness: 6, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'allyCardToughness', ownerId: 'p1', controller: 'p1', name: 'Card Toughness Ally', type_line: 'Creature � Spirit', card: { power: 1, toughness: 7 } as any, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'nonCreatureTough', ownerId: 'p1', controller: 'p1', name: 'Relic', type_line: 'Artifact', tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -31215,7 +31334,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(15);
+    expect(ptMod.power).toBe(22);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -31266,6 +31385,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'smallCreature', ownerId: 'p1', controller: 'p1', name: 'Small Ally', type_line: 'Creature � Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'bigCreature1', ownerId: 'p1', controller: 'p1', name: 'Big Ally 1', type_line: 'Creature � Giant', power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'bigCreature2', ownerId: 'p1', controller: 'p1', name: 'Big Ally 2', type_line: 'Creature � Beast', power: 6, toughness: 6, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'bigCreatureCardPower', ownerId: 'p1', controller: 'p1', name: 'Card Power Giant', type_line: 'Creature � Giant', card: { power: 5, toughness: 5 } as any, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -31276,7 +31396,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(2);
+    expect(ptMod.power).toBe(3);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -31453,6 +31573,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'targetAttackingTotalPower', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {}, attacking: 'p2' } as any,
         { id: 'attackingAlly', ownerId: 'p1', controller: 'p1', name: 'Attacking Ally', type_line: 'Creature � Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {}, attacking: 'p2' } as any,
         { id: 'attackingOpponent', ownerId: 'p2', controller: 'p2', name: 'Attacking Opponent', type_line: 'Creature � Human', power: 5, toughness: 5, tapped: false, summoningSick: false, counters: {}, attacking: 'p1' } as any,
+        { id: 'attackingCardPower', ownerId: 'p2', controller: 'p2', name: 'Attacking Card Power', type_line: 'Creature � Drake', card: { power: 4, toughness: 6 } as any, tapped: false, summoningSick: false, counters: {}, attacking: 'p1' } as any,
         { id: 'nonAttackingCreature', ownerId: 'p1', controller: 'p1', name: 'Nonattacker', type_line: 'Creature � Beast', power: 7, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -31464,7 +31585,40 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(10);
+    expect(ptMod.power).toBe(14);
+    expect(ptMod.toughness).toBe(0);
+  });
+
+  it('applies X-based modify_pt where X is the total toughness of attacking creatures', () => {
+    const ir = parseOracleTextToIR(
+      'The creature gets +X/+0 until end of turn where X is the total toughness of attacking creatures.',
+      'Test'
+    );
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [{ id: 'p2c1' }], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        { id: 'eqAttackingTotalToughness', ownerId: 'p1', controller: 'p1', name: 'Buffing Equipment', cardType: 'Artifact � Equipment', type_line: 'Artifact � Equipment', attachedTo: 'targetAttackingTotalToughness', tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetAttackingTotalToughness', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {}, attacking: 'p2' } as any,
+        { id: 'attackingToughnessA', ownerId: 'p1', controller: 'p1', name: 'Attacking Ally', type_line: 'Creature � Elf', power: 3, toughness: 3, tapped: false, summoningSick: false, counters: {}, attacking: 'p2' } as any,
+        { id: 'attackingToughnessB', ownerId: 'p2', controller: 'p2', name: 'Attacking Opponent', type_line: 'Creature � Human', power: 5, toughness: 5, tapped: false, summoningSick: false, counters: {}, attacking: 'p1' } as any,
+        { id: 'attackingCardToughness', ownerId: 'p2', controller: 'p2', name: 'Attacking Card Toughness', type_line: 'Creature � Drake', card: { power: 4, toughness: 6 } as any, tapped: false, summoningSick: false, counters: {}, attacking: 'p1' } as any,
+        { id: 'nonAttackingToughness', ownerId: 'p1', controller: 'p1', name: 'Nonattacker', type_line: 'Creature � Beast', power: 7, toughness: 7, tapped: false, summoningSick: false, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'eqAttackingTotalToughness' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetAttackingTotalToughness') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod.power).toBe(16);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -31510,7 +31664,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'targetToughnessThat', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 5, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetToughnessThat', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', card: { id: 'targetToughnessThat-card', name: 'Target Bear', type_line: 'Creature', oracle_text: '', power: 2, toughness: 5 } as any, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -31537,7 +31691,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       battlefield: [
-        { id: 'targetToughnessIts', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+        { id: 'targetToughnessIts', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', card: { id: 'targetToughnessIts-card', name: 'Target Bear', type_line: 'Creature', oracle_text: '', power: 2, toughness: 4 } as any, tapped: false, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
       turnPlayer: 'p1',
@@ -31654,7 +31808,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'p1', name: 'P1', seat: 0, life: 40, library: [{ id: 'p1c1' }], hand: [], graveyard: [], exile: [] } as any,
       ],
       stack: [
-        { id: 'exiledCardMvRef', type: 'spell', manaValue: 5, spell: { manaValue: 5 } } as any,
+        { id: 'exiledCardMvRef', type: 'spell', spell: { manaValue: 5 } } as any,
       ],
       battlefield: [
         { id: 'targetExiledCardMv', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
@@ -32709,6 +32863,66 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(ptMod.toughness).toBe(0);
   });
 
+  it('applies executor modify_pt where X is the number of cards named Urza’s Saga in all graveyards', () => {
+    const steps = [
+      {
+        kind: 'modify_pt',
+        target: { kind: 'raw', text: 'target creature' },
+        power: 1,
+        toughness: 0,
+        powerUsesX: true,
+        duration: 'end_of_turn',
+        condition: { kind: 'where', raw: 'X is the number of cards named Urza’s Saga in all graveyards' },
+        raw: 'The creature gets +X/+0 until end of turn where X is the number of cards named Urza’s Saga in all graveyards.',
+      } as any,
+    ];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [{ id: 'p1l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'urzaSaga1', name: "Urza's Saga", type_line: 'Enchantment Land - Saga', cardType: 'Enchantment Land' },
+            { id: 'p1Other', name: 'Opt', type_line: 'Instant', cardType: 'Instant' },
+          ],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [{ id: 'p2l1' }],
+          hand: [],
+          graveyard: [
+            { id: 'urzaSaga2', name: 'Urza’s Saga', type_line: 'Enchantment Land - Saga', cardType: 'Enchantment Land' },
+            { id: 'urzaSaga3', name: "Urza's Saga", type_line: 'Enchantment Land - Saga', cardType: 'Enchantment Land' },
+          ],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        { id: 'targetCardsNamedUrzaSaga', ownerId: 'p1', controller: 'p1', name: 'Target Bear', type_line: 'Creature', cardType: 'Creature', power: 2, toughness: 2, counters: {} } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'targetCardsNamedUrzaSaga' });
+    const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'targetCardsNamedUrzaSaga') as any;
+    const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+    expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+    expect(ptMod).toBeTruthy();
+    expect(ptMod.power).toBe(3);
+    expect(ptMod.toughness).toBe(0);
+  });
+
   it('applies executor modify_pt where X is the number of cards named Dark Ritual in your graveyard', () => {
     const steps = [
       {
@@ -32855,7 +33069,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(ptMod.toughness).toBe(0);
   });
   it.each([
-    { whereText: "X is Agatha's power", expected: 6, ownerName: 'Agatha', stat: 'power', statValue: 6 },
+    { whereText: "X is Agatha's power", expected: 6, ownerName: 'Agatha', stat: 'power', statValue: 6, printedStatValue: 2 },
     { whereText: "X is Amy Rose's power", expected: 5, ownerName: 'Amy Rose', stat: 'power', statValue: 5 },
     { whereText: "X is Elenda's power", expected: 4, ownerName: 'Elenda', stat: 'power', statValue: 4 },
     { whereText: "X is Fang's power", expected: 3, ownerName: 'Fang', stat: 'power', statValue: 3 },
@@ -32883,7 +33097,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     { whereText: "X is Legion's Chant's intensity", expected: 2, ownerName: "Legion's Chant", stat: 'intensity', statValue: 2 },
     { whereText: "X is Minthara of the Absolute's intensity", expected: 5, ownerName: 'Minthara of the Absolute', stat: 'intensity', statValue: 5 },
     { whereText: "X is Teysa's intensity", expected: 4, ownerName: 'Teysa', stat: 'intensity', statValue: 4 },
-  ])('applies executor modify_pt owner-stat lock: $whereText', ({ whereText, expected, ownerName, stat, statValue }) => {
+  ])('applies executor modify_pt owner-stat lock: $whereText', ({ whereText, expected, ownerName, stat, statValue, printedStatValue }) => {
     const steps = [
       {
         kind: 'modify_pt',
@@ -32908,6 +33122,16 @@ This creature has protection from each of the exiled card's card types. (Artifac
     };
     if (stat === 'power') ownerRef.power = statValue;
     if (stat === 'intensity') ownerRef.intensity = statValue;
+    if (stat === 'power' && typeof printedStatValue === 'number') {
+      ownerRef.card = {
+        id: 'ownerStatRefObject-card',
+        name: ownerName,
+        type_line: 'Creature',
+        oracle_text: '',
+        power: printedStatValue,
+        toughness: 1,
+      } as any;
+    }
 
     const start = makeState({
       players: [
@@ -33793,6 +34017,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         { id: 'targetFlyingAttackers', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
         { id: 'flyingAttackerA', ownerId: 'p1', controller: 'p1', name: 'Flyer A', cardType: 'Creature', type_line: 'Creature', keywords: ['Flying'], power: 2, toughness: 2, attacking: 'p2', tapped: true, summoningSick: false, counters: {} } as any,
         { id: 'flyingAttackerB', ownerId: 'p2', controller: 'p2', name: 'Flyer B', cardType: 'Creature', type_line: 'Creature', text: 'Flying', power: 2, toughness: 2, attacking: 'p1', tapped: true, summoningSick: false, counters: {} } as any,
+        { id: 'flyingAttackerC', ownerId: 'p1', controller: 'p1', name: 'Granted Flyer', cardType: 'Creature', type_line: 'Creature', grantedAbilities: ['flying'], power: 3, toughness: 3, attacking: 'p2', tapped: true, summoningSick: false, counters: {} } as any,
         { id: 'groundAttacker', ownerId: 'p2', controller: 'p2', name: 'Ground', cardType: 'Creature', type_line: 'Creature', power: 2, toughness: 2, attacking: 'p1', tapped: true, summoningSick: false, counters: {} } as any,
       ],
       priority: 'p1',
@@ -33804,7 +34029,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
 
     expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
-    expect(ptMod.power).toBe(2);
+    expect(ptMod.power).toBe(3);
     expect(ptMod.toughness).toBe(0);
   });
 
@@ -37772,6 +37997,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
           { id: 'targetUntappedLands1', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
           { id: 'p2land1', ownerId: 'p2', controller: 'p2', name: 'Island', type_line: 'Basic Land — Island', tapped: false, summoningSick: false, counters: {} } as any,
           { id: 'p2land2', ownerId: 'p2', controller: 'p2', name: 'Mountain', type_line: 'Basic Land — Mountain', tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'p2landAltTapped1', ownerId: 'p2', controller: 'p2', name: 'Plains', type_line: 'Basic Land — Plains', isTapped: true, summoningSick: false, counters: {} } as any,
           { id: 'p2land3', ownerId: 'p2', controller: 'p2', name: 'Swamp', type_line: 'Basic Land — Swamp', tapped: true, summoningSick: false, counters: {} } as any,
           { id: 'p1land1', ownerId: 'p1', controller: 'p1', name: 'Forest', type_line: 'Basic Land — Forest', tapped: false, summoningSick: false, counters: {} } as any,
         ],
@@ -37806,6 +38032,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
         battlefield: [
           { id: 'targetUntappedLands2', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
           { id: 'p2land4', ownerId: 'p2', controller: 'p2', name: 'Island', type_line: 'Basic Land — Island', tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'p2landAltTapped2', ownerId: 'p2', controller: 'p2', name: 'Swamp', type_line: 'Basic Land — Swamp', isTapped: true, summoningSick: false, counters: {} } as any,
           { id: 'p2land5', ownerId: 'p2', controller: 'p2', name: 'Mountain', type_line: 'Basic Land — Mountain', tapped: true, summoningSick: false, counters: {} } as any,
           { id: 'p2land6', ownerId: 'p2', controller: 'p2', name: 'Plains', type_line: 'Basic Land — Plains', tapped: false, summoningSick: false, counters: {} } as any,
         ],
@@ -37842,12 +38069,14 @@ This creature has protection from each of the exiled card's card types. (Artifac
           { id: 'p2landTurn1', ownerId: 'p2', controller: 'p2', name: 'Island', type_line: 'Basic Land — Island', tapped: false, summoningSick: false, counters: {} } as any,
           { id: 'p2landTurn2', ownerId: 'p2', controller: 'p2', name: 'Mountain', type_line: 'Basic Land — Mountain', tapped: false, summoningSick: false, counters: {} } as any,
           { id: 'p2landTurn3', ownerId: 'p2', controller: 'p2', name: 'Swamp', type_line: 'Basic Land — Swamp', tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'p2landTurn4', ownerId: 'p2', controller: 'p2', name: 'Plains', type_line: 'Basic Land — Plains', tapped: false, summoningSick: false, counters: {} } as any,
         ],
         turnStartBattlefieldSnapshot: [
           { id: 'targetUntappedLandsTurnStart', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 2, toughness: 2, tapped: false, summoningSick: false, counters: {} } as any,
           { id: 'p2landTurn1', ownerId: 'p2', controller: 'p2', name: 'Island', type_line: 'Basic Land — Island', tapped: false, summoningSick: false, counters: {} } as any,
           { id: 'p2landTurn2', ownerId: 'p2', controller: 'p2', name: 'Mountain', type_line: 'Basic Land — Mountain', tapped: true, summoningSick: false, counters: {} } as any,
           { id: 'p2landTurn3', ownerId: 'p2', controller: 'p2', name: 'Swamp', type_line: 'Basic Land — Swamp', tapped: true, summoningSick: false, counters: {} } as any,
+          { id: 'p2landTurn4', ownerId: 'p2', controller: 'p2', name: 'Plains', type_line: 'Basic Land — Plains', isTapped: true, summoningSick: false, counters: {} } as any,
         ] as any,
         priority: 'p1',
         turnPlayer: 'p1',
@@ -38011,6 +38240,31 @@ This creature has protection from each of the exiled card's card types. (Artifac
       expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
       expect(ptMod?.power).toBe(9);
     });
+
+    it('resolves irregular plural subtype text like "greatest power among elves you control"', () => {
+      const ir = parseOracleTextToIR(
+        'Target creature an opponent controls gets +X/+0 until end of turn where X is the greatest power among elves you control.',
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+          { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        ],
+        battlefield: [
+          { id: 'tcElf', ownerId: 'p2', controller: 'p2', name: 'Target', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'e1', ownerId: 'p1', controller: 'p1', name: 'Elf1', cardType: 'Creature', type_line: 'Creature', subtypes: ['Elf'], power: 4, toughness: 4, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'e2', ownerId: 'p1', controller: 'p1', name: 'Elf2', cardType: 'Creature', type_line: 'Creature', subtypes: ['Elf'], power: 8, toughness: 5, tapped: false, summoningSick: false, counters: {} } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcElf')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(8);
+    });
   });
 
   describe('greatest power among creature cards in graveyard', () => {
@@ -38160,6 +38414,55 @@ This creature has protection from each of the exiled card's card types. (Artifac
       expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
       expect(ptMod?.power).toBe(4);
     });
+
+    it('resolves curly-apostrophe raw text for the number of counters on a named permanent', () => {
+      const ir = parseOracleTextToIR(
+        'Target creature gets +X/+0 until end of turn where X is the number of charge counters on Umezawa’s Jitte.',
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [
+          { id: 'tcCtrCurly', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'jitteCounterRef', ownerId: 'p1', controller: 'p1', name: "Umezawa's Jitte", cardType: 'Legendary Artifact', type_line: 'Legendary Artifact', tapped: false, summoningSick: false, counters: { charge: 3 } } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcCtrCurly')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(3);
+    });
+
+    it('resolves curly-apostrophe raw text for the amount of counters on a named permanent', () => {
+      const steps = [
+        {
+          kind: 'modify_pt',
+          target: { kind: 'raw', text: 'target creature' },
+          power: 1,
+          toughness: 0,
+          powerUsesX: true,
+          duration: 'end_of_turn',
+          condition: { kind: 'where', raw: 'X is the amount of charge counters on Umezawa’s Jitte' },
+          raw: 'Target creature gets +X/+0 until end of turn where X is the amount of charge counters on Umezawa’s Jitte.',
+        } as any,
+      ];
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [
+          { id: 'tcCtrAmountCurly', ownerId: 'p1', controller: 'p1', name: 'Target', cardType: 'Creature', type_line: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'jitteAmountRef', ownerId: 'p1', controller: 'p1', name: "Umezawa's Jitte", cardType: 'Legendary Artifact', type_line: 'Legendary Artifact', tapped: false, summoningSick: false, counters: { charge: 2 } } as any,
+        ],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcCtrAmountCurly')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(2);
+    });
   });
 
   describe('difference between power and toughness', () => {
@@ -38171,7 +38474,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
       const steps = ir.abilities[0]?.steps ?? [];
       const start = makeState({
         players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
-        battlefield: [{ id: 'tcDiff', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', power: 7, toughness: 3, tapped: false, summoningSick: false, counters: {} } as any],
+        battlefield: [{ id: 'tcDiff', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', card: { power: 7, toughness: 3 } as any, tapped: false, summoningSick: false, counters: {} } as any],
         priority: 'p1', turnPlayer: 'p1',
       });
       const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
@@ -38179,6 +38482,34 @@ This creature has protection from each of the exiled card's card types. (Artifac
         .find((p: any) => p.id === 'tcDiff')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
       expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
       expect(ptMod?.power).toBe(4); // |7 - 3| = 4
+    });
+
+    it('resolves "how far below 0 its power is" with card-only power fixtures', () => {
+      const steps = [
+        {
+          kind: 'modify_pt',
+          target: { kind: 'raw', text: 'target creature' },
+          power: 1,
+          toughness: 0,
+          powerUsesX: true,
+          duration: 'end_of_turn',
+          condition: { kind: 'where', raw: 'X is how far below 0 its power is' },
+          raw: 'Target creature gets +X/+0 until end of turn where X is how far below 0 its power is.',
+        } as any,
+      ];
+
+      const start = makeState({
+        players: [{ id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any],
+        battlefield: [{ id: 'tcBelowZero', ownerId: 'p1', controller: 'p1', name: 'Bear', cardType: 'Creature', type_line: 'Creature', card: { power: -3, toughness: 2 } as any, tapped: false, summoningSick: false, counters: {} } as any],
+        priority: 'p1', turnPlayer: 'p1',
+      });
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1' });
+      const ptMod = ((result.state as any).battlefield || [])
+        .find((p: any) => p.id === 'tcBelowZero')?.modifiers?.find((m: any) => m?.type === 'powerToughness');
+
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod?.power).toBe(3);
+      expect(ptMod?.toughness).toBe(0);
     });
   });
 
@@ -38344,6 +38675,44 @@ This creature has protection from each of the exiled card's card types. (Artifac
       expect(ptMod.toughness).toBe(3);
     });
 
+    it('prefers the current source when multiple permanents share the same name', () => {
+      const ir = parseOracleTextToIR(
+        'Target creature gets +X/+X until end of turn where X is the number of cards exiled with verdant sungrove.',
+        'Test'
+      );
+      const steps = ir.abilities[0]?.steps ?? [];
+
+      const start = makeState({
+        players: [
+          {
+            id: 'p1', name: 'P1', seat: 0, life: 40, library: [],
+            hand: [],
+            graveyard: [],
+            exile: [
+              { id: 'source-a-ex1', exiledBy: 'namedSrcA' },
+              { id: 'source-a-ex2', exiledBy: 'namedSrcA' },
+              { id: 'source-b-ex1', exiledBy: 'namedSrcB' },
+            ],
+          } as any,
+        ],
+        battlefield: [
+          { id: 'namedSrcA', ownerId: 'p1', controller: 'p1', name: 'Verdant Sungrove', cardType: 'Enchantment', type_line: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'namedSrcB', ownerId: 'p1', controller: 'p1', name: 'Verdant Sungrove', cardType: 'Enchantment', type_line: 'Enchantment', tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'tcNamedExileDuplicate', ownerId: 'p1', controller: 'p1', name: 'Target Bear', cardType: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
+        ],
+        priority: 'p1',
+        turnPlayer: 'p1',
+      });
+
+      const result = applyOracleIRStepsToGameState(start, steps, { controllerId: 'p1', sourceId: 'namedSrcB' });
+      const creature = ((result.state as any).battlefield || []).find((p: any) => p.id === 'tcNamedExileDuplicate') as any;
+      const ptMod = (Array.isArray(creature?.modifiers) ? creature.modifiers : []).find((m: any) => m?.type === 'powerToughness');
+
+      expect(result.appliedSteps.some(s => s.kind === 'modify_pt')).toBe(true);
+      expect(ptMod.power).toBe(1);
+      expect(ptMod.toughness).toBe(1);
+    });
+
     it('returns null (no modifier) when named permanent is not on battlefield', () => {
       const ir = parseOracleTextToIR(
         'Target creature gets +X/+X until end of turn where X is the number of cards exiled with verdant sungrove.',
@@ -38470,7 +38839,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
           { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
         ],
         battlefield: [
-          { id: 'srcSpellMultiGen', ownerId: 'p1', controller: 'p1', name: 'Test Spell', cardType: 'Sorcery', type_line: 'Sorcery', mana_cost: '{2}{3}{R}', tapped: false, summoningSick: false, counters: {} } as any,
+          { id: 'srcSpellMultiGen', ownerId: 'p1', controller: 'p1', name: 'Test Spell', cardType: 'Sorcery', type_line: 'Sorcery', spell: { manaCost: '{2}{3}{R}' } as any, tapped: false, summoningSick: false, counters: {} } as any,
           { id: 'tcGenericMana2', ownerId: 'p1', controller: 'p1', name: 'Test Bear', cardType: 'Creature', power: 1, toughness: 1, tapped: false, summoningSick: false, counters: {} } as any,
         ],
         priority: 'p1',

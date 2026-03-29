@@ -2236,8 +2236,14 @@ export function applyAddCounterStep(
         normalizedTarget as any,
         runtime
       );
+  const shouldPreferMovedCards =
+    isContextualMovedCardReference(normalizedTarget as any) &&
+    Array.isArray(runtime?.lastMovedCards) &&
+    runtime.lastMovedCards.length > 0;
   const directTargets = recentTokenTargets.length > 0 || recentMovedTargets.length > 0
     ? []
+    : shouldPreferMovedCards
+      ? []
     : resolveDirectBattlefieldPermanents((state.battlefield || []) as BattlefieldPermanent[], normalizedTarget as any, ctx);
   const targets = recentTokenTargets.length > 0
     ? recentTokenTargets

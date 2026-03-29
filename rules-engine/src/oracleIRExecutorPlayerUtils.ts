@@ -390,6 +390,9 @@ export function getCardManaValue(card: any): number | null {
     card?.manaValue ??
     card?.mana_value ??
     card?.cmc ??
+    card?.spell?.manaValue ??
+    card?.spell?.mana_value ??
+    card?.spell?.cmc ??
     card?.card?.manaValue ??
     card?.card?.mana_value ??
     card?.card?.cmc;
@@ -400,6 +403,8 @@ export function getCardManaValue(card: any): number | null {
   const manaCost = String(
     card?.mana_cost ??
       card?.manaCost ??
+      card?.spell?.mana_cost ??
+      card?.spell?.manaCost ??
       card?.card?.mana_cost ??
       card?.card?.manaCost ??
       ''

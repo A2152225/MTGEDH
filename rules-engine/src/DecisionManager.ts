@@ -22,7 +22,8 @@ import {
   DecisionOption,
   DecisionResult,
 } from './AutomationService';
-import { canPermanentAttack, canPermanentBlock, isCurrentlyCreature } from './actions/combat';
+import { canPermanentAttack, canPermanentBlock } from './actions/combat';
+import { hasPermanentType } from './permanentTypeUtils';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
 /**
@@ -539,51 +540,7 @@ export class DecisionManager {
   }
 
   private matchesPermanentTargetType(permanent: BattlefieldPermanent, type: string): boolean {
-    const normalizedType = type.toLowerCase();
-    if (normalizedType === 'permanent') {
-      return true;
-    }
-
-    if (normalizedType === 'creature') {
-      return isCurrentlyCreature(permanent);
-    }
-
-    const effectiveTypes = this.getPermanentTypeNames(permanent);
-    return effectiveTypes.includes(normalizedType);
-  }
-
-  private getPermanentTypeNames(permanent: BattlefieldPermanent): string[] {
-    const typeNames = new Set<string>();
-    const addTypes = (value: unknown): void => {
-      if (Array.isArray(value)) {
-        for (const entry of value) {
-          if (typeof entry === 'string') {
-            typeNames.add(entry.toLowerCase());
-          }
-        }
-      }
-    };
-
-    const rawTypeLine = [permanent.card?.type_line, (permanent as any).type_line]
-      .filter((value): value is string => typeof value === 'string' && value.length > 0)
-      .join(' ')
-      .toLowerCase();
-
-    for (const type of ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker']) {
-      if (rawTypeLine.includes(type)) {
-        typeNames.add(type);
-      }
-    }
-
-    if (isCurrentlyCreature(permanent)) {
-      typeNames.add('creature');
-    }
-
-    addTypes((permanent as any).types);
-    addTypes((permanent as any).effectiveTypes);
-    addTypes((permanent as any).grantedTypes);
-
-    return [...typeNames];
+    return hasPermanentType(permanent, type);
   }
   
   /**

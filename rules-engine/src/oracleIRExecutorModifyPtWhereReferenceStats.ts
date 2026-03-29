@@ -90,7 +90,9 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
       const target = battlefield.find((p: any) => p.id === targetCreatureId) as any;
       if (!target) return null;
       const which = String(m[1] || '').toLowerCase();
-      const rawValue = which === 'power' ? target.power : target.toughness;
+      const rawValue = which === 'power'
+        ? (target.power ?? target.card?.power)
+        : (target.toughness ?? target.card?.toughness);
       const val = Number(rawValue);
       return Number.isFinite(val) ? val : null;
     }
@@ -222,6 +224,8 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
         (ref as any)?.mana_cost ||
         (ref as any)?.card?.manaCost ||
         (ref as any)?.card?.mana_cost ||
+        (ref as any)?.spell?.manaCost ||
+        (ref as any)?.spell?.mana_cost ||
         ''
       );
       if (!manaCostStr) return 0;
@@ -284,8 +288,8 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
         }
 
         const rawValue = which === 'power'
-          ? ((refCard as any)?.power ?? (ref as any)?.power)
-          : ((refCard as any)?.toughness ?? (ref as any)?.toughness);
+          ? ((ref as any)?.power ?? (refCard as any)?.power)
+          : ((ref as any)?.toughness ?? (refCard as any)?.toughness);
         const n = Number(rawValue);
         return Number.isFinite(n) ? n : null;
       }
@@ -332,7 +336,9 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
         return Number.isFinite(intensity) ? intensity : null;
       }
 
-      const rawValue = statWord === 'power' ? target.power : target.toughness;
+      const rawValue = statWord === 'power'
+        ? (target.power ?? target.card?.power)
+        : (target.toughness ?? target.card?.toughness);
       const val = Number(rawValue);
       return Number.isFinite(val) ? val : null;
     }
@@ -345,7 +351,9 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
       const target = battlefield.find((p: any) => p.id === targetCreatureId) as any;
       if (!target) return null;
       const which = String(m[1] || '').toLowerCase();
-      const rawValue = which === 'power' ? target.power : target.toughness;
+      const rawValue = which === 'power'
+        ? (target.power ?? target.card?.power)
+        : (target.toughness ?? target.card?.toughness);
       const val = Number(rawValue);
       return Number.isFinite(val) ? val : null;
     }

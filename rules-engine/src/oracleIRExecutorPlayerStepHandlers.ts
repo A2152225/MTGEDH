@@ -1180,6 +1180,21 @@ function getSearchLibraryMatches(
 
   const normalizedText = normalizeOracleText(criteria.text);
   if (!normalizedText) return null;
+
+  const sameManaValueMatch = normalizedText.match(/^((?:[a-z' -]+?)\s+)?card with the same mana value as this(?: card)?$/i);
+  if (sameManaValueMatch) {
+    const sourceCard = findCardByIdAcrossState(state, String(ctx.sourceId || '').trim());
+    const sourceManaValue = getCardManaValue(sourceCard);
+    if (sourceManaValue === null) return null;
+
+    const requiredCardType = String(sameManaValueMatch[1] || '').trim().toLowerCase();
+    return cards.filter(card => {
+      if (getCardManaValue(card) !== sourceManaValue) return false;
+      if (!requiredCardType) return true;
+      return normalizeOracleText(String(card?.type_line || '')).includes(requiredCardType);
+    });
+  }
+
   return cards.filter(card => {
     const typeLine = normalizeOracleText(String(card?.type_line || ''));
     const name = normalizeOracleText(String(card?.name || ''));

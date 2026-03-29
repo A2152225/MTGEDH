@@ -145,25 +145,25 @@ export function tryEvaluateModifyPtWhereZoneCardCounts(args: {
       if (!sourceId) return null;
       const ref = findObjectById(sourceId);
       if (!ref) return null;
-      const refName = String(
+      const refName = normalizeOracleText(String(
         (ref as any)?.cardName ||
         (ref as any)?.name ||
         (ref as any)?.card?.name ||
         (ref as any)?.spell?.cardName ||
         (ref as any)?.spell?.name ||
         ''
-      ).trim().toLowerCase();
+      ));
       if (!refName) return null;
       return (state.players || []).reduce((sum, p: any) => {
         const gy = Array.isArray((p as any)?.graveyard) ? (p as any).graveyard : [];
-        const count = gy.filter((card: any) => String((card as any)?.name || '').trim().toLowerCase() === refName).length;
+        const count = gy.filter((card: any) => normalizeOracleText(String((card as any)?.name || '')) === refName).length;
         return sum + count;
       }, 0);
     }
   }
 
   {
-    const m = raw.match(/^x is the number of cards? named ([a-z0-9 ,.'-]+) in all graveyards(?: as you cast this spell)?$/i);
+    const m = raw.match(/^x is the number of cards? named ([a-z0-9 ,.'\u2019-]+) in all graveyards(?: as you cast this spell)?$/i);
     if (m) {
       const wantedName = normalizeOracleText(String(m[1] || ''));
       if (!wantedName) return null;
@@ -176,7 +176,7 @@ export function tryEvaluateModifyPtWhereZoneCardCounts(args: {
   }
 
   {
-    const m = raw.match(/^x is the number of cards? named ([a-z0-9 ,.'-]+) in your graveyard$/i);
+    const m = raw.match(/^x is the number of cards? named ([a-z0-9 ,.'\u2019-]+) in your graveyard$/i);
     if (m) {
       const wantedName = normalizeOracleText(String(m[1] || ''));
       if (!wantedName) return null;

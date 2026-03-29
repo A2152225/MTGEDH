@@ -86,6 +86,7 @@ import {
   mergeLookSelectTopFollowupAbilities,
   pruneRedundantImpulseCleanupUnknownAbilities,
   pruneDuplicateGraveyardReminderAbilities,
+  convertReminderSelfExilePermissionAbilities,
   mergeRevealFollowupAbilities,
   mergeSagaChapterCopyFollowupAbilities,
 } from './oracleIRParserPostprocess';
@@ -1250,6 +1251,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandEmbalmKeywordAbilities(abilities);
   abilities = expandEternalizeKeywordAbilities(abilities);
   abilities = pruneDuplicateGraveyardReminderAbilities(abilities);
+  abilities = convertReminderSelfExilePermissionAbilities(abilities);
   abilities = mergeConditionalGraveyardReminderFollowupAbilities(abilities);
   abilities = mergeExilePermissionCastCounterFollowupAbilities(abilities);
   abilities = mergeDeterministicGraveyardPermissionFollowupAbilities(abilities);

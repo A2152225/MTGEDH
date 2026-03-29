@@ -108,7 +108,7 @@ export function tryEvaluateModifyPtWhereQualifiedCounts(args: {
   }
 
   {
-    const m = raw.match(/^x is the number of (.+) on the battlefield$/i);
+    const m = raw.match(/^x is the number of (.+) on (?:the )?battlefield$/i);
     if (m) {
       const classes = parseClassList(String(m[1] || ''));
       if (classes) {

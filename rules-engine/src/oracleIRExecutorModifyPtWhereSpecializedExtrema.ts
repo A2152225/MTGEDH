@@ -1,5 +1,15 @@
 import type { BattlefieldPermanent, GameState } from '../../shared/src';
 
+function getSubtypeQueryVariants(subtype: string): readonly string[] {
+  const normalized = String(subtype || '').trim().toLowerCase();
+  if (!normalized) return [];
+
+  const variants = new Set<string>([normalized, `${normalized}s`]);
+  if (normalized.endsWith('f')) variants.add(`${normalized.slice(0, -1)}ves`);
+  if (normalized.endsWith('fe')) variants.add(`${normalized.slice(0, -2)}ves`);
+  return Array.from(variants);
+}
+
 type GetCreatureSubtypeKeys = (obj: unknown) => readonly string[];
 type IsAttackingObject = (obj: unknown) => boolean;
 type HasExecutorClass = (obj: unknown, klass: string) => boolean;
@@ -65,7 +75,12 @@ export function tryEvaluateModifyPtWhereSpecializedExtrema(args: {
       const matching = (pool as any[]).filter((permanent: any) => {
         if (!hasExecutorClass(permanent, 'creature')) return false;
         const subtypes = getCreatureSubtypeKeys(permanent);
-        return subtypes.some(subtype => subtype === subtypeRaw || subtypeRaw.startsWith(subtype) || subtype.startsWith(subtypeRaw.replace(/s$/, '')));
+        return subtypes.some(subtype => {
+          const normalizedSubtype = String(subtype || '').trim().toLowerCase();
+          if (!normalizedSubtype) return false;
+          if (subtypeRaw === normalizedSubtype) return true;
+          return getSubtypeQueryVariants(normalizedSubtype).includes(subtypeRaw);
+        });
       }) as BattlefieldPermanent[];
       return greatestStatAmongCreatures(matching, which);
     }

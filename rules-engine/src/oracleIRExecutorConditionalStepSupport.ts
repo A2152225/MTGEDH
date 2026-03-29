@@ -6,6 +6,7 @@ import { getAmountOfManaSpent } from './oracleIRExecutorManaUtils';
 import { evaluateModifyPtCondition } from './oracleIRExecutorModifyPtCondition';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
+import { getExecutorTypeLineLower, hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { deriveWinningVoteChoice, getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { splitCardMatchesName } from './splitCards';
 
@@ -99,12 +100,14 @@ function matchesTypeLine(value: unknown, typeName: string): boolean {
 }
 
 function battlefieldObjectHasType(object: any, typeName: string): boolean {
-  return (
-    matchesTypeLine(object?.type_line, typeName) ||
-    matchesTypeLine(object?.cardType, typeName) ||
-    matchesTypeLine(object?.card?.type_line, typeName) ||
-    matchesTypeLine(object?.card?.cardType, typeName)
-  );
+  const normalizedTypeName = String(typeName || '').trim().toLowerCase();
+  if (!normalizedTypeName) return false;
+
+  if (hasExecutorClass(object, normalizedTypeName)) {
+    return true;
+  }
+
+  return matchesTypeLine(getExecutorTypeLineLower(object), normalizedTypeName);
 }
 
 function battlefieldObjectMatchesDescriptor(object: any, descriptorRaw: string): boolean {
@@ -324,11 +327,11 @@ export function evaluateConditionalWrapperCondition(params: {
     const youDoNotControlMatch = normalizedRaw.match(/^you (?:don't|do not) control (?:a|an|one or more)\s+(.+)$/i);
     if (youDoNotControlMatch) {
       const descriptor = String(youDoNotControlMatch[1] || '').trim();
-      const battlefield = Array.isArray((nextState as any)?.battlefield) ? ((nextState as any).battlefield as any[]) : [];
+      const battlefield = getProcessedBattlefield(nextState) as any[];
       return !battlefield.some(
         (perm: any) =>
           String(perm?.controller || '').trim() === controllerId &&
-          battlefieldObjectMatchesDescriptor(perm?.card || perm, descriptor)
+          battlefieldObjectMatchesDescriptor(perm, descriptor)
       );
     }
   }
@@ -414,11 +417,11 @@ export function evaluateConditionalWrapperCondition(params: {
     const youControlMatch = normalizedRaw.match(/^you control (?:a|an|one or more)\s+(.+)$/i);
     if (youControlMatch) {
       const descriptor = String(youControlMatch[1] || '').trim();
-      const battlefield = Array.isArray((nextState as any)?.battlefield) ? ((nextState as any).battlefield as any[]) : [];
+      const battlefield = getProcessedBattlefield(nextState) as any[];
       return battlefield.some(
         (perm: any) =>
           String(perm?.controller || '').trim() === controllerId &&
-          battlefieldObjectMatchesDescriptor(perm?.card || perm, descriptor)
+          battlefieldObjectMatchesDescriptor(perm, descriptor)
       );
     }
   }
@@ -510,7 +513,14 @@ export function evaluateConditionalWrapperCondition(params: {
         String(ctx.sourceId || '').trim();
       if (!typeName || !referencedId) return null;
       const referencedObject = findObjectByIdInState(nextState, battlefield as any, referencedId);
-      return referencedObject ? cardHasType(referencedObject, typeName) : false;
+      if (!referencedObject) return false;
+
+      const battlefieldObject = battlefield.find(
+        (perm: any) => String(perm?.id || '').trim() === referencedId
+      );
+      return battlefieldObject
+        ? battlefieldObjectHasType(battlefieldObject, typeName)
+        : cardHasType(referencedObject, typeName);
     }
   }
 

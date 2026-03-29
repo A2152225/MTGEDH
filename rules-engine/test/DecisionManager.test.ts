@@ -145,3 +145,82 @@ describe('DecisionManager combat validation', () => {
     expect(result.valid).toBe(true);
   });
 });
+
+describe('DecisionManager target validation', () => {
+  it('accepts animated noncreatures as creature targets', () => {
+    const manager = new DecisionManager();
+    manager.initGame('test-game');
+
+    const animatedArtifact = {
+      id: 'artifact-1',
+      controller: 'player2',
+      owner: 'player2',
+      isCreature: true,
+      card: {
+        id: 'artifact-1',
+        name: 'Animated Relic',
+        type_line: 'Artifact',
+        oracle_text: '',
+      } as KnownCardRef,
+    } as BattlefieldPermanent;
+
+    const gameState = createGameState([animatedArtifact]);
+    const decision = {
+      ...createDecision(DecisionType.SELECT_TARGETS, 'player1'),
+      targetTypes: ['creature'],
+    } as PendingDecision;
+    manager.addDecision('test-game', decision);
+
+    const { result } = manager.processResponse(
+      'test-game',
+      {
+        decisionId: decision.id,
+        playerId: 'player1',
+        selection: 'artifact-1',
+        timestamp: Date.now(),
+      },
+      gameState,
+    );
+
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects permanents that no longer count as creatures', () => {
+    const manager = new DecisionManager();
+    manager.initGame('test-game');
+
+    const moonedCreature = {
+      id: 'creature-1',
+      controller: 'player2',
+      owner: 'player2',
+      effectiveTypes: ['Land'],
+      card: {
+        id: 'creature-1',
+        name: 'Moon-Bound Bear',
+        type_line: 'Creature — Bear',
+        oracle_text: '',
+      } as KnownCardRef,
+    } as BattlefieldPermanent;
+
+    const gameState = createGameState([moonedCreature]);
+    const decision = {
+      ...createDecision(DecisionType.SELECT_TARGETS, 'player1'),
+      targetTypes: ['creature'],
+    } as PendingDecision;
+    manager.addDecision('test-game', decision);
+
+    const { result } = manager.processResponse(
+      'test-game',
+      {
+        decisionId: decision.id,
+        playerId: 'player1',
+        selection: 'creature-1',
+        timestamp: Date.now(),
+      },
+      gameState,
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Target must be: creature');
+  });
+});

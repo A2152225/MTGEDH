@@ -370,6 +370,18 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
     };
   }
 
+  const parsedCardType = parseSimpleCardTypeFromText(normalizedTypeText);
+  if (parsedCardType) {
+    return {
+      cardType: parsedCardType,
+      ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
+      ...(noAbilities ? { noAbilities: true } : {}),
+      ...(requiredCounter ? { requiredCounter } : {}),
+      ...(nameExclusion ? { notNamed: nameExclusion } : {}),
+      ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
+    };
+  }
+
   const splitTerms = splitTypeCriteriaList(normalizedTypeText);
   if (splitTerms.length > 0) {
     const negatedTypeTerms = splitTerms
@@ -421,18 +433,6 @@ function parseMoveZoneSingleTargetCriteria(typeText: string): MoveZoneSingleTarg
     return {
       cardType: 'any',
       creatureTypesAnyOf: [singleCreatureType],
-      ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
-      ...(noAbilities ? { noAbilities: true } : {}),
-      ...(requiredCounter ? { requiredCounter } : {}),
-      ...(nameExclusion ? { notNamed: nameExclusion } : {}),
-      ...(manaValueLtReferencePower ? { manaValueLtReferencePower: true } : {}),
-    };
-  }
-
-  const parsedCardType = parseSimpleCardTypeFromText(normalizedTypeText);
-  if (parsedCardType) {
-    return {
-      cardType: parsedCardType,
       ...(requiredColors.length > 0 ? { colorsAllOf: requiredColors } : {}),
       ...(noAbilities ? { noAbilities: true } : {}),
       ...(requiredCounter ? { requiredCounter } : {}),

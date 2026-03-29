@@ -1,6 +1,7 @@
 import type { BattlefieldPermanent, GameState } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
+import { getCombinedPermanentText } from './permanentText';
 
 export const MODIFY_PT_WHERE_ALIASES: Record<string, string> = {
   "x is the mana value of that spell": "x is that spell's mana value",
@@ -131,6 +132,9 @@ export function isAttackingObject(obj: any): boolean {
 }
 
 export function hasFlyingKeyword(obj: any): boolean {
+  const combinedText = getCombinedPermanentText(obj);
+  if (combinedText.includes('flying')) return true;
+
   const keywordValues: unknown[] = [
     ...(Array.isArray((obj as any)?.keywords) ? (obj as any).keywords : []),
     ...(Array.isArray((obj as any)?.card?.keywords) ? (obj as any).card.keywords : []),
@@ -141,8 +145,10 @@ export function hasFlyingKeyword(obj: any): boolean {
   const textValues: unknown[] = [
     (obj as any)?.text,
     (obj as any)?.oracleText,
+    (obj as any)?.oracle_text,
     (obj as any)?.card?.text,
     (obj as any)?.card?.oracleText,
+    (obj as any)?.card?.oracle_text,
     (obj as any)?.abilities,
     (obj as any)?.card?.abilities,
   ];

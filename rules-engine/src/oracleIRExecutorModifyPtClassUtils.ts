@@ -119,16 +119,16 @@ export function countPermanentsByClasses(
   permanents: readonly BattlefieldPermanent[],
   classes: readonly string[],
   getColors: GetColors,
+  hasExecutorClass: HasExecutorClass,
   typeLineLower: TypeLineLower,
   requiredColor?: string
 ): number {
   return permanents.filter((permanent: any) => {
     if (requiredColor && !getColors(permanent).includes(requiredColor)) return false;
-    const tl = typeLineLower(permanent);
     return classes.some((klass) => {
-      if (klass === 'permanent') return true;
-      if (klass === 'nonland permanent') return !tl.includes('land');
-      return tl.includes(klass);
+      if (klass === 'permanent') return hasExecutorClass(permanent, 'permanent');
+      if (klass === 'nonland permanent') return hasExecutorClass(permanent, 'nonland permanent');
+      return hasExecutorClass(permanent, klass);
     });
   }).length;
 }

@@ -633,6 +633,24 @@ describe('Combat Validation Helpers', () => {
       };
       expect(hasDefender(creature)).toBe(true);
     });
+
+    it('should return true for legacy keyword-array defender fixtures', () => {
+      const creature = {
+        id: 'c2',
+        keywords: ['Defender'],
+        card: { oracle_text: '' },
+      };
+      expect(hasDefender(creature)).toBe(true);
+    });
+
+    it('should return true when legacy fixture type text includes defender', () => {
+      const creature = {
+        id: 'c3',
+        type_line: 'Creature - Wall Defender',
+        card: { oracle_text: '' },
+      };
+      expect(hasDefender(creature)).toBe(true);
+    });
   });
 
   describe('hasHaste', () => {

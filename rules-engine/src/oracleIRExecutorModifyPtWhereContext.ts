@@ -202,7 +202,15 @@ export function createModifyPtWhereEvaluatorContext(
     permanents: readonly BattlefieldPermanent[],
     classes: readonly string[],
     requiredColor?: string
-  ): number => countPermanentsByClassesFromUtils(permanents, classes, getColorsFromPermanent, typeLineLower, requiredColor);
+  ): number =>
+    countPermanentsByClassesFromUtils(
+      permanents,
+      classes,
+      getColorsFromPermanent,
+      hasExecutorClass,
+      typeLineLower,
+      requiredColor
+    );
   const countNegatedClass = (
     permanents: readonly BattlefieldPermanent[],
     base: 'creature' | 'permanent',

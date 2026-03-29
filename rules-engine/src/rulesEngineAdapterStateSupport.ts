@@ -2,6 +2,7 @@ import type { GameState } from '../../shared/src';
 import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
 import { getLeaveBattlefieldDestination } from '../../shared/src/leaveBattlefieldReplacement';
 import type { EngineResult } from './index';
+import { hasPermanentType } from './permanentTypeUtils';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { GameEndReason, WinCondition } from './types/gameFlow';
 import { opponentsHaveCantWinEffect } from './winEffectCards';
@@ -9,27 +10,6 @@ import { RulesEngineEvent, type RulesEvent } from './core/events';
 
 type EmitRulesEvent = (event: RulesEvent) => void;
 type PersistGameState = (gameId: string, state: GameState) => void;
-
-export function hasPermanentType(perm: any, type: string): boolean {
-  const targetType = type.toLowerCase();
-  const effectiveTypes = Array.isArray(perm?.effectiveTypes) ? perm.effectiveTypes : [];
-  if (effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-    return true;
-  }
-
-  const grantedTypes = Array.isArray(perm?.grantedTypes) ? perm.grantedTypes : [];
-  if (grantedTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-    return true;
-  }
-
-  const cardType = String(perm?.cardType || '').toLowerCase();
-  if (cardType.includes(targetType)) {
-    return true;
-  }
-
-  const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
-  return typeLine.includes(targetType);
-}
 
 export function movePermanentToGraveyard(state: GameState, permanent: any): GameState {
   const ownerId = permanent.controller || permanent.controllerId || permanent.owner;

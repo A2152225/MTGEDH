@@ -1,12 +1,17 @@
 import type { BattlefieldPermanent } from '../../shared/src';
-import { isCurrentlyCreature } from './actions/combat';
+import { hasPermanentType } from './permanentTypeUtils';
+
+const EXECUTOR_PERMANENT_CLASSES = new Set([
+  'artifact',
+  'battle',
+  'creature',
+  'enchantment',
+  'land',
+  'planeswalker',
+]);
 
 export function isExecutorCreature(permanent: BattlefieldPermanent | any): boolean {
-  if (isCurrentlyCreature(permanent)) {
-    return true;
-  }
-
-  return getExecutorTypeLineLower(permanent).includes('creature');
+  return hasPermanentType(permanent, 'creature');
 }
 
 export function getExecutorTypeLineLower(permanent: BattlefieldPermanent | any): string {
@@ -18,7 +23,15 @@ export function getExecutorTypeLineLower(permanent: BattlefieldPermanent | any):
     .map(value => String(value || '').toLowerCase().trim())
     .filter(Boolean);
 
-  for (const list of [(permanent as any)?.types, (permanent as any)?.effectiveTypes, (permanent as any)?.grantedTypes]) {
+  for (const list of [
+    (permanent as any)?.supertypes,
+    (permanent as any)?.card?.supertypes,
+    (permanent as any)?.subtypes,
+    (permanent as any)?.card?.subtypes,
+    (permanent as any)?.types,
+    (permanent as any)?.effectiveTypes,
+    (permanent as any)?.grantedTypes,
+  ]) {
     if (!Array.isArray(list)) continue;
     for (const value of list) {
       const normalized = String(value || '').toLowerCase().trim();
@@ -36,21 +49,19 @@ export function getExecutorTypeLineLower(permanent: BattlefieldPermanent | any):
 }
 
 export function hasExecutorClass(permanent: BattlefieldPermanent | any, klass: string): boolean {
+  const normalizedClass = String(klass || '').toLowerCase().trim();
   const tl = getExecutorTypeLineLower(permanent);
   if (!tl) return false;
-  if (klass === 'creature') return isExecutorCreature(permanent);
-  if (klass === 'permanent') {
-    return (
-      tl.includes('artifact') ||
-      tl.includes('battle') ||
-      tl.includes('creature') ||
-      tl.includes('enchantment') ||
-      tl.includes('land') ||
-      tl.includes('planeswalker')
-    );
+  if (normalizedClass === 'permanent') {
+    return hasPermanentType(permanent, 'permanent');
   }
-  if (klass === 'nonland permanent') return hasExecutorClass(permanent, 'permanent') && !tl.includes('land');
-  return tl.includes(klass);
+  if (normalizedClass === 'nonland permanent') {
+    return hasPermanentType(permanent, 'nonland permanent');
+  }
+  if (EXECUTOR_PERMANENT_CLASSES.has(normalizedClass)) {
+    return hasPermanentType(permanent, normalizedClass);
+  }
+  return tl.includes(normalizedClass);
 }
 
 export function addDamageToPermanentLikeCreature(perm: BattlefieldPermanent, amount: number): BattlefieldPermanent {

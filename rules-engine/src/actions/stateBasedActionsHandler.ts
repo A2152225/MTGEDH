@@ -23,27 +23,7 @@ import {
   opponentsHaveCantWinEffect,
   checkUpkeepWinConditions,
 } from '../winEffectCards';
-
-function hasPermanentType(perm: any, type: string): boolean {
-  const targetType = type.toLowerCase();
-  const effectiveTypes = Array.isArray(perm?.effectiveTypes) ? perm.effectiveTypes : [];
-  if (effectiveTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-    return true;
-  }
-
-  const grantedTypes = Array.isArray(perm?.grantedTypes) ? perm.grantedTypes : [];
-  if (grantedTypes.some((entry: unknown) => String(entry).toLowerCase() === targetType)) {
-    return true;
-  }
-
-  const cardType = String(perm?.cardType || '').toLowerCase();
-  if (cardType.includes(targetType)) {
-    return true;
-  }
-
-  const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
-  return typeLine.includes(targetType);
-}
+import { hasPermanentType } from '../permanentTypeUtils';
 
 function permanentHasKeyword(perm: any, keyword: string): boolean {
   const lowerKeyword = String(keyword || '').trim().toLowerCase();

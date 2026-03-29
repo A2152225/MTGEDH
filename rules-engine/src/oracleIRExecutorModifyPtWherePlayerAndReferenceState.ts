@@ -91,8 +91,8 @@ export function tryEvaluateModifyPtWherePlayerAndReferenceState(args: {
       }
 
       const rawValue = which === 'power'
-        ? ((refCard as any)?.power ?? (ref as any)?.power)
-        : ((refCard as any)?.toughness ?? (ref as any)?.toughness);
+        ? ((ref as any)?.power ?? (refCard as any)?.power)
+        : ((ref as any)?.toughness ?? (refCard as any)?.toughness);
       const n = Number(rawValue);
       return Number.isFinite(n) ? n : null;
     }

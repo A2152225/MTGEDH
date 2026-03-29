@@ -779,6 +779,24 @@ describe('AIEngine', () => {
       expect(decision.type).toBe(AIDecisionType.SACRIFICE);
       expect(decision.action.sacrificed).toEqual(['animated-relic']);
     });
+
+    it('should not treat removed creature types as valid creature permanents', () => {
+      const moonedCreature = {
+        id: 'mooned-bear',
+        controller: 'ai1',
+        owner: 'ai1',
+        effectiveTypes: ['Land'],
+        card: {
+          id: 'mooned-bear-card',
+          name: 'Moon-Bound Bear',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+        },
+      } as any;
+
+      expect((aiEngine as any).hasPermanentType(moonedCreature, 'creature')).toBe(false);
+      expect((aiEngine as any).hasPermanentType(moonedCreature, 'land')).toBe(true);
+    });
     
     it('should make target selection decisions', async () => {
       const context: AIDecisionContext = {

@@ -150,6 +150,7 @@ export function evaluateModifyPtWhereX(
       getExcludedId,
       parseClassList,
       findObjectById,
+      normalizeOracleText,
     });
     if (miscCounts !== null) return miscCounts;
   }
@@ -318,7 +319,7 @@ export function evaluateModifyPtWhereX(
       ctx,
       runtime,
       countCardsExiledWithSource,
-      normalizeOracleText,
+      findObjectByName,
       greatestPowerAmongCreatureCards,
       greatestManaValueAmongCards,
     });
