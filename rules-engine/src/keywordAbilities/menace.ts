@@ -43,6 +43,12 @@ export function canBlockWithMenace(ability: MenaceAbility, blockerCount: number)
   return blockerCount >= 2;
 }
 
+export function canMenaceBeBlockedBy(
+  blockerIds: readonly string[]
+): boolean {
+  return blockerIds.length >= getMinimumBlockers();
+}
+
 /**
  * Get minimum blockers required
  * Rule 702.111b
@@ -56,6 +62,10 @@ export function getMinimumBlockers(): number {
  */
 export function hasMenace(abilities: readonly MenaceAbility[]): boolean {
   return abilities.length > 0;
+}
+
+export function isMenaceEvasionRelevant(availableBlockerCount: number): boolean {
+  return availableBlockerCount < getMinimumBlockers();
 }
 
 /**

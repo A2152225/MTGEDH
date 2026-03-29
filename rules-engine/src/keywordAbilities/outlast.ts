@@ -16,6 +16,12 @@ export interface OutlastAbility {
   readonly tapped: boolean;
 }
 
+export interface OutlastResolution {
+  readonly source: string;
+  readonly countersAdded: number;
+  readonly tapped: boolean;
+}
+
 /**
  * Create an outlast ability
  * Rule 702.107a
@@ -39,6 +45,28 @@ export function activateOutlast(ability: OutlastAbility): OutlastAbility {
     ...ability,
     countersAdded: ability.countersAdded + 1,
     tapped: true,
+  };
+}
+
+/**
+ * Outlast can be activated only at sorcery speed and only if the creature can tap.
+ */
+export function canActivateOutlast(
+  isSorcerySpeed: boolean,
+  isUntapped: boolean
+): boolean {
+  return isSorcerySpeed && isUntapped;
+}
+
+export function getOutlastCounterRate(): number {
+  return 1;
+}
+
+export function createOutlastResolution(ability: OutlastAbility): OutlastResolution {
+  return {
+    source: ability.source,
+    countersAdded: ability.countersAdded,
+    tapped: ability.tapped,
   };
 }
 

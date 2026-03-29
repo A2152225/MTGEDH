@@ -81,6 +81,28 @@ export function returnFromDash(ability: DashAbility): DashAbility {
 }
 
 /**
+ * Dash can be cast only from hand as an alternative cost.
+ */
+export function canCastWithDash(zone: 'hand' | 'graveyard' | 'exile' | 'library'): boolean {
+  return zone === 'hand';
+}
+
+export function resolveDashReturn(ability: DashAbility): DashAbility {
+  if (!shouldDashReturnAtEndStep(ability)) {
+    return ability;
+  }
+
+  return {
+    ...ability,
+    returnedToHand: true,
+  };
+}
+
+export function getDashReturnDestination(ability: DashAbility): 'hand' | 'battlefield' {
+  return ability.returnedToHand ? 'hand' : 'battlefield';
+}
+
+/**
  * Check if dash cost was paid
  * When true, creature has haste and will return to hand at end step
  */

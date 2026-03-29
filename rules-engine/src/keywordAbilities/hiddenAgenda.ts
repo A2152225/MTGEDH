@@ -55,6 +55,23 @@ export function revealHiddenAgenda(ability: HiddenAgendaAbility): HiddenAgendaAb
 }
 
 /**
+ * Check whether the agenda can currently be revealed.
+ */
+export function canRevealAgenda(
+  ability: HiddenAgendaAbility,
+  hasPriority: boolean = true
+): boolean {
+  return hasPriority && !ability.revealed && typeof ability.namedCard === 'string' && ability.namedCard.length > 0;
+}
+
+/**
+ * Get the named card, if any.
+ */
+export function getNamedAgendaCard(ability: HiddenAgendaAbility): string | undefined {
+  return ability.namedCard;
+}
+
+/**
  * Check if a card name matches the hidden agenda
  */
 export function matchesAgenda(ability: HiddenAgendaAbility, cardName: string): boolean {

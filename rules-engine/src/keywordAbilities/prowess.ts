@@ -17,6 +17,11 @@ export interface ProwessAbility {
   readonly triggered: boolean;
 }
 
+export interface ProwessStatBonus {
+  readonly power: number;
+  readonly toughness: number;
+}
+
 /**
  * Create a prowess ability
  * Rule 702.108a
@@ -42,6 +47,33 @@ export function triggerProwess(ability: ProwessAbility): ProwessAbility {
     bonusUntilEndOfTurn: ability.bonusUntilEndOfTurn + 1,
     triggered: true,
   };
+}
+
+/**
+ * Prowess triggers when its controller casts a noncreature spell.
+ */
+export function shouldTriggerProwess(castNonCreatureSpell: boolean): boolean {
+  return castNonCreatureSpell;
+}
+
+export function getProwessStatBonus(ability: ProwessAbility): ProwessStatBonus {
+  return {
+    power: ability.bonusUntilEndOfTurn,
+    toughness: ability.bonusUntilEndOfTurn,
+  };
+}
+
+export function resolveProwessTriggers(
+  ability: ProwessAbility,
+  triggerCount: number
+): ProwessAbility {
+  let updated = ability;
+
+  for (let index = 0; index < triggerCount; index += 1) {
+    updated = triggerProwess(updated);
+  }
+
+  return updated;
 }
 
 /**

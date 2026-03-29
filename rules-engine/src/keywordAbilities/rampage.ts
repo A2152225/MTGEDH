@@ -18,6 +18,11 @@ export interface RampageAbility {
   readonly source: string;
 }
 
+export interface RampageStatBonus {
+  readonly power: number;
+  readonly toughness: number;
+}
+
 /**
  * Creates a rampage ability
  * Rule 702.23a
@@ -45,6 +50,22 @@ export function rampage(source: string, bonus: number): RampageAbility {
 export function calculateRampageBonus(ability: RampageAbility, blockerCount: number): number {
   if (blockerCount <= 1) return 0;
   return ability.bonus * (blockerCount - 1);
+}
+
+export function shouldTriggerRampage(blockerCount: number): boolean {
+  return blockerCount > 0;
+}
+
+export function getRampageStatBonus(
+  ability: RampageAbility,
+  blockerCount: number
+): RampageStatBonus {
+  const bonus = calculateRampageBonus(ability, blockerCount);
+
+  return {
+    power: bonus,
+    toughness: bonus,
+  };
 }
 
 /**

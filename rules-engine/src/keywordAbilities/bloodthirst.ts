@@ -10,6 +10,12 @@ export interface BloodthirstAbility {
   readonly countersAdded: number;
 }
 
+export interface BloodthirstResolution {
+  readonly source: string;
+  readonly eligible: boolean;
+  readonly countersAdded: number;
+}
+
 export function bloodthirst(source: string, value: number): BloodthirstAbility {
   return { type: 'bloodthirst', value, source, countersAdded: 0 };
 }
@@ -18,6 +24,27 @@ export function resolveBloodthirst(ability: BloodthirstAbility, opponentWasDealt
   return {
     ...ability,
     countersAdded: opponentWasDealtDamage ? ability.value : 0,
+  };
+}
+
+export function canApplyBloodthirst(opponentWasDealtDamage: boolean): boolean {
+  return opponentWasDealtDamage;
+}
+
+export function getBloodthirstCounters(ability: BloodthirstAbility): number {
+  return ability.countersAdded;
+}
+
+export function createBloodthirstResolution(
+  ability: BloodthirstAbility,
+  opponentWasDealtDamage: boolean
+): BloodthirstResolution {
+  const resolved = resolveBloodthirst(ability, opponentWasDealtDamage);
+
+  return {
+    source: resolved.source,
+    eligible: canApplyBloodthirst(opponentWasDealtDamage),
+    countersAdded: resolved.countersAdded,
   };
 }
 

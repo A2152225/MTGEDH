@@ -12,6 +12,11 @@ export interface BattleCryAbility {
   readonly source: string;
 }
 
+export interface BattleCryBonus {
+  readonly power: number;
+  readonly toughness: number;
+}
+
 /**
  * Create a battle cry ability
  * Rule 702.91a: "Battle cry" means "Whenever this creature attacks, each other
@@ -29,6 +34,30 @@ export function battleCry(source: string): BattleCryAbility {
  */
 export function getBattleCryBonus(): { power: number; toughness: number } {
   return { power: 1, toughness: 0 };
+}
+
+export function shouldTriggerBattleCry(isAttacking: boolean): boolean {
+  return isAttacking;
+}
+
+export function getBattleCryAffectedAttackers(
+  sourceId: string,
+  attackingCreatureIds: readonly string[]
+): string[] {
+  return attackingCreatureIds.filter(creatureId => creatureId !== sourceId);
+}
+
+export function createBattleCryBonuses(
+  sourceId: string,
+  attackingCreatureIds: readonly string[]
+): ReadonlyMap<string, BattleCryBonus> {
+  const bonuses = new Map<string, BattleCryBonus>();
+
+  for (const creatureId of getBattleCryAffectedAttackers(sourceId, attackingCreatureIds)) {
+    bonuses.set(creatureId, getBattleCryBonus());
+  }
+
+  return bonuses;
 }
 
 /**

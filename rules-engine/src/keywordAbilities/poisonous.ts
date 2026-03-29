@@ -15,6 +15,12 @@ export interface PoisonousAbility {
   readonly source: string;
 }
 
+export interface PoisonousResult {
+  readonly source: string;
+  readonly defendingPlayerId: string;
+  readonly poisonCounters: number;
+}
+
 /**
  * Creates a poisonous ability.
  * 
@@ -43,4 +49,27 @@ export function poisonous(source: string, count: number): PoisonousAbility {
  */
 export function getPoisonCounters(ability: PoisonousAbility): number {
   return ability.count;
+}
+
+export function shouldTriggerPoisonous(
+  dealtCombatDamageToPlayer: boolean
+): boolean {
+  return dealtCombatDamageToPlayer;
+}
+
+export function resolvePoisonous(
+  ability: PoisonousAbility,
+  defendingPlayerId: string
+): PoisonousResult {
+  return {
+    source: ability.source,
+    defendingPlayerId,
+    poisonCounters: getPoisonCounters(ability),
+  };
+}
+
+export function getCombinedPoisonousCounters(
+  abilities: readonly PoisonousAbility[]
+): number {
+  return abilities.reduce((total, ability) => total + ability.count, 0);
 }

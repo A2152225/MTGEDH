@@ -17,6 +17,11 @@ export interface FlankingAbility {
   readonly source: string;
 }
 
+export interface FlankingPenalty {
+  readonly power: number;
+  readonly toughness: number;
+}
+
 /**
  * Creates a flanking ability
  * Rule 702.25a
@@ -42,6 +47,13 @@ export function doesFlankingTrigger(blockerHasFlanking: boolean): boolean {
   return !blockerHasFlanking;
 }
 
+export function shouldTriggerFlanking(
+  blockerHasFlanking: boolean,
+  creatureIsBlocking: boolean
+): boolean {
+  return creatureIsBlocking && doesFlankingTrigger(blockerHasFlanking);
+}
+
 /**
  * Checks if multiple flanking abilities are cumulative
  * Rule 702.25b - Multiple instances of flanking are cumulative
@@ -49,9 +61,15 @@ export function doesFlankingTrigger(blockerHasFlanking: boolean): boolean {
  * @param flankingCount - Number of flanking abilities
  * @returns Total penalty to blocking creature
  */
-export function calculateFlankingPenalty(flankingCount: number): { power: number; toughness: number } {
+export function calculateFlankingPenalty(flankingCount: number): FlankingPenalty {
   return {
     power: -flankingCount,
     toughness: -flankingCount,
   };
+}
+
+export function getFlankingPenaltyForAbilities(
+  abilities: readonly FlankingAbility[]
+): FlankingPenalty {
+  return calculateFlankingPenalty(abilities.length);
 }
