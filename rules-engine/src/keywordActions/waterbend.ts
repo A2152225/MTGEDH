@@ -15,6 +15,104 @@ export interface WaterbendAction {
   readonly manaPaid?: string;
 }
 
+export interface WaterbendCostBreakdown {
+  readonly genericMana: number;
+  readonly nonGenericSymbols: readonly string[];
+}
+
+type WaterbendPermanentLike = {
+  readonly isArtifact?: boolean;
+  readonly isCreature?: boolean;
+  readonly isTapped?: boolean;
+  readonly tapped?: boolean;
+  readonly type_line?: string;
+  readonly card?: {
+    readonly type_line?: string;
+  };
+};
+
+function tokenizeCost(cost: string): string[] {
+  const raw = String(cost || '').trim();
+  if (!raw) {
+    return [];
+  }
+
+  const braced = [...raw.matchAll(/\{([^}]+)\}/g)].map((match) => String(match[1] || '').trim().toUpperCase()).filter(Boolean);
+  if (braced.length > 0) {
+    return braced;
+  }
+
+  const compact = raw.replace(/\s+/g, '').toUpperCase();
+  const tokens: string[] = [];
+  for (let index = 0; index < compact.length;) {
+    if (/\d/.test(compact[index])) {
+      let nextIndex = index + 1;
+      while (nextIndex < compact.length && /\d/.test(compact[nextIndex])) {
+        nextIndex += 1;
+      }
+      tokens.push(compact.slice(index, nextIndex));
+      index = nextIndex;
+      continue;
+    }
+
+    tokens.push(compact[index]);
+    index += 1;
+  }
+
+  return tokens;
+}
+
+function formatCost(tokens: readonly string[]): string {
+  if (tokens.length === 0) {
+    return '{0}';
+  }
+
+  return tokens.map((token) => `{${token}}`).join('');
+}
+
+/**
+ * Parse the waterbend cost into generic and non-generic portions.
+ */
+export function parseWaterbendCost(cost: string): WaterbendCostBreakdown {
+  const tokens = tokenizeCost(cost);
+  let genericMana = 0;
+  const nonGenericSymbols: string[] = [];
+
+  for (const token of tokens) {
+    if (/^\d+$/.test(token)) {
+      genericMana += parseInt(token, 10);
+    } else {
+      nonGenericSymbols.push(token);
+    }
+  }
+
+  return {
+    genericMana,
+    nonGenericSymbols,
+  };
+}
+
+/**
+ * The maximum number of generic mana substitutions waterbend can provide.
+ */
+export function getMaxWaterbendSubstitutions(cost: string): number {
+  return parseWaterbendCost(cost).genericMana;
+}
+
+/**
+ * Get the remaining mana cost after substituting tapped permanents for generic mana.
+ */
+export function getWaterbendRemainingCost(cost: string, tappedPermanentCount: number): string {
+  const breakdown = parseWaterbendCost(cost);
+  const reducedGeneric = Math.max(0, breakdown.genericMana - Math.max(0, tappedPermanentCount));
+  const tokens = [
+    ...(reducedGeneric > 0 ? [String(reducedGeneric)] : []),
+    ...breakdown.nonGenericSymbols,
+  ];
+
+  return formatCost(tokens);
+}
+
 /**
  * Rule 701.67a: Waterbend [cost]
  */
@@ -60,7 +158,11 @@ export function triggersWhenWaterbends(paidWaterbendCost: boolean): boolean {
  * Check if can tap for waterbend
  */
 export function canTapForWaterbend(
-  permanent: { isArtifact: boolean; isCreature: boolean; isTapped: boolean }
+  permanent: WaterbendPermanentLike
 ): boolean {
-  return (permanent.isArtifact || permanent.isCreature) && !permanent.isTapped;
+  const typeLine = String(permanent.type_line || permanent.card?.type_line || '').toLowerCase();
+  const isArtifact = permanent.isArtifact === true || typeLine.includes('artifact');
+  const isCreature = permanent.isCreature === true || typeLine.includes('creature');
+  const isTapped = permanent.isTapped === true || permanent.tapped === true;
+  return (isArtifact || isCreature) && !isTapped;
 }

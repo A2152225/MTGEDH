@@ -25,6 +25,26 @@ export interface ImpendingAbility {
   readonly currentTimeCounters: number;
 }
 
+function extractImpendingParts(oracleText: string): { timeCounters: number; cost: string } | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const match = normalized.match(/\bimpending\s+(\d+)\s*[—-]\s*([^.;,()]+)/i);
+  if (!match) {
+    return null;
+  }
+
+  const timeCounters = Number.parseInt(String(match[1] || ''), 10);
+  const cost = String(match[2] || '').trim();
+  if (!Number.isFinite(timeCounters) || !cost) {
+    return null;
+  }
+
+  return { timeCounters, cost };
+}
+
+function normalizeZone(zone: string): string {
+  return String(zone || '').trim().toLowerCase();
+}
+
 /**
  * Create an impending ability
  * Rule 702.176a
@@ -59,6 +79,14 @@ export function castImpending(ability: ImpendingAbility): ImpendingAbility {
 }
 
 /**
+ * Impending can only be chosen while casting the spell from hand.
+ * Rule 702.176a
+ */
+export function canCastWithImpending(zone: string): boolean {
+  return normalizeZone(zone) === 'hand';
+}
+
+/**
  * Check if is a creature
  * Rule 702.176a - Not a creature while has time counter
  * @param ability - Impending ability
@@ -85,6 +113,21 @@ export function removeImpendingCounter(ability: ImpendingAbility): ImpendingAbil
     };
   }
   return ability;
+}
+
+/**
+ * Check whether the end-step counter-removal trigger should still do something.
+ * Rule 702.176a
+ */
+export function shouldRemoveImpendingCounter(ability: ImpendingAbility): boolean {
+  return ability.wasImpending && ability.currentTimeCounters > 0;
+}
+
+/**
+ * Parse impending N and cost from oracle text.
+ */
+export function parseImpending(oracleText: string): { timeCounters: number; cost: string } | null {
+  return extractImpendingParts(oracleText);
 }
 
 /**

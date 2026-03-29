@@ -54,13 +54,45 @@ export function applySpeedSBA(ability: StartYourEnginesAbility): StartYourEngine
 }
 
 /**
+ * Check whether the player currently has speed.
+ * Rule 702.179b
+ */
+export function hasSpeed(ability: StartYourEnginesAbility): boolean {
+  return ability.playerSpeed > 0;
+}
+
+/**
+ * Increase speed by an arbitrary amount.
+ * Rule 702.179c
+ */
+export function increaseSpeedBy(ability: StartYourEnginesAbility, amount: number): StartYourEnginesAbility {
+  const increase = Math.max(0, Math.trunc(amount));
+  if (increase === 0) {
+    return ability;
+  }
+
+  return {
+    ...ability,
+    playerSpeed: ability.playerSpeed === 0 ? increase : ability.playerSpeed + increase,
+  };
+}
+
+/**
+ * Check whether the once-per-turn speed trigger can resolve.
+ * Rule 702.179d
+ */
+export function canIncreaseSpeed(ability: StartYourEnginesAbility): boolean {
+  return !ability.speedTriggeredThisTurn && ability.playerSpeed < 4;
+}
+
+/**
  * Increase speed when opponent loses life
  * Rule 702.179d - Once per turn, if speed < 4
  * @param ability - Start your engines! ability
  * @returns Updated ability or null if cannot increase
  */
 export function increaseSpeed(ability: StartYourEnginesAbility): StartYourEnginesAbility | null {
-  if (ability.speedTriggeredThisTurn || ability.playerSpeed >= 4) {
+  if (!canIncreaseSpeed(ability)) {
     return null;
   }
   

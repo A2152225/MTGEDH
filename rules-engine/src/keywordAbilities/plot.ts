@@ -23,6 +23,22 @@ export interface PlotAbility {
   readonly turnPlotted?: number;
 }
 
+function normalizeZone(zone: string): string {
+  return String(zone || '').trim().toLowerCase();
+}
+
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a plot ability
  * Rule 702.170a
@@ -56,6 +72,19 @@ export function plotCard(ability: PlotAbility, currentTurn: number): PlotAbility
 }
 
 /**
+ * Check whether the plot special action can be taken.
+ * Rule 702.170a-b
+ */
+export function canPlotCard(
+  ability: PlotAbility,
+  zone: string,
+  isMainPhase: boolean,
+  stackIsEmpty: boolean,
+): boolean {
+  return !ability.isPlotted && normalizeZone(zone) === 'hand' && isMainPhase && stackIsEmpty;
+}
+
+/**
  * Check if can cast plotted card
  * Rule 702.170d - Can cast after turn it was plotted
  * @param ability - Plot ability
@@ -67,6 +96,19 @@ export function canCastPlotted(ability: PlotAbility, currentTurn: number): boole
     return false;
   }
   return currentTurn > ability.turnPlotted;
+}
+
+/**
+ * Check whether a plotted card can be cast right now.
+ * Rule 702.170d
+ */
+export function canCastPlottedNow(
+  ability: PlotAbility,
+  currentTurn: number,
+  isMainPhase: boolean,
+  stackIsEmpty: boolean,
+): boolean {
+  return canCastPlotted(ability, currentTurn) && isMainPhase && stackIsEmpty;
 }
 
 /**
@@ -89,6 +131,13 @@ export function castPlotted(ability: PlotAbility): PlotAbility {
  */
 export function isPlotted(ability: PlotAbility): boolean {
   return ability.isPlotted;
+}
+
+/**
+ * Parse a plot cost from oracle text.
+ */
+export function parsePlotCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'plot');
 }
 
 /**

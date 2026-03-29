@@ -55,12 +55,39 @@ export function activateExhaust(ability: ExhaustAbility): ExhaustAbility | null 
 }
 
 /**
+ * Check if an exhaust ability can currently be activated.
+ * Rule 702.177a-b
+ */
+export function canActivateExhaust(ability: ExhaustAbility): boolean {
+  return !ability.hasBeenActivated;
+}
+
+/**
  * Check if exhaust ability has been activated
  * @param ability - Exhaust ability
  * @returns True if activated
  */
 export function hasActivatedExhaust(ability: ExhaustAbility): boolean {
   return ability.hasBeenActivated;
+}
+
+/**
+ * Parse an exhaust keyword activation line into cost and effect text.
+ */
+export function parseExhaustActivation(oracleText: string): { cost: string; effect: string } | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ').trim();
+  const match = normalized.match(/^Exhaust\s+[—-]\s*([^:]+):\s*(.+?)(?:\.\s*Activate only once\.?|\s*$)/i);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  const effect = String(match[2] || '').trim().replace(/[.\s]+$/g, '');
+  if (!cost || !effect) {
+    return null;
+  }
+
+  return { cost, effect };
 }
 
 /**

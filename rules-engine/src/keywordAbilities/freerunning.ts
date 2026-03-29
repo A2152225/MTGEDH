@@ -17,6 +17,18 @@ export interface FreerunningAbility {
   readonly wasFreerun: boolean;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a freerunning ability
  * Rule 702.173a
@@ -47,6 +59,14 @@ export function castWithFreerunning(ability: FreerunningAbility): FreerunningAbi
 }
 
 /**
+ * Freerunning can be used only if the required combat-damage condition happened.
+ * Rule 702.173a
+ */
+export function canCastWithFreerunning(qualifyingCombatDamageThisTurn: boolean): boolean {
+  return qualifyingCombatDamageThisTurn;
+}
+
+/**
  * Check if spell was freerun
  * @param ability - Freerunning ability
  * @returns True if freerun
@@ -62,6 +82,13 @@ export function wasFreerun(ability: FreerunningAbility): boolean {
  */
 export function getFreerunningCost(ability: FreerunningAbility): string {
   return ability.freerunningCost;
+}
+
+/**
+ * Parse a freerunning cost from oracle text.
+ */
+export function parseFreerunningCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'freerunning');
 }
 
 /**

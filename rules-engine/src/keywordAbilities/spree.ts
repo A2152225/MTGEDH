@@ -18,6 +18,10 @@ export interface SpreeAbility {
   readonly modeCosts: readonly string[];
 }
 
+function uniqueNumericModes(modes: readonly number[]): number[] {
+  return [...new Set(modes.filter((mode) => Number.isInteger(mode)))];
+}
+
 /**
  * Create a spree ability
  * Rule 702.172a
@@ -44,8 +48,17 @@ export function spree(source: string, modeCosts: readonly string[]): SpreeAbilit
 export function chooseSpreeModes(ability: SpreeAbility, chosenModes: readonly number[]): SpreeAbility {
   return {
     ...ability,
-    chosenModes,
+    chosenModes: uniqueNumericModes(chosenModes),
   };
+}
+
+/**
+ * Check whether a spree mode selection is valid.
+ * Rule 702.172a
+ */
+export function canChooseSpreeModes(ability: SpreeAbility, chosenModes: readonly number[]): boolean {
+  const uniqueModes = uniqueNumericModes(chosenModes);
+  return uniqueModes.length > 0 && uniqueModes.every((mode) => mode >= 0 && mode < ability.modeCosts.length);
 }
 
 /**
@@ -64,6 +77,13 @@ export function getChosenModes(ability: SpreeAbility): readonly number[] {
  */
 export function getSpreeCosts(ability: SpreeAbility): readonly string[] {
   return ability.chosenModes.map(index => ability.modeCosts[index]);
+}
+
+/**
+ * Get the number of selected spree modes.
+ */
+export function getSpreeModeCount(ability: SpreeAbility): number {
+  return ability.chosenModes.length;
 }
 
 /**

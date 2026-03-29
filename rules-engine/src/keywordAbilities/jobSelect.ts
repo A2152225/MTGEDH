@@ -8,12 +8,22 @@
  * create a 1/1 colorless Hero creature token, then attach this Equipment to it."
  */
 
+import type { BattlefieldPermanent, PlayerID } from '../../../shared/src';
+
 export interface JobSelectAbility {
   readonly type: 'job-select';
   readonly source: string;
   readonly hasTriggered: boolean;
   readonly heroTokenId?: string;
 }
+
+export const JOB_SELECT_HERO_TOKEN = {
+  name: 'Hero',
+  colors: [] as string[],
+  power: 1,
+  toughness: 1,
+  typeLine: 'Token Creature — Hero',
+};
 
 /**
  * Create a job select ability
@@ -51,6 +61,35 @@ export function triggerJobSelect(ability: JobSelectAbility, heroTokenId: string)
  */
 export function getHeroToken(ability: JobSelectAbility): string | undefined {
   return ability.heroTokenId;
+}
+
+/**
+ * Create the Hero token used by Job select.
+ * Rule 702.182a
+ */
+export function createJobSelectHeroToken(tokenId: string, controllerId: PlayerID): BattlefieldPermanent {
+  return {
+    id: tokenId,
+    controller: controllerId,
+    owner: controllerId,
+    tapped: false,
+    summoningSickness: true,
+    counters: {},
+    attachments: [],
+    modifiers: [],
+    card: {
+      id: tokenId,
+      name: JOB_SELECT_HERO_TOKEN.name,
+      type_line: JOB_SELECT_HERO_TOKEN.typeLine,
+      oracle_text: '',
+      colors: JOB_SELECT_HERO_TOKEN.colors,
+      mana_cost: '',
+      cmc: 0,
+    } as any,
+    basePower: JOB_SELECT_HERO_TOKEN.power,
+    baseToughness: JOB_SELECT_HERO_TOKEN.toughness,
+    isToken: true,
+  } as BattlefieldPermanent;
 }
 
 /**

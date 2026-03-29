@@ -33,6 +33,42 @@ export function webSlinging(source: string, webSlingingCost: string): WebSlingin
   };
 }
 
+function normalizeZone(zone: string): string {
+  return String(zone || '').trim().toLowerCase();
+}
+
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
+type WebSlingingReturnCandidate = {
+  readonly controller?: string;
+  readonly tapped?: boolean;
+  readonly isTapped?: boolean;
+  readonly isCreature?: boolean;
+  readonly type_line?: string;
+  readonly card?: {
+    readonly type_line?: string;
+  };
+};
+
+function isCreatureLike(candidate: WebSlingingReturnCandidate): boolean {
+  if (candidate.isCreature === true) {
+    return true;
+  }
+
+  const typeLine = String(candidate.type_line || candidate.card?.type_line || '').toLowerCase();
+  return typeLine.includes('creature');
+}
+
 /**
  * Cast with web-slinging
  * Rule 702.188a - Pay cost and return tapped creature
@@ -49,6 +85,26 @@ export function castWithWebSlinging(
     wasWebSlung: true,
     returnedCreature,
   };
+}
+
+/**
+ * Web-slinging can only be used from hand and requires a tapped creature you control.
+ * Rule 702.188a
+ */
+export function canCastWithWebSlinging(hasTappedCreature: boolean, zone: string = 'hand'): boolean {
+  return normalizeZone(zone) === 'hand' && hasTappedCreature;
+}
+
+/**
+ * Validate a creature that can be returned for web-slinging.
+ * Rule 702.188a
+ */
+export function canReturnForWebSlinging(
+  creature: WebSlingingReturnCandidate,
+  controllerId: string,
+): boolean {
+  const isTapped = creature.tapped === true || creature.isTapped === true;
+  return String(creature.controller || '') === String(controllerId || '') && isTapped && isCreatureLike(creature);
 }
 
 /**
@@ -70,10 +126,22 @@ export function getReturnedCreature(ability: WebSlingingAbility): string | undef
 }
 
 /**
- * Multiple instances of web-slinging are not redundant
+ * Parse a web-slinging cost from oracle text.
+ */
+export function parseWebSlingingCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'web-slinging');
+}
+
+/**
+ * Multiple instances of web-slinging with the same cost are redundant.
  * @param abilities - Array of web-slinging abilities
- * @returns False
+ * @returns True when duplicate costs appear
  */
 export function hasRedundantWebSlinging(abilities: readonly WebSlingingAbility[]): boolean {
-  return false;
+  if (abilities.length <= 1) {
+    return false;
+  }
+
+  const costs = new Set(abilities.map((ability) => ability.webSlingingCost));
+  return costs.size < abilities.length;
 }

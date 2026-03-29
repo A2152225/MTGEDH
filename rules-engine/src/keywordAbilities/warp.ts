@@ -21,6 +21,8 @@ export interface WarpAbility {
   readonly warpCost: string;
   readonly wasWarped: boolean;
   readonly isWarped: boolean; // In exile as warped card
+  readonly canCastFromExile: boolean;
+  readonly exiledOnTurn?: number;
 }
 
 /**
@@ -37,7 +39,24 @@ export function warp(source: string, warpCost: string): WarpAbility {
     warpCost,
     wasWarped: false,
     isWarped: false,
+    canCastFromExile: false,
   };
+}
+
+function normalizeZone(zone: string): string {
+  return String(zone || '').trim().toLowerCase();
+}
+
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
 }
 
 /**
@@ -54,16 +73,42 @@ export function castWarped(ability: WarpAbility): WarpAbility {
 }
 
 /**
+ * Check if the spell can be cast from hand using warp.
+ * Rule 702.185a
+ */
+export function canCastWithWarp(zone: string): boolean {
+  return normalizeZone(zone) === 'hand';
+}
+
+/**
  * Exile permanent as warped card
  * Rule 702.185a - Delayed trigger at end step
  * @param ability - Warp ability
  * @returns Updated ability
  */
-export function exileWarped(ability: WarpAbility): WarpAbility {
+export function exileWarped(ability: WarpAbility, currentTurn?: number): WarpAbility {
   return {
     ...ability,
     isWarped: true,
+    canCastFromExile: true,
+    exiledOnTurn: Number.isFinite(currentTurn) ? Number(currentTurn) : ability.exiledOnTurn,
   };
+}
+
+/**
+ * Check whether a warped exiled card can be cast again.
+ * Rule 702.185a
+ */
+export function canCastWarpedFromExile(ability: WarpAbility, currentTurn?: number): boolean {
+  if (!ability.isWarped || !ability.canCastFromExile) {
+    return false;
+  }
+
+  if (!Number.isFinite(currentTurn) || !Number.isFinite(ability.exiledOnTurn)) {
+    return true;
+  }
+
+  return Number(currentTurn) > Number(ability.exiledOnTurn);
 }
 
 /**
@@ -84,6 +129,13 @@ export function wasWarpedThisTurn(ability: WarpAbility): boolean {
  */
 export function isWarpedInExile(ability: WarpAbility): boolean {
   return ability.isWarped;
+}
+
+/**
+ * Parse a warp cost from oracle text.
+ */
+export function parseWarpCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'warp');
 }
 
 /**

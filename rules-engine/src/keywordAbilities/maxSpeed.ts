@@ -66,6 +66,27 @@ export function getMaxSpeedAbility(ability: MaxSpeedAbility): string {
 }
 
 /**
+ * Max speed abilities become active at speed 4.
+ */
+export function getMaxSpeedThreshold(): number {
+  return 4;
+}
+
+/**
+ * Parse the granted ability from a max speed line.
+ */
+export function parseMaxSpeedAbility(oracleText: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ').trim();
+  const match = normalized.match(/^Max speed\s+[—-]\s*(.+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const grantedAbility = String(match[1] || '').trim().replace(/[.\s]+$/g, '');
+  return grantedAbility || null;
+}
+
+/**
  * Multiple instances of max speed are not redundant
  * @param abilities - Array of max speed abilities
  * @returns False

@@ -19,6 +19,18 @@ export interface OffspringAbility {
   readonly tokenId?: string;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create an offspring ability
  * Rule 702.175a
@@ -63,12 +75,27 @@ export function createOffspringToken(ability: OffspringAbility, tokenId: string)
 }
 
 /**
+ * Check whether the offspring ETB copy should happen.
+ * Rule 702.175a
+ */
+export function shouldCreateOffspringToken(ability: OffspringAbility): boolean {
+  return ability.wasPaid;
+}
+
+/**
  * Check if offspring cost was paid
  * @param ability - Offspring ability
  * @returns True if paid
  */
 export function wasOffspringPaid(ability: OffspringAbility): boolean {
   return ability.wasPaid;
+}
+
+/**
+ * Parse an offspring cost from oracle text.
+ */
+export function parseOffspringCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'offspring');
 }
 
 /**

@@ -15,6 +15,61 @@
  * tap that creature as you pay the total cost.
  */
 
+function normalizeZone(zone: string): string {
+  return String(zone || '').trim().toLowerCase();
+}
+
+function tokenizeCost(cost: string): string[] {
+  const raw = String(cost || '').trim();
+  if (!raw) {
+    return [];
+  }
+
+  const braced = [...raw.matchAll(/\{([^}]+)\}/g)].map((match) => String(match[1] || '').trim().toUpperCase()).filter(Boolean);
+  if (braced.length > 0) {
+    return braced;
+  }
+
+  const compact = raw.replace(/\s+/g, '').toUpperCase();
+  const tokens: string[] = [];
+  for (let index = 0; index < compact.length;) {
+    if (/\d/.test(compact[index])) {
+      let nextIndex = index + 1;
+      while (nextIndex < compact.length && /\d/.test(compact[nextIndex])) {
+        nextIndex += 1;
+      }
+      tokens.push(compact.slice(index, nextIndex));
+      index = nextIndex;
+      continue;
+    }
+
+    tokens.push(compact[index]);
+    index += 1;
+  }
+
+  return tokens;
+}
+
+function formatCost(tokens: readonly string[]): string {
+  if (tokens.length === 0) {
+    return '{0}';
+  }
+
+  return tokens.map((token) => `{${token}}`).join('');
+}
+
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 export interface HarmonizeAbility {
   readonly type: 'harmonize';
   readonly source: string;
@@ -63,6 +118,14 @@ export function castWithHarmonize(
 }
 
 /**
+ * Harmonize can only be used while the card is in a graveyard.
+ * Rule 702.180a
+ */
+export function canCastWithHarmonize(zone: string): boolean {
+  return normalizeZone(zone) === 'graveyard';
+}
+
+/**
  * Check if harmonize was used
  * @param ability - Harmonize ability
  * @returns True if harmonized
@@ -79,6 +142,39 @@ export function wasHarmonized(ability: HarmonizeAbility): boolean {
  */
 export function getHarmonizeCostReduction(ability: HarmonizeAbility): number {
   return ability.costReduction;
+}
+
+/**
+ * Apply a harmonize generic cost reduction to a mana cost string.
+ * Rule 702.180a
+ */
+export function getHarmonizeReducedCost(cost: string, reduction: number): string {
+  const tokens = tokenizeCost(cost);
+  let generic = 0;
+  const nonGeneric: string[] = [];
+
+  for (const token of tokens) {
+    if (/^\d+$/.test(token)) {
+      generic += parseInt(token, 10);
+    } else {
+      nonGeneric.push(token);
+    }
+  }
+
+  const reducedGeneric = Math.max(0, generic - Math.max(0, reduction));
+  const nextTokens = [
+    ...(reducedGeneric > 0 ? [String(reducedGeneric)] : []),
+    ...nonGeneric,
+  ];
+
+  return formatCost(nextTokens);
+}
+
+/**
+ * Parse a harmonize cost from oracle text.
+ */
+export function parseHarmonizeCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'harmonize');
 }
 
 /**

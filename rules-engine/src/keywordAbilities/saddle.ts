@@ -22,6 +22,18 @@ export interface SaddleAbility {
   readonly saddledCreatures: readonly string[];
 }
 
+function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const value = Number.parseInt(String(match[1] || ''), 10);
+  return Number.isFinite(value) ? value : null;
+}
+
 /**
  * Create a saddle ability
  * Rule 702.171a
@@ -65,6 +77,19 @@ export function activateSaddle(
 }
 
 /**
+ * Check whether the saddle activation is currently legal.
+ * Rule 702.171a
+ */
+export function canActivateSaddle(
+  ability: SaddleAbility,
+  saddledCreatures: readonly string[],
+  totalPower: number,
+  isSorcerySpeed: boolean,
+): boolean {
+  return isSorcerySpeed && saddledCreatures.length > 0 && totalPower >= ability.saddleValue;
+}
+
+/**
  * Check if permanent is saddled
  * Rule 702.171b
  * @param ability - Saddle ability
@@ -86,6 +111,13 @@ export function resetSaddle(ability: SaddleAbility): SaddleAbility {
     isSaddled: false,
     saddledCreatures: [],
   };
+}
+
+/**
+ * Parse a saddle value from oracle text.
+ */
+export function parseSaddleValue(oracleText: string): number | null {
+  return extractNumericKeywordValue(oracleText, 'saddle');
 }
 
 /**

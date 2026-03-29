@@ -26,6 +26,16 @@ export interface GiftAbility {
   readonly giftGiven: boolean;
 }
 
+export const GIFT_FOOD_TOKEN = {
+  name: 'Food',
+  typeLine: 'Token Artifact — Food',
+  colors: [] as string[],
+};
+
+function normalizeText(value: string): string {
+  return String(value || '').trim().toLowerCase();
+}
+
 /**
  * Create a gift ability
  * Rule 702.174a
@@ -58,6 +68,14 @@ export function payGift(ability: GiftAbility, chosenOpponent: string): GiftAbili
 }
 
 /**
+ * Check whether a gift can currently be promised to an opponent.
+ * Rule 702.174a
+ */
+export function canPromiseGift(opponentId: string | undefined | null): boolean {
+  return Boolean(String(opponentId || '').trim());
+}
+
+/**
  * Check if gift cost was paid
  * Rule 702.174b
  * @param ability - Gift ability
@@ -83,6 +101,28 @@ export function getGiftRecipient(ability: GiftAbility): string | undefined {
  */
 export function getGiftType(ability: GiftAbility): string {
   return ability.giftType;
+}
+
+/**
+ * Parse the gifted object type from oracle text.
+ */
+export function parseGiftType(oracleText: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ').trim();
+  const match = normalized.match(/\bgift\s+(.+?)(?:[.;,(]|$)/i);
+  if (!match) {
+    return null;
+  }
+
+  const giftType = String(match[1] || '').trim();
+  return giftType || null;
+}
+
+/**
+ * Check whether the canonical Food-token branch applies.
+ * Rule 702.174d
+ */
+export function giftsFood(ability: GiftAbility): boolean {
+  return normalizeText(ability.giftType) === 'a food';
 }
 
 /**

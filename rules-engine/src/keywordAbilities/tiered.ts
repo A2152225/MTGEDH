@@ -46,6 +46,13 @@ export function chooseTieredMode(ability: TieredAbility, chosenMode: number): Ti
 }
 
 /**
+ * Check whether a tiered mode index is valid.
+ */
+export function canChooseTieredMode(ability: TieredAbility, chosenMode: number): boolean {
+  return Number.isInteger(chosenMode) && chosenMode >= 0 && chosenMode < ability.modeCosts.length;
+}
+
+/**
  * Get chosen mode
  * @param ability - Tiered ability
  * @returns Chosen mode index or undefined
