@@ -23,6 +23,22 @@ export interface CrewAbility {
   readonly crewedCreatures: readonly string[];
 }
 
+type CrewCandidate = {
+  readonly controller?: string;
+  readonly tapped?: boolean;
+  readonly isTapped?: boolean;
+  readonly cantCrewVehicles?: boolean;
+  readonly type_line?: string;
+  readonly card?: {
+    readonly type_line?: string;
+  };
+};
+
+function isCreatureLike(candidate: CrewCandidate): boolean {
+  const typeLine = String(candidate.type_line || candidate.card?.type_line || '').toLowerCase();
+  return typeLine.includes('creature');
+}
+
 /**
  * Create a crew ability
  * Rule 702.122a
@@ -94,6 +110,35 @@ export function uncrew(ability: CrewAbility): CrewAbility {
     isCrewed: false,
     crewedCreatures: [],
   };
+}
+
+/**
+ * Check whether a creature can be tapped to crew a Vehicle.
+ */
+export function canTapForCrew(candidate: CrewCandidate, controllerId: string): boolean {
+  const isTapped = candidate.tapped === true || candidate.isTapped === true;
+  return String(candidate.controller || '') === String(controllerId || '')
+    && !isTapped
+    && candidate.cantCrewVehicles !== true
+    && isCreatureLike(candidate);
+}
+
+/**
+ * Validate whether the chosen creatures satisfy a crew activation.
+ */
+export function canActivateCrew(
+  ability: CrewAbility,
+  creatureIds: readonly string[],
+  totalPower: number,
+): boolean {
+  return creatureIds.length > 0 && totalPower >= ability.crewValue;
+}
+
+/**
+ * Return how much more total power is needed to crew the Vehicle.
+ */
+export function getCrewPowerShortfall(ability: CrewAbility, totalPower: number): number {
+  return Math.max(0, ability.crewValue - Math.max(0, totalPower));
 }
 
 /**

@@ -66,6 +66,20 @@ export function clearMeleeBonus(ability: MeleeAbility): MeleeAbility {
 }
 
 /**
+ * Count the distinct opponents attacked this combat.
+ */
+export function getMeleeOpponentsAttacked(defendingPlayerIds: readonly string[]): number {
+  return new Set(defendingPlayerIds.filter(Boolean)).size;
+}
+
+/**
+ * Melee triggers only if the creature attacked.
+ */
+export function canTriggerMelee(isAttacking: boolean): boolean {
+  return isAttacking;
+}
+
+/**
  * Multiple instances of melee trigger separately
  * Rule 702.121b
  * @param abilities - Array of melee abilities

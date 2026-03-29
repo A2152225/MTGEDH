@@ -37,6 +37,20 @@ export function isColorless(hasDevoid: boolean): boolean {
 }
 
 /**
+ * Devoid strips all colors from the object.
+ */
+export function applyDevoidToColors(colors: readonly string[]): readonly string[] {
+  return [];
+}
+
+/**
+ * Devoid functions in every zone.
+ */
+export function appliesDevoidInZone(_zone: string): boolean {
+  return true;
+}
+
+/**
  * Multiple instances of devoid are redundant
  * @param abilities - Array of devoid abilities
  * @returns True if more than one instance

@@ -65,6 +65,24 @@ export function shouldExileAftermath(ability: AftermathAbility): boolean {
 }
 
 /**
+ * Aftermath can only be cast from graveyard at sorcery timing.
+ */
+export function canCastAftermathNow(
+  zone: 'graveyard' | 'hand' | 'library' | 'battlefield' | 'exile',
+  isMainPhase: boolean,
+  stackIsEmpty: boolean,
+): boolean {
+  return canCastAftermath(zone) && isMainPhase && stackIsEmpty;
+}
+
+/**
+ * The aftermath half cannot be cast from non-graveyard zones.
+ */
+export function canCastAftermathFromZone(zone: string): boolean {
+  return String(zone || '').trim().toLowerCase() === 'graveyard';
+}
+
+/**
  * Multiple instances of aftermath are redundant
  * @param abilities - Array of aftermath abilities
  * @returns True if more than one instance

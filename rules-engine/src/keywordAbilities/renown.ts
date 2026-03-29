@@ -22,6 +22,18 @@ export interface RenownAbility {
   readonly isRenowned: boolean;
 }
 
+function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const value = Number.parseInt(String(match[1] || ''), 10);
+  return Number.isFinite(value) ? value : null;
+}
+
 /**
  * Create a renown ability
  * Rule 702.112a
@@ -82,6 +94,20 @@ export function isRenowned(ability: RenownAbility): boolean {
  */
 export function getRenownValue(ability: RenownAbility): number {
   return ability.renownValue;
+}
+
+/**
+ * Check whether combat damage to a player can still cause renown to trigger.
+ */
+export function shouldTriggerRenown(ability: RenownAbility, dealtCombatDamageToPlayer: boolean): boolean {
+  return dealtCombatDamageToPlayer && !ability.isRenowned;
+}
+
+/**
+ * Parse a renown value from oracle text.
+ */
+export function parseRenownValue(oracleText: string): number | null {
+  return extractNumericKeywordValue(oracleText, 'renown');
 }
 
 /**

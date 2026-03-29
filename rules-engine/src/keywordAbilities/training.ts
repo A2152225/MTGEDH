@@ -76,6 +76,20 @@ export function getTimesTrained(ability: TrainingAbility): number {
 }
 
 /**
+ * Training checks whether another attacking creature has strictly greater power.
+ */
+export function canTrain(creaturePower: number, attackingCreaturesPowers: readonly number[]): boolean {
+  return shouldTriggerTraining(creaturePower, attackingCreaturesPowers);
+}
+
+/**
+ * Return the current power after training counters have been applied.
+ */
+export function getTrainingPower(ability: TrainingAbility): number {
+  return ability.creaturePower;
+}
+
+/**
  * Multiple instances of training trigger separately
  * Rule 702.149b
  * @param abilities - Array of training abilities

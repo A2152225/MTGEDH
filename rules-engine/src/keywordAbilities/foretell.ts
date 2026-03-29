@@ -25,6 +25,20 @@ export interface ForetellAbility {
   readonly turnForetold?: number;
 }
 
+export const FORETELL_ACTION_COST = '{2}';
+
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a foretell ability
  * Rule 702.143a
@@ -101,6 +115,27 @@ export function wasForetold(ability: ForetellAbility): boolean {
  */
 export function getForetellCost(ability: ForetellAbility): string | undefined {
   return ability.foretellCost;
+}
+
+/**
+ * Foretell is a special action available from hand during its controller's turn.
+ */
+export function canForetellNow(zone: string, isControllersTurn: boolean, hasPriority: boolean): boolean {
+  return String(zone || '').trim().toLowerCase() === 'hand' && isControllersTurn && hasPriority;
+}
+
+/**
+ * Return the turn on which the card was foretold.
+ */
+export function getTurnForetold(ability: ForetellAbility): number | undefined {
+  return ability.turnForetold;
+}
+
+/**
+ * Parse a foretell cost from oracle text.
+ */
+export function parseForetellCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'foretell');
 }
 
 /**

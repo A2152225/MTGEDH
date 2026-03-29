@@ -91,3 +91,29 @@ export function isYourRingBearer(
 ): boolean {
   return state.playerId === controllerId && state.ringBearerId === creatureId;
 }
+
+/**
+ * Check whether a creature can be chosen as the next Ring-bearer.
+ */
+export function canChooseRingBearer(
+  candidate: { controller?: string; isCreature?: boolean; type_line?: string; card?: { type_line?: string } },
+  playerId: string,
+): boolean {
+  const typeLine = String(candidate.type_line || candidate.card?.type_line || '').toLowerCase();
+  const isCreature = candidate.isCreature === true || typeLine.includes('creature');
+  return isCreature && String(candidate.controller || '') === String(playerId || '');
+}
+
+/**
+ * Advance the Ring-bearer state after another temptation.
+ */
+export function advanceRingTemptation(
+  state: RingBearerState,
+  ringBearerId: string,
+): RingBearerState {
+  return {
+    ...state,
+    ringBearerId,
+    temptCount: state.temptCount + 1,
+  };
+}

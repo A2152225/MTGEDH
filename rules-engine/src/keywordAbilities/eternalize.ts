@@ -18,6 +18,18 @@ export interface EternalizeAbility {
   readonly tokenId?: string;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create an eternalize ability
  * Rule 702.129a
@@ -65,6 +77,46 @@ export function isEternalized(ability: EternalizeAbility): boolean {
  */
 export function getEternalizeToken(ability: EternalizeAbility): string | undefined {
   return ability.tokenId;
+}
+
+/**
+ * Eternalize activates only from the graveyard and only as a sorcery.
+ */
+export function canActivateEternalize(zone: string, isSorcerySpeed: boolean): boolean {
+  return String(zone || '').trim().toLowerCase() === 'graveyard' && isSorcerySpeed;
+}
+
+/**
+ * Create the black 4/4 Zombie token copy used by eternalize.
+ */
+export function createEternalizeToken(tokenId: string, controllerId: string, originalCard: any): any {
+  return {
+    id: tokenId,
+    controller: controllerId,
+    owner: controllerId,
+    tapped: false,
+    summoningSickness: true,
+    counters: {},
+    attachments: [],
+    modifiers: [],
+    isToken: true,
+    basePower: 4,
+    baseToughness: 4,
+    card: {
+      ...originalCard,
+      id: tokenId,
+      colors: ['B'],
+      mana_cost: '',
+      type_line: `${String(originalCard.type_line || '').trim()} Zombie`.trim(),
+    },
+  };
+}
+
+/**
+ * Parse an eternalize cost from oracle text.
+ */
+export function parseEternalizeCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'eternalize');
 }
 
 /**

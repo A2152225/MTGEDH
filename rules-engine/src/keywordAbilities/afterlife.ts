@@ -18,6 +18,27 @@ export interface AfterlifeAbility {
   readonly tokensCreated: readonly string[];
 }
 
+export const AFTERLIFE_SPIRIT_TOKEN = {
+  name: 'Spirit',
+  colors: ['W', 'B'] as string[],
+  typeLine: 'Token Creature — Spirit',
+  power: 1,
+  toughness: 1,
+  oracleText: 'Flying',
+};
+
+function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const value = Number.parseInt(String(match[1] || ''), 10);
+  return Number.isFinite(value) ? value : null;
+}
+
 /**
  * Create an afterlife ability
  * Rule 702.135a
@@ -66,6 +87,48 @@ export function getAfterlifeValue(ability: AfterlifeAbility): number {
  */
 export function getAfterlifeTokens(ability: AfterlifeAbility): readonly string[] {
   return ability.tokensCreated;
+}
+
+/**
+ * Afterlife triggers only when the permanent dies from the battlefield.
+ */
+export function shouldTriggerAfterlife(diedFromBattlefield: boolean): boolean {
+  return diedFromBattlefield;
+}
+
+/**
+ * Create the Spirit tokens used by afterlife.
+ */
+export function createAfterlifeSpiritTokens(controllerId: string, tokenIds: readonly string[]): readonly any[] {
+  return tokenIds.map((tokenId) => ({
+    id: tokenId,
+    controller: controllerId,
+    owner: controllerId,
+    tapped: false,
+    summoningSickness: true,
+    counters: {},
+    attachments: [],
+    modifiers: [],
+    isToken: true,
+    basePower: AFTERLIFE_SPIRIT_TOKEN.power,
+    baseToughness: AFTERLIFE_SPIRIT_TOKEN.toughness,
+    card: {
+      id: tokenId,
+      name: AFTERLIFE_SPIRIT_TOKEN.name,
+      type_line: AFTERLIFE_SPIRIT_TOKEN.typeLine,
+      oracle_text: AFTERLIFE_SPIRIT_TOKEN.oracleText,
+      colors: AFTERLIFE_SPIRIT_TOKEN.colors,
+      mana_cost: '',
+      cmc: 0,
+    },
+  }));
+}
+
+/**
+ * Parse an afterlife value from oracle text.
+ */
+export function parseAfterlifeValue(oracleText: string): number | null {
+  return extractNumericKeywordValue(oracleText, 'afterlife');
 }
 
 /**

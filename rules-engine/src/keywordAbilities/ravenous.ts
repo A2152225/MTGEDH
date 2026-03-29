@@ -69,6 +69,27 @@ export function getRavenousCounters(ability: RavenousAbility): number {
 }
 
 /**
+ * Ravenous only draws if X was five or more.
+ */
+export function canDrawFromRavenous(xValue: number): boolean {
+  return xValue >= 5;
+}
+
+/**
+ * Return the chosen X value for ravenous.
+ */
+export function getRavenousXValue(ability: RavenousAbility): number {
+  return ability.xValue;
+}
+
+/**
+ * Check whether the ravenous ETB draw has already happened.
+ */
+export function hasDrawnFromRavenous(ability: RavenousAbility): boolean {
+  return ability.hasDrawnCard;
+}
+
+/**
  * Multiple instances of ravenous are not redundant
  * @param abilities - Array of ravenous abilities
  * @returns False

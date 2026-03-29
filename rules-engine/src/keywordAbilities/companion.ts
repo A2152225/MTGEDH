@@ -25,6 +25,8 @@ export interface CompanionAbility {
   readonly isPutIntoHand: boolean;
 }
 
+export const COMPANION_ACTION_COST = '{3}';
+
 /**
  * Create a companion ability
  * Rule 702.139a
@@ -103,6 +105,30 @@ export function isCompanionInHand(ability: CompanionAbility): boolean {
  */
 export function getCompanionCondition(ability: CompanionAbility): string {
   return ability.condition;
+}
+
+/**
+ * Companion can only be revealed before the game if the deck requirement is satisfied.
+ */
+export function canRevealCompanion(isBeforeGame: boolean, satisfiesCondition: boolean): boolean {
+  return isBeforeGame && satisfiesCondition;
+}
+
+/**
+ * Check whether the revealed companion can currently be moved into hand.
+ */
+export function canPutRevealedCompanionIntoHand(
+  ability: CompanionAbility,
+  hasPriority: boolean,
+  stackEmpty: boolean,
+  isMainPhase: boolean,
+): boolean {
+  return ability.isRevealed && canPutCompanionIntoHand(
+    hasPriority,
+    stackEmpty,
+    isMainPhase,
+    ability.isPutIntoHand,
+  );
 }
 
 /**

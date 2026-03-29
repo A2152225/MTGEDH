@@ -23,6 +23,18 @@ export interface SquadAbility {
   readonly tokenIds: readonly string[];
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a squad ability
  * Rule 702.157a
@@ -84,6 +96,27 @@ export function wasSquadPaid(ability: SquadAbility): boolean {
  */
 export function getSquadTimesPaid(ability: SquadAbility): number {
   return ability.timesPaid;
+}
+
+/**
+ * Squad can be paid any non-negative number of times.
+ */
+export function canPaySquad(timesPaid: number): boolean {
+  return timesPaid >= 0;
+}
+
+/**
+ * Return the number of token copies created by squad.
+ */
+export function getSquadTokenCount(ability: SquadAbility): number {
+  return ability.tokenIds.length;
+}
+
+/**
+ * Parse a squad cost from oracle text.
+ */
+export function parseSquadCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'squad');
 }
 
 /**

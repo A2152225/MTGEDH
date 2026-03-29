@@ -22,6 +22,22 @@ export interface AwakenAbility {
   readonly targetLand?: string;
 }
 
+function extractAwakenParts(oracleText: string): { awakenValue: number; awakenCost: string } | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const match = normalized.match(/\bawaken\s+(\d+)\s*[—-]\s*([^.;,()]+)/i);
+  if (!match) {
+    return null;
+  }
+
+  const awakenValue = Number.parseInt(String(match[1] || ''), 10);
+  const awakenCost = String(match[2] || '').trim();
+  if (!Number.isFinite(awakenValue) || !awakenCost) {
+    return null;
+  }
+
+  return { awakenValue, awakenCost };
+}
+
 /**
  * Create an awaken ability
  * Rule 702.113a
@@ -80,6 +96,24 @@ export function getAwakenedLand(ability: AwakenAbility): string | undefined {
  */
 export function getAwakenValue(ability: AwakenAbility): number {
   return ability.awakenValue;
+}
+
+/**
+ * Check whether a land can be targeted for awaken.
+ */
+export function canTargetLandForAwaken(
+  candidate: { controller?: string; type_line?: string; card?: { type_line?: string } },
+  controllerId: string,
+): boolean {
+  const typeLine = String(candidate.type_line || candidate.card?.type_line || '').toLowerCase();
+  return String(candidate.controller || '') === String(controllerId || '') && typeLine.includes('land');
+}
+
+/**
+ * Parse awaken value and cost from oracle text.
+ */
+export function parseAwaken(oracleText: string): { awakenValue: number; awakenCost: string } | null {
+  return extractAwakenParts(oracleText);
 }
 
 /**

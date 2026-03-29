@@ -68,6 +68,20 @@ export function shouldExileJumpStart(ability: JumpStartAbility): boolean {
 }
 
 /**
+ * Jump-start can only be used from the graveyard and requires another card to discard.
+ */
+export function canCastWithJumpStart(zone: string, hasCardToDiscard: boolean): boolean {
+  return String(zone || '').trim().toLowerCase() === 'graveyard' && hasCardToDiscard;
+}
+
+/**
+ * Return the discarded card used to pay the jump-start cost.
+ */
+export function getJumpStartDiscardedCard(ability: JumpStartAbility): string | undefined {
+  return ability.discardedCard;
+}
+
+/**
  * Multiple instances of jump-start are not redundant
  * @param abilities - Array of jump-start abilities
  * @returns False

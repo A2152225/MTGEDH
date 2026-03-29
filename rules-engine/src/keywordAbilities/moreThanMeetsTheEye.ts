@@ -17,6 +17,18 @@ export interface MoreThanMeetsTheEyeAbility {
   readonly wasConverted: boolean;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a More Than Meets the Eye ability
  * Rule 702.162a
@@ -62,6 +74,20 @@ export function wasConverted(ability: MoreThanMeetsTheEyeAbility): boolean {
  */
 export function getMTMTECost(ability: MoreThanMeetsTheEyeAbility): string {
   return ability.mtmteCost;
+}
+
+/**
+ * More Than Meets the Eye is an alternate cast mode from a castable zone.
+ */
+export function canCastConverted(zone: string): boolean {
+  return zone === 'hand' || zone === 'command' || zone === 'exile';
+}
+
+/**
+ * Parse a More Than Meets the Eye cost from oracle text.
+ */
+export function parseMTMTECost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'more than meets the eye');
 }
 
 /**

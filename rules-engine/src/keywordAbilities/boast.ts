@@ -20,6 +20,18 @@ export interface BoastAbility {
   readonly activatedThisTurn: boolean;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s*[—-]?\s*([^:]+):`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a boast ability
  * Rule 702.142a
@@ -91,6 +103,27 @@ export function resetBoast(ability: BoastAbility): BoastAbility {
     attackedThisTurn: false,
     activatedThisTurn: false,
   };
+}
+
+/**
+ * Get the boast effect text.
+ */
+export function getBoastEffect(ability: BoastAbility): string {
+  return ability.effect;
+}
+
+/**
+ * Check whether the source is currently boasting.
+ */
+export function isBoasting(ability: BoastAbility): boolean {
+  return ability.activatedThisTurn;
+}
+
+/**
+ * Parse a boast cost from oracle text.
+ */
+export function parseBoastCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'boast');
 }
 
 /**

@@ -18,6 +18,14 @@ export interface FabricateAbility {
   readonly tokensCreated: readonly string[];
 }
 
+export const FABRICATE_SERVO_TOKEN = {
+  name: 'Servo',
+  colors: [] as string[],
+  typeLine: 'Token Artifact Creature — Servo',
+  power: 1,
+  toughness: 1,
+};
+
 /**
  * Create a fabricate ability
  * Rule 702.123a
@@ -79,6 +87,48 @@ export function choseCountersOption(ability: FabricateAbility): boolean {
  */
 export function getFabricateTokens(ability: FabricateAbility): readonly string[] {
   return ability.tokensCreated;
+}
+
+/**
+ * Check whether the counters branch was chosen.
+ */
+export function shouldFabricateCounters(ability: FabricateAbility): boolean {
+  return ability.choseCounters === true;
+}
+
+/**
+ * Check whether the token branch was chosen.
+ */
+export function shouldFabricateTokens(ability: FabricateAbility): boolean {
+  return ability.choseCounters === false;
+}
+
+/**
+ * Create the Servo tokens used by fabricate.
+ */
+export function createFabricateServoTokens(controllerId: string, tokenIds: readonly string[]): readonly any[] {
+  return tokenIds.map((tokenId) => ({
+    id: tokenId,
+    controller: controllerId,
+    owner: controllerId,
+    tapped: false,
+    summoningSickness: true,
+    counters: {},
+    attachments: [],
+    modifiers: [],
+    isToken: true,
+    basePower: FABRICATE_SERVO_TOKEN.power,
+    baseToughness: FABRICATE_SERVO_TOKEN.toughness,
+    card: {
+      id: tokenId,
+      name: FABRICATE_SERVO_TOKEN.name,
+      type_line: FABRICATE_SERVO_TOKEN.typeLine,
+      oracle_text: '',
+      colors: FABRICATE_SERVO_TOKEN.colors,
+      mana_cost: '',
+      cmc: 0,
+    },
+  }));
 }
 
 /**

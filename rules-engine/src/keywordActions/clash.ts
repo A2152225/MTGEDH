@@ -23,6 +23,10 @@ export interface ClashResult {
   readonly wonClash: boolean;
 }
 
+type ClashManaValueLike = {
+  readonly manaValue: number;
+};
+
 /**
  * Rule 701.30a: Clash
  * 
@@ -86,12 +90,16 @@ export function resolveClashes(
     putOnBottom: boolean;
   }[]
 ): readonly ClashResult[] {
-  // Find the highest mana value
-  const maxManaValue = Math.max(...clashes.map(c => c.manaValue));
+  if (clashes.length === 0) {
+    return [];
+  }
+
+  const maxManaValue = getHighestClashManaValue(clashes);
+  const uniqueWinner = hasUniqueClashWinner(clashes);
   
   return clashes.map(clash => ({
     ...clash,
-    wonClash: clash.manaValue > 0 && clash.manaValue === maxManaValue,
+    wonClash: uniqueWinner && clash.manaValue > 0 && clash.manaValue === maxManaValue,
   }));
 }
 
@@ -112,4 +120,31 @@ export function wonClash(
   
   const maxOtherValue = Math.max(...otherManaValues);
   return playerManaValue > maxOtherValue;
+}
+
+/**
+ * Get the highest mana value among the revealed clash cards.
+ */
+export function getHighestClashManaValue(clashes: readonly ClashManaValueLike[]): number {
+  if (clashes.length === 0) {
+    return 0;
+  }
+
+  return Math.max(...clashes.map((clash) => clash.manaValue));
+}
+
+/**
+ * Check whether a clash has exactly one winner.
+ */
+export function hasUniqueClashWinner(clashes: readonly ClashManaValueLike[]): boolean {
+  if (clashes.length === 0) {
+    return false;
+  }
+
+  const highestManaValue = getHighestClashManaValue(clashes);
+  if (highestManaValue <= 0) {
+    return false;
+  }
+
+  return clashes.filter((clash) => clash.manaValue === highestManaValue).length === 1;
 }

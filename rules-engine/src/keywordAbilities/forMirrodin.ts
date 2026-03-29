@@ -15,6 +15,14 @@ export interface ForMirrodinAbility {
   readonly tokenId?: string;
 }
 
+export const FOR_MIRRODIN_REBEL_TOKEN = {
+  name: 'Rebel',
+  colors: ['R'] as string[],
+  typeLine: 'Token Creature — Rebel',
+  power: 2,
+  toughness: 2,
+};
+
 /**
  * Create a For Mirrodin! ability
  * Rule 702.163a
@@ -51,6 +59,41 @@ export function triggerForMirrodin(ability: ForMirrodinAbility, tokenId: string)
  */
 export function getForMirrodinToken(ability: ForMirrodinAbility): string | undefined {
   return ability.tokenId;
+}
+
+/**
+ * For Mirrodin! triggers when the Equipment enters the battlefield.
+ */
+export function shouldTriggerForMirrodin(enteredBattlefield: boolean): boolean {
+  return enteredBattlefield;
+}
+
+/**
+ * Create the Rebel token associated with For Mirrodin!.
+ */
+export function createForMirrodinRebelToken(tokenId: string, controllerId: string): any {
+  return {
+    id: tokenId,
+    controller: controllerId,
+    owner: controllerId,
+    tapped: false,
+    summoningSickness: true,
+    counters: {},
+    attachments: [],
+    modifiers: [],
+    isToken: true,
+    basePower: FOR_MIRRODIN_REBEL_TOKEN.power,
+    baseToughness: FOR_MIRRODIN_REBEL_TOKEN.toughness,
+    card: {
+      id: tokenId,
+      name: FOR_MIRRODIN_REBEL_TOKEN.name,
+      type_line: FOR_MIRRODIN_REBEL_TOKEN.typeLine,
+      oracle_text: '',
+      colors: FOR_MIRRODIN_REBEL_TOKEN.colors,
+      mana_cost: '',
+      cmc: 0,
+    },
+  };
 }
 
 /**

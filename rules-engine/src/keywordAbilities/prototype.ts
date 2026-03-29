@@ -19,6 +19,26 @@ export interface PrototypeAbility {
   readonly wasPrototyped: boolean;
 }
 
+function extractPrototypeDetails(oracleText: string): { cost: string; power: number; toughness: number } | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const match = normalized.match(/prototype\s+([^\s]+)\s+(\d+)\/(\d+)/i);
+  if (!match) {
+    return null;
+  }
+
+  const power = Number.parseInt(String(match[2] || ''), 10);
+  const toughness = Number.parseInt(String(match[3] || ''), 10);
+  if (!Number.isFinite(power) || !Number.isFinite(toughness)) {
+    return null;
+  }
+
+  return {
+    cost: String(match[1] || '').trim(),
+    power,
+    toughness,
+  };
+}
+
 /**
  * Create a prototype ability
  * Rule 702.160a
@@ -97,6 +117,30 @@ export function getEffectiveToughness(ability: PrototypeAbility, normalToughness
  */
 export function getEffectiveCost(ability: PrototypeAbility, normalCost: string): string {
   return ability.wasPrototyped ? ability.prototypeCost : normalCost;
+}
+
+/**
+ * Prototype is an alternative way to cast the spell from hand.
+ */
+export function canCastPrototyped(zone: string): boolean {
+  return zone === 'hand' || zone === 'command';
+}
+
+/**
+ * Return the prototype power and toughness together.
+ */
+export function getPrototypeStats(ability: PrototypeAbility): { power: number; toughness: number } {
+  return {
+    power: ability.prototypePower,
+    toughness: ability.prototypeToughness,
+  };
+}
+
+/**
+ * Parse prototype details from oracle text.
+ */
+export function parsePrototype(oracleText: string): { cost: string; power: number; toughness: number } | null {
+  return extractPrototypeDetails(oracleText);
 }
 
 /**

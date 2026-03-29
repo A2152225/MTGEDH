@@ -18,15 +18,25 @@ export interface TimeTravelAction {
   }[];
 }
 
+export interface TimeTravelChoice {
+  readonly objectId: string;
+  readonly addCounter: boolean;
+}
+
+type TimeTravelCandidate = {
+  readonly isControlled?: boolean;
+  readonly isOwned?: boolean;
+  readonly isPermanent?: boolean;
+  readonly isSuspended?: boolean;
+  readonly hasTimeCounters: boolean;
+};
+
 /**
  * Rule 701.56a: Time travel
  */
 export function timeTravel(
   playerId: string,
-  chosenObjects: readonly {
-    objectId: string;
-    addCounter: boolean;
-  }[]
+  chosenObjects: readonly TimeTravelChoice[]
 ): TimeTravelAction {
   return {
     type: 'time-travel',
@@ -39,18 +49,14 @@ export function timeTravel(
  * Check if object can be time traveled
  */
 export function canTimeTravel(
-  object: {
-    isControlled: boolean;
-    isPermanent?: boolean;
-    isSuspended?: boolean;
-    hasTimeCounters: boolean;
-  }
+  object: TimeTravelCandidate
 ): boolean {
   if (!object.hasTimeCounters) return false;
-  if (!object.isControlled) return false;
-  
-  // Must be a permanent with time counters or suspended card
-  return (object.isPermanent === true) || (object.isSuspended === true);
+
+  const canChoosePermanent = object.isPermanent === true && object.isControlled === true;
+  const canChooseSuspendedCard = object.isSuspended === true && (object.isOwned === true || object.isControlled === true);
+
+  return canChoosePermanent || canChooseSuspendedCard;
 }
 
 /**
@@ -71,7 +77,42 @@ export function createTimeTravelResult(
   return {
     objectId,
     previousCounters,
-    newCounters: added ? previousCounters + 1 : previousCounters - 1,
+    newCounters: getTimeTravelCounterResult(previousCounters, added),
     added,
   };
+}
+
+/**
+ * Apply a single time-travel counter change, clamping removals at zero.
+ */
+export function getTimeTravelCounterResult(previousCounters: number, added: boolean): number {
+  return added ? previousCounters + 1 : Math.max(0, previousCounters - 1);
+}
+
+/**
+ * Validate the chosen objects for a time-travel action.
+ */
+export function isValidTimeTravelSelection(
+  chosenObjects: readonly TimeTravelChoice[],
+  eligibleObjectIds: readonly string[],
+): boolean {
+  const eligible = new Set(eligibleObjectIds);
+  const seen = new Set<string>();
+
+  for (const choice of chosenObjects) {
+    if (!eligible.has(choice.objectId) || seen.has(choice.objectId)) {
+      return false;
+    }
+
+    seen.add(choice.objectId);
+  }
+
+  return true;
+}
+
+/**
+ * Net number of counters added minus removed across a time-travel choice set.
+ */
+export function getNetTimeTravelCounterChange(chosenObjects: readonly TimeTravelChoice[]): number {
+  return chosenObjects.reduce((sum, choice) => sum + (choice.addCounter ? 1 : -1), 0);
 }

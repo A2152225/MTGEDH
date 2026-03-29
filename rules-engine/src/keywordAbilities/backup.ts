@@ -86,6 +86,20 @@ export function getBackupAbilities(ability: BackupAbility): readonly string[] {
 }
 
 /**
+ * Backup can target any creature, including itself.
+ */
+export function canTargetForBackup(targetCreatureId: string): boolean {
+  return String(targetCreatureId || '') !== '';
+}
+
+/**
+ * Return the creature currently targeted by backup.
+ */
+export function getBackupTarget(ability: BackupAbility): string | undefined {
+  return ability.targetCreature;
+}
+
+/**
  * Multiple instances of backup are not redundant
  * @param abilities - Array of backup abilities
  * @returns False

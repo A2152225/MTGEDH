@@ -18,6 +18,60 @@ export interface ImproviseAbility {
   readonly artifactsTapped: readonly string[];
 }
 
+type ImproviseArtifactLike = {
+  readonly controller?: string;
+  readonly tapped?: boolean;
+  readonly isTapped?: boolean;
+  readonly type_line?: string;
+  readonly card?: {
+    readonly type_line?: string;
+  };
+};
+
+function tokenizeCost(cost: string): string[] {
+  const raw = String(cost || '').trim();
+  if (!raw) {
+    return [];
+  }
+
+  const braced = [...raw.matchAll(/\{([^}]+)\}/g)].map((match) => String(match[1] || '').trim().toUpperCase()).filter(Boolean);
+  if (braced.length > 0) {
+    return braced;
+  }
+
+  const compact = raw.replace(/\s+/g, '').toUpperCase();
+  const tokens: string[] = [];
+  for (let index = 0; index < compact.length;) {
+    if (/\d/.test(compact[index])) {
+      let nextIndex = index + 1;
+      while (nextIndex < compact.length && /\d/.test(compact[nextIndex])) {
+        nextIndex += 1;
+      }
+      tokens.push(compact.slice(index, nextIndex));
+      index = nextIndex;
+      continue;
+    }
+
+    tokens.push(compact[index]);
+    index += 1;
+  }
+
+  return tokens;
+}
+
+function formatCost(tokens: readonly string[]): string {
+  if (tokens.length === 0) {
+    return '{0}';
+  }
+
+  return tokens.map((token) => `{${token}}`).join('');
+}
+
+function isArtifactLike(candidate: ImproviseArtifactLike): boolean {
+  const typeLine = String(candidate.type_line || candidate.card?.type_line || '').toLowerCase();
+  return typeLine.includes('artifact');
+}
+
 /**
  * Create an improvise ability
  * Rule 702.126a
@@ -66,6 +120,37 @@ export function getImprovisedArtifacts(ability: ImproviseAbility): readonly stri
  */
 export function getImproviseManaValue(ability: ImproviseAbility): number {
   return ability.artifactsTapped.length;
+}
+
+/**
+ * Check whether an artifact can be tapped to pay improvise.
+ */
+export function canTapForImprovise(candidate: ImproviseArtifactLike, controllerId: string): boolean {
+  const isTapped = candidate.tapped === true || candidate.isTapped === true;
+  return String(candidate.controller || '') === String(controllerId || '') && !isTapped && isArtifactLike(candidate);
+}
+
+/**
+ * Reduce only generic mana in a cost by the improvise contribution.
+ */
+export function getImprovisedCost(cost: string, tappedArtifacts: number): string {
+  const tokens = tokenizeCost(cost);
+  let generic = 0;
+  const nonGeneric: string[] = [];
+
+  for (const token of tokens) {
+    if (/^\d+$/.test(token)) {
+      generic += Number.parseInt(token, 10);
+    } else {
+      nonGeneric.push(token);
+    }
+  }
+
+  const reducedGeneric = Math.max(0, generic - Math.max(0, tappedArtifacts));
+  return formatCost([
+    ...(reducedGeneric > 0 ? [String(reducedGeneric)] : []),
+    ...nonGeneric,
+  ]);
 }
 
 /**

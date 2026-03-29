@@ -19,6 +19,18 @@ export interface EncoreAbility {
   readonly tokenIds: readonly string[];
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create an encore ability
  * Rule 702.141a
@@ -77,6 +89,37 @@ export function getEncoreTokens(ability: EncoreAbility): readonly string[] {
  */
 export function getEncoreCost(ability: EncoreAbility): string {
   return ability.encoreCost;
+}
+
+/**
+ * Encore can only be activated from the graveyard at sorcery speed and only if opponents exist.
+ */
+export function canActivateEncore(zone: string, isSorcerySpeed: boolean, opponentCount: number): boolean {
+  return String(zone || '').trim().toLowerCase() === 'graveyard' && isSorcerySpeed && opponentCount > 0;
+}
+
+/**
+ * Pair each encore token with the opponent it must attack if able.
+ */
+export function getEncoreAttackAssignments(
+  opponentIds: readonly string[],
+  tokenIds: readonly string[],
+): Record<string, string> {
+  const assignments: Record<string, string> = {};
+  opponentIds.forEach((opponentId, index) => {
+    const tokenId = tokenIds[index];
+    if (opponentId && tokenId) {
+      assignments[opponentId] = tokenId;
+    }
+  });
+  return assignments;
+}
+
+/**
+ * Parse an encore cost from oracle text.
+ */
+export function parseEncoreCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'encore');
 }
 
 /**

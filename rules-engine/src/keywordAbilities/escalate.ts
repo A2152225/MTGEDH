@@ -17,6 +17,18 @@ export interface EscalateAbility {
   readonly modesChosen: number;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create an escalate ability
  * Rule 702.120a
@@ -64,6 +76,20 @@ export function getEscalateCostMultiplier(ability: EscalateAbility): number {
  */
 export function getModesChosen(ability: EscalateAbility): number {
   return ability.modesChosen;
+}
+
+/**
+ * Validate a chosen number of modes against the total mode count on the spell.
+ */
+export function canChooseEscalateModes(totalModes: number, modesChosen: number): boolean {
+  return Number.isInteger(modesChosen) && modesChosen >= 1 && modesChosen <= totalModes;
+}
+
+/**
+ * Parse an escalate cost from oracle text.
+ */
+export function parseEscalateCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'escalate');
 }
 
 /**

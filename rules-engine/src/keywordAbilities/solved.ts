@@ -88,6 +88,23 @@ export function isCaseSolved(ability: SolvedAbility): boolean {
 }
 
 /**
+ * A solved ability can only be used in its matching mode once the Case is solved.
+ */
+export function canUseSolvedAbility(
+  ability: SolvedAbility,
+  requestedType: 'static' | 'triggered' | 'activated',
+): boolean {
+  return ability.isSolved && ability.abilityType === requestedType;
+}
+
+/**
+ * Return the rules text gated by solved.
+ */
+export function getSolvedAbilityText(ability: SolvedAbility): string {
+  return ability.abilityText;
+}
+
+/**
  * Multiple instances of solved are not redundant
  * @param abilities - Array of solved abilities
  * @returns False

@@ -22,6 +22,18 @@ export interface BlitzAbility {
   readonly hasDrawnCard: boolean;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a blitz ability
  * Rule 702.152a
@@ -92,6 +104,27 @@ export function drawCardFromBlitz(ability: BlitzAbility): BlitzAbility {
     ...ability,
     hasDrawnCard: true,
   };
+}
+
+/**
+ * Blitz is an alternative cost available while casting the spell.
+ */
+export function canCastWithBlitz(zone: string): boolean {
+  return zone === 'hand' || zone === 'command';
+}
+
+/**
+ * Check whether the blitz death trigger has already produced a card draw.
+ */
+export function hasDrawnCardFromBlitz(ability: BlitzAbility): boolean {
+  return ability.hasDrawnCard;
+}
+
+/**
+ * Parse a blitz cost from oracle text.
+ */
+export function parseBlitzCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'blitz');
 }
 
 /**

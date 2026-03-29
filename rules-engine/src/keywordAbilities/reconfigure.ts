@@ -21,6 +21,18 @@ export interface ReconfigureAbility {
   readonly isCreature: boolean;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a reconfigure ability
  * Rule 702.151a
@@ -90,6 +102,38 @@ export function isReconfigureCreature(ability: ReconfigureAbility): boolean {
  */
 export function getReconfigureCost(ability: ReconfigureAbility): string {
   return ability.reconfigureCost;
+}
+
+/**
+ * Reconfigure attach can only happen as a sorcery onto another creature you control.
+ */
+export function canAttachWithReconfigure(
+  targetCreatureId: string,
+  sourceId: string,
+  isSorcerySpeed: boolean,
+): boolean {
+  return isSorcerySpeed && String(targetCreatureId || '') !== '' && String(targetCreatureId) !== String(sourceId || '');
+}
+
+/**
+ * Reconfigure unattach can only happen as a sorcery while attached.
+ */
+export function canUnattachWithReconfigure(ability: ReconfigureAbility, isSorcerySpeed: boolean): boolean {
+  return isSorcerySpeed && ability.isAttached;
+}
+
+/**
+ * Return the creature currently attached by reconfigure.
+ */
+export function getReconfigureAttachedTo(ability: ReconfigureAbility): string | undefined {
+  return ability.attachedTo;
+}
+
+/**
+ * Parse a reconfigure cost from oracle text.
+ */
+export function parseReconfigureCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'reconfigure');
 }
 
 /**

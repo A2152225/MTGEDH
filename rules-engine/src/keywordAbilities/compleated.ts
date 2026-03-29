@@ -72,6 +72,20 @@ export function getLoyaltyReduction(ability: CompleatedAbility): number {
 }
 
 /**
+ * Compleated only matters if life was paid for one or more Phyrexian symbols.
+ */
+export function canApplyCompleated(phyrexianManaPaidWithLife: number): boolean {
+  return phyrexianManaPaidWithLife > 0;
+}
+
+/**
+ * Named helper mirroring the common test convention for reduction helpers.
+ */
+export function getCompleatedLoyaltyReduction(ability: CompleatedAbility): number {
+  return getLoyaltyReduction(ability);
+}
+
+/**
  * Multiple instances of compleated are redundant
  * @param abilities - Array of compleated abilities
  * @returns True if more than one

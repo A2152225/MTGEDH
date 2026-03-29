@@ -29,6 +29,20 @@ export interface DisguiseAbility {
   readonly xValue?: number; // For disguise costs with X
 }
 
+export const DISGUISE_CAST_COST = '{3}';
+
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a disguise ability
  * Rule 702.168a
@@ -99,6 +113,27 @@ export function getDisguiseCost(ability: DisguiseAbility): string {
  */
 export function getDisguiseX(ability: DisguiseAbility): number | undefined {
   return ability.xValue;
+}
+
+/**
+ * Disguise casting is available from normal castable zones.
+ */
+export function canCastWithDisguise(zone: string): boolean {
+  return zone === 'hand' || zone === 'command' || zone === 'exile';
+}
+
+/**
+ * Turning a disguised permanent face up is a special action available while face down.
+ */
+export function canTurnDisguiseFaceUp(ability: DisguiseAbility, hasPriority: boolean): boolean {
+  return ability.isFaceDown && hasPriority;
+}
+
+/**
+ * Parse a disguise cost from oracle text.
+ */
+export function parseDisguiseCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'disguise');
 }
 
 /**

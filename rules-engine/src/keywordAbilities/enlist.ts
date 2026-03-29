@@ -23,6 +23,16 @@ export interface EnlistAbility {
   readonly powerBonus: number;
 }
 
+type EnlistCandidate = {
+  readonly id?: string;
+  readonly controller?: string;
+  readonly tapped?: boolean;
+  readonly isTapped?: boolean;
+  readonly attackedThisTurn?: boolean;
+  readonly hasHaste?: boolean;
+  readonly underControlSinceTurnBegan?: boolean;
+};
+
 /**
  * Create an enlist ability
  * Rule 702.154a
@@ -75,6 +85,30 @@ export function getEnlistBonus(ability: EnlistAbility): number {
  */
 export function getEnlistedCreature(ability: EnlistAbility): string | undefined {
   return ability.enlistedCreature;
+}
+
+/**
+ * Determine whether a creature is a legal enlist helper.
+ */
+export function canEnlistCreature(
+  candidate: EnlistCandidate,
+  sourceId: string,
+  controllerId: string,
+): boolean {
+  const isTapped = candidate.tapped === true || candidate.isTapped === true;
+  return String(candidate.id || '') !== ''
+    && String(candidate.id) !== String(sourceId || '')
+    && String(candidate.controller || '') === String(controllerId || '')
+    && !isTapped
+    && candidate.attackedThisTurn !== true
+    && (candidate.hasHaste === true || candidate.underControlSinceTurnBegan === true);
+}
+
+/**
+ * Check whether this creature successfully enlisted another creature.
+ */
+export function didEnlist(ability: EnlistAbility): boolean {
+  return Boolean(ability.enlistedCreature);
 }
 
 /**

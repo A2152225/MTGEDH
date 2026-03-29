@@ -23,6 +23,18 @@ export interface CasualtyAbility {
   readonly copyId?: string;
 }
 
+function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const value = Number.parseInt(String(match[1] || ''), 10);
+  return Number.isFinite(value) ? value : null;
+}
+
 /**
  * Create a casualty ability
  * Rule 702.153a
@@ -97,6 +109,34 @@ export function wasCasualtyPaid(ability: CasualtyAbility): boolean {
  */
 export function getCasualtyValue(ability: CasualtyAbility): number {
   return ability.casualtyValue;
+}
+
+/**
+ * Check whether a creature's power satisfies the casualty requirement.
+ */
+export function canPayCasualty(ability: CasualtyAbility, creaturePower: number): boolean {
+  return creaturePower >= ability.casualtyValue;
+}
+
+/**
+ * Return the creature sacrificed to pay casualty.
+ */
+export function getCasualtySacrificedCreature(ability: CasualtyAbility): string | undefined {
+  return ability.sacrificedCreature;
+}
+
+/**
+ * Return the created casualty copy id, if any.
+ */
+export function getCasualtyCopyId(ability: CasualtyAbility): string | undefined {
+  return ability.copyId;
+}
+
+/**
+ * Parse a casualty value from oracle text.
+ */
+export function parseCasualtyValue(oracleText: string): number | null {
+  return extractNumericKeywordValue(oracleText, 'casualty');
 }
 
 /**

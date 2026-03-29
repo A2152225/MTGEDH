@@ -55,3 +55,22 @@ export function isAttractionVisited(
  * Die range
  */
 export const VISIT_DIE_SIDES = 6;
+
+/**
+ * Check whether a visit die roll is within range.
+ */
+export function isValidVisitRoll(rollResult: number): boolean {
+  return Number.isInteger(rollResult) && rollResult >= 1 && rollResult <= VISIT_DIE_SIDES;
+}
+
+/**
+ * Filter attractions that were visited by a particular die result.
+ */
+export function getVisitedAttractions(
+  attractions: readonly { id: string; litNumbers: readonly number[] }[],
+  rollResult: number,
+): readonly string[] {
+  return attractions
+    .filter((attraction) => isAttractionVisited(attraction.litNumbers, rollResult))
+    .map((attraction) => attraction.id);
+}

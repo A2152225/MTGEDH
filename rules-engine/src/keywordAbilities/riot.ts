@@ -78,6 +78,28 @@ export function hasHasteFromRiot(ability: RiotAbility): boolean {
 }
 
 /**
+ * Riot requires a choice to be made only once per instance.
+ */
+export function canChooseRiotMode(ability: RiotAbility): boolean {
+  return ability.choseCounter === null;
+}
+
+/**
+ * Return the chosen riot mode, if any.
+ */
+export function getRiotChoice(ability: RiotAbility): 'counter' | 'haste' | null {
+  if (ability.choseCounter === true) {
+    return 'counter';
+  }
+
+  if (ability.choseCounter === false) {
+    return 'haste';
+  }
+
+  return null;
+}
+
+/**
  * Multiple instances of riot work separately
  * Rule 702.136b
  * @param abilities - Array of riot abilities

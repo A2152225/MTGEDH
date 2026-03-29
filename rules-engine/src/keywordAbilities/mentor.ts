@@ -70,6 +70,32 @@ export function getMentoredCreatures(ability: MentorAbility): readonly string[] 
 }
 
 /**
+ * Mentor requires both creatures to be attacking and the target to have lesser power.
+ */
+export function canMentorAttackingCreature(
+  mentorPower: number,
+  targetPower: number,
+  mentorIsAttacking: boolean,
+  targetIsAttacking: boolean,
+): boolean {
+  return mentorIsAttacking && targetIsAttacking && canMentor(mentorPower, targetPower);
+}
+
+/**
+ * Check whether the source has already mentored a specific creature.
+ */
+export function hasMentoredCreature(ability: MentorAbility, creatureId: string): boolean {
+  return ability.mentoredCreatures.includes(creatureId);
+}
+
+/**
+ * Count the number of mentor triggers that have resolved.
+ */
+export function getMentorTriggerCount(ability: MentorAbility): number {
+  return ability.mentoredCreatures.length;
+}
+
+/**
  * Multiple instances of mentor trigger separately
  * Rule 702.134b
  * @param abilities - Array of mentor abilities

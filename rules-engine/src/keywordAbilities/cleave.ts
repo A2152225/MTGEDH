@@ -21,6 +21,22 @@ export interface CleaveAbility {
   readonly cleavedText?: string;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
+function removeBracketedText(text: string): string {
+  return String(text || '').replace(/\[[^\]]*\]/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 /**
  * Create a cleave ability
  * Rule 702.148a
@@ -80,6 +96,20 @@ export function getEffectiveText(ability: CleaveAbility): string {
  */
 export function getCleaveCost(ability: CleaveAbility): string {
   return ability.cleaveCost;
+}
+
+/**
+ * Generate the effective rules text after cleave removes bracketed text.
+ */
+export function getCleavedText(originalText: string): string {
+  return removeBracketedText(originalText);
+}
+
+/**
+ * Parse a cleave cost from oracle text.
+ */
+export function parseCleaveCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'cleave');
 }
 
 /**

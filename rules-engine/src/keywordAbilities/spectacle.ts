@@ -17,6 +17,18 @@ export interface SpectacleAbility {
   readonly wasSpectacled: boolean;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a spectacle ability
  * Rule 702.137a
@@ -72,6 +84,20 @@ export function wasSpectacled(ability: SpectacleAbility): boolean {
  */
 export function getSpectacleCost(ability: SpectacleAbility): string {
   return ability.spectacleCost;
+}
+
+/**
+ * Spectacle can only be used when an opponent has lost life this turn.
+ */
+export function canCastWithSpectacle(opponentLostLife: boolean): boolean {
+  return canUseSpectacle(opponentLostLife);
+}
+
+/**
+ * Parse the spectacle alternative cost from oracle text.
+ */
+export function parseSpectacleCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'spectacle');
 }
 
 /**

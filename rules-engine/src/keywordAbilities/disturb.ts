@@ -18,6 +18,18 @@ export interface DisturbAbility {
   readonly wasDisturbed: boolean;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a disturb ability
  * Rule 702.146a
@@ -64,6 +76,27 @@ export function wasDisturbed(ability: DisturbAbility): boolean {
  */
 export function getDisturbCost(ability: DisturbAbility): string {
   return ability.disturbCost;
+}
+
+/**
+ * Disturb can only be used from the graveyard.
+ */
+export function canCastWithDisturb(zone: string): boolean {
+  return String(zone || '').trim().toLowerCase() === 'graveyard';
+}
+
+/**
+ * Disturbed spells resolve transformed and enter with their back face up.
+ */
+export function entersBackFaceUp(ability: DisturbAbility): boolean {
+  return ability.wasDisturbed;
+}
+
+/**
+ * Parse a disturb cost from oracle text.
+ */
+export function parseDisturbCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'disturb');
 }
 
 /**

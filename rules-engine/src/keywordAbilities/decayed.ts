@@ -52,6 +52,20 @@ export function triggerDecayed(ability: DecayedAbility): DecayedAbility {
 }
 
 /**
+ * Decayed creatures may still attack normally.
+ */
+export function canAttackWithDecayed(): boolean {
+  return true;
+}
+
+/**
+ * Get whether the creature has attacked and is marked for sacrifice.
+ */
+export function hasDecayedAttacked(ability: DecayedAbility): boolean {
+  return ability.hasAttacked;
+}
+
+/**
  * Check if should sacrifice at end of combat
  * Rule 702.147a
  * @param ability - Decayed ability

@@ -25,6 +25,19 @@ export interface CraftAbility {
   readonly exiledCards: readonly string[];
 }
 
+function extractCraftDetails(oracleText: string): { materials: string; cost: string } | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const match = normalized.match(/craft with\s+(.+?)\s+(\{[^}]+(?:\}\{[^}]+)*\})/i);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    materials: String(match[1] || '').trim(),
+    cost: String(match[2] || '').trim(),
+  };
+}
+
 /**
  * Create a craft ability
  * Rule 702.167a
@@ -85,6 +98,27 @@ export function hasCrafted(ability: CraftAbility): boolean {
  */
 export function getCraftCost(ability: CraftAbility): string {
   return ability.craftCost;
+}
+
+/**
+ * Craft can only be activated as a sorcery while the source is on the battlefield.
+ */
+export function canActivateCraft(zone: string, isSorcerySpeed: boolean, availableMaterials: number): boolean {
+  return String(zone || '').trim().toLowerCase() === 'battlefield' && isSorcerySpeed && availableMaterials > 0;
+}
+
+/**
+ * Get the material description required by craft.
+ */
+export function getCraftMaterialsText(ability: CraftAbility): string {
+  return ability.materials;
+}
+
+/**
+ * Parse craft materials and cost from oracle text.
+ */
+export function parseCraft(oracleText: string): { materials: string; cost: string } | null {
+  return extractCraftDetails(oracleText);
 }
 
 /**

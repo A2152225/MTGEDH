@@ -56,6 +56,48 @@ export function completeVillainousChoice(
 export const CAN_CHOOSE_ILLEGAL_OPTION = true;
 
 /**
+ * Check whether a villainous choice branch token is well formed.
+ */
+export function isValidVillainousOption(option: string): option is 'A' | 'B' {
+  return option === 'A' || option === 'B';
+}
+
+/**
+ * Apply the chosen villainous branch to an action.
+ */
+export function chooseVillainousOption(
+  action: VillainousChoiceAction,
+  chosenOption: 'A' | 'B',
+): VillainousChoiceAction {
+  return {
+    ...action,
+    chosenOption,
+  };
+}
+
+/**
+ * Return the text of the chosen villainous option, if one has been selected.
+ */
+export function getChosenVillainousOptionText(action: VillainousChoiceAction): string | null {
+  if (action.chosenOption === 'A') {
+    return action.optionA;
+  }
+
+  if (action.chosenOption === 'B') {
+    return action.optionB;
+  }
+
+  return null;
+}
+
+/**
+ * Return the two textual branches of a villainous choice.
+ */
+export function getVillainousOptions(action: VillainousChoiceAction): readonly string[] {
+  return [action.optionA, action.optionB];
+}
+
+/**
  * Rule 701.55c: Replacement effects
  */
 export function faceMultipleTimes(times: number): number {
@@ -69,9 +111,20 @@ export function processInAPNAPOrder(
   players: readonly string[],
   apnapOrder: readonly string[]
 ): readonly string[] {
-  return [...players].sort((a, b) => {
-    const indexA = apnapOrder.indexOf(a);
-    const indexB = apnapOrder.indexOf(b);
-    return indexA - indexB;
-  });
+  const orderMap = new Map(apnapOrder.map((playerId, index) => [playerId, index]));
+
+  return players
+    .map((playerId, index) => ({
+      playerId,
+      index,
+      orderIndex: orderMap.get(playerId) ?? Number.MAX_SAFE_INTEGER,
+    }))
+    .sort((left, right) => {
+      if (left.orderIndex !== right.orderIndex) {
+        return left.orderIndex - right.orderIndex;
+      }
+
+      return left.index - right.index;
+    })
+    .map((entry) => entry.playerId);
 }

@@ -19,6 +19,18 @@ export interface EmbalmAbility {
   readonly tokenId?: string;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create an embalm ability
  * Rule 702.128a
@@ -67,6 +79,46 @@ export function isEmbalmed(ability: EmbalmAbility): boolean {
  */
 export function getEmbalmToken(ability: EmbalmAbility): string | undefined {
   return ability.tokenId;
+}
+
+/**
+ * Embalm activates only from the graveyard and only as a sorcery.
+ */
+export function canActivateEmbalm(zone: string, isSorcerySpeed: boolean): boolean {
+  return String(zone || '').trim().toLowerCase() === 'graveyard' && isSorcerySpeed;
+}
+
+/**
+ * Create the white Zombie token copy used by embalm.
+ */
+export function createEmbalmToken(tokenId: string, controllerId: string, originalCard: any): any {
+  return {
+    id: tokenId,
+    controller: controllerId,
+    owner: controllerId,
+    tapped: false,
+    summoningSickness: true,
+    counters: {},
+    attachments: [],
+    modifiers: [],
+    isToken: true,
+    basePower: Number(originalCard.power || 0),
+    baseToughness: Number(originalCard.toughness || 0),
+    card: {
+      ...originalCard,
+      id: tokenId,
+      colors: ['W'],
+      mana_cost: '',
+      type_line: `${String(originalCard.type_line || '').trim()} Zombie`.trim(),
+    },
+  };
+}
+
+/**
+ * Parse an embalm cost from oracle text.
+ */
+export function parseEmbalmCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'embalm');
 }
 
 /**

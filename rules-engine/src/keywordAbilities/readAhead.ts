@@ -79,6 +79,27 @@ export function canChapterTrigger(
 }
 
 /**
+ * Check whether the chosen starting chapter is legal.
+ */
+export function canChooseReadAheadChapter(ability: ReadAheadAbility, chapterNumber: number): boolean {
+  return chapterNumber >= 1 && chapterNumber <= ability.finalChapterNumber;
+}
+
+/**
+ * Return the selected starting chapter, if one was chosen.
+ */
+export function getReadAheadStartingChapter(ability: ReadAheadAbility): number | undefined {
+  return ability.chosenStartingChapter;
+}
+
+/**
+ * Return the number of lore counters the saga currently has from read ahead.
+ */
+export function getReadAheadLoreCounters(ability: ReadAheadAbility): number {
+  return ability.loreCounters;
+}
+
+/**
  * Multiple instances of read ahead are redundant
  * Rule 702.155c
  * @param abilities - Array of read ahead abilities

@@ -25,6 +25,18 @@ export interface EscapeAbility {
   readonly escapesWithAbility?: string;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create an escape ability
  * Rule 702.138a
@@ -90,6 +102,35 @@ export function getEscapeCost(ability: EscapeAbility): string {
  */
 export function getEscapeCounters(ability: EscapeAbility): string | undefined {
   return ability.escapesWithCounters;
+}
+
+/**
+ * Escape can only be used from the graveyard and with enough cards to exile for the additional cost.
+ */
+export function canCastWithEscape(zone: string, availableCardsToExile: number, requiredCardsToExile: number): boolean {
+  return String(zone || '').trim().toLowerCase() === 'graveyard'
+    && availableCardsToExile >= Math.max(0, requiredCardsToExile);
+}
+
+/**
+ * Return the extra counter text that applies if the permanent escaped.
+ */
+export function getEscapedCounterText(ability: EscapeAbility): string | undefined {
+  return ability.hasEscaped ? ability.escapesWithCounters : undefined;
+}
+
+/**
+ * Return the extra ability text that applies if the permanent escaped.
+ */
+export function getEscapedAbilityText(ability: EscapeAbility): string | undefined {
+  return ability.hasEscaped ? ability.escapesWithAbility : undefined;
+}
+
+/**
+ * Parse an escape cost from oracle text.
+ */
+export function parseEscapeCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'escape');
 }
 
 /**

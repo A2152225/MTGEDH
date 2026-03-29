@@ -17,6 +17,45 @@ export interface UndauntedAbility {
   readonly costReduction: number;
 }
 
+function tokenizeCost(cost: string): string[] {
+  const raw = String(cost || '').trim();
+  if (!raw) {
+    return [];
+  }
+
+  const braced = [...raw.matchAll(/\{([^}]+)\}/g)].map((match) => String(match[1] || '').trim().toUpperCase()).filter(Boolean);
+  if (braced.length > 0) {
+    return braced;
+  }
+
+  const compact = raw.replace(/\s+/g, '').toUpperCase();
+  const tokens: string[] = [];
+  for (let index = 0; index < compact.length;) {
+    if (/\d/.test(compact[index])) {
+      let nextIndex = index + 1;
+      while (nextIndex < compact.length && /\d/.test(compact[nextIndex])) {
+        nextIndex += 1;
+      }
+      tokens.push(compact.slice(index, nextIndex));
+      index = nextIndex;
+      continue;
+    }
+
+    tokens.push(compact[index]);
+    index += 1;
+  }
+
+  return tokens;
+}
+
+function formatCost(tokens: readonly string[]): string {
+  if (tokens.length === 0) {
+    return '{0}';
+  }
+
+  return tokens.map((token) => `{${token}}`).join('');
+}
+
 /**
  * Create an undaunted ability
  * Rule 702.125a
@@ -62,6 +101,36 @@ export function applyUndaunted(ability: UndauntedAbility, numberOfOpponents: num
  */
 export function getUndauntedReduction(ability: UndauntedAbility): number {
   return ability.costReduction;
+}
+
+/**
+ * Reduce only generic mana in a cost by the undaunted amount.
+ */
+export function getReducedUndauntedCost(cost: string, reduction: number): string {
+  const tokens = tokenizeCost(cost);
+  let generic = 0;
+  const nonGeneric: string[] = [];
+
+  for (const token of tokens) {
+    if (/^\d+$/.test(token)) {
+      generic += Number.parseInt(token, 10);
+    } else {
+      nonGeneric.push(token);
+    }
+  }
+
+  const reducedGeneric = Math.max(0, generic - Math.max(0, reduction));
+  return formatCost([
+    ...(reducedGeneric > 0 ? [String(reducedGeneric)] : []),
+    ...nonGeneric,
+  ]);
+}
+
+/**
+ * Count only opponents still in the game.
+ */
+export function countActiveOpponents(opponentsStillInGame: readonly boolean[]): number {
+  return opponentsStillInGame.filter(Boolean).length;
 }
 
 /**

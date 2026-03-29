@@ -87,6 +87,20 @@ export function getDemonstrateOpponent(ability: DemonstrateAbility): string | un
 }
 
 /**
+ * Demonstrate can only create copies when an opponent is available to receive one.
+ */
+export function canDemonstrate(opponentIds: readonly string[]): boolean {
+  return opponentIds.filter(Boolean).length > 0;
+}
+
+/**
+ * Return both copy ids created by demonstrate.
+ */
+export function getDemonstrateCopyIds(ability: DemonstrateAbility): readonly string[] {
+  return [ability.yourCopyId, ability.opponentCopyId].filter(Boolean) as string[];
+}
+
+/**
  * Multiple instances of demonstrate are not redundant
  * @param abilities - Array of demonstrate abilities
  * @returns False

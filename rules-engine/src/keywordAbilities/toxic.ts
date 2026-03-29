@@ -18,6 +18,18 @@ export interface ToxicAbility {
   readonly toxicValue: number;
 }
 
+function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const value = Number.parseInt(String(match[1] || ''), 10);
+  return Number.isFinite(value) ? value : null;
+}
+
 /**
  * Create a toxic ability
  * Rule 702.164a
@@ -50,6 +62,20 @@ export function getTotalToxicValue(abilities: readonly ToxicAbility[]): number {
  */
 export function getToxicValue(ability: ToxicAbility): number {
   return ability.toxicValue;
+}
+
+/**
+ * Toxic only grants poison counters when combat damage is dealt to a player.
+ */
+export function canApplyToxicToPlayer(dealtCombatDamageToPlayer: boolean): boolean {
+  return dealtCombatDamageToPlayer;
+}
+
+/**
+ * Parse a toxic value from oracle text.
+ */
+export function parseToxicValue(oracleText: string): number | null {
+  return extractNumericKeywordValue(oracleText, 'toxic');
 }
 
 /**

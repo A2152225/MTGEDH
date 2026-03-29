@@ -24,6 +24,18 @@ export interface BargainAbility {
   readonly sacrificedPermanent?: string;
 }
 
+type BargainCandidate = {
+  readonly isToken?: boolean;
+  readonly type_line?: string;
+  readonly card?: {
+    readonly type_line?: string;
+  };
+};
+
+function getTypeLine(candidate: BargainCandidate): string {
+  return String(candidate.type_line || candidate.card?.type_line || '').toLowerCase();
+}
+
 /**
  * Create a bargain ability
  * Rule 702.166a
@@ -71,6 +83,14 @@ export function wasBargained(ability: BargainAbility): boolean {
  */
 export function getBargainedPermanent(ability: BargainAbility): string | undefined {
   return ability.sacrificedPermanent;
+}
+
+/**
+ * Bargain can sacrifice an artifact, enchantment, or token.
+ */
+export function canPayBargain(candidate: BargainCandidate): boolean {
+  const typeLine = getTypeLine(candidate);
+  return candidate.isToken === true || typeLine.includes('artifact') || typeLine.includes('enchantment');
 }
 
 /**

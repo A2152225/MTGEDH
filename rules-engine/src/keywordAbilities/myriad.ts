@@ -73,6 +73,33 @@ export function clearMyriadTokens(ability: MyriadAbility): MyriadAbility {
 }
 
 /**
+ * Determine which opponents receive myriad token copies.
+ */
+export function getMyriadOpponents(
+  opponentIds: readonly string[],
+  defendingPlayerId: string,
+): readonly string[] {
+  return opponentIds.filter((playerId) => playerId !== defendingPlayerId);
+}
+
+/**
+ * Myriad creates one token per qualifying opponent.
+ */
+export function getMyriadTokenCount(
+  opponentIds: readonly string[],
+  defendingPlayerId: string,
+): number {
+  return getMyriadOpponents(opponentIds, defendingPlayerId).length;
+}
+
+/**
+ * Myriad only triggers when the creature attacks in a multiplayer context.
+ */
+export function canTriggerMyriad(isAttacking: boolean, opponentCount: number): boolean {
+  return isAttacking && opponentCount > 1;
+}
+
+/**
  * Multiple instances of myriad trigger separately
  * Rule 702.116b
  * @param abilities - Array of myriad abilities

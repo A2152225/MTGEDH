@@ -19,6 +19,36 @@ export interface DiscoverAction {
   readonly exiledCardIds?: readonly string[];
 }
 
+type DiscoverCardLike = {
+  readonly id: string;
+  readonly manaValue?: number;
+  readonly mana_value?: number;
+  readonly cmc?: number;
+  readonly type_line?: string;
+  readonly card?: {
+    readonly manaValue?: number;
+    readonly mana_value?: number;
+    readonly cmc?: number;
+    readonly type_line?: string;
+  };
+};
+
+function getDiscoverManaValue(card: DiscoverCardLike): number {
+  const candidates = [card.manaValue, card.mana_value, card.cmc, card.card?.manaValue, card.card?.mana_value, card.card?.cmc];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return candidate;
+    }
+  }
+
+  return 0;
+}
+
+function isLandCard(card: DiscoverCardLike): boolean {
+  const typeLine = String(card.type_line || card.card?.type_line || '').toLowerCase();
+  return typeLine.includes('land');
+}
+
 /**
  * Rule 701.57a: Discover N
  */
@@ -63,4 +93,35 @@ export function isDiscoveredCard(
   n: number
 ): boolean {
   return cardManaValue <= n;
+}
+
+/**
+ * Check whether a specific card qualifies as the discover hit.
+ */
+export function isDiscoverHit(card: DiscoverCardLike, n: number): boolean {
+  return !isLandCard(card) && isDiscoveredCard(getDiscoverManaValue(card), n);
+}
+
+/**
+ * Find the first discover hit among the exiled cards.
+ */
+export function findDiscoveredCard(cards: readonly DiscoverCardLike[], n: number): DiscoverCardLike | null {
+  return cards.find((card) => isDiscoverHit(card, n)) || null;
+}
+
+/**
+ * Check whether the discovered card may be cast for free.
+ */
+export function canCastDiscoveredCard(card: DiscoverCardLike, n: number): boolean {
+  return isDiscoverHit(card, n);
+}
+
+/**
+ * Get the non-hit cards that go to the bottom after discover resolves.
+ */
+export function getDiscoverBottomedCards(
+  exiledCards: readonly DiscoverCardLike[],
+  discoveredCardId: string,
+): readonly DiscoverCardLike[] {
+  return exiledCards.filter((card) => card.id !== discoveredCardId);
 }

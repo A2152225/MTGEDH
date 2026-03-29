@@ -48,3 +48,10 @@ export function completeOpenAttraction(
  * Rule 701.51c: Triggers when opening
  */
 export const TRIGGERS_WHEN_OPENING = true;
+
+/**
+ * Validate the drawn Attraction card identifier.
+ */
+export function hasOpenedAttraction(action: OpenAttractionAction): boolean {
+  return Boolean(String(action.attractionId || '').trim());
+}

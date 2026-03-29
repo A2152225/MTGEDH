@@ -21,6 +21,10 @@ export interface AscendAbility {
   readonly hasCitysBlessing: boolean;
 }
 
+function countTruthy(values: readonly unknown[]): number {
+  return values.filter(Boolean).length;
+}
+
 /**
  * Create an ascend ability
  * Rule 702.131
@@ -69,6 +73,27 @@ export function grantCitysBlessing(ability: AscendAbility): AscendAbility {
  * @returns True if has city's blessing
  */
 export function hasCitysBlessing(ability: AscendAbility): boolean {
+  return ability.hasCitysBlessing;
+}
+
+/**
+ * Count permanents relevant to ascend from a battlefield-like list.
+ */
+export function countPermanentsForAscend(permanents: readonly unknown[]): number {
+  return countTruthy(permanents);
+}
+
+/**
+ * Ascend is active whenever the player controls ten or more permanents and lacks the blessing.
+ */
+export function canAscendNow(permanentsControlled: number, alreadyHasBlessing: boolean): boolean {
+  return shouldGetCitysBlessing(permanentsControlled, alreadyHasBlessing);
+}
+
+/**
+ * Once gained, the city's blessing persists for the rest of the game.
+ */
+export function keepsCitysBlessing(ability: AscendAbility): boolean {
   return ability.hasCitysBlessing;
 }
 

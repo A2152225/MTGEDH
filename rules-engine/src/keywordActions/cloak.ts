@@ -15,6 +15,20 @@ export interface CloakAction {
   readonly fromZone: string;
 }
 
+type CloakCardLike = {
+  readonly id: string;
+  readonly name?: string;
+  readonly type_line?: string;
+  readonly power?: string | number;
+  readonly toughness?: string | number;
+  readonly mana_cost?: string;
+  readonly colors?: readonly string[];
+};
+
+function normalizeZone(zone: string): string {
+  return String(zone || '').trim().toLowerCase();
+}
+
 /**
  * Rule 701.58a: Cloak a card
  */
@@ -67,4 +81,49 @@ export function canCloakedInstantSorceryTurnFaceUp(
   isInstantOrSorcery: boolean
 ): boolean {
   return !isInstantOrSorcery;
+}
+
+/**
+ * Check whether a source zone is supported by the cloak action helper.
+ */
+export function canCloakFromZone(zone: string): boolean {
+  const normalized = normalizeZone(zone);
+  return normalized === 'library' || normalized === 'hand' || normalized === 'graveyard' || normalized === 'exile';
+}
+
+/**
+ * Create a cloaked battlefield permanent with ward metadata and hidden face-up card data.
+ */
+export function createCloakedPermanent(
+  permanentId: string,
+  faceUpCard: CloakCardLike,
+  controllerId: string,
+  ownerId: string,
+): any {
+  return {
+    id: permanentId,
+    controller: controllerId,
+    owner: ownerId,
+    tapped: false,
+    summoningSickness: true,
+    counters: {},
+    attachments: [],
+    modifiers: [],
+    isFaceDown: true,
+    isToken: false,
+    basePower: CLOAKED_CHARACTERISTICS.power,
+    baseToughness: CLOAKED_CHARACTERISTICS.toughness,
+    effectiveTypes: [...CLOAKED_CHARACTERISTICS.types],
+    faceUpCard,
+    card: {
+      id: permanentId,
+      name: CLOAKED_CHARACTERISTICS.name,
+      type_line: 'Creature',
+      oracle_text: '',
+      mana_cost: undefined,
+      colors: [...CLOAKED_CHARACTERISTICS.colors],
+      faceDown: true,
+      wardCost: '{2}',
+    },
+  };
 }

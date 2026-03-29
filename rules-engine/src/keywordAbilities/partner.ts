@@ -26,6 +26,14 @@ export interface PartnerAbility {
   readonly partnerRequirement?: string; // For "partner—[text]"
 }
 
+type PartnerCommanderLike = {
+  readonly name?: string;
+  readonly isLegendary?: boolean;
+  readonly hasBackgroundType?: boolean;
+  readonly isDoctor?: boolean;
+  readonly colorIdentity?: readonly string[];
+};
+
 /**
  * Create a basic partner ability
  * Rule 702.124a
@@ -146,6 +154,41 @@ export function canPartnerTogether(ability1: PartnerAbility, ability2: PartnerAb
   }
   
   return false;
+}
+
+/**
+ * Check whether a commander candidate satisfies the chosen partner ability.
+ */
+export function canChoosePartnerCommander(
+  ability: PartnerAbility,
+  candidate: PartnerCommanderLike,
+): boolean {
+  if (ability.partnerType === 'partner' || ability.partnerType === 'friends-forever') {
+    return candidate.isLegendary === true;
+  }
+
+  if (ability.partnerType === 'partner-with') {
+    return String(candidate.name || '') === String(ability.partnerName || '');
+  }
+
+  if (ability.partnerType === 'choose-background') {
+    return candidate.hasBackgroundType === true;
+  }
+
+  if (ability.partnerType === 'doctors-companion') {
+    return candidate.isDoctor === true;
+  }
+
+  return false;
+}
+
+/**
+ * Merge commander color identities for partner commanders.
+ */
+export function getCombinedPartnerColorIdentity(
+  commanders: readonly PartnerCommanderLike[],
+): readonly string[] {
+  return [...new Set(commanders.flatMap((commander) => commander.colorIdentity || []))];
 }
 
 /**

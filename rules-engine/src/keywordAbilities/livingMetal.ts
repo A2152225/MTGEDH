@@ -53,6 +53,20 @@ export function isCreatureFromLivingMetal(ability: LivingMetalAbility): boolean 
 }
 
 /**
+ * Living metal applies only during its controller's turn.
+ */
+export function canApplyLivingMetal(isYourTurn: boolean): boolean {
+  return isYourTurn;
+}
+
+/**
+ * Return whether the permanent currently gains creature status from living metal.
+ */
+export function hasLivingMetalCreatureType(ability: LivingMetalAbility): boolean {
+  return ability.isYourTurn;
+}
+
+/**
  * Multiple instances of living metal are redundant
  * @param abilities - Array of living metal abilities
  * @returns True if more than one

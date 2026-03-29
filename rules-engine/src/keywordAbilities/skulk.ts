@@ -56,6 +56,26 @@ export function canBlockWithSkulk(
 }
 
 /**
+ * Return the blockers that are illegal against a creature with skulk.
+ */
+export function getIllegalSkulkBlockers(
+  attackerPower: number,
+  blockers: readonly { id: string; power: number }[],
+): readonly string[] {
+  return blockers.filter((blocker) => blocker.power > attackerPower).map((blocker) => blocker.id);
+}
+
+/**
+ * Skulk matters only if at least one legal blocker remains.
+ */
+export function canAnyCreatureBlockSkulk(
+  attackerPower: number,
+  blockers: readonly { power: number }[],
+): boolean {
+  return blockers.some((blocker) => blocker.power <= attackerPower);
+}
+
+/**
  * Multiple instances of skulk are redundant
  * Rule 702.118c
  * @param abilities - Array of skulk abilities

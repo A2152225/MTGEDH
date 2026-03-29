@@ -52,6 +52,20 @@ export function getIngestTriggers(ability: IngestAbility): number {
 }
 
 /**
+ * Ingest only matters when combat damage is dealt to a player.
+ */
+export function shouldTriggerIngest(dealtCombatDamageToPlayer: boolean): boolean {
+  return dealtCombatDamageToPlayer;
+}
+
+/**
+ * Each ingest trigger exiles exactly one top card.
+ */
+export function getIngestExileCount(): number {
+  return 1;
+}
+
+/**
  * Multiple instances of ingest trigger separately
  * Rule 702.115b
  * @param abilities - Array of ingest abilities

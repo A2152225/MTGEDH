@@ -102,6 +102,20 @@ export function becomesDay(isDayOrNight: boolean): boolean {
 }
 
 /**
+ * Daybound and nightbound permanents naturally transform only through the day/night cycle.
+ */
+export function canTransformByDayNightCycle(manualTransformAttempt: boolean): boolean {
+  return !manualTransformAttempt;
+}
+
+/**
+ * Check whether a daybound permanent causes the game to become day.
+ */
+export function shouldBecomeDayFromDayboundPresence(hasDayboundPermanent: boolean, isDayOrNight: boolean): boolean {
+  return hasDayboundPermanent && becomesDay(isDayOrNight);
+}
+
+/**
  * Multiple instances of daybound are redundant
  * @param abilities - Array of daybound abilities
  * @returns True if more than one

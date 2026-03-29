@@ -17,6 +17,18 @@ export interface SurgeAbility {
   readonly wasSurged: boolean;
 }
 
+function extractKeywordCost(oracleText: string, keyword: string): string | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
+  const match = normalized.match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  const cost = String(match[1] || '').trim();
+  return cost || null;
+}
+
 /**
  * Create a surge ability
  * Rule 702.117a
@@ -72,6 +84,20 @@ export function wasSurged(ability: SurgeAbility): boolean {
  */
 export function getSurgeCost(ability: SurgeAbility): string {
   return ability.surgeCost;
+}
+
+/**
+ * Surge is available if you or a teammate has already cast a spell this turn.
+ */
+export function canUseSurgeFromTeam(hasYouCastSpell: boolean, hasTeammateCastSpell: boolean): boolean {
+  return hasYouCastSpell || hasTeammateCastSpell;
+}
+
+/**
+ * Parse a surge cost from oracle text.
+ */
+export function parseSurgeCost(oracleText: string): string | null {
+  return extractKeywordCost(oracleText, 'surge');
 }
 
 /**

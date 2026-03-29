@@ -27,6 +27,28 @@ export interface VoteOutcome {
 }
 
 /**
+ * Rotate the voter list so voting starts with the specified player.
+ */
+export function getVotingOrder(voters: readonly string[], startingVoter: string): readonly string[] {
+  const startIndex = voters.indexOf(startingVoter);
+  if (startIndex < 0) {
+    return [...voters];
+  }
+
+  return [
+    ...voters.slice(startIndex),
+    ...voters.slice(0, startIndex),
+  ];
+}
+
+/**
+ * Check whether a submitted vote choice is legal for this vote.
+ */
+export function isValidVoteChoice(choice: string, choices: readonly string[]): boolean {
+  return choices.includes(choice);
+}
+
+/**
  * Rule 701.38a: Voting process
  * 
  * To vote, each player, starting with a specified player and proceeding in turn
@@ -116,6 +138,20 @@ export function tallyVotes(votes: readonly VoteResult[]): VoteOutcome {
     winner,
     voteCounts,
   };
+}
+
+/**
+ * Get the number of votes cast for a specific choice.
+ */
+export function getVotesForChoice(outcome: VoteOutcome, choice: string): number {
+  return outcome.voteCounts.get(choice) || 0;
+}
+
+/**
+ * Check whether the vote produced a single winning choice.
+ */
+export function hasVoteWinner(outcome: VoteOutcome): boolean {
+  return outcome.winner !== null;
 }
 
 /**

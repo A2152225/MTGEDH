@@ -28,6 +28,63 @@ export interface EmergeAbility {
   readonly manaReduction: number;
 }
 
+function tokenizeCost(cost: string): string[] {
+  const raw = String(cost || '').trim();
+  if (!raw) {
+    return [];
+  }
+
+  const braced = [...raw.matchAll(/\{([^}]+)\}/g)].map((match) => String(match[1] || '').trim().toUpperCase()).filter(Boolean);
+  if (braced.length > 0) {
+    return braced;
+  }
+
+  const compact = raw.replace(/\s+/g, '').toUpperCase();
+  const tokens: string[] = [];
+  for (let index = 0; index < compact.length;) {
+    if (/\d/.test(compact[index])) {
+      let nextIndex = index + 1;
+      while (nextIndex < compact.length && /\d/.test(compact[nextIndex])) {
+        nextIndex += 1;
+      }
+      tokens.push(compact.slice(index, nextIndex));
+      index = nextIndex;
+      continue;
+    }
+
+    tokens.push(compact[index]);
+    index += 1;
+  }
+
+  return tokens;
+}
+
+function formatCost(tokens: readonly string[]): string {
+  if (tokens.length === 0) {
+    return '{0}';
+  }
+
+  return tokens.map((token) => `{${token}}`).join('');
+}
+
+function extractEmergeParts(oracleText: string): { quality?: string; emergeCost: string } | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const variant = normalized.match(/\bemerge\s+from\s+([^—-]+?)\s+[—-]\s*([^.;,()]+)/i);
+  if (variant) {
+    const quality = String(variant[1] || '').trim();
+    const emergeCost = String(variant[2] || '').trim();
+    return quality && emergeCost ? { quality, emergeCost } : null;
+  }
+
+  const plain = normalized.match(/\bemerge\s+([^.;,()]+)/i);
+  if (!plain) {
+    return null;
+  }
+
+  const emergeCost = String(plain[1] || '').trim();
+  return emergeCost ? { emergeCost } : null;
+}
+
 /**
  * Create an emerge ability
  * Rule 702.119a
@@ -94,6 +151,51 @@ export function getEmergeManaReduction(ability: EmergeAbility): number {
  */
 export function getSacrificedCreature(ability: EmergeAbility): string | undefined {
   return ability.sacrificedCreature;
+}
+
+/**
+ * Check whether a permanent satisfies the emerge sacrifice quality restriction.
+ */
+export function canSacrificeForEmerge(
+  candidate: { type_line?: string; card?: { type_line?: string } },
+  quality?: string,
+): boolean {
+  const typeLine = String(candidate.type_line || candidate.card?.type_line || '').toLowerCase();
+  if (!quality) {
+    return typeLine.includes('creature');
+  }
+
+  return typeLine.includes(String(quality).trim().toLowerCase());
+}
+
+/**
+ * Reduce generic mana in the emerge cost by the sacrificed permanent's mana value.
+ */
+export function getReducedEmergeCost(cost: string, reduction: number): string {
+  const tokens = tokenizeCost(cost);
+  let generic = 0;
+  const nonGeneric: string[] = [];
+
+  for (const token of tokens) {
+    if (/^\d+$/.test(token)) {
+      generic += Number.parseInt(token, 10);
+    } else {
+      nonGeneric.push(token);
+    }
+  }
+
+  const reducedGeneric = Math.max(0, generic - Math.max(0, reduction));
+  return formatCost([
+    ...(reducedGeneric > 0 ? [String(reducedGeneric)] : []),
+    ...nonGeneric,
+  ]);
+}
+
+/**
+ * Parse emerge cost data from oracle text.
+ */
+export function parseEmerge(oracleText: string): { quality?: string; emergeCost: string } | null {
+  return extractEmergeParts(oracleText);
 }
 
 /**
