@@ -46,7 +46,7 @@ import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand } from "./zones.js";
 import { createToken, runSBA, applyCounterModifications, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
-import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { applyGoadToCreature } from "./goad-effects.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
@@ -3345,7 +3345,7 @@ export function triggerETBEffectsForPermanent(
  * Execute a triggered ability effect based on its description.
  * Handles common trigger effects like life gain/loss, counters, draw, etc.
  */
-function executeTriggerEffect(
+export function executeTriggerEffect(
   ctx: GameContext,
   controller: PlayerID,
   sourceName: string,
@@ -4259,6 +4259,30 @@ function executeTriggerEffect(
   // ===== COMBINED EFFECT HANDLERS =====
   // These handle triggers with multiple effects in one description (like Phyrexian Arena)
   // Process ALL matching effects, not just the first one
+
+  const counterThenDrawMatch = desc.match(
+    /put (a|an|one|two|three|four|five|\d+) \+1\/\+1 counters? on (?:up to (?:one|two|three|four|five|\d+) )?target creatures?, then draw (?:a|1) card/i
+  );
+  if (counterThenDrawMatch && (triggerItem as any).targets?.length > 0) {
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+    const counterCount = parseNumberWord(counterThenDrawMatch[1], 1);
+
+    for (const targetRef of targets) {
+      const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+      const targetCreature = battlefield.find((p: any) => p.id === targetId);
+      if (!targetCreature) continue;
+
+      targetCreature.counters = targetCreature.counters || {};
+      targetCreature.counters['+1/+1'] = (targetCreature.counters['+1/+1'] || 0) + counterCount;
+      debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${targetCreature.card?.name || targetId}`);
+    }
+
+    state.pendingDraws = state.pendingDraws || {};
+    state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + 1;
+    debug(2, `[executeTriggerEffect] ${controller} will draw 1 card from ${sourceName}`);
+    return;
+  }
   
   let handled = false;
   
@@ -6265,6 +6289,33 @@ function executeTriggerEffect(
     }
     return;
   }
+
+    // Pattern: "return target creature card from your graveyard to your hand"
+    const graveyardToHandMatch = desc.match(/return\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?card\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
+    if (graveyardToHandMatch) {
+      const targets = Array.isArray(triggerItem.targets) ? triggerItem.targets : [];
+      const targetId = String(targets[0] || '').trim();
+      if (!targetId) {
+        return;
+      }
+
+      const zones = state.zones || {};
+      for (const [ownerId, playerZones] of Object.entries(zones as Record<string, any>)) {
+        const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+        const idx = graveyard.findIndex((card: any) => String(card?.id || '') === targetId);
+        if (idx === -1) continue;
+
+        const [card] = graveyard.splice(idx, 1);
+        recordCardLeftGraveyardThisTurn(ctx, String(ownerId), card);
+        playerZones.hand = Array.isArray(playerZones.hand) ? playerZones.hand : [];
+        playerZones.hand.push({ ...card, zone: 'hand' });
+        playerZones.graveyardCount = graveyard.length;
+        playerZones.handCount = playerZones.hand.length;
+        debug(2, `[executeTriggerEffect] ${sourceName} returned ${card?.name || targetId} from ${ownerId}'s graveyard to hand`);
+        break;
+      }
+      return;
+    }
   
   // Pattern: "return target creature to its owner's hand" (bounce)
   const bounceMatch = desc.match(/return (?:target|a) (?:creature|permanent) (?:card )?(?:from [^.]+ )?to its owner's hand/i);
@@ -8183,6 +8234,58 @@ export function resolveTopOfStack(ctx: GameContext) {
           // Target permanent selection - would need to implement TARGET_SELECTION handler
           // For now, skip and execute without targeting
           debug(2, `[resolveTopOfStack] ETB trigger requires ${targetType} target - not yet implemented`);
+        }
+      }
+    }
+
+    if (requiresTarget && (triggerType === 'ability_activated' || triggerType === 'triggered_ability')) {
+      const gameId = (ctx as any).gameId || 'unknown';
+      const isReplaying = !!(ctx as any).isReplaying;
+      const battlefield = state.battlefield || [];
+      const lowerDescription = String(description || '').toLowerCase();
+      const constrainedToController =
+        String((item as any).targetConstraint || '').toLowerCase().includes('you control') ||
+        lowerDescription.includes('target creature you control') ||
+        lowerDescription.includes('target permanent you control');
+
+      if (!isReplaying && (targetType === 'creature' || targetType === 'permanent')) {
+        const validTargets = battlefield
+          .filter((permanent: any) => {
+            if (!permanent) return false;
+            const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+            const matchesType = targetType === 'permanent' ? true : typeLine.includes('creature');
+            if (!matchesType) return false;
+            if (!constrainedToController) return true;
+            return String(permanent.controller || '') === String(triggerController);
+          })
+          .map((permanent: any) => ({
+            id: permanent.id,
+            label: permanent.card?.name || 'Permanent',
+            description: permanent.card?.type_line || 'Permanent',
+            image: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+          }));
+
+        if (validTargets.length > 0) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: triggerController as PlayerID,
+            description: `${sourceName}: Choose target ${targetType}`,
+            mandatory: true,
+            sourceId,
+            sourceName,
+            validTargets,
+            targetTypes: [targetType],
+            minTargets: 1,
+            maxTargets: 1,
+            targetedTriggeredAbility: true,
+            triggerItem: item,
+            targetedTriggeredAbilitySourceName: sourceName,
+            targetedTriggeredAbilityDescription: description,
+            targetedTriggeredAbilityController: String(triggerController),
+          } as any);
+
+          debug(2, `[resolveTopOfStack] ${triggerType} requires target ${targetType} selection for ${sourceName}`);
+          return;
         }
       }
     }

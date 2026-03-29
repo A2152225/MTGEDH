@@ -259,4 +259,138 @@ describe('Discard typed card as activation cost via Resolution Queue (integratio
 
     expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
+
+  it('queues graveyard target selection for discard-cost recursion abilities and returns the chosen card on resolution', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).stack = [];
+
+    const p1 = 'p1';
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'src_3',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Tortured Existence',
+          type_line: 'Enchantment',
+          oracle_text: '{B}, Discard a creature card: Return target creature card from your graveyard to your hand.',
+          image_uris: { small: 'https://example.com/tortured-existence.jpg' },
+        },
+      },
+    ];
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [
+          {
+            id: 'h_creature_cost',
+            name: 'Discarded Bear',
+            type_line: 'Creature - Bear',
+            mana_cost: '{1}{G}',
+            image_uris: { small: 'https://example.com/discarded-bear.jpg' },
+            zone: 'hand',
+          },
+          {
+            id: 'h_noncreature_cost',
+            name: 'Not a Creature',
+            type_line: 'Instant',
+            mana_cost: '{U}',
+            image_uris: { small: 'https://example.com/not-creature.jpg' },
+            zone: 'hand',
+          },
+        ],
+        graveyard: [
+          {
+            id: 'g_creature_target',
+            name: 'Returned Wolf',
+            type_line: 'Creature - Wolf',
+            mana_cost: '{2}{G}',
+            image_uris: { small: 'https://example.com/returned-wolf.jpg' },
+            zone: 'graveyard',
+          },
+          {
+            id: 'g_noncreature_other',
+            name: 'Dead Spell',
+            type_line: 'Sorcery',
+            mana_cost: '{1}{B}',
+            image_uris: { small: 'https://example.com/dead-spell.jpg' },
+            zone: 'graveyard',
+          },
+        ],
+        exile: [],
+        handCount: 2,
+        graveyardCount: 2,
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    expect(typeof handlers['activateBattlefieldAbility']).toBe('function');
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_3', abilityId: 'src_3-ability-0' });
+
+    let queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+
+    const discardStep = queue.steps[0] as any;
+    expect(discardStep.type).toBe('discard_selection');
+    expect(discardStep.discardAbilityAsCost).toBe(true);
+    expect((discardStep.hand as any[]).some((c: any) => String(c.id) === 'h_creature_cost')).toBe(true);
+    expect((discardStep.hand as any[]).some((c: any) => String(c.id) === 'h_noncreature_cost')).toBe(false);
+
+    expect(typeof handlers['submitResolutionResponse']).toBe('function');
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: discardStep.id,
+      selections: ['h_creature_cost'],
+    });
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    const targetStep = queue.steps.find((step: any) => (step as any).battlefieldAbilityTargetSelection === true) as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep.targetTypes).toContain('graveyard_creature_card');
+    expect((targetStep.validTargets as any[]).some((target: any) => String(target.id) === 'g_creature_target')).toBe(true);
+    expect((targetStep.validTargets as any[]).some((target: any) => String(target.id) === 'g_noncreature_other')).toBe(false);
+    expect(Number((game.state as any).manaPool?.[p1]?.black ?? -1)).toBe(0);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: targetStep.id,
+      selections: ['g_creature_target'],
+    });
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0].type)).toBe('ability');
+    expect(String(stack[0].source)).toBe('src_3');
+    expect(stack[0].targets).toEqual(['g_creature_target']);
+
+    game.resolveTopOfStack();
+
+    const zones = (game.state as any).zones?.[p1];
+    expect(zones).toBeDefined();
+    expect((zones.hand as any[]).some((card: any) => card && card.id === 'g_creature_target')).toBe(true);
+    expect((zones.graveyard as any[]).some((card: any) => card && card.id === 'g_creature_target')).toBe(false);
+    expect((zones.graveyard as any[]).some((card: any) => card && card.id === 'h_creature_cost')).toBe(true);
+  });
 });

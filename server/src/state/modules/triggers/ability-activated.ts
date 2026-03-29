@@ -10,6 +10,8 @@ export type AbilityActivatedEvent = {
   isManaAbility: boolean;
   abilityText?: string;
   stackItemId?: string;
+  manaFromTreasureSpentKnown?: boolean;
+  manaFromTreasureSpent?: boolean;
 };
 
 export type AbilityActivatedTriggeredStackItem = {
@@ -25,6 +27,8 @@ export type AbilityActivatedTriggeredStackItem = {
   triggeringPlayer: PlayerID;
   activatedAbilityIsManaAbility: boolean;
   triggeringStackItemId?: string;
+  requiresTarget?: boolean;
+  targetType?: 'player' | 'creature' | 'permanent';
 };
 
 function isOpponent(ctx: GameContext, a: PlayerID, b: PlayerID): boolean {
@@ -44,7 +48,8 @@ function pushTriggeredAbility(
   controller: PlayerID,
   description: string,
   fullOracleForInterveningIf: string,
-  e: AbilityActivatedEvent
+  e: AbilityActivatedEvent,
+  extra?: Partial<AbilityActivatedTriggeredStackItem>
 ): AbilityActivatedTriggeredStackItem {
   const state: any = ctx.state as any;
   state.stack = state.stack || [];
@@ -61,6 +66,7 @@ function pushTriggeredAbility(
     triggeringPlayer: e.activatedBy,
     activatedAbilityIsManaAbility: e.isManaAbility,
     triggeringStackItemId: e.stackItemId,
+    ...(extra || {}),
   };
   state.stack.push(triggerItem as any);
   return triggerItem;
@@ -79,6 +85,8 @@ export function serializeAbilityActivatedTriggeredStackItem(triggerItem: Ability
     triggeringPlayer: triggerItem.triggeringPlayer,
     activatedAbilityIsManaAbility: triggerItem.activatedAbilityIsManaAbility,
     triggeringStackItemId: triggerItem.triggeringStackItemId,
+    ...(triggerItem.requiresTarget ? { requiresTarget: true } : {}),
+    ...(triggerItem.targetType ? { targetType: triggerItem.targetType } : {}),
   };
 }
 
@@ -128,7 +136,10 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
         controller,
         'Harsh Mentor deals 2 damage to that player.',
         full,
-        e
+        e,
+        {
+          mandatory: true,
+        }
       ));
       debug(2, `[ability-activated] Harsh Mentor triggered vs ${String(e.activatedBy)} (source=${String(sourcePermanent?.card?.name || e.sourcePermanentId)})`);
       continue;
@@ -164,6 +175,43 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
       continue;
     }
 
+    // Vazi, Keen Negotiator
+    // "Whenever an opponent casts a spell or activates an ability, if mana from a Treasure was spent to cast it or activate it,
+    // put a +1/+1 counter on target creature, then draw a card."
+    if (nameLower === 'vazi, keen negotiator') {
+      if (!isOpponent(ctx, controller, e.activatedBy)) continue;
+
+      const full =
+        "Whenever an opponent casts a spell or activates an ability, if mana from a Treasure was spent to cast it or activate it, put a +1/+1 counter on target creature, then draw a card.";
+      const ok = isInterveningIfSatisfied(ctx as any, String(controller), full, permanent, {
+        ...(e.stackItemId ? { triggeringStackItemId: e.stackItemId } : {}),
+        ...(typeof e.manaFromTreasureSpentKnown === 'boolean'
+          ? { manaFromTreasureSpentKnown: e.manaFromTreasureSpentKnown }
+          : {}),
+        ...(typeof e.manaFromTreasureSpent === 'boolean'
+          ? { manaFromTreasureSpent: e.manaFromTreasureSpent }
+          : {}),
+      } as any);
+      if (ok === false) continue;
+
+      createdTriggers.push(
+        pushTriggeredAbility(
+          ctx,
+          permanent,
+          controller,
+          'Put a +1/+1 counter on target creature, then draw a card.',
+          full,
+          e,
+          {
+            mandatory: true,
+            requiresTarget: true,
+            targetType: 'creature',
+          }
+        )
+      );
+      continue;
+    }
+
     // Illusionist's Bracers / Battlemage's Bracers
     // These are equipment; we approximate by requiring the equipment is attached to the source permanent.
     if (nameLower === "illusionist's bracers" || nameLower === "battlemage's bracers") {
@@ -189,7 +237,11 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
           ? 'You may pay {1}. If you do, copy that ability. You may choose new targets for the copy.'
           : 'Copy that ability. You may choose new targets for the copy.';
 
-      createdTriggers.push(pushTriggeredAbility(ctx, permanent, controller, effectOnly, full, e));
+      createdTriggers.push(
+        pushTriggeredAbility(ctx, permanent, controller, effectOnly, full, e, {
+          mandatory: nameLower !== "battlemage's bracers",
+        })
+      );
       continue;
     }
   }

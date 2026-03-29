@@ -140,6 +140,14 @@ function titleCaseWords(raw: string): string {
     .join(' ');
 }
 
+function buildGraveyardCardTargetType(rawTargetType: string | undefined): string {
+  const normalized = String(rawTargetType || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  return normalized ? `graveyard_${normalized}_card` : 'graveyard_card';
+}
+
 /**
  * Detect if a spell requires targets based on oracle text
  * This is a comprehensive check that looks for ANY "target" pattern in the spell text
@@ -258,6 +266,36 @@ export function parseTargetRequirements(oracleText?: string): {
       perOpponent: true,
       targetControllerConstraint: 'that_player',
     };
+  }
+
+  // Check for graveyard-to-hand card targeting on activated abilities.
+  // Examples:
+  // - "Return target creature card from your graveyard to your hand."
+  // - "Return up to one target artifact card from your graveyard to your hand."
+  const graveyardUpToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(?:(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?card\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
+  if (graveyardUpToMatch) {
+    const numWord = String(graveyardUpToMatch[1] || '').toLowerCase();
+    const rawTargetType = String(graveyardUpToMatch[2] || '').trim().toLowerCase();
+    const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+    maxTargets = numMap[numWord] || parseInt(numWord, 10) || 1;
+    minTargets = 0;
+    targetTypes.push(buildGraveyardCardTargetType(rawTargetType));
+    targetDescription = rawTargetType
+      ? `up to ${numWord} target ${rawTargetType} card in your graveyard`
+      : `up to ${numWord} target card in your graveyard`;
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+  }
+
+  const graveyardMatch = t.match(/target\s+(?:(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?card\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);
+  if (graveyardMatch) {
+    const rawTargetType = String(graveyardMatch[1] || '').trim().toLowerCase();
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push(buildGraveyardCardTargetType(rawTargetType));
+    targetDescription = rawTargetType
+      ? `target ${rawTargetType} card in your graveyard`
+      : 'target card in your graveyard';
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
   }
   
   // Check for "up to X target" patterns

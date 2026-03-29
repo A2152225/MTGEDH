@@ -6130,6 +6130,57 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                   imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
                 })));
               break;
+            case 'graveyard_card':
+            case 'graveyard_creature_card':
+            case 'graveyard_artifact_card':
+            case 'graveyard_enchantment_card':
+            case 'graveyard_land_card':
+            case 'graveyard_instant_card':
+            case 'graveyard_sorcery_card':
+            case 'graveyard_planeswalker_card':
+            case 'graveyard_nonland_card':
+            case 'graveyard_noncreature_card': {
+              const graveyard = Array.isArray((game.state as any)?.zones?.[pid]?.graveyard)
+                ? (game.state as any).zones[pid].graveyard
+                : [];
+              const matchesGraveyardCardType = (card: any): boolean => {
+                const typeLine = String(card?.type_line || '').toLowerCase();
+                switch (targetType.toLowerCase()) {
+                  case 'graveyard_card':
+                    return true;
+                  case 'graveyard_creature_card':
+                    return typeLine.includes('creature');
+                  case 'graveyard_artifact_card':
+                    return typeLine.includes('artifact');
+                  case 'graveyard_enchantment_card':
+                    return typeLine.includes('enchantment');
+                  case 'graveyard_land_card':
+                    return typeLine.includes('land');
+                  case 'graveyard_instant_card':
+                    return typeLine.includes('instant');
+                  case 'graveyard_sorcery_card':
+                    return typeLine.includes('sorcery');
+                  case 'graveyard_planeswalker_card':
+                    return typeLine.includes('planeswalker');
+                  case 'graveyard_nonland_card':
+                    return !typeLine.includes('land');
+                  case 'graveyard_noncreature_card':
+                    return !typeLine.includes('creature');
+                  default:
+                    return false;
+                }
+              };
+              validTargets.push(...graveyard
+                .filter((card: any) => matchesGraveyardCardType(card))
+                .map((card: any) => ({
+                  id: card.id,
+                  kind: 'graveyard_card',
+                  name: card.name || 'Card',
+                  controller: pid,
+                  imageUrl: card.image_uris?.small || card.image_uris?.normal,
+                })));
+              break;
+            }
           }
         }
         
@@ -6169,7 +6220,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             validTargets: uniqueTargets.map(t => ({
               id: t.id,
               name: t.name,
-              type: t.kind === 'player' ? 'player' : 'permanent',
+              type: t.kind === 'player' ? 'player' : (t.kind === 'graveyard_card' ? 'graveyard_card' : 'permanent'),
               controller: t.controller,
               imageUrl: t.imageUrl,
               life: (t as any).life,

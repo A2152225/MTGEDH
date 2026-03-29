@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { applyEvent } from '../src/state/modules/applyEvent';
+import { serializeAbilityActivatedTriggeredStackItem } from '../src/state/modules/triggers/ability-activated';
 
 describe('ability-activated copy retarget metadata via applyEvent', () => {
   it('replay pushTriggeredAbility preserves ability-activated trigger metadata', () => {
@@ -119,6 +120,70 @@ describe('ability-activated copy retarget metadata via applyEvent', () => {
       mandatory: false,
       requiresTarget: true,
       targetType: 'permanent',
+    });
+  });
+
+  it('serializes and replays targeted ability-activated trigger metadata together', () => {
+    const payload = serializeAbilityActivatedTriggeredStackItem({
+      id: 'trigger_vazi_1',
+      type: 'triggered_ability',
+      controller: 'p1',
+      source: 'vazi_1',
+      sourceName: 'Vazi, Keen Negotiator',
+      description: 'Put a +1/+1 counter on target creature, then draw a card.',
+      effect:
+        'Whenever an opponent casts a spell or activates an ability, if mana from a Treasure was spent to cast it or activate it, put a +1/+1 counter on target creature, then draw a card.',
+      triggerType: 'ability_activated',
+      mandatory: true,
+      triggeringPlayer: 'p2',
+      activatedAbilityIsManaAbility: false,
+      triggeringStackItemId: 'ability_stack_1',
+      requiresTarget: true,
+      targetType: 'creature',
+    });
+
+    expect(payload).toMatchObject({
+      triggerId: 'trigger_vazi_1',
+      sourceId: 'vazi_1',
+      sourceName: 'Vazi, Keen Negotiator',
+      controllerId: 'p1',
+      triggerType: 'ability_activated',
+      mandatory: true,
+      triggeringPlayer: 'p2',
+      activatedAbilityIsManaAbility: false,
+      triggeringStackItemId: 'ability_stack_1',
+      requiresTarget: true,
+      targetType: 'creature',
+    });
+
+    const ctx: any = {
+      state: {
+        battlefield: [],
+        stack: [],
+      },
+      bumpSeq() {},
+    };
+
+    applyEvent(ctx, {
+      type: 'pushTriggeredAbility',
+      ...payload,
+    } as any);
+
+    expect(ctx.state.stack).toHaveLength(1);
+    expect(ctx.state.stack[0]).toMatchObject({
+      id: 'trigger_vazi_1',
+      type: 'triggered_ability',
+      controller: 'p1',
+      source: 'vazi_1',
+      sourceName: 'Vazi, Keen Negotiator',
+      description: 'Put a +1/+1 counter on target creature, then draw a card.',
+      triggerType: 'ability_activated',
+      mandatory: true,
+      triggeringPlayer: 'p2',
+      activatedAbilityIsManaAbility: false,
+      triggeringStackItemId: 'ability_stack_1',
+      requiresTarget: true,
+      targetType: 'creature',
     });
   });
 
