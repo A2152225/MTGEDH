@@ -46,6 +46,23 @@ export function isHarnessed(state: HarnessedState): boolean {
   return state.isHarnessed;
 }
 
+/**
+ * Harness only applies to permanents on the battlefield.
+ */
+export function canHarnessPermanent(zone: string, isAlreadyHarnessed: boolean): boolean {
+  return String(zone || '').trim().toLowerCase() === 'battlefield' && !isAlreadyHarnessed;
+}
+
+/**
+ * Remove the harnessed designation.
+ */
+export function clearHarnessedState(state: HarnessedState): HarnessedState {
+  return {
+    ...state,
+    isHarnessed: false,
+  };
+}
+
 export function canBecomeHarnessed(isAlreadyHarnessed: boolean): boolean {
   return !isAlreadyHarnessed;
 }

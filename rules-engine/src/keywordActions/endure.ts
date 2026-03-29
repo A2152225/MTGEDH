@@ -18,6 +18,12 @@ export interface EndureAction {
   readonly tokenId?: string;
 }
 
+export const ENDURE_SPIRIT_TOKEN = {
+  name: 'Spirit',
+  colors: ['W'],
+  typeLine: 'Token Creature — Spirit',
+};
+
 /**
  * Rule 701.63a: Endure N
  */
@@ -74,4 +80,54 @@ export function endureWithToken(
  */
 export function endureDoesNothing(n: number): boolean {
   return n === 0;
+}
+
+/**
+ * Check whether the controller can choose counters instead of the token.
+ */
+export function canChooseEndureCounters(n: number, canReceiveCounters: boolean): boolean {
+  return n > 0 && canReceiveCounters;
+}
+
+/**
+ * Check whether the token branch should be used.
+ */
+export function shouldCreateEndureToken(action: EndureAction): boolean {
+  return action.createdToken === true;
+}
+
+/**
+ * Create the white Spirit token used by endure.
+ */
+export function createEndureSpiritToken(tokenId: string, controllerId: string, n: number): any {
+  const size = Math.max(0, Math.trunc(n));
+  return {
+    id: tokenId,
+    controller: controllerId,
+    owner: controllerId,
+    tapped: false,
+    summoningSickness: true,
+    counters: {},
+    attachments: [],
+    modifiers: [],
+    isToken: true,
+    basePower: size,
+    baseToughness: size,
+    card: {
+      id: tokenId,
+      name: ENDURE_SPIRIT_TOKEN.name,
+      type_line: ENDURE_SPIRIT_TOKEN.typeLine,
+      oracle_text: '',
+      colors: ENDURE_SPIRIT_TOKEN.colors,
+      mana_cost: '',
+      cmc: 0,
+    },
+  };
+}
+
+/**
+ * Return the number of +1/+1 counters or token size created by endure.
+ */
+export function getEndureValue(action: EndureAction): number {
+  return Math.max(0, action.n);
 }

@@ -15,6 +15,36 @@ export interface CollectEvidenceAction {
   readonly totalManaValue?: number;
 }
 
+type ManaValueLike = {
+  readonly manaValue?: number;
+  readonly mana_value?: number;
+  readonly cmc?: number;
+  readonly card?: {
+    readonly manaValue?: number;
+    readonly mana_value?: number;
+    readonly cmc?: number;
+  };
+};
+
+function getManaValue(card: ManaValueLike): number {
+  const candidates = [
+    card.manaValue,
+    card.mana_value,
+    card.cmc,
+    card.card?.manaValue,
+    card.card?.mana_value,
+    card.card?.cmc,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return Math.max(0, candidate);
+    }
+  }
+
+  return 0;
+}
+
 /**
  * Rule 701.59a: Collect evidence N
  */
@@ -63,4 +93,25 @@ export function isValidEvidence(
 ): boolean {
   const total = cardsManaValues.reduce((sum, mv) => sum + mv, 0);
   return total >= n;
+}
+
+/**
+ * Sum the mana value of a set of candidate evidence cards.
+ */
+export function getCollectedEvidenceTotal(cards: readonly ManaValueLike[]): number {
+  return cards.reduce((sum, card) => sum + getManaValue(card), 0);
+}
+
+/**
+ * Check whether the selected cards provide enough evidence.
+ */
+export function canCollectEvidenceWithCards(cards: readonly ManaValueLike[], n: number): boolean {
+  return getCollectedEvidenceTotal(cards) >= n;
+}
+
+/**
+ * Return how much more mana value is still needed.
+ */
+export function getEvidenceShortfall(totalManaValue: number, n: number): number {
+  return Math.max(0, n - Math.max(0, totalManaValue));
 }

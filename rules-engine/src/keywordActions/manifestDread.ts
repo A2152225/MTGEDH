@@ -15,6 +15,11 @@ export interface ManifestDreadAction {
   readonly cardsToGraveyard?: readonly string[];
 }
 
+export interface ManifestDreadResult {
+  readonly manifestedCardId: string;
+  readonly cardsToGraveyard: readonly string[];
+}
+
 /**
  * Rule 701.62a: Manifest dread
  */
@@ -50,3 +55,41 @@ export const MANIFESTED_DREAD_EVEN_IF_IMPOSSIBLE = true;
  * Number of cards to look at
  */
 export const MANIFEST_DREAD_CARD_COUNT = 2;
+
+/**
+ * Manifest dread needs at least one card to look at.
+ */
+export function canManifestDread(libraryCount: number): boolean {
+  return libraryCount > 0;
+}
+
+/**
+ * Return how many cards will actually be looked at.
+ */
+export function getManifestDreadSeenCardCount(libraryCount: number): number {
+  return Math.max(0, Math.min(MANIFEST_DREAD_CARD_COUNT, libraryCount));
+}
+
+/**
+ * Validate the chosen card from the looked-at subset.
+ */
+export function isValidManifestDreadChoice(cardsLookedAt: readonly string[], manifestedCardId: string): boolean {
+  return cardsLookedAt.includes(manifestedCardId);
+}
+
+/**
+ * Resolve the looked-at cards into a manifested card and graveyard remainder.
+ */
+export function resolveManifestDreadLook(
+  cardsLookedAt: readonly string[],
+  manifestedCardId: string,
+): ManifestDreadResult | null {
+  if (!isValidManifestDreadChoice(cardsLookedAt, manifestedCardId)) {
+    return null;
+  }
+
+  return {
+    manifestedCardId,
+    cardsToGraveyard: cardsLookedAt.filter((cardId) => cardId !== manifestedCardId),
+  };
+}

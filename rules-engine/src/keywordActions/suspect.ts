@@ -33,6 +33,23 @@ export interface SuspectedState {
   readonly isSuspected: boolean;
 }
 
+type SuspectCandidate = {
+  readonly isCreature?: boolean;
+  readonly type_line?: string;
+  readonly card?: {
+    readonly type_line?: string;
+  };
+};
+
+function isCreatureLike(candidate: SuspectCandidate): boolean {
+  if (candidate.isCreature === true) {
+    return true;
+  }
+
+  const typeLine = String(candidate.type_line || candidate.card?.type_line || '').toLowerCase();
+  return typeLine.includes('creature');
+}
+
 export function createSuspectedState(creatureId: string): SuspectedState {
   return {
     creatureId,
@@ -50,6 +67,30 @@ export const SUSPECTED_ABILITIES = {
   menace: true,
   cantBlock: true,
 } as const;
+
+/**
+ * Remove the suspected designation.
+ */
+export function clearSuspectedState(state: SuspectedState): SuspectedState {
+  return {
+    ...state,
+    isSuspected: false,
+  };
+}
+
+/**
+ * Validate a creature that can become suspected.
+ */
+export function canSuspectCreature(candidate: SuspectCandidate, isAlreadySuspected: boolean): boolean {
+  return isCreatureLike(candidate) && !isAlreadySuspected;
+}
+
+/**
+ * Suspected creatures can't block.
+ */
+export function canBlockWhileSuspected(isSuspected: boolean): boolean {
+  return !isSuspected;
+}
 
 /**
  * Rule 701.60d: Can't become suspected again
