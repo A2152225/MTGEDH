@@ -21,6 +21,16 @@ export interface FadingAbility {
 }
 
 /**
+ * Result of processing a fading upkeep trigger.
+ */
+export interface FadingUpkeepResult {
+  readonly ability: FadingAbility | null;
+  readonly removedCounter: boolean;
+  readonly sacrificed: boolean;
+  readonly countersRemaining: number;
+}
+
+/**
  * Creates a fading ability
  * Rule 702.32a
  * 
@@ -51,6 +61,36 @@ export function removeFadeCounter(ability: FadingAbility): FadingAbility | null 
   return {
     ...ability,
     fadeCounters: ability.fadeCounters - 1,
+  };
+}
+
+/**
+ * Checks whether a fade counter can be removed this upkeep.
+ */
+export function canRemoveFadeCounter(ability: FadingAbility): boolean {
+  return ability.fadeCounters > 0;
+}
+
+/**
+ * Processes fading's upkeep trigger according to rule 702.32a.
+ */
+export function processFadingUpkeep(ability: FadingAbility): FadingUpkeepResult {
+  if (!canRemoveFadeCounter(ability)) {
+    return {
+      ability: null,
+      removedCounter: false,
+      sacrificed: true,
+      countersRemaining: 0,
+    };
+  }
+
+  const updatedAbility = removeFadeCounter(ability)!;
+
+  return {
+    ability: updatedAbility,
+    removedCounter: true,
+    sacrificed: false,
+    countersRemaining: updatedAbility.fadeCounters,
   };
 }
 

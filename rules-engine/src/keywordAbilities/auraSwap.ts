@@ -15,6 +15,12 @@ export interface AuraSwapAbility {
   readonly source: string;
 }
 
+export interface AuraSwapResult {
+  readonly returnedAuraId: string;
+  readonly putOntoBattlefieldAuraId: string;
+  readonly exchangePerformed: boolean;
+}
+
 /**
  * Creates an aura swap ability.
  * 
@@ -32,5 +38,35 @@ export function auraSwap(source: string, cost: string): AuraSwapAbility {
     type: 'auraSwap',
     cost,
     source
+  };
+}
+
+export function isAuraCard(typeLine: string): boolean {
+  return typeLine.toLowerCase().includes('aura');
+}
+
+export function canActivateAuraSwap(
+  isOnBattlefield: boolean,
+  isAttachedAura: boolean,
+  isControllerPriority: boolean = true
+): boolean {
+  return isOnBattlefield && isAttachedAura && isControllerPriority;
+}
+
+export function canExchangeWithHandAura(
+  ability: AuraSwapAbility,
+  handCardTypeLine: string
+): boolean {
+  return ability.type === 'auraSwap' && isAuraCard(handCardTypeLine);
+}
+
+export function performAuraSwap(
+  battlefieldAuraId: string,
+  handAuraId: string
+): AuraSwapResult {
+  return {
+    returnedAuraId: battlefieldAuraId,
+    putOntoBattlefieldAuraId: handAuraId,
+    exchangePerformed: true,
   };
 }

@@ -13,6 +13,20 @@ export interface BeholdAction {
   readonly cardOrPermanentId: string;
 }
 
+type BeholdCandidate = {
+  readonly id?: string;
+  readonly qualities?: readonly string[];
+  readonly type_line?: string;
+  readonly card?: {
+    readonly type_line?: string;
+  };
+  readonly isLegendary?: boolean;
+};
+
+function getCandidateText(candidate: BeholdCandidate): string {
+  return `${String(candidate.type_line || candidate.card?.type_line || '')} ${String((candidate.qualities || []).join(' '))}`.toLowerCase();
+}
+
 /**
  * Rule 701.4b: Quality checking
  * 
@@ -36,4 +50,34 @@ export function createBeholdAction(
 
 export function wasBeheld(action: BeholdAction, quality: string): boolean {
   return action.quality === quality;
+}
+
+/**
+ * Check whether a proposed object satisfies the quality being beheld.
+ */
+export function canBeholdQuality(candidate: BeholdCandidate, quality: string): boolean {
+  const normalizedQuality = String(quality || '').trim().toLowerCase();
+  if (!normalizedQuality) {
+    return false;
+  }
+
+  if (normalizedQuality === 'legendary') {
+    return candidate.isLegendary === true || getCandidateText(candidate).includes('legendary');
+  }
+
+  return getCandidateText(candidate).includes(normalizedQuality);
+}
+
+/**
+ * Check whether the behold action used a permanent rather than a revealed card.
+ */
+export function beheldPermanent(action: BeholdAction): boolean {
+  return action.choice === 'chosen-permanent';
+}
+
+/**
+ * Return the object id used to behold the required quality.
+ */
+export function getBeholdedObjectId(action: BeholdAction): string {
+  return action.cardOrPermanentId;
 }

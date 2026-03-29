@@ -42,6 +42,27 @@ export function completeAssemble(
 }
 
 /**
+ * Assemble requires an available Contraption to complete.
+ */
+export function canAssemble(availableContraptionIds: readonly string[]): boolean {
+  return availableContraptionIds.length > 0;
+}
+
+/**
+ * Return the assembled Contraption, if one was chosen.
+ */
+export function getAssembledContraption(action: AssembleAction): string | undefined {
+  return action.contraptionId;
+}
+
+/**
+ * Un-set mechanics remain explicitly flagged as non-black-border placeholder coverage.
+ */
+export function isUnSetAssembleAction(): boolean {
+  return UN_SET_MECHANIC;
+}
+
+/**
  * Note about Un-set mechanics
  */
 export const UN_SET_MECHANIC = true;

@@ -15,6 +15,11 @@ export interface FrenzyAbility {
   readonly source: string;
 }
 
+export interface FrenzyBonus {
+  readonly power: number;
+  readonly toughness: number;
+}
+
 /**
  * Creates a frenzy ability.
  * 
@@ -43,4 +48,18 @@ export function frenzy(source: string, count: number): FrenzyAbility {
  */
 export function getFrenzyBonus(ability: FrenzyAbility): number {
   return ability.count;
+}
+
+export function shouldTriggerFrenzy(
+  attackedThisCombat: boolean,
+  blockedThisCombat: boolean
+): boolean {
+  return attackedThisCombat && !blockedThisCombat;
+}
+
+export function getFrenzyStatBonus(ability: FrenzyAbility): FrenzyBonus {
+  return {
+    power: ability.count,
+    toughness: 0,
+  };
 }

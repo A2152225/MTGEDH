@@ -20,10 +20,42 @@ export function haunt(source: string): HauntAbility {
   };
 }
 
+export function canHauntCard(targetCard: string | undefined): boolean {
+  return typeof targetCard === 'string' && targetCard.length > 0;
+}
+
 export function hauntCard(ability: HauntAbility, targetCard: string): HauntAbility {
+  if (!canHauntCard(targetCard)) {
+    return ability;
+  }
+
   return { ...ability, hauntedCard: targetCard, triggeredOnEntry: true };
 }
 
-export function triggerHauntLeave(ability: HauntAbility): HauntAbility {
+export function isHauntingCard(ability: HauntAbility): boolean {
+  return canHauntCard(ability.hauntedCard);
+}
+
+export function shouldTriggerHauntLeave(ability: HauntAbility, leavingCardId: string): boolean {
+  return ability.hauntedCard === leavingCardId;
+}
+
+export function clearHaunt(ability: HauntAbility): HauntAbility {
+  return {
+    ...ability,
+    hauntedCard: undefined,
+    triggeredOnLeave: false,
+  };
+}
+
+export function triggerHauntLeave(ability: HauntAbility, leavingCardId?: string): HauntAbility {
+  if (!isHauntingCard(ability)) {
+    return ability;
+  }
+
+  if (leavingCardId !== undefined && !shouldTriggerHauntLeave(ability, leavingCardId)) {
+    return ability;
+  }
+
   return { ...ability, triggeredOnLeave: true };
 }

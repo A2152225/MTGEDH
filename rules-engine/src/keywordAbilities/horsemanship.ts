@@ -41,6 +41,24 @@ export function canBlockHorsemanship(blockerHasHorsemanship: boolean): boolean {
   return blockerHasHorsemanship;
 }
 
+export function canBlockAttackerWithHorsemanship(
+  attackerHasHorsemanship: boolean,
+  blockerHasHorsemanship: boolean
+): boolean {
+  if (!attackerHasHorsemanship) {
+    return true;
+  }
+
+  return canBlockHorsemanship(blockerHasHorsemanship);
+}
+
+export function isHorsemanshipEvasionRelevant(
+  attackerHasHorsemanship: boolean,
+  availableBlockersHaveHorsemanship: boolean
+): boolean {
+  return attackerHasHorsemanship && !availableBlockersHaveHorsemanship;
+}
+
 /**
  * Checks if multiple horsemanship abilities are redundant
  * Rule 702.31b - Multiple instances of horsemanship are redundant

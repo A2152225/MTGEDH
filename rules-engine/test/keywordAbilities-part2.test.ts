@@ -279,7 +279,7 @@ describe('Keyword Abilities - Part 2 (Rules 702.21-702.37)', () => {
       expect(updated?.fadeCounters).toBe(1);
     });
 
-    it('should sacrifice when no counters remain', () => {
+    it('should sacrifice on a later upkeep if no fade counters remain', () => {
       const ability = fading('permanent-1', 1);
       const updated = removeFadeCounter(ability);
       const sacrificed = removeFadeCounter(updated!);

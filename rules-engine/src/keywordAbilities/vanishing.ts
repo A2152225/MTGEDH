@@ -20,6 +20,16 @@ export interface VanishingAbility {
 }
 
 /**
+ * Result of processing a vanishing upkeep trigger.
+ */
+export interface VanishingUpkeepResult {
+  readonly ability: VanishingAbility;
+  readonly removedCounter: boolean;
+  readonly lastCounterRemoved: boolean;
+  readonly shouldSacrifice: boolean;
+}
+
+/**
  * Creates a vanishing ability.
  * 
  * @param source - The source permanent with vanishing
@@ -54,6 +64,37 @@ export function removeVanishingCounter(ability: VanishingAbility): VanishingAbil
   return {
     ...ability,
     timeCounters: ability.timeCounters - 1
+  };
+}
+
+/**
+ * Checks whether vanishing can remove a time counter this upkeep.
+ */
+export function canRemoveVanishingCounter(ability: VanishingAbility): boolean {
+  return ability.timeCounters > 0;
+}
+
+/**
+ * Processes vanishing's upkeep trigger and reports whether sacrifice should trigger.
+ */
+export function processVanishingUpkeep(ability: VanishingAbility): VanishingUpkeepResult {
+  if (!canRemoveVanishingCounter(ability)) {
+    return {
+      ability,
+      removedCounter: false,
+      lastCounterRemoved: false,
+      shouldSacrifice: false,
+    };
+  }
+
+  const updatedAbility = removeVanishingCounter(ability);
+  const lastCounterRemoved = ability.timeCounters > 0 && updatedAbility.timeCounters === 0;
+
+  return {
+    ability: updatedAbility,
+    removedCounter: true,
+    lastCounterRemoved,
+    shouldSacrifice: lastCounterRemoved,
   };
 }
 
