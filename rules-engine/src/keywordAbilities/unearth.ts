@@ -49,10 +49,61 @@ export function canActivateUnearth(ability: UnearthAbility, zone: string): boole
 }
 
 /**
+ * Check if unearth can be activated under normal timing restrictions.
+ * Unearth may be activated only as a sorcery.
+ *
+ * @param ability - The unearth ability
+ * @param zone - The card's current zone
+ * @param isSorcerySpeed - Whether the player currently has sorcery-speed timing
+ * @returns True if unearth can be activated now
+ */
+export function canActivateUnearthAsSorcery(
+  ability: UnearthAbility,
+  zone: string,
+  isSorcerySpeed: boolean
+): boolean {
+  return isSorcerySpeed && canActivateUnearth(ability, zone);
+}
+
+/**
  * Check if permanent was unearthed
  */
 export function wasUnearthed(ability: UnearthAbility): boolean {
   return ability.wasUnearthed;
+}
+
+/**
+ * Creates the battlefield-return result for an unearth activation.
+ *
+ * @param ability - The unearth ability
+ * @param zone - The card's current zone
+ * @param isSorcerySpeed - Whether the player currently has sorcery-speed timing
+ * @returns Return summary, or null if unearth cannot be activated now
+ */
+export function createUnearthReturnResult(
+  ability: UnearthAbility,
+  zone: string,
+  isSorcerySpeed: boolean
+): {
+  source: string;
+  fromZone: 'graveyard';
+  toZone: 'battlefield';
+  gainsHaste: true;
+  exileAtNextEndStep: true;
+  exileIfItWouldLeaveBattlefield: true;
+} | null {
+  if (!canActivateUnearthAsSorcery(ability, zone, isSorcerySpeed)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'graveyard',
+    toZone: 'battlefield',
+    gainsHaste: true,
+    exileAtNextEndStep: true,
+    exileIfItWouldLeaveBattlefield: true,
+  };
 }
 
 /**

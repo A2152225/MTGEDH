@@ -96,6 +96,56 @@ export function calculateConvokeReduction(
 }
 
 /**
+ * Calculates the remaining mana cost after applying convoke payments.
+ *
+ * @param payments - The chosen convoke payments
+ * @param cost - The spell's mana requirements before convoke
+ * @returns Remaining colored and generic mana requirements after convoke
+ */
+export function getRemainingConvokeCost(
+  payments: readonly ConvokePayment[],
+  cost: { generic: number; colors: Partial<Record<'W' | 'U' | 'B' | 'R' | 'G', number>> }
+): { generic: number; colors: Record<'W' | 'U' | 'B' | 'R' | 'G', number> } {
+  const reduction = calculateConvokeReduction(payments);
+  const remainingColors = {
+    W: Math.max(0, (cost.colors.W ?? 0) - reduction.colors.W),
+    U: Math.max(0, (cost.colors.U ?? 0) - reduction.colors.U),
+    B: Math.max(0, (cost.colors.B ?? 0) - reduction.colors.B),
+    R: Math.max(0, (cost.colors.R ?? 0) - reduction.colors.R),
+    G: Math.max(0, (cost.colors.G ?? 0) - reduction.colors.G),
+  };
+
+  return {
+    generic: Math.max(0, cost.generic - reduction.generic),
+    colors: remainingColors,
+  };
+}
+
+/**
+ * Creates the payment summary for convoke.
+ *
+ * @param ability - The convoke ability
+ * @param payments - The chosen convoke payments
+ * @param cost - The spell's mana requirements before convoke
+ * @returns Summary of tapped creatures and remaining cost
+ */
+export function createConvokePaymentResult(
+  ability: ConvokeAbility,
+  payments: readonly ConvokePayment[],
+  cost: { generic: number; colors: Partial<Record<'W' | 'U' | 'B' | 'R' | 'G', number>> }
+): {
+  source: string;
+  tappedCreatures: readonly string[];
+  remainingCost: { generic: number; colors: Record<'W' | 'U' | 'B' | 'R' | 'G', number> };
+} {
+  return {
+    source: ability.source,
+    tappedCreatures: payments.map(payment => payment.creatureId),
+    remainingCost: getRemainingConvokeCost(payments, cost),
+  };
+}
+
+/**
  * Check if a card has convoke by checking its oracle text
  */
 export function hasConvoke(oracleText: string): boolean {

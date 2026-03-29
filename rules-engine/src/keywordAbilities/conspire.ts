@@ -50,6 +50,44 @@ export function wasConspired(ability: ConspireAbility): boolean {
 }
 
 /**
+ * Checks whether a conspire cost can be paid with the chosen creatures.
+ *
+ * @param creatures - The creatures chosen to pay conspire
+ * @param shareColorWithSpell - Whether each chosen creature shares a color with the spell
+ * @returns True if the chosen creatures can pay conspire
+ */
+export function canPayConspireCost(
+  creatures: readonly string[],
+  shareColorWithSpell: boolean
+): boolean {
+  return creatures.length === 2 && shareColorWithSpell;
+}
+
+/**
+ * Creates the copy result from a conspired spell.
+ *
+ * @param ability - The conspire ability
+ * @returns Copy summary, or null if the conspire cost was not paid
+ */
+export function createConspireCopyResult(
+  ability: ConspireAbility
+): {
+  source: string;
+  copied: true;
+  tappedCreatures: readonly string[];
+} | null {
+  if (!ability.wasPaid || !ability.tappedCreatures) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    copied: true,
+    tappedCreatures: ability.tappedCreatures,
+  };
+}
+
+/**
  * Check if two conspire abilities are redundant
  * Rule 702.78b: Multiple instances trigger separately
  */

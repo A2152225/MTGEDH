@@ -46,10 +46,49 @@ export function getHideawayCard(ability: HideawayAbility): string | undefined {
 }
 
 /**
+ * Gets the number of cards hideaway will look at from the library.
+ *
+ * @param ability - The hideaway ability
+ * @param librarySize - The current library size
+ * @returns The actual number of cards looked at
+ */
+export function getHideawayLookCount(ability: HideawayAbility, librarySize: number): number {
+  return Math.min(ability.count, librarySize);
+}
+
+/**
  * Check if hideaway ability has triggered
  */
 export function hasHideawayTriggered(ability: HideawayAbility): boolean {
   return ability.exiledCard !== undefined;
+}
+
+/**
+ * Creates the resolution summary for hideaway.
+ *
+ * @param ability - The hideaway ability after resolution
+ * @param lookedAtCards - The cards looked at from the top of the library
+ * @returns Summary of the hidden card and cards sent to the bottom, or null if unresolved
+ */
+export function createHideawayResolutionResult(
+  ability: HideawayAbility,
+  lookedAtCards: readonly string[]
+): {
+  source: string;
+  lookedAtCount: number;
+  exiledCard: string;
+  bottomedCards: readonly string[];
+} | null {
+  if (!ability.exiledCard) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    lookedAtCount: getHideawayLookCount(ability, lookedAtCards.length),
+    exiledCard: ability.exiledCard,
+    bottomedCards: lookedAtCards.filter(card => card !== ability.exiledCard),
+  };
 }
 
 /**

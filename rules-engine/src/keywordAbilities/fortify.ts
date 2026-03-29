@@ -63,3 +63,50 @@ export function detachFortification(ability: FortifyAbility): FortifyAbility {
     attachedTo: undefined
   };
 }
+
+/**
+ * Checks whether fortify can be activated under normal timing restrictions.
+ * Fortify may be activated only as a sorcery while the Fortification is on the battlefield.
+ *
+ * @param ability - The fortify ability
+ * @param zone - The fortification's current zone
+ * @param isSorcerySpeed - Whether the player currently has sorcery-speed timing
+ * @returns True if fortify can be activated now
+ */
+export function canActivateFortifyAbility(
+  ability: FortifyAbility,
+  zone: string,
+  isSorcerySpeed: boolean
+): boolean {
+  return zone === 'battlefield' && isSorcerySpeed;
+}
+
+/**
+ * Creates the attachment summary for a fortify activation.
+ *
+ * @param ability - The fortify ability
+ * @param zone - The fortification's current zone
+ * @param isSorcerySpeed - Whether the player currently has sorcery-speed timing
+ * @param targetLand - The chosen land to fortify
+ * @returns Attachment summary, or null if fortify cannot be activated now
+ */
+export function createFortifyAttachmentResult(
+  ability: FortifyAbility,
+  zone: string,
+  isSorcerySpeed: boolean,
+  targetLand?: string
+): {
+  source: string;
+  attachedTo: string;
+  costPaid: string;
+} | null {
+  if (!targetLand || !canActivateFortifyAbility(ability, zone, isSorcerySpeed)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    attachedTo: targetLand,
+    costPaid: ability.cost,
+  };
+}

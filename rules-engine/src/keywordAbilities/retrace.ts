@@ -44,6 +44,52 @@ export function canUseRetrace(ability: RetraceAbility, zone: string): boolean {
 }
 
 /**
+ * Checks whether a spell can be cast using retrace with the provided discard.
+ *
+ * @param ability - The retrace ability
+ * @param zone - The card's current zone
+ * @param landCard - The land card being discarded as an additional cost
+ * @returns True if the spell can be cast with retrace
+ */
+export function canCastWithRetrace(
+  ability: RetraceAbility,
+  zone: string,
+  landCard?: string
+): boolean {
+  return canUseRetrace(ability, zone) && Boolean(landCard && landCard.trim());
+}
+
+/**
+ * Creates the result of a retrace cast.
+ *
+ * @param ability - The retrace ability
+ * @param zone - The card's current zone
+ * @param landCard - The discarded land card
+ * @returns Cast summary, or null if retrace cannot be used
+ */
+export function createRetraceCastResult(
+  ability: RetraceAbility,
+  zone: string,
+  landCard?: string
+): {
+  source: string;
+  fromZone: 'graveyard';
+  discardedLand: string;
+  usedRetrace: true;
+} | null {
+  if (!canCastWithRetrace(ability, zone, landCard)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'graveyard',
+    discardedLand: landCard!,
+    usedRetrace: true,
+  };
+}
+
+/**
  * Check if two retrace abilities are redundant
  * Multiple instances are redundant
  */

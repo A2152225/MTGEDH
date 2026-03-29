@@ -45,6 +45,38 @@ export function canActivateReinforce(ability: ReinforceAbility, zone: string): b
 }
 
 /**
+ * Creates the activation result for reinforce.
+ *
+ * @param ability - The reinforce ability
+ * @param zone - The card's current zone
+ * @param targetCreature - The creature receiving counters
+ * @returns Activation summary, or null if reinforce cannot be activated
+ */
+export function createReinforceActivationResult(
+  ability: ReinforceAbility,
+  zone: string,
+  targetCreature?: string
+): {
+  source: string;
+  fromZone: 'hand';
+  targetCreature: string;
+  countersAdded: number;
+  costPaid: string;
+} | null {
+  if (!canActivateReinforce(ability, zone) || !targetCreature) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'hand',
+    targetCreature,
+    countersAdded: ability.count,
+    costPaid: ability.cost,
+  };
+}
+
+/**
  * Check if two reinforce abilities are redundant
  * Multiple instances are not redundant
  */

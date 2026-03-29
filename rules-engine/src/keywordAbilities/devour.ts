@@ -56,6 +56,43 @@ export function getCreaturesDevoured(ability: DevourAbility): number {
 }
 
 /**
+ * Checks whether a permanent can be sacrificed to satisfy a devour quality restriction.
+ *
+ * @param ability - The devour ability
+ * @param permanentQualities - The sacrificing permanent's qualities or types
+ * @returns True if the permanent can be devoured
+ */
+export function canDevourPermanent(
+  ability: DevourAbility,
+  permanentQualities: readonly string[]
+): boolean {
+  if (!ability.quality) {
+    return true;
+  }
+
+  const normalizedQualities = permanentQualities.map(quality => quality.trim().toLowerCase());
+  return normalizedQualities.includes(ability.quality.trim().toLowerCase());
+}
+
+/**
+ * Creates the battlefield-entry result for devour.
+ *
+ * @param ability - The devour ability after sacrifices are chosen
+ * @returns Summary of sacrificed creatures and counters added
+ */
+export function createDevourEntryResult(ability: DevourAbility): {
+  source: string;
+  creaturesDevoured: number;
+  countersAdded: number;
+} {
+  return {
+    source: ability.source,
+    creaturesDevoured: getCreaturesDevoured(ability),
+    countersAdded: getDevourCounters(ability),
+  };
+}
+
+/**
  * Check if two devour abilities are redundant
  * Multiple instances are not redundant
  */

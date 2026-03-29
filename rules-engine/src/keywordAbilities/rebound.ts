@@ -50,6 +50,43 @@ export function shouldReboundTrigger(ability: ReboundAbility): boolean {
 }
 
 /**
+ * Checks whether the rebound spell may be cast from exile on the next upkeep.
+ *
+ * @param ability - The rebound ability
+ * @param zone - The card's current zone
+ * @returns True if rebound allows the card to be cast now
+ */
+export function canCastReboundFromZone(ability: ReboundAbility, zone: string): boolean {
+  return zone === 'exile' && shouldReboundTrigger(ability);
+}
+
+/**
+ * Creates the result of casting a rebound spell from exile.
+ *
+ * @param ability - The rebound ability
+ * @param zone - The card's current zone
+ * @returns Cast summary, or null if rebound cannot be used
+ */
+export function createReboundCastResult(
+  ability: ReboundAbility,
+  zone: string
+): {
+  source: string;
+  fromZone: 'exile';
+  withoutPayingManaCost: true;
+} | null {
+  if (!canCastReboundFromZone(ability, zone)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'exile',
+    withoutPayingManaCost: true,
+  };
+}
+
+/**
  * Check if two rebound abilities are redundant
  * Rule 702.88c: Multiple instances are redundant
  */

@@ -59,6 +59,46 @@ export function getAffinityReduction(ability: AffinityAbility): number {
 }
 
 /**
+ * Calculates the generic mana remaining after affinity is applied.
+ * Affinity can reduce only the generic portion of the cost.
+ *
+ * @param genericManaCost - The spell's generic mana cost before reduction
+ * @param ability - The affinity ability with calculated reduction
+ * @returns The remaining generic mana after applying affinity
+ */
+export function getAffinityGenericManaRemaining(
+  genericManaCost: number,
+  ability: AffinityAbility
+): number {
+  return Math.max(0, genericManaCost - getAffinityReduction(ability));
+}
+
+/**
+ * Creates the cost-reduction summary for affinity.
+ *
+ * @param ability - The affinity ability with calculated reduction
+ * @param genericManaCost - The spell's generic mana cost before reduction
+ * @returns Summary of the applied cost reduction
+ */
+export function createAffinityCostResult(
+  ability: AffinityAbility,
+  genericManaCost: number
+): {
+  source: string;
+  affinityFor: string;
+  reducedBy: number;
+  genericManaRemaining: number;
+} {
+  const reducedBy = Math.min(genericManaCost, getAffinityReduction(ability));
+  return {
+    source: ability.source,
+    affinityFor: ability.affinityFor,
+    reducedBy,
+    genericManaRemaining: getAffinityGenericManaRemaining(genericManaCost, ability),
+  };
+}
+
+/**
  * Checks if affinity abilities are redundant
  * Rule 702.41b: If a spell has multiple instances of affinity, each of them applies
  * 

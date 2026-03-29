@@ -61,3 +61,31 @@ export function payReplicate(ability: ReplicateAbility, times: number = 1): Repl
 export function getReplicateCopies(ability: ReplicateAbility): number {
   return ability.timesPaid;
 }
+
+/**
+ * Gets the IDs of spell copies created by replicate.
+ *
+ * @param ability - The replicate ability
+ * @returns Generated copy IDs in payment order
+ */
+export function getReplicateCopyIds(ability: ReplicateAbility): readonly string[] {
+  return Array.from({ length: ability.timesPaid }, (_, index) => `${ability.source}-replicate-copy-${index + 1}`);
+}
+
+/**
+ * Creates the resolution summary for replicate.
+ *
+ * @param ability - The replicate ability after costs are paid
+ * @returns Summary of copies created by replicate
+ */
+export function createReplicateResolutionResult(ability: ReplicateAbility): {
+  source: string;
+  copiesCreated: number;
+  copyIds: readonly string[];
+} {
+  return {
+    source: ability.source,
+    copiesCreated: getReplicateCopies(ability),
+    copyIds: getReplicateCopyIds(ability),
+  };
+}

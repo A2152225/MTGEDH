@@ -56,7 +56,58 @@ export function isProwlAvailable(
   creatureTypes: readonly string[],
   damageDealtByTypes: readonly string[]
 ): boolean {
-  return creatureTypes.some(type => damageDealtByTypes.includes(type));
+  const normalizedDamageTypes = damageDealtByTypes.map(type => type.trim().toLowerCase());
+  return creatureTypes.some(type => normalizedDamageTypes.includes(type.trim().toLowerCase()));
+}
+
+/**
+ * Check whether a spell can be cast for its prowl cost.
+ *
+ * @param ability - The prowl ability
+ * @param zone - The card's current zone
+ * @param creatureTypes - Creature types on the spell
+ * @param damageDealtByTypes - Types of creatures that dealt combat damage this turn
+ * @returns True if the spell can be cast for its prowl cost
+ */
+export function canCastWithProwl(
+  ability: ProwlAbility,
+  zone: string,
+  creatureTypes: readonly string[],
+  damageDealtByTypes: readonly string[]
+): boolean {
+  return zone === 'hand' && isProwlAvailable(ability, creatureTypes, damageDealtByTypes);
+}
+
+/**
+ * Creates the cast result for a spell cast via prowl.
+ *
+ * @param ability - The prowl ability
+ * @param zone - The card's current zone
+ * @param creatureTypes - Creature types on the spell
+ * @param damageDealtByTypes - Types of creatures that dealt combat damage this turn
+ * @returns Cast summary, or null if prowl cannot be used
+ */
+export function createProwlCastResult(
+  ability: ProwlAbility,
+  zone: string,
+  creatureTypes: readonly string[],
+  damageDealtByTypes: readonly string[]
+): {
+  source: string;
+  fromZone: 'hand';
+  alternativeCostPaid: string;
+  usedProwl: true;
+} | null {
+  if (!canCastWithProwl(ability, zone, creatureTypes, damageDealtByTypes)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'hand',
+    alternativeCostPaid: ability.cost,
+    usedProwl: true,
+  };
 }
 
 /**

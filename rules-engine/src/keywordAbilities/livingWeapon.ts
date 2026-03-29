@@ -43,6 +43,40 @@ export function getGermToken(ability: LivingWeaponAbility): string | undefined {
 }
 
 /**
+ * Checks whether living weapon has already created its Germ token.
+ *
+ * @param ability - The living weapon ability
+ * @returns True if a Germ token has been created
+ */
+export function hasLivingWeaponToken(ability: LivingWeaponAbility): boolean {
+  return Boolean(ability.germToken);
+}
+
+/**
+ * Creates the resolution summary for living weapon.
+ *
+ * @param ability - The living weapon ability after it has triggered
+ * @returns Summary of token creation and attachment, or null if no token exists yet
+ */
+export function createLivingWeaponResolutionResult(
+  ability: LivingWeaponAbility
+): {
+  source: string;
+  germToken: string;
+  attachToToken: true;
+} | null {
+  if (!ability.germToken) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    germToken: ability.germToken,
+    attachToToken: true,
+  };
+}
+
+/**
  * Check if two living weapon abilities are redundant
  * Multiple instances trigger separately
  */

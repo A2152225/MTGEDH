@@ -54,3 +54,41 @@ export function payEntwine(ability: EntwineAbility): EntwineAbility {
 export function wasEntwined(ability: EntwineAbility): boolean {
   return ability.wasEntwined;
 }
+
+/**
+ * Checks whether a spell can be cast with entwine.
+ * Entwine only matters when a modal spell has more than one mode available.
+ *
+ * @param ability - The entwine ability
+ * @param modeCount - The total number of modes on the spell
+ * @returns True if entwine can be used to choose all modes
+ */
+export function canCastWithEntwine(ability: EntwineAbility, modeCount: number): boolean {
+  return modeCount > 1;
+}
+
+/**
+ * Creates the cast result for a spell cast with entwine.
+ *
+ * @param ability - The entwine ability
+ * @param modeCount - The total number of modes on the spell
+ * @returns Cast summary, or null if entwine is not applicable
+ */
+export function createEntwineCastResult(
+  ability: EntwineAbility,
+  modeCount: number
+): {
+  source: string;
+  additionalCostPaid: string;
+  modesChosen: 'all';
+} | null {
+  if (!canCastWithEntwine(ability, modeCount) || !wasEntwined(ability)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    additionalCostPaid: ability.cost,
+    modesChosen: 'all',
+  };
+}

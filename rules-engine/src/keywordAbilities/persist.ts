@@ -34,6 +34,52 @@ export function shouldPersistTrigger(ability: PersistAbility, minusCounters: num
 }
 
 /**
+ * Checks whether persist can return the creature from the graveyard.
+ *
+ * @param ability - The persist ability
+ * @param zone - The permanent's current zone
+ * @param minusCounters - The number of -1/-1 counters it had when it died
+ * @returns True if persist can return the creature
+ */
+export function canReturnWithPersist(
+  ability: PersistAbility,
+  zone: string,
+  minusCounters: number
+): boolean {
+  return zone === 'graveyard' && shouldPersistTrigger(ability, minusCounters);
+}
+
+/**
+ * Creates the result of a persist return.
+ *
+ * @param ability - The persist ability
+ * @param zone - The permanent's current zone
+ * @param minusCounters - The number of -1/-1 counters it had when it died
+ * @returns Return summary, or null if persist cannot return it
+ */
+export function createPersistReturnResult(
+  ability: PersistAbility,
+  zone: string,
+  minusCounters: number
+): {
+  source: string;
+  fromZone: 'graveyard';
+  toZone: 'battlefield';
+  minusOneMinusOneCountersAdded: 1;
+} | null {
+  if (!canReturnWithPersist(ability, zone, minusCounters)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'graveyard',
+    toZone: 'battlefield',
+    minusOneMinusOneCountersAdded: 1,
+  };
+}
+
+/**
  * Check if two persist abilities are redundant
  * Multiple instances are redundant
  */

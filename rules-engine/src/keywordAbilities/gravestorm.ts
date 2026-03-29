@@ -46,3 +46,34 @@ export function gravestorm(source: string, permanentsDiedThisTurn: number): Grav
 export function getGravestormCopies(ability: GravestormAbility): number {
   return ability.permanentsDiedThisTurn;
 }
+
+/**
+ * Gets the IDs of copies created by gravestorm.
+ *
+ * @param ability - The gravestorm ability
+ * @returns Generated copy IDs in death-count order
+ */
+export function getGravestormCopyIds(ability: GravestormAbility): readonly string[] {
+  return Array.from(
+    { length: ability.permanentsDiedThisTurn },
+    (_, index) => `${ability.source}-gravestorm-copy-${index + 1}`
+  );
+}
+
+/**
+ * Creates the resolution summary for gravestorm.
+ *
+ * @param ability - The gravestorm ability
+ * @returns Summary of copies created by gravestorm
+ */
+export function createGravestormResolutionResult(ability: GravestormAbility): {
+  source: string;
+  copiesCreated: number;
+  copyIds: readonly string[];
+} {
+  return {
+    source: ability.source,
+    copiesCreated: getGravestormCopies(ability),
+    copyIds: getGravestormCopyIds(ability),
+  };
+}

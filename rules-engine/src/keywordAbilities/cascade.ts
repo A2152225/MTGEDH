@@ -14,6 +14,12 @@ export interface CascadeAbility {
   readonly castCard?: string;
 }
 
+export interface CascadeCandidate {
+  readonly cardId: string;
+  readonly manaValue: number;
+  readonly isLand: boolean;
+}
+
 /**
  * Create a cascade ability
  * Rule 702.85a: "Cascade" means "When you cast this spell, exile cards from
@@ -50,6 +56,51 @@ export function resolveCascade(
  */
 export function canCascadeInto(spellManaValue: number, cardManaValue: number, isLand: boolean): boolean {
   return !isLand && cardManaValue < spellManaValue;
+}
+
+/**
+ * Gets the exiled cards that may be cast with cascade.
+ *
+ * @param spellManaValue - Mana value of the spell with cascade
+ * @param exiledCards - The cards exiled while resolving cascade
+ * @returns IDs of cards that cascade allows the player to cast
+ */
+export function getCascadeCastableCards(
+  spellManaValue: number,
+  exiledCards: readonly CascadeCandidate[]
+): string[] {
+  return exiledCards
+    .filter(card => canCascadeInto(spellManaValue, card.manaValue, card.isLand))
+    .map(card => card.cardId);
+}
+
+/**
+ * Creates the resolution summary for a cascade trigger.
+ *
+ * @param ability - The cascade ability
+ * @param spellManaValue - Mana value of the spell with cascade
+ * @param exiledCards - The cards exiled while resolving cascade
+ * @param chosenCard - The chosen castable card, if any
+ * @returns Summary of exiled cards and available cascade hits
+ */
+export function createCascadeResolutionResult(
+  ability: CascadeAbility,
+  spellManaValue: number,
+  exiledCards: readonly CascadeCandidate[],
+  chosenCard?: string
+): {
+  source: string;
+  exiledCards: readonly string[];
+  castableCards: readonly string[];
+  chosenCard?: string;
+} {
+  const castableCards = getCascadeCastableCards(spellManaValue, exiledCards);
+  return {
+    source: ability.source,
+    exiledCards: exiledCards.map(card => card.cardId),
+    castableCards,
+    chosenCard: chosenCard && castableCards.includes(chosenCard) ? chosenCard : undefined,
+  };
 }
 
 /**

@@ -65,6 +65,34 @@ export function getStormCopies(ability: StormAbility): number {
 }
 
 /**
+ * Gets the IDs of copies created by storm.
+ *
+ * @param ability - The storm ability
+ * @returns The copy IDs created for the spell
+ */
+export function getStormCopyIds(ability: StormAbility): readonly string[] {
+  return ability.copies;
+}
+
+/**
+ * Creates the resolution summary for storm.
+ *
+ * @param ability - The triggered storm ability
+ * @returns Summary of copies created
+ */
+export function createStormResolutionResult(ability: StormAbility): {
+  source: string;
+  copiesCreated: number;
+  copyIds: readonly string[];
+} {
+  return {
+    source: ability.source,
+    copiesCreated: getStormCopies(ability),
+    copyIds: getStormCopyIds(ability),
+  };
+}
+
+/**
  * Checks if storm abilities are redundant
  * Rule 702.40b: If a spell has multiple instances of storm, each triggers separately
  * 
