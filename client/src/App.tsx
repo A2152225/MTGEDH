@@ -90,7 +90,33 @@ import { PriorityModal } from "./components/PriorityModal";
 import { AutoPassSettingsPanel } from "./components/AutoPassSettingsPanel";
 import { TriggerShortcutsPanel } from "./components/TriggerShortcutsPanel";
 import { DraggableSettingsPanel } from "./components/DraggableSettingsPanel";
+import { LoopShortcutPanel } from "./components/LoopShortcutPanel";
 import { debug, debugWarn, debugError } from "./utils/debug";
+import {
+  buildResolutionResponsePayload,
+  clearLoopShortcutDraft,
+  createRecordedEmitItem,
+  createRecordedResolutionResponseItem,
+  deleteSavedLoopShortcut,
+  loadLoopShortcutDraft,
+  loadSavedLoopShortcuts,
+  matchesPromptFingerprint,
+  saveLoopShortcutDraft,
+  type SavedLoopShortcut,
+  type LoopShortcutSequenceItem,
+  upsertSavedLoopShortcut,
+} from "./utils/loopShortcuts";
+
+const LOOP_SHORTCUT_RECORDABLE_EVENTS = new Set([
+  'activateBattlefieldAbility',
+  'activateGraveyardAbility',
+  'requestCastSpell',
+  'castSpellFromHand',
+  'completeCastSpell',
+  'castCommander',
+  'passPriority',
+  'playLand',
+]);
 
 
 /* App component */
@@ -1012,6 +1038,105 @@ export function App() {
 
   // Trigger shortcuts panel state
   const [showTriggerShortcuts, setShowTriggerShortcuts] = useState(false);
+  const [showLoopShortcutPanel, setShowLoopShortcutPanel] = useState(false);
+  const [loopShortcutName, setLoopShortcutName] = useState('Loop Shortcut');
+  const [loopShortcutItems, setLoopShortcutItems] = useState<LoopShortcutSequenceItem[]>([]);
+  const [savedLoopShortcuts, setSavedLoopShortcuts] = useState<SavedLoopShortcut[]>([]);
+  const [loopShortcutIterations, setLoopShortcutIterations] = useState(1);
+  const [loopShortcutStatusText, setLoopShortcutStatusText] = useState('Idle.');
+  const [isLoopShortcutRecording, setIsLoopShortcutRecording] = useState(false);
+  const [isLoopShortcutRunning, setIsLoopShortcutRunning] = useState(false);
+
+  const safeViewRef = useRef<ClientGameView | null>(safeView);
+  const youRef = useRef<PlayerID | null>(you);
+  const loopShortcutItemsRef = useRef<LoopShortcutSequenceItem[]>([]);
+  const isLoopShortcutRecordingRef = useRef(false);
+  const lastResolutionStepsRef = useRef<Map<string, any>>(new Map());
+  const originalSocketEmitRef = useRef<((event: string, ...args: any[]) => any) | null>(null);
+  const loopShortcutReplayRef = useRef<{
+    running: boolean;
+    index: number;
+    iteration: number;
+    totalIterations: number;
+    waitingForState: boolean;
+    waitingPrompt: Extract<LoopShortcutSequenceItem, { kind: 'resolution_response' }> | null;
+  }>({
+    running: false,
+    index: 0,
+    iteration: 0,
+    totalIterations: 0,
+    waitingForState: false,
+    waitingPrompt: null,
+  });
+  const loopShortcutLastErrorRef = useRef<string | null>(null);
+  const loopShortcutLoadedGameIdRef = useRef<string | null>(null);
+
+  React.useEffect(() => {
+    safeViewRef.current = safeView;
+  }, [safeView]);
+
+  React.useEffect(() => {
+    youRef.current = you;
+  }, [you]);
+
+  React.useEffect(() => {
+    loopShortcutItemsRef.current = loopShortcutItems;
+  }, [loopShortcutItems]);
+
+  React.useEffect(() => {
+    isLoopShortcutRecordingRef.current = isLoopShortcutRecording;
+  }, [isLoopShortcutRecording]);
+
+  React.useEffect(() => {
+    const activeGameId = safeView?.id || null;
+    if (!activeGameId) {
+      loopShortcutLoadedGameIdRef.current = null;
+      setSavedLoopShortcuts([]);
+      return;
+    }
+
+    if (loopShortcutLoadedGameIdRef.current === activeGameId) {
+      return;
+    }
+
+    loopShortcutLoadedGameIdRef.current = activeGameId;
+    const saved = loadSavedLoopShortcuts(localStorage, activeGameId);
+    const draft = loadLoopShortcutDraft(localStorage, activeGameId);
+
+    setSavedLoopShortcuts(saved);
+    lastResolutionStepsRef.current.clear();
+
+    if (draft) {
+      setLoopShortcutName(draft.name);
+      setLoopShortcutItems(draft.items);
+      setLoopShortcutIterations(Math.max(1, Math.min(50, Number(draft.iterationCount) || 1)));
+      setLoopShortcutStatusText(`Restored loop shortcut draft "${draft.name}".`);
+    } else {
+      setLoopShortcutName('Loop Shortcut');
+      setLoopShortcutItems([]);
+      setLoopShortcutIterations(1);
+      setLoopShortcutStatusText('Idle.');
+    }
+  }, [safeView?.id]);
+
+  React.useEffect(() => {
+    const activeGameId = safeView?.id;
+    if (!activeGameId) {
+      return;
+    }
+
+    if (loopShortcutItems.length === 0) {
+      clearLoopShortcutDraft(localStorage, activeGameId);
+      return;
+    }
+
+    saveLoopShortcutDraft(localStorage, activeGameId, {
+      name: loopShortcutName.trim() || 'Loop Shortcut',
+      items: loopShortcutItems,
+      iterationCount: Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1)),
+      updatedAt: Date.now(),
+    });
+  }, [safeView?.id, loopShortcutItems, loopShortcutIterations, loopShortcutName]);
 
   // Fetch saved decks when create game modal opens
   const refreshSavedDecks = React.useCallback(() => {
@@ -1026,6 +1151,238 @@ export function App() {
       refreshSavedDecks();
     }
   }, [createGameModalOpen, refreshSavedDecks]);
+
+  const stopLoopShortcutReplay = React.useCallback((message: string) => {
+    loopShortcutReplayRef.current = {
+      running: false,
+      index: 0,
+      iteration: 0,
+      totalIterations: 0,
+      waitingForState: false,
+      waitingPrompt: null,
+    };
+    setIsLoopShortcutRunning(false);
+    setLoopShortcutStatusText(message);
+  }, []);
+
+  const advanceLoopShortcutReplay = React.useCallback(() => {
+    const replayState = loopShortcutReplayRef.current;
+    const emitSocket = originalSocketEmitRef.current;
+    const currentView = safeViewRef.current;
+
+    if (!replayState.running || !emitSocket || !currentView?.id) {
+      return;
+    }
+
+    const items = loopShortcutItemsRef.current;
+
+    while (replayState.running) {
+      if (replayState.index >= items.length) {
+        if (replayState.iteration + 1 >= replayState.totalIterations) {
+          stopLoopShortcutReplay('Loop replay complete.');
+          return;
+        }
+
+        replayState.iteration += 1;
+        replayState.index = 0;
+      }
+
+      const nextItem = items[replayState.index];
+      if (!nextItem) {
+        stopLoopShortcutReplay('Loop replay stopped: no recorded actions remain.');
+        return;
+      }
+
+      if (nextItem.kind === 'resolution_response') {
+        replayState.waitingPrompt = nextItem;
+        replayState.waitingForState = false;
+        setLoopShortcutStatusText(`Waiting for ${nextItem.label}...`);
+        return;
+      }
+
+      const payload = JSON.parse(JSON.stringify(nextItem.payload || {}));
+      payload.gameId = currentView.id;
+      emitSocket(nextItem.event, payload);
+      replayState.index += 1;
+
+      const followingItem = items[replayState.index];
+      if (followingItem?.kind === 'resolution_response') {
+        replayState.waitingPrompt = followingItem;
+        replayState.waitingForState = false;
+        setLoopShortcutStatusText(`Waiting for ${followingItem.label}...`);
+        return;
+      }
+
+      replayState.waitingForState = true;
+      replayState.waitingPrompt = null;
+      setLoopShortcutStatusText(
+        `Running iteration ${replayState.iteration + 1} of ${replayState.totalIterations}...`
+      );
+      return;
+    }
+  }, [stopLoopShortcutReplay]);
+
+  const handleStartLoopShortcutRecording = React.useCallback(() => {
+    setLoopShortcutItems([]);
+    lastResolutionStepsRef.current.clear();
+    setIsLoopShortcutRecording(true);
+    setLoopShortcutStatusText('Recording in progress. Perform the loop once.');
+  }, []);
+
+  const handleStopLoopShortcutRecording = React.useCallback(() => {
+    setIsLoopShortcutRecording(false);
+    setLoopShortcutStatusText(
+      loopShortcutItemsRef.current.length > 0
+        ? `Recorded ${loopShortcutItemsRef.current.length} step${loopShortcutItemsRef.current.length === 1 ? '' : 's'}.`
+        : 'Recording stopped with no captured actions.'
+    );
+  }, []);
+
+  const handleClearLoopShortcut = React.useCallback(() => {
+    stopLoopShortcutReplay('Idle.');
+    setIsLoopShortcutRecording(false);
+    setLoopShortcutItems([]);
+    lastResolutionStepsRef.current.clear();
+    setLoopShortcutStatusText('Idle.');
+  }, [stopLoopShortcutReplay]);
+
+  const handleSaveLoopShortcut = React.useCallback(() => {
+    const activeGameId = safeViewRef.current?.id;
+    if (!activeGameId || loopShortcutItemsRef.current.length === 0) return;
+
+    const normalizedName = loopShortcutName.trim() || 'Loop Shortcut';
+    const existing = savedLoopShortcuts.find(
+      item => item.name.trim().toLowerCase() === normalizedName.toLowerCase()
+    );
+
+    const nextSaved = upsertSavedLoopShortcut(localStorage, activeGameId, {
+      id: existing?.id || `loop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: normalizedName,
+      items: loopShortcutItemsRef.current,
+      iterationCount: Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1)),
+      updatedAt: Date.now(),
+    });
+
+    setSavedLoopShortcuts(nextSaved);
+    setLoopShortcutName(normalizedName);
+    setLoopShortcutStatusText(`Saved shortcut "${normalizedName}".`);
+  }, [loopShortcutIterations, loopShortcutName, savedLoopShortcuts]);
+
+  const handleLoadSavedLoopShortcut = React.useCallback((shortcutId: string) => {
+    const activeGameId = safeViewRef.current?.id;
+    if (!activeGameId) return;
+
+    const shortcuts = loadSavedLoopShortcuts(localStorage, activeGameId);
+    setSavedLoopShortcuts(shortcuts);
+
+    const shortcut = shortcuts.find(item => item.id === shortcutId);
+    if (!shortcut) return;
+
+    stopLoopShortcutReplay('Idle.');
+    setIsLoopShortcutRecording(false);
+    setLoopShortcutName(shortcut.name);
+    setLoopShortcutItems(shortcut.items);
+    setLoopShortcutIterations(Math.max(1, Math.min(50, Number(shortcut.iterationCount) || 1)));
+    setLoopShortcutStatusText(`Loaded saved shortcut "${shortcut.name}".`);
+  }, [stopLoopShortcutReplay]);
+
+  const handleDeleteSavedLoopShortcut = React.useCallback((shortcutId: string) => {
+    const activeGameId = safeViewRef.current?.id;
+    if (!activeGameId) return;
+
+    const shortcuts = deleteSavedLoopShortcut(localStorage, activeGameId, shortcutId);
+    setSavedLoopShortcuts(shortcuts);
+    setLoopShortcutStatusText('Deleted saved shortcut.');
+  }, []);
+
+  const handleRunLoopShortcut = React.useCallback(() => {
+    if (!safeViewRef.current?.id || loopShortcutItemsRef.current.length === 0) return;
+
+    loopShortcutReplayRef.current = {
+      running: true,
+      index: 0,
+      iteration: 0,
+      totalIterations: Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1)),
+      waitingForState: false,
+      waitingPrompt: null,
+    };
+    setIsLoopShortcutRunning(true);
+    setLoopShortcutStatusText(
+      `Running iteration 1 of ${Math.max(1, Math.min(50, Number(loopShortcutIterations) || 1))}...`
+    );
+    advanceLoopShortcutReplay();
+  }, [advanceLoopShortcutReplay, loopShortcutIterations]);
+
+  React.useEffect(() => {
+    const originalEmit = socket.emit.bind(socket);
+    originalSocketEmitRef.current = originalEmit as any;
+
+    (socket as any).emit = ((event: string, ...args: any[]) => {
+      const payload = args[0];
+      const activeGameId = safeViewRef.current?.id;
+
+      if (
+        !loopShortcutReplayRef.current.running &&
+        isLoopShortcutRecordingRef.current &&
+        activeGameId &&
+        payload &&
+        typeof payload === 'object' &&
+        String((payload as any).gameId || '') === String(activeGameId)
+      ) {
+        if (event === 'submitResolutionResponse') {
+          const stepId = String((payload as any).stepId || '');
+          const step = lastResolutionStepsRef.current.get(stepId);
+          if (step) {
+            const item = createRecordedResolutionResponseItem(
+              step,
+              (payload as any).selections,
+              safeViewRef.current,
+              youRef.current
+            );
+            if (item) {
+              setLoopShortcutItems(prev => [...prev, item]);
+            }
+          }
+        } else if (LOOP_SHORTCUT_RECORDABLE_EVENTS.has(event)) {
+          setLoopShortcutItems(prev => [...prev, createRecordedEmitItem(event, payload as any, activeGameId)]);
+        }
+      }
+
+      return originalEmit(event, ...args);
+    }) as any;
+
+    return () => {
+      (socket as any).emit = originalEmit as any;
+      originalSocketEmitRef.current = null;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!safeView || !loopShortcutReplayRef.current.running || !loopShortcutReplayRef.current.waitingForState) {
+      return;
+    }
+
+    loopShortcutReplayRef.current.waitingForState = false;
+    advanceLoopShortcutReplay();
+  }, [safeView, advanceLoopShortcutReplay]);
+
+  React.useEffect(() => {
+    if (!lastError || lastError === loopShortcutLastErrorRef.current) {
+      loopShortcutLastErrorRef.current = lastError;
+      return;
+    }
+
+    loopShortcutLastErrorRef.current = lastError;
+    if (loopShortcutReplayRef.current.running) {
+      stopLoopShortcutReplay(`Loop replay stopped: ${lastError}`);
+    }
+  }, [lastError, stopLoopShortcutReplay]);
+
+  React.useEffect(() => {
+    if (!safeView?.id && loopShortcutReplayRef.current.running) {
+      stopLoopShortcutReplay('Loop replay stopped: no active game.');
+    }
+  }, [safeView?.id, stopLoopShortcutReplay]);
 
   // Handle game creation
   const handleCreateGame = (config: GameCreationConfig) => {
@@ -1857,6 +2214,47 @@ export function App() {
       if (payload.gameId !== safeView?.id) return;
       
       const step = payload.step;
+      lastResolutionStepsRef.current.set(String(step.id || ''), step);
+
+      const replayState = loopShortcutReplayRef.current;
+      if (replayState.running && replayState.waitingPrompt) {
+        const expectedPrompt = replayState.waitingPrompt;
+        if (!matchesPromptFingerprint(expectedPrompt.fingerprint, step)) {
+          stopLoopShortcutReplay('Loop replay paused: an unexpected prompt appeared.');
+        } else {
+          const response = buildResolutionResponsePayload(
+            expectedPrompt.template,
+            step,
+            safeViewRef.current,
+            youRef.current
+          );
+
+          if (response) {
+            originalSocketEmitRef.current?.('submitResolutionResponse', {
+              gameId: payload.gameId,
+              stepId: String(step.id),
+              selections: response.selections,
+              cancelled: false,
+            });
+            replayState.index += 1;
+            replayState.waitingPrompt = null;
+
+            const nextItem = loopShortcutItemsRef.current[replayState.index];
+            if (nextItem?.kind === 'resolution_response') {
+              replayState.waitingPrompt = nextItem;
+              setLoopShortcutStatusText(`Waiting for ${nextItem.label}...`);
+            } else {
+              replayState.waitingForState = true;
+              setLoopShortcutStatusText(
+                `Running iteration ${replayState.iteration + 1} of ${replayState.totalIterations}...`
+              );
+            }
+            return;
+          }
+
+          stopLoopShortcutReplay('Loop replay paused: a recorded prompt choice is no longer legal.');
+        }
+      }
 
       // Handle Discard Selection resolution step (cleanup discard and discard effects)
       if (step.type === 'discard_selection') {
@@ -6658,6 +7056,49 @@ export function App() {
           >
             ⚡ Trigger Shortcuts
           </button>
+
+          <button
+            onClick={() => setShowLoopShortcutPanel(prev => !prev)}
+            style={{
+              marginTop: 8,
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 6,
+              border: '1px solid #444',
+              backgroundColor: showLoopShortcutPanel ? '#1e3a8a' : '#2a2a2a',
+              color: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              fontSize: 13,
+            }}
+            title="Record and replay a manual action line against live legal targets"
+          >
+            ↻ Loop Shortcuts
+          </button>
+
+          <LoopShortcutPanel
+            open={showLoopShortcutPanel}
+            onClose={() => setShowLoopShortcutPanel(false)}
+            isRecording={isLoopShortcutRecording}
+            isRunning={isLoopShortcutRunning}
+            items={loopShortcutItems}
+            shortcutName={loopShortcutName}
+            savedShortcuts={savedLoopShortcuts}
+            iterationCount={loopShortcutIterations}
+            onShortcutNameChange={setLoopShortcutName}
+            onIterationCountChange={(count) => setLoopShortcutIterations(Math.max(1, Math.min(50, count || 1)))}
+            onStartRecording={handleStartLoopShortcutRecording}
+            onStopRecording={handleStopLoopShortcutRecording}
+            onRun={handleRunLoopShortcut}
+            onClear={handleClearLoopShortcut}
+            onSaveShortcut={handleSaveLoopShortcut}
+            onLoadShortcut={handleLoadSavedLoopShortcut}
+            onDeleteShortcut={handleDeleteSavedLoopShortcut}
+            statusText={loopShortcutStatusText}
+          />
         </DraggableSettingsPanel>
       )}
 

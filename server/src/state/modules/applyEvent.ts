@@ -3181,10 +3181,76 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if (Array.isArray(tapped) && tapped.length > 0) {
               const battlefield = ctx.state.battlefield || [];
               const tappedSet = new Set(tapped.map((x: any) => String(x)));
+              const unresolvedTapped: string[] = [];
+
               for (const p of battlefield as any[]) {
                 if (!p) continue;
                 if (tappedSet.has(String(p.id))) {
                   (p as any).tapped = true;
+                }
+              }
+
+              for (const targetId of tappedSet) {
+                const found = (battlefield as any[]).some((permanent: any) => permanent && String(permanent.id || '') === targetId);
+                if (!found) unresolvedTapped.push(targetId);
+              }
+
+              const tapCostTargetFilter = (e as any).tapCostTargetFilter;
+              if (unresolvedTapped.length > 0 && tapCostTargetFilter && typeof tapCostTargetFilter === 'object') {
+                const controllerFilter = String((tapCostTargetFilter as any).controller || 'any').toLowerCase();
+                const tapStatus = String((tapCostTargetFilter as any).tapStatus || 'any').toLowerCase();
+                const excludeSource = (tapCostTargetFilter as any).excludeSource === true;
+                const requireAllTypes = (tapCostTargetFilter as any).requireAllTypes === true;
+                const filterTypes = Array.isArray((tapCostTargetFilter as any).types)
+                  ? (tapCostTargetFilter as any).types.map((value: any) => String(value || '').toLowerCase()).filter(Boolean)
+                  : [];
+                const sourcePermanentId = String(permId || '').trim();
+                const preferTokens = (e as any).tapCostPreferTokens === true;
+                const preferNonTokens = (e as any).tapCostPreferNonTokens === true;
+                const neededCount = Math.max(
+                  unresolvedTapped.length,
+                  Number.isFinite(Number((e as any).tapCostTargetCount)) ? Number((e as any).tapCostTargetCount) : unresolvedTapped.length
+                );
+
+                const candidates = (battlefield as any[])
+                  .filter((permanent: any) => {
+                    if (!permanent) return false;
+                    const permanentId = String(permanent.id || '').trim();
+                    if (!permanentId) return false;
+                    if (excludeSource && sourcePermanentId && permanentId === sourcePermanentId) return false;
+                    if (tappedSet.has(permanentId)) return false;
+
+                    if (controllerFilter === 'you' && String(permanent.controller || '') !== String(playerId || '')) return false;
+                    if (controllerFilter === 'opponent' && String(permanent.controller || '') === String(playerId || '')) return false;
+                    if (tapStatus === 'tapped' && !permanent.tapped) return false;
+                    if (tapStatus === 'untapped' && permanent.tapped) return false;
+
+                    if (filterTypes.length > 0) {
+                      const typeLine = String(permanent.card?.type_line || permanent.type_line || permanent.cardType || '').toLowerCase();
+                      const matches = requireAllTypes
+                        ? filterTypes.every((type: string) => typeLine.includes(type))
+                        : filterTypes.some((type: string) => typeLine.includes(type));
+                      if (!matches) return false;
+                    }
+
+                    return true;
+                  })
+                  .map((permanent: any, index: number) => {
+                    let score = 0;
+                    if (preferTokens && permanent.isToken) score += 100;
+                    if (preferNonTokens && !permanent.isToken) score += 100;
+                    return { permanent, index, score };
+                  })
+                  .sort((left: any, right: any) => {
+                    if (right.score !== left.score) return right.score - left.score;
+                    return left.index - right.index;
+                  })
+                  .slice(0, neededCount);
+
+                for (const candidate of candidates) {
+                  if (candidate?.permanent) {
+                    candidate.permanent.tapped = true;
+                  }
                 }
               }
             }

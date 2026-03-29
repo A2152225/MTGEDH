@@ -6891,6 +6891,10 @@ async function handleStepResponse(
             abilityText,
             activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
             tappedPermanentsForCost,
+            tapCostTargetFilter: { ...(targetFilter || {}) },
+            tapCostTargetCount: targetIds.length,
+            tapCostPreferTokens: targets.length > 0 && targets.every((target: any) => Boolean(target?.isToken)),
+            tapCostPreferNonTokens: targets.length > 0 && targets.every((target: any) => !target?.isToken),
           } as any);
 
           if (typeof game.bumpSeq === 'function') game.bumpSeq();
@@ -11982,6 +11986,10 @@ async function handleTargetSelectionResponse(
         fortifyParams: stackItem.fortifyParams || undefined,
         reconfigureParams: stackItem.reconfigureParams || undefined,
         tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
+        tapCostTargetFilter: stepAny?.tapCostTargetFilter ? { ...stepAny.tapCostTargetFilter } : undefined,
+        tapCostTargetCount: Number.isFinite(Number(stepAny?.tapCostTargetCount)) ? Number(stepAny.tapCostTargetCount) : undefined,
+        tapCostPreferTokens: stepAny?.tapCostPreferTokens === true ? true : undefined,
+        tapCostPreferNonTokens: stepAny?.tapCostPreferNonTokens === true ? true : undefined,
         discardedCardIds: Array.isArray(stepAny?.discardedCardIdsForCost) && stepAny.discardedCardIdsForCost.length > 0
           ? stepAny.discardedCardIdsForCost.map((id: any) => String(id))
           : undefined,
