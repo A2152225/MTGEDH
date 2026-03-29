@@ -80,6 +80,55 @@ export function canRevealForAmplify(
 }
 
 /**
+ * Gets the shared creature types between a revealed card and the entering permanent.
+ * Matching is case-insensitive and duplicate type names are collapsed.
+ *
+ * @param cardTypes - Creature types on the card to reveal
+ * @param permanentTypes - Creature types on the entering permanent
+ * @returns The shared creature types, preserving the revealed card's type order
+ */
+export function getSharedAmplifyTypes(
+  cardTypes: readonly string[],
+  permanentTypes: readonly string[]
+): string[] {
+  const permanentTypeSet = new Set(permanentTypes.map(type => type.trim().toLowerCase()));
+  const seen = new Set<string>();
+  const sharedTypes: string[] = [];
+
+  for (const type of cardTypes) {
+    const normalizedType = type.trim().toLowerCase();
+    if (!normalizedType || !permanentTypeSet.has(normalizedType) || seen.has(normalizedType)) {
+      continue;
+    }
+
+    seen.add(normalizedType);
+    sharedTypes.push(type);
+  }
+
+  return sharedTypes;
+}
+
+/**
+ * Creates the battlefield-entry result for an amplify ability.
+ *
+ * @param ability - The resolved amplify ability
+ * @returns Summary of revealed cards, shared types, and counters added
+ */
+export function createAmplifyEntryResult(ability: AmplifyAbility): {
+  source: string;
+  revealedCards: readonly string[];
+  sharedTypes: readonly string[];
+  countersAdded: number;
+} {
+  return {
+    source: ability.source,
+    revealedCards: ability.revealedCards,
+    sharedTypes: ability.sharedTypes,
+    countersAdded: getAmplifyCounters(ability),
+  };
+}
+
+/**
  * Checks if amplify abilities are redundant
  * Rule 702.38b: If a creature has multiple instances of amplify, each one works separately
  * 

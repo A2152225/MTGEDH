@@ -14,6 +14,12 @@ export interface SoulbondAbility {
   readonly isPaired: boolean;
 }
 
+export interface SoulbondPairingResult {
+  readonly source: string;
+  readonly pairedWith: string;
+  readonly soulbondActive: boolean;
+}
+
 /**
  * Creates a soulbond ability
  * @param source - The creature with soulbond
@@ -64,4 +70,28 @@ export function unpairCreatures(ability: SoulbondAbility): SoulbondAbility {
  */
 export function canPair(ability: SoulbondAbility): boolean {
   return !ability.isPaired;
+}
+
+export function canPairWithTarget(
+  ability: SoulbondAbility,
+  targetIsUnpairedCreature: boolean,
+  targetId: string
+): boolean {
+  return canPair(ability) && targetIsUnpairedCreature && targetId !== ability.source;
+}
+
+export function getPairedCreature(ability: SoulbondAbility): string | undefined {
+  return ability.pairedWith;
+}
+
+export function resolveSoulbondPairing(ability: SoulbondAbility): SoulbondPairingResult | null {
+  if (!ability.isPaired || !ability.pairedWith) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    pairedWith: ability.pairedWith,
+    soulbondActive: true,
+  };
 }

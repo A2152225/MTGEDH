@@ -54,6 +54,25 @@ export function canActivateForecast(ability: ForecastAbility, isUpkeep: boolean,
 }
 
 /**
+ * Checks if forecast can be activated from the given zone.
+ * Rule 702.57 only allows forecast to function while the card is in hand.
+ *
+ * @param ability - The forecast ability
+ * @param zone - The card's current zone
+ * @param isUpkeep - Whether it's currently the upkeep step
+ * @param isYourTurn - Whether it's the controller's turn
+ * @returns True if can be activated from the given zone
+ */
+export function canActivateForecastFromZone(
+  ability: ForecastAbility,
+  zone: string,
+  isUpkeep: boolean,
+  isYourTurn: boolean
+): boolean {
+  return zone === 'hand' && canActivateForecast(ability, isUpkeep, isYourTurn);
+}
+
+/**
  * Activates the forecast ability.
  * 
  * @param ability - The forecast ability
@@ -76,5 +95,37 @@ export function resetForecast(ability: ForecastAbility): ForecastAbility {
   return {
     ...ability,
     activatedThisTurn: false
+  };
+}
+
+/**
+ * Creates the result of activating a forecast ability.
+ *
+ * @param ability - The forecast ability
+ * @param zone - The card's current zone
+ * @param isUpkeep - Whether it's currently the upkeep step
+ * @param isYourTurn - Whether it's the controller's turn
+ * @returns Activation summary, or null if forecast cannot be activated
+ */
+export function createForecastActivationResult(
+  ability: ForecastAbility,
+  zone: string,
+  isUpkeep: boolean,
+  isYourTurn: boolean
+): {
+  source: string;
+  costPaid: string;
+  effect: string;
+  activated: true;
+} | null {
+  if (!canActivateForecastFromZone(ability, zone, isUpkeep, isYourTurn)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    costPaid: ability.cost,
+    effect: ability.ability,
+    activated: true,
   };
 }

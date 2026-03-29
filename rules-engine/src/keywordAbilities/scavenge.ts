@@ -15,12 +15,15 @@ export interface ScavengeAbility {
   readonly wasScavenged: boolean;
 }
 
+export interface ScavengeResolution {
+  readonly source: string;
+  readonly target: string;
+  readonly countersAdded: number;
+  readonly exiledFromGraveyard: boolean;
+}
+
 /**
- * Creates a scavenge ability
- * @param source - The creature card with scavenge
- * @param scavengeCost - The cost to activate scavenge
- * @param powerToughness - The creature's power/toughness
- * @returns Scavenge ability
+ * Creates a scavenge ability.
  */
 export function scavenge(
   source: string,
@@ -37,15 +40,13 @@ export function scavenge(
 }
 
 /**
- * Activates scavenge, exiling the card and adding counters
- * @param ability - The scavenge ability
- * @param target - The target creature
- * @returns Updated scavenge ability
+ * Activates scavenge, exiling the card and adding counters.
  */
 export function activateScavenge(ability: ScavengeAbility, target: string): ScavengeAbility {
   if (ability.wasScavenged) {
     throw new Error('Card has already been scavenged');
   }
+
   return {
     ...ability,
     wasScavenged: true,
@@ -53,10 +54,31 @@ export function activateScavenge(ability: ScavengeAbility, target: string): Scav
 }
 
 /**
- * Gets the number of +1/+1 counters to add
- * @param ability - The scavenge ability
- * @returns Number of counters equal to power
+ * Scavenge can be activated only from the graveyard, at sorcery speed, targeting a creature.
+ */
+export function canActivateScavenge(
+  zone: 'graveyard' | 'hand' | 'battlefield' | 'exile',
+  isSorcerySpeed: boolean,
+  targetIsCreature: boolean
+): boolean {
+  return zone === 'graveyard' && isSorcerySpeed && targetIsCreature;
+}
+
+/**
+ * Gets the number of +1/+1 counters to add.
  */
 export function getScavengeCounters(ability: ScavengeAbility): number {
   return ability.powerToughness[0];
+}
+
+export function createScavengeResolution(
+  ability: ScavengeAbility,
+  target: string
+): ScavengeResolution {
+  return {
+    source: ability.source,
+    target,
+    countersAdded: getScavengeCounters(ability),
+    exiledFromGraveyard: true,
+  };
 }

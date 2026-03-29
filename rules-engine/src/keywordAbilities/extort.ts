@@ -37,6 +37,32 @@ export function extort(source: string): ExtortAbility {
  * @param opponentCount - Number of opponents
  * @returns Updated extort ability with life totals affected
  */
+/**
+ * Extort keyword ability implementation (Rule 702.101)
+ * 
+ * From MTG Comprehensive Rules (Nov 2025):
+ * 702.101a Extort is a triggered ability. "Extort" means "Whenever you cast a spell,
+ * you may pay {W/B}. If you do, each opponent loses 1 life and you gain life equal to
+ * the total life lost this way."
+ * 
+ * 702.101b If a permanent has multiple instances of extort, each triggers separately.
+ */
+
+/**
+ * Extort ability interface
+ */
+export interface ExtortAbility {
+  readonly type: 'extort';
+  readonly source: string;
+  readonly timesPaid: number;
+}
+
+export interface ExtortResolution {
+  readonly source: string;
+  readonly opponentsLoseLife: number;
+  readonly youGainLife: number;
+}
+
 export function payExtortCost(
   ability: ExtortAbility,
   opponentCount: number
@@ -46,6 +72,16 @@ export function payExtortCost(
     timesPaid: ability.timesPaid + 1,
   };
 }
+/**
+ * Extort triggers whenever you cast a spell.
+ */
+export function shouldTriggerExtort(castSpell: boolean): boolean {
+  return castSpell;
+}
+
+export function getExtortLifeLoss(opponentCount: number): number {
+  return opponentCount;
+}
 
 /**
  * Calculates life gained from extort
@@ -54,6 +90,16 @@ export function payExtortCost(
  */
 export function calculateExtortLifeGain(opponentCount: number): number {
   return opponentCount; // Each opponent loses 1
+}
+export function resolveExtort(
+  ability: ExtortAbility,
+  opponentCount: number
+): ExtortResolution {
+  return {
+    source: ability.source,
+    opponentsLoseLife: getExtortLifeLoss(opponentCount),
+    youGainLife: calculateExtortLifeGain(opponentCount),
+  };
 }
 
 /**

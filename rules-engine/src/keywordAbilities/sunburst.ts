@@ -18,6 +18,8 @@ export interface SunburstAbility {
   readonly counterType: '+1/+1' | 'charge';
 }
 
+const VALID_SUNBURST_COLORS = new Set(['W', 'U', 'B', 'R', 'G']);
+
 /**
  * Creates a Sunburst ability
  * 
@@ -47,11 +49,67 @@ export function resolveSunburst(
   colorsSpent: readonly string[],
   isCreature: boolean
 ): SunburstAbility {
+  const normalizedColors = getDistinctSunburstColors(colorsSpent);
+
   return {
     ...ability,
-    colorsSpent,
-    counters: colorsSpent.length,
+    colorsSpent: normalizedColors,
+    counters: normalizedColors.length,
     counterType: isCreature ? '+1/+1' : 'charge',
+  };
+}
+
+/**
+ * Gets the distinct colors of mana spent to cast a spell for sunburst.
+ * Invalid or colorless values are ignored.
+ *
+ * @param colorsSpent - Raw mana colors spent to cast the spell
+ * @returns Distinct, normalized color symbols in first-seen order
+ */
+export function getDistinctSunburstColors(colorsSpent: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const normalizedColors: string[] = [];
+
+  for (const color of colorsSpent) {
+    const normalizedColor = color.trim().toUpperCase();
+    if (!VALID_SUNBURST_COLORS.has(normalizedColor) || seen.has(normalizedColor)) {
+      continue;
+    }
+
+    seen.add(normalizedColor);
+    normalizedColors.push(normalizedColor);
+  }
+
+  return normalizedColors;
+}
+
+/**
+ * Counts the number of distinct colors spent for sunburst.
+ *
+ * @param colorsSpent - Raw mana colors spent to cast the spell
+ * @returns The number of distinct colors spent
+ */
+export function getSunburstColorCount(colorsSpent: readonly string[]): number {
+  return getDistinctSunburstColors(colorsSpent).length;
+}
+
+/**
+ * Creates the battlefield-entry result for sunburst.
+ *
+ * @param ability - The resolved sunburst ability
+ * @returns Summary of counters added and the counter type used
+ */
+export function createSunburstEntryResult(ability: SunburstAbility): {
+  source: string;
+  colorsSpent: readonly string[];
+  countersAdded: number;
+  counterType: '+1/+1' | 'charge';
+} {
+  return {
+    source: ability.source,
+    colorsSpent: ability.colorsSpent,
+    countersAdded: ability.counters,
+    counterType: ability.counterType,
   };
 }
 

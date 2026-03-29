@@ -20,6 +20,12 @@ export interface EvolveAbility {
   readonly evolutionCount: number;
 }
 
+export interface EvolveResolution {
+  readonly source: string;
+  readonly countersAdded: number;
+  readonly newPowerToughness: readonly [number, number];
+}
+
 /**
  * Creates an evolve ability
  * @param source - Source permanent with evolve
@@ -78,4 +84,27 @@ export function triggerEvolve(
  */
 export function getEvolutionCount(ability: EvolveAbility): number {
   return ability.evolutionCount;
+}
+
+export function getEvolveStatComparison(
+  ability: EvolveAbility,
+  incomingPT: readonly [number, number]
+): { powerIncreases: boolean; toughnessIncreases: boolean } {
+  const [currentPower, currentToughness] = ability.powerToughness;
+  const [incomingPower, incomingToughness] = incomingPT;
+
+  return {
+    powerIncreases: incomingPower > currentPower,
+    toughnessIncreases: incomingToughness > currentToughness,
+  };
+}
+
+export function resolveEvolve(ability: EvolveAbility, newPT: readonly [number, number]): EvolveResolution {
+  const evolved = triggerEvolve(ability, newPT);
+
+  return {
+    source: evolved.source,
+    countersAdded: 1,
+    newPowerToughness: evolved.powerToughness,
+  };
 }

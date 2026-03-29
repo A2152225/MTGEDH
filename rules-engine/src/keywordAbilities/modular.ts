@@ -68,6 +68,52 @@ export function getModularCounters(ability: ModularAbility): number {
 }
 
 /**
+ * Checks whether modular counters can be moved to the chosen target.
+ *
+ * @param ability - The modular ability
+ * @param targetIsArtifactCreature - Whether the chosen target is an artifact creature
+ * @returns True if the death trigger can move counters to the stored target
+ */
+export function canMoveModularCounters(
+  ability: ModularAbility,
+  targetIsArtifactCreature: boolean
+): boolean {
+  return Boolean(
+    ability.triggeredOnDeath
+    && ability.targetCreature
+    && ability.targetCreature !== ability.source
+    && targetIsArtifactCreature
+    && getModularCounters(ability) > 0
+  );
+}
+
+/**
+ * Creates the result for a modular counter transfer.
+ *
+ * @param ability - The modular ability
+ * @param targetIsArtifactCreature - Whether the target remains a legal artifact creature
+ * @returns Transfer summary, or null if the counters cannot be moved
+ */
+export function createModularTransferResult(
+  ability: ModularAbility,
+  targetIsArtifactCreature: boolean
+): {
+  source: string;
+  targetCreature: string;
+  countersMoved: number;
+} | null {
+  if (!canMoveModularCounters(ability, targetIsArtifactCreature)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    targetCreature: ability.targetCreature!,
+    countersMoved: getModularCounters(ability),
+  };
+}
+
+/**
  * Checks if modular abilities are redundant
  * Rule 702.43b: If a creature has multiple instances of modular, each one works separately
  * 

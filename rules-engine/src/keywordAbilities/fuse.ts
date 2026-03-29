@@ -22,6 +22,13 @@ export interface FuseAbility {
   readonly isFused: boolean;
 }
 
+export interface FuseCastResult {
+  readonly source: string;
+  readonly fused: boolean;
+  readonly halvesCast: readonly ['left'] | readonly ['right'] | readonly ['left', 'right'];
+  readonly totalCost: string;
+}
+
 /**
  * Creates a fuse ability
  * @param source - Source split card with fuse
@@ -71,4 +78,32 @@ export function getFusedCost(ability: FuseAbility): string {
  */
 export function isFused(ability: FuseAbility): boolean {
   return ability.isFused;
+}
+
+export function canCastFused(
+  zone: 'hand' | 'graveyard' | 'exile' | 'library',
+  canPayBothHalves: boolean
+): boolean {
+  return zone === 'hand' && canPayBothHalves;
+}
+
+export function createFuseCastResult(
+  ability: FuseAbility,
+  mode: 'left' | 'right' | 'fused'
+): FuseCastResult {
+  if (mode === 'fused') {
+    return {
+      source: ability.source,
+      fused: true,
+      halvesCast: ['left', 'right'],
+      totalCost: getFusedCost(ability),
+    };
+  }
+
+  return {
+    source: ability.source,
+    fused: false,
+    halvesCast: [mode],
+    totalCost: mode === 'left' ? ability.leftHalfCost : ability.rightHalfCost,
+  };
 }

@@ -41,5 +41,45 @@ export function splitSecond(source: string): SplitSecondAbility {
  * @returns True if action is allowed
  */
 export function canActDuringSplitSecond(isManaAbility: boolean): boolean {
+  return canActivateAbilityDuringSplitSecond(isManaAbility);
+}
+
+/**
+ * Checks whether a spell may be cast while split second is on the stack.
+ * Rule 702.61 forbids casting other spells.
+ *
+ * @returns False - no spells may be cast during split second
+ */
+export function canCastSpellDuringSplitSecond(): boolean {
+  return false;
+}
+
+/**
+ * Checks whether an activated ability may be activated while split second is on the stack.
+ *
+ * @param isManaAbility - Whether the ability is a mana ability
+ * @returns True only for mana abilities
+ */
+export function canActivateAbilityDuringSplitSecond(isManaAbility: boolean): boolean {
   return isManaAbility;
+}
+
+/**
+ * Creates the restriction summary imposed by split second.
+ *
+ * @param ability - The split second ability
+ * @returns Restriction summary for the spell on the stack
+ */
+export function createSplitSecondRestrictionResult(ability: SplitSecondAbility): {
+  source: string;
+  spellsProhibited: true;
+  nonManaAbilitiesProhibited: true;
+  manaAbilitiesAllowed: true;
+} {
+  return {
+    source: ability.source,
+    spellsProhibited: true,
+    nonManaAbilitiesProhibited: true,
+    manaAbilitiesAllowed: true,
+  };
 }

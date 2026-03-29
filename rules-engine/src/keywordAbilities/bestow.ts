@@ -15,7 +15,7 @@
  */
 
 /**
- * Bestow ability interface
+ * Bestow ability interface.
  */
 export interface BestowAbility {
   readonly type: 'bestow';
@@ -26,12 +26,14 @@ export interface BestowAbility {
   readonly attachedTo?: string;
 }
 
+export interface BestowResolution {
+  readonly source: string;
+  readonly mode: 'aura' | 'creature';
+  readonly attachedTo?: string;
+}
+
 /**
- * Creates a bestow ability
- * @param source - Source enchantment creature with bestow
- * @param bestowCost - Bestow alternative cost
- * @param normalCost - Normal mana cost
- * @returns Bestow ability
+ * Creates a bestow ability.
  */
 export function bestow(
   source: string,
@@ -48,10 +50,7 @@ export function bestow(
 }
 
 /**
- * Casts with bestow cost, making it an Aura
- * @param ability - Bestow ability
- * @param target - Creature to enchant
- * @returns Updated bestow ability as Aura
+ * Casts with bestow cost, making it an Aura.
  */
 export function castWithBestow(
   ability: BestowAbility,
@@ -65,9 +64,21 @@ export function castWithBestow(
 }
 
 /**
- * Permanent becomes unattached or loses enchant creature
- * @param ability - Bestow ability
- * @returns Updated bestow ability reverting to creature
+ * Bestow can be cast from hand and needs a legal creature target when bestowed.
+ */
+export function canCastWithBestow(
+  zone: 'hand' | 'graveyard' | 'exile' | 'library',
+  hasLegalTarget: boolean
+): boolean {
+  return zone === 'hand' && hasLegalTarget;
+}
+
+export function getBestowMode(ability: BestowAbility): 'aura' | 'creature' {
+  return ability.isBestowed ? 'aura' : 'creature';
+}
+
+/**
+ * Permanent becomes unattached or loses enchant creature.
  */
 export function revertToCreature(ability: BestowAbility): BestowAbility {
   return {
@@ -78,19 +89,23 @@ export function revertToCreature(ability: BestowAbility): BestowAbility {
 }
 
 /**
- * Checks if currently an Aura (bestowed)
- * @param ability - Bestow ability
- * @returns True if currently bestowed
+ * Checks if currently an Aura (bestowed).
  */
 export function isBestowed(ability: BestowAbility): boolean {
   return ability.isBestowed;
 }
 
 /**
- * Gets the enchanted creature
- * @param ability - Bestow ability
- * @returns Attached creature ID if bestowed
+ * Gets the enchanted creature.
  */
 export function getEnchantedCreature(ability: BestowAbility): string | undefined {
   return ability.attachedTo;
+}
+
+export function createBestowResolution(ability: BestowAbility): BestowResolution {
+  return {
+    source: ability.source,
+    mode: getBestowMode(ability),
+    attachedTo: ability.attachedTo,
+  };
 }

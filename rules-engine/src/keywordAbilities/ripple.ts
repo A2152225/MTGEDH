@@ -50,3 +50,44 @@ export function ripple(source: string, count: number): RippleAbility {
 export function getRippleRevealCount(ability: RippleAbility, librarySize: number): number {
   return Math.min(ability.count, librarySize);
 }
+
+/**
+ * Gets the revealed cards that can be cast with ripple.
+ * Matching is case-insensitive and requires the same card name as the source spell.
+ *
+ * @param revealedCardNames - The names of the revealed cards
+ * @param sourceName - The name of the source spell with ripple
+ * @returns The revealed cards that share the source spell's name
+ */
+export function getRippleMatchingCards(
+  revealedCardNames: readonly string[],
+  sourceName: string
+): string[] {
+  const normalizedSourceName = sourceName.trim().toLowerCase();
+  return revealedCardNames.filter(cardName => cardName.trim().toLowerCase() === normalizedSourceName);
+}
+
+/**
+ * Creates the result of a ripple reveal.
+ *
+ * @param ability - The ripple ability
+ * @param revealedCardNames - The names of the revealed cards
+ * @returns Reveal summary including cards that may be cast without paying mana costs
+ */
+export function createRippleResolutionResult(
+  ability: RippleAbility,
+  revealedCardNames: readonly string[]
+): {
+  source: string;
+  revealedCount: number;
+  matchingCards: readonly string[];
+  nonMatchingCards: readonly string[];
+} {
+  const matchingCards = getRippleMatchingCards(revealedCardNames, ability.source);
+  return {
+    source: ability.source,
+    revealedCount: getRippleRevealCount(ability, revealedCardNames.length),
+    matchingCards,
+    nonMatchingCards: revealedCardNames.filter(cardName => !matchingCards.includes(cardName)),
+  };
+}

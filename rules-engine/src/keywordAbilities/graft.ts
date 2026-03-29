@@ -65,3 +65,48 @@ export function moveGraftCounter(ability: GraftAbility): GraftAbility {
 export function canGraft(ability: GraftAbility): boolean {
   return ability.countersRemaining > 0;
 }
+
+/**
+ * Checks whether a graft counter can be moved to the chosen creature.
+ * Rule 702.58 only allows moving counters to another creature.
+ *
+ * @param ability - The graft ability
+ * @param targetCreature - The creature receiving the counter
+ * @returns True if a counter can be moved to the target creature
+ */
+export function canMoveGraftCounterTo(
+  ability: GraftAbility,
+  targetCreature: string | undefined
+): boolean {
+  return Boolean(targetCreature && targetCreature !== ability.source && canGraft(ability));
+}
+
+/**
+ * Creates the result of moving a graft counter onto another creature.
+ *
+ * @param ability - The graft ability
+ * @param targetCreature - The creature receiving the counter
+ * @returns Transfer summary, or null if the counter cannot be moved
+ */
+export function createGraftTransferResult(
+  ability: GraftAbility,
+  targetCreature: string | undefined
+): {
+  source: string;
+  targetCreature: string;
+  countersMoved: number;
+  countersRemaining: number;
+} | null {
+  if (!canMoveGraftCounterTo(ability, targetCreature)) {
+    return null;
+  }
+
+  const updatedAbility = moveGraftCounter(ability);
+
+  return {
+    source: ability.source,
+    targetCreature: targetCreature!,
+    countersMoved: 1,
+    countersRemaining: updatedAbility.countersRemaining,
+  };
+}

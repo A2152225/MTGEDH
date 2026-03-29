@@ -25,6 +25,13 @@ export interface TributeAbility {
   readonly tributePaid: boolean;
 }
 
+export interface TributeResolution {
+  readonly source: string;
+  readonly opponent: string;
+  readonly tributePaid: boolean;
+  readonly countersAdded: number;
+}
+
 /**
  * Creates a tribute ability
  * @param source - Source creature with tribute
@@ -86,4 +93,21 @@ export function wasTributePaid(ability: TributeAbility): boolean {
  */
 export function getTributeAmount(ability: TributeAbility): number {
   return ability.tributeAmount;
+}
+
+export function getTributeCounters(ability: TributeAbility): number {
+  return ability.tributePaid ? ability.tributeAmount : 0;
+}
+
+export function shouldTriggerTributeFallback(ability: TributeAbility): boolean {
+  return !ability.tributePaid;
+}
+
+export function createTributeResolution(ability: TributeAbility): TributeResolution {
+  return {
+    source: ability.source,
+    opponent: ability.chosenOpponent,
+    tributePaid: ability.tributePaid,
+    countersAdded: getTributeCounters(ability),
+  };
 }

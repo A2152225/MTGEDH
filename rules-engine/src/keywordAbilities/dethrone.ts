@@ -18,6 +18,12 @@ export interface DethroneAbility {
   readonly countersPut: number;
 }
 
+export interface DethroneResolution {
+  readonly source: string;
+  readonly triggered: boolean;
+  readonly countersPut: number;
+}
+
 /**
  * Creates a dethrone ability
  * @param source - Source creature with dethrone
@@ -64,4 +70,24 @@ export function triggerDethrone(ability: DethroneAbility): DethroneAbility {
  */
 export function getDethroneCounters(ability: DethroneAbility): number {
   return ability.countersPut;
+}
+
+export function getHighestLifeTotal(allPlayerLives: readonly number[]): number {
+  return Math.max(...allPlayerLives);
+}
+
+export function getEligibleDethroneLifeTotals(allPlayerLives: readonly number[]): number[] {
+  const highestLife = getHighestLifeTotal(allPlayerLives);
+  return allPlayerLives.filter(lifeTotal => lifeTotal === highestLife);
+}
+
+export function createDethroneResolution(
+  ability: DethroneAbility,
+  triggered: boolean
+): DethroneResolution {
+  return {
+    source: ability.source,
+    triggered,
+    countersPut: triggered ? ability.countersPut + 1 : ability.countersPut,
+  };
 }

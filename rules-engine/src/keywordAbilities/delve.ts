@@ -57,3 +57,43 @@ export function exileForDelve(ability: DelveAbility): DelveAbility {
 export function getDelveCostReduction(ability: DelveAbility): number {
   return ability.cardsExiled;
 }
+
+/**
+ * Gets the maximum generic mana reduction delve can provide.
+ * Delve can only reduce the generic portion of a spell's cost.
+ *
+ * @param genericManaCost - The spell's remaining generic mana cost
+ * @param cardsAvailableToExile - The number of graveyard cards available to exile
+ * @returns The maximum generic mana that delve can reduce
+ */
+export function getMaximumDelveReduction(
+  genericManaCost: number,
+  cardsAvailableToExile: number
+): number {
+  return Math.max(0, Math.min(genericManaCost, cardsAvailableToExile));
+}
+
+/**
+ * Creates the result of applying delve to a spell's generic mana cost.
+ *
+ * @param ability - The delve ability
+ * @param genericManaCost - The spell's generic mana cost before delve is applied
+ * @returns Payment summary with capped generic reduction
+ */
+export function createDelvePaymentResult(
+  ability: DelveAbility,
+  genericManaCost: number
+): {
+  source: string;
+  cardsExiled: number;
+  genericReducedBy: number;
+  genericManaRemaining: number;
+} {
+  const genericReducedBy = getMaximumDelveReduction(genericManaCost, ability.cardsExiled);
+  return {
+    source: ability.source,
+    cardsExiled: ability.cardsExiled,
+    genericReducedBy,
+    genericManaRemaining: Math.max(0, genericManaCost - genericReducedBy),
+  };
+}

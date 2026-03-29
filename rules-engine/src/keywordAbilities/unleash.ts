@@ -52,6 +52,42 @@ export function isUnleashed(ability: UnleashAbility): boolean {
  * @param ability - The unleash ability
  * @returns False if unleashed, true otherwise
  */
+/**
+ * Unleash keyword ability implementation
+ * Rule 702.98 - "Unleash" means creature enters with a +1/+1 counter but can't block
+ */
+
+/**
+ * Unleash ability - Rule 702.98
+ * Allows a creature to enter with a counter at the cost of not being able to block
+ */
+export interface UnleashAbility {
+  readonly type: 'unleash';
+  readonly source: string;
+  readonly wasUnleashed: boolean;
+}
+
+export interface UnleashResult {
+  readonly source: string;
+  readonly entersWithCounter: boolean;
+  readonly canBlock: boolean;
+}
+
 export function canBlock(ability: UnleashAbility): boolean {
   return !ability.wasUnleashed;
+}
+export function shouldEnterUnleashed(choiceToUnleash: boolean): boolean {
+  return choiceToUnleash;
+}
+
+export function getUnleashCounters(ability: UnleashAbility): number {
+  return ability.wasUnleashed ? 1 : 0;
+}
+
+export function createUnleashResult(ability: UnleashAbility): UnleashResult {
+  return {
+    source: ability.source,
+    entersWithCounter: ability.wasUnleashed,
+    canBlock: canBlock(ability),
+  };
 }
