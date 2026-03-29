@@ -74,6 +74,7 @@ import {
   expandSimpleConditionalUnknownAbilities,
   expandTapMatchingPermanentCountAbilities,
   expandUnlessSacrificeAbilities,
+  upgradeConditionalIfYouDoImpulseAbilities,
   expandMoveZoneAttachUnknownAbilities,
   mergeBattlefieldEntryCharacteristicFollowupAbilities,
   mergeBattlefieldEntryAuraRewriteFollowupAbilities,
@@ -1229,6 +1230,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandPreventDamageUnknownAbilities(abilities);
   abilities = expandTapMatchingPermanentCountAbilities(abilities);
   abilities = expandSimpleConditionalUnknownAbilities(abilities);
+  abilities = upgradeConditionalIfYouDoImpulseAbilities(abilities);
   abilities = expandUnlessSacrificeAbilities(abilities);
   abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
   abilities = expandExilePermissionUnknownAbilities(abilities);

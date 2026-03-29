@@ -848,11 +848,28 @@ function resolveContextualBattlefieldPermanents(
 
   if (contextualTargetIds.length === 0) return [];
 
-  return battlefield.filter((perm: any) => {
+  const matches = battlefield.filter((perm: any) => {
     const permanentId = String((perm as any)?.id || '').trim();
     if (!contextualTargetIds.includes(permanentId)) return false;
     if (!permanentMatchesType(perm, parsed.type)) return false;
     if (parsed.tokenOnly && !(perm as any)?.isToken) return false;
+    if (parsed.subtype) {
+      const typeLineLower = getExecutorTypeLineLower(perm);
+      if (!new RegExp(`(^|[^a-z])${parsed.subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:s)?($|[^a-z])`, 'i').test(typeLineLower)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (matches.length > 0 || !parsed.tokenOnly) {
+    return matches;
+  }
+
+  return battlefield.filter((perm: any) => {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!contextualTargetIds.includes(permanentId)) return false;
+    if (!permanentMatchesType(perm, parsed.type)) return false;
     if (parsed.subtype) {
       const typeLineLower = getExecutorTypeLineLower(perm);
       if (!new RegExp(`(^|[^a-z])${parsed.subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:s)?($|[^a-z])`, 'i').test(typeLineLower)) {
@@ -2250,7 +2267,7 @@ export function applyAddCounterStep(
     : recentMovedTargets.length > 0
       ? recentMovedTargets
       : directTargets;
-  const fallbackSingleCreatureId = targets.length === 0
+  const fallbackSingleCreatureId = targets.length === 0 && !shouldPreferMovedCards
     ? resolveSingleCreatureTargetId(state, normalizedTarget as any, ctx)
     : undefined;
   const fallbackCreatureTargets = fallbackSingleCreatureId
@@ -2717,13 +2734,24 @@ export function applyScheduleDelayedBattlefieldActionStep(
     const ids = contextual.plural ? contextualTargetIds : contextualTargetIds.slice(0, 1);
     if (ids.length === 0) return [];
 
-    return battlefield.filter((perm: any) => {
+    const matches = battlefield.filter((perm: any) => {
       const permanentId = String((perm as any)?.id || '').trim();
       if (!ids.includes(permanentId)) return false;
       if (!players.includes(perm.controller)) return false;
       if (!permanentMatchesType(perm, contextual.type)) return false;
       if (contextual.tokenOnly && !(perm as any)?.isToken) return false;
       return true;
+    });
+
+    if (matches.length > 0 || !contextual.tokenOnly) {
+      return matches;
+    }
+
+    return battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!ids.includes(permanentId)) return false;
+      if (!players.includes(perm.controller)) return false;
+      return permanentMatchesType(perm, contextual.type);
     });
   };
 
@@ -2973,13 +3001,24 @@ export function applySacrificeStep(
     const ids = contextual.plural ? contextualTargetIds : contextualTargetIds.slice(0, 1);
     if (ids.length === 0) return [];
 
-    return battlefield.filter((perm: any) => {
+    const matches = battlefield.filter((perm: any) => {
       const permanentId = String((perm as any)?.id || '').trim();
       if (!ids.includes(permanentId)) return false;
       if (!players.includes(perm.controller)) return false;
       if (!permanentMatchesType(perm, contextual.type)) return false;
       if (contextual.tokenOnly && !(perm as any)?.isToken) return false;
       return true;
+    });
+
+    if (matches.length > 0 || !contextual.tokenOnly) {
+      return matches;
+    }
+
+    return battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!ids.includes(permanentId)) return false;
+      if (!players.includes(perm.controller)) return false;
+      return permanentMatchesType(perm, contextual.type);
     });
   };
 

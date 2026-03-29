@@ -257,8 +257,9 @@ function checkCreatureDeaths(state: GameState): {
           mod?.type === 'POWER_TOUGHNESS' ||
           mod?.type === 'setPowerToughness'
         ));
+    const shouldTrustEffectiveToughness = hasPrintedToughness || hasPowerToughnessModifiers;
     const printedToughnessValue =
-      (hasPrintedToughness || hasPowerToughnessModifiers ? (perm as any).effectiveToughness : undefined) ??
+      (shouldTrustEffectiveToughness ? (perm as any).effectiveToughness : undefined) ??
       (perm as any).baseToughness ??
       (perm as any).toughness ??
       perm.card?.toughness;
@@ -268,7 +269,7 @@ function checkCreatureDeaths(state: GameState): {
         : (typeof printedToughnessValue === 'string' && printedToughnessValue.trim().length > 0
             ? parseInt(printedToughnessValue, 10)
             : undefined);
-    const toughness = typeof (perm as any).effectiveToughness === 'number'
+    const toughness = shouldTrustEffectiveToughness && typeof (perm as any).effectiveToughness === 'number'
       ? (perm as any).effectiveToughness
       : baseToughness;
     if (typeof toughness !== 'number' || Number.isNaN(toughness)) continue;

@@ -182,13 +182,14 @@ export function checkCreatureDeathsForState(args: {
           mod?.type === 'POWER_TOUGHNESS' ||
           mod?.type === 'setPowerToughness'
         ));
+    const shouldTrustEffectiveToughness = hasPrintedToughness || hasPowerToughnessModifiers;
     const printedToughnessValue =
-      (hasPrintedToughness || hasPowerToughnessModifiers ? perm.effectiveToughness : undefined) ??
+      (shouldTrustEffectiveToughness ? perm.effectiveToughness : undefined) ??
       perm.baseToughness ??
       (perm as any).toughness ??
       perm.card?.toughness;
     let toughness =
-      typeof perm.effectiveToughness === 'number'
+      shouldTrustEffectiveToughness && typeof perm.effectiveToughness === 'number'
         ? perm.effectiveToughness
         : (typeof printedToughnessValue === 'number'
             ? printedToughnessValue
@@ -200,7 +201,7 @@ export function checkCreatureDeathsForState(args: {
     const minusCounters = perm.counters?.['-1/-1'] || 0;
     const damageMarked = perm.counters?.damage || perm.damageMarked || 0;
 
-    if (typeof perm.effectiveToughness !== 'number') {
+    if (!(shouldTrustEffectiveToughness && typeof perm.effectiveToughness === 'number')) {
       toughness += plusCounters - minusCounters;
     }
 

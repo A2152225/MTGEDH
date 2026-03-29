@@ -5,6 +5,9 @@ import type {
   OracleIRAbility,
 } from './oracleIR';
 import { AbilityType } from './oracleTextParser';
+import { parseEffectLevelImpulsePermissionClause } from './oracleIRParserEffectImpulsePermission';
+import { tryParseExileTopOnly } from './oracleIRParserExileTopOnly';
+import { cleanImpulseClause, isIgnorableImpulseReminderClause } from './oracleIRParserImpulseClauseUtils';
 import {
   inferZoneFromDestination,
   normalizeCounterName,
@@ -93,9 +96,7 @@ function parseGlobalLooseImpulsePermission(
   const normalized = normalizeOracleText(rawClause);
   if (!normalized) return null;
 
-  let clause = normalized
-    .trim()
-    .replace(/^then\b\s*/i, '')
+  let clause = cleanImpulseClause(normalized)
     .replace(/[,.;]\s*$/g, '')
     .trim();
 
@@ -1208,27 +1209,95 @@ function parseDeterministicUnknownBodySteps(
     return out;
   };
 
+  const parseImpulseExileBody = (bodyClause: string): readonly OracleEffectStep[] | null => {
+    const clauses = splitIntoClauses(
+      bodyClause.replace(/,\s*then\s+(choose one of them)\b/gi, '. Then $1')
+    )
+      .map(clause => String(clause || '').trim())
+      .filter(Boolean);
+    if (clauses.length === 0) return null;
+
+    const exileTop = tryParseExileTopOnly({ clauses, idx: 0 });
+    if (!exileTop || exileTop.step.kind !== 'exile_top') return null;
+
+    let bestPermission: ReturnType<typeof parseEffectLevelImpulsePermissionClause> | null = null;
+    let bestClauseIndex: number | null = null;
+
+    for (let index = exileTop.consumed; index < clauses.length; index += 1) {
+      const cleanedClause = cleanImpulseClause(clauses[index]);
+      const parsedPermission = parseEffectLevelImpulsePermissionClause(cleanedClause);
+      if (parsedPermission) {
+        if (!bestPermission || (bestPermission.duration === 'during_resolution' && parsedPermission.duration !== 'during_resolution')) {
+          bestPermission = parsedPermission;
+          bestClauseIndex = index;
+        }
+        if (parsedPermission.duration !== 'during_resolution') break;
+        continue;
+      }
+
+      if (!isIgnorableImpulseReminderClause(cleanedClause)) break;
+    }
+
+    if (!bestPermission || bestClauseIndex === null) return null;
+
+    const impulseStep = exileTop.step as Extract<OracleEffectStep, { kind: 'exile_top' }>;
+    const combinedRaw = `${String(impulseStep.raw || '').trim()} ${String(clauses[bestClauseIndex] || '').trim()}`.trim();
+
+    return [
+      {
+        kind: 'impulse_exile_top',
+        who: impulseStep.who,
+        amount: impulseStep.amount,
+        duration: bestPermission.duration,
+        permission: bestPermission.permission,
+        ...(bestPermission.condition ? { condition: bestPermission.condition } : {}),
+        ...(impulseStep.optional || step.optional ? { optional: true } : {}),
+        ...(impulseStep.sequence ? { sequence: impulseStep.sequence } : {}),
+        raw: combinedRaw.endsWith('.') ? combinedRaw : `${combinedRaw}.`,
+      },
+    ];
+  };
+
   const parseSingleClause = (rawClause: string): readonly OracleEffectStep[] | null => {
-    const clause = String(rawClause || '').trim();
+    const rawText = String(rawClause || '').trim();
+    const normalizedClause = normalizeClauseForParse(rawText.replace(/[.]+$/g, '').trim());
+    const clause = String(normalizedClause.clause || '').trim();
     if (!clause) return null;
 
+    const applyClauseMeta = <T extends OracleEffectStep>(candidate: T): T => {
+      const out: any = { ...candidate };
+      if (normalizedClause.sequence) out.sequence = normalizedClause.sequence;
+      if (normalizedClause.optional) out.optional = true;
+      return out;
+    };
+
+    const clauseStep = {
+      ...step,
+      raw: clause,
+      ...(normalizedClause.sequence ? { sequence: normalizedClause.sequence } : {}),
+      ...(normalizedClause.optional || normalizedBody.optional || step.optional ? { optional: true } : {}),
+    } as Extract<OracleEffectStep, { kind: 'unknown' }>;
+
     const moveWithAttach = parseMoveZoneWithAttachFollowup(clause);
-    if (moveWithAttach && moveWithAttach.length > 0) return [...moveWithAttach];
+    if (moveWithAttach && moveWithAttach.length > 0) return moveWithAttach.map(applyClauseMeta);
 
     const singleStep =
-      parseExilePermissionModifierUnknownStep({ ...step, raw: clause }) ??
-      parseCopySpellUnknownStep({ ...step, raw: clause }) ??
+      parseExilePermissionModifierUnknownStep(clauseStep) ??
+      parseCopySpellUnknownStep(clauseStep) ??
       parseReturnFromYourGraveyardToHandClause(clause) ??
-      tryParseZoneAndRemovalClause({ clause, rawClause: clause, withMeta }) ??
-      tryParseSimpleCreateTokenClause({ clause, rawClause: clause, withMeta }) ??
-      tryParseLifeAndCombatClause({ clause, rawClause: clause, withMeta }) ??
-      tryParseTemporaryModifyPtClause({ clause, rawClause: clause, withMeta }) ??
-      tryParseSimpleActionClause({ clause, rawClause: clause, withMeta });
+      tryParseZoneAndRemovalClause({ clause, rawClause: clause, withMeta: applyClauseMeta }) ??
+      tryParseSimpleCreateTokenClause({ clause, rawClause: clause, withMeta: applyClauseMeta }) ??
+      tryParseLifeAndCombatClause({ clause, rawClause: clause, withMeta: applyClauseMeta }) ??
+      tryParseTemporaryModifyPtClause({ clause, rawClause: clause, withMeta: applyClauseMeta }) ??
+      tryParseSimpleActionClause({ clause, rawClause: clause, withMeta: applyClauseMeta });
     if (!singleStep || singleStep.kind === 'unknown') return null;
-    return [singleStep];
+    return [applyClauseMeta(singleStep)];
   };
 
   const bodyClause = String(normalizedBody.clause || '').trim();
+  const impulseBody = parseImpulseExileBody(bodyClause);
+  if (impulseBody && impulseBody.length > 0) return impulseBody;
+
   const lookTopDistribution = parseLookTopChooseOneToHandRestToGraveyardBody(step, bodyClause);
   if (lookTopDistribution && lookTopDistribution.length > 0) return lookTopDistribution;
 
@@ -1267,6 +1336,13 @@ function parseSimpleConditionalUnknownStep(step: Extract<OracleEffectStep, { kin
   const parsedBodySteps = parseDeterministicUnknownBodySteps(step, body);
 
   if (!parsedBodySteps || parsedBodySteps.length === 0) return null;
+
+  if (conditionRaw === 'you do' && parsedBodySteps.length === 1 && parsedBodySteps[0]?.kind === 'impulse_exile_top') {
+    return {
+      ...parsedBodySteps[0],
+      raw: normalized,
+    };
+  }
 
   return {
     kind: 'conditional',
@@ -1481,6 +1557,78 @@ function expandUnlessSacrificeStep(step: OracleEffectStep): OracleEffectStep {
   };
 }
 
+function parseConditionalIfYouDoImpulseStep(
+  step: Extract<OracleEffectStep, { kind: 'conditional' }>,
+  nextStep: OracleEffectStep | undefined
+): OracleEffectStep | null {
+  if (step.condition.kind !== 'if') return null;
+  if (normalizeLeadingConditionalCondition(String(step.condition.raw || '').trim()) !== 'you do') return null;
+  if (nextStep?.kind !== 'unknown') return null;
+
+  const permission = parseEffectLevelImpulsePermissionClause(cleanImpulseClause(String(nextStep.raw || '')));
+  if (!permission) return null;
+
+  const clauses = splitIntoClauses(
+    normalizeOracleText(String(step.raw || ''))
+      .replace(/^if you do,\s*/i, '')
+      .replace(/,\s*then\s+(choose one of them)\b/gi, '. Then $1')
+  )
+    .map(clause => String(clause || '').trim())
+    .filter(Boolean);
+  if (clauses.length === 0) return null;
+
+  const exileTop = tryParseExileTopOnly({ clauses, idx: 0 });
+  if (!exileTop || exileTop.step.kind !== 'exile_top') return null;
+
+  for (let index = exileTop.consumed; index < clauses.length; index += 1) {
+    if (!isIgnorableImpulseReminderClause(cleanImpulseClause(clauses[index]))) return null;
+  }
+
+  const impulseStep = exileTop.step as Extract<OracleEffectStep, { kind: 'exile_top' }>;
+  const combinedRaw = `${String(step.raw || '').trim()} ${String(nextStep.raw || '').trim()}`.trim();
+
+  return {
+    kind: 'impulse_exile_top',
+    who: impulseStep.who,
+    amount: impulseStep.amount,
+    duration: permission.duration,
+    permission: permission.permission,
+    ...(permission.condition ? { condition: permission.condition } : {}),
+    ...(impulseStep.optional ? { optional: true } : {}),
+    ...(impulseStep.sequence ? { sequence: impulseStep.sequence } : {}),
+    raw: combinedRaw.endsWith('.') ? combinedRaw : `${combinedRaw}.`,
+  };
+}
+
+export function upgradeConditionalIfYouDoImpulseAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    let changed = false;
+    const upgradedSteps: OracleEffectStep[] = [];
+
+    for (let index = 0; index < ability.steps.length; index += 1) {
+      const step = ability.steps[index];
+      if (step.kind !== 'conditional') {
+        upgradedSteps.push(step);
+        continue;
+      }
+
+      const upgraded = parseConditionalIfYouDoImpulseStep(step, ability.steps[index + 1]);
+      if (!upgraded) {
+        upgradedSteps.push(step);
+        continue;
+      }
+
+      changed = true;
+      upgradedSteps.push(upgraded);
+      index += 1;
+    }
+
+    return changed ? { ...ability, steps: upgradedSteps } : ability;
+  });
+}
+
 export function expandUnlessSacrificeAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
@@ -1504,6 +1652,26 @@ function parseExilePermissionUnknownStep(
     .replace(/^then\b\s*/i, '')
     .trim();
   if (!normalized) return null;
+
+  {
+    const conditionalModifierMatch = normalized.match(/^if\s+([^,]+),\s*(.+)$/i);
+    if (conditionalModifierMatch) {
+      const conditionRaw = normalizeLeadingConditionalCondition(String(conditionalModifierMatch[1] || '').trim());
+      const modifierStep = parseExilePermissionModifierUnknownStep({
+        ...step,
+        raw: String(conditionalModifierMatch[2] || '').trim(),
+      });
+      if (conditionRaw && modifierStep) {
+        return {
+          kind: 'conditional',
+          condition: { kind: 'if', raw: conditionRaw },
+          steps: [modifierStep],
+          ...(step.sequence ? { sequence: step.sequence } : {}),
+          raw: normalized,
+        };
+      }
+    }
+  }
 
   if (/^(?:at the beginning of your next upkeep,?\s*)?you may cast this card from exile without paying its mana cost\.?$/i.test(normalized)) {
     return {
@@ -1936,6 +2104,9 @@ function appendGrantedGraveyardAdditionalCostModifiers(steps: readonly OracleEff
     expanded.push(step);
     if (step.kind !== 'grant_graveyard_permission') continue;
 
+  const normalizedRaw = normalizeOracleText(String(step.raw || '')).trim();
+  if (/^[^.:]+:\s*/.test(normalizedRaw)) continue;
+
     const additionalCost = parseGraveyardAdditionalCostFromText(step.raw);
     if (!additionalCost) continue;
 
@@ -2024,6 +2195,8 @@ export function expandKeywordAdditionalCostGraveyardPermissionAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
   return abilities.map((ability) => {
+    if (ability.type !== 'keyword') return ability;
+
     const additionalCost = parseGraveyardAdditionalCostFromText(String(ability.cost || '').trim());
     if (!additionalCost) return ability;
 
@@ -2233,11 +2406,12 @@ export function expandTransmuteKeywordAbilities(
   return abilities.map((ability) => {
     const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
     const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
-    const alreadyExpanded = ability.steps.some((step) => step.kind === 'search_library');
     const matchesCanonicalEffect =
-      normalizedEffect.startsWith('search your library for a card with the same mana value as this card') ||
-      normalizedText.startsWith('search your library for a card with the same mana value as this card');
-    if (alreadyExpanded || (!normalizedText.startsWith('transmute ') && !matchesCanonicalEffect)) {
+      normalizedEffect.includes('search your library for a card with the same mana value as this card') ||
+      normalizedText.includes('search your library for a card with the same mana value as this card') ||
+      normalizedEffect.includes('same mana value as this card') ||
+      normalizedText.includes('same mana value as this card');
+    if (!normalizedText.startsWith('transmute ') && !matchesCanonicalEffect) {
       return ability;
     }
 
@@ -2727,6 +2901,7 @@ function parseCopySpellUnknownStep(
       subject: 'this_spell',
       copies: { kind: 'spells_cast_before_this_turn' },
       allowNewTargets: /^you may choose new targets for the copies$/i.test(nextNormalized),
+      ...(step.optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: nextNormalized ? `${normalized}. ${nextNormalized}` : normalized,
     };
@@ -2752,6 +2927,7 @@ function parseCopySpellUnknownStep(
       kind: 'copy_spell',
       subject: 'this_spell',
       allowNewTargets: /may choose\s+(?:a new target|new targets)\s+for the copy/i.test(normalized),
+      ...(step.optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
     };

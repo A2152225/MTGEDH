@@ -63,6 +63,23 @@ function shouldPreserveTriggerConditionFilter(normalizedCondition: string): bool
   );
 }
 
+function normalizeTriggeredEffectTextCase(effectText: string): string {
+  let inQuotes = false;
+  let normalized = '';
+
+  for (const char of String(effectText || '')) {
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      normalized += char;
+      continue;
+    }
+
+    normalized += inQuotes ? char : char.toLowerCase();
+  }
+
+  return normalized;
+}
+
 /**
  * Parse triggered abilities from oracle text.
  * Returns all triggers found in the text.
@@ -132,7 +149,7 @@ export function parseTriggeredAbilitiesFromText(
         : {}),
       ...(interveningIf ? { interveningIfClause: interveningIf } : {}),
       ...(hasInterveningIf ? { hasInterveningIf } : {}),
-      effect,
+      effect: normalizeTriggeredEffectTextCase(effect),
       optional,
     });
     index += 1;
