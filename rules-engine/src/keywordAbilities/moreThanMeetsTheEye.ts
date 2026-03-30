@@ -17,6 +17,14 @@ export interface MoreThanMeetsTheEyeAbility {
   readonly wasConverted: boolean;
 }
 
+export interface MoreThanMeetsTheEyeSummary {
+  readonly source: string;
+  readonly mtmteCost: string;
+  readonly canCastConverted: boolean;
+  readonly wasConverted: boolean;
+  readonly usesAlternateCost: boolean;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -97,4 +105,17 @@ export function parseMTMTECost(oracleText: string): string | null {
  */
 export function hasRedundantMoreThanMeetsTheEye(abilities: readonly MoreThanMeetsTheEyeAbility[]): boolean {
   return false;
+}
+
+export function createMoreThanMeetsTheEyeSummary(
+  ability: MoreThanMeetsTheEyeAbility,
+  zone: string,
+): MoreThanMeetsTheEyeSummary {
+  return {
+    source: ability.source,
+    mtmteCost: ability.mtmteCost,
+    canCastConverted: canCastConverted(zone),
+    wasConverted: ability.wasConverted,
+    usesAlternateCost: ability.wasConverted,
+  };
 }

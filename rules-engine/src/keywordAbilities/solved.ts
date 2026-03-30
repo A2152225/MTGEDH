@@ -22,6 +22,14 @@ export interface SolvedAbility {
   readonly isSolved: boolean;
 }
 
+export interface SolvedSummary {
+  readonly source: string;
+  readonly abilityType: 'static' | 'triggered' | 'activated';
+  readonly isSolved: boolean;
+  readonly canUseAbility: boolean;
+  readonly abilityText: string;
+}
+
 /**
  * Create a solved ability
  * Rule 702.169a
@@ -111,4 +119,17 @@ export function getSolvedAbilityText(ability: SolvedAbility): string {
  */
 export function hasRedundantSolved(abilities: readonly SolvedAbility[]): boolean {
   return false;
+}
+
+export function createSolvedSummary(
+  ability: SolvedAbility,
+  requestedType: 'static' | 'triggered' | 'activated',
+): SolvedSummary {
+  return {
+    source: ability.source,
+    abilityType: ability.abilityType,
+    isSolved: ability.isSolved,
+    canUseAbility: canUseSolvedAbility(ability, requestedType),
+    abilityText: ability.abilityText,
+  };
 }

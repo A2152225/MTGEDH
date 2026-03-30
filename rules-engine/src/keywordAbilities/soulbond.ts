@@ -20,6 +20,14 @@ export interface SoulbondPairingResult {
   readonly soulbondActive: boolean;
 }
 
+export interface SoulbondSummary {
+  readonly source: string;
+  readonly canPair: boolean;
+  readonly canPairWithTarget: boolean;
+  readonly pairedWith?: string;
+  readonly soulbondActive: boolean;
+}
+
 /**
  * Creates a soulbond ability
  * @param source - The creature with soulbond
@@ -93,5 +101,23 @@ export function resolveSoulbondPairing(ability: SoulbondAbility): SoulbondPairin
     source: ability.source,
     pairedWith: ability.pairedWith,
     soulbondActive: true,
+  };
+}
+
+export function createSoulbondSummary(
+  ability: SoulbondAbility,
+  targetIsUnpairedCreature: boolean,
+  targetId: string,
+): SoulbondSummary {
+  const canPairWithChosenTarget = canPairWithTarget(ability, targetIsUnpairedCreature, targetId);
+  const pairedAbility = canPairWithChosenTarget ? pairCreatures(ability, targetId) : ability;
+  const result = resolveSoulbondPairing(pairedAbility);
+
+  return {
+    source: ability.source,
+    canPair: canPair(ability),
+    canPairWithTarget: canPairWithChosenTarget,
+    pairedWith: getPairedCreature(pairedAbility),
+    soulbondActive: result?.soulbondActive ?? false,
   };
 }

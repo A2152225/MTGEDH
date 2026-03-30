@@ -17,6 +17,12 @@ export interface JobSelectAbility {
   readonly heroTokenId?: string;
 }
 
+export interface JobSelectSummary {
+  readonly source: string;
+  readonly hasTriggered: boolean;
+  readonly heroTokenId?: string;
+}
+
 export const JOB_SELECT_HERO_TOKEN = {
   name: 'Hero',
   colors: [] as string[],
@@ -99,4 +105,12 @@ export function createJobSelectHeroToken(tokenId: string, controllerId: PlayerID
  */
 export function hasRedundantJobSelect(abilities: readonly JobSelectAbility[]): boolean {
   return false;
+}
+
+export function createJobSelectSummary(ability: JobSelectAbility): JobSelectSummary {
+  return {
+    source: ability.source,
+    hasTriggered: ability.hasTriggered,
+    heroTokenId: ability.heroTokenId,
+  };
 }

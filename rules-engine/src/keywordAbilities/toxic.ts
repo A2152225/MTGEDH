@@ -18,6 +18,15 @@ export interface ToxicAbility {
   readonly toxicValue: number;
 }
 
+export interface ToxicSummary {
+  readonly source: string;
+  readonly abilityCount: number;
+  readonly totalToxicValue: number;
+  readonly dealtCombatDamageToPlayer: boolean;
+  readonly canApplyToPlayer: boolean;
+  readonly poisonCountersToGive: number;
+}
+
 function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
@@ -86,4 +95,20 @@ export function parseToxicValue(oracleText: string): number | null {
  */
 export function hasRedundantToxic(abilities: readonly ToxicAbility[]): boolean {
   return false; // Each instance contributes to total toxic value
+}
+
+export function createToxicSummary(
+  abilities: readonly ToxicAbility[],
+  dealtCombatDamageToPlayer: boolean,
+): ToxicSummary {
+  const totalToxicValue = getTotalToxicValue(abilities);
+
+  return {
+    source: abilities[0]?.source ?? '',
+    abilityCount: abilities.length,
+    totalToxicValue,
+    dealtCombatDamageToPlayer,
+    canApplyToPlayer: canApplyToxicToPlayer(dealtCombatDamageToPlayer),
+    poisonCountersToGive: dealtCombatDamageToPlayer ? totalToxicValue : 0,
+  };
 }

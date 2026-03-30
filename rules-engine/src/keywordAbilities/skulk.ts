@@ -15,6 +15,13 @@ export interface SkulkAbility {
   readonly source: string;
 }
 
+export interface SkulkSummary {
+  readonly source: string;
+  readonly attackerPower: number;
+  readonly legalBlockerExists: boolean;
+  readonly illegalBlockers: readonly string[];
+}
+
 /**
  * Create a skulk ability
  * Rule 702.118
@@ -83,4 +90,17 @@ export function canAnyCreatureBlockSkulk(
  */
 export function hasRedundantSkulk(abilities: readonly SkulkAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createSkulkSummary(
+  ability: SkulkAbility,
+  attackerPower: number,
+  blockers: readonly { id: string; power: number }[],
+): SkulkSummary {
+  return {
+    source: ability.source,
+    attackerPower,
+    legalBlockerExists: canAnyCreatureBlockSkulk(attackerPower, blockers),
+    illegalBlockers: getIllegalSkulkBlockers(attackerPower, blockers),
+  };
 }

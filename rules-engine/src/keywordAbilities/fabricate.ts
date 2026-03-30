@@ -18,6 +18,15 @@ export interface FabricateAbility {
   readonly tokensCreated: readonly string[];
 }
 
+export interface FabricateSummary {
+  readonly source: string;
+  readonly fabricateValue: number;
+  readonly choseCounters: boolean | null;
+  readonly counterBranch: boolean;
+  readonly tokenBranch: boolean;
+  readonly tokenCount: number;
+}
+
 export const FABRICATE_SERVO_TOKEN = {
   name: 'Servo',
   colors: [] as string[],
@@ -139,4 +148,15 @@ export function createFabricateServoTokens(controllerId: string, tokenIds: reado
  */
 export function hasRedundantFabricate(abilities: readonly FabricateAbility[]): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createFabricateSummary(ability: FabricateAbility): FabricateSummary {
+  return {
+    source: ability.source,
+    fabricateValue: ability.fabricateValue,
+    choseCounters: ability.choseCounters,
+    counterBranch: shouldFabricateCounters(ability),
+    tokenBranch: shouldFabricateTokens(ability),
+    tokenCount: ability.tokensCreated.length,
+  };
 }

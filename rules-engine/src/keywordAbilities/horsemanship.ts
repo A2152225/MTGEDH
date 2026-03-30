@@ -16,6 +16,13 @@ export interface HorsemanshipAbility {
   readonly source: string;
 }
 
+export interface HorsemanshipSummary {
+  readonly source: string;
+  readonly attackerHasHorsemanship: boolean;
+  readonly blockerCanBlock: boolean;
+  readonly evasionRelevant: boolean;
+}
+
 /**
  * Creates a horsemanship ability
  * Rule 702.31a
@@ -68,4 +75,17 @@ export function isHorsemanshipEvasionRelevant(
  */
 export function hasRedundantHorsemanship(abilities: readonly HorsemanshipAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createHorsemanshipSummary(
+  ability: HorsemanshipAbility,
+  blockerHasHorsemanship: boolean,
+  availableBlockersHaveHorsemanship: boolean,
+): HorsemanshipSummary {
+  return {
+    source: ability.source,
+    attackerHasHorsemanship: true,
+    blockerCanBlock: canBlockAttackerWithHorsemanship(true, blockerHasHorsemanship),
+    evasionRelevant: isHorsemanshipEvasionRelevant(true, availableBlockersHaveHorsemanship),
+  };
 }

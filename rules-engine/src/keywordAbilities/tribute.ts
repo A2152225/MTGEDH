@@ -32,6 +32,15 @@ export interface TributeResolution {
   readonly countersAdded: number;
 }
 
+export interface TributeSummary {
+  readonly source: string;
+  readonly opponent: string;
+  readonly tributeAmount: number;
+  readonly tributePaid: boolean;
+  readonly countersAdded: number;
+  readonly fallbackTriggers: boolean;
+}
+
 /**
  * Creates a tribute ability
  * @param source - Source creature with tribute
@@ -109,5 +118,16 @@ export function createTributeResolution(ability: TributeAbility): TributeResolut
     opponent: ability.chosenOpponent,
     tributePaid: ability.tributePaid,
     countersAdded: getTributeCounters(ability),
+  };
+}
+
+export function createTributeSummary(ability: TributeAbility): TributeSummary {
+  return {
+    source: ability.source,
+    opponent: ability.chosenOpponent,
+    tributeAmount: getTributeAmount(ability),
+    tributePaid: wasTributePaid(ability),
+    countersAdded: getTributeCounters(ability),
+    fallbackTriggers: shouldTriggerTributeFallback(ability),
   };
 }

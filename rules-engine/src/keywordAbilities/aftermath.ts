@@ -17,6 +17,14 @@ export interface AftermathAbility {
   readonly wasCastFromGraveyard: boolean;
 }
 
+export interface AftermathSummary {
+  readonly source: string;
+  readonly canCastFromGraveyard: boolean;
+  readonly canCastNow: boolean;
+  readonly wasCastFromGraveyard: boolean;
+  readonly exilesOnResolution: boolean;
+}
+
 /**
  * Create an aftermath ability
  * Rule 702.127a
@@ -89,4 +97,19 @@ export function canCastAftermathFromZone(zone: string): boolean {
  */
 export function hasRedundantAftermath(abilities: readonly AftermathAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createAftermathSummary(
+  ability: AftermathAbility,
+  zone: 'graveyard' | 'hand' | 'library' | 'battlefield' | 'exile',
+  isMainPhase: boolean,
+  stackIsEmpty: boolean,
+): AftermathSummary {
+  return {
+    source: ability.source,
+    canCastFromGraveyard: canCastAftermath(zone),
+    canCastNow: canCastAftermathNow(zone, isMainPhase, stackIsEmpty),
+    wasCastFromGraveyard: ability.wasCastFromGraveyard,
+    exilesOnResolution: shouldExileAftermath(ability),
+  };
 }

@@ -21,6 +21,14 @@ export interface MiracleCastResult {
   readonly costPaid: string;
 }
 
+export interface MiracleSummary {
+  readonly source: string;
+  readonly miracleCost: string;
+  readonly canUseMiracle: boolean;
+  readonly canCastFromZone: boolean;
+  readonly usedMiracle: boolean;
+}
+
 /**
  * Creates a miracle ability
  * @param source - The source card with miracle
@@ -86,5 +94,20 @@ export function resolveMiracleCast(ability: MiracleAbility): MiracleCastResult {
     source: ability.source,
     usedMiracle: canUseMiracle(ability),
     costPaid: ability.miracleCost,
+  };
+}
+
+export function createMiracleSummary(
+  ability: MiracleAbility,
+  zone: 'hand' | 'graveyard' | 'exile' | 'library',
+): MiracleSummary {
+  const result = resolveMiracleCast(ability);
+
+  return {
+    source: ability.source,
+    miracleCost: ability.miracleCost,
+    canUseMiracle: canUseMiracle(ability),
+    canCastFromZone: canCastMiracleFromZone(zone, ability),
+    usedMiracle: result.usedMiracle,
   };
 }

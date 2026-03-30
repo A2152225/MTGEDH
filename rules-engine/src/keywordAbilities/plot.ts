@@ -23,6 +23,15 @@ export interface PlotAbility {
   readonly turnPlotted?: number;
 }
 
+export interface PlotSummary {
+  readonly source: string;
+  readonly plotCost: string;
+  readonly isPlotted: boolean;
+  readonly turnPlotted?: number;
+  readonly canPlotNow: boolean;
+  readonly canCastNow: boolean;
+}
+
 function normalizeZone(zone: string): string {
   return String(zone || '').trim().toLowerCase();
 }
@@ -147,4 +156,21 @@ export function parsePlotCost(oracleText: string): string | null {
  */
 export function hasRedundantPlot(abilities: readonly PlotAbility[]): boolean {
   return false;
+}
+
+export function createPlotSummary(
+  ability: PlotAbility,
+  zone: string,
+  currentTurn: number,
+  isMainPhase: boolean,
+  stackIsEmpty: boolean,
+): PlotSummary {
+  return {
+    source: ability.source,
+    plotCost: ability.plotCost,
+    isPlotted: ability.isPlotted,
+    turnPlotted: ability.turnPlotted,
+    canPlotNow: canPlotCard(ability, zone, isMainPhase, stackIsEmpty),
+    canCastNow: canCastPlottedNow(ability, currentTurn, isMainPhase, stackIsEmpty),
+  };
 }

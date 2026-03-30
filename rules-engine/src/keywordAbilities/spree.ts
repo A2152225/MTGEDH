@@ -18,6 +18,14 @@ export interface SpreeAbility {
   readonly modeCosts: readonly string[];
 }
 
+export interface SpreeSummary {
+  readonly source: string;
+  readonly chosenModes: readonly number[];
+  readonly modeCount: number;
+  readonly chosenCosts: readonly string[];
+  readonly canChooseModes: boolean;
+}
+
 function uniqueNumericModes(modes: readonly number[]): number[] {
   return [...new Set(modes.filter((mode) => Number.isInteger(mode)))];
 }
@@ -93,4 +101,17 @@ export function getSpreeModeCount(ability: SpreeAbility): number {
  */
 export function hasRedundantSpree(abilities: readonly SpreeAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createSpreeSummary(
+  ability: SpreeAbility,
+  proposedModes: readonly number[],
+): SpreeSummary {
+  return {
+    source: ability.source,
+    chosenModes: ability.chosenModes,
+    modeCount: getSpreeModeCount(ability),
+    chosenCosts: getSpreeCosts(ability),
+    canChooseModes: canChooseSpreeModes(ability, proposedModes),
+  };
 }

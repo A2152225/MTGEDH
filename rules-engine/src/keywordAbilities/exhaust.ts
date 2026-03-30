@@ -19,6 +19,14 @@ export interface ExhaustAbility {
   readonly hasBeenActivated: boolean;
 }
 
+export interface ExhaustSummary {
+  readonly source: string;
+  readonly exhaustCost: string;
+  readonly effect: string;
+  readonly canActivate: boolean;
+  readonly hasBeenActivated: boolean;
+}
+
 /**
  * Create an exhaust ability
  * Rule 702.177a
@@ -97,4 +105,14 @@ export function parseExhaustActivation(oracleText: string): { cost: string; effe
  */
 export function hasRedundantExhaust(abilities: readonly ExhaustAbility[]): boolean {
   return false;
+}
+
+export function createExhaustSummary(ability: ExhaustAbility): ExhaustSummary {
+  return {
+    source: ability.source,
+    exhaustCost: ability.exhaustCost,
+    effect: ability.effect,
+    canActivate: canActivateExhaust(ability),
+    hasBeenActivated: ability.hasBeenActivated,
+  };
 }

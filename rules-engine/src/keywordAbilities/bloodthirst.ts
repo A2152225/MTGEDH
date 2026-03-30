@@ -16,6 +16,13 @@ export interface BloodthirstResolution {
   readonly countersAdded: number;
 }
 
+export interface BloodthirstSummary {
+  readonly source: string;
+  readonly bloodthirstValue: number;
+  readonly eligible: boolean;
+  readonly countersAdded: number;
+}
+
 export function bloodthirst(source: string, value: number): BloodthirstAbility {
   return { type: 'bloodthirst', value, source, countersAdded: 0 };
 }
@@ -50,4 +57,18 @@ export function createBloodthirstResolution(
 
 export function isBloodthirstRedundant(): boolean {
   return false; // Rule 702.54b: Each instance works separately
+}
+
+export function createBloodthirstSummary(
+  ability: BloodthirstAbility,
+  opponentWasDealtDamage: boolean,
+): BloodthirstSummary {
+  const resolved = resolveBloodthirst(ability, opponentWasDealtDamage);
+
+  return {
+    source: ability.source,
+    bloodthirstValue: ability.value,
+    eligible: canApplyBloodthirst(opponentWasDealtDamage),
+    countersAdded: resolved.countersAdded,
+  };
 }

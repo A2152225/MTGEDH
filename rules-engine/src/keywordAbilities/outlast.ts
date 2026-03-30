@@ -22,6 +22,14 @@ export interface OutlastResolution {
   readonly tapped: boolean;
 }
 
+export interface OutlastSummary {
+  readonly source: string;
+  readonly outlastCost: string;
+  readonly canActivate: boolean;
+  readonly countersAdded: number;
+  readonly tapped: boolean;
+}
+
 /**
  * Create an outlast ability
  * Rule 702.107a
@@ -84,4 +92,18 @@ export function hasRedundantOutlast(
   abilities: readonly OutlastAbility[]
 ): boolean {
   return false; // Each outlast activation is separate
+}
+
+export function createOutlastSummary(
+  ability: OutlastAbility,
+  isSorcerySpeed: boolean,
+  isUntapped: boolean,
+): OutlastSummary {
+  return {
+    source: ability.source,
+    outlastCost: ability.cost,
+    canActivate: canActivateOutlast(isSorcerySpeed, isUntapped),
+    countersAdded: ability.countersAdded,
+    tapped: ability.tapped,
+  };
 }

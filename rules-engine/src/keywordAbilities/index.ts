@@ -214,6 +214,7 @@ export * from './awaken';
 export {
   DevoidAbility,
   devoid,
+  createDevoidSummary,
   hasRedundantDevoid,
 } from './devoid';
 export * from './ingest';

@@ -15,6 +15,14 @@ export interface IngestAbility {
   readonly timesTriggered: number;
 }
 
+export interface IngestSummary {
+  readonly source: string;
+  readonly dealtCombatDamageToPlayer: boolean;
+  readonly canTrigger: boolean;
+  readonly triggerCount: number;
+  readonly exilesPerTrigger: number;
+}
+
 /**
  * Create an ingest ability
  * Rule 702.115a
@@ -73,4 +81,17 @@ export function getIngestExileCount(): number {
  */
 export function hasRedundantIngest(abilities: readonly IngestAbility[]): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createIngestSummary(
+  ability: IngestAbility,
+  dealtCombatDamageToPlayer: boolean,
+): IngestSummary {
+  return {
+    source: ability.source,
+    dealtCombatDamageToPlayer,
+    canTrigger: shouldTriggerIngest(dealtCombatDamageToPlayer),
+    triggerCount: ability.timesTriggered,
+    exilesPerTrigger: getIngestExileCount(),
+  };
 }

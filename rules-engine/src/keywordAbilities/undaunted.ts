@@ -17,6 +17,13 @@ export interface UndauntedAbility {
   readonly costReduction: number;
 }
 
+export interface UndauntedSummary {
+  readonly source: string;
+  readonly costReduction: number;
+  readonly activeOpponents: number;
+  readonly reducedCost: string;
+}
+
 function tokenizeCost(cost: string): string[] {
   const raw = String(cost || '').trim();
   if (!raw) {
@@ -141,4 +148,17 @@ export function countActiveOpponents(opponentsStillInGame: readonly boolean[]): 
  */
 export function hasRedundantUndaunted(abilities: readonly UndauntedAbility[]): boolean {
   return false; // Each instance applies separately
+}
+
+export function createUndauntedSummary(
+  ability: UndauntedAbility,
+  activeOpponents: number,
+  originalCost: string,
+): UndauntedSummary {
+  return {
+    source: ability.source,
+    costReduction: ability.costReduction,
+    activeOpponents,
+    reducedCost: getReducedUndauntedCost(originalCost, ability.costReduction),
+  };
 }

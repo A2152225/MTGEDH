@@ -17,6 +17,14 @@ export interface MaxSpeedAbility {
   readonly playerSpeed: number;
 }
 
+export interface MaxSpeedSummary {
+  readonly source: string;
+  readonly playerSpeed: number;
+  readonly threshold: number;
+  readonly grantedAbility: string;
+  readonly isActive: boolean;
+}
+
 /**
  * Create a max speed ability
  * Rule 702.178a
@@ -93,4 +101,14 @@ export function parseMaxSpeedAbility(oracleText: string): string | null {
  */
 export function hasRedundantMaxSpeed(abilities: readonly MaxSpeedAbility[]): boolean {
   return false;
+}
+
+export function createMaxSpeedSummary(ability: MaxSpeedAbility): MaxSpeedSummary {
+  return {
+    source: ability.source,
+    playerSpeed: ability.playerSpeed,
+    threshold: getMaxSpeedThreshold(),
+    grantedAbility: ability.grantedAbility,
+    isActive: isMaxSpeedActive(ability),
+  };
 }

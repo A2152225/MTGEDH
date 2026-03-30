@@ -24,6 +24,13 @@ export interface BargainAbility {
   readonly sacrificedPermanent?: string;
 }
 
+export interface BargainSummary {
+  readonly source: string;
+  readonly canPayCandidate: boolean;
+  readonly wasBargained: boolean;
+  readonly sacrificedPermanent?: string;
+}
+
 type BargainCandidate = {
   readonly isToken?: boolean;
   readonly type_line?: string;
@@ -100,4 +107,16 @@ export function canPayBargain(candidate: BargainCandidate): boolean {
  */
 export function hasRedundantBargain(abilities: readonly BargainAbility[]): boolean {
   return false;
+}
+
+export function createBargainSummary(
+  ability: BargainAbility,
+  candidate: BargainCandidate,
+): BargainSummary {
+  return {
+    source: ability.source,
+    canPayCandidate: canPayBargain(candidate),
+    wasBargained: ability.wasBargained,
+    sacrificedPermanent: ability.sacrificedPermanent,
+  };
 }

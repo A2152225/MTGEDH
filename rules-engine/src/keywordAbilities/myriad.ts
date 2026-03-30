@@ -19,6 +19,14 @@ export interface MyriadAbility {
   readonly hasTriggered: boolean;
 }
 
+export interface MyriadSummary {
+  readonly source: string;
+  readonly opponentCount: number;
+  readonly tokenCount: number;
+  readonly canTrigger: boolean;
+  readonly hasTriggered: boolean;
+}
+
 /**
  * Create a myriad ability
  * Rule 702.116a
@@ -107,4 +115,17 @@ export function canTriggerMyriad(isAttacking: boolean, opponentCount: number): b
  */
 export function hasRedundantMyriad(abilities: readonly MyriadAbility[]): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createMyriadSummary(
+  ability: MyriadAbility,
+  opponentCount: number,
+): MyriadSummary {
+  return {
+    source: ability.source,
+    opponentCount,
+    tokenCount: ability.tokensCreated.length,
+    canTrigger: canTriggerMyriad(true, opponentCount),
+    hasTriggered: ability.hasTriggered,
+  };
 }

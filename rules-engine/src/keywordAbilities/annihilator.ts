@@ -19,6 +19,13 @@ export interface AnnihilatorTrigger {
   readonly permanentsToSacrifice: number;
 }
 
+export interface AnnihilatorSummary {
+  readonly source: string;
+  readonly annihilatorCount: number;
+  readonly triggers: boolean;
+  readonly defendingPlayerId?: string;
+}
+
 /**
  * Create an annihilator ability
  * Rule 702.86a: "Annihilator N" means "Whenever this creature attacks,
@@ -69,4 +76,17 @@ export function getCombinedAnnihilatorCount(
  */
 export function areAnnihilatorAbilitiesRedundant(a: AnnihilatorAbility, b: AnnihilatorAbility): boolean {
   return false;
+}
+
+export function createAnnihilatorSummary(
+  ability: AnnihilatorAbility,
+  isAttacking: boolean,
+  defendingPlayerId?: string,
+): AnnihilatorSummary {
+  return {
+    source: ability.source,
+    annihilatorCount: ability.count,
+    triggers: shouldTriggerAnnihilator(isAttacking, defendingPlayerId),
+    defendingPlayerId,
+  };
 }

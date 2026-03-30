@@ -26,6 +26,13 @@ export interface PartnerAbility {
   readonly partnerRequirement?: string; // For "partner—[text]"
 }
 
+export interface PartnerSummary {
+  readonly source: string;
+  readonly partnerType: 'partner' | 'partner-with' | 'friends-forever' | 'choose-background' | 'doctors-companion';
+  readonly canChooseCandidate: boolean;
+  readonly combinedColorIdentity: readonly string[];
+}
+
 type PartnerCommanderLike = {
   readonly name?: string;
   readonly isLegendary?: boolean;
@@ -198,4 +205,17 @@ export function getCombinedPartnerColorIdentity(
  */
 export function hasRedundantPartner(abilities: readonly PartnerAbility[]): boolean {
   return false;
+}
+
+export function createPartnerSummary(
+  ability: PartnerAbility,
+  candidate: PartnerCommanderLike,
+  commanders: readonly PartnerCommanderLike[],
+): PartnerSummary {
+  return {
+    source: ability.source,
+    partnerType: ability.partnerType,
+    canChooseCandidate: canChoosePartnerCommander(ability, candidate),
+    combinedColorIdentity: getCombinedPartnerColorIdentity(commanders),
+  };
 }

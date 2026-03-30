@@ -22,6 +22,14 @@ export interface SaddleAbility {
   readonly saddledCreatures: readonly string[];
 }
 
+export interface SaddleSummary {
+  readonly source: string;
+  readonly saddleValue: number;
+  readonly isSaddled: boolean;
+  readonly saddledCreatureCount: number;
+  readonly canActivate: boolean;
+}
+
 function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
@@ -127,4 +135,18 @@ export function parseSaddleValue(oracleText: string): number | null {
  */
 export function hasRedundantSaddle(abilities: readonly SaddleAbility[]): boolean {
   return false;
+}
+
+export function createSaddleSummary(
+  ability: SaddleAbility,
+  totalPower: number,
+  isSorcerySpeed: boolean,
+): SaddleSummary {
+  return {
+    source: ability.source,
+    saddleValue: ability.saddleValue,
+    isSaddled: ability.isSaddled,
+    saddledCreatureCount: ability.saddledCreatures.length,
+    canActivate: canActivateSaddle(ability, ability.saddledCreatures, totalPower, isSorcerySpeed),
+  };
 }

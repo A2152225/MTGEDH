@@ -29,6 +29,14 @@ export interface VanishingUpkeepResult {
   readonly shouldSacrifice: boolean;
 }
 
+export interface VanishingSummary {
+  readonly source: string;
+  readonly initialCounters: number;
+  readonly countersRemaining: number;
+  readonly canRemoveCounter: boolean;
+  readonly shouldSacrifice: boolean;
+}
+
 /**
  * Creates a vanishing ability.
  * 
@@ -106,4 +114,14 @@ export function processVanishingUpkeep(ability: VanishingAbility): VanishingUpke
  */
 export function shouldSacrificeVanishing(ability: VanishingAbility): boolean {
   return ability.timeCounters === 0;
+}
+
+export function createVanishingSummary(ability: VanishingAbility): VanishingSummary {
+  return {
+    source: ability.source,
+    initialCounters: ability.count,
+    countersRemaining: ability.timeCounters,
+    canRemoveCounter: canRemoveVanishingCounter(ability),
+    shouldSacrifice: shouldSacrificeVanishing(ability),
+  };
 }

@@ -17,6 +17,13 @@ export interface BattleCryBonus {
   readonly toughness: number;
 }
 
+export interface BattleCrySummary {
+  readonly source: string;
+  readonly triggers: boolean;
+  readonly affectedAttackers: readonly string[];
+  readonly bonus: BattleCryBonus;
+}
+
 /**
  * Create a battle cry ability
  * Rule 702.91a: "Battle cry" means "Whenever this creature attacks, each other
@@ -66,4 +73,17 @@ export function createBattleCryBonuses(
  */
 export function areBattleCryAbilitiesRedundant(a: BattleCryAbility, b: BattleCryAbility): boolean {
   return false;
+}
+
+export function createBattleCrySummary(
+  ability: BattleCryAbility,
+  isAttacking: boolean,
+  attackingCreatureIds: readonly string[],
+): BattleCrySummary {
+  return {
+    source: ability.source,
+    triggers: shouldTriggerBattleCry(isAttacking),
+    affectedAttackers: getBattleCryAffectedAttackers(ability.source, attackingCreatureIds),
+    bonus: getBattleCryBonus(),
+  };
 }

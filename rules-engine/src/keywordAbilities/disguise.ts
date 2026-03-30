@@ -29,6 +29,15 @@ export interface DisguiseAbility {
   readonly xValue?: number; // For disguise costs with X
 }
 
+export interface DisguiseSummary {
+  readonly source: string;
+  readonly disguiseCost: string;
+  readonly canCastWithDisguise: boolean;
+  readonly isFaceDown: boolean;
+  readonly canTurnFaceUp: boolean;
+  readonly xValue?: number;
+}
+
 export const DISGUISE_CAST_COST = '{3}';
 
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
@@ -143,4 +152,19 @@ export function parseDisguiseCost(oracleText: string): string | null {
  */
 export function hasRedundantDisguise(abilities: readonly DisguiseAbility[]): boolean {
   return false;
+}
+
+export function createDisguiseSummary(
+  ability: DisguiseAbility,
+  zone: string,
+  hasPriority: boolean,
+): DisguiseSummary {
+  return {
+    source: ability.source,
+    disguiseCost: ability.disguiseCost,
+    canCastWithDisguise: canCastWithDisguise(zone),
+    isFaceDown: ability.isFaceDown,
+    canTurnFaceUp: canTurnDisguiseFaceUp(ability, hasPriority),
+    xValue: ability.xValue,
+  };
 }

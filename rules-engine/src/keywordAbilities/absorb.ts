@@ -21,6 +21,13 @@ export interface AbsorbResult {
   readonly remainingDamage: number;
 }
 
+export interface AbsorbSummary {
+  readonly source: string;
+  readonly absorbValue: number;
+  readonly preventedDamage: number;
+  readonly remainingDamage: number;
+}
+
 /**
  * Creates an absorb ability.
  * 
@@ -63,5 +70,16 @@ export function resolveAbsorb(ability: AbsorbAbility, damage: number): AbsorbRes
     originalDamage: Math.max(0, damage),
     preventedDamage,
     remainingDamage: applyAbsorb(ability, damage),
+  };
+}
+
+export function createAbsorbSummary(ability: AbsorbAbility, damage: number): AbsorbSummary {
+  const result = resolveAbsorb(ability, damage);
+
+  return {
+    source: ability.source,
+    absorbValue: ability.count,
+    preventedDamage: result.preventedDamage,
+    remainingDamage: result.remainingDamage,
   };
 }

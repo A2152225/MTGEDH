@@ -63,6 +63,14 @@ export interface ExtortResolution {
   readonly youGainLife: number;
 }
 
+export interface ExtortSummary {
+  readonly source: string;
+  readonly triggers: boolean;
+  readonly timesPaid: number;
+  readonly opponentsLoseLife: number;
+  readonly youGainLife: number;
+}
+
 export function payExtortCost(
   ability: ExtortAbility,
   opponentCount: number
@@ -109,4 +117,20 @@ export function resolveExtort(
  */
 export function getExtortCount(ability: ExtortAbility): number {
   return ability.timesPaid;
+}
+
+export function createExtortSummary(
+  ability: ExtortAbility,
+  castSpell: boolean,
+  opponentCount: number,
+): ExtortSummary {
+  const resolution = resolveExtort(ability, opponentCount);
+
+  return {
+    source: ability.source,
+    triggers: shouldTriggerExtort(castSpell),
+    timesPaid: getExtortCount(ability),
+    opponentsLoseLife: resolution.opponentsLoseLife,
+    youGainLife: resolution.youGainLife,
+  };
 }

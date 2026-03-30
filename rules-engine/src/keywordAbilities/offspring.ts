@@ -19,6 +19,14 @@ export interface OffspringAbility {
   readonly tokenId?: string;
 }
 
+export interface OffspringSummary {
+  readonly source: string;
+  readonly offspringCost: string;
+  readonly wasPaid: boolean;
+  readonly createsToken: boolean;
+  readonly tokenId?: string;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -106,4 +114,14 @@ export function parseOffspringCost(oracleText: string): string | null {
  */
 export function hasRedundantOffspring(abilities: readonly OffspringAbility[]): boolean {
   return false; // Each is paid separately
+}
+
+export function createOffspringSummary(ability: OffspringAbility): OffspringSummary {
+  return {
+    source: ability.source,
+    offspringCost: ability.offspringCost,
+    wasPaid: ability.wasPaid,
+    createsToken: shouldCreateOffspringToken(ability),
+    tokenId: ability.tokenId,
+  };
 }

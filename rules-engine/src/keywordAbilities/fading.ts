@@ -30,6 +30,14 @@ export interface FadingUpkeepResult {
   readonly countersRemaining: number;
 }
 
+export interface FadingSummary {
+  readonly source: string;
+  readonly initialCounters: number;
+  readonly countersRemaining: number;
+  readonly canRemoveCounter: boolean;
+  readonly shouldSacrifice: boolean;
+}
+
 /**
  * Creates a fading ability
  * Rule 702.32a
@@ -114,4 +122,14 @@ export function shouldSacrificeForFading(ability: FadingAbility): boolean {
  */
 export function hasRedundantFading(abilities: readonly FadingAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createFadingSummary(ability: FadingAbility): FadingSummary {
+  return {
+    source: ability.source,
+    initialCounters: ability.initialCounters,
+    countersRemaining: ability.fadeCounters,
+    canRemoveCounter: canRemoveFadeCounter(ability),
+    shouldSacrifice: shouldSacrificeForFading(ability),
+  };
 }

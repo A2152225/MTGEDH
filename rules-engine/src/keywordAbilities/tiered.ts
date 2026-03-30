@@ -16,6 +16,13 @@ export interface TieredAbility {
   readonly modeCosts: readonly string[];
 }
 
+export interface TieredSummary {
+  readonly source: string;
+  readonly chosenMode?: number;
+  readonly chosenCost?: string;
+  readonly canChooseMode: boolean;
+}
+
 /**
  * Create a tiered ability
  * Rule 702.183a
@@ -80,4 +87,16 @@ export function getTieredCost(ability: TieredAbility): string | undefined {
  */
 export function hasRedundantTiered(abilities: readonly TieredAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createTieredSummary(
+  ability: TieredAbility,
+  proposedMode: number,
+): TieredSummary {
+  return {
+    source: ability.source,
+    chosenMode: ability.chosenMode,
+    chosenCost: getTieredCost(ability),
+    canChooseMode: canChooseTieredMode(ability, proposedMode),
+  };
 }

@@ -21,6 +21,13 @@ export interface StationAbility {
   readonly tappedCreatures: readonly string[];
 }
 
+export interface StationSummary {
+  readonly source: string;
+  readonly chargeCounters: number;
+  readonly tappedCreatureCount: number;
+  readonly lastTappedCreature?: string;
+}
+
 /**
  * Create a station ability
  * Rule 702.184a
@@ -72,4 +79,13 @@ export function getChargeCounters(ability: StationAbility): number {
  */
 export function hasRedundantStation(abilities: readonly StationAbility[]): boolean {
   return false;
+}
+
+export function createStationSummary(ability: StationAbility): StationSummary {
+  return {
+    source: ability.source,
+    chargeCounters: ability.chargeCounters,
+    tappedCreatureCount: ability.tappedCreatures.length,
+    lastTappedCreature: ability.tappedCreatures[ability.tappedCreatures.length - 1],
+  };
 }

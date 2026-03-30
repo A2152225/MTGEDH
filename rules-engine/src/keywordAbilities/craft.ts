@@ -25,6 +25,15 @@ export interface CraftAbility {
   readonly exiledCards: readonly string[];
 }
 
+export interface CraftSummary {
+  readonly source: string;
+  readonly craftCost: string;
+  readonly materials: string;
+  readonly canActivate: boolean;
+  readonly hasCrafted: boolean;
+  readonly exiledCardCount: number;
+}
+
 function extractCraftDetails(oracleText: string): { materials: string; cost: string } | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const match = normalized.match(/craft with\s+(.+?)\s+(\{[^}]+(?:\}\{[^}]+)*\})/i);
@@ -128,4 +137,20 @@ export function parseCraft(oracleText: string): { materials: string; cost: strin
  */
 export function hasRedundantCraft(abilities: readonly CraftAbility[]): boolean {
   return false;
+}
+
+export function createCraftSummary(
+  ability: CraftAbility,
+  zone: string,
+  isSorcerySpeed: boolean,
+  availableMaterials: number,
+): CraftSummary {
+  return {
+    source: ability.source,
+    craftCost: ability.craftCost,
+    materials: ability.materials,
+    canActivate: canActivateCraft(zone, isSorcerySpeed, availableMaterials),
+    hasCrafted: ability.hasCrafted,
+    exiledCardCount: ability.exiledCards.length,
+  };
 }

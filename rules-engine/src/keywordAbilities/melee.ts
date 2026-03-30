@@ -15,6 +15,13 @@ export interface MeleeAbility {
   readonly bonusThisTurn: number;
 }
 
+export interface MeleeSummary {
+  readonly source: string;
+  readonly bonusThisTurn: number;
+  readonly opponentsAttacked: number;
+  readonly canTrigger: boolean;
+}
+
 /**
  * Create a melee ability
  * Rule 702.121a
@@ -87,4 +94,17 @@ export function canTriggerMelee(isAttacking: boolean): boolean {
  */
 export function hasRedundantMelee(abilities: readonly MeleeAbility[]): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createMeleeSummary(
+  ability: MeleeAbility,
+  opponentsAttacked: number,
+  isAttacking: boolean,
+): MeleeSummary {
+  return {
+    source: ability.source,
+    bonusThisTurn: ability.bonusThisTurn,
+    opponentsAttacked,
+    canTrigger: canTriggerMelee(isAttacking),
+  };
 }

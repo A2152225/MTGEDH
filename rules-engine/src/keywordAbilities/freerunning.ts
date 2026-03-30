@@ -17,6 +17,14 @@ export interface FreerunningAbility {
   readonly wasFreerun: boolean;
 }
 
+export interface FreerunningSummary {
+  readonly source: string;
+  readonly freerunningCost: string;
+  readonly qualifyingCombatDamageThisTurn: boolean;
+  readonly canCastWithFreerunning: boolean;
+  readonly wasFreerun: boolean;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -98,4 +106,17 @@ export function parseFreerunningCost(oracleText: string): string | null {
  */
 export function hasRedundantFreerunning(abilities: readonly FreerunningAbility[]): boolean {
   return false;
+}
+
+export function createFreerunningSummary(
+  ability: FreerunningAbility,
+  qualifyingCombatDamageThisTurn: boolean,
+): FreerunningSummary {
+  return {
+    source: ability.source,
+    freerunningCost: ability.freerunningCost,
+    qualifyingCombatDamageThisTurn,
+    canCastWithFreerunning: canCastWithFreerunning(qualifyingCombatDamageThisTurn),
+    wasFreerun: ability.wasFreerun,
+  };
 }

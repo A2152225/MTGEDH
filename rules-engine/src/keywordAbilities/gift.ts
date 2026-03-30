@@ -26,6 +26,15 @@ export interface GiftAbility {
   readonly giftGiven: boolean;
 }
 
+export interface GiftSummary {
+  readonly source: string;
+  readonly giftType: string;
+  readonly chosenOpponent?: string;
+  readonly canPromiseGift: boolean;
+  readonly giftGiven: boolean;
+  readonly giftsFood: boolean;
+}
+
 export const GIFT_FOOD_TOKEN = {
   name: 'Food',
   typeLine: 'Token Artifact — Food',
@@ -132,4 +141,15 @@ export function giftsFood(ability: GiftAbility): boolean {
  */
 export function hasRedundantGift(abilities: readonly GiftAbility[]): boolean {
   return false;
+}
+
+export function createGiftSummary(ability: GiftAbility): GiftSummary {
+  return {
+    source: ability.source,
+    giftType: ability.giftType,
+    chosenOpponent: ability.chosenOpponent,
+    canPromiseGift: canPromiseGift(ability.chosenOpponent),
+    giftGiven: ability.giftGiven,
+    giftsFood: giftsFood(ability),
+  };
 }

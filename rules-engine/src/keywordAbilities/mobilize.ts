@@ -18,6 +18,13 @@ export interface MobilizeAbility {
   readonly tokenIds: readonly string[];
 }
 
+export interface MobilizeSummary {
+  readonly source: string;
+  readonly mobilizeValue: number;
+  readonly tokenCount: number;
+  readonly createsTappedAndAttackingTokens: boolean;
+}
+
 /**
  * Token characteristics for Mobilize Warrior tokens
  */
@@ -187,4 +194,13 @@ export function parseMobilizeValue(oracleText: string): number | null {
     return parseInt(match[1], 10);
   }
   return null;
+}
+
+export function createMobilizeSummary(ability: MobilizeAbility): MobilizeSummary {
+  return {
+    source: ability.source,
+    mobilizeValue: ability.mobilizeValue,
+    tokenCount: ability.tokenIds.length,
+    createsTappedAndAttackingTokens: ability.mobilizeValue > 0,
+  };
 }

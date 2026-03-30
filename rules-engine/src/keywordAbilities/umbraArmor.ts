@@ -23,6 +23,14 @@ export interface UmbraArmorResolution {
   readonly auraSource: string;
 }
 
+export interface UmbraArmorSummary {
+  readonly source: string;
+  readonly canApply: boolean;
+  readonly enchantedPermanentId: string;
+  readonly auraDestroyed: boolean;
+  readonly damageRemoved: number;
+}
+
 /**
  * Create an umbra armor ability
  * Rule 702.89a: "Umbra armor" means "If enchanted permanent would be destroyed,
@@ -77,4 +85,30 @@ export function resolveUmbraArmor(
  */
 export function areUmbraArmorAbilitiesRedundant(a: UmbraArmorAbility, b: UmbraArmorAbility): boolean {
   return true;
+}
+
+export function createUmbraArmorSummary(
+  ability: UmbraArmorAbility,
+  enchantedPermanentWouldBeDestroyed: boolean,
+  enchantedPermanentId: string,
+  markedDamage: number = 0,
+  isAttachedToPermanent: boolean = true,
+  auraStillOnBattlefield: boolean = true,
+): UmbraArmorSummary {
+  const canApply = canApplyUmbraArmor(
+    enchantedPermanentWouldBeDestroyed,
+    isAttachedToPermanent,
+    auraStillOnBattlefield,
+  );
+  const resolution = canApply
+    ? resolveUmbraArmor(ability, enchantedPermanentId, markedDamage)
+    : null;
+
+  return {
+    source: ability.source,
+    canApply,
+    enchantedPermanentId,
+    auraDestroyed: resolution?.auraDestroyed ?? false,
+    damageRemoved: resolution?.damageRemoved ?? 0,
+  };
 }

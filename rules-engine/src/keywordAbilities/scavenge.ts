@@ -22,6 +22,14 @@ export interface ScavengeResolution {
   readonly exiledFromGraveyard: boolean;
 }
 
+export interface ScavengeSummary {
+  readonly source: string;
+  readonly scavengeCost: string;
+  readonly canActivate: boolean;
+  readonly countersAdded: number;
+  readonly wasScavenged: boolean;
+}
+
 /**
  * Creates a scavenge ability.
  */
@@ -80,5 +88,20 @@ export function createScavengeResolution(
     target,
     countersAdded: getScavengeCounters(ability),
     exiledFromGraveyard: true,
+  };
+}
+
+export function createScavengeSummary(
+  ability: ScavengeAbility,
+  zone: 'graveyard' | 'hand' | 'battlefield' | 'exile',
+  isSorcerySpeed: boolean,
+  targetIsCreature: boolean,
+): ScavengeSummary {
+  return {
+    source: ability.source,
+    scavengeCost: ability.scavengeCost,
+    canActivate: canActivateScavenge(zone, isSorcerySpeed, targetIsCreature),
+    countersAdded: getScavengeCounters(ability),
+    wasScavenged: ability.wasScavenged,
   };
 }

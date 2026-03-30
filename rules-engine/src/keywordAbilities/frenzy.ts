@@ -20,6 +20,14 @@ export interface FrenzyBonus {
   readonly toughness: number;
 }
 
+export interface FrenzySummary {
+  readonly source: string;
+  readonly frenzyValue: number;
+  readonly triggers: boolean;
+  readonly powerBonus: number;
+  readonly toughnessBonus: number;
+}
+
 /**
  * Creates a frenzy ability.
  * 
@@ -61,5 +69,21 @@ export function getFrenzyStatBonus(ability: FrenzyAbility): FrenzyBonus {
   return {
     power: ability.count,
     toughness: 0,
+  };
+}
+
+export function createFrenzySummary(
+  ability: FrenzyAbility,
+  attackedThisCombat: boolean,
+  blockedThisCombat: boolean,
+): FrenzySummary {
+  const statBonus = getFrenzyStatBonus(ability);
+
+  return {
+    source: ability.source,
+    frenzyValue: ability.count,
+    triggers: shouldTriggerFrenzy(attackedThisCombat, blockedThisCombat),
+    powerBonus: statBonus.power,
+    toughnessBonus: statBonus.toughness,
   };
 }

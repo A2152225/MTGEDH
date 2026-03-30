@@ -15,6 +15,14 @@ export interface ForMirrodinAbility {
   readonly tokenId?: string;
 }
 
+export interface ForMirrodinSummary {
+  readonly source: string;
+  readonly enteredBattlefield: boolean;
+  readonly shouldTrigger: boolean;
+  readonly hasTriggered: boolean;
+  readonly tokenId?: string;
+}
+
 export const FOR_MIRRODIN_REBEL_TOKEN = {
   name: 'Rebel',
   colors: ['R'] as string[],
@@ -103,4 +111,17 @@ export function createForMirrodinRebelToken(tokenId: string, controllerId: strin
  */
 export function hasRedundantForMirrodin(abilities: readonly ForMirrodinAbility[]): boolean {
   return false;
+}
+
+export function createForMirrodinSummary(
+  ability: ForMirrodinAbility,
+  enteredBattlefield: boolean,
+): ForMirrodinSummary {
+  return {
+    source: ability.source,
+    enteredBattlefield,
+    shouldTrigger: shouldTriggerForMirrodin(enteredBattlefield),
+    hasTriggered: ability.hasTriggered,
+    tokenId: ability.tokenId,
+  };
 }

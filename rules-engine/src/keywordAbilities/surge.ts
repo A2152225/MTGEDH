@@ -17,6 +17,14 @@ export interface SurgeAbility {
   readonly wasSurged: boolean;
 }
 
+export interface SurgeSummary {
+  readonly source: string;
+  readonly surgeCost: string;
+  readonly canUseSurge: boolean;
+  readonly wasSurged: boolean;
+  readonly usesAlternateCost: boolean;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -113,3 +121,17 @@ export function hasRedundantSurge(abilities: readonly SurgeAbility[]): boolean {
   const costs = new Set(abilities.map(a => a.surgeCost));
   return costs.size < abilities.length;
 }
+
+  export function createSurgeSummary(
+    ability: SurgeAbility,
+    hasYouCastSpell: boolean,
+    hasTeammateCastSpell: boolean,
+  ): SurgeSummary {
+    return {
+      source: ability.source,
+      surgeCost: ability.surgeCost,
+      canUseSurge: canUseSurgeFromTeam(hasYouCastSpell, hasTeammateCastSpell),
+      wasSurged: ability.wasSurged,
+      usesAlternateCost: ability.wasSurged,
+    };
+  }

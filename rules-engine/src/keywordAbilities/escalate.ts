@@ -17,6 +17,14 @@ export interface EscalateAbility {
   readonly modesChosen: number;
 }
 
+export interface EscalateSummary {
+  readonly source: string;
+  readonly escalateCost: string;
+  readonly modesChosen: number;
+  readonly extraCostPayments: number;
+  readonly canChooseModes: boolean;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -99,4 +107,17 @@ export function parseEscalateCost(oracleText: string): string | null {
  */
 export function hasRedundantEscalate(abilities: readonly EscalateAbility[]): boolean {
   return false;
+}
+
+export function createEscalateSummary(
+  ability: EscalateAbility,
+  totalModes: number,
+): EscalateSummary {
+  return {
+    source: ability.source,
+    escalateCost: ability.escalateCost,
+    modesChosen: ability.modesChosen,
+    extraCostPayments: getEscalateCostMultiplier(ability),
+    canChooseModes: canChooseEscalateModes(totalModes, ability.modesChosen),
+  };
 }

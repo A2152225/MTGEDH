@@ -16,6 +16,13 @@ export interface InfinityAbility {
   readonly isHarnessed: boolean;
 }
 
+export interface InfinitySummary {
+  readonly source: string;
+  readonly grantedAbility: string;
+  readonly isHarnessed: boolean;
+  readonly isActive: boolean;
+}
+
 /**
  * Create an infinity ability
  * Rule 702.186a
@@ -82,4 +89,13 @@ export function getInfinityAbility(ability: InfinityAbility): string {
  */
 export function hasRedundantInfinity(abilities: readonly InfinityAbility[]): boolean {
   return false;
+}
+
+export function createInfinitySummary(ability: InfinityAbility): InfinitySummary {
+  return {
+    source: ability.source,
+    grantedAbility: ability.grantedAbility,
+    isHarnessed: ability.isHarnessed,
+    isActive: isInfinityActive(ability),
+  };
 }

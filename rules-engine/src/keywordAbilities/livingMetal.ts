@@ -14,6 +14,13 @@ export interface LivingMetalAbility {
   readonly isYourTurn: boolean;
 }
 
+export interface LivingMetalSummary {
+  readonly source: string;
+  readonly isYourTurn: boolean;
+  readonly canApply: boolean;
+  readonly isCreature: boolean;
+}
+
 /**
  * Create a living metal ability
  * Rule 702.161a
@@ -73,4 +80,13 @@ export function hasLivingMetalCreatureType(ability: LivingMetalAbility): boolean
  */
 export function hasRedundantLivingMetal(abilities: readonly LivingMetalAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createLivingMetalSummary(ability: LivingMetalAbility): LivingMetalSummary {
+  return {
+    source: ability.source,
+    isYourTurn: ability.isYourTurn,
+    canApply: canApplyLivingMetal(ability.isYourTurn),
+    isCreature: isCreatureFromLivingMetal(ability),
+  };
 }

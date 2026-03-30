@@ -15,6 +15,14 @@ export interface BushidoBonus {
   readonly toughness: number;
 }
 
+export interface BushidoSummary {
+  readonly source: string;
+  readonly bushidoValue: number;
+  readonly triggers: boolean;
+  readonly powerBonus: number;
+  readonly toughnessBonus: number;
+}
+
 export function bushido(source: string, value: number): BushidoAbility {
   return { type: 'bushido', value, source, triggered: false };
 }
@@ -45,4 +53,22 @@ export function getBushidoStatBonus(ability: BushidoAbility): BushidoBonus {
 
 export function isBushidoRedundant(): boolean {
   return false; // Rule 702.45b: Each instance triggers separately
+}
+
+export function createBushidoSummary(
+  ability: BushidoAbility,
+  becameBlocked: boolean,
+  becameBlocking: boolean,
+): BushidoSummary {
+  const triggers = shouldTriggerBushido(becameBlocked, becameBlocking);
+  const triggeredAbility = triggers ? triggerBushido(ability) : ability;
+  const statBonus = getBushidoStatBonus(triggeredAbility);
+
+  return {
+    source: ability.source,
+    bushidoValue: ability.value,
+    triggers,
+    powerBonus: statBonus.power,
+    toughnessBonus: statBonus.toughness,
+  };
 }

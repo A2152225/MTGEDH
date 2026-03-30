@@ -22,6 +22,14 @@ export interface ProwessStatBonus {
   readonly toughness: number;
 }
 
+export interface ProwessSummary {
+  readonly source: string;
+  readonly triggers: boolean;
+  readonly triggerCount: number;
+  readonly powerBonus: number;
+  readonly toughnessBonus: number;
+}
+
 /**
  * Create a prowess ability
  * Rule 702.108a
@@ -109,4 +117,20 @@ export function hasRedundantProwess(
   abilities: readonly ProwessAbility[]
 ): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createProwessSummary(
+  ability: ProwessAbility,
+  castNonCreatureSpell: boolean,
+): ProwessSummary {
+  const triggeredAbility = castNonCreatureSpell ? triggerProwess(ability) : ability;
+  const statBonus = getProwessStatBonus(triggeredAbility);
+
+  return {
+    source: ability.source,
+    triggers: shouldTriggerProwess(castNonCreatureSpell),
+    triggerCount: getProwessTriggers(triggeredAbility),
+    powerBonus: statBonus.power,
+    toughnessBonus: statBonus.toughness,
+  };
 }

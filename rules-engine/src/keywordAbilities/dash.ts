@@ -24,6 +24,15 @@ export interface DashAbility {
   readonly returnedToHand: boolean;
 }
 
+export interface DashSummary {
+  readonly source: string;
+  readonly dashCost: string;
+  readonly canCastWithDash: boolean;
+  readonly wasDashed: boolean;
+  readonly hasHaste: boolean;
+  readonly returnDestination: 'hand' | 'battlefield';
+}
+
 /**
  * Create a dash ability
  * Rule 702.109a
@@ -140,4 +149,18 @@ export function hasRedundantDash(
   
   const costs = new Set(abilities.map(a => a.dashCost));
   return costs.size < abilities.length;
+}
+
+export function createDashSummary(
+  ability: DashAbility,
+  zone: 'hand' | 'graveyard' | 'exile' | 'library',
+): DashSummary {
+  return {
+    source: ability.source,
+    dashCost: ability.dashCost,
+    canCastWithDash: canCastWithDash(zone),
+    wasDashed: wasDashed(ability),
+    hasHaste: hasHasteFromDash(ability),
+    returnDestination: getDashReturnDestination(ability),
+  };
 }

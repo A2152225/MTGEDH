@@ -23,6 +23,14 @@ export interface RecoverResolution {
   readonly recovered: boolean;
 }
 
+export interface RecoverSummary {
+  readonly source: string;
+  readonly recoverCost: string;
+  readonly triggers: boolean;
+  readonly recovered: boolean;
+  readonly destination: 'hand' | 'exile';
+}
+
 /**
  * Creates a recover ability.
  * 
@@ -65,4 +73,21 @@ export function getRecoverDestination(
   resolution: RecoverResolution
 ): 'hand' | 'exile' {
   return resolution.destination;
+}
+
+export function createRecoverSummary(
+  ability: RecoverAbility,
+  creatureWentToYourGraveyard: boolean,
+  sourceIsInGraveyard: boolean,
+  payRecoverCost: boolean,
+): RecoverSummary {
+  const resolution = resolveRecover(ability, payRecoverCost);
+
+  return {
+    source: ability.source,
+    recoverCost: ability.cost,
+    triggers: doesRecoverTrigger(creatureWentToYourGraveyard, sourceIsInGraveyard),
+    recovered: resolution.recovered,
+    destination: resolution.destination,
+  };
 }

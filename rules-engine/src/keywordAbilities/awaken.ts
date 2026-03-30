@@ -22,6 +22,15 @@ export interface AwakenAbility {
   readonly targetLand?: string;
 }
 
+export interface AwakenSummary {
+  readonly source: string;
+  readonly awakenValue: number;
+  readonly awakenCost: string;
+  readonly canTargetLand: boolean;
+  readonly wasAwakened: boolean;
+  readonly targetLand?: string;
+}
+
 function extractAwakenParts(oracleText: string): { awakenValue: number; awakenCost: string } | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const match = normalized.match(/\bawaken\s+(\d+)\s*[—-]\s*([^.;,()]+)/i);
@@ -123,4 +132,19 @@ export function parseAwaken(oracleText: string): { awakenValue: number; awakenCo
  */
 export function hasRedundantAwaken(abilities: readonly AwakenAbility[]): boolean {
   return false;
+}
+
+export function createAwakenSummary(
+  ability: AwakenAbility,
+  candidate: { controller?: string; type_line?: string; card?: { type_line?: string } },
+  controllerId: string,
+): AwakenSummary {
+  return {
+    source: ability.source,
+    awakenValue: ability.awakenValue,
+    awakenCost: ability.awakenCost,
+    canTargetLand: canTargetLandForAwaken(candidate, controllerId),
+    wasAwakened: ability.wasAwakened,
+    targetLand: ability.targetLand,
+  };
 }

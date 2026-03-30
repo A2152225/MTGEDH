@@ -23,6 +23,15 @@ export interface RampageStatBonus {
   readonly toughness: number;
 }
 
+export interface RampageSummary {
+  readonly source: string;
+  readonly rampageValue: number;
+  readonly triggers: boolean;
+  readonly blockerCount: number;
+  readonly powerBonus: number;
+  readonly toughnessBonus: number;
+}
+
 /**
  * Creates a rampage ability
  * Rule 702.23a
@@ -83,4 +92,20 @@ export function combinedRampageBonus(
   return abilities.reduce((total, ability) => {
     return total + calculateRampageBonus(ability, blockerCount);
   }, 0);
+}
+
+export function createRampageSummary(
+  ability: RampageAbility,
+  blockerCount: number,
+): RampageSummary {
+  const statBonus = getRampageStatBonus(ability, blockerCount);
+
+  return {
+    source: ability.source,
+    rampageValue: ability.bonus,
+    triggers: shouldTriggerRampage(blockerCount),
+    blockerCount,
+    powerBonus: statBonus.power,
+    toughnessBonus: statBonus.toughness,
+  };
 }

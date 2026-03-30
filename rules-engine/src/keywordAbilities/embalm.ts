@@ -19,6 +19,14 @@ export interface EmbalmAbility {
   readonly tokenId?: string;
 }
 
+export interface EmbalmSummary {
+  readonly source: string;
+  readonly embalmCost: string;
+  readonly canActivate: boolean;
+  readonly hasBeenEmbalmed: boolean;
+  readonly tokenId?: string;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -128,4 +136,18 @@ export function parseEmbalmCost(oracleText: string): string | null {
  */
 export function hasRedundantEmbalm(abilities: readonly EmbalmAbility[]): boolean {
   return false;
+}
+
+export function createEmbalmSummary(
+  ability: EmbalmAbility,
+  zone: string,
+  isSorcerySpeed: boolean,
+): EmbalmSummary {
+  return {
+    source: ability.source,
+    embalmCost: ability.embalmCost,
+    canActivate: canActivateEmbalm(zone, isSorcerySpeed),
+    hasBeenEmbalmed: ability.hasBeenEmbalmed,
+    tokenId: ability.tokenId,
+  };
 }

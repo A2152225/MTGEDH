@@ -48,6 +48,15 @@ export interface PhasingEventResult {
   readonly wasTriggered: boolean; // Whether "phases in/out" triggers should fire
 }
 
+export interface PhasingSummary {
+  readonly source: string;
+  readonly isPhasedOut: boolean;
+  readonly phasedOutBy?: 'phasing' | 'effect';
+  readonly canPhaseOut: boolean;
+  readonly canPhaseIn: boolean;
+  readonly permanentExists: boolean;
+}
+
 /**
  * Creates a phasing ability
  * Rule 702.26a
@@ -315,4 +324,20 @@ export function shouldPhasingTrigger(
  */
 export function hasRedundantPhasing(abilities: readonly PhasingAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createPhasingSummary(
+  ability: PhasingAbility,
+  controllerId: string,
+  activePlayerId: string,
+  phasedOutState?: PhasedOutState,
+): PhasingSummary {
+  return {
+    source: ability.source,
+    isPhasedOut: isPhasedOut(ability),
+    phasedOutBy: ability.phasedOutBy,
+    canPhaseOut: shouldPhaseOut(ability, controllerId, activePlayerId),
+    canPhaseIn: phasedOutState !== undefined ? shouldPhaseIn(phasedOutState, activePlayerId) : false,
+    permanentExists: permanentExists(ability, phasedOutState),
+  };
 }

@@ -23,6 +23,15 @@ export interface CrewAbility {
   readonly crewedCreatures: readonly string[];
 }
 
+export interface CrewSummary {
+  readonly source: string;
+  readonly crewValue: number;
+  readonly isCrewed: boolean;
+  readonly crewedCreatureCount: number;
+  readonly canActivate: boolean;
+  readonly powerShortfall: number;
+}
+
 type CrewCandidate = {
   readonly controller?: string;
   readonly tapped?: boolean;
@@ -148,4 +157,18 @@ export function getCrewPowerShortfall(ability: CrewAbility, totalPower: number):
  */
 export function hasRedundantCrew(abilities: readonly CrewAbility[]): boolean {
   return false;
+}
+
+export function createCrewSummary(
+  ability: CrewAbility,
+  totalPower: number,
+): CrewSummary {
+  return {
+    source: ability.source,
+    crewValue: ability.crewValue,
+    isCrewed: ability.isCrewed,
+    crewedCreatureCount: ability.crewedCreatures.length,
+    canActivate: canActivateCrew(ability, ability.crewedCreatures, totalPower),
+    powerShortfall: getCrewPowerShortfall(ability, totalPower),
+  };
 }

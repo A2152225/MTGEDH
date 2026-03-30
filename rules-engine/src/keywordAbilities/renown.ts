@@ -22,6 +22,13 @@ export interface RenownAbility {
   readonly isRenowned: boolean;
 }
 
+export interface RenownSummary {
+  readonly source: string;
+  readonly renownValue: number;
+  readonly canTrigger: boolean;
+  readonly isRenowned: boolean;
+}
+
 function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
@@ -118,4 +125,16 @@ export function parseRenownValue(oracleText: string): number | null {
  */
 export function hasRedundantRenown(abilities: readonly RenownAbility[]): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createRenownSummary(
+  ability: RenownAbility,
+  dealtCombatDamageToPlayer: boolean,
+): RenownSummary {
+  return {
+    source: ability.source,
+    renownValue: ability.renownValue,
+    canTrigger: shouldTriggerRenown(ability, dealtCombatDamageToPlayer),
+    isRenowned: ability.isRenowned,
+  };
 }

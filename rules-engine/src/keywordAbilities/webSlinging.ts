@@ -17,6 +17,14 @@ export interface WebSlingingAbility {
   readonly returnedCreature?: string;
 }
 
+export interface WebSlingingSummary {
+  readonly source: string;
+  readonly webSlingingCost: string;
+  readonly canCastWithWebSlinging: boolean;
+  readonly wasWebSlung: boolean;
+  readonly returnedCreature?: string;
+}
+
 /**
  * Create a web-slinging ability
  * Rule 702.188a
@@ -144,4 +152,18 @@ export function hasRedundantWebSlinging(abilities: readonly WebSlingingAbility[]
 
   const costs = new Set(abilities.map((ability) => ability.webSlingingCost));
   return costs.size < abilities.length;
+}
+
+export function createWebSlingingSummary(
+  ability: WebSlingingAbility,
+  hasTappedCreature: boolean,
+  zone: string,
+): WebSlingingSummary {
+  return {
+    source: ability.source,
+    webSlingingCost: ability.webSlingingCost,
+    canCastWithWebSlinging: canCastWithWebSlinging(hasTappedCreature, zone),
+    wasWebSlung: ability.wasWebSlung,
+    returnedCreature: ability.returnedCreature,
+  };
 }

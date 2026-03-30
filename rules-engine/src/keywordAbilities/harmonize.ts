@@ -79,6 +79,15 @@ export interface HarmonizeAbility {
   readonly costReduction: number;
 }
 
+export interface HarmonizeSummary {
+  readonly source: string;
+  readonly harmonizeCost: string;
+  readonly canCastFromGraveyard: boolean;
+  readonly wasHarmonized: boolean;
+  readonly costReduction: number;
+  readonly reducedCost: string;
+}
+
 /**
  * Create a harmonize ability
  * Rule 702.180a
@@ -184,4 +193,19 @@ export function parseHarmonizeCost(oracleText: string): string | null {
  */
 export function hasRedundantHarmonize(abilities: readonly HarmonizeAbility[]): boolean {
   return false;
+}
+
+export function createHarmonizeSummary(
+  ability: HarmonizeAbility,
+  zone: string,
+  originalCost: string,
+): HarmonizeSummary {
+  return {
+    source: ability.source,
+    harmonizeCost: ability.harmonizeCost,
+    canCastFromGraveyard: canCastWithHarmonize(zone),
+    wasHarmonized: ability.wasHarmonized,
+    costReduction: ability.costReduction,
+    reducedCost: getHarmonizeReducedCost(originalCost, ability.costReduction),
+  };
 }

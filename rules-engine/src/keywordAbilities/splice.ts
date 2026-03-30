@@ -18,6 +18,14 @@ export interface SplicedSpellResult {
   readonly additionalCost: string;
 }
 
+export interface SpliceSummary {
+  readonly source: string;
+  readonly spliceOnto: string;
+  readonly wasSpliced: boolean;
+  readonly canSpliceOntoSpell: boolean;
+  readonly additionalCost: string;
+}
+
 export function splice(source: string, spliceOnto: string, cost: string): SpliceAbility {
   return { type: 'splice', spliceOnto, cost, source, wasSpliced: false };
 }
@@ -63,5 +71,18 @@ export function createSplicedSpell(
     spliceSources: activePayloads.map(payload => payload.ability.source),
     combinedRulesText: combinedText,
     additionalCost: getSpliceAdditionalCost(activePayloads.map(payload => payload.ability)),
+  };
+}
+
+export function createSpliceSummary(
+  ability: SpliceAbility,
+  spellSubtypes: readonly string[],
+): SpliceSummary {
+  return {
+    source: ability.source,
+    spliceOnto: ability.spliceOnto,
+    wasSpliced: ability.wasSpliced,
+    canSpliceOntoSpell: canSpliceOnto(ability, spellSubtypes),
+    additionalCost: getSpliceAdditionalCost([ability]),
   };
 }

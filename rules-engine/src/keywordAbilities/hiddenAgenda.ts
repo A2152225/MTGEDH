@@ -18,6 +18,14 @@ export interface HiddenAgendaAbility {
   readonly revealed: boolean;
 }
 
+export interface HiddenAgendaSummary {
+  readonly source: string;
+  readonly namedCard?: string;
+  readonly canReveal: boolean;
+  readonly revealed: boolean;
+  readonly matchesCardName: boolean;
+}
+
 /**
  * Create a hidden agenda ability for a conspiracy card
  * Rule 702.106a
@@ -97,4 +105,18 @@ export function hasRedundantHiddenAgenda(
   abilities: readonly HiddenAgendaAbility[]
 ): boolean {
   return abilities.length > 1;
+}
+
+export function createHiddenAgendaSummary(
+  ability: HiddenAgendaAbility,
+  hasPriority: boolean,
+  cardNameToMatch: string,
+): HiddenAgendaSummary {
+  return {
+    source: ability.source,
+    namedCard: ability.namedCard,
+    canReveal: canRevealAgenda(ability, hasPriority),
+    revealed: isAgendaRevealed(ability),
+    matchesCardName: matchesAgenda(ability, cardNameToMatch),
+  };
 }

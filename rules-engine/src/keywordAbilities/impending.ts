@@ -25,6 +25,16 @@ export interface ImpendingAbility {
   readonly currentTimeCounters: number;
 }
 
+export interface ImpendingSummary {
+  readonly source: string;
+  readonly impendingCost: string;
+  readonly wasImpending: boolean;
+  readonly currentTimeCounters: number;
+  readonly canCastWithImpending: boolean;
+  readonly isCreature: boolean;
+  readonly shouldRemoveCounter: boolean;
+}
+
 function extractImpendingParts(oracleText: string): { timeCounters: number; cost: string } | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const match = normalized.match(/\bimpending\s+(\d+)\s*[—-]\s*([^.;,()]+)/i);
@@ -137,4 +147,19 @@ export function parseImpending(oracleText: string): { timeCounters: number; cost
  */
 export function hasRedundantImpending(abilities: readonly ImpendingAbility[]): boolean {
   return false;
+}
+
+export function createImpendingSummary(
+  ability: ImpendingAbility,
+  zone: string,
+): ImpendingSummary {
+  return {
+    source: ability.source,
+    impendingCost: ability.impendingCost,
+    wasImpending: ability.wasImpending,
+    currentTimeCounters: ability.currentTimeCounters,
+    canCastWithImpending: canCastWithImpending(zone),
+    isCreature: isCreatureWithImpending(ability),
+    shouldRemoveCounter: shouldRemoveImpendingCounter(ability),
+  };
 }

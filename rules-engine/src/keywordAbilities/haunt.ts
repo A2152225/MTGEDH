@@ -11,6 +11,15 @@ export interface HauntAbility {
   readonly triggeredOnLeave: boolean;
 }
 
+export interface HauntSummary {
+  readonly source: string;
+  readonly hauntedCard?: string;
+  readonly isHaunting: boolean;
+  readonly canTriggerLeave: boolean;
+  readonly triggeredOnEntry: boolean;
+  readonly triggeredOnLeave: boolean;
+}
+
 export function haunt(source: string): HauntAbility {
   return {
     type: 'haunt',
@@ -58,4 +67,18 @@ export function triggerHauntLeave(ability: HauntAbility, leavingCardId?: string)
   }
 
   return { ...ability, triggeredOnLeave: true };
+}
+
+export function createHauntSummary(
+  ability: HauntAbility,
+  leavingCardId?: string,
+): HauntSummary {
+  return {
+    source: ability.source,
+    hauntedCard: ability.hauntedCard,
+    isHaunting: isHauntingCard(ability),
+    canTriggerLeave: leavingCardId !== undefined && shouldTriggerHauntLeave(ability, leavingCardId),
+    triggeredOnEntry: ability.triggeredOnEntry,
+    triggeredOnLeave: ability.triggeredOnLeave,
+  };
 }

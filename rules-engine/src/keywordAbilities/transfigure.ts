@@ -23,6 +23,14 @@ export interface TransfigureResult {
   readonly requiredManaValue: number;
 }
 
+export interface TransfigureSummary {
+  readonly source: string;
+  readonly transfigureCost: string;
+  readonly canActivate: boolean;
+  readonly matchingTargetCount: number;
+  readonly selectedCardId: string;
+}
+
 /**
  * Creates a transfigure ability.
  * 
@@ -74,5 +82,23 @@ export function resolveTransfigure(
     sacrificedSourceId: ability.source,
     selectedCardId,
     requiredManaValue: sourceManaValue,
+  };
+}
+
+export function createTransfigureSummary(
+  ability: TransfigureAbility,
+  sourceManaValue: number,
+  cards: readonly { id: string; manaValue: number }[],
+  selectedCardId: string,
+  isSorcerySpeed: boolean,
+  isOnBattlefield: boolean,
+  controllerHasPriority: boolean = true,
+): TransfigureSummary {
+  return {
+    source: ability.source,
+    transfigureCost: ability.cost,
+    canActivate: canActivateTransfigure(isSorcerySpeed, isOnBattlefield, controllerHasPriority),
+    matchingTargetCount: getTransfigureCandidates(sourceManaValue, cards).length,
+    selectedCardId,
   };
 }

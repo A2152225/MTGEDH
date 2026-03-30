@@ -20,6 +20,14 @@ export interface MayhemAbility {
   readonly wasCastWithMayhem: boolean;
 }
 
+export interface MayhemSummary {
+  readonly source: string;
+  readonly mayhemCost?: string;
+  readonly wasDiscardedThisTurn: boolean;
+  readonly canCastWithMayhem: boolean;
+  readonly wasCastWithMayhem: boolean;
+}
+
 /**
  * Create a mayhem ability
  * Rule 702.187a
@@ -95,4 +103,14 @@ export function resetMayhem(ability: MayhemAbility): MayhemAbility {
  */
 export function hasRedundantMayhem(abilities: readonly MayhemAbility[]): boolean {
   return false;
+}
+
+export function createMayhemSummary(ability: MayhemAbility): MayhemSummary {
+  return {
+    source: ability.source,
+    mayhemCost: ability.mayhemCost,
+    wasDiscardedThisTurn: ability.wasDiscardedThisTurn,
+    canCastWithMayhem: canCastWithMayhem(ability),
+    wasCastWithMayhem: ability.wasCastWithMayhem,
+  };
 }

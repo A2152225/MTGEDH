@@ -24,6 +24,15 @@ export interface BackupAbility {
   readonly abilitiesToGrant: readonly string[];
 }
 
+export interface BackupSummary {
+  readonly source: string;
+  readonly backupValue: number;
+  readonly targetCreature?: string;
+  readonly canTarget: boolean;
+  readonly grantsAbilities: boolean;
+  readonly abilitiesToGrant: readonly string[];
+}
+
 /**
  * Create a backup ability
  * Rule 702.165a
@@ -106,4 +115,18 @@ export function getBackupTarget(ability: BackupAbility): string | undefined {
  */
 export function hasRedundantBackup(abilities: readonly BackupAbility[]): boolean {
   return false;
+}
+
+export function createBackupSummary(
+  ability: BackupAbility,
+  isSelf: boolean,
+): BackupSummary {
+  return {
+    source: ability.source,
+    backupValue: ability.backupValue,
+    targetCreature: ability.targetCreature,
+    canTarget: canTargetForBackup(ability.targetCreature ?? ''),
+    grantsAbilities: shouldGrantAbilities(ability, isSelf),
+    abilitiesToGrant: ability.abilitiesToGrant,
+  };
 }

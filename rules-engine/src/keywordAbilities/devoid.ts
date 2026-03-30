@@ -13,6 +13,14 @@ export interface DevoidAbility {
   readonly source: string;
 }
 
+export interface DevoidSummary {
+  readonly source: string;
+  readonly zone: string;
+  readonly appliesInZone: boolean;
+  readonly isColorless: boolean;
+  readonly resultingColors: readonly string[];
+}
+
 /**
  * Create a devoid ability
  * Rule 702.114a - Makes object colorless
@@ -57,4 +65,14 @@ export function appliesDevoidInZone(_zone: string): boolean {
  */
 export function hasRedundantDevoid(abilities: readonly DevoidAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createDevoidSummary(ability: DevoidAbility, zone: string, colors: readonly string[]): DevoidSummary {
+  return {
+    source: ability.source,
+    zone,
+    appliesInZone: appliesDevoidInZone(zone),
+    isColorless: isColorless(true),
+    resultingColors: applyDevoidToColors(colors),
+  };
 }

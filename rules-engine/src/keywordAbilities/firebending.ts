@@ -17,6 +17,13 @@ export interface FirebendingAbility {
   readonly manaAdded: number;
 }
 
+export interface FirebendingSummary {
+  readonly source: string;
+  readonly firebendingValue: number;
+  readonly manaAdded: number;
+  readonly retainsManaUntilEndOfCombat: boolean;
+}
+
 /**
  * Create a firebending ability
  * Rule 702.189a
@@ -75,4 +82,13 @@ export function clearFirebendingMana(ability: FirebendingAbility): FirebendingAb
  */
 export function hasRedundantFirebending(abilities: readonly FirebendingAbility[]): boolean {
   return false;
+}
+
+export function createFirebendingSummary(ability: FirebendingAbility): FirebendingSummary {
+  return {
+    source: ability.source,
+    firebendingValue: ability.firebendingValue,
+    manaAdded: ability.manaAdded,
+    retainsManaUntilEndOfCombat: ability.manaAdded > 0,
+  };
 }

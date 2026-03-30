@@ -28,6 +28,16 @@ export interface EmergeAbility {
   readonly manaReduction: number;
 }
 
+export interface EmergeSummary {
+  readonly source: string;
+  readonly emergeCost: string;
+  readonly emergeQuality?: string;
+  readonly wasEmerged: boolean;
+  readonly sacrificedCreature?: string;
+  readonly manaReduction: number;
+  readonly reducedCost: string;
+}
+
 function tokenizeCost(cost: string): string[] {
   const raw = String(cost || '').trim();
   if (!raw) {
@@ -211,3 +221,15 @@ export function hasRedundantEmerge(abilities: readonly EmergeAbility[]): boolean
   const costs = new Set(abilities.map(a => a.emergeCost));
   return costs.size < abilities.length;
 }
+
+  export function createEmergeSummary(ability: EmergeAbility): EmergeSummary {
+    return {
+      source: ability.source,
+      emergeCost: ability.emergeCost,
+      emergeQuality: ability.emergeQuality,
+      wasEmerged: ability.wasEmerged,
+      sacrificedCreature: ability.sacrificedCreature,
+      manaReduction: ability.manaReduction,
+      reducedCost: getReducedEmergeCost(ability.emergeCost, ability.manaReduction),
+    };
+  }

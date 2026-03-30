@@ -16,6 +16,15 @@ export interface SneakAbility {
   readonly entersTappedAndAttacking: boolean;
 }
 
+export interface SneakSummary {
+  readonly source: string;
+  readonly sneakCost: string;
+  readonly canActivateSneak: boolean;
+  readonly wasSneakPaid: boolean;
+  readonly returnedCreatureId?: string;
+  readonly entersTappedAndAttacking: boolean;
+}
+
 /**
  * Create a sneak ability from card text.
  */
@@ -71,4 +80,19 @@ export function hasRedundantSneak(abilities: readonly SneakAbility[]): boolean {
 
   const costs = new Set(abilities.map((a) => a.sneakCost));
   return costs.size < abilities.length;
+}
+
+export function createSneakSummary(
+  ability: SneakAbility,
+  hasUnblockedAttacker: boolean,
+  isDeclareBlockersStep: boolean,
+): SneakSummary {
+  return {
+    source: ability.source,
+    sneakCost: ability.sneakCost,
+    canActivateSneak: canActivateSneak(hasUnblockedAttacker, isDeclareBlockersStep),
+    wasSneakPaid: ability.wasSneakPaid,
+    returnedCreatureId: ability.returnedCreatureId,
+    entersTappedAndAttacking: ability.entersTappedAndAttacking,
+  };
 }

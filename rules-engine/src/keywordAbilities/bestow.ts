@@ -32,6 +32,14 @@ export interface BestowResolution {
   readonly attachedTo?: string;
 }
 
+export interface BestowSummary {
+  readonly source: string;
+  readonly bestowCost: string;
+  readonly canCastWithBestow: boolean;
+  readonly mode: 'aura' | 'creature';
+  readonly attachedTo?: string;
+}
+
 /**
  * Creates a bestow ability.
  */
@@ -107,5 +115,19 @@ export function createBestowResolution(ability: BestowAbility): BestowResolution
     source: ability.source,
     mode: getBestowMode(ability),
     attachedTo: ability.attachedTo,
+  };
+}
+
+export function createBestowSummary(
+  ability: BestowAbility,
+  zone: 'hand' | 'graveyard' | 'exile' | 'library',
+  hasLegalTarget: boolean,
+): BestowSummary {
+  return {
+    source: ability.source,
+    bestowCost: ability.bestowCost,
+    canCastWithBestow: canCastWithBestow(zone, hasLegalTarget),
+    mode: getBestowMode(ability),
+    attachedTo: getEnchantedCreature(ability),
   };
 }

@@ -25,6 +25,15 @@ export interface WarpAbility {
   readonly exiledOnTurn?: number;
 }
 
+export interface WarpSummary {
+  readonly source: string;
+  readonly warpCost: string;
+  readonly canCastWithWarp: boolean;
+  readonly wasWarped: boolean;
+  readonly isWarpedInExile: boolean;
+  readonly canCastFromExile: boolean;
+}
+
 /**
  * Create a warp ability
  * Rule 702.185a
@@ -145,4 +154,19 @@ export function parseWarpCost(oracleText: string): string | null {
  */
 export function hasRedundantWarp(abilities: readonly WarpAbility[]): boolean {
   return false;
+}
+
+export function createWarpSummary(
+  ability: WarpAbility,
+  zone: string,
+  currentTurn?: number,
+): WarpSummary {
+  return {
+    source: ability.source,
+    warpCost: ability.warpCost,
+    canCastWithWarp: canCastWithWarp(zone),
+    wasWarped: ability.wasWarped,
+    isWarpedInExile: ability.isWarped,
+    canCastFromExile: canCastWarpedFromExile(ability, currentTurn),
+  };
 }

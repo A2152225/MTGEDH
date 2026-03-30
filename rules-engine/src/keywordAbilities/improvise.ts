@@ -18,6 +18,13 @@ export interface ImproviseAbility {
   readonly artifactsTapped: readonly string[];
 }
 
+export interface ImproviseSummary {
+  readonly source: string;
+  readonly tappedArtifactCount: number;
+  readonly manaValue: number;
+  readonly reducedCost: string;
+}
+
 type ImproviseArtifactLike = {
   readonly controller?: string;
   readonly tapped?: boolean;
@@ -161,4 +168,13 @@ export function getImprovisedCost(cost: string, tappedArtifacts: number): string
  */
 export function hasRedundantImprovise(abilities: readonly ImproviseAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createImproviseSummary(ability: ImproviseAbility, originalCost: string): ImproviseSummary {
+  return {
+    source: ability.source,
+    tappedArtifactCount: ability.artifactsTapped.length,
+    manaValue: getImproviseManaValue(ability),
+    reducedCost: getImprovisedCost(originalCost, ability.artifactsTapped.length),
+  };
 }

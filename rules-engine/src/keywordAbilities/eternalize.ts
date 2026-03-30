@@ -18,6 +18,14 @@ export interface EternalizeAbility {
   readonly tokenId?: string;
 }
 
+export interface EternalizeSummary {
+  readonly source: string;
+  readonly eternalizeCost: string;
+  readonly canActivate: boolean;
+  readonly hasBeenEternalized: boolean;
+  readonly tokenId?: string;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -126,4 +134,18 @@ export function parseEternalizeCost(oracleText: string): string | null {
  */
 export function hasRedundantEternalize(abilities: readonly EternalizeAbility[]): boolean {
   return false;
+}
+
+export function createEternalizeSummary(
+  ability: EternalizeAbility,
+  zone: string,
+  isSorcerySpeed: boolean,
+): EternalizeSummary {
+  return {
+    source: ability.source,
+    eternalizeCost: ability.eternalizeCost,
+    canActivate: canActivateEternalize(zone, isSorcerySpeed),
+    hasBeenEternalized: ability.hasBeenEternalized,
+    tokenId: ability.tokenId,
+  };
 }

@@ -22,6 +22,14 @@ export interface StartYourEnginesAbility {
   readonly speedTriggeredThisTurn: boolean;
 }
 
+export interface StartYourEnginesSummary {
+  readonly source: string;
+  readonly hasSpeed: boolean;
+  readonly currentSpeed: number;
+  readonly canIncreaseSpeed: boolean;
+  readonly speedTriggeredThisTurn: boolean;
+}
+
 /**
  * Create a start your engines! ability
  * Rule 702.179a
@@ -131,4 +139,16 @@ export function getCurrentSpeed(ability: StartYourEnginesAbility): number {
  */
 export function hasRedundantStartYourEngines(abilities: readonly StartYourEnginesAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createStartYourEnginesSummary(
+  ability: StartYourEnginesAbility,
+): StartYourEnginesSummary {
+  return {
+    source: ability.source,
+    hasSpeed: hasSpeed(ability),
+    currentSpeed: ability.playerSpeed,
+    canIncreaseSpeed: canIncreaseSpeed(ability),
+    speedTriggeredThisTurn: ability.speedTriggeredThisTurn,
+  };
 }
