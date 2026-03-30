@@ -15,6 +15,15 @@ export interface CloakAction {
   readonly fromZone: string;
 }
 
+export interface CloakResult {
+  readonly playerId: string;
+  readonly cardCount: number;
+  readonly fromZone: string;
+  readonly legalSourceZone: boolean;
+  readonly createsWardPermanent: boolean;
+  readonly oneAtATime: boolean;
+}
+
 type CloakCardLike = {
   readonly id: string;
   readonly name?: string;
@@ -125,5 +134,20 @@ export function createCloakedPermanent(
       faceDown: true,
       wardCost: '{2}',
     },
+  };
+}
+
+export function createsWardPermanent(): boolean {
+  return CLOAKED_CHARACTERISTICS.ward === 2;
+}
+
+export function createCloakResult(action: CloakAction): CloakResult {
+  return {
+    playerId: action.playerId,
+    cardCount: action.cardIds.length,
+    fromZone: action.fromZone,
+    legalSourceZone: canCloakFromZone(action.fromZone),
+    createsWardPermanent: createsWardPermanent(),
+    oneAtATime: CLOAK_ONE_AT_A_TIME,
   };
 }

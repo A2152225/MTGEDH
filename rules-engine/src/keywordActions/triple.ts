@@ -12,6 +12,14 @@ export interface TripleAction {
   readonly targetId: string;
 }
 
+export interface TripleResult {
+  readonly targetId: string;
+  readonly targetType: TripleAction['targetType'];
+  readonly originalValue: number;
+  readonly resultingValue: number;
+  readonly delta: number;
+}
+
 /**
  * Rule 701.11a: Tripling creates a continuous effect
  * 
@@ -44,4 +52,23 @@ export function calculateTripledStat(currentValue: number): number {
     return currentValue * 2; // Gets -2X/-0
   }
   return currentValue * 2; // Gets +2X/+0 (for total of 3X)
+}
+
+export function getTripledValue(currentValue: number): number {
+  return currentValue + calculateTripledStat(currentValue);
+}
+
+export function createTripleResult(
+  action: TripleAction,
+  currentValue: number,
+): TripleResult {
+  const delta = calculateTripledStat(currentValue);
+
+  return {
+    targetId: action.targetId,
+    targetType: action.targetType,
+    originalValue: currentValue,
+    resultingValue: currentValue + delta,
+    delta,
+  };
 }

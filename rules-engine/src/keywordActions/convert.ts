@@ -14,6 +14,15 @@ export interface ConvertAction {
   readonly toFace: 'front' | 'back';
 }
 
+export interface ConvertResult {
+  readonly permanentId: string;
+  readonly fromFace: 'front' | 'back';
+  readonly toFace: 'front' | 'back';
+  readonly legal: boolean;
+  readonly fromAbilityAllowed: boolean;
+  readonly transformPreventionBlocksConvert: boolean;
+}
+
 /**
  * Rule 701.28a: Convert a permanent
  * 
@@ -82,4 +91,23 @@ export function canConvertWhenTransformPrevented(
   canTransform: boolean
 ): boolean {
   return canTransform; // If can't transform, also can't convert
+}
+
+export function createConvertResult(
+  action: ConvertAction,
+  permanent: { isDoubleFaced: boolean; isInstantOrSorcery?: boolean },
+  canTransformNow: boolean,
+  abilityStackTimestamp?: number,
+  lastConvertOrTransformTimestamp: number | null = null,
+): ConvertResult {
+  return {
+    permanentId: action.permanentId,
+    fromFace: action.fromFace,
+    toFace: action.toFace,
+    legal: canConvert(permanent) && canConvertWhenTransformPrevented(canTransformNow),
+    fromAbilityAllowed: abilityStackTimestamp === undefined
+      ? true
+      : canConvertFromAbility(action.permanentId, abilityStackTimestamp, lastConvertOrTransformTimestamp),
+    transformPreventionBlocksConvert: !canConvertWhenTransformPrevented(canTransformNow),
+  };
 }

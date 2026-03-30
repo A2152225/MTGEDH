@@ -47,6 +47,14 @@ export interface RevealResult {
   readonly maintainOrder: boolean; // For library reveals
 }
 
+export interface RevealSummary {
+  readonly playerId: string;
+  readonly cardCount: number;
+  readonly fromZone: string;
+  readonly fromHiddenZone: boolean;
+  readonly maintainOrder: boolean;
+}
+
 export function createRevealResult(
   cardIds: readonly string[],
   fromZone: string
@@ -66,4 +74,20 @@ export function createRevealResult(
  */
 export function revealDoesNotMoveCard(): boolean {
   return true;
+}
+
+export function revealsFromHiddenZone(action: RevealAction): boolean {
+  return action.fromZone === 'library' || action.fromZone === 'hand';
+}
+
+export function createRevealSummary(action: RevealAction): RevealSummary {
+  const result = createRevealResult(action.cardIds, action.fromZone);
+
+  return {
+    playerId: action.playerId,
+    cardCount: action.cardIds.length,
+    fromZone: action.fromZone,
+    fromHiddenZone: revealsFromHiddenZone(action),
+    maintainOrder: result.maintainOrder,
+  };
 }

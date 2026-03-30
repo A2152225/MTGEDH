@@ -12,6 +12,14 @@ export interface ShuffleAction {
   readonly zone: 'library' | 'deck'; // Usually library, sometimes deck (in casual formats)
 }
 
+export interface ShuffleResult {
+  readonly playerId: string;
+  readonly zone: 'library' | 'deck';
+  readonly libraryExists: boolean;
+  readonly shufflesSpecificCards: boolean;
+  readonly sourceZoneWasPublic: boolean;
+}
+
 /**
  * Rule 701.24a: Randomize cards
  * 
@@ -76,4 +84,23 @@ export function shuffleCardsIntoLibrary(
  */
 export function canShuffleLibrary(libraryExists: boolean): boolean {
   return libraryExists;
+}
+
+export function isPublicShuffleSource(fromZone: string): boolean {
+  return ['battlefield', 'graveyard', 'exile', 'stack'].includes(fromZone);
+}
+
+export function createShuffleResult(
+  action: ShuffleAction,
+  libraryExists: boolean,
+  fromZone?: string,
+  cardIds: readonly string[] = [],
+): ShuffleResult {
+  return {
+    playerId: action.playerId,
+    zone: action.zone,
+    libraryExists,
+    shufflesSpecificCards: cardIds.length > 0,
+    sourceZoneWasPublic: fromZone ? isPublicShuffleSource(fromZone) : false,
+  };
 }

@@ -14,6 +14,15 @@ export interface TransformAction {
   readonly toFace: 'front' | 'back';
 }
 
+export interface TransformResult {
+  readonly permanentId: string;
+  readonly fromFace: 'front' | 'back';
+  readonly toFace: 'front' | 'back';
+  readonly legal: boolean;
+  readonly transformedPermanent: boolean;
+  readonly fromAbilityAllowed: boolean;
+}
+
 /**
  * Rule 701.27a: Transform a permanent
  * 
@@ -109,4 +118,25 @@ export function checkTransformIntoTrigger(
 ): boolean {
   // Triggers if has the characteristic after transforming
   return hasCharacteristic;
+}
+
+export function createTransformResult(
+  action: TransformAction,
+  permanent: { isDoubleFaced: boolean; isInstantOrSorcery?: boolean; isMelded?: boolean },
+  abilityStackTimestamp?: number,
+  lastTransformTimestamp: number | null = null,
+): TransformResult {
+  const legal = canTransform(permanent);
+  const fromAbilityAllowed = abilityStackTimestamp === undefined
+    ? true
+    : canTransformFromAbility(action.permanentId, abilityStackTimestamp, lastTransformTimestamp);
+
+  return {
+    permanentId: action.permanentId,
+    fromFace: action.fromFace,
+    toFace: action.toFace,
+    legal,
+    transformedPermanent: legal && action.toFace === 'back' && !permanent.isMelded,
+    fromAbilityAllowed,
+  };
 }

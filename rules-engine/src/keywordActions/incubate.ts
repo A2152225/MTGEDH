@@ -14,6 +14,14 @@ export interface IncubateAction {
   readonly tokenId?: string;
 }
 
+export interface IncubateResult {
+  readonly playerId: string;
+  readonly tokenId?: string;
+  readonly counterCount: number;
+  readonly createsIncubatorToken: boolean;
+  readonly canTransformLater: boolean;
+}
+
 /**
  * Rule 701.53a: Incubate N
  */
@@ -116,4 +124,20 @@ export function canTransformIncubator(
 ): boolean {
   const typeLine = String(permanent.card?.type_line || '').toLowerCase();
   return typeLine.includes('incubator') && permanent.transformed !== true && manaAvailable >= 2;
+}
+
+export function createsIncubatorToken(action: IncubateAction): boolean {
+  return getIncubateCounterCount(action.n) > 0 || action.tokenId !== undefined;
+}
+
+export function createIncubateResult(action: IncubateAction): IncubateResult {
+  const previewToken = createIncubatorToken(action.tokenId ?? 'incubator-preview', action.playerId, action.n);
+
+  return {
+    playerId: action.playerId,
+    tokenId: action.tokenId,
+    counterCount: getIncubateCounterCount(action.n),
+    createsIncubatorToken: createsIncubatorToken(action),
+    canTransformLater: canTransformIncubator(previewToken, 2),
+  };
 }

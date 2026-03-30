@@ -19,6 +19,15 @@ export interface GoadedState {
   readonly expiresOnTurnOf: Map<string, number>; // Player ID -> turn number
 }
 
+export interface GoadResult {
+  readonly creatureId: string;
+  readonly goaderId: string;
+  readonly goaderCount: number;
+  readonly mustAttack: boolean;
+  readonly canAttackGoader: boolean;
+  readonly alreadyGoadedBySource: boolean;
+}
+
 /**
  * Rule 701.15a: Goad duration
  * 
@@ -87,4 +96,22 @@ export function isAlreadyGoadedBy(
   goaderId: string
 ): boolean {
   return state.goadedBy.has(goaderId);
+}
+
+export function getGoadRestrictionCount(state: GoadedState): number {
+  return state.goadedBy.size;
+}
+
+export function createGoadResult(
+  action: GoadAction,
+  state: GoadedState,
+): GoadResult {
+  return {
+    creatureId: action.creatureId,
+    goaderId: action.goaderId,
+    goaderCount: getGoadRestrictionCount(state),
+    mustAttack: mustAttackIfGoaded(state),
+    canAttackGoader: canAttackGoader(state, action.goaderId),
+    alreadyGoadedBySource: isAlreadyGoadedBy(state, action.goaderId),
+  };
 }

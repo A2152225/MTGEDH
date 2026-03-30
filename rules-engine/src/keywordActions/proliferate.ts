@@ -20,6 +20,14 @@ export interface ProliferateTarget {
   readonly countersToAdd: ReadonlyMap<string, number>; // Counter type -> count
 }
 
+export interface ProliferateResult {
+  readonly playerId: string;
+  readonly targetCount: number;
+  readonly permanentTargetCount: number;
+  readonly playerTargetCount: number;
+  readonly totalCounterTypesAdded: number;
+}
+
 /**
  * Rule 701.34a: Proliferate
  * 
@@ -131,4 +139,22 @@ export function calculateProliferateCounters(
   }
   
   return result;
+}
+
+export function countProliferatedCounterTypes(
+  targets: readonly ProliferateTarget[],
+): number {
+  return targets.reduce((sum, target) => sum + target.countersToAdd.size, 0);
+}
+
+export function createProliferateResult(
+  action: ProliferateAction,
+): ProliferateResult {
+  return {
+    playerId: action.playerId,
+    targetCount: action.targets.length,
+    permanentTargetCount: action.targets.filter((target) => target.targetType === 'permanent').length,
+    playerTargetCount: action.targets.filter((target) => target.targetType === 'player').length,
+    totalCounterTypesAdded: countProliferatedCounterTypes(action.targets),
+  };
 }

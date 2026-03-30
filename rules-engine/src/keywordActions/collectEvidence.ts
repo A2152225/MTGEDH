@@ -15,6 +15,15 @@ export interface CollectEvidenceAction {
   readonly totalManaValue?: number;
 }
 
+export interface CollectEvidenceResult {
+  readonly playerId: string;
+  readonly requiredManaValue: number;
+  readonly exiledCardCount: number;
+  readonly totalManaValue: number;
+  readonly satisfied: boolean;
+  readonly shortfall: number;
+}
+
 type ManaValueLike = {
   readonly manaValue?: number;
   readonly mana_value?: number;
@@ -114,4 +123,19 @@ export function canCollectEvidenceWithCards(cards: readonly ManaValueLike[], n: 
  */
 export function getEvidenceShortfall(totalManaValue: number, n: number): number {
   return Math.max(0, n - Math.max(0, totalManaValue));
+}
+
+export function createCollectEvidenceResult(
+  action: CollectEvidenceAction,
+): CollectEvidenceResult {
+  const totalManaValue = Math.max(0, action.totalManaValue ?? 0);
+
+  return {
+    playerId: action.playerId,
+    requiredManaValue: action.n,
+    exiledCardCount: action.exiledCardIds?.length ?? 0,
+    totalManaValue,
+    satisfied: totalManaValue >= action.n,
+    shortfall: getEvidenceShortfall(totalManaValue, action.n),
+  };
 }

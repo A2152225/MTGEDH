@@ -16,6 +16,15 @@ export interface PlayAction {
   readonly fromZone: string;
 }
 
+export interface PlayResult {
+  readonly cardId: string;
+  readonly playerId: string;
+  readonly playType: 'land' | 'spell';
+  readonly fromZone: string;
+  readonly legal: boolean;
+  readonly consumesLandPlay: boolean;
+}
+
 /**
  * Rule 701.18a: Play a land
  * 
@@ -85,4 +94,22 @@ export function canPlay(
   }
   // For spells, check casting rules (Rule 601)
   return hasPriority;
+}
+
+export function isLandPlay(action: PlayAction): boolean {
+  return action.playType === 'land';
+}
+
+export function createPlayResult(
+  action: PlayAction,
+  legal: boolean,
+): PlayResult {
+  return {
+    cardId: action.cardId,
+    playerId: action.playerId,
+    playType: action.playType,
+    fromZone: action.fromZone,
+    legal,
+    consumesLandPlay: legal && isLandPlay(action),
+  };
 }

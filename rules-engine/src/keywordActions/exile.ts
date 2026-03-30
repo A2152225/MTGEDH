@@ -14,6 +14,15 @@ export interface ExileAction {
   readonly exileZoneId?: string; // For tracking specific exile zones (e.g., "exiled with Card X")
 }
 
+export interface ExileResult {
+  readonly objectId: string;
+  readonly fromZone: string;
+  readonly destinationZone: 'exile';
+  readonly faceDown: boolean;
+  readonly usesLinkedExileZone: boolean;
+  readonly exileZoneId?: string;
+}
+
 /**
  * Rule 701.13a: Move to exile zone
  * 
@@ -33,5 +42,24 @@ export function exileObject(
     fromZone,
     faceDown: options.faceDown,
     exileZoneId: options.exileZoneId,
+  };
+}
+
+export function isFaceDownExile(action: ExileAction): boolean {
+  return action.faceDown === true;
+}
+
+export function usesLinkedExileZone(action: ExileAction): boolean {
+  return typeof action.exileZoneId === 'string' && action.exileZoneId.length > 0;
+}
+
+export function createExileResult(action: ExileAction): ExileResult {
+  return {
+    objectId: action.objectId,
+    fromZone: action.fromZone,
+    destinationZone: 'exile',
+    faceDown: isFaceDownExile(action),
+    usesLinkedExileZone: usesLinkedExileZone(action),
+    exileZoneId: action.exileZoneId,
   };
 }

@@ -72,6 +72,14 @@ export interface MillResult {
   readonly destinationZone: string;
 }
 
+export interface MillSummary {
+  readonly playerId: string;
+  readonly requestedCount: number;
+  readonly actualCount: number;
+  readonly destinationZone: string;
+  readonly canFindMilledCards: boolean;
+}
+
 export function createMillResult(
   playerId: string,
   milledCards: readonly string[],
@@ -194,4 +202,25 @@ export function parseMillFromOracleText(oracleText: string): ParsedMillEffect | 
  */
 export function hasMillEffect(oracleText: string): boolean {
   return parseMillFromOracleText(oracleText) !== null;
+}
+
+export function willMillEntireLibrary(
+  librarySize: number,
+  requestedCount: number,
+): boolean {
+  return getActualMillCount(librarySize, requestedCount) >= librarySize;
+}
+
+export function createMillSummary(
+  action: MillAction,
+  librarySize: number,
+  destinationZone: string = 'graveyard',
+): MillSummary {
+  return {
+    playerId: action.playerId,
+    requestedCount: action.count,
+    actualCount: getActualMillCount(librarySize, action.count),
+    destinationZone,
+    canFindMilledCards: canFindMilledCard(destinationZone),
+  };
 }

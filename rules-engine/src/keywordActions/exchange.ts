@@ -16,6 +16,14 @@ export interface ExchangeAction {
   readonly zone?: string; // For zone exchanges
 }
 
+export interface ExchangeResult {
+  readonly exchangeType: ExchangeAction['exchangeType'];
+  readonly targetA: string;
+  readonly targetB: string;
+  readonly completed: boolean;
+  readonly allOrNothing: boolean;
+}
+
 /**
  * Rule 701.12a: All-or-nothing exchange
  * 
@@ -108,5 +116,23 @@ export function exchangeTextBoxes(creatureA: string, creatureB: string): Exchang
     exchangeType: 'text-boxes',
     targetA: creatureA,
     targetB: creatureB,
+  };
+}
+
+export function isZoneExchange(action: ExchangeAction): boolean {
+  return action.exchangeType === 'zones';
+}
+
+export function createExchangeResult(
+  action: ExchangeAction,
+  targetA: unknown,
+  targetB: unknown,
+): ExchangeResult {
+  return {
+    exchangeType: action.exchangeType,
+    targetA: action.targetA,
+    targetB: action.targetB,
+    completed: canCompleteExchange(targetA, targetB),
+    allOrNothing: true,
   };
 }

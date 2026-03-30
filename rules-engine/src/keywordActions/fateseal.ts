@@ -17,6 +17,16 @@ export interface FatesealAction {
   readonly bottomCards?: readonly string[]; // Cards to put on bottom (in order)
 }
 
+export interface FatesealResult {
+  readonly playerId: string;
+  readonly opponentId: string;
+  readonly requestedCount: number;
+  readonly actualCount: number;
+  readonly topCount: number;
+  readonly bottomCount: number;
+  readonly targetsOpponentLibrary: boolean;
+}
+
 /**
  * Rule 701.29a: Fateseal N
  * 
@@ -76,3 +86,18 @@ export function getActualFatesealCount(
  * Fateseal is similar to scry but targets an opponent's library
  */
 export const FATESEAL_TARGETS_OPPONENT_LIBRARY = true;
+
+export function createFatesealResult(
+  action: FatesealAction,
+  opponentLibrarySize: number,
+): FatesealResult {
+  return {
+    playerId: action.playerId,
+    opponentId: action.opponentId,
+    requestedCount: action.count,
+    actualCount: getActualFatesealCount(opponentLibrarySize, action.count),
+    topCount: action.topCards?.length ?? 0,
+    bottomCount: action.bottomCards?.length ?? 0,
+    targetsOpponentLibrary: FATESEAL_TARGETS_OPPONENT_LIBRARY,
+  };
+}

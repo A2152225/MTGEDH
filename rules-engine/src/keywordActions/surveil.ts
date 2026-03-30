@@ -16,6 +16,15 @@ export interface SurveilAction {
   readonly toTop?: readonly string[]; // Cards to keep on top (in order)
 }
 
+export interface SurveilResult {
+  readonly playerId: string;
+  readonly requestedCount: number;
+  readonly actualCount: number;
+  readonly graveyardCount: number;
+  readonly topCount: number;
+  readonly triggersSurveilAbilities: boolean;
+}
+
 /**
  * Rule 701.25a: Surveil N
  * 
@@ -88,3 +97,17 @@ export const SURVEIL_VS_SCRY_DIFFERENCE = {
   scry: 'top or bottom of library',
   surveil: 'top of library or graveyard',
 } as const;
+
+export function createSurveilResult(
+  action: SurveilAction,
+  librarySize: number,
+): SurveilResult {
+  return {
+    playerId: action.playerId,
+    requestedCount: action.count,
+    actualCount: getActualSurveilCount(librarySize, action.count),
+    graveyardCount: action.toGraveyard?.length ?? 0,
+    topCount: action.toTop?.length ?? 0,
+    triggersSurveilAbilities: shouldTriggerSurveil(action.count),
+  };
+}

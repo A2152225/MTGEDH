@@ -14,6 +14,15 @@ export interface SacrificeAction {
   readonly controllerId: string;
 }
 
+export interface SacrificeResult {
+  readonly permanentId: string;
+  readonly controllerId: string;
+  readonly legal: boolean;
+  readonly destinationZone: 'graveyard';
+  readonly isDestruction: boolean;
+  readonly ignoresIndestructible: boolean;
+}
+
 /**
  * Rule 701.21a: Move from battlefield to graveyard
  * 
@@ -63,4 +72,18 @@ export const SACRIFICE_IS_NOT_DESTRUCTION = true;
  */
 export function canBeSacrificed(hasIndestructible: boolean): boolean {
   return true; // Indestructible doesn't prevent sacrifice
+}
+
+export function createSacrificeResult(
+  action: SacrificeAction,
+  legal: boolean,
+): SacrificeResult {
+  return {
+    permanentId: action.permanentId,
+    controllerId: action.controllerId,
+    legal,
+    destinationZone: 'graveyard',
+    isDestruction: false,
+    ignoresIndestructible: true,
+  };
 }

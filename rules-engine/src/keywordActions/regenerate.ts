@@ -18,6 +18,13 @@ export interface RegenerationShield {
   readonly active: boolean;
 }
 
+export function regenerate(permanentId: string): RegenerateAction {
+  return {
+    type: 'regenerate',
+    permanentId,
+  };
+}
+
 /**
  * Rule 701.19a: Create a regeneration shield
  * 
@@ -66,6 +73,13 @@ export interface RegenerationResult {
   readonly removedFromCombat: boolean;
 }
 
+export interface RegenerateSummary {
+  readonly permanentId: string;
+  readonly hasActiveShield: boolean;
+  readonly nextShieldTimestamp: number | null;
+  readonly removesFromCombat: boolean;
+}
+
 export function applyRegeneration(
   wasAttackingOrBlocking: boolean
 ): RegenerationResult {
@@ -91,4 +105,20 @@ export function getNextActiveShield(
   shields: readonly RegenerationShield[]
 ): RegenerationShield | null {
   return shields.find(shield => shield.active) || null;
+}
+
+export function createRegenerateSummary(
+  permanentId: string,
+  shields: readonly RegenerationShield[],
+  wasAttackingOrBlocking: boolean,
+): RegenerateSummary {
+  const nextShield = getNextActiveShield(shields);
+  const result = applyRegeneration(wasAttackingOrBlocking);
+
+  return {
+    permanentId,
+    hasActiveShield: hasActiveShield(shields),
+    nextShieldTimestamp: nextShield?.timestamp ?? null,
+    removesFromCombat: result.removedFromCombat,
+  };
 }

@@ -12,6 +12,14 @@ export interface InvestigateAction {
   readonly count: number; // Number of Clue tokens to create
 }
 
+export interface InvestigateResult {
+  readonly playerId: string;
+  readonly clueCount: number;
+  readonly tokenName: string;
+  readonly tokenSubtype: string;
+  readonly hasSacrificeDrawAbility: boolean;
+}
+
 /**
  * Rule 701.16a: Investigate creates Clue tokens
  * 
@@ -41,3 +49,19 @@ export const CLUE_TOKEN_CHARACTERISTICS = {
   colors: [],
   ability: '{2}, Sacrifice this artifact: Draw a card.',
 } as const;
+
+export function getInvestigateCount(action: InvestigateAction): number {
+  return Math.max(0, action.count);
+}
+
+export function createInvestigateResult(
+  action: InvestigateAction,
+): InvestigateResult {
+  return {
+    playerId: action.playerId,
+    clueCount: getInvestigateCount(action),
+    tokenName: CLUE_TOKEN_CHARACTERISTICS.name,
+    tokenSubtype: CLUE_TOKEN_CHARACTERISTICS.subtype,
+    hasSacrificeDrawAbility: CLUE_TOKEN_CHARACTERISTICS.ability.includes('Draw a card'),
+  };
+}

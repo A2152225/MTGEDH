@@ -14,6 +14,14 @@ export interface FightAction {
   readonly creatureB: string;
 }
 
+export interface FightResult {
+  readonly creatureA: string;
+  readonly creatureB: string;
+  readonly legal: boolean;
+  readonly selfFight: boolean;
+  readonly isCombatDamage: boolean;
+}
+
 /**
  * Rule 701.14a: Each creature deals damage equal to its power
  * 
@@ -67,3 +75,20 @@ export function fightSelf(creatureId: string): FightAction {
  * The damage dealt when a creature fights isn't combat damage.
  */
 export const FIGHT_DAMAGE_IS_NOT_COMBAT = true;
+
+export function isSelfFight(action: FightAction): boolean {
+  return action.creatureA === action.creatureB;
+}
+
+export function createFightResult(
+  action: FightAction,
+  legal: boolean,
+): FightResult {
+  return {
+    creatureA: action.creatureA,
+    creatureB: action.creatureB,
+    legal,
+    selfFight: isSelfFight(action),
+    isCombatDamage: false,
+  };
+}

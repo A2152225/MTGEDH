@@ -23,6 +23,15 @@ export interface ClashResult {
   readonly wonClash: boolean;
 }
 
+export interface ClashSummary {
+  readonly playerId: string;
+  readonly opponentId?: string;
+  readonly revealedCard?: string;
+  readonly putOnBottom: boolean;
+  readonly highestManaValue: number;
+  readonly uniqueWinner: boolean;
+}
+
 type ClashManaValueLike = {
   readonly manaValue: number;
 };
@@ -147,4 +156,18 @@ export function hasUniqueClashWinner(clashes: readonly ClashManaValueLike[]): bo
   }
 
   return clashes.filter((clash) => clash.manaValue === highestManaValue).length === 1;
+}
+
+export function createClashSummary(
+  action: ClashAction,
+  clashes: readonly ClashManaValueLike[],
+): ClashSummary {
+  return {
+    playerId: action.playerId,
+    opponentId: action.opponentId,
+    revealedCard: action.revealedCard,
+    putOnBottom: action.putOnBottom === true,
+    highestManaValue: getHighestClashManaValue(clashes),
+    uniqueWinner: hasUniqueClashWinner(clashes),
+  };
 }

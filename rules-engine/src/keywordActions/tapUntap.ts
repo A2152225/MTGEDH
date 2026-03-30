@@ -19,6 +19,14 @@ export interface TappedState {
   readonly tapped: boolean;
 }
 
+export interface TapUntapResult {
+  readonly permanentId: string;
+  readonly action: 'tap' | 'untap';
+  readonly changed: boolean;
+  readonly tapped: boolean;
+  readonly duringUntapStepAllowed: boolean;
+}
+
 /**
  * Rule 701.26a: Tap a permanent
  * 
@@ -107,4 +115,29 @@ export function canUntapDuringUntapStep(
   hasDoesntUntapEffect: boolean
 ): boolean {
   return !hasDoesntUntapEffect;
+}
+
+export function changesTappedState(
+  state: TappedState,
+  action: 'tap' | 'untap',
+): boolean {
+  return (action === 'tap' && canTap(state)) || (action === 'untap' && canUntap(state));
+}
+
+export function createTapUntapResult(
+  action: TapUntapAction,
+  state: TappedState,
+  hasDoesntUntapEffect: boolean = false,
+): TapUntapResult {
+  const nextState = applyTapUntap(state, action.action);
+
+  return {
+    permanentId: action.permanentId,
+    action: action.action,
+    changed: changesTappedState(state, action.action),
+    tapped: nextState.tapped,
+    duringUntapStepAllowed: action.action === 'untap'
+      ? canUntapDuringUntapStep(state, hasDoesntUntapEffect)
+      : true,
+  };
 }

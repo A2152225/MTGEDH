@@ -20,6 +20,15 @@ export interface ManifestDreadResult {
   readonly cardsToGraveyard: readonly string[];
 }
 
+export interface ManifestDreadSummary {
+  readonly playerId: string;
+  readonly seenCardCount: number;
+  readonly manifestedCardId?: string;
+  readonly graveyardCount: number;
+  readonly canManifest: boolean;
+  readonly evenIfImpossible: boolean;
+}
+
 /**
  * Rule 701.62a: Manifest dread
  */
@@ -91,5 +100,19 @@ export function resolveManifestDreadLook(
   return {
     manifestedCardId,
     cardsToGraveyard: cardsLookedAt.filter((cardId) => cardId !== manifestedCardId),
+  };
+}
+
+export function createManifestDreadSummary(
+  action: ManifestDreadAction,
+  libraryCount: number,
+): ManifestDreadSummary {
+  return {
+    playerId: action.playerId,
+    seenCardCount: getManifestDreadSeenCardCount(libraryCount),
+    manifestedCardId: action.manifestedCardId,
+    graveyardCount: action.cardsToGraveyard?.length ?? 0,
+    canManifest: canManifestDread(libraryCount),
+    evenIfImpossible: MANIFESTED_DREAD_EVEN_IF_IMPOSSIBLE,
   };
 }

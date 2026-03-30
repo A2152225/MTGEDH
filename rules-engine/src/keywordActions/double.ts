@@ -15,6 +15,15 @@ export interface DoubleAction {
   readonly manaType?: string; // For mana doubling
 }
 
+export interface DoubleResult {
+  readonly targetId: string;
+  readonly targetType: DoubleAction['targetType'];
+  readonly originalValue: number;
+  readonly resultingValue: number;
+  readonly delta: number;
+  readonly usesReplacementEffect: boolean;
+}
+
 /**
  * Rule 701.10a: Doubling creates a continuous effect
  * 
@@ -107,5 +116,29 @@ export function doubleDamage(sourceId: string): DoubleAction {
     type: 'double',
     targetType: 'damage',
     targetId: sourceId,
+  };
+}
+
+export function getDoubledValue(currentValue: number): number {
+  return currentValue * 2;
+}
+
+export function isDamageDoubling(action: DoubleAction): boolean {
+  return action.targetType === 'damage';
+}
+
+export function createDoubleResult(
+  action: DoubleAction,
+  currentValue: number,
+): DoubleResult {
+  const resultingValue = getDoubledValue(currentValue);
+
+  return {
+    targetId: action.targetId,
+    targetType: action.targetType,
+    originalValue: currentValue,
+    resultingValue,
+    delta: resultingValue - currentValue,
+    usesReplacementEffect: isDamageDoubling(action),
   };
 }

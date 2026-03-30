@@ -27,6 +27,16 @@ export interface SearchCriteria {
   readonly description?: string; // Full text description
 }
 
+export interface SearchResult {
+  readonly playerId: string;
+  readonly zone: string;
+  readonly foundCount: number;
+  readonly publicZone: boolean;
+  readonly canFailToFind: boolean;
+  readonly revealFound: boolean;
+  readonly failToFind: boolean;
+}
+
 /**
  * Rule 701.23a: Search a zone
  * 
@@ -109,4 +119,20 @@ export function getSearchableZone(
 export function isPublicZone(zone: string): boolean {
   const publicZones = ['battlefield', 'graveyard', 'exile', 'stack'];
   return publicZones.includes(zone);
+}
+
+export function canFailToFindInZone(zone: string): boolean {
+  return !isPublicZone(zone);
+}
+
+export function createSearchResult(action: SearchAction): SearchResult {
+  return {
+    playerId: action.playerId,
+    zone: action.zone,
+    foundCount: action.foundCardIds?.length ?? 0,
+    publicZone: isPublicZone(action.zone),
+    canFailToFind: canFailToFindInZone(action.zone),
+    revealFound: action.revealFound === true,
+    failToFind: action.failToFind === true,
+  };
 }

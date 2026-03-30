@@ -16,6 +16,15 @@ export interface ScryAction {
   readonly bottomCards?: readonly string[]; // Cards to put on bottom (in order)
 }
 
+export interface ScryResult {
+  readonly playerId: string;
+  readonly requestedCount: number;
+  readonly actualCount: number;
+  readonly topCount: number;
+  readonly bottomCount: number;
+  readonly triggersScryAbilities: boolean;
+}
+
 /**
  * Rule 701.22a: Scry N
  * 
@@ -76,4 +85,18 @@ export function completeScry(
  */
 export function shouldTriggerScry(count: number): boolean {
   return count > 0;
+}
+
+export function createScryResult(
+  action: ScryAction,
+  librarySize: number,
+): ScryResult {
+  return {
+    playerId: action.playerId,
+    requestedCount: action.count,
+    actualCount: getActualScryCount(librarySize, action.count),
+    topCount: action.topCards?.length ?? 0,
+    bottomCount: action.bottomCards?.length ?? 0,
+    triggersScryAbilities: shouldTriggerScry(action.count),
+  };
 }
