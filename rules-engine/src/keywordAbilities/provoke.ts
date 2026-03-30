@@ -16,6 +16,14 @@ export interface ProvokeAbility {
   readonly wasTriggered: boolean;
 }
 
+export interface ProvokeSummary {
+  readonly source: string;
+  readonly targetCreature?: string;
+  readonly wasTriggered: boolean;
+  readonly mustBlock: boolean;
+  readonly untapTarget: boolean;
+}
+
 /**
  * Creates a Provoke ability
  * 
@@ -114,4 +122,16 @@ export function createProvokeRequirement(ability: ProvokeAbility): {
  */
 export function isProvokeRedundant(): boolean {
   return false; // Rule 702.39b: Each instance triggers separately
+}
+
+export function createProvokeSummary(ability: ProvokeAbility): ProvokeSummary {
+  const requirement = createProvokeRequirement(ability);
+
+  return {
+    source: ability.source,
+    targetCreature: ability.targetCreature,
+    wasTriggered: ability.wasTriggered,
+    mustBlock: requirement?.mustBlock ?? false,
+    untapTarget: requirement?.untapTarget ?? false,
+  };
 }

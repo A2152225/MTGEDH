@@ -12,6 +12,13 @@ export interface InfectAbility {
   readonly source: string;
 }
 
+export interface InfectSummary {
+  readonly source: string;
+  readonly damage: number;
+  readonly poisonCountersToPlayer: number;
+  readonly minusOneMinusOneCountersToCreature: number;
+}
+
 /**
  * Create an infect ability
  * Rule 702.90a: Infect is a static ability.
@@ -45,4 +52,13 @@ export function infectDamageToCreature(ability: InfectAbility, damage: number): 
  */
 export function areInfectAbilitiesRedundant(a: InfectAbility, b: InfectAbility): boolean {
   return true;
+}
+
+export function createInfectSummary(ability: InfectAbility, damage: number): InfectSummary {
+  return {
+    source: ability.source,
+    damage,
+    poisonCountersToPlayer: infectDamageToPlayer(ability, damage),
+    minusOneMinusOneCountersToCreature: infectDamageToCreature(ability, damage),
+  };
 }
