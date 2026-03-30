@@ -2,6 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { parseOracleTextToIR } from './oracleIRParser';
+import { getStackItems } from './stackOperations';
 import {
   cardMatchesMoveZoneSingleTargetCriteria,
   findCardsExiledWithSource,
@@ -149,7 +150,7 @@ export function getThisSpellReplayStepsFromState(state: GameState, sourceId?: st
   const normalizedSourceId = String(sourceId || '').trim();
   if (!normalizedSourceId) return [];
 
-  const stackObject = (state.stack || []).find(
+  const stackObject = getStackItems((state as any)?.stack).find(
     (item: any) => String(item?.id || '').trim() === normalizedSourceId && String(item?.type || '').trim() === 'spell'
   ) as any;
   if (!stackObject) return [];

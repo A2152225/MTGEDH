@@ -2572,12 +2572,40 @@ export class RulesEngineAdapter {
       autoExecuteOracle: false,
     });
     const spellTriggerResult = checkSpellCastTriggers(triggerState, action.playerId, castResult.stackObjectId, castCard);
+    const existingStackObjectIds = new Set(
+      (stackAfterSpell.objects || []).map(item => String((item as any)?.id || '').trim()).filter(Boolean)
+    );
+    const seenTriggerIdentityKeys = new Set<string>();
     const triggerStackObjects = [
       ...(Array.isArray((tribalTriggerResult.state as any)?.stack) ? ((tribalTriggerResult.state as any).stack as any[]) : []),
       ...(Array.isArray((spellTriggerResult.state as any)?.stack) ? ((spellTriggerResult.state as any).stack as any[]) : []),
     ].filter((item, index, all) => {
       const id = String((item as any)?.id || '').trim();
-      return Boolean(id) && all.findIndex(candidate => String((candidate as any)?.id || '').trim() === id) === index;
+      if (!id || existingStackObjectIds.has(id)) {
+        return false;
+      }
+      if (all.findIndex(candidate => String((candidate as any)?.id || '').trim() === id) !== index) {
+        return false;
+      }
+
+      const type = String((item as any)?.type || '').trim().toLowerCase();
+      if (type !== 'ability') {
+        return true;
+      }
+
+      const triggerIdentityKey = [
+        type,
+        String((item as any)?.controllerId || '').trim(),
+        String((item as any)?.spellId || '').trim(),
+        String((item as any)?.triggerMeta?.effectText || '').trim().toLowerCase(),
+        String((item as any)?.triggerMeta?.triggerFilter || '').trim().toLowerCase(),
+      ].join('|');
+
+      if (seenTriggerIdentityKeys.has(triggerIdentityKey)) {
+        return false;
+      }
+      seenTriggerIdentityKeys.add(triggerIdentityKey);
+      return true;
     });
 
     for (const triggerObject of triggerStackObjects) {

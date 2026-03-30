@@ -45,6 +45,14 @@ export function createEmptyStack(): Stack {
   return { objects: [] };
 }
 
+export function getStackItems(
+  stack: Readonly<Stack> | readonly StackObject[] | null | undefined
+): readonly StackObject[] {
+  if (Array.isArray(stack)) return stack;
+  if (Array.isArray(stack?.objects)) return stack.objects;
+  return [];
+}
+
 /**
  * Rule 405.2: When spell is cast or ability activated, it goes on stack
  */

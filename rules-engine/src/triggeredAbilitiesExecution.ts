@@ -3,6 +3,7 @@ import type { OracleIRExecutionOptions, OracleIRExecutionResult } from './oracle
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from './oracleIRExecutor';
 import { getCopiedSpellReplaySteps } from './oracleIRExecutorCopySpellSupport';
 import { parseOracleTextToIR } from './oracleIRParser';
+import { getStackItems } from './stackOperations';
 import {
   buildEnrichedTriggerExecutionEventData,
   normalizeTriggerContextId,
@@ -153,7 +154,7 @@ export function executeTriggeredAbilityEffectWithOracleIR(
       : options;
 
   const hint = buildOracleIRExecutionEventHintFromTriggerData(normalizedEventData);
-  const replayStackItem = ((state.stack || []) as any[]).find(
+  const replayStackItem = getStackItems((state as any)?.stack).find(
     item => String((item as any)?.id || '').trim() === String(ability.sourceId || '').trim()
   ) as any;
   const replaySteps =

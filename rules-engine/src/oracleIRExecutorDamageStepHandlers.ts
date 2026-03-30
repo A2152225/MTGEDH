@@ -24,6 +24,7 @@ import {
 } from './oracleIRExecutorPermanentUtils';
 import { adjustLife, adjustPlayerCounter, getCardManaValue, quantityToNumber, resolvePlayers, resolvePlayersFromDamageTarget } from './oracleIRExecutorPlayerUtils';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
+import { getStackItems } from './stackOperations';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -225,7 +226,7 @@ function findSourceObject(state: GameState, sourceId: string): any | null {
   );
   if (battlefieldMatch) return battlefieldMatch;
 
-  const stackMatch = (state.stack || []).find(
+  const stackMatch = getStackItems((state as any)?.stack).find(
     (item: any) => String((item as any)?.id || '').trim() === normalizedSourceId
   );
   if (stackMatch) return stackMatch;

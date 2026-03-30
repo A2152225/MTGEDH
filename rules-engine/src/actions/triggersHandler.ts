@@ -245,7 +245,7 @@ export function processTriggers(
   logs.push(...log);
   
   // Add to game stack
-  const updatedStack = [...(nextState.stack || []), ...stackObjects];
+  const updatedStack = [...getStackItems(nextState), ...stackObjects];
   
   return {
     state: { ...nextState, stack: updatedStack as any },
@@ -784,7 +784,7 @@ export function checkStepTriggers(
     state: {
       ...(nextState as any),
       ...(updatedDelayedRegistry ? { delayedTriggerRegistry: updatedDelayedRegistry } : {}),
-      stack: [...(nextState.stack || []), ...stackObjects] as any,
+      stack: [...getStackItems(nextState), ...stackObjects] as any,
     } as any,
     triggersAdded: stackObjects.length,
     oracleStepsApplied,
@@ -876,7 +876,7 @@ export function checkDelayedEventTriggers(
     state: {
       ...(nextState as any),
       delayedTriggerRegistry: updatedDelayedRegistry,
-      stack: [...(nextState.stack || []), ...stackObjects] as any,
+      stack: [...getStackItems(nextState), ...stackObjects] as any,
     } as any,
     triggersAdded: stackObjects.length,
     oracleStepsApplied,
