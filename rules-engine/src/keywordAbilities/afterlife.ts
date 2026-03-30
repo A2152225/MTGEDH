@@ -18,6 +18,15 @@ export interface AfterlifeAbility {
   readonly tokensCreated: readonly string[];
 }
 
+export interface AfterlifeSummary {
+  readonly source: string;
+  readonly afterlifeValue: number;
+  readonly diesFromBattlefield: boolean;
+  readonly canTrigger: boolean;
+  readonly hasTriggered: boolean;
+  readonly tokenCount: number;
+}
+
 export const AFTERLIFE_SPIRIT_TOKEN = {
   name: 'Spirit',
   colors: ['W', 'B'] as string[],
@@ -90,6 +99,13 @@ export function getAfterlifeTokens(ability: AfterlifeAbility): readonly string[]
 }
 
 /**
+ * Check if afterlife has triggered.
+ */
+export function hasTriggeredAfterlife(ability: AfterlifeAbility): boolean {
+  return ability.hasTriggered;
+}
+
+/**
  * Afterlife triggers only when the permanent dies from the battlefield.
  */
 export function shouldTriggerAfterlife(diedFromBattlefield: boolean): boolean {
@@ -139,4 +155,18 @@ export function parseAfterlifeValue(oracleText: string): number | null {
  */
 export function hasRedundantAfterlife(abilities: readonly AfterlifeAbility[]): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createAfterlifeSummary(
+  ability: AfterlifeAbility,
+  diedFromBattlefield: boolean,
+): AfterlifeSummary {
+  return {
+    source: ability.source,
+    afterlifeValue: ability.afterlifeValue,
+    diesFromBattlefield: diedFromBattlefield,
+    canTrigger: shouldTriggerAfterlife(diedFromBattlefield),
+    hasTriggered: ability.hasTriggered,
+    tokenCount: ability.tokensCreated.length,
+  };
 }

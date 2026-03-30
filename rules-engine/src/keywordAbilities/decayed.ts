@@ -14,6 +14,14 @@ export interface DecayedAbility {
   readonly hasAttacked: boolean;
 }
 
+export interface DecayedSummary {
+  readonly source: string;
+  readonly canBlock: boolean;
+  readonly canAttack: boolean;
+  readonly hasAttacked: boolean;
+  readonly sacrificesAtEndOfCombat: boolean;
+}
+
 /**
  * Create a decayed ability
  * Rule 702.147a
@@ -82,4 +90,14 @@ export function shouldSacrificeDecayed(ability: DecayedAbility): boolean {
  */
 export function hasRedundantDecayed(abilities: readonly DecayedAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createDecayedSummary(ability: DecayedAbility): DecayedSummary {
+  return {
+    source: ability.source,
+    canBlock: canBlockWithDecayed(true),
+    canAttack: canAttackWithDecayed(),
+    hasAttacked: ability.hasAttacked,
+    sacrificesAtEndOfCombat: shouldSacrificeDecayed(ability),
+  };
 }

@@ -25,6 +25,15 @@ export interface ForetellAbility {
   readonly turnForetold?: number;
 }
 
+export interface ForetellSummary {
+  readonly source: string;
+  readonly actionCost: string;
+  readonly foretellCost?: string;
+  readonly isForetold: boolean;
+  readonly turnForetold?: number;
+  readonly canCastNow: boolean;
+}
+
 export const FORETELL_ACTION_COST = '{2}';
 
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
@@ -145,4 +154,18 @@ export function parseForetellCost(oracleText: string): string | null {
  */
 export function hasRedundantForetell(abilities: readonly ForetellAbility[]): boolean {
   return false;
+}
+
+export function createForetellSummary(
+  ability: ForetellAbility,
+  currentTurn: number,
+): ForetellSummary {
+  return {
+    source: ability.source,
+    actionCost: FORETELL_ACTION_COST,
+    foretellCost: ability.foretellCost,
+    isForetold: ability.isForetold,
+    turnForetold: ability.turnForetold,
+    canCastNow: canCastForetold(ability, currentTurn),
+  };
 }

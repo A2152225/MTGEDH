@@ -21,6 +21,15 @@ export interface ReconfigureAbility {
   readonly isCreature: boolean;
 }
 
+export interface ReconfigureSummary {
+  readonly source: string;
+  readonly reconfigureCost: string;
+  readonly attachedTo?: string;
+  readonly isCreature: boolean;
+  readonly canAttach: boolean;
+  readonly canUnattach: boolean;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -143,4 +152,19 @@ export function parseReconfigureCost(oracleText: string): string | null {
  */
 export function hasRedundantReconfigure(abilities: readonly ReconfigureAbility[]): boolean {
   return false;
+}
+
+export function createReconfigureSummary(
+  ability: ReconfigureAbility,
+  targetCreatureId: string,
+  isSorcerySpeed: boolean,
+): ReconfigureSummary {
+  return {
+    source: ability.source,
+    reconfigureCost: ability.reconfigureCost,
+    attachedTo: ability.attachedTo,
+    isCreature: ability.isCreature,
+    canAttach: canAttachWithReconfigure(targetCreatureId, ability.source, isSorcerySpeed),
+    canUnattach: canUnattachWithReconfigure(ability, isSorcerySpeed),
+  };
 }

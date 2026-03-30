@@ -21,6 +21,14 @@ export interface AscendAbility {
   readonly hasCitysBlessing: boolean;
 }
 
+export interface AscendSummary {
+  readonly source: string;
+  readonly permanentCount: number;
+  readonly alreadyHasBlessing: boolean;
+  readonly canGetBlessing: boolean;
+  readonly hasCitysBlessing: boolean;
+}
+
 function countTruthy(values: readonly unknown[]): number {
   return values.filter(Boolean).length;
 }
@@ -104,4 +112,18 @@ export function keepsCitysBlessing(ability: AscendAbility): boolean {
  */
 export function hasRedundantAscend(abilities: readonly AscendAbility[]): boolean {
   return false;
+}
+
+export function createAscendSummary(
+  ability: AscendAbility,
+  permanentCount: number,
+  alreadyHasBlessing: boolean,
+): AscendSummary {
+  return {
+    source: ability.source,
+    permanentCount,
+    alreadyHasBlessing,
+    canGetBlessing: canAscendNow(permanentCount, alreadyHasBlessing),
+    hasCitysBlessing: ability.hasCitysBlessing,
+  };
 }

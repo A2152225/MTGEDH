@@ -23,6 +23,16 @@ export interface CasualtyAbility {
   readonly copyId?: string;
 }
 
+export interface CasualtySummary {
+  readonly source: string;
+  readonly casualtyValue: number;
+  readonly creaturePower: number;
+  readonly canPay: boolean;
+  readonly wasPaid: boolean;
+  readonly sacrificedCreature?: string;
+  readonly copyId?: string;
+}
+
 function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
@@ -147,4 +157,19 @@ export function parseCasualtyValue(oracleText: string): number | null {
  */
 export function hasRedundantCasualty(abilities: readonly CasualtyAbility[]): boolean {
   return false; // Each instance is paid and triggers separately
+}
+
+export function createCasualtySummary(
+  ability: CasualtyAbility,
+  creaturePower: number,
+): CasualtySummary {
+  return {
+    source: ability.source,
+    casualtyValue: ability.casualtyValue,
+    creaturePower,
+    canPay: canPayCasualty(ability, creaturePower),
+    wasPaid: ability.wasPaid,
+    sacrificedCreature: ability.sacrificedCreature,
+    copyId: ability.copyId,
+  };
 }

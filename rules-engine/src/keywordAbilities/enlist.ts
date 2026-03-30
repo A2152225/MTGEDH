@@ -23,6 +23,14 @@ export interface EnlistAbility {
   readonly powerBonus: number;
 }
 
+export interface EnlistSummary {
+  readonly source: string;
+  readonly enlistedCreature?: string;
+  readonly powerBonus: number;
+  readonly canEnlist: boolean;
+  readonly didEnlist: boolean;
+}
+
 type EnlistCandidate = {
   readonly id?: string;
   readonly controller?: string;
@@ -119,4 +127,18 @@ export function didEnlist(ability: EnlistAbility): boolean {
  */
 export function hasRedundantEnlist(abilities: readonly EnlistAbility[]): boolean {
   return false; // Each instance functions independently
+}
+
+export function createEnlistSummary(
+  ability: EnlistAbility,
+  candidate: EnlistCandidate,
+  controllerId: string,
+): EnlistSummary {
+  return {
+    source: ability.source,
+    enlistedCreature: ability.enlistedCreature,
+    powerBonus: ability.powerBonus,
+    canEnlist: canEnlistCreature(candidate, ability.source, controllerId),
+    didEnlist: didEnlist(ability),
+  };
 }

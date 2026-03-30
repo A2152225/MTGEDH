@@ -18,6 +18,14 @@ export interface CompleatedAbility {
   readonly loyaltyReduction: number;
 }
 
+export interface CompleatedSummary {
+  readonly source: string;
+  readonly phyrexianManaPaid: number;
+  readonly loyaltyReduction: number;
+  readonly startingLoyalty: number;
+  readonly usedLifePayment: boolean;
+}
+
 /**
  * Create a compleated ability
  * Rule 702.150a
@@ -92,4 +100,17 @@ export function getCompleatedLoyaltyReduction(ability: CompleatedAbility): numbe
  */
 export function hasRedundantCompleated(abilities: readonly CompleatedAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createCompleatedSummary(
+  ability: CompleatedAbility,
+  baseLoyalty: number,
+): CompleatedSummary {
+  return {
+    source: ability.source,
+    phyrexianManaPaid: ability.phyrexianManaPaid,
+    loyaltyReduction: ability.loyaltyReduction,
+    startingLoyalty: calculateStartingLoyalty(baseLoyalty, ability.loyaltyReduction),
+    usedLifePayment: canApplyCompleated(ability.phyrexianManaPaid),
+  };
 }

@@ -16,6 +16,14 @@ export interface RiotAbility {
   readonly hasHaste: boolean;
 }
 
+export interface RiotSummary {
+  readonly source: string;
+  readonly choice: 'counter' | 'haste' | null;
+  readonly canChooseMode: boolean;
+  readonly grantsCounter: boolean;
+  readonly grantsHaste: boolean;
+}
+
 /**
  * Create a riot ability
  * Rule 702.136a
@@ -107,4 +115,14 @@ export function getRiotChoice(ability: RiotAbility): 'counter' | 'haste' | null 
  */
 export function hasRedundantRiot(abilities: readonly RiotAbility[]): boolean {
   return false; // Each instance works separately
+}
+
+export function createRiotSummary(ability: RiotAbility): RiotSummary {
+  return {
+    source: ability.source,
+    choice: getRiotChoice(ability),
+    canChooseMode: canChooseRiotMode(ability),
+    grantsCounter: ability.choseCounter === true,
+    grantsHaste: ability.hasHaste,
+  };
 }

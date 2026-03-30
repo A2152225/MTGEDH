@@ -18,6 +18,14 @@ export interface RavenousAbility {
   readonly hasDrawnCard: boolean;
 }
 
+export interface RavenousSummary {
+  readonly source: string;
+  readonly xValue: number;
+  readonly countersAdded: number;
+  readonly canDrawCard: boolean;
+  readonly hasDrawnCard: boolean;
+}
+
 /**
  * Create a ravenous ability
  * Rule 702.156a
@@ -96,4 +104,14 @@ export function hasDrawnFromRavenous(ability: RavenousAbility): boolean {
  */
 export function hasRedundantRavenous(abilities: readonly RavenousAbility[]): boolean {
   return false;
+}
+
+export function createRavenousSummary(ability: RavenousAbility): RavenousSummary {
+  return {
+    source: ability.source,
+    xValue: ability.xValue,
+    countersAdded: ability.countersAdded,
+    canDrawCard: shouldDrawFromRavenous(ability),
+    hasDrawnCard: ability.hasDrawnCard,
+  };
 }

@@ -16,6 +16,15 @@ export interface AfflictAbility {
   readonly timesTriggered: number;
 }
 
+export interface AfflictSummary {
+  readonly source: string;
+  readonly afflictValue: number;
+  readonly isBlocked: boolean;
+  readonly canTrigger: boolean;
+  readonly triggerCount: number;
+  readonly defendingPlayerLifeLoss: number;
+}
+
 function extractNumericKeywordValue(oracleText: string, keyword: string): number | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+(\\d+)`, 'i');
@@ -95,4 +104,17 @@ export function parseAfflictValue(oracleText: string): number | null {
  */
 export function hasRedundantAfflict(abilities: readonly AfflictAbility[]): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createAfflictSummary(ability: AfflictAbility, isBlocked: boolean): AfflictSummary {
+  const canTrigger = canTriggerAfflict(isBlocked);
+
+  return {
+    source: ability.source,
+    afflictValue: ability.afflictValue,
+    isBlocked,
+    canTrigger,
+    triggerCount: ability.timesTriggered,
+    defendingPlayerLifeLoss: canTrigger ? ability.afflictValue : 0,
+  };
 }

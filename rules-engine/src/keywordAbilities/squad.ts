@@ -23,6 +23,14 @@ export interface SquadAbility {
   readonly tokenIds: readonly string[];
 }
 
+export interface SquadSummary {
+  readonly source: string;
+  readonly squadCost: string;
+  readonly timesPaid: number;
+  readonly wasPaid: boolean;
+  readonly tokenCount: number;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -127,4 +135,14 @@ export function parseSquadCost(oracleText: string): string | null {
  */
 export function hasRedundantSquad(abilities: readonly SquadAbility[]): boolean {
   return false; // Each instance is paid and triggers separately
+}
+
+export function createSquadSummary(ability: SquadAbility): SquadSummary {
+  return {
+    source: ability.source,
+    squadCost: ability.squadCost,
+    timesPaid: ability.timesPaid,
+    wasPaid: wasSquadPaid(ability),
+    tokenCount: ability.tokenIds.length,
+  };
 }

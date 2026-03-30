@@ -19,6 +19,15 @@ export interface MentorAbility {
   readonly mentoredCreatures: readonly string[];
 }
 
+export interface MentorSummary {
+  readonly source: string;
+  readonly mentorPower: number;
+  readonly targetPower: number;
+  readonly canMentor: boolean;
+  readonly mentoredCreatureCount: number;
+  readonly lastMentoredCreature?: string;
+}
+
 /**
  * Create a mentor ability
  * Rule 702.134a
@@ -103,4 +112,19 @@ export function getMentorTriggerCount(ability: MentorAbility): number {
  */
 export function hasRedundantMentor(abilities: readonly MentorAbility[]): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createMentorSummary(ability: MentorAbility, targetPower: number): MentorSummary {
+  const mentoredCreatureCount = ability.mentoredCreatures.length;
+
+  return {
+    source: ability.source,
+    mentorPower: ability.mentorPower,
+    targetPower,
+    canMentor: canMentor(ability.mentorPower, targetPower),
+    mentoredCreatureCount,
+    lastMentoredCreature: mentoredCreatureCount > 0
+      ? ability.mentoredCreatures[mentoredCreatureCount - 1]
+      : undefined,
+  };
 }

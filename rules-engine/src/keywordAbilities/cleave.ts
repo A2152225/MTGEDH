@@ -21,6 +21,14 @@ export interface CleaveAbility {
   readonly cleavedText?: string;
 }
 
+export interface CleaveSummary {
+  readonly source: string;
+  readonly cleaveCost: string;
+  readonly wasCleaved: boolean;
+  readonly effectiveText: string;
+  readonly usesAlternateText: boolean;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -124,4 +132,14 @@ export function hasRedundantCleave(abilities: readonly CleaveAbility[]): boolean
   
   const costs = new Set(abilities.map(a => a.cleaveCost));
   return costs.size < abilities.length;
+}
+
+export function createCleaveSummary(ability: CleaveAbility): CleaveSummary {
+  return {
+    source: ability.source,
+    cleaveCost: ability.cleaveCost,
+    wasCleaved: ability.wasCleaved,
+    effectiveText: getEffectiveText(ability),
+    usesAlternateText: ability.wasCleaved,
+  };
 }

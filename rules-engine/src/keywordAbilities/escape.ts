@@ -25,6 +25,15 @@ export interface EscapeAbility {
   readonly escapesWithAbility?: string;
 }
 
+export interface EscapeSummary {
+  readonly source: string;
+  readonly escapeCost: string;
+  readonly canCastFromGraveyard: boolean;
+  readonly hasEscaped: boolean;
+  readonly escapedWithCounters?: string;
+  readonly escapedWithAbility?: string;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -140,4 +149,20 @@ export function parseEscapeCost(oracleText: string): string | null {
  */
 export function hasRedundantEscape(abilities: readonly EscapeAbility[]): boolean {
   return false;
+}
+
+export function createEscapeSummary(
+  ability: EscapeAbility,
+  zone: string,
+  availableCardsToExile: number,
+  requiredCardsToExile: number,
+): EscapeSummary {
+  return {
+    source: ability.source,
+    escapeCost: ability.escapeCost,
+    canCastFromGraveyard: canCastWithEscape(zone, availableCardsToExile, requiredCardsToExile),
+    hasEscaped: ability.hasEscaped,
+    escapedWithCounters: getEscapedCounterText(ability),
+    escapedWithAbility: getEscapedAbilityText(ability),
+  };
 }

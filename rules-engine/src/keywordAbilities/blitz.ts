@@ -22,6 +22,15 @@ export interface BlitzAbility {
   readonly hasDrawnCard: boolean;
 }
 
+export interface BlitzSummary {
+  readonly source: string;
+  readonly blitzCost: string;
+  readonly canCastWithBlitz: boolean;
+  readonly wasBlitzed: boolean;
+  readonly sacrificesAtEndStep: boolean;
+  readonly drawsCardOnDeath: boolean;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -140,4 +149,15 @@ export function hasRedundantBlitz(abilities: readonly BlitzAbility[]): boolean {
   
   const costs = new Set(abilities.map(a => a.blitzCost));
   return costs.size < abilities.length;
+}
+
+export function createBlitzSummary(ability: BlitzAbility, zone: string): BlitzSummary {
+  return {
+    source: ability.source,
+    blitzCost: ability.blitzCost,
+    canCastWithBlitz: canCastWithBlitz(zone),
+    wasBlitzed: ability.wasBlitzed,
+    sacrificesAtEndStep: shouldSacrificeBlitz(ability),
+    drawsCardOnDeath: ability.wasBlitzed,
+  };
 }

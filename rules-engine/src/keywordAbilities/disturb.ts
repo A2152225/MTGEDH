@@ -18,6 +18,14 @@ export interface DisturbAbility {
   readonly wasDisturbed: boolean;
 }
 
+export interface DisturbSummary {
+  readonly source: string;
+  readonly disturbCost: string;
+  readonly canCastFromGraveyard: boolean;
+  readonly wasDisturbed: boolean;
+  readonly entersBackFaceUp: boolean;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -106,4 +114,14 @@ export function parseDisturbCost(oracleText: string): string | null {
  */
 export function hasRedundantDisturb(abilities: readonly DisturbAbility[]): boolean {
   return false;
+}
+
+export function createDisturbSummary(ability: DisturbAbility, zone: string): DisturbSummary {
+  return {
+    source: ability.source,
+    disturbCost: ability.disturbCost,
+    canCastFromGraveyard: canCastWithDisturb(zone),
+    wasDisturbed: ability.wasDisturbed,
+    entersBackFaceUp: entersBackFaceUp(ability),
+  };
 }

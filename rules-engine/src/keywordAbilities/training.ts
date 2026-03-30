@@ -20,6 +20,14 @@ export interface TrainingAbility {
   readonly timesTriggered: number;
 }
 
+export interface TrainingSummary {
+  readonly source: string;
+  readonly power: number;
+  readonly timesTriggered: number;
+  readonly canTrigger: boolean;
+  readonly countersAdded: number;
+}
+
 /**
  * Create a training ability
  * Rule 702.149a
@@ -97,4 +105,17 @@ export function getTrainingPower(ability: TrainingAbility): number {
  */
 export function hasRedundantTraining(abilities: readonly TrainingAbility[]): boolean {
   return false; // Each instance triggers separately
+}
+
+export function createTrainingSummary(
+  ability: TrainingAbility,
+  attackingCreaturesPowers: readonly number[],
+): TrainingSummary {
+  return {
+    source: ability.source,
+    power: ability.creaturePower,
+    timesTriggered: ability.timesTriggered,
+    canTrigger: canTrain(ability.creaturePower, attackingCreaturesPowers),
+    countersAdded: ability.timesTriggered,
+  };
 }

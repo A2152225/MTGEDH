@@ -17,6 +17,14 @@ export interface SpectacleAbility {
   readonly wasSpectacled: boolean;
 }
 
+export interface SpectacleSummary {
+  readonly source: string;
+  readonly spectacleCost: string;
+  readonly canCastWithSpectacle: boolean;
+  readonly wasSpectacled: boolean;
+  readonly usesAlternateCost: boolean;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -112,4 +120,17 @@ export function hasRedundantSpectacle(abilities: readonly SpectacleAbility[]): b
   
   const costs = new Set(abilities.map(a => a.spectacleCost));
   return costs.size < abilities.length;
+}
+
+export function createSpectacleSummary(
+  ability: SpectacleAbility,
+  opponentLostLife: boolean,
+): SpectacleSummary {
+  return {
+    source: ability.source,
+    spectacleCost: ability.spectacleCost,
+    canCastWithSpectacle: canCastWithSpectacle(opponentLostLife),
+    wasSpectacled: ability.wasSpectacled,
+    usesAlternateCost: ability.wasSpectacled,
+  };
 }

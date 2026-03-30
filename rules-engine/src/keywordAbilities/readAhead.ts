@@ -21,6 +21,15 @@ export interface ReadAheadAbility {
   readonly loreCounters: number;
 }
 
+export interface ReadAheadSummary {
+  readonly source: string;
+  readonly finalChapterNumber: number;
+  readonly chosenStartingChapter?: number;
+  readonly loreCounters: number;
+  readonly checkedChapter: number;
+  readonly canTriggerChapter: boolean;
+}
+
 /**
  * Create a read ahead ability
  * Rule 702.155a
@@ -107,4 +116,19 @@ export function getReadAheadLoreCounters(ability: ReadAheadAbility): number {
  */
 export function hasRedundantReadAhead(abilities: readonly ReadAheadAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createReadAheadSummary(
+  ability: ReadAheadAbility,
+  chapterNumber: number,
+  isSameTurnEntered: boolean,
+): ReadAheadSummary {
+  return {
+    source: ability.source,
+    finalChapterNumber: ability.finalChapterNumber,
+    chosenStartingChapter: ability.chosenStartingChapter,
+    loreCounters: ability.loreCounters,
+    checkedChapter: chapterNumber,
+    canTriggerChapter: canChapterTrigger(ability, chapterNumber, isSameTurnEntered),
+  };
 }

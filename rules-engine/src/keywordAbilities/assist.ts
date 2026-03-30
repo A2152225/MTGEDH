@@ -20,6 +20,14 @@ export interface AssistAbility {
   readonly manaPaidByAssist: number;
 }
 
+export interface AssistSummary {
+  readonly source: string;
+  readonly assistingPlayer?: string;
+  readonly canChooseAssistant: boolean;
+  readonly manaPaidByAssist: number;
+  readonly remainingCost: string;
+}
+
 function tokenizeCost(cost: string): string[] {
   const raw = String(cost || '').trim();
   if (!raw) {
@@ -162,4 +170,19 @@ export function getRemainingAssistCost(cost: string, manaPaidByAssist: number): 
  */
 export function hasRedundantAssist(abilities: readonly AssistAbility[]): boolean {
   return false;
+}
+
+export function createAssistSummary(
+  ability: AssistAbility,
+  casterId: string,
+  genericManaRequired: number,
+  totalCost: string,
+): AssistSummary {
+  return {
+    source: ability.source,
+    assistingPlayer: ability.assistingPlayer,
+    canChooseAssistant: canChooseAssistingPlayer(casterId, ability.assistingPlayer ?? '', genericManaRequired),
+    manaPaidByAssist: ability.manaPaidByAssist,
+    remainingCost: getRemainingAssistCost(totalCost, ability.manaPaidByAssist),
+  };
 }

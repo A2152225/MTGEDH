@@ -19,6 +19,14 @@ export interface JumpStartAbility {
   readonly discardedCard?: string;
 }
 
+export interface JumpStartSummary {
+  readonly source: string;
+  readonly canCastFromGraveyard: boolean;
+  readonly wasJumpStarted: boolean;
+  readonly discardedCard?: string;
+  readonly exilesOnResolution: boolean;
+}
+
 /**
  * Create a jump-start ability
  * Rule 702.133a
@@ -88,4 +96,14 @@ export function getJumpStartDiscardedCard(ability: JumpStartAbility): string | u
  */
 export function hasRedundantJumpStart(abilities: readonly JumpStartAbility[]): boolean {
   return false;
+}
+
+export function createJumpStartSummary(ability: JumpStartAbility, zone: string): JumpStartSummary {
+  return {
+    source: ability.source,
+    canCastFromGraveyard: canCastWithJumpStart(zone, true),
+    wasJumpStarted: ability.wasJumpStarted,
+    discardedCard: ability.discardedCard,
+    exilesOnResolution: shouldExileJumpStart(ability),
+  };
 }

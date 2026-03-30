@@ -19,6 +19,15 @@ export interface EncoreAbility {
   readonly tokenIds: readonly string[];
 }
 
+export interface EncoreSummary {
+  readonly source: string;
+  readonly canActivate: boolean;
+  readonly encoreCost: string;
+  readonly hasBeenEncored: boolean;
+  readonly tokenCount: number;
+  readonly opponentCount: number;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s+([^.;,()]+)`, 'i');
@@ -129,4 +138,20 @@ export function parseEncoreCost(oracleText: string): string | null {
  */
 export function hasRedundantEncore(abilities: readonly EncoreAbility[]): boolean {
   return false;
+}
+
+export function createEncoreSummary(
+  ability: EncoreAbility,
+  zone: string,
+  isSorcerySpeed: boolean,
+  opponentCount: number,
+): EncoreSummary {
+  return {
+    source: ability.source,
+    canActivate: canActivateEncore(zone, isSorcerySpeed, opponentCount),
+    encoreCost: ability.encoreCost,
+    hasBeenEncored: ability.hasBeenEncored,
+    tokenCount: ability.tokenIds.length,
+    opponentCount,
+  };
 }

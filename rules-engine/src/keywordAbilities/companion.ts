@@ -25,6 +25,15 @@ export interface CompanionAbility {
   readonly isPutIntoHand: boolean;
 }
 
+export interface CompanionSummary {
+  readonly source: string;
+  readonly condition: string;
+  readonly canReveal: boolean;
+  readonly isRevealed: boolean;
+  readonly canPutIntoHand: boolean;
+  readonly isPutIntoHand: boolean;
+}
+
 export const COMPANION_ACTION_COST = '{3}';
 
 /**
@@ -138,4 +147,22 @@ export function canPutRevealedCompanionIntoHand(
  */
 export function hasRedundantCompanion(abilities: readonly CompanionAbility[]): boolean {
   return false;
+}
+
+export function createCompanionSummary(
+  ability: CompanionAbility,
+  isBeforeGame: boolean,
+  satisfiesCondition: boolean,
+  hasPriority: boolean,
+  stackEmpty: boolean,
+  isMainPhase: boolean,
+): CompanionSummary {
+  return {
+    source: ability.source,
+    condition: ability.condition,
+    canReveal: canRevealCompanion(isBeforeGame, satisfiesCondition),
+    isRevealed: ability.isRevealed,
+    canPutIntoHand: canPutRevealedCompanionIntoHand(ability, hasPriority, stackEmpty, isMainPhase),
+    isPutIntoHand: ability.isPutIntoHand,
+  };
 }

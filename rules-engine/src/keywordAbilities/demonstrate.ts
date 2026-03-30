@@ -18,6 +18,14 @@ export interface DemonstrateAbility {
   readonly opponentCopyId?: string;
 }
 
+export interface DemonstrateSummary {
+  readonly source: string;
+  readonly hasCopied: boolean;
+  readonly chosenOpponent?: string;
+  readonly copyCount: number;
+  readonly givesOpponentCopy: boolean;
+}
+
 /**
  * Create a demonstrate ability
  * Rule 702.144a
@@ -107,4 +115,15 @@ export function getDemonstrateCopyIds(ability: DemonstrateAbility): readonly str
  */
 export function hasRedundantDemonstrate(abilities: readonly DemonstrateAbility[]): boolean {
   return false;
+}
+
+export function createDemonstrateSummary(ability: DemonstrateAbility): DemonstrateSummary {
+  const copyIds = getDemonstrateCopyIds(ability);
+  return {
+    source: ability.source,
+    hasCopied: ability.hasCopied,
+    chosenOpponent: ability.chosenOpponent,
+    copyCount: copyIds.length,
+    givesOpponentCopy: Boolean(ability.opponentCopyId),
+  };
 }

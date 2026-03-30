@@ -20,6 +20,14 @@ export interface BoastAbility {
   readonly activatedThisTurn: boolean;
 }
 
+export interface BoastSummary {
+  readonly source: string;
+  readonly attackedThisTurn: boolean;
+  readonly activatedThisTurn: boolean;
+  readonly canActivate: boolean;
+  readonly effect: string;
+}
+
 function extractKeywordCost(oracleText: string, keyword: string): string | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const pattern = new RegExp(`\\b${keyword}\\s*[—-]?\s*([^:]+):`, 'i');
@@ -133,4 +141,14 @@ export function parseBoastCost(oracleText: string): string | null {
  */
 export function hasRedundantBoast(abilities: readonly BoastAbility[]): boolean {
   return false;
+}
+
+export function createBoastSummary(ability: BoastAbility): BoastSummary {
+  return {
+    source: ability.source,
+    attackedThisTurn: ability.attackedThisTurn,
+    activatedThisTurn: ability.activatedThisTurn,
+    canActivate: canActivateBoast(ability),
+    effect: ability.effect,
+  };
 }

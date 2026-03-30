@@ -19,6 +19,15 @@ export interface PrototypeAbility {
   readonly wasPrototyped: boolean;
 }
 
+export interface PrototypeSummary {
+  readonly source: string;
+  readonly prototypeCost: string;
+  readonly canCastPrototyped: boolean;
+  readonly wasPrototyped: boolean;
+  readonly effectivePower: number;
+  readonly effectiveToughness: number;
+}
+
 function extractPrototypeDetails(oracleText: string): { cost: string; power: number; toughness: number } | null {
   const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
   const match = normalized.match(/prototype\s+([^\s]+)\s+(\d+)\/(\d+)/i);
@@ -150,4 +159,20 @@ export function parsePrototype(oracleText: string): { cost: string; power: numbe
  */
 export function hasRedundantPrototype(abilities: readonly PrototypeAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createPrototypeSummary(
+  ability: PrototypeAbility,
+  zone: string,
+  normalPower: number,
+  normalToughness: number,
+): PrototypeSummary {
+  return {
+    source: ability.source,
+    prototypeCost: ability.prototypeCost,
+    canCastPrototyped: canCastPrototyped(zone),
+    wasPrototyped: ability.wasPrototyped,
+    effectivePower: getEffectivePower(ability, normalPower),
+    effectiveToughness: getEffectiveToughness(ability, normalToughness),
+  };
 }
