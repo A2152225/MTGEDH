@@ -1045,6 +1045,10 @@ function normalizeViewForEmit(rawView: any, game: any) {
     // Add playable cards highlighting for the current priority player
     // This helps players see which cards/permanents they can play/activate
     try {
+      view.playableCards = [];
+      view.canAct = false;
+      view.canRespond = false;
+
       if (game && game.state && view.viewer) {
         const priority = game.state.priority;
         const viewerId = view.viewer;
@@ -1052,10 +1056,7 @@ function normalizeViewForEmit(rawView: any, game: any) {
         // Only add playable cards for the current priority holder viewing their own game
         if (priority === viewerId) {
           const playableCardIds = getPlayableCardIds(game, viewerId);
-
-          if (playableCardIds && playableCardIds.length > 0) {
-            view.playableCards = playableCardIds;
-          }
+          view.playableCards = playableCardIds || [];
 
           // Add canAct and canRespond flags to the view
           // These are calculated server-side to ensure consistency with game rules

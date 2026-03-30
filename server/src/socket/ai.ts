@@ -2252,7 +2252,42 @@ export function unregisterAIPlayer(gameId: string, playerId: PlayerID): void {
  * Check if a player is AI-controlled
  */
 export function isAIPlayer(gameId: string, playerId: PlayerID): boolean {
-  return aiPlayers.get(gameId)?.has(playerId) ?? false;
+  const registered = aiPlayers.get(gameId)?.has(playerId) ?? false;
+  if (registered) return true;
+
+  const game = ensureGame(gameId);
+  const playerInState = (game?.state?.players || []).find((p: any) => p?.id === playerId) as any;
+  if (!playerInState || playerInState.isAI !== true) {
+    return false;
+  }
+
+  const restoredStrategy = (
+    typeof playerInState.strategy === 'string'
+      ? playerInState.strategy
+      : typeof playerInState.aiStrategy === 'string'
+        ? playerInState.aiStrategy
+        : AIStrategy.BASIC
+  ) as AIStrategy;
+  const restoredDifficulty = Number.isFinite(Number(playerInState.difficulty))
+    ? Number(playerInState.difficulty)
+    : Number.isFinite(Number(playerInState.aiDifficulty))
+      ? Number(playerInState.aiDifficulty)
+      : 0.5;
+
+  registerAIPlayer(
+    gameId,
+    playerId,
+    String(playerInState.name || playerId),
+    restoredStrategy,
+    restoredDifficulty,
+  );
+  debug(1, '[AI] Restored AI runtime registration from replayed state:', {
+    gameId,
+    playerId,
+    strategy: restoredStrategy,
+    difficulty: restoredDifficulty,
+  });
+  return true;
 }
 
 /**

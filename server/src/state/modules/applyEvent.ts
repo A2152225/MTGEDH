@@ -832,6 +832,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const seatToken = (e as any).seatToken as string | undefined;
         const spectator = Boolean((e as any).spectator);
         const isAI = Boolean((e as any).isAI);
+        const strategy = typeof (e as any).strategy === 'string' ? String((e as any).strategy) : undefined;
+        const difficulty = Number.isFinite(Number((e as any).difficulty)) ? Number((e as any).difficulty) : undefined;
 
         if (!pid || !name) {
           break;
@@ -848,6 +850,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               spectator,
               seatToken,
               isAI,
+              strategy,
+              difficulty,
+              aiStrategy: strategy,
+              aiDifficulty: difficulty,
             };
             playersArr.push(existing);
           } else {
@@ -859,6 +865,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               existing.seatToken = seatToken;
             if (typeof existing.isAI === "undefined")
               existing.isAI = isAI;
+            if (!existing.strategy && strategy)
+              existing.strategy = strategy;
+            if (typeof existing.difficulty === 'undefined' && typeof difficulty === 'number')
+              existing.difficulty = difficulty;
+            if (!existing.aiStrategy && strategy)
+              existing.aiStrategy = strategy;
+            if (typeof existing.aiDifficulty === 'undefined' && typeof difficulty === 'number')
+              existing.aiDifficulty = difficulty;
           }
           
           // Set turnPlayer and priority if not already set (non-spectators only)
@@ -892,6 +906,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // Initialize landsPlayedThisTurn
             if (ctx.state.landsPlayedThisTurn) {
               ctx.state.landsPlayedThisTurn[pid] = ctx.state.landsPlayedThisTurn[pid] ?? 0;
+            }
+
+            if (isAI) {
+              const stateAny = ctx.state as any;
+              if (!(stateAny.autoPassPlayers instanceof Set)) {
+                stateAny.autoPassPlayers = new Set();
+              }
+              stateAny.autoPassPlayers.add(pid);
             }
           }
           
