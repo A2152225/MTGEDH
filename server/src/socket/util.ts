@@ -299,14 +299,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     const turnPlayer = state.turnPlayer;
     const isMyTurn = turnPlayer === playerId;
     
-    debug(2, `[getPlayableCardIds] Player ${playerId}: step=${state.step}, isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
-    debug(2, `[getPlayableCardIds] manaPool=`, pool);
-    debug(2, `[getPlayableCardIds] availableMana=`, availableMana);
-    debug(2, `[getPlayableCardIds] Total available mana:`, getTotalManaFromPool(availableMana));
-    
     // Check hand for castable spells
     if (Array.isArray(zones.hand)) {
-      debug(2, `[getPlayableCardIds] Checking ${zones.hand.length} cards in hand`);
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
 
@@ -329,7 +323,6 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           
           // If the card's oracle text is from the back face, skip it
           if (cardOracleText && backFaceOracle && cardOracleText.includes("(transforms from")) {
-            debug(2, `[getPlayableCardIds] Skipping transform back face: ${card.name}`);
             continue;
           }
           
@@ -362,7 +355,6 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         );
         
         if (!timingRestriction.canCast) {
-          debug(2, `[getPlayableCardIds] Card ${card.name} blocked by timing restriction: ${timingRestriction.reason}`);
           continue;
         }
         
@@ -370,7 +362,6 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         // This prevents marking targeted spells as playable when no legal targets exist.
         const hasTargets = hasValidTargetsForSpell(state as any, playerId, card, { conservative: false });
         if (!hasTargets) {
-          debug(2, `[getPlayableCardIds] Card ${card.name} blocked - no valid targets`);
           continue;
         }
         
@@ -405,14 +396,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const actualCost = { ...reducedCost, hasX: (reducedCost as any).hasX ?? (parsedCost as any).hasX ?? false };
           
           if (canPayManaCost(availableMana, actualCost) || hasPayableAlternateCost(game as any, playerId, card)) {
-            if (reduction.messages && reduction.messages.length > 0) {
-              debug(1, `[getPlayableCardIds] Card ${card.name} (${card.id}) is playable with cost reduction: ${reduction.messages.join(', ')}`);
-            } else {
-              debug(2, `[getPlayableCardIds] Card ${card.name} (${card.id}) is playable`);
-            }
             playableIds.push(card.id);
-          } else {
-            debug(2, `[getPlayableCardIds] Card ${card.name} not playable - cannot pay cost ${manaCost} (after reduction: ${JSON.stringify(actualCost)})`);
           }
         }
       }
@@ -425,23 +409,16 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       // This accounts for Exploration, Azusa, Rites of Flourishing, etc.
       const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
       
-      debug(2, `[getPlayableCardIds] Checking lands: landsPlayed=${landsPlayedThisTurn}, max=${maxLandsPerTurn}`);
-      
       if (landsPlayedThisTurn < maxLandsPerTurn && Array.isArray(zones.hand)) {
         for (const card of zones.hand) {
           if (!card || typeof card === "string") continue;
           
           const typeLine = (card.type_line || "").toLowerCase();
           if (typeLine.includes("land")) {
-            debug(2, `[getPlayableCardIds] Land ${card.name} (${card.id}) is playable`);
             playableIds.push(card.id);
           }
         }
-      } else if (landsPlayedThisTurn >= maxLandsPerTurn) {
-        debug(2, `[getPlayableCardIds] Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
       }
-    } else {
-      debug(2, `[getPlayableCardIds] Not checking lands: isMainPhase=${isMainPhase}, stackIsEmpty=${stackIsEmpty}, isMyTurn=${isMyTurn}`);
     }
     
     // Check for castable commanders from command zone
@@ -455,8 +432,6 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       const taxById = (commandZone as any).taxById || {};
       
       if (inCommandZone.length > 0 && commanderCards.length > 0) {
-        debug(2, `[getPlayableCardIds] Checking ${inCommandZone.length} commanders in command zone`);
-        
         for (const commanderId of inCommandZone) {
           const commander = commanderCards.find((c: any) => c.id === commanderId || c.name === commanderId);
           if (!commander) continue;
@@ -476,10 +451,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           
           // Check if player can pay the cost (normal or alternate like WUBRG/Omniscience)
           if (canCastNow && (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, commander))) {
-            debug(2, `[getPlayableCardIds] Commander ${commander.name} (${commanderId}) is playable with cost ${totalCost}`);
             playableIds.push(commanderId);
-          } else {
-            debug(2, `[getPlayableCardIds] Commander ${commander.name} not playable - canCastNow=${canCastNow}, canPay=${canPayManaCost(availableMana, parsedCost)}`);
           }
         }
       }
@@ -755,7 +727,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     debugWarn(1, "[getPlayableCardIds] Error:", err);
   }
   
-  debug(2, `[getPlayableCardIds] Returning ${playableIds.length} playable card(s):`, playableIds);
+  debug(2, `[getPlayableCardIds] Player ${playerId}: ${playableIds.length} playable option(s); step=${game.state?.step}, priority=${game.state?.priority}, hand=${Array.isArray(game.state?.zones?.[playerId]?.hand) ? game.state.zones[playerId].hand.length : 0}, availableMana=${getTotalManaFromPool(getAvailableMana(game.state, playerId))}`);
   return playableIds;
 }
 
@@ -1076,57 +1048,44 @@ function normalizeViewForEmit(rawView: any, game: any) {
       if (game && game.state && view.viewer) {
         const priority = game.state.priority;
         const viewerId = view.viewer;
-        
-        debug(2, `[normalizeViewForEmit] Checking playable cards: priority=${priority}, viewerId=${viewerId}, match=${priority === viewerId}`);
-        
+
         // Only add playable cards for the current priority holder viewing their own game
         if (priority === viewerId) {
           const playableCardIds = getPlayableCardIds(game, viewerId);
-          debug(2, `[normalizeViewForEmit] getPlayableCardIds returned ${playableCardIds?.length || 0} cards`);
-          
+
           if (playableCardIds && playableCardIds.length > 0) {
             view.playableCards = playableCardIds;
-            debug(2, `[normalizeViewForEmit] Set view.playableCards with ${playableCardIds.length} cards`);
-          } else {
-            debug(2, `[normalizeViewForEmit] Not setting view.playableCards - no playable cards found`);
           }
-          
+
           // Add canAct and canRespond flags to the view
           // These are calculated server-side to ensure consistency with game rules
           try {
             view.canAct = canAct(game as any, viewerId);
             view.canRespond = canRespond(game as any, viewerId);
-            debug(2, `[normalizeViewForEmit] Set canAct=${view.canAct}, canRespond=${view.canRespond}`);
           } catch (err) {
             debugWarn(1, "Failed to calculate canAct/canRespond:", err);
             // Fallback: use playableCards as indicator
             view.canAct = playableCardIds && playableCardIds.length > 0;
             view.canRespond = view.canAct; // Conservative fallback
           }
-        } else {
-          debug(2, `[normalizeViewForEmit] Skipping playable cards - viewer doesn't have priority`);
         }
-      } else {
-        debug(2, `[normalizeViewForEmit] Skipping playable cards - missing game/state/viewer`);
       }
     } catch (e) {
       // non-fatal - don't break the whole view if playable calculation fails
       debugWarn(1, "Failed to calculate playable cards:", e);
     }
-    
-    // Add cost adjustment info for cards in hand
-    // This shows players when their spells cost more or less due to battlefield effects
+
     try {
       if (game && game.state && view.viewer) {
         const viewerId = view.viewer;
         const zones = game.state.zones?.[viewerId];
-        
+
         if (zones?.hand && Array.isArray(zones.hand)) {
           const costAdjustments: Record<string, any> = {};
-          
+
           for (const card of zones.hand) {
             if (!card || typeof card === 'string' || !card.id) continue;
-            
+
             const adjustmentInfo = getCostAdjustmentInfo(game.state, viewerId, card);
             if (adjustmentInfo) {
               costAdjustments[card.id] = {
@@ -1139,7 +1098,7 @@ function normalizeViewForEmit(rawView: any, game: any) {
               };
             }
           }
-          
+
           if (Object.keys(costAdjustments).length > 0) {
             view.costAdjustments = costAdjustments;
           }
