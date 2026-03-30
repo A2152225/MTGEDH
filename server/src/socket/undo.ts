@@ -346,6 +346,14 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     if (typeof existingGame.bumpSeq === 'function') {
       existingGame.bumpSeq();
     }
+
+    void import('./ai.js').then((aiModule) => {
+      if (typeof aiModule.rehydrateAIGameRuntime === 'function') {
+        aiModule.rehydrateAIGameRuntime(gameId, { refreshDeckProfiles: true });
+      }
+    }).catch((err) => {
+      debugWarn(1, `[undo] Failed to rehydrate AI runtime for game ${gameId}:`, err);
+    });
     
     return { success: true };
   } catch (err: any) {

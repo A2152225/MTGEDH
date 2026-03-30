@@ -2017,7 +2017,7 @@ export function App() {
     }) => {
       if (payload.gameId === safeView?.id) {
         // Re-emit playLand with the selected face
-        socket.emit("playLand", {
+        playLandWithPromptSync({
           gameId: safeView.id,
           cardId: payload.cardId,
           selectedFace: payload.selectedFace,
@@ -2114,6 +2114,9 @@ export function App() {
       if (payload.gameId === safeView?.id) {
         setUndoModalOpen(false);
         setUndoRequestData(null);
+        window.setTimeout(() => {
+          socket.emit('getMyNextResolutionStep', { gameId: payload.gameId });
+        }, 0);
       }
     };
 
@@ -4270,6 +4273,19 @@ export function App() {
     }, 0);
   }, []);
 
+  const playLandWithPromptSync = React.useCallback((payload: {
+    gameId: string;
+    cardId: string;
+    selectedFace?: number;
+    fromZone?: 'exile' | 'hand' | 'graveyard';
+  }) => {
+    socket.emit('playLand', payload);
+
+    window.setTimeout(() => {
+      socket.emit('getMyNextResolutionStep', { gameId: payload.gameId });
+    }, 0);
+  }, []);
+
   // Split/Adventure card choice handler
   const handleSplitCardChoose = (faceId: string, fused?: boolean) => {
     if (!splitCardData || !safeView || !you) return;
@@ -4361,7 +4377,7 @@ export function App() {
     const isLand = /\bland\b/i.test(String((card as any)?.type_line || (card as any)?.typeLine || ''));
 
     if (isLand) {
-      socket.emit('playLand', {
+      playLandWithPromptSync({
         gameId: safeView.id,
         cardId,
         fromZone: 'exile',
@@ -4886,7 +4902,7 @@ export function App() {
               }}
               onPlayLandFromHand={(cardId) =>
                 safeView &&
-                socket.emit("playLand", { gameId: safeView.id, cardId })
+                playLandWithPromptSync({ gameId: safeView.id, cardId })
               }
               onCastFromHand={(cardId) => {
                 if (!safeView || !you) return;

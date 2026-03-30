@@ -1,5 +1,5 @@
 
-Monday, March 30, 2026 5:34:26 AM
+Monday, March 30, 2026 12:44:33 PM
 
 > @mtgedh/server@0.1.0 dev:noreload
 > npm run start
@@ -8,7 +8,7 @@ Monday, March 30, 2026 5:34:26 AM
 > @mtgedh/server@0.1.0 start
 > node --enable-source-maps --import tsx/esm src/index.ts
 
-[Server] Boot { bootId: 'd5ca9106-100c-4aff-908b-42c071aec5dd', pid: 58496, node: 'v22.20.0', port: 3001 }
+[Server] Boot { bootId: 'ed22eca8-af37-4b35-b0e0-4193aca78545', pid: 42860, node: 'v22.20.0', port: 3001 }
 [Resolution] AI handler initialized
 mtgedh> [Resolution] Priority management handler initialized
 [setCommander] Initialized inCommandZone for p_6sv88kev: [ 'card_b4036bb7-835d-4690-aca1-1ab566776e9a_c5266c829ccf77d7' ]
@@ -17,33 +17,442 @@ mtgedh> [Resolution] Priority management handler initialized
 [recalculateHandVisibility] Players with hand reveal effects: none
 [recalculateHandVisibility] Players with hand reveal effects: none
 [canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [recalculateHandVisibility] Players with hand reveal effects: none
 [canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Arcane Signet(Artifact), Needle Spires(Land)]
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Arcane Signet(Artifact), Needle Spires(Land)]
 [recalculateHandVisibility] Players with hand reveal effects: none
 [canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [recalculateHandVisibility] Players with hand reveal effects: none
 [recalculateHandVisibility] Players with hand reveal effects: none
 [canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
 [canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [recalculateHandVisibility] Players with hand reveal effects: none
 [canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
 [canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 playLand: card card_aa548dcd-c1dd-492d-a69f-c65dfeef0633_5318923bd739a051 not found in expected zone(s) for player p_6sv88kev (may be replay)
 [recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
 [canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: , currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [recalculateHandVisibility] Players with hand reveal effects: none
 [recalculateHandVisibility] Players with hand reveal effects: none
-[GameManager] ensureGame: replayed persisted events { bootId: 'd5ca9106-100c-4aff-908b-42c071aec5dd', gameId: 'game_mnczdvxo', count: 100 }
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=92
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=92
+[GameManager] ensureGame: replayed persisted events { bootId: 'ed22eca8-af37-4b35-b0e0-4193aca78545', gameId: 'game_mnczdvxo', count: 101 }
+[setCommander] Initialized inCommandZone for p_6sv88kev: [ 'card_b4036bb7-835d-4690-aca1-1ab566776e9a_c5266c829ccf77d7' ]
+[setCommander] Initialized inCommandZone for p_gho0avq5: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_e220b56bdd1612a3' ]
+[setCommander] Initialized inCommandZone for p_5jos9snb: [ 'e5431f73-9a70-47dc-b5d4-7f43e41b878e_mnczecat_1_295eb0d2' ]
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_5jos9snb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[canAct] p_5jos9snb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_5jos9snb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[canAct] p_5jos9snb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_5jos9snb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[canAct] p_5jos9snb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[recalculateHandVisibility] Players with hand reveal effects: none
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+playLand: card card_aa548dcd-c1dd-492d-a69f-c65dfeef0633_5318923bd739a051 not found in expected zone(s) for player p_6sv88kev (may be replay)
+[recalculateHandVisibility] Players with hand reveal effects: none
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] Added AI player to auto-pass set: { gameId: 'game_mnczdvxo', playerId: 'p_gho0avq5' }
+[AI] Registered AI player: { gameId: 'game_mnczdvxo', playerId: 'p_gho0avq5', name: 'AI Opponent 2', strategy: 'basic', difficulty: 0.5 }
+[AI] Rehydrated AI runtime from persisted state: { gameId: 'game_mnczdvxo', playerId: 'p_gho0avq5', strategy: 'basic', difficulty: 0.5, refreshDeckProfile: true }
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'BEGINNING',
+  step: 'UNTAP',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 5,
+  isAITurn: false,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'beginning',
+  step: 'untap',
+  isAITurn: false,
+  stackEmpty: true,
+  priority: 'p_gho0avq5',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Not AI turn, passing priority
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_gho0avq5' }
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_6sv88kev
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Adeline, Resplendent Cathar(Legendary Creature ΓÇö), Fervent Champion(Creature ΓÇö Human Kni)]
+[canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Adeline, Resplendent Cathar(Legendary Creature ΓÇö), Fervent Champion(Creature ΓÇö Human Kni)]
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Adeline, Resplendent Cathar(Legendary Creature ΓÇö), Fervent Champion(Creature ΓÇö Human Kni)]
+[canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Adeline, Resplendent Cathar(Legendary Creature ΓÇö), Fervent Champion(Creature ΓÇö Human Kni)]
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Adeline, Resplendent Cathar(Legendary Creature ΓÇö), Fervent Champion(Creature ΓÇö Human Kni)]
+[canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Adeline, Resplendent Cathar(Legendary Creature ΓÇö), Fervent Champion(Creature ΓÇö Human Kni)]
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Adeline, Resplendent Cathar(Legendary Creature ΓÇö), Fervent Champion(Creature ΓÇö Human Kni)]
+[canPlayLand] p_6sv88kev: Sample cards in hand: [Purphoros, God of the Forge(Legendary Enchantmen), Adeline, Resplendent Cathar(Legendary Creature ΓÇö), Fervent Champion(Creature ΓÇö Human Kni)]
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_6sv88kev
+[canAct] p_6sv88kev: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] Added AI player to auto-pass set: { gameId: 'game_mnczdvxo', playerId: 'p_6sv88kev' }
+[AI] Registered AI player: { gameId: 'game_mnczdvxo', playerId: 'p_6sv88kev', name: 'AI Opponent 1', strategy: 'basic', difficulty: 0.5 }
+[AI] Rehydrated AI runtime from persisted state: { gameId: 'game_mnczdvxo', playerId: 'p_6sv88kev', strategy: 'basic', difficulty: 0.5, refreshDeckProfile: true }
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'BEGINNING',
+  step: 'UPKEEP',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 6,
+  isAITurn: false,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'beginning',
+  step: 'upkeep',
+  isAITurn: false,
+  stackEmpty: true,
+  priority: 'p_6sv88kev',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Not AI turn, passing priority
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_6sv88kev' }
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'BEGINNING',
+  step: 'DRAW',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 6,
+  isAITurn: false,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'beginning',
+  step: 'draw',
+  isAITurn: false,
+  stackEmpty: true,
+  priority: 'p_6sv88kev',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Not AI turn, passing priority
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_6sv88kev' }
+[AI] All players passed priority with empty stack, advancing step
+[canPlayLand] p_gho0avq5: Sample cards in hand: [Veteran Explorer(Creature ΓÇö Human Sol), Temporal Mastery(Sorcery), CollectiveRestraint(Enchantment)]
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canPlayLand] p_gho0avq5: Sample cards in hand: [Veteran Explorer(Creature ΓÇö Human Sol), Temporal Mastery(Sorcery), CollectiveRestraint(Enchantment)]
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_gho0avq5',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Island
+[AI] Playing land: { gameId: 'game_mnczdvxo', playerId: 'p_gho0avq5', cardId: 'card_836f371b-34f5-40e8-a806-e457841e5bc7_e259a853ea5c56f7' }
+[recalculateHandVisibility] Players with hand reveal effects: none
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'PRECOMBATMAIN',
+  step: 'MAIN1',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 5,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_gho0avq5',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Cannot play land: { isMainPhase: true, isAITurn: true, landsPlayed: 1, maxLands: 1, reason: 'already played max lands' }
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'PRECOMBATMAIN',
+  step: 'MAIN1',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 5,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_gho0avq5',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Cannot play land: { isMainPhase: true, isAITurn: true, landsPlayed: 1, maxLands: 1, reason: 'already played max lands' }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_gho0avq5',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Cannot play land: { isMainPhase: true, isAITurn: true, landsPlayed: 1, maxLands: 1, reason: 'already played max lands' }
+[AI] findCastableSpells: Checking 5 cards in hand
+[AI] Available mana pool: { total: 3, colors: { white: 1, blue: 1, black: 0, red: 1, green: 0, colorless: 0 } }
+[AI] findCastableSpells: Found 1 castable spell(s): [ 'Orzhov Advokist (CMC 3, priority 95)' ]
+[AI] Casting spell: Orzhov Advokist with priority 95
+[AI] Casting spell: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  cardName: 'Orzhov Advokist',
+  cost: { colors: { W: 1, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 2, hasX: false, hybrid: [] } }
+[AI] Spell added to stack: Orzhov Advokist with 0 target(s)
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] findCastableSpells: Checking 4 cards in hand
+[AI] Available mana pool: { total: 0, colors: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
+[AI] findCastableSpells: No castable spells. Reasons: [ 'Veteran Explorer: need 1 mana (have 0), colors: {"W":0,"U":0,"B":0,"R":0,"G":1,"C":0}',
+  'Temporal Mastery: need 7 mana (have 0), colors: {"W":0,"U":2,"B":0,"R":0,"G":0,"C":0}',
+  'Collective Restraint: need 4 mana (have 0), colors: {"W":0,"U":1,"B":0,"R":0,"G":0,"C":0}',
+  'Blasphemous Act: need 9 mana (have 0), colors: {"W":0,"U":0,"B":0,"R":1,"G":0,"C":0}' ]
+[AI] Main phase, no more actions, passing priority
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_gho0avq5' }
+2026-03-30T16:45:21.335Z [checkPendingInteractions] Pending: stack_not_empty
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_gho0avq5
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] findCastableSpells: Checking 4 cards in hand
+[AI] Available mana pool: { total: 0, colors: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
+[AI] findCastableSpells: No castable spells. Reasons: [ 'Veteran Explorer: need 1 mana (have 0), colors: {"W":0,"U":0,"B":0,"R":0,"G":1,"C":0}',
+  'Temporal Mastery: need 7 mana (have 0), colors: {"W":0,"U":2,"B":0,"R":0,"G":0,"C":0}',
+  'Collective Restraint: need 4 mana (have 0), colors: {"W":0,"U":1,"B":0,"R":0,"G":0,"C":0}',
+  'Blasphemous Act: need 9 mana (have 0), colors: {"W":0,"U":0,"B":0,"R":1,"G":0,"C":0}' ]
+[AI] Main phase, no more actions, passing priority
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_gho0avq5' }
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_gho0avq5' }
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'PRECOMBATMAIN',
+  step: 'MAIN1',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 4,
+  isAITurn: true,
+  hasPriority: false }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: false,
+  priority: 'p_5jos9snb',
+  hasPriority: false }
+[AI] AI does not have priority, skipping action
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+2026-03-30T16:46:01.622Z [checkPendingInteractions] Pending: stack_not_empty
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_6sv88kev, turnPlayer: p_gho0avq5
+[recalculateHandVisibility] Players with hand reveal effects: none
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'PRECOMBATMAIN',
+  step: 'MAIN1',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 4,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_gho0avq5',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_gho0avq5',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Cannot play land: { isMainPhase: true, isAITurn: true, landsPlayed: 1, maxLands: 1, reason: 'already played max lands' }
+[AI] findCastableSpells: Checking 4 cards in hand
+[AI] Available mana pool: { total: 0, colors: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
+[AI] findCastableSpells: No castable spells. Reasons: [ 'Veteran Explorer: need 1 mana (have 0), colors: {"W":0,"U":0,"B":0,"R":0,"G":1,"C":0}',
+  'Temporal Mastery: need 7 mana (have 0), colors: {"W":0,"U":2,"B":0,"R":0,"G":0,"C":0}',
+  'Collective Restraint: need 4 mana (have 0), colors: {"W":0,"U":1,"B":0,"R":0,"G":0,"C":0}',
+  'Blasphemous Act: need 9 mana (have 0), colors: {"W":0,"U":0,"B":0,"R":1,"G":0,"C":0}' ]
+[AI] Main phase, no more actions, passing priority
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_gho0avq5' }
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_gho0avq5
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_gho0avq5
+[canAct] p_gho0avq5: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[recalculateHandVisibility] Players with hand reveal effects: none
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'BEGINNING',
+  step: 'UNTAP',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 6,
+  isAITurn: false,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'beginning',
+  step: 'untap',
+  isAITurn: false,
+  stackEmpty: true,
+  priority: 'p_6sv88kev',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Not AI turn, passing priority
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_6sv88kev' }
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_5jos9snb
+[AI] All players passed priority with empty stack, advancing step
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=4 libraryCount=91
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'BEGINNING',
+  step: 'UPKEEP',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 6,
+  isAITurn: false,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'beginning',
+  step: 'upkeep',
+  isAITurn: false,
+  stackEmpty: true,
+  priority: 'p_6sv88kev',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Not AI turn, passing priority
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_6sv88kev' }
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_5jos9snb
+[AI] All players passed priority with empty stack, advancing step
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=5 libraryCount=90
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=5 libraryCount=90
+[AI] handleAIGameFlow: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'BEGINNING',
+  step: 'DRAW',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 6,
+  isAITurn: false,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mnczdvxo',
+  playerId: 'p_6sv88kev',
+  phase: 'beginning',
+  step: 'draw',
+  isAITurn: false,
+  stackEmpty: true,
+  priority: 'p_6sv88kev',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Not AI turn, passing priority
+[AI] Passing priority: { gameId: 'game_mnczdvxo', playerId: 'p_6sv88kev' }
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_gho0avq5, turnPlayer: p_5jos9snb
+[AI] All players passed priority with empty stack, advancing step
+[canPlayLand] p_5jos9snb: Sample cards in hand: [Thran Dynamo(Artifact), Ixidron(Creature ΓÇö Illusion), Cavern of Souls(Land)]
+[priority] autoPassLoop starting - active players: p_5jos9snb, p_6sv88kev, p_gho0avq5, autoPassEnabled: p_6sv88kev, p_gho0avq5, p_5jos9snb, currentPriority: p_5jos9snb, turnPlayer: p_5jos9snb
+[canPlayLand] p_5jos9snb: Sample cards in hand: [Thran Dynamo(Artifact), Ixidron(Creature ΓÇö Illusion), Cavern of Souls(Land)]
+[canPlayLand] p_5jos9snb: Sample cards in hand: [Thran Dynamo(Artifact), Ixidron(Creature ΓÇö Illusion), Cavern of Souls(Land)]
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mnczdvxo players=[p_5jos9snb,p_6sv88kev,p_gho0avq5] zones=[p_5jos9snb,p_6sv88kev,p_gho0avq5] handCount=5 libraryCount=90
+[canPlayLand] p_5jos9snb: Sample cards in hand: [Thran Dynamo(Artifact), Ixidron(Creature ΓÇö Illusion), Cavern of Souls(Land)]
+Socket disconnected: ahNaDndp4WiWtA5aAAAB. Reason: transport close
+DELETE /admin/games/game_mnczdvxo: GameManager.deleteGame removed in-memory game

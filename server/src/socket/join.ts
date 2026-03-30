@@ -4,6 +4,8 @@ import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
 import { appendEvent, updateGameCreatorPlayerId, getGameCreator } from "../db";
 import { computeDiff } from "../utils/diff";
 import { games } from "./socket.js";
+import { emitResolutionStepPrompt } from "./resolution.js";
+import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 /**
@@ -992,6 +994,17 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               });
             } catch (e) {
               debugWarn(1, "joinGame: emit state failed", e);
+            }
+
+            try {
+              if (!spectator && playerId) {
+                const nextStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any)[0];
+                if (nextStep) {
+                  emitResolutionStepPrompt(socket, gameId, nextStep);
+                }
+              }
+            } catch (e) {
+              debugWarn(1, "joinGame: emit pending resolution step failed", e);
             }
 
             // Persist join event if new
