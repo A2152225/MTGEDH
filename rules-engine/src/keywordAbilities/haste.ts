@@ -13,6 +13,13 @@ export interface HasteAbility {
   readonly source: string; // ID of the object with haste
 }
 
+export interface HasteActionResult {
+  readonly source: string;
+  readonly canAttack: boolean;
+  readonly canActivateTapAbilities: boolean;
+  readonly usesHaste: boolean;
+}
+
 /**
  * Create a haste ability
  * Rule 702.10a - Haste is a static ability
@@ -58,6 +65,25 @@ export function canActivateTapAbilitiesWithHaste(
   underControlSinceTurnStart: boolean
 ): boolean {
   return hasHaste || underControlSinceTurnStart;
+}
+
+export function usesHasteToIgnoreSummoningSickness(
+  hasHaste: boolean,
+  underControlSinceTurnStart: boolean
+): boolean {
+  return hasHaste && !underControlSinceTurnStart;
+}
+
+export function createHasteActionResult(
+  ability: HasteAbility,
+  underControlSinceTurnStart: boolean
+): HasteActionResult {
+  return {
+    source: ability.source,
+    canAttack: canAttackWithHaste(true, underControlSinceTurnStart),
+    canActivateTapAbilities: canActivateTapAbilitiesWithHaste(true, underControlSinceTurnStart),
+    usesHaste: usesHasteToIgnoreSummoningSickness(true, underControlSinceTurnStart),
+  };
 }
 
 /**

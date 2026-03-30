@@ -15,6 +15,14 @@ export interface UndyingAbility {
   readonly hasReturned: boolean;
 }
 
+export interface UndyingReturnResult {
+  readonly source: string;
+  readonly hadPlusOneCounters: boolean;
+  readonly canTrigger: boolean;
+  readonly returnsToBattlefield: boolean;
+  readonly plusOneCountersAdded: number;
+}
+
 /**
  * Creates an undying ability
  * @param source - The source permanent
@@ -35,6 +43,13 @@ export function undying(source: string): UndyingAbility {
  */
 export function canTriggerUndying(hadPlusOneCounters: boolean): boolean {
   return !hadPlusOneCounters;
+}
+
+export function returnsWithUndyingCounter(
+  hadPlusOneCounters: boolean,
+  hasReturned: boolean
+): boolean {
+  return canTriggerUndying(hadPlusOneCounters) && !hasReturned;
 }
 
 /**
@@ -61,6 +76,22 @@ export function returnWithCounter(ability: UndyingAbility): UndyingAbility {
  */
 export function hasUndying(ability: UndyingAbility): boolean {
   return ability.type === 'undying';
+}
+
+export function createUndyingReturnResult(
+  ability: UndyingAbility,
+  hadPlusOneCounters: boolean
+): UndyingReturnResult {
+  const canTrigger = canTriggerUndying(hadPlusOneCounters);
+  const returnsToBattlefield = returnsWithUndyingCounter(hadPlusOneCounters, ability.hasReturned);
+
+  return {
+    source: ability.source,
+    hadPlusOneCounters,
+    canTrigger,
+    returnsToBattlefield,
+    plusOneCountersAdded: returnsToBattlefield ? 1 : 0,
+  };
 }
 
 /**

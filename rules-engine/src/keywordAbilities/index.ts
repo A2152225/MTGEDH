@@ -93,8 +93,11 @@ export * from './hexproof';
 // Indestructible - exclude canBeDestroyed (conflicts with types/cardTypes)
 export {
   IndestructibleAbility,
+  IndestructibleDestructionResult,
   indestructible,
   destroyedByLethalDamage,
+  survivesIndestructibleChecks,
+  createIndestructibleDestructionResult,
   hasRedundantIndestructible,
 } from './indestructible';
 export * from './lifelink';

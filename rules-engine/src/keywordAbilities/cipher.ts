@@ -14,6 +14,13 @@ export interface CipherAbility {
   readonly isEncoded: boolean;
 }
 
+export interface CipherCopyResult {
+  readonly source: string;
+  readonly encodedOn?: string;
+  readonly dealtCombatDamageToPlayer: boolean;
+  readonly canCastCopy: boolean;
+}
+
 /**
  * Creates a cipher ability
  * @param source - The spell with cipher
@@ -51,6 +58,25 @@ export function triggerCipher(ability: CipherAbility): CipherAbility {
     throw new Error('Spell is not encoded on a creature');
   }
   return ability;
+}
+
+export function canTriggerCipherOnCombatDamage(
+  ability: CipherAbility,
+  dealtCombatDamageToPlayer: boolean
+): boolean {
+  return ability.isEncoded && dealtCombatDamageToPlayer;
+}
+
+export function createCipherCopyResult(
+  ability: CipherAbility,
+  dealtCombatDamageToPlayer: boolean
+): CipherCopyResult {
+  return {
+    source: ability.source,
+    encodedOn: ability.encodedOn,
+    dealtCombatDamageToPlayer,
+    canCastCopy: canTriggerCipherOnCombatDamage(ability, dealtCombatDamageToPlayer),
+  };
 }
 
 /**

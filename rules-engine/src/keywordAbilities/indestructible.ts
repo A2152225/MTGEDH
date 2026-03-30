@@ -13,6 +13,13 @@ export interface IndestructibleAbility {
   readonly source: string; // ID of the object with indestructible
 }
 
+export interface IndestructibleDestructionResult {
+  readonly source: string;
+  readonly destroyedByEffect: boolean;
+  readonly destroyedByDamage: boolean;
+  readonly survives: boolean;
+}
+
 /**
  * Create an indestructible ability
  * Rule 702.12a - Indestructible is a static ability
@@ -55,6 +62,32 @@ export function destroyedByLethalDamage(
     return false;
   }
   return hasLethalDamage;
+}
+
+export function survivesIndestructibleChecks(
+  hasIndestructible: boolean,
+  effectWouldDestroy: boolean,
+  hasLethalDamage: boolean
+): boolean {
+  const destroyedByEffect = effectWouldDestroy && canBeDestroyed(hasIndestructible);
+
+  return !(destroyedByEffect || destroyedByLethalDamage(hasIndestructible, hasLethalDamage));
+}
+
+export function createIndestructibleDestructionResult(
+  ability: IndestructibleAbility,
+  effectWouldDestroy: boolean,
+  hasLethalDamage: boolean
+): IndestructibleDestructionResult {
+  const destroyedByEffect = effectWouldDestroy && canBeDestroyed(true);
+  const destroyedByDamage = destroyedByLethalDamage(true, hasLethalDamage);
+
+  return {
+    source: ability.source,
+    destroyedByEffect,
+    destroyedByDamage,
+    survives: survivesIndestructibleChecks(true, effectWouldDestroy, hasLethalDamage),
+  };
 }
 
 /**

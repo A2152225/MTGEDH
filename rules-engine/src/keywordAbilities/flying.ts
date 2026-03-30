@@ -13,6 +13,14 @@ export interface FlyingAbility {
   readonly source: string; // ID of the object with flying
 }
 
+export interface FlyingBlockResult {
+  readonly source: string;
+  readonly blockerHasFlying: boolean;
+  readonly blockerHasReach: boolean;
+  readonly canBeBlocked: boolean;
+  readonly evasionRelevant: boolean;
+}
+
 /**
  * Create a flying ability
  * Rule 702.9a - Flying is an evasion ability
@@ -56,6 +64,30 @@ export function canBlockFlying(
  */
 export function flyingCanBlock(hasFlying: boolean): boolean {
   return true; // Flying doesn't restrict what you can block
+}
+
+export function isFlyingEvasionRelevant(
+  attackerHasFlying: boolean,
+  blockerHasFlying: boolean,
+  blockerHasReach: boolean
+): boolean {
+  return attackerHasFlying && !canBlockFlying(blockerHasFlying, blockerHasReach, attackerHasFlying);
+}
+
+export function createFlyingBlockResult(
+  ability: FlyingAbility,
+  blockerHasFlying: boolean,
+  blockerHasReach: boolean
+): FlyingBlockResult {
+  const canBeBlocked = canBlockFlying(blockerHasFlying, blockerHasReach, true);
+
+  return {
+    source: ability.source,
+    blockerHasFlying,
+    blockerHasReach,
+    canBeBlocked,
+    evasionRelevant: !canBeBlocked,
+  };
 }
 
 /**

@@ -13,6 +13,12 @@ export interface FlashAbility {
   readonly source: string; // ID of the object with flash
 }
 
+export interface FlashTimingResult {
+  readonly source: string;
+  readonly canCastNow: boolean;
+  readonly requiresFlashTiming: boolean;
+}
+
 /**
  * Create a flash ability
  * Rule 702.8a - Flash is a static ability that functions in any zone from which you could play the card
@@ -37,6 +43,32 @@ export function flash(source: string): FlashAbility {
  */
 export function canCastWithFlash(hasFlash: boolean, canCastInstant: boolean): boolean {
   return hasFlash && canCastInstant;
+}
+
+export function canCastCardNow(
+  hasFlash: boolean,
+  isMainPhaseWithEmptyStack: boolean,
+  canCastInstant: boolean
+): boolean {
+  if (isMainPhaseWithEmptyStack) {
+    return true;
+  }
+
+  return canCastWithFlash(hasFlash, canCastInstant);
+}
+
+export function createFlashTimingResult(
+  ability: FlashAbility,
+  isMainPhaseWithEmptyStack: boolean,
+  canCastInstant: boolean
+): FlashTimingResult {
+  const canCastNow = canCastCardNow(true, isMainPhaseWithEmptyStack, canCastInstant);
+
+  return {
+    source: ability.source,
+    canCastNow,
+    requiresFlashTiming: canCastNow && !isMainPhaseWithEmptyStack,
+  };
 }
 
 /**

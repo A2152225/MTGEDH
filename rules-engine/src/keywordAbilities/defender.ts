@@ -13,6 +13,12 @@ export interface DefenderAbility {
   readonly source: string; // ID of the object with defender
 }
 
+export interface DefenderAttackResult {
+  readonly source: string;
+  readonly ignoresDefenderRestriction: boolean;
+  readonly canAttack: boolean;
+}
+
 /**
  * Create a defender ability
  * Rule 702.3a - Defender is a static ability
@@ -36,6 +42,28 @@ export function defender(source: string): DefenderAbility {
  */
 export function canAttackWithDefender(hasDefender: boolean): boolean {
   return !hasDefender;
+}
+
+export function canAttackDespiteDefender(
+  hasDefender: boolean,
+  ignoresDefenderRestriction: boolean
+): boolean {
+  if (!hasDefender) {
+    return true;
+  }
+
+  return ignoresDefenderRestriction;
+}
+
+export function createDefenderAttackResult(
+  ability: DefenderAbility,
+  ignoresDefenderRestriction = false
+): DefenderAttackResult {
+  return {
+    source: ability.source,
+    ignoresDefenderRestriction,
+    canAttack: canAttackDespiteDefender(true, ignoresDefenderRestriction),
+  };
 }
 
 /**

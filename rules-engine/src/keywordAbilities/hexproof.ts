@@ -14,6 +14,14 @@ export interface HexproofAbility {
   readonly quality?: string; // Optional quality for "hexproof from [quality]"
 }
 
+export interface HexproofTargetingResult {
+  readonly source: string;
+  readonly quality?: string;
+  readonly canTargetPermanent: boolean;
+  readonly canTargetPlayer: boolean;
+  readonly blockedByQuality: boolean;
+}
+
 /**
  * Create a hexproof ability
  * Rule 702.11a - Hexproof is a static ability
@@ -89,6 +97,44 @@ export function canTargetWithHexproofFrom(
   }
   // Can't be targeted if spell or source matches the quality
   return spellQuality !== hexproofQuality && sourceQuality !== hexproofQuality;
+}
+
+export function isBlockedByHexproofQuality(
+  hexproofQuality: string | undefined,
+  spellQuality: string,
+  sourceQuality: string
+): boolean {
+  if (!hexproofQuality) {
+    return false;
+  }
+
+  return spellQuality === hexproofQuality || sourceQuality === hexproofQuality;
+}
+
+export function createHexproofTargetingResult(
+  ability: HexproofAbility,
+  targetingPlayerIsOpponent: boolean,
+  spellQuality = '',
+  sourceQuality = ''
+): HexproofTargetingResult {
+  const blockedByQuality = targetingPlayerIsOpponent
+    && isBlockedByHexproofQuality(ability.quality, spellQuality, sourceQuality);
+  const qualityAllowsTargeting = canTargetWithHexproofFrom(
+    ability.quality,
+    spellQuality,
+    sourceQuality,
+    targetingPlayerIsOpponent
+  );
+
+  return {
+    source: ability.source,
+    quality: ability.quality,
+    canTargetPermanent:
+      canTargetPermanentWithHexproof(true, targetingPlayerIsOpponent) && qualityAllowsTargeting,
+    canTargetPlayer:
+      canTargetPlayerWithHexproof(true, targetingPlayerIsOpponent) && qualityAllowsTargeting,
+    blockedByQuality,
+  };
 }
 
 /**
