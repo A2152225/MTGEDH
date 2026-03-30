@@ -1061,10 +1061,23 @@ const ARCHETYPE_TAG_WEIGHTS: Record<string, Record<string, number>> = {
 
 function getVisibleDeckCardsForAI(game: any, playerId: PlayerID): any[] {
   const zones = game?.state?.zones?.[playerId] || {};
-  const commandZone = Array.isArray(game?.state?.commandZone?.[playerId])
-    ? game.state.commandZone[playerId]
+  const commandZoneState = game?.state?.commandZone?.[playerId] || null;
+  const commandZoneCards = Array.isArray(commandZoneState)
+    ? commandZoneState
+    : Array.isArray(commandZoneState?.commanderCards)
+      ? commandZoneState.commanderCards
+      : [];
+  const fullLibrary = typeof game?.searchLibrary === 'function'
+    ? game.searchLibrary(playerId, '', MAX_LIBRARY_SEARCH_LIMIT) || []
+    : Array.isArray(game?.libraries?.get?.(playerId))
+      ? game.libraries.get(playerId)
+      : zones.library;
+  const controlledBattlefield = Array.isArray(game?.state?.battlefield)
+    ? game.state.battlefield
+        .filter((perm: any) => perm && perm.controller === playerId)
+        .map((perm: any) => perm.card || perm)
     : [];
-  const buckets = [zones.library, zones.hand, zones.graveyard, zones.exile, commandZone];
+  const buckets = [fullLibrary, zones.hand, zones.graveyard, zones.exile, commandZoneCards, controlledBattlefield];
   const seen = new Set<string>();
   const cards: any[] = [];
 
