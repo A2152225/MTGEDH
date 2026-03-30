@@ -24,13 +24,15 @@ describe('Stack / zone regression effects', () => {
     g.applyEvent!({ type: 'join', playerId: p2, name: 'Player 2' });
     g.applyEvent!({ type: 'join', playerId: p3, name: 'Player 3' });
 
+    g.importDeckResolved(p1, [
+      { id: 'draw_p1_1', name: 'Island', type_line: 'Basic Land - Island' } as any,
+    ]);
+
     (g.state as any).turnPlayer = p1;
     (g.state as any).activePlayer = p1;
-    (g.state as any).zones = {
-      [p1]: { hand: [{ id: 'plains_1', name: 'Plains', type_line: 'Basic Land - Plains' }], handCount: 1, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
-      [p2]: { hand: [{ id: 'forest_1', name: 'Forest', type_line: 'Basic Land - Forest' }], handCount: 1, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
-      [p3]: { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
-    };
+    (g.state as any).zones[p1] = { hand: [{ id: 'plains_1', name: 'Plains', type_line: 'Basic Land - Plains' }], handCount: 1, libraryCount: 1, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+    (g.state as any).zones[p2] = { hand: [{ id: 'forest_1', name: 'Forest', type_line: 'Basic Land - Forest' }], handCount: 1, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
+    (g.state as any).zones[p3] = { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
 
     (g.state as any).stack = [
       {
@@ -47,7 +49,8 @@ describe('Stack / zone regression effects', () => {
 
     g.resolveTopOfStack();
 
-    expect((g.state as any).pendingDraws?.[p1]).toBe(1);
+  expect((g.state as any).zones[p1].handCount).toBe(2);
+  expect((g.state as any).zones[p1].hand.map((card: any) => card.id)).toContain('draw_p1_1');
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.filter((step: any) => step.type === 'kynaios_choice')).toHaveLength(3);

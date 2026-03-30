@@ -50,7 +50,6 @@ function seedKynaiosQueue(game: any, gameId: string) {
   (game.state as any).turnOrder = ['p1', 'p2', 'p3'];
   (game.state as any).turnPlayer = 'p1';
   (game.state as any).activePlayer = 'p1';
-  (game.state as any).pendingDraws = { p1: 1 };
   (game.state as any).zones = {
     p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
     p2: { hand: [{ id: 'plains_1', name: 'Plains', type_line: 'Basic Land — Plains', zone: 'hand' }], handCount: 1, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
@@ -147,6 +146,7 @@ describe('Kynaios choice replay persistence', () => {
       batchId: 'kynaios_batch_1',
       sourceName: 'Kynaios and Tiro of Meletis',
       sourceController: 'p1',
+      controllerDrawCount: 1,
       steps: steps.map((step: any) => ({
         id: String(step.id),
         type: String(step.type),
@@ -191,14 +191,16 @@ describe('Kynaios choice replay persistence', () => {
     expect(responseEvent.payload?.createdPermanentId).toBeDefined();
 
     const replayGame = createInitialGameState('test_kynaios_choice_replay_partial');
+    replayGame.importDeckResolved('p1' as any, [
+      { id: 'draw_p1_1', name: 'Island', type_line: 'Basic Land - Island' } as any,
+    ]);
     (replayGame.state as any).players = [
       { id: 'p1', name: 'P1', spectator: false, life: 40 },
       { id: 'p2', name: 'P2', spectator: false, life: 40 },
       { id: 'p3', name: 'P3', spectator: false, life: 40 },
     ];
-    (replayGame.state as any).pendingDraws = { p1: 1 };
     (replayGame.state as any).zones = {
-      p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+      p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 1 },
       p2: { hand: [{ id: 'plains_1', name: 'Plains', type_line: 'Basic Land — Plains', zone: 'hand' }], handCount: 1, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
       p3: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
     };
@@ -210,20 +212,28 @@ describe('Kynaios choice replay persistence', () => {
     const replayQueue = ResolutionQueueManager.getQueue('test_kynaios_choice_replay_partial');
     const pendingSteps = replayQueue.steps.filter((step: any) => step.type === ResolutionStepType.KYNAIOS_CHOICE);
     expect(pendingSteps).toHaveLength(2);
+    expect((replayGame.state as any).zones.p1.handCount).toBe(1);
+    expect((replayGame.state as any).zones.p1.hand[0]?.id).toBe('draw_p1_1');
     expect(((replayGame.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual([responseEvent.payload.createdPermanentId]);
     expect((replayGame.state as any).battlefield[0]?.card?.name).toBe('Plains');
     expect((replayGame.state as any).zones.p2.handCount).toBe(0);
-    expect((replayGame.state as any).pendingDraws?.p2 || 0).toBe(0);
   });
 
-  it('replays Kynaios batch completion by restoring the delayed opponent draws', () => {
+  it('replays Kynaios batch completion by restoring the opponent draws', () => {
     const replayGame = createInitialGameState('test_kynaios_choice_replay_complete');
+    replayGame.importDeckResolved('p3' as any, [
+      { id: 'draw_p3_1', name: 'Mountain', type_line: 'Basic Land - Mountain' } as any,
+    ]);
     (replayGame.state as any).players = [
       { id: 'p1', name: 'P1', spectator: false, life: 40 },
       { id: 'p2', name: 'P2', spectator: false, life: 40 },
       { id: 'p3', name: 'P3', spectator: false, life: 40 },
     ];
-    (replayGame.state as any).pendingDraws = { p1: 1 };
+    (replayGame.state as any).zones = {
+      p1: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+      p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+      p3: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 1 },
+    };
 
     replayGame.applyEvent({
       type: 'kynaiosChoiceComplete',
@@ -233,9 +243,8 @@ describe('Kynaios choice replay persistence', () => {
       drawnPlayerIds: ['p3'],
     } as any);
 
-    expect((replayGame.state as any).pendingDraws?.p1).toBe(1);
-    expect((replayGame.state as any).pendingDraws?.p3).toBe(1);
-    expect((replayGame.state as any).pendingDraws?.p2 || 0).toBe(0);
+    expect((replayGame.state as any).zones.p3.handCount).toBe(1);
+    expect((replayGame.state as any).zones.p3.hand[0]?.id).toBe('draw_p3_1');
     expect((replayGame.state as any).kynaiosFinalizedBatches?.['kynaios_batch_1']).toBe(true);
   });
 });

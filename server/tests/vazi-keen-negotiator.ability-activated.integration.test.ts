@@ -70,6 +70,9 @@ describe('Vazi, Keen Negotiator ability-activated trigger', () => {
       { id: p1, name: 'P1', spectator: false, life: 40 },
       { id: p2, name: 'P2', spectator: false, life: 40 },
     ];
+    game.importDeckResolved(p1, [
+      { id: 'drawn_vazi_1', name: 'Island', type_line: 'Basic Land - Island' } as any,
+    ]);
     (game.state as any).battlefield = [
       {
         id: 'vazi_1',
@@ -123,7 +126,7 @@ describe('Vazi, Keen Negotiator ability-activated trigger', () => {
       [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
       [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
     };
-    (game.state as any).pendingDraws = {};
+    (game.state as any).zones[p1].libraryCount = 1;
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted, gameId);
@@ -159,7 +162,8 @@ describe('Vazi, Keen Negotiator ability-activated trigger', () => {
 
     const targetCreature = ((game.state as any).battlefield || []).find((permanent: any) => permanent.id === 'target_creature');
     expect(targetCreature?.counters?.['+1/+1']).toBe(1);
-    expect((game.state as any).pendingDraws?.[p1]).toBe(1);
+    expect((game.state as any).zones?.[p1]?.handCount).toBe(1);
+    expect((game.state as any).zones?.[p1]?.hand?.[0]?.id).toBe('drawn_vazi_1');
   });
 
   it('does not trigger when the activated ability was deterministically not paid with Treasure mana', () => {
@@ -199,8 +203,6 @@ describe('Vazi, Keen Negotiator ability-activated trigger', () => {
         manaFromTreasureSpent: false,
       },
     ];
-    (game.state as any).pendingDraws = {};
-
     const triggers = triggerAbilityActivatedTriggers(game as any, {
       activatedBy: p2,
       sourcePermanentId: 'artifact_1',
@@ -227,6 +229,9 @@ describe('Vazi, Keen Negotiator ability-activated trigger', () => {
       { id: p1, name: 'P1', spectator: false, life: 40 },
       { id: p2, name: 'P2', spectator: false, life: 40 },
     ];
+    game.importDeckResolved(p1, [
+      { id: 'drawn_vazi_replay_1', name: 'Island', type_line: 'Basic Land - Island' } as any,
+    ]);
     (game.state as any).battlefield = [
       {
         id: 'vazi_1',
@@ -257,7 +262,7 @@ describe('Vazi, Keen Negotiator ability-activated trigger', () => {
       [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
       [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
     };
-    (game.state as any).pendingDraws = {};
+    (game.state as any).zones[p1].libraryCount = 1;
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted, gameId);
@@ -300,6 +305,7 @@ describe('Vazi, Keen Negotiator ability-activated trigger', () => {
 
     const targetCreature = ((game.state as any).battlefield || []).find((permanent: any) => permanent.id === 'target_creature');
     expect(targetCreature?.counters?.['+1/+1']).toBe(1);
-    expect((game.state as any).pendingDraws?.[p1]).toBe(1);
+    expect((game.state as any).zones?.[p1]?.handCount).toBe(1);
+    expect((game.state as any).zones?.[p1]?.hand?.[0]?.id).toBe('drawn_vazi_replay_1');
   });
 });

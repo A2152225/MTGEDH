@@ -8,6 +8,24 @@ import {
 import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
 
+function drawKynaiosCard(game: any, playerId: PlayerID): void {
+  if (typeof game?.drawCards === 'function') {
+    game.drawCards(playerId, 1);
+    return;
+  }
+
+  const zones = game?.state?.zones?.[playerId];
+  if (!zones || !Array.isArray(zones.library)) return;
+
+  const drawnCard = zones.library.shift();
+  if (!drawnCard) return;
+
+  zones.hand = Array.isArray(zones.hand) ? zones.hand : [];
+  zones.hand.push({ ...drawnCard, zone: 'hand' });
+  zones.handCount = zones.hand.length;
+  zones.libraryCount = zones.library.length;
+}
+
 function parseKynaiosChoice(selection: any): { choice: string; landCardId?: string } {
   if (typeof selection === 'object' && selection !== null && !Array.isArray(selection)) {
     return { choice: String((selection as any).choice || 'decline'), landCardId: (selection as any).landCardId };
@@ -103,7 +121,6 @@ function maybeFinalizeKynaiosBatch(
 
   let drew = 0;
   const drawnPlayerIds: string[] = [];
-  state.pendingDraws = state.pendingDraws || {};
 
   for (const step of batchSteps) {
     const pid = step.playerId as PlayerID;
@@ -114,7 +131,7 @@ function maybeFinalizeKynaiosBatch(
     const playedLand = choice === 'play_land';
     if (playedLand) continue;
 
-    state.pendingDraws[pid] = (state.pendingDraws[pid] || 0) + 1;
+    drawKynaiosCard(game, pid);
     drew++;
     drawnPlayerIds.push(String(pid));
     emitChat(io, gameId, `${getPlayerName(game, pid)} draws a card (${sourceName}).`);

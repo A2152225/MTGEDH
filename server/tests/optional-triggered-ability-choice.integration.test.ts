@@ -207,6 +207,13 @@ describe('optional triggered ability integration', () => {
     (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [playerId]: 40 };
+    game.importDeckResolved(playerId as any, [
+      {
+        id: 'drawn_card_1',
+        name: 'Island',
+        type_line: 'Basic Land — Island',
+      } as any,
+    ]);
     (game.state as any).triggerShortcuts = {
       [playerId]: [
         { cardName: 'Curiosity', playerId, preference: 'always_yes' },
@@ -228,16 +235,9 @@ describe('optional triggered ability integration', () => {
     ];
     (game.state as any).zones = {
       [playerId]: {
+        ...(game.state as any).zones[playerId],
         hand: [],
         handCount: 0,
-        library: [
-          {
-            id: 'drawn_card_1',
-            name: 'Island',
-            type_line: 'Basic Land — Island',
-            zone: 'library',
-          },
-        ],
         libraryCount: 1,
         graveyard: [],
         graveyardCount: 0,
@@ -246,9 +246,9 @@ describe('optional triggered ability integration', () => {
 
     game.resolveTopOfStack();
 
-    expect((game.state as any).pendingDraws?.[playerId]).toBe(1);
-    expect((game.state as any).zones[playerId].handCount).toBe(0);
-    expect((game.state as any).zones[playerId].libraryCount).toBe(1);
+    expect((game.state as any).zones[playerId].handCount).toBe(1);
+    expect((game.state as any).zones[playerId].hand[0]?.id).toBe('drawn_card_1');
+    expect((game.state as any).zones[playerId].libraryCount).toBe(0);
     expect((game.state as any).stack).toHaveLength(0);
     expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
   });

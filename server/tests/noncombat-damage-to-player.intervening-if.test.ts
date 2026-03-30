@@ -172,11 +172,11 @@ describe('Noncombat damage-to-player triggers - intervening-if at trigger time',
     // Now make condition false before the trigger resolves.
     (g.state as any).zones[p2].hand = [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }];
     (g.state as any).zones[p2].handCount = 3;
+    const handCountBeforeResolve = Number((g.state as any).zones?.[p1]?.handCount || 0);
 
     // Resolve the queued triggered ability.
     g.resolveTopOfStack();
 
-    const pendingDraws = (g.state as any).pendingDraws || {};
-    expect(pendingDraws[p1] || 0).toBe(0);
+    expect(Number((g.state as any).zones?.[p1]?.handCount || 0)).toBe(handCountBeforeResolve);
   });
 });

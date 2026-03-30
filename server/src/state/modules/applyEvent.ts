@@ -5024,8 +5024,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const batchId = String((e as any).batchId || '').trim();
 
           if ((e as any).type === 'kynaiosChoiceInitiated') {
+            const sourceController = String((e as any).sourceController || '').trim();
+            const controllerDrawCount = Math.max(0, Number((e as any).controllerDrawCount ?? 1) || 0);
             const rawSteps = Array.isArray((e as any).steps) ? ((e as any).steps as any[]) : [];
             const queue = gameId ? ResolutionQueueManager.getQueue(gameId) : undefined;
+
+            if (sourceController && controllerDrawCount > 0) {
+              drawCards(ctx, sourceController as any, controllerDrawCount);
+            }
 
             for (const rawStep of rawSteps) {
               if (!rawStep || typeof rawStep !== 'object') continue;
@@ -5094,13 +5100,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               ? ((e as any).drawnPlayerIds as any[]).map((playerId: any) => String(playerId || '').trim()).filter(Boolean)
               : [];
             const stateAny = ctx.state as any;
-            stateAny.pendingDraws = stateAny.pendingDraws || {};
             stateAny.kynaiosFinalizedBatches = stateAny.kynaiosFinalizedBatches || {};
             stateAny.kynaiosFinalizedBatches[batchId] = true;
 
             for (const playerId of drawnPlayerIds) {
               if (playerId && playerId !== sourceController) {
-                stateAny.pendingDraws[playerId] = (stateAny.pendingDraws[playerId] || 0) + 1;
+                drawCards(ctx, playerId as any, 1);
               }
             }
 

@@ -15,6 +15,29 @@ function makeIoStub() {
 describe('KynaiosChoice resolution', () => {
   const deps = { getPlayerName: (_game: any, pid: any) => String(pid) };
 
+  function makeDrawGame() {
+    const game: any = {
+      state: {
+        zones: {
+          A: { hand: [{ id: 'a-land', name: 'Forest', type_line: 'Land', zone: 'hand' }], handCount: 1 },
+          B: { hand: [{ id: 'b-land', name: 'Plains', type_line: 'Land', zone: 'hand' }], handCount: 1 },
+          C: { hand: [], handCount: 0 },
+        },
+        battlefield: [],
+      },
+    };
+
+    game.drawCards = vi.fn((playerId: string, count: number) => {
+      const zone = (game.state.zones as any)[playerId] || ((game.state.zones as any)[playerId] = { hand: [], handCount: 0 });
+      for (let index = 0; index < count; index++) {
+        zone.hand.push({ id: `${playerId}-draw-${index}`, name: 'Drawn Card', zone: 'hand' });
+      }
+      zone.handCount = zone.hand.length;
+    });
+
+    return game;
+  }
+
   beforeEach(() => {
     // Ensure no queue bleed between tests.
     ResolutionQueueManager.removeQueue('g1');
@@ -30,17 +53,7 @@ describe('KynaiosChoice resolution', () => {
     const { io } = makeIoStub();
     const gameId = 'g1';
 
-    const game: any = {
-      state: {
-        zones: {
-          A: { hand: [{ id: 'a-land', name: 'Forest', type_line: 'Land', zone: 'hand' }], handCount: 1 },
-          B: { hand: [{ id: 'b-land', name: 'Plains', type_line: 'Land', zone: 'hand' }], handCount: 1 },
-          C: { hand: [], handCount: 0 },
-        },
-        battlefield: [],
-        pendingDraws: {},
-      },
-    };
+    const game = makeDrawGame();
 
     const batchId = 'batch-1';
     const configs: any[] = [
@@ -105,14 +118,14 @@ describe('KynaiosChoice resolution', () => {
     const completedB = ResolutionQueueManager.completeStep(gameId, stepB.id, respB)!;
     handleKynaiosChoiceResponse(io, game, gameId, completedB as any, respB, deps);
 
-    expect(game.state.pendingDraws.B || 0).toBe(0);
+    expect(game.drawCards).not.toHaveBeenCalled();
 
     // C also chooses to draw
     const respC: any = { stepId: stepC.id, playerId: 'C', selections: { choice: 'draw_card' }, cancelled: false, timestamp: Date.now() };
     const completedC = ResolutionQueueManager.completeStep(gameId, stepC.id, respC)!;
     handleKynaiosChoiceResponse(io, game, gameId, completedC as any, respC, deps);
 
-    expect(game.state.pendingDraws.C || 0).toBe(0);
+    expect(game.drawCards).not.toHaveBeenCalled();
 
     // A (controller) declines to put a land
     const respA: any = { stepId: stepA.id, playerId: 'A', selections: { choice: 'decline' }, cancelled: false, timestamp: Date.now() };
@@ -120,25 +133,20 @@ describe('KynaiosChoice resolution', () => {
     handleKynaiosChoiceResponse(io, game, gameId, completedA as any, respA, deps);
 
     // Now the "then" clause applies
-    expect(game.state.pendingDraws.B || 0).toBe(1);
-    expect(game.state.pendingDraws.C || 0).toBe(1);
-    expect(game.state.pendingDraws.A || 0).toBe(0);
+    expect(game.drawCards).toHaveBeenCalledTimes(2);
+    expect(game.drawCards).toHaveBeenCalledWith('B', 1);
+    expect(game.drawCards).toHaveBeenCalledWith('C', 1);
+    expect(game.state.zones.B.handCount).toBe(2);
+    expect(game.state.zones.C.handCount).toBe(1);
   });
 
   it('does not grant a draw to an opponent who put a land onto the battlefield', () => {
     const { io } = makeIoStub();
     const gameId = 'g2';
 
-    const game: any = {
-      state: {
-        zones: {
-          A: { hand: [], handCount: 0 },
-          B: { hand: [{ id: 'b-land', name: 'Plains', type_line: 'Land', zone: 'hand' }], handCount: 1 },
-        },
-        battlefield: [],
-        pendingDraws: {},
-      },
-    };
+    const game = makeDrawGame();
+    game.state.zones.A = { hand: [], handCount: 0 };
+    game.state.zones.B = { hand: [{ id: 'b-land', name: 'Plains', type_line: 'Land', zone: 'hand' }], handCount: 1 };
 
     const batchId = 'batch-2';
     const configs: any[] = [
@@ -195,6 +203,6 @@ describe('KynaiosChoice resolution', () => {
     handleKynaiosChoiceResponse(io, game, gameId, completedA as any, respA, deps);
 
     // No draw for B since they put a land
-    expect(game.state.pendingDraws.B || 0).toBe(0);
+    expect(game.drawCards).not.toHaveBeenCalled();
   });
 });

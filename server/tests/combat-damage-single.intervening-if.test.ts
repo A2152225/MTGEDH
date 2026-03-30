@@ -190,10 +190,10 @@ describe('Combat damage (per-attacker) triggers - intervening-if at trigger time
     // Now make condition false before the trigger resolves.
     (g.state as any).zones[defending].hand = [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }];
     (g.state as any).zones[defending].handCount = 3;
+    const handCountBeforeResolve = Number((g.state as any).zones?.[active]?.handCount || 0);
 
     g.resolveTopOfStack();
 
-    const pendingDraws = (g.state as any).pendingDraws || {};
-    expect(pendingDraws[active] || 0).toBe(0);
+    expect(Number((g.state as any).zones?.[active]?.handCount || 0)).toBe(handCountBeforeResolve);
   });
 });

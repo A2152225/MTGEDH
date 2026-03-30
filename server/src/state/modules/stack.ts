@@ -4528,9 +4528,8 @@ export function executeTriggerEffect(
       debug(2, `[executeTriggerEffect] Added ${counterCount} +1/+1 counter(s) to ${targetCreature.card?.name || targetId}`);
     }
 
-    state.pendingDraws = state.pendingDraws || {};
-    state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + 1;
-    debug(2, `[executeTriggerEffect] ${controller} will draw 1 card from ${sourceName}`);
+    drawCardsFromZone(ctx, controller, 1);
+    debug(2, `[executeTriggerEffect] ${controller} draws 1 card from ${sourceName}`);
     return;
   }
   
@@ -4541,9 +4540,8 @@ export function executeTriggerEffect(
     const drawCountMatch = desc.match(/draw (\d+) cards?/i);
     const drawCount = drawCountMatch ? parseInt(drawCountMatch[1], 10) : 1;
     
-    state.pendingDraws = state.pendingDraws || {};
-    state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + drawCount;
-    debug(2, `[executeTriggerEffect] ${controller} will draw ${drawCount} card(s) from ${sourceName}`);
+    drawCardsFromZone(ctx, controller, drawCount);
+    debug(2, `[executeTriggerEffect] ${controller} draws ${drawCount} card(s) from ${sourceName}`);
     handled = true;
   }
   
@@ -5009,10 +5007,8 @@ export function executeTriggerEffect(
   if (drawMatch && !isKynaiosEffect) {
     // Skip if this is a Kynaios-style effect (handled below)
     const count = drawMatch[1] ? parseInt(drawMatch[1], 10) : 1;
-    // Set up pending draw - actual draw happens through zone management
-    state.pendingDraws = state.pendingDraws || {};
-    state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + count;
-    debug(2, `[executeTriggerEffect] ${controller} will draw ${count} card(s)`);
+    drawCardsFromZone(ctx, controller, count);
+    debug(2, `[executeTriggerEffect] ${controller} draws ${count} card(s)`);
     return;
   }
   
@@ -5020,10 +5016,6 @@ export function executeTriggerEffect(
   // This is a complex multi-step effect that requires player choices
   // Uses the unified Resolution Queue system for proper APNAP ordering
   if (isKynaiosEffect) {
-    // First, controller draws a card
-    state.pendingDraws = state.pendingDraws || {};
-    state.pendingDraws[controller] = (state.pendingDraws[controller] || 0) + 1;
-    
     // Get turn order for APNAP ordering
     const turnOrder = players.map((p: any) => p.id);
     const activePlayerId = state.activePlayer || controller;
@@ -5145,12 +5137,14 @@ export function executeTriggerEffect(
         batchId: kynaiosBatchId,
         sourceName,
         sourceController: controller,
+        controllerDrawCount: 1,
         steps: persistedSteps,
       });
     } catch (err) {
       debugWarn(1, '[executeTriggerEffect] Failed to persist kynaiosChoiceInitiated event:', err);
     }
     
+    drawCardsFromZone(ctx, controller, 1);
     debug(1, `[executeTriggerEffect] ${sourceName}: ${controller} draws 1, created ${players.length} resolution steps for land/draw choices (gameId: ${gameId})`);
     return;
   }
@@ -5244,9 +5238,8 @@ export function executeTriggerEffect(
     const targets = triggerItem?.targets || [];
     const targetPlayer = targets[0]?.id || targets[0] || controller;
     
-    state.pendingDraws = state.pendingDraws || {};
-    state.pendingDraws[targetPlayer] = (state.pendingDraws[targetPlayer] || 0) + count;
-    debug(2, `[executeTriggerEffect] ${targetPlayer} will draw ${count} card(s)`);
+    drawCardsFromZone(ctx, targetPlayer as PlayerID, count);
+    debug(2, `[executeTriggerEffect] ${targetPlayer} draws ${count} card(s)`);
     return;
   }
   
@@ -5256,11 +5249,10 @@ export function executeTriggerEffect(
     const wordToNum: Record<string, number> = { 'a': 1, 'an': 1, 'one': 1, 'two': 2 };
     const count = wordToNum[eachOpponentDrawsMatch[1].toLowerCase()] || parseInt(eachOpponentDrawsMatch[1], 10) || 1;
     
-    state.pendingDraws = state.pendingDraws || {};
     for (const opp of opponents) {
-      state.pendingDraws[opp.id] = (state.pendingDraws[opp.id] || 0) + count;
+      drawCardsFromZone(ctx, opp.id, count);
     }
-    debug(2, `[executeTriggerEffect] Each opponent will draw ${count} card(s)`);
+    debug(2, `[executeTriggerEffect] Each opponent draws ${count} card(s)`);
     return;
   }
   

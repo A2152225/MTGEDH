@@ -11139,12 +11139,12 @@ async function handleTargetSelectionResponse(
         targetPermanent.counters['+1/+1'] = (targetPermanent.counters['+1/+1'] || 0) + counterCount;
       }
 
-      game.state.pendingDraws = game.state.pendingDraws || {};
-      game.state.pendingDraws[controller] = (game.state.pendingDraws[controller] || 0) + 1;
-
-      if (typeof (game as any).bumpSeq === 'function') {
-        (game as any).bumpSeq();
+      if (typeof (game as any).drawCards === 'function') {
+        (game as any).drawCards(controller, 1);
+      } else {
+        drawCardsFromZones(ctx, controller as PlayerID, 1);
       }
+
       broadcastGame(io, game, gameId);
       return;
     }
@@ -14754,19 +14754,29 @@ function applyJoinForcesEffect(
   
   // Minds Aglow: Each player draws X cards
   if (cardNameLower.includes('minds aglow')) {
-    const ctx: GameContext = {
-      state: game.state,
-      libraries: (game as any).libraries,
-      bumpSeq: () => {
-        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-      },
-      rng: (game as any).rng,
-    } as any;
-
     for (const p of players) {
       if (p.hasLost) continue;
       try {
-        drawCardsFromZones(ctx, p.id, totalContributions);
+        if (typeof (game as any).drawCards === 'function') {
+          (game as any).drawCards(p.id, totalContributions);
+          continue;
+        }
+
+        const libraries = (game as any).libraries;
+        if (libraries && typeof libraries.get === 'function' && typeof libraries.set === 'function') {
+          const ctx: GameContext = {
+            state: game.state,
+            libraries,
+            bumpSeq: () => {
+              if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+            },
+            rng: (game as any).rng,
+          } as any;
+          drawCardsFromZones(ctx, p.id, totalContributions);
+          continue;
+        }
+
+        debugWarn(1, `[Resolution] Minds Aglow: no draw handler available for ${p.id}`);
       } catch (err) {
         debugWarn(1, `[Resolution] Minds Aglow: draw failed for ${p.id}:`, err);
       }
