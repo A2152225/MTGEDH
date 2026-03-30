@@ -70,6 +70,256 @@ function resolveOracleQuantityToNumber(q: OracleQuantity, xValue?: number): numb
   return null;
 }
 
+function normalizeOracleResolutionText(value: string): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.;:,]+$/g, '')
+    .trim();
+}
+
+function getOrCreatePlayerZones(stateAny: any, playerId: PlayerID): any {
+  stateAny.zones = stateAny.zones || {};
+  stateAny.zones[playerId] = stateAny.zones[playerId] || {
+    hand: [],
+    handCount: 0,
+    library: [],
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+    exile: [],
+    exileCount: 0,
+  };
+
+  const zones = stateAny.zones[playerId];
+  zones.library = Array.isArray(zones.library) ? zones.library : [];
+  zones.graveyard = Array.isArray(zones.graveyard) ? zones.graveyard : [];
+  zones.exile = Array.isArray(zones.exile) ? zones.exile : [];
+  zones.hand = Array.isArray(zones.hand) ? zones.hand : [];
+  zones.handCount = zones.hand.length;
+  zones.libraryCount = zones.library.length;
+  zones.graveyardCount = zones.graveyard.length;
+  zones.exileCount = zones.exile.length;
+  return zones;
+}
+
+function shuffleForLibraryBottom<T>(items: readonly T[], rng: () => number): T[] {
+  const shuffled = [...items];
+  for (let idx = shuffled.length - 1; idx > 0; idx -= 1) {
+    const swapIdx = Math.floor(Math.max(0, Math.min(0.999999, rng())) * (idx + 1));
+    [shuffled[idx], shuffled[swapIdx]] = [shuffled[swapIdx], shuffled[idx]];
+  }
+  return shuffled;
+}
+
+function moveCardsToLibraryBottom(stateAny: any, playerId: PlayerID, cards: readonly any[], rng: () => number): number {
+  if (!Array.isArray(cards) || cards.length === 0) return 0;
+  const zones = getOrCreatePlayerZones(stateAny, playerId);
+  const shuffled = shuffleForLibraryBottom(cards, rng).map(card => ({ ...card, zone: 'library' }));
+  zones.library.push(...shuffled);
+  zones.libraryCount = zones.library.length;
+  return shuffled.length;
+}
+
+function millCardsFromLibrary(stateAny: any, playerId: PlayerID, count: number): number {
+  const zones = getOrCreatePlayerZones(stateAny, playerId);
+  let milled = 0;
+
+  for (let idx = 0; idx < Math.max(0, count | 0); idx += 1) {
+    if (zones.library.length === 0) break;
+    const card = zones.library.shift();
+    if (!card) break;
+    zones.graveyard.push({ ...card, zone: 'graveyard' });
+    milled += 1;
+  }
+
+  zones.libraryCount = zones.library.length;
+  zones.graveyardCount = zones.graveyard.length;
+  return milled;
+}
+
+function queueCastFromExileResolutionPrompt(
+  gameId: string,
+  playerId: PlayerID,
+  sourceName: string,
+  sourceId: string | undefined,
+  sourceImage: string | undefined,
+  exiledCard: any
+): void {
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.OPTION_CHOICE,
+    playerId: playerId as any,
+    description: `${sourceName}: You may cast ${exiledCard?.name || 'that card'} from exile without paying its mana cost.`,
+    mandatory: false,
+    sourceName,
+    sourceId,
+    sourceImage,
+    options: [
+      { id: 'cast', label: `Cast ${exiledCard?.name || 'that card'}` },
+      { id: 'decline', label: 'Decline' },
+    ],
+    minSelections: 1,
+    maxSelections: 1,
+    castFromExileCardId: exiledCard?.id,
+    castFromExileCard: exiledCard,
+    castFromExileDeclineDestination: 'library_bottom_random',
+  } as any);
+}
+
+function applySupplementalOracleIRForResolvedSpell(
+  ctx: GameContext,
+  oracleText: string,
+  caster: PlayerID,
+  spellName: string,
+  sourcePermanentId?: string,
+  sourceId?: string,
+  options?: {
+    readonly targetPlayerId?: PlayerID;
+    readonly referenceSpellName?: string;
+    readonly sourceImage?: string;
+    readonly skipRawSteps?: readonly string[];
+  }
+): number {
+  try {
+    const text = String(oracleText || '').trim();
+    if (!text) return 0;
+
+    const ir = parseOracleTextToIR(text, spellName);
+    const steps: OracleEffectStep[] = [];
+    for (const ability of ir.abilities || []) {
+      for (const step of ability.steps || []) steps.push(step as any);
+    }
+
+    if (steps.length === 0) return 0;
+
+    const stateAny: any = (ctx as any).state;
+    const gameId = String((ctx as any).gameId || '').trim();
+    const isReplaying = Boolean((ctx as any).isReplaying);
+    const rng = typeof (ctx as any).rng === 'function' ? () => Number((ctx as any).rng()) || 0 : () => Math.random();
+    const skippedRawSteps = new Set(
+      (options?.skipRawSteps || []).map(raw => normalizeOracleResolutionText(String(raw || ''))).filter(Boolean)
+    );
+    const referenceSpellName = normalizeOracleResolutionText(String(options?.referenceSpellName || ''));
+    let lastNumericResult: number | null = null;
+    let applied = 0;
+
+    for (const step of steps) {
+      if (!step) continue;
+
+      if (step.kind === 'unknown') {
+        const normalized = normalizeOracleResolutionText(String((step as any).raw || ''));
+        if (!normalized || skippedRawSteps.has(normalized)) continue;
+
+        const randomChoiceMatch = normalized.match(/^choose\s+(\d+)\s*,\s*(\d+)\s*,\s*or\s+(\d+)\s+at\s+random$/i);
+        if (randomChoiceMatch) {
+          const choices = randomChoiceMatch.slice(1).map(value => Number.parseInt(String(value || ''), 10)).filter(Number.isFinite);
+          if (choices.length > 0) {
+            const choiceIndex = Math.floor(Math.max(0, Math.min(0.999999, rng())) * choices.length);
+            lastNumericResult = choices[Math.min(choiceIndex, choices.length - 1)] ?? null;
+            if (lastNumericResult !== null) {
+              debug(2, `[oracleIR] ${spellName}: chose ${lastNumericResult} at random`);
+              applied += 1;
+            }
+          }
+          continue;
+        }
+
+        const millsThatMany = /^(?:its controller|that player|they|he or she|target player|target opponent|that opponent)\s+mills?\s+that many cards$/i.test(normalized);
+        if (millsThatMany && options?.targetPlayerId && lastNumericResult && lastNumericResult > 0) {
+          const milled = millCardsFromLibrary(stateAny, options.targetPlayerId, lastNumericResult);
+          if (milled > 0) {
+            debug(2, `[oracleIR] ${spellName}: ${options.targetPlayerId} milled ${milled} card(s)`);
+            if (typeof (ctx as any).bumpSeq === 'function') {
+              (ctx as any).bumpSeq();
+            }
+            applied += 1;
+          }
+          continue;
+        }
+
+        continue;
+      }
+
+      if (step.kind !== 'impulse_exile_top') continue;
+      if (!options?.targetPlayerId || !referenceSpellName) continue;
+
+      const amountRaw = normalizeOracleResolutionText(String((step as any)?.amount?.raw || ''));
+      const identityExilePattern =
+        amountRaw === 'until they exile a nonland card with a different name than that spell' ||
+        amountRaw === 'until you exile a nonland card with a different name than that spell';
+      if (!identityExilePattern) continue;
+
+      const playerId = options.targetPlayerId;
+      const zones = getOrCreatePlayerZones(stateAny, playerId);
+      const exiledThisWay: any[] = [];
+      let hitCard: any | null = null;
+
+      while (zones.library.length > 0) {
+        const card = zones.library.shift();
+        if (!card) break;
+        const exiledCard = { ...card, zone: 'exile', exiledBy: spellName };
+        exiledThisWay.push(exiledCard);
+
+        const typeLine = normalizeOracleResolutionText(String(card?.type_line || ''));
+        const cardName = normalizeOracleResolutionText(String(card?.name || ''));
+        if (!typeLine.includes('land') && cardName && cardName !== referenceSpellName) {
+          hitCard = exiledCard;
+          break;
+        }
+      }
+
+      zones.libraryCount = zones.library.length;
+
+      if (hitCard) {
+        const rest = exiledThisWay.filter(card => String(card?.id || '') !== String(hitCard?.id || ''));
+        if (rest.length > 0) {
+          moveCardsToLibraryBottom(stateAny, playerId, rest, rng);
+        }
+
+        const queuedExileCard = {
+          ...hitCard,
+          canBePlayedBy: playerId,
+          playableUntilTurn: Number(stateAny.turnNumber ?? 0),
+          withoutPayingManaCost: true,
+        };
+        zones.exile.push(queuedExileCard);
+        zones.exileCount = zones.exile.length;
+
+        if (gameId && gameId !== 'unknown' && !isReplaying) {
+          queueCastFromExileResolutionPrompt(
+            gameId,
+            playerId,
+            spellName,
+            sourceId,
+            options?.sourceImage,
+            queuedExileCard
+          );
+        }
+
+        debug(
+          2,
+          `[oracleIR] ${spellName}: exiled until ${playerId} hit ${queuedExileCard.name}; ${rest.length} other card(s) moved to the bottom`
+        );
+      } else if (exiledThisWay.length > 0) {
+        const returned = moveCardsToLibraryBottom(stateAny, playerId, exiledThisWay, rng);
+        debug(2, `[oracleIR] ${spellName}: no qualifying exile hit for ${playerId}; returned ${returned} card(s) to the bottom`);
+      }
+
+      if (typeof (ctx as any).bumpSeq === 'function') {
+        (ctx as any).bumpSeq();
+      }
+      applied += 1;
+    }
+
+    return applied;
+  } catch (err) {
+    debugWarn(1, `[oracleIR] Failed supplemental resolution for ${spellName}:`, err);
+    return 0;
+  }
+}
+
 function resolveOracleWhoToPlayerIds(who: OraclePlayerSelector, caster: PlayerID, state: any): PlayerID[] {
   switch (who.kind) {
     case 'you':
@@ -9230,11 +9480,22 @@ export function resolveTopOfStack(ctx: GameContext) {
     let targetControllerForTokenCreation: PlayerID | null = null;
     let targetControllerForRemovalEffects: PlayerID | null = null;
     let targetPowerBeforeRemoval: number = 0;
+    let targetSpellControllerForSupplemental: PlayerID | null = null;
+    let targetSpellNameForSupplemental = '';
     
     // Capture target info for removal spells that have "its controller" effects
     if (targets.length > 0 && targets[0] !== undefined) {
       const targetId = typeof targets[0] === 'string' ? targets[0] : targets[0]?.id;
       const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
+      const targetStackItem = Array.isArray(state.stack)
+        ? state.stack.find((stackItem: any) => String(stackItem?.id || '') === String(targetId || ''))
+        : null;
+
+      if (targetStackItem) {
+        targetSpellControllerForSupplemental = String(targetStackItem.controller || '') as PlayerID;
+        targetSpellNameForSupplemental = String(targetStackItem.card?.name || '');
+      }
+
       if (targetPerm) {
         // For token creation after destroy (Beast Within, etc.)
         if (oracleTextLower.includes('its controller creates')) {
@@ -9329,6 +9590,21 @@ export function resolveTopOfStack(ctx: GameContext) {
         applyTemporaryLandBonus(ctx, controller, landBonus);
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} granted ${controller} ${landBonus} additional land play(s) this turn`);
       }
+
+      applySupplementalOracleIRForResolvedSpell(
+        ctx,
+        oracleText,
+        controller as PlayerID,
+        effectiveCard.name || 'spell',
+        String((item as any).source || (item as any).permanentId || ''),
+        String((item as any).id || (card as any)?.id || ''),
+        {
+          targetPlayerId: targetSpellControllerForSupplemental || undefined,
+          referenceSpellName: targetSpellNameForSupplemental || undefined,
+          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+          skipRawSteps: ['Counter target spell'],
+        }
+      );
       
       // Handle special spell effects not covered by the base system
       // Beast Within: "Destroy target permanent. Its controller creates a 3/3 green Beast creature token."

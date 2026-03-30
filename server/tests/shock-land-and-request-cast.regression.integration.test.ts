@@ -44,7 +44,9 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 describe('shock land and request-cast regressions (integration)', () => {
   const shockGameId = 'test_shock_land_decline_regression';
   const castGameId = 'test_request_cast_duplicate_regression';
+  const targetedCastGameId = 'test_request_cast_targeted_completion_regression';
   const playerId = 'p1';
+  const opponentId = 'p2';
 
   beforeAll(async () => {
     await initDb();
@@ -55,8 +57,10 @@ describe('shock land and request-cast regressions (integration)', () => {
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(shockGameId);
     ResolutionQueueManager.removeQueue(castGameId);
+    ResolutionQueueManager.removeQueue(targetedCastGameId);
     games.delete(shockGameId as any);
     games.delete(castGameId as any);
+    games.delete(targetedCastGameId as any);
   });
 
   it('keeps Steam Vents tapped when the player chooses enter tapped through the live playLand flow', async () => {
@@ -184,5 +188,142 @@ describe('shock land and request-cast regressions (integration)', () => {
 
     const noPriorityError = emitted.find(event => event.event === 'error' && event.payload?.code === 'NO_PRIORITY');
     expect(noPriorityError).toBeUndefined();
+  });
+
+  it('completes a targeted instant cast after target selection even if priority was restored before payment resumes', async () => {
+    createGameIfNotExists(targetedCastGameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(targetedCastGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = opponentId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [
+      {
+        id: 'mountain_1',
+        controller: playerId,
+        tapped: false,
+        card: {
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '{T}: Add {R}.',
+        },
+      },
+      {
+        id: 'mountain_2',
+        controller: playerId,
+        tapped: false,
+        card: {
+          name: 'Mountain',
+          type_line: 'Basic Land — Mountain',
+          oracle_text: '{T}: Add {R}.',
+        },
+      },
+    ];
+    (game.state as any).stack = [
+      {
+        id: 'stack_spell_1',
+        type: 'spell',
+        controller: opponentId,
+        canBeCountered: true,
+        card: {
+          id: 'furious_rise_stack_card',
+          name: 'Furious Rise',
+          type_line: 'Enchantment',
+          image_uris: { small: 'https://example.com/furious-rise.jpg' },
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'tibalt_1',
+            name: "Tibalt's Trickery",
+            mana_cost: '{1}{R}',
+            manaCost: '{1}{R}',
+            type_line: 'Instant',
+            oracle_text: "Counter target spell. Choose 1, 2, or 3 at random. Its controller mills that many cards, then exiles cards from the top of their library until they exile a nonland card with a different name than that spell. They may cast that card without paying its mana cost. Then they put the exiled cards on the bottom of their library in a random order.",
+            image_uris: { small: 'https://example.com/tibalt.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.data.gameId = targetedCastGameId;
+    socket.rooms.add(targetedCastGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: targetedCastGameId, cardId: 'tibalt_1' });
+
+    const targetStep = ResolutionQueueManager
+      .getQueue(targetedCastGameId)
+      .steps
+      .find((entry: any) => entry.type === 'target_selection') as any;
+    expect(targetStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: targetedCastGameId,
+      stepId: String(targetStep.id),
+      selections: ['stack_spell_1'],
+    });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(targetedCastGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: targetedCastGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: 'mountain_1', mana: 'R', count: 1 },
+          { permanentId: 'mountain_2', mana: 'R', count: 1 },
+        ],
+      },
+    });
+
+    const continueEvent = emitted.find(event => event.event === 'castSpellFromHandContinue');
+    expect(continueEvent?.payload?.effectId).toBeDefined();
+
+    emitted.length = 0;
+    await handlers['completeCastSpell'](continueEvent?.payload);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const noPriorityError = emitted.find(event => event.event === 'error' && event.payload?.code === 'NO_PRIORITY');
+    expect(noPriorityError).toBeUndefined();
+
+    const stackNames = ((game.state as any).stack || []).map((entry: any) => entry.card?.name || entry.sourceName || entry.id);
+    expect(stackNames).toContain('Furious Rise');
+    expect(stackNames).toContain("Tibalt's Trickery");
+
+    const handIds = (((game.state as any).zones?.[playerId]?.hand) || []).map((card: any) => card.id);
+    expect(handIds).not.toContain('tibalt_1');
   });
 });

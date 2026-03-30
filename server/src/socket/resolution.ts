@@ -10654,6 +10654,7 @@ async function handleTargetSelectionResponse(
         imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
         costReduction: pendingCast.costReduction,
         convokeOptions: pendingCast.convokeOptions,
+        forcedAlternateCostId: pendingCast.forcedAlternateCostId,
       } as any);
     }
 
@@ -12213,7 +12214,8 @@ async function handleTargetSelectionResponse(
   // Store the validated targets on the stack item that needs them
   // The spell/ability on the stack will use these targets when it resolves
   const sourceId = step.sourceId;
-  if (sourceId && game.state?.stack) {
+  const spellCastContext = targetStepData.spellCastContext;
+  if (!spellCastContext && sourceId && game.state?.stack) {
     const stackItem = game.state.stack.find((item: any) => item.id === sourceId);
     if (stackItem) {
       stackItem.targets = selections;
@@ -13822,7 +13824,6 @@ async function handleTargetSelectionResponse(
   // When a spell requires targets and is being cast via Resolution Queue,
   // we need to request payment after targets are selected (MTG Rule 601.2h)
   // ========================================================================
-  const spellCastContext = targetStepData.spellCastContext;
   if (spellCastContext) {
     const { cardId, cardName, manaCost, effectId, oracleText, imageUrl } = spellCastContext;
     
@@ -13909,6 +13910,7 @@ async function handleTargetSelectionResponse(
           imageUrl,
           costReduction: pendingCast.costReduction,
           convokeOptions: pendingCast.convokeOptions,
+          forcedAlternateCostId: pendingCast.forcedAlternateCostId,
         } as any);
       }
       
@@ -19904,6 +19906,7 @@ async function handleOptionChoiceResponse(
           imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
           costReduction: pendingCast.costReduction,
           convokeOptions: pendingCast.convokeOptions,
+          forcedAlternateCostId: pendingCast.forcedAlternateCostId,
         } as any);
       }
 
@@ -20213,32 +20216,24 @@ async function handleOptionChoiceResponse(
     const sourceName = String(stepData.sourceName || step.sourceName || 'Ability');
 
     if (choiceId === 'cast') {
-      zones.exile.splice(cardIndex, 1);
-      zones.exileCount = zones.exile.length;
-
-      cleanupCardLeavingExile(game.state as any, exiledCard);
-
-      const stackItem = {
-        id: uid('free_exile_spell'),
-        type: 'spell',
-        card: { ...exiledCard, zone: 'stack' },
-        controller: playerId,
-        targets: [],
-        castFromHand: false,
-        castFromExile: true,
-        castWithoutPayingManaCost: true,
+      const fakeSocket: any = {
+        data: { playerId, spectator: false },
+        emit: (event: string, payload: unknown) => {
+          emitToPlayer(io, playerId as any, event as any, payload);
+        },
       };
 
-      game.state.stack = game.state.stack || [];
-      game.state.stack.push(stackItem);
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `${getPlayerName(game, playerId)} cast ${exiledCard.name} from exile without paying its mana cost (${sourceName}).`,
-        ts: Date.now(),
-      });
+      await requestCastSpellForSocket(
+        io,
+        fakeSocket,
+        { gameId, cardId: exiledCardId },
+        {
+          skipPriorityCheck: true,
+          forcedAlternateCostId: 'free',
+          castWithoutPayingManaCost: true,
+          bypassExilePermissionCheck: true,
+        }
+      );
     } else {
       const findCreatureOnBattlefieldById = (id: string): any | null => {
         if (!id) return null;
@@ -20289,6 +20284,15 @@ async function handleOptionChoiceResponse(
         zones.graveyard = zones.graveyard || [];
         zones.graveyard.push({ ...exiledCard, zone: 'graveyard' });
         zones.graveyardCount = zones.graveyard.length;
+      } else if (declineDestination === 'library_bottom_random') {
+        zones.exile.splice(cardIndex, 1);
+        zones.exileCount = zones.exile.length;
+
+        cleanupCardLeavingExile(game.state as any, exiledCard);
+
+        zones.library = Array.isArray(zones.library) ? zones.library : [];
+        zones.library.push({ ...exiledCard, zone: 'library' });
+        zones.libraryCount = zones.library.length;
       }
 
       if (Number.isFinite(declineDamageEachOpponent) && declineDamageEachOpponent > 0) {
@@ -20313,10 +20317,12 @@ async function handleOptionChoiceResponse(
         from: 'system',
         message:
           declineDamageEachOpponent > 0
-            ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name}${declineDestination === 'graveyard' ? ' and it was put into their graveyard' : ''}. ${sourceName} deals ${declineDamageEachOpponent} damage to each opponent.`
+            ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name}${declineDestination === 'graveyard' ? ' and it was put into their graveyard' : declineDestination === 'library_bottom_random' ? ' and it was put on the bottom of their library' : ''}. ${sourceName} deals ${declineDamageEachOpponent} damage to each opponent.`
             : declineDestination === 'graveyard'
               ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put into their graveyard (${sourceName}).`
-              : `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} (${sourceName}).`,
+              : declineDestination === 'library_bottom_random'
+                ? `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} and it was put on the bottom of their library (${sourceName}).`
+                : `${getPlayerName(game, playerId)} declined to cast ${exiledCard.name} (${sourceName}).`,
         ts: Date.now(),
       });
     }
