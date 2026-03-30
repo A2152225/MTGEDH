@@ -23250,7 +23250,7 @@ Whenever one or more +1/+1 counters are put on this creature, put a creature car
     );
   });
 
-  it.skip('applies Mirror Golem by projecting the linked exiled card types into protection text', () => {
+  it('applies Mirror Golem by projecting the linked exiled card types into protection text', () => {
     const ir = parseOracleTextToIR(
       `Imprint â€” When this creature enters, you may exile target card from a graveyard.
 This creature has protection from each of the exiled card's card types. (Artifact, battle, creature, enchantment, instant, kindred, land, planeswalker, and sorcery are card types.)`,
@@ -23352,7 +23352,7 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(blockCheck.reason).toContain('protection from artifact');
   });
 
-  it.skip('applies Mirror Golem by projecting linked exiled card types into protection text', () => {
+  it('applies Mirror Golem by projecting linked exiled card types into protection text', () => {
     const ir = parseOracleTextToIR(
       `Imprint — When this creature enters, you may exile target card from a graveyard.
 This creature has protection from each of the exiled card's card types. (Artifact, battle, creature, enchantment, instant, kindred, land, planeswalker, and sorcery are card types.)`,

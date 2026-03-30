@@ -73,3 +73,31 @@ export function getFlankingPenaltyForAbilities(
 ): FlankingPenalty {
   return calculateFlankingPenalty(abilities.length);
 }
+
+/**
+ * Creates the combat-trigger summary for flanking.
+ *
+ * @param abilities - The flanking abilities on the attacking creature
+ * @param blockerId - The blocking creature
+ * @param blockerHasFlanking - Whether the blocking creature has flanking
+ * @param creatureIsBlocking - Whether the creature is currently blocking
+ * @returns Penalty summary, or null if flanking does not trigger
+ */
+export function createFlankingTriggerResult(
+  abilities: readonly FlankingAbility[],
+  blockerId: string,
+  blockerHasFlanking: boolean,
+  creatureIsBlocking: boolean
+): {
+  blocker: string;
+  penalty: FlankingPenalty;
+} | null {
+  if (!shouldTriggerFlanking(blockerHasFlanking, creatureIsBlocking)) {
+    return null;
+  }
+
+  return {
+    blocker: blockerId,
+    penalty: getFlankingPenaltyForAbilities(abilities),
+  };
+}

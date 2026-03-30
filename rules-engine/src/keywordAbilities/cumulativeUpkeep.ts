@@ -64,6 +64,31 @@ export function calculateUpkeepCost(ability: CumulativeUpkeepAbility): string {
 }
 
 /**
+ * Creates the upkeep summary for cumulative upkeep.
+ *
+ * @param ability - The cumulative upkeep ability before the upkeep payment choice
+ * @param costWasPaid - Whether the controller paid the cumulative upkeep cost
+ * @returns Summary of the added age counter and sacrifice outcome
+ */
+export function createCumulativeUpkeepResult(
+  ability: CumulativeUpkeepAbility,
+  costWasPaid: boolean
+): {
+  source: string;
+  ageCounters: number;
+  totalCost: string;
+  shouldSacrifice: boolean;
+} {
+  const updatedAbility = addAgeCounter(ability);
+  return {
+    source: ability.source,
+    ageCounters: updatedAbility.ageCounters,
+    totalCost: calculateUpkeepCost(updatedAbility),
+    shouldSacrifice: !costWasPaid,
+  };
+}
+
+/**
  * Checks if multiple cumulative upkeep abilities are redundant
  * Rule 702.24b - Each instance triggers separately
  * 

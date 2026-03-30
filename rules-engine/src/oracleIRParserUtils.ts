@@ -3,6 +3,8 @@ import type { OracleObjectSelector, OraclePlayerSelector, OracleQuantity } from 
 
 export function normalizeOracleText(text: string): string {
   return String(text || '')
+    .replace(/â€™/g, "'")
+    .replace(/â€”|â€“/g, '-')
     .replace(/[\u2019]/g, "'")
     .replace(/[\u2212\u2013\u2014]/g, '-')
     .replace(/\r\n?/g, '\n')

@@ -55,6 +55,38 @@ export function doesEchoTrigger(
 }
 
 /**
+ * Creates the upkeep summary for echo.
+ *
+ * @param ability - The echo ability
+ * @param currentTurn - The current turn number
+ * @param lastUpkeepTurn - Turn number of the controller's last upkeep
+ * @param echoWasPaid - Whether the echo cost was paid
+ * @returns Upkeep summary, or null if echo does not trigger
+ */
+export function createEchoUpkeepResult(
+  ability: EchoAbility,
+  currentTurn: number,
+  lastUpkeepTurn: number,
+  echoWasPaid: boolean
+): {
+  source: string;
+  cost: string;
+  triggered: true;
+  shouldSacrifice: boolean;
+} | null {
+  if (!doesEchoTrigger(ability, currentTurn, lastUpkeepTurn)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    cost: ability.cost,
+    triggered: true,
+    shouldSacrifice: !echoWasPaid,
+  };
+}
+
+/**
  * Checks if multiple echo abilities are redundant
  * Rule 702.30b - Multiple instances of echo are redundant
  * 

@@ -76,6 +76,64 @@ export function shouldMoveToGraveyardFromMadness(ability: MadnessAbility): boole
 }
 
 /**
+ * Checks whether a card can be cast from madness exile.
+ *
+ * @param ability - The madness ability
+ * @returns True if the card is currently in madness exile
+ */
+export function canCastFromMadnessExile(ability: MadnessAbility): boolean {
+  return ability.inMadnessExile;
+}
+
+/**
+ * Creates the cast summary for a card cast via madness.
+ *
+ * @param ability - The madness ability
+ * @returns Cast summary, or null if the card is not in madness exile
+ */
+export function createMadnessCastResult(
+  ability: MadnessAbility
+): {
+  source: string;
+  fromZone: 'exile';
+  alternativeCostPaid: string;
+  usedMadness: true;
+} | null {
+  if (!canCastFromMadnessExile(ability)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'exile',
+    alternativeCostPaid: ability.cost,
+    usedMadness: true,
+  };
+}
+
+/**
+ * Creates the decline summary for madness when the card is not cast.
+ *
+ * @param ability - The madness ability
+ * @returns Summary of the card moving to graveyard, or null if not in madness exile
+ */
+export function createMadnessDeclineResult(
+  ability: MadnessAbility
+): {
+  source: string;
+  destination: 'graveyard';
+} | null {
+  if (!shouldMoveToGraveyardFromMadness(ability)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    destination: 'graveyard',
+  };
+}
+
+/**
  * Checks if multiple madness abilities are redundant
  * Rule 702.35d - Multiple instances of madness are redundant
  * 

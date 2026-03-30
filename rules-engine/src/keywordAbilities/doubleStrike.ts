@@ -14,6 +14,13 @@ export interface DoubleStrikeAbility {
   readonly source: string; // ID of the object with double strike
 }
 
+export interface DoubleStrikeCombatResult {
+  readonly source: string;
+  readonly dealsInFirstStep: boolean;
+  readonly dealsInSecondStep: boolean;
+  readonly removedBeforeSecondStep: boolean;
+}
+
 /**
  * Create a double strike ability
  * Rule 702.4a - Double strike is a static ability that modifies the rules for the combat damage step
@@ -88,6 +95,24 @@ export function preventsSecondStrike(
   afterFirstStrike: boolean
 ): boolean {
   return hadDoubleStrike && !hasDoubleStrike && afterFirstStrike;
+}
+
+export function createDoubleStrikeCombatResult(
+  ability: DoubleStrikeAbility,
+  hasFirstStrike: boolean,
+  dealtFirstStrike: boolean,
+  hasDoubleStrike: boolean = true
+): DoubleStrikeCombatResult {
+  const removedBeforeSecondStep = preventsSecondStrike(true, hasDoubleStrike, dealtFirstStrike);
+
+  return {
+    source: ability.source,
+    dealsInFirstStep: dealsFirstStrikeDamage(hasDoubleStrike, hasFirstStrike),
+    dealsInSecondStep: removedBeforeSecondStep
+      ? false
+      : dealsSecondStrikeDamage(hasDoubleStrike, hasFirstStrike, dealtFirstStrike),
+    removedBeforeSecondStep,
+  };
 }
 
 /**

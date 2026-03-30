@@ -63,6 +63,61 @@ export function shouldExileAfterFlashback(ability: FlashbackAbility): boolean {
 }
 
 /**
+ * Checks whether a spell can be cast with flashback from the given zone.
+ *
+ * @param ability - The flashback ability
+ * @param zone - The card's current zone
+ * @returns True if the spell can be cast with flashback
+ */
+export function canCastWithFlashbackFromZone(ability: FlashbackAbility, zone: string): boolean {
+  return zone === 'graveyard';
+}
+
+/**
+ * Creates the cast summary for a spell cast with flashback.
+ *
+ * @param ability - The flashback ability
+ * @param zone - The card's current zone
+ * @returns Cast summary, or null if flashback cannot be used
+ */
+export function createFlashbackCastResult(
+  ability: FlashbackAbility,
+  zone: string
+): {
+  source: string;
+  fromZone: 'graveyard';
+  alternativeCostPaid: string;
+  usedFlashback: true;
+} | null {
+  if (!ability.wasCastWithFlashback || !canCastWithFlashbackFromZone(ability, zone)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'graveyard',
+    alternativeCostPaid: ability.cost,
+    usedFlashback: true,
+  };
+}
+
+/**
+ * Creates the resolution summary for a flashback spell.
+ *
+ * @param ability - The flashback ability
+ * @returns Summary of the spell's destination after resolution
+ */
+export function createFlashbackResolutionResult(ability: FlashbackAbility): {
+  source: string;
+  destination: 'exile' | 'graveyard';
+} {
+  return {
+    source: ability.source,
+    destination: shouldExileAfterFlashback(ability) ? 'exile' : 'graveyard',
+  };
+}
+
+/**
  * Checks if multiple flashback abilities are redundant
  * Rule 702.34b - Multiple instances of flashback are redundant
  * 

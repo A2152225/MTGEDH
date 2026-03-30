@@ -57,6 +57,48 @@ export function canBeBlockedByShadow(attackerHasShadow: boolean, blockerHasShado
 }
 
 /**
+ * Determines whether combat between two creatures is shadow-legal from either side.
+ *
+ * @param attackerHasShadow - Whether the attacking creature has shadow
+ * @param blockerHasShadow - Whether the blocking creature has shadow
+ * @returns True if the block is legal under shadow rules
+ */
+export function isShadowCombatLegal(attackerHasShadow: boolean, blockerHasShadow: boolean): boolean {
+  return canBlockWithShadow(blockerHasShadow, attackerHasShadow)
+    && canBeBlockedByShadow(attackerHasShadow, blockerHasShadow);
+}
+
+/**
+ * Creates a combat summary for shadow blocking.
+ *
+ * @param attackerId - The attacking creature id
+ * @param blockerId - The blocking creature id
+ * @param attackerHasShadow - Whether the attacker has shadow
+ * @param blockerHasShadow - Whether the blocker has shadow
+ * @returns Combat summary, or null if the block is illegal
+ */
+export function createShadowCombatResult(
+  attackerId: string,
+  blockerId: string,
+  attackerHasShadow: boolean,
+  blockerHasShadow: boolean
+): {
+  attacker: string;
+  blocker: string;
+  legalBlock: true;
+} | null {
+  if (!isShadowCombatLegal(attackerHasShadow, blockerHasShadow)) {
+    return null;
+  }
+
+  return {
+    attacker: attackerId,
+    blocker: blockerId,
+    legalBlock: true,
+  };
+}
+
+/**
  * Checks if multiple shadow abilities are redundant
  * Rule 702.28b - Multiple instances of shadow are redundant
  * 

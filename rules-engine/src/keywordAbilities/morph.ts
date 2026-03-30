@@ -65,6 +65,70 @@ export function morphTurnFaceUp(ability: MorphAbility): MorphAbility {
 }
 
 /**
+ * Checks whether a card can be cast face down with morph.
+ * Morph works from zones the card could normally be cast from, typically hand.
+ *
+ * @param ability - The morph ability
+ * @param zone - The card's current zone
+ * @returns True if the card can be cast face down
+ */
+export function canCastMorphFaceDown(ability: MorphAbility, zone: string): boolean {
+  return zone === 'hand';
+}
+
+/**
+ * Creates the cast summary for a face-down morph spell.
+ *
+ * @param ability - The morph ability
+ * @param zone - The card's current zone
+ * @returns Cast summary, or null if morph cannot be used
+ */
+export function createMorphCastResult(
+  ability: MorphAbility,
+  zone: string
+): {
+  source: string;
+  fromZone: 'hand';
+  castFaceDown: true;
+  alternativeCostPaid: '{3}';
+} | null {
+  if (!canCastMorphFaceDown(ability, zone)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'hand',
+    castFaceDown: true,
+    alternativeCostPaid: '{3}',
+  };
+}
+
+/**
+ * Creates the turn-face-up summary for morph.
+ *
+ * @param ability - The morph ability
+ * @returns Turn-face-up summary, or null if the permanent is already face up
+ */
+export function createMorphTurnFaceUpResult(
+  ability: MorphAbility
+): {
+  source: string;
+  costPaid: string;
+  turnedFaceUp: true;
+} | null {
+  if (!ability.isFaceDown) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    costPaid: ability.cost,
+    turnedFaceUp: true,
+  };
+}
+
+/**
  * Gets face-down creature stats
  * Rule 702.37c
  * 
@@ -102,6 +166,32 @@ export function megamorph(source: string, cost: string): MegamorphAbility {
     cost,
     source,
     isFaceDown: false,
+  };
+}
+
+/**
+ * Creates the turn-face-up summary for megamorph.
+ *
+ * @param ability - The megamorph ability
+ * @returns Turn-face-up summary, or null if the permanent is already face up
+ */
+export function createMegamorphTurnFaceUpResult(
+  ability: MegamorphAbility
+): {
+  source: string;
+  costPaid: string;
+  turnedFaceUp: true;
+  plusOnePlusOneCountersAdded: 1;
+} | null {
+  if (!ability.isFaceDown) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    costPaid: ability.cost,
+    turnedFaceUp: true,
+    plusOnePlusOneCountersAdded: 1,
   };
 }
 

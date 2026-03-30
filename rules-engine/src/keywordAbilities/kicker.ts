@@ -63,6 +63,45 @@ export function wasKicked(ability: KickerAbility): boolean {
 }
 
 /**
+ * Checks whether a spell can be cast using kicker from the given zone.
+ *
+ * @param ability - The kicker ability
+ * @param zone - The card's current zone
+ * @returns True if the spell can be kicked while being cast from hand
+ */
+export function canCastWithKicker(ability: KickerAbility, zone: string): boolean {
+  return zone === 'hand';
+}
+
+/**
+ * Creates the cast summary for a kicked spell.
+ *
+ * @param ability - The kicker ability
+ * @param zone - The card's current zone
+ * @returns Cast summary, or null if kicker was not used
+ */
+export function createKickerCastResult(
+  ability: KickerAbility,
+  zone: string
+): {
+  source: string;
+  fromZone: 'hand';
+  additionalCostPaid: string;
+  kicked: true;
+} | null {
+  if (!ability.wasPaid || !canCastWithKicker(ability, zone)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'hand',
+    additionalCostPaid: ability.cost,
+    kicked: true,
+  };
+}
+
+/**
  * Multikicker variant
  * Rule 702.33c
  * 
@@ -105,6 +144,34 @@ export function payMultikicker(ability: MultikickerAbility, times: number): Mult
   return {
     ...ability,
     timesPaid: times,
+  };
+}
+
+/**
+ * Creates the cast summary for a multikicker spell.
+ *
+ * @param ability - The multikicker ability
+ * @param zone - The card's current zone
+ * @returns Cast summary, or null if the spell was not cast from hand
+ */
+export function createMultikickerCastResult(
+  ability: MultikickerAbility,
+  zone: string
+): {
+  source: string;
+  fromZone: 'hand';
+  costPerKick: string;
+  timesPaid: number;
+} | null {
+  if (zone !== 'hand') {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'hand',
+    costPerKick: ability.cost,
+    timesPaid: ability.timesPaid,
   };
 }
 

@@ -13,6 +13,13 @@ export interface TrampleAbility {
   readonly source: string; // ID of the object with trample
 }
 
+export interface TrampleDamageResult {
+  readonly source: string;
+  readonly blockerDamage: number;
+  readonly excessDamage: number;
+  readonly canAssignExcessToDefender: boolean;
+}
+
 /**
  * Create a trample ability
  * Rule 702.19a - Trample is a static ability that modifies the rules for assigning
@@ -55,6 +62,13 @@ export function calculateTrampleDamage(
   };
 }
 
+export function canAssignExcessTrampleDamage(
+  totalDamage: number,
+  blockerLethalDamage: number
+): boolean {
+  return calculateTrampleDamage(totalDamage, blockerLethalDamage).excessDamage > 0;
+}
+
 /**
  * Check if a creature with trample can assign damage to defending player
  * Rule 702.19c - If an attacking creature with trample or trample over planeswalkers is
@@ -70,6 +84,22 @@ export function assignsToPlayerWithNoBlockers(
   hasBlockers: boolean
 ): boolean {
   return hasTrample && !hasBlockers;
+}
+
+export function createTrampleDamageResult(
+  ability: TrampleAbility,
+  totalDamage: number,
+  blockerLethalDamage: number,
+  hasBlockers: boolean
+): TrampleDamageResult {
+  const assignment = calculateTrampleDamage(totalDamage, blockerLethalDamage);
+
+  return {
+    source: ability.source,
+    blockerDamage: assignment.blockerDamage,
+    excessDamage: assignment.excessDamage,
+    canAssignExcessToDefender: assignsToPlayerWithNoBlockers(true, hasBlockers) || assignment.excessDamage > 0,
+  };
 }
 
 /**

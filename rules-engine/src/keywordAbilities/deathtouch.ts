@@ -14,6 +14,14 @@ export interface DeathtouchAbility {
   readonly source: string; // ID of the object with deathtouch
 }
 
+export interface DeathtouchDamageResult {
+  readonly source: string;
+  readonly creatureToughness: number;
+  readonly damageMarked: number;
+  readonly lethalDamage: boolean;
+  readonly destroysCreature: boolean;
+}
+
 /**
  * Create a deathtouch ability
  * Rule 702.2a - Deathtouch is a static ability
@@ -62,6 +70,20 @@ export function isLethalDamageWithDeathtouch(
     return false;
   }
   return damage > 0;
+}
+
+export function createDeathtouchDamageResult(
+  ability: DeathtouchAbility,
+  creatureToughness: number,
+  damageMarked: number
+): DeathtouchDamageResult {
+  return {
+    source: ability.source,
+    creatureToughness,
+    damageMarked,
+    lethalDamage: isLethalDamageWithDeathtouch(damageMarked, true),
+    destroysCreature: shouldDestroyFromDeathtouch(creatureToughness, damageMarked),
+  };
 }
 
 /**

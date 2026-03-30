@@ -66,6 +66,85 @@ export function typecycling(source: string, cost: string, landType: string): Typ
 }
 
 /**
+ * Checks whether cycling can be activated from the given zone.
+ * Cycling functions only while the card is in hand.
+ *
+ * @param ability - The cycling ability
+ * @param zone - The card's current zone
+ * @returns True if cycling can be activated
+ */
+export function canActivateCycling(ability: CyclingAbility, zone: string): boolean {
+  return zone === 'hand';
+}
+
+/**
+ * Creates the activation summary for cycling.
+ *
+ * @param ability - The cycling ability
+ * @param zone - The card's current zone
+ * @returns Activation summary, or null if cycling cannot be activated
+ */
+export function createCyclingActivationResult(
+  ability: CyclingAbility,
+  zone: string
+): {
+  source: string;
+  fromZone: 'hand';
+  costPaid: string;
+  cardsDrawn: 1;
+} | null {
+  if (!canActivateCycling(ability, zone)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'hand',
+    costPaid: ability.cost,
+    cardsDrawn: 1,
+  };
+}
+
+/**
+ * Checks whether typecycling can be activated from the given zone.
+ *
+ * @param ability - The typecycling ability
+ * @param zone - The card's current zone
+ * @returns True if typecycling can be activated
+ */
+export function canActivateTypecycling(ability: TypecyclingAbility, zone: string): boolean {
+  return zone === 'hand';
+}
+
+/**
+ * Creates the activation summary for typecycling.
+ *
+ * @param ability - The typecycling ability
+ * @param zone - The card's current zone
+ * @returns Activation summary, or null if typecycling cannot be activated
+ */
+export function createTypecyclingActivationResult(
+  ability: TypecyclingAbility,
+  zone: string
+): {
+  source: string;
+  fromZone: 'hand';
+  costPaid: string;
+  searchLandType: string;
+} | null {
+  if (!canActivateTypecycling(ability, zone)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'hand',
+    costPaid: ability.cost,
+    searchLandType: ability.landType,
+  };
+}
+
+/**
  * Checks if multiple cycling abilities are cumulative
  * Rule 702.29c - Multiple instances of cycling are cumulative (different abilities)
  * 

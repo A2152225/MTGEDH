@@ -63,6 +63,62 @@ export function shouldBuybackReturnToHand(ability: BuybackAbility): boolean {
 }
 
 /**
+ * Checks whether a spell can be cast using buyback.
+ * Buyback is an additional cost that matters while casting from hand.
+ *
+ * @param ability - The buyback ability
+ * @param zone - The card's current zone
+ * @returns True if buyback can be used
+ */
+export function canCastWithBuyback(ability: BuybackAbility, zone: string): boolean {
+  return zone === 'hand';
+}
+
+/**
+ * Creates the cast summary for a spell cast with buyback.
+ *
+ * @param ability - The buyback ability
+ * @param zone - The card's current zone
+ * @returns Cast summary, or null if buyback cannot be used
+ */
+export function createBuybackCastResult(
+  ability: BuybackAbility,
+  zone: string
+): {
+  source: string;
+  fromZone: 'hand';
+  additionalCostPaid: string;
+  usedBuyback: true;
+} | null {
+  if (!ability.wasPaid || !canCastWithBuyback(ability, zone)) {
+    return null;
+  }
+
+  return {
+    source: ability.source,
+    fromZone: 'hand',
+    additionalCostPaid: ability.cost,
+    usedBuyback: true,
+  };
+}
+
+/**
+ * Creates the resolution summary for a buyback spell.
+ *
+ * @param ability - The buyback ability
+ * @returns Resolution summary including final zone
+ */
+export function createBuybackResolutionResult(ability: BuybackAbility): {
+  source: string;
+  destination: 'hand' | 'graveyard';
+} {
+  return {
+    source: ability.source,
+    destination: shouldBuybackReturnToHand(ability) ? 'hand' : 'graveyard',
+  };
+}
+
+/**
  * Checks if multiple buyback abilities are redundant
  * Rule 702.27b - Multiple instances of buyback are redundant
  * 

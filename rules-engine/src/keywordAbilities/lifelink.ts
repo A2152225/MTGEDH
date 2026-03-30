@@ -13,6 +13,12 @@ export interface LifelinkAbility {
   readonly source: string; // ID of the object with lifelink
 }
 
+export interface LifelinkResult {
+  readonly source: string;
+  readonly damageDealt: number;
+  readonly lifeGained: number;
+}
+
 /**
  * Create a lifelink ability
  * Rule 702.15a - Lifelink is a static ability
@@ -41,6 +47,18 @@ export function calculateLifelinkGain(damage: number, hasLifelink: boolean): num
     return 0;
   }
   return damage;
+}
+
+export function createLifelinkResult(
+  ability: LifelinkAbility,
+  damageDealt: number,
+  hasLifelink: boolean = true
+): LifelinkResult {
+  return {
+    source: ability.source,
+    damageDealt,
+    lifeGained: calculateLifelinkGain(damageDealt, hasLifelink),
+  };
 }
 
 /**

@@ -19,6 +19,13 @@ export interface WardAbility {
   readonly source: string; // The object with ward
 }
 
+export interface WardTriggerResult {
+  readonly source: string;
+  readonly additionalCost: string;
+  readonly costPaid: boolean;
+  readonly countered: boolean;
+}
+
 /**
  * Creates a ward ability
  * Rule 702.21a
@@ -35,6 +42,13 @@ export function ward(source: string, cost: string): WardAbility {
   };
 }
 
+export function shouldTriggerWard(
+  isTargetedByOpponent: boolean,
+  becameTarget: boolean = true
+): boolean {
+  return becameTarget && isTargetedByOpponent;
+}
+
 /**
  * Checks if ward cost was paid
  * Rule 702.21b
@@ -45,6 +59,26 @@ export function ward(source: string, cost: string): WardAbility {
  */
 export function isWardCostPaid(ability: WardAbility, paidCost: string): boolean {
   return ability.cost === paidCost;
+}
+
+export function createWardTriggerResult(
+  ability: WardAbility,
+  isTargetedByOpponent: boolean,
+  paidCost?: string,
+  becameTarget: boolean = true
+): WardTriggerResult | null {
+  if (!shouldTriggerWard(isTargetedByOpponent, becameTarget)) {
+    return null;
+  }
+
+  const costPaid = paidCost ? isWardCostPaid(ability, paidCost) : false;
+
+  return {
+    source: ability.source,
+    additionalCost: ability.cost,
+    costPaid,
+    countered: !costPaid,
+  };
 }
 
 /**

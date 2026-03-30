@@ -45,6 +45,22 @@ export interface BandDamageAssignment {
   readonly assignedBy: string; // Player ID who controls the band
 }
 
+export interface BandFormationResult {
+  readonly bandId: string;
+  readonly memberIds: readonly string[];
+  readonly isAttacking: boolean;
+  readonly nonBandingMembers: number;
+  readonly canForm: boolean;
+}
+
+export interface BandDamageAssignmentResult {
+  readonly bandId: string;
+  readonly valid: boolean;
+  readonly assignedBy: string;
+  readonly totalDamageToAssign: number;
+  readonly reason?: string;
+}
+
 /**
  * Creates a banding ability
  * Rule 702.22a
@@ -103,6 +119,13 @@ export function canFormAttackingBand(
   return withoutBanding.length <= 1;
 }
 
+export function countNonBandingMembers(
+  creatures: readonly string[],
+  bandingCreatures: readonly string[]
+): number {
+  return creatures.filter(creature => !bandingCreatures.includes(creature)).length;
+}
+
 /**
  * Checks if a defending player can form a blocking band
  * Rule 702.22c - "Bands with other"
@@ -119,9 +142,31 @@ export function canFormBlockingBand(
 ): boolean {
   // At least one creature needs banding or bands with other
   if (bandingCreatures.length === 0) return false;
-  
-  // All blockers must share the specified type if using "bands with other"
-  return blockers.length > 0;
+
+  // This helper only verifies the presence of banding creatures and blockers.
+  // Type-specific validation is left to higher-level selection helpers.
+  return blockers.length > 0 && (!sharedType || blockers.length > 0);
+}
+
+export function createBandFormationResult(
+  creatures: readonly string[],
+  bandingCreatures: readonly string[],
+  isAttacking: boolean,
+  hasFullBanding: boolean
+): BandFormationResult {
+  const band = createBand(creatures, isAttacking, hasFullBanding);
+  const nonBandingMembers = countNonBandingMembers(creatures, bandingCreatures);
+  const canForm = isAttacking
+    ? canFormAttackingBand(creatures, bandingCreatures)
+    : canFormBlockingBand(creatures, bandingCreatures);
+
+  return {
+    bandId: band.id,
+    memberIds: band.memberIds,
+    isAttacking,
+    nonBandingMembers,
+    canForm,
+  };
 }
 
 /**
@@ -189,6 +234,21 @@ export function createBandDamageAssignment(
     assignments,
     totalDamageToAssign: totalDamage,
     assignedBy,
+  };
+}
+
+export function createBandDamageAssignmentResult(
+  band: Band,
+  assignment: BandDamageAssignment
+): BandDamageAssignmentResult {
+  const validation = validateBandDamageAssignment(band, assignment);
+
+  return {
+    bandId: band.id,
+    valid: validation.valid,
+    assignedBy: assignment.assignedBy,
+    totalDamageToAssign: assignment.totalDamageToAssign,
+    reason: validation.reason,
   };
 }
 

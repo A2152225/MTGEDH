@@ -16,6 +16,12 @@ export interface FearAbility {
   readonly source: string;
 }
 
+export interface FearBlockResult {
+  readonly blockerId: string;
+  readonly canBlock: boolean;
+  readonly reason: 'artifact' | 'black' | 'artifact-and-black' | 'not-eligible' | 'attacker-without-fear';
+}
+
 /**
  * Creates a fear ability
  * Rule 702.36a
@@ -40,6 +46,63 @@ export function fear(source: string): FearAbility {
  */
 export function canBlockFear(blockerIsArtifact: boolean, blockerIsBlack: boolean): boolean {
   return blockerIsArtifact || blockerIsBlack;
+}
+
+export function canBlockAttackerWithFear(
+  attackerHasFear: boolean,
+  blockerIsArtifact: boolean,
+  blockerIsBlack: boolean
+): boolean {
+  if (!attackerHasFear) {
+    return true;
+  }
+
+  return canBlockFear(blockerIsArtifact, blockerIsBlack);
+}
+
+export function createFearBlockResult(
+  blockerId: string,
+  attackerHasFear: boolean,
+  blockerIsArtifact: boolean,
+  blockerIsBlack: boolean
+): FearBlockResult {
+  if (!attackerHasFear) {
+    return {
+      blockerId,
+      canBlock: true,
+      reason: 'attacker-without-fear',
+    };
+  }
+
+  if (blockerIsArtifact && blockerIsBlack) {
+    return {
+      blockerId,
+      canBlock: true,
+      reason: 'artifact-and-black',
+    };
+  }
+
+  if (blockerIsArtifact) {
+    return {
+      blockerId,
+      canBlock: true,
+      reason: 'artifact',
+    };
+  }
+
+  if (blockerIsBlack) {
+    return {
+      blockerId,
+      canBlock: true,
+      reason: 'black',
+    };
+  }
+
+  return {
+    blockerId,
+    canBlock: false,
+    reason: 'not-eligible',
+  };
 }
 
 /**

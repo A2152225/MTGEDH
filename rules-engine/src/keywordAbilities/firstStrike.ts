@@ -13,6 +13,12 @@ export interface FirstStrikeAbility {
   readonly source: string; // ID of the object with first strike
 }
 
+export interface FirstStrikeCombatResult {
+  readonly source: string;
+  readonly dealsInFirstStep: boolean;
+  readonly dealsInSecondStep: boolean;
+}
+
 /**
  * Create a first strike ability
  * Rule 702.7a - First strike is a static ability that modifies the rules for the combat damage step
@@ -24,6 +30,24 @@ export function firstStrike(source: string): FirstStrikeAbility {
   return {
     type: 'firstStrike',
     source,
+  };
+}
+
+export function dealsOnlyInFirstStrikeStep(
+  hasFirstStrike: boolean,
+  hasDoubleStrike: boolean = false
+): boolean {
+  return hasFirstStrike && !hasDoubleStrike;
+}
+
+export function createFirstStrikeCombatResult(
+  ability: FirstStrikeAbility,
+  hasDoubleStrike: boolean = false
+): FirstStrikeCombatResult {
+  return {
+    source: ability.source,
+    dealsInFirstStep: true,
+    dealsInSecondStep: hasDoubleStrike,
   };
 }
 
