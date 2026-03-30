@@ -24,6 +24,40 @@ import {
   applySurveil as zonesApplySurveil,
 } from "./zones.js";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander.js";
+
+function resolveReplayCommanderId(ctx: any, event: any): string {
+  const explicitCommanderId = String(event?.commanderId || '').trim();
+  if (explicitCommanderId) return explicitCommanderId;
+
+  const playerId = String(event?.playerId || '').trim();
+  const commanderInfo = playerId ? (ctx?.state as any)?.commandZone?.[playerId] : undefined;
+  const knownCommanderIds = Array.isArray(commanderInfo?.commanderIds)
+    ? commanderInfo.commanderIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+    : [];
+
+  const fallbackIds = [event?.cardId, event?.card?.id]
+    .map((id: any) => String(id || '').trim())
+    .filter(Boolean);
+  for (const fallbackId of fallbackIds) {
+    if (knownCommanderIds.length === 0 || knownCommanderIds.includes(fallbackId)) {
+      return fallbackId;
+    }
+  }
+
+  const fallbackNames = [event?.cardName, event?.card?.name]
+    .map((name: any) => String(name || '').trim().toLowerCase())
+    .filter(Boolean);
+  const commanderCards = Array.isArray(commanderInfo?.commanderCards) ? commanderInfo.commanderCards : [];
+  for (const fallbackName of fallbackNames) {
+    const matchedCommander = commanderCards.find((card: any) => String(card?.name || '').trim().toLowerCase() === fallbackName);
+    const matchedId = String(matchedCommander?.id || '').trim();
+    if (matchedId) {
+      return matchedId;
+    }
+  }
+
+  return '';
+}
 import {
   updateCounters,
   applyUpdateCountersBulk,
@@ -127,7 +161,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       break;
 
     case "castCommander":
-      castCommander(ctx, (e as any).playerId, (e as any).commanderId);
+      castCommander(ctx, (e as any).playerId, resolveReplayCommanderId(ctx, e));
       break;
 
     case "moveCommanderToCZ":

@@ -63,6 +63,41 @@ function getReplayOpeningHandBattlefieldCounters(state: any, card: any, playerId
   }
   return {};
 }
+
+function resolveReplayCommanderId(ctx: any, event: any): string {
+  const explicitCommanderId = String(event?.commanderId || '').trim();
+  if (explicitCommanderId) return explicitCommanderId;
+
+  const playerId = String(event?.playerId || '').trim();
+  const commanderInfo = playerId ? (ctx?.state as any)?.commandZone?.[playerId] : undefined;
+  const knownCommanderIds = Array.isArray(commanderInfo?.commanderIds)
+    ? commanderInfo.commanderIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+    : [];
+
+  const fallbackIds = [event?.cardId, event?.card?.id]
+    .map((id: any) => String(id || '').trim())
+    .filter(Boolean);
+
+  for (const fallbackId of fallbackIds) {
+    if (knownCommanderIds.length === 0 || knownCommanderIds.includes(fallbackId)) {
+      return fallbackId;
+    }
+  }
+
+  const fallbackNames = [event?.cardName, event?.card?.name]
+    .map((name: any) => String(name || '').trim().toLowerCase())
+    .filter(Boolean);
+  const commanderCards = Array.isArray(commanderInfo?.commanderCards) ? commanderInfo.commanderCards : [];
+  for (const fallbackName of fallbackNames) {
+    const matchedCommander = commanderCards.find((card: any) => String(card?.name || '').trim().toLowerCase() === fallbackName);
+    const matchedId = String(matchedCommander?.id || '').trim();
+    if (matchedId) {
+      return matchedId;
+    }
+  }
+
+  return '';
+}
 import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
 import { evaluateAction } from "../../rules-engine/index";
@@ -1053,8 +1088,17 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "castCommander": {
         const playerId = (e as any).playerId;
-        const commanderId = (e as any).commanderId;
+        const commanderId = resolveReplayCommanderId(ctx, e);
         debug(1, `[applyEvent] Replaying castCommander event:`, { playerId, commanderId });
+
+        if (!(e as any).commanderId && commanderId) {
+          debugWarn(1, `[applyEvent] Recovered legacy castCommander replay event without commanderId`, {
+            playerId,
+            commanderId,
+            cardId: (e as any).cardId,
+            cardName: (e as any).cardName,
+          });
+        }
         
         if (!commanderId) {
           debugError(1, `[applyEvent] CRITICAL: castCommander event has undefined commanderId!`, {

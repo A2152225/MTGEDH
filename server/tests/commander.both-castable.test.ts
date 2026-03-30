@@ -8,6 +8,54 @@ import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, KnownCardRef } from '../../shared/src';
 
 describe('Casting both partner commanders', () => {
+  it('replays legacy castCommander events that only persisted cardId', () => {
+    const game = createInitialGameState('commander_legacy_cast_replay');
+    const p1 = 'player1' as PlayerID;
+
+    const commanderCard = {
+      id: 'cmd1',
+      name: 'Kynaios and Tiro of Meletis',
+      type_line: 'Legendary Creature — Human Soldier',
+      oracle_text: 'At the beginning of your end step, draw a card.',
+      image_uris: {},
+      mana_cost: '{R}{G}{W}{U}',
+      power: '2',
+      toughness: '8',
+    };
+
+    const fillerCards: KnownCardRef[] = Array.from({ length: 99 }, (_, index) => ({
+      id: `card${index}`,
+      name: `Card ${index}`,
+      type_line: 'Sorcery',
+      oracle_text: 'Draw a card.',
+      image_uris: {},
+      mana_cost: '{1}',
+    } as any));
+
+    game.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+    game.applyEvent({
+      type: 'importDeck',
+      playerId: p1,
+      cards: [commanderCard as any, ...fillerCards],
+    });
+
+    game.setCommander(p1, [commanderCard.name], [commanderCard.id], ['R', 'G', 'W', 'U']);
+
+    game.applyEvent({
+      type: 'castCommander',
+      playerId: p1,
+      cardId: commanderCard.id,
+      cardName: commanderCard.name,
+      card: commanderCard,
+      isAI: true,
+    } as any);
+
+    const commandZone = game.state.commandZone?.[p1];
+    const inCZ = (commandZone as any)?.inCommandZone || [];
+    expect(inCZ).not.toContain(commanderCard.id);
+    expect(commandZone?.taxById?.[commanderCard.id]).toBe(2);
+  });
+
   it('should allow casting both partner commanders independently', () => {
     const game = createInitialGameState('commander_both_castable');
     const p1 = 'player1' as PlayerID;

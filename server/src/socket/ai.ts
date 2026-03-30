@@ -5073,8 +5073,13 @@ async function executeAICastCommander(
     
     // Persist event
     try {
+      if (typeof (game as any).castCommander === 'function') {
+        (game as any).castCommander(playerId, String(card.id));
+      }
+
       await appendEvent(gameId, (game as any).seq || 0, 'castCommander', { 
         playerId, 
+        commanderId: card.id,
         cardId: card.id, 
         cardName: card.name,
         card: card,
