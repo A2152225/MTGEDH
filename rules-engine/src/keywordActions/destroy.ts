@@ -52,3 +52,18 @@ export function canBeDestroyed(
   // If regeneration shield, destruction is replaced
   return !hasRegenerationShield;
 }
+
+export function isDestroyCause(cause: string): boolean {
+  return Object.values(DestructionCause).includes(cause as DestructionCause);
+}
+
+export function createDestroyResult(
+  cause: DestructionCause,
+  hasRegenerationShield: boolean
+): DestroyResult {
+  return {
+    destroyed: !hasRegenerationShield,
+    cause,
+    regenerated: hasRegenerationShield,
+  };
+}

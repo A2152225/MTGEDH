@@ -14,3 +14,34 @@ export interface CastAction {
   readonly controllerId: string;
   readonly fromZone: string;
 }
+
+export interface CastResult {
+  readonly spellId: string;
+  readonly controllerId: string;
+  readonly fromZone: string;
+  readonly costsPaid: boolean;
+  readonly legal: boolean;
+  readonly movesToStack: boolean;
+}
+
+export function canCastFromZone(
+  fromZone: string,
+  allowedZones: readonly string[] = ['hand']
+): boolean {
+  return allowedZones.includes(fromZone);
+}
+
+export function createCastResult(
+  action: CastAction,
+  costsPaid: boolean,
+  legal: boolean
+): CastResult {
+  return {
+    spellId: action.spellId,
+    controllerId: action.controllerId,
+    fromZone: action.fromZone,
+    costsPaid,
+    legal,
+    movesToStack: costsPaid && legal,
+  };
+}

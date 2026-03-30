@@ -71,6 +71,12 @@ cp .env.example .env
 npm run dev
 ```
 
+Server-only startup flags can be passed through the workspace script:
+```bash
+npm --workspace @mtgedh/server run dev -- --wipe-games
+npm --workspace @mtgedh/server run dev -- --port 3002 --debug-state 1
+```
+
 5. Open browser to `http://localhost:3000`
 
 ## Development Status
@@ -194,6 +200,42 @@ debug(2, '[module] Detailed investigation info');
 ```
 
 This allows you to control the amount of logging without modifying code, making it easier to diagnose issues in development while keeping production logs clean.
+
+### Server Startup Flags
+
+The server now accepts these startup flags directly:
+
+```bash
+--port <number>
+--cors-origin <origin>
+--sqlite-file <path>
+--debug-state <0|1|2>
+--clear-planeswalker-cache
+--wipe-games
+--wipe-games-on-startup
+--help
+```
+
+Examples:
+
+```bash
+npm --workspace @mtgedh/server run dev -- --wipe-games
+npm --workspace @mtgedh/server run dev -- --sqlite-file ./data/dev.sqlite --wipe-games
+npm --workspace @mtgedh/server run dev -- --port 3002 --cors-origin http://localhost:3000
+```
+
+`--wipe-games` only deletes persisted games and their event history, plus any in-memory games loaded at startup. It does not delete saved decks.
+
+Environment variable equivalents remain available in `.env`:
+
+```bash
+PORT=3001
+CORS_ORIGIN=http://localhost:3000
+SQLITE_FILE=./data/mtgedh.sqlite
+DEBUG_STATE=1
+CLEAR_PLANESWALKER_CACHE=true
+WIPE_GAMES_ON_STARTUP=true
+```
 
 ### Other Documentation
 

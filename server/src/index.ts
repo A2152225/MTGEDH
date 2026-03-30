@@ -1,3 +1,4 @@
+import "dotenv/config";
 import path from "path";
 import { fileURLToPath } from "url";
 import express from "express";
@@ -21,15 +22,177 @@ import type {
 } from "../../shared/src/events";
 import GameManager from "./GameManager.js"; // NEW: import GameManager
 import { initCLI, setHttpServer } from "./cli"; // CLI support for server management
+import { games as socketGames, priorityTimers } from "./socket/socket.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import { BOOT_ID } from "./utils/bootId.js";
 
 // Get the equivalent of __dirname in ES modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+type StartupOptions = {
+  port: number;
+  corsOrigin: string;
+  clearPlaneswalkerCache: boolean;
+  wipeGamesOnStartup: boolean;
+  showHelp: boolean;
+};
+
+function readBooleanEnv(name: string): boolean {
+  const raw = String(process.env[name] || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+function printStartupHelp(): void {
+  console.log(`
+@mtgedh/server startup flags:
+
+  --port <number>                Override PORT for this process.
+  --cors-origin <origin>         Override CORS_ORIGIN for this process.
+  --sqlite-file <path>           Override SQLITE_FILE / SQLITE_PATH for this process.
+  --debug-state <0|1|2>          Override DEBUG_STATE for this process.
+  --clear-planeswalker-cache     Force the Scryfall planeswalker cache to be cleared at startup.
+  --wipe-games                   Delete persisted + in-memory games at startup.
+  --wipe-games-on-startup        Alias for --wipe-games.
+  --help                         Show this help and exit.
+
+Examples:
+  npm --workspace @mtgedh/server run dev -- --wipe-games
+  npm --workspace @mtgedh/server run dev -- --port 3002 --debug-state 1
+  npm --workspace @mtgedh/server run dev -- --sqlite-file ./data/dev.sqlite
+
+Environment variable equivalents:
+  PORT, CORS_ORIGIN, SQLITE_FILE, SQLITE_PATH, DEBUG_STATE,
+  CLEAR_PLANESWALKER_CACHE, WIPE_GAMES_ON_STARTUP
+
+Note: --wipe-games only clears games and their persisted events. Saved decks are left intact.
+`);
+}
+
+function readFlagValue(args: string[], index: number, flag: string): string {
+  const current = args[index] || '';
+  const eqIndex = current.indexOf('=');
+  if (eqIndex >= 0) {
+    return current.slice(eqIndex + 1);
+  }
+
+  const next = args[index + 1];
+  if (!next || next.startsWith('--')) {
+    throw new Error(`Missing value for ${flag}`);
+  }
+
+  return next;
+}
+
+function resolveStartupOptions(args: string[]): StartupOptions {
+  let port = Number(process.env.PORT || 3001);
+  let corsOrigin = process.env.CORS_ORIGIN || '*';
+  let clearPlaneswalkerCacheOnStartup = readBooleanEnv('CLEAR_PLANESWALKER_CACHE');
+  let wipeGamesOnStartup = readBooleanEnv('WIPE_GAMES_ON_STARTUP');
+  let showHelp = false;
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (!arg.startsWith('--')) {
+      continue;
+    }
+
+    if (arg === '--help') {
+      showHelp = true;
+      continue;
+    }
+
+    if (arg === '--clear-planeswalker-cache') {
+      clearPlaneswalkerCacheOnStartup = true;
+      process.env.CLEAR_PLANESWALKER_CACHE = 'true';
+      continue;
+    }
+
+    if (arg === '--wipe-games' || arg === '--wipe-games-on-startup') {
+      wipeGamesOnStartup = true;
+      process.env.WIPE_GAMES_ON_STARTUP = 'true';
+      continue;
+    }
+
+    if (arg.startsWith('--port')) {
+      const raw = readFlagValue(args, index, '--port');
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error(`Invalid value for --port: ${raw}`);
+      }
+      port = parsed;
+      process.env.PORT = String(parsed);
+      if (!arg.includes('=')) index++;
+      continue;
+    }
+
+    if (arg.startsWith('--cors-origin')) {
+      corsOrigin = readFlagValue(args, index, '--cors-origin');
+      process.env.CORS_ORIGIN = corsOrigin;
+      if (!arg.includes('=')) index++;
+      continue;
+    }
+
+    if (arg.startsWith('--sqlite-file') || arg.startsWith('--sqlite-path')) {
+      const sqliteFile = readFlagValue(args, index, arg.startsWith('--sqlite-path') ? '--sqlite-path' : '--sqlite-file');
+      process.env.SQLITE_FILE = sqliteFile;
+      process.env.SQLITE_PATH = sqliteFile;
+      if (!arg.includes('=')) index++;
+      continue;
+    }
+
+    if (arg.startsWith('--debug-state')) {
+      const debugState = readFlagValue(args, index, '--debug-state');
+      process.env.DEBUG_STATE = debugState;
+      if (!arg.includes('=')) index++;
+      continue;
+    }
+
+    throw new Error(`Unknown startup flag: ${arg}`);
+  }
+
+  return {
+    port,
+    corsOrigin,
+    clearPlaneswalkerCache: clearPlaneswalkerCacheOnStartup,
+    wipeGamesOnStartup,
+    showHelp,
+  };
+}
+
+const startupOptions = resolveStartupOptions(process.argv.slice(2));
+if (startupOptions.showHelp) {
+  printStartupHelp();
+  process.exit(0);
+}
+
+function wipeGamesAtStartup(): { requested: number; deleted: number; ids: string[] } {
+  const persisted = dbListGames();
+  const ids = persisted.map((row) => String(row.game_id)).filter(Boolean);
+
+  GameManager.clearAllGames();
+  socketGames.clear();
+  for (const timer of priorityTimers.values()) {
+    clearTimeout(timer);
+  }
+  priorityTimers.clear();
+
+  let deleted = 0;
+  for (const id of ids) {
+    try {
+      if (dbDeleteGame(id)) {
+        deleted++;
+      }
+    } catch (err) {
+      debugWarn(1, `[Server] Failed to wipe game on startup: ${id}`, err);
+    }
+  }
+
+  return { requested: ids.length, deleted, ids };
+}
+
 // Key configurations
 // Updated default port to 3001 to match repository config defaults (can be overridden with PORT env var)
-const PORT = Number(process.env.PORT || 3001);
+const PORT = startupOptions.port;
 const BUILD_PATH = path.resolve(__dirname, "../../client/dist");
 
 // Initialize Express app
@@ -316,11 +479,18 @@ async function main() {
     debug(2, "[Server] Initializing database...");
     await initDb();
     debug(2, "[Server] Database initialized successfully.");
+
+    if (startupOptions.wipeGamesOnStartup) {
+      const wipeResult = wipeGamesAtStartup();
+      debug(1, "[Server] Wiped games at startup", wipeResult);
+    }
     
     // Optionally clear planeswalker cache to force re-fetch with loyalty field
     // Set environment variable CLEAR_PLANESWALKER_CACHE=true to enable on startup
     // This is useful after adding new fields like loyalty to the ScryfallCard type
-    clearPlaneswalkerCache();
+    if (startupOptions.clearPlaneswalkerCache) {
+      clearPlaneswalkerCache();
+    }
   } catch (err) {
     debugError(1, "[Server] Failed to initialize database:", err);
     process.exit(1); // Stop the server if the database cannot be initialized
@@ -330,7 +500,7 @@ async function main() {
   const httpServer = createServer(app);
 
   // Allow configuring CORS origin via env var in production; default is '*' for dev
-  const corsOrigin = process.env.CORS_ORIGIN || "*";
+  const corsOrigin = startupOptions.corsOrigin;
 
   const io = new Server<
     ClientToServerEvents,

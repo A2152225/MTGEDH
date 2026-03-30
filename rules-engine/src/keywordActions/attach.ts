@@ -17,6 +17,14 @@ export interface AttachmentState {
   readonly timestamp: number; // Rule 701.3c: New timestamp on reattachment
 }
 
+export interface AttachResult {
+  readonly attachmentId: string;
+  readonly previousTargetId: string | null;
+  readonly targetId: string;
+  readonly attached: boolean;
+  readonly timestampChanged: boolean;
+}
+
 /**
  * Rule 701.3a: Attachment validation
  */
@@ -64,6 +72,30 @@ export function attemptAttach(
   
   return attachToObject(attachment, targetId, timestamp);
 }
+
+  export function changesAttachmentTimestamp(
+    currentTargetId: string | null,
+    nextTargetId: string
+  ): boolean {
+    return currentTargetId !== nextTargetId;
+  }
+
+  export function createAttachResult(
+    attachment: AttachmentState,
+    targetId: string,
+    timestamp: number
+  ): AttachResult {
+    const previousTargetId = attachment.attachedTo;
+    const updated = attemptAttach(attachment, targetId, timestamp);
+
+    return {
+      attachmentId: attachment.id,
+      previousTargetId,
+      targetId: updated.attachedTo || targetId,
+      attached: updated.attachedTo === targetId,
+      timestampChanged: updated.timestamp !== attachment.timestamp,
+    };
+  }
 
 /**
  * Rule 701.3d: Unattach

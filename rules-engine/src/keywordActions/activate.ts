@@ -11,3 +11,33 @@ export interface ActivateAction {
   readonly abilityId: string;
   readonly controllerId: string;
 }
+
+export interface ActivateResult {
+  readonly abilityId: string;
+  readonly controllerId: string;
+  readonly costsPaid: boolean;
+  readonly usesStack: boolean;
+  readonly resolves: boolean;
+}
+
+export function canActivateAction(
+  hasPriority: boolean,
+  canPayCosts: boolean,
+  timingAllowsActivation: boolean
+): boolean {
+  return hasPriority && canPayCosts && timingAllowsActivation;
+}
+
+export function createActivationResult(
+  action: ActivateAction,
+  costsPaid: boolean,
+  resolves: boolean
+): ActivateResult {
+  return {
+    abilityId: action.abilityId,
+    controllerId: action.controllerId,
+    costsPaid,
+    usesStack: true,
+    resolves: costsPaid && resolves,
+  };
+}

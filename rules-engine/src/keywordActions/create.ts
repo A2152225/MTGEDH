@@ -13,6 +13,13 @@ export interface CreateAction {
   readonly characteristics: Record<string, unknown>;
 }
 
+export interface CreateResult {
+  readonly controllerId: string;
+  readonly count: number;
+  readonly tokenType: string;
+  readonly hasCustomCharacteristics: boolean;
+}
+
 /**
  * Rule 701.7b: Replacement effects and token creation
  * 
@@ -33,5 +40,18 @@ export function createTokens(
     count,
     tokenType,
     characteristics,
+  };
+}
+
+export function getCreatedTokenCount(action: CreateAction): number {
+  return Math.max(0, action.count);
+}
+
+export function createTokenResult(action: CreateAction): CreateResult {
+  return {
+    controllerId: action.controllerId,
+    count: getCreatedTokenCount(action),
+    tokenType: action.tokenType,
+    hasCustomCharacteristics: Object.keys(action.characteristics || {}).length > 0,
   };
 }

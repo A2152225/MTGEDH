@@ -67,6 +67,12 @@ export interface DiscardResult {
   readonly characteristicsDefined: boolean;
 }
 
+export interface DiscardResolution extends DiscardResult {
+  readonly playerId: string;
+  readonly mode: DiscardAction['mode'];
+  readonly cardId?: string;
+}
+
 export function getDiscardResult(
   destination: 'graveyard' | 'hidden-zone',
   revealed: boolean
@@ -77,5 +83,22 @@ export function getDiscardResult(
     revealed,
     // Rule 701.9c: If hidden and not revealed, characteristics are undefined
     characteristicsDefined: destination === 'graveyard' || revealed,
+  };
+}
+
+export function requiresDiscardChoice(mode: DiscardAction['mode']): boolean {
+  return mode !== 'random';
+}
+
+export function createDiscardResolution(
+  action: DiscardAction,
+  destination: 'graveyard' | 'hidden-zone',
+  revealed: boolean
+): DiscardResolution {
+  return {
+    playerId: action.playerId,
+    mode: action.mode,
+    cardId: action.cardId,
+    ...getDiscardResult(destination, revealed),
   };
 }

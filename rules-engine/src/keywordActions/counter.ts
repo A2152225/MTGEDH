@@ -50,3 +50,11 @@ export function getCounterResult(targetType: 'spell' | 'ability'): CounterResult
     destination: targetType === 'spell' ? 'graveyard' : 'ceases-to-exist',
   };
 }
+
+export function countersSpellToGraveyard(targetType: 'spell' | 'ability'): boolean {
+  return getCounterResult(targetType).destination === 'graveyard';
+}
+
+export function createCounterResolution(action: CounterAction): CounterResult {
+  return getCounterResult(action.targetType);
+}
