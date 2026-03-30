@@ -30,6 +30,7 @@ import {
   consumeManaFromPool,
   validateAndConsumeManaCostFromPool,
   broadcastManaPoolUpdate,
+  calculateManaProduction,
 } from "./util.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
@@ -66,6 +67,257 @@ import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTri
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
+
+type ResolutionPaymentItem = {
+  permanentId: string;
+  mana: string;
+  count?: number;
+};
+
+const MANA_POOL_KEY_BY_SYMBOL: Record<string, string> = {
+  W: 'white',
+  U: 'blue',
+  B: 'black',
+  R: 'red',
+  G: 'green',
+  C: 'colorless',
+};
+
+function getWardTargetName(game: any, triggeredBy: string): string {
+  const stackItem = (game.state?.stack || []).find((entry: any) => entry && String(entry.id || '') === String(triggeredBy || ''));
+  if (stackItem) {
+    return String(stackItem.card?.name || stackItem.sourceName || stackItem.description || 'The spell or ability');
+  }
+
+  const pendingCast = (game.state as any)?.pendingSpellCasts?.[triggeredBy];
+  if (pendingCast) {
+    return String(pendingCast.cardName || pendingCast.card?.name || 'The spell');
+  }
+
+  return 'The spell or ability';
+}
+
+function clearResolutionStepsForEffect(gameId: string, effectId: string): void {
+  const normalized = String(effectId || '').trim();
+  if (!normalized) return;
+
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  queue.steps = queue.steps.filter((step: any) => {
+    const effectRef = String(step?.effectId || '').trim();
+    const sourceRef = String(step?.sourceId || '').trim();
+    const wardRef = String(step?.wardTriggeredBy || '').trim();
+    return effectRef !== normalized && sourceRef !== normalized && wardRef !== normalized;
+  });
+}
+
+function canPendingSpellBeCountered(pendingCast: any): boolean {
+  if (!pendingCast) return true;
+  if (pendingCast?.canBeCountered === false) return false;
+  if (pendingCast?.card?.canBeCountered === false) return false;
+
+  const oracleText = String(pendingCast?.card?.oracle_text || pendingCast?.oracleText || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase();
+  return !oracleText.includes("can't be countered");
+}
+
+function tryCounterByWard(game: any, gameId: string, triggeredBy: string, wardController: string): { countered: boolean; targetName: string; reason?: string } {
+  const normalized = String(triggeredBy || '').trim();
+  const targetName = getWardTargetName(game, normalized);
+
+  if (!normalized) {
+    return { countered: false, targetName, reason: 'Missing triggered object' };
+  }
+
+  const stackItem = (game.state?.stack || []).find((entry: any) => entry && String(entry.id || '') === normalized);
+  if (stackItem) {
+    const ctx = {
+      state: game.state,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      zones: game.state?.zones,
+      gameId,
+    } as unknown as GameContext;
+    const result = counterStackItem(ctx, normalized, wardController);
+    return {
+      countered: result.success === true,
+      targetName,
+      reason: result.reason,
+    };
+  }
+
+  const pendingCast = (game.state as any)?.pendingSpellCasts?.[normalized];
+  if (pendingCast) {
+    if (!canPendingSpellBeCountered(pendingCast)) {
+      return {
+        countered: false,
+        targetName,
+        reason: "This spell or ability can't be countered",
+      };
+    }
+
+    delete (game.state as any).pendingSpellCasts[normalized];
+    if ((game.state as any)?.pendingTargets?.[normalized]) {
+      delete (game.state as any).pendingTargets[normalized];
+    }
+    clearResolutionStepsForEffect(gameId, normalized);
+    return { countered: true, targetName };
+  }
+
+  return { countered: false, targetName, reason: 'Stack item not found' };
+}
+
+function emitWardCounterOutcome(
+  io: Server,
+  game: any,
+  gameId: string,
+  wardName: string,
+  playerId: string,
+  outcome: { countered: boolean; targetName: string; reason?: string },
+  failureText: string
+): void {
+  const actor = getPlayerName(game, playerId);
+  const message = outcome.countered
+    ? `${wardName}: ${actor} ${failureText} and ${outcome.targetName} was countered.`
+    : outcome.reason === "This spell or ability can't be countered"
+      ? `${wardName}: ${actor} ${failureText}, but ${outcome.targetName} can't be countered.`
+      : `${wardName}: ${actor} ${failureText}, but ${outcome.targetName} wasn't countered.`;
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message,
+    ts: Date.now(),
+  });
+}
+
+function extractResolutionPaymentItems(rawSelections: any): ResolutionPaymentItem[] | undefined {
+  const raw = Array.isArray(rawSelections?.payment)
+    ? rawSelections.payment
+    : (Array.isArray(rawSelections) ? rawSelections : undefined);
+  if (!Array.isArray(raw)) return undefined;
+
+  return raw
+    .map((entry: any) => ({
+      permanentId: String(entry?.permanentId || '').trim(),
+      mana: String(entry?.mana || '').trim().toUpperCase(),
+      count: entry?.count != null ? Number(entry.count) : undefined,
+    }))
+    .filter((entry) => entry.permanentId && /^[WUBRGC]$/.test(entry.mana));
+}
+
+function validateWardManaPaymentSelection(
+  game: any,
+  playerId: string,
+  wardCost: string,
+  payment: ResolutionPaymentItem[] | undefined
+): { ok: true; parsedCost: ReturnType<typeof parseManaCost> } | { ok: false; code: string; message: string } {
+  const parsedCost = parseManaCost(String(wardCost || ''));
+  const pool = getOrInitManaPool(game.state, playerId) as any;
+  const totalAvailable: Record<string, number> = {
+    white: Number(pool.white || 0),
+    blue: Number(pool.blue || 0),
+    black: Number(pool.black || 0),
+    red: Number(pool.red || 0),
+    green: Number(pool.green || 0),
+    colorless: Number(pool.colorless || 0),
+  };
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const usedPermanentIds = new Set<string>();
+
+  if (payment && payment.length > 0) {
+    for (const { permanentId, mana, count } of payment) {
+      if (usedPermanentIds.has(permanentId)) {
+        return { ok: false, code: 'INVALID_PAYMENT', message: 'A mana source can only be used once for ward payment.' };
+      }
+      usedPermanentIds.add(permanentId);
+
+      const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
+      if (!permanent) {
+        return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield` };
+      }
+      if ((permanent as any).tapped) {
+        return { ok: false, code: 'PAYMENT_SOURCE_TAPPED', message: `${(permanent as any).card?.name || 'Permanent'} is already tapped` };
+      }
+
+      const permCard = (permanent as any).card || {};
+      const permTypeLine = String(permCard.type_line || '').toLowerCase();
+      const permIsCreature = /\bcreature\b/.test(permTypeLine);
+      const hasHaste = creatureHasHaste(permanent, battlefield, playerId);
+      if (permIsCreature && (permanent as any).summoningSickness && !hasHaste) {
+        return {
+          ok: false,
+          code: 'SUMMONING_SICKNESS',
+          message: `${permCard.name || 'Creature'} has summoning sickness and cannot use tap abilities this turn`,
+        };
+      }
+
+      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+      const manaAmount = count != null ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0)) : Number(manaInfo.totalAmount || 0);
+      const poolKey = MANA_POOL_KEY_BY_SYMBOL[mana];
+      if (!poolKey || manaAmount <= 0) {
+        return { ok: false, code: 'INVALID_PAYMENT', message: `Invalid mana payment from ${(permanent as any).card?.name || 'source'}.` };
+      }
+
+      totalAvailable[poolKey] = (totalAvailable[poolKey] || 0) + manaAmount;
+      for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
+        const bonusKey = MANA_POOL_KEY_BY_SYMBOL[String(bonus?.color || '').toUpperCase()];
+        const bonusAmount = Number(bonus?.amount || 0);
+        if (bonusKey && bonusAmount > 0) {
+          totalAvailable[bonusKey] = (totalAvailable[bonusKey] || 0) + bonusAmount;
+        }
+      }
+    }
+  }
+
+  const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+  if (validationError) {
+    return { ok: false, code: 'INSUFFICIENT_MANA', message: validationError };
+  }
+
+  return { ok: true, parsedCost };
+}
+
+function applyWardManaPaymentSelection(
+  game: any,
+  playerId: string,
+  wardCost: string,
+  payment: ResolutionPaymentItem[] | undefined
+): { ok: true } | { ok: false; code: string; message: string } {
+  const validation = validateWardManaPaymentSelection(game, playerId, wardCost, payment);
+  if (!validation.ok) return validation;
+
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const manaPool = getOrInitManaPool(game.state, playerId) as any;
+
+  if (payment && payment.length > 0) {
+    for (const { permanentId, mana, count } of payment) {
+      const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
+      if (!permanent) {
+        return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield` };
+      }
+
+      (permanent as any).tapped = true;
+      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+      const manaAmount = count != null ? Number(count) : Number(manaInfo.totalAmount || 0);
+      const poolKey = MANA_POOL_KEY_BY_SYMBOL[mana];
+      if (poolKey && manaAmount > 0) {
+        manaPool[poolKey] = (manaPool[poolKey] || 0) + manaAmount;
+      }
+
+      for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
+        const bonusKey = MANA_POOL_KEY_BY_SYMBOL[String(bonus?.color || '').toUpperCase()];
+        const bonusAmount = Number(bonus?.amount || 0);
+        if (bonusKey && bonusAmount > 0) {
+          manaPool[bonusKey] = (manaPool[bonusKey] || 0) + bonusAmount;
+        }
+      }
+    }
+  }
+
+  consumeManaFromPool(manaPool, validation.parsedCost.colors, validation.parsedCost.generic, '[wardPayment]');
+  return { ok: true };
+}
 
 function pushTapTriggerOntoStack(
   io: Server,
@@ -2920,9 +3172,11 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         const wardCost = String(stepAny?.wardCost || '').trim();
 
         if (paymentType === 'mana' || (paymentType === '' && /\{[^}]+\}/.test(wardCost))) {
-          const validationError = await validateManaCostPayable(String(pid), wardCost);
-          if (validationError) {
-            socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+          const payment = extractResolutionPaymentItems(response.selections as any);
+          const validation = validateWardManaPaymentSelection(game, String(pid), wardCost, payment);
+          if (!validation.ok) {
+            const validationError = validation as { ok: false; code: string; message: string };
+            socket.emit('error', { code: validationError.code, message: validationError.message });
             return;
           }
         }
@@ -5773,6 +6027,13 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('cardId' in step) fields.cardId = (step as any).cardId;
       if ('castSpellArgs' in step) fields.castSpellArgs = (step as any).castSpellArgs;
       if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('wardPayment' in step) fields.wardPayment = (step as any).wardPayment;
+      if ('wardPaymentType' in step) fields.wardPaymentType = (step as any).wardPaymentType;
+      if ('wardCost' in step) fields.wardCost = (step as any).wardCost;
+      if ('wardPermanentId' in step) fields.wardPermanentId = (step as any).wardPermanentId;
+      if ('wardPermanentName' in step) fields.wardPermanentName = (step as any).wardPermanentName;
+      if ('wardPermanentController' in step) fields.wardPermanentController = (step as any).wardPermanentController;
+      if ('wardTriggeredBy' in step) fields.wardTriggeredBy = (step as any).wardTriggeredBy;
       if ('spellPaymentRequired' in step) fields.spellPaymentRequired = (step as any).spellPaymentRequired;
       if ('phyrexianManaChoice' in step) fields.phyrexianManaChoice = (step as any).phyrexianManaChoice;
       if ('abilityText' in step) fields.abilityText = (step as any).abilityText;
@@ -7692,6 +7953,52 @@ async function handleStepResponse(
 
     case ResolutionStepType.MANA_PAYMENT_CHOICE: {
       const stepData = step as any;
+      if (stepData.wardPayment === true) {
+        const triggeredBy = String(stepData?.wardTriggeredBy || stepData?.sourceId || '').trim();
+        const wardController = String(stepData?.wardPermanentController || 'system');
+        const wardName = String(stepData?.wardPermanentName || step.sourceName || 'Ward');
+        const wardCost = String(stepData?.wardCost || stepData?.manaCost || '').trim();
+        const paymentType = String(stepData?.wardPaymentType || '').trim().toLowerCase() || (/\{[^}]+\}/.test(wardCost) ? 'mana' : '');
+
+        if (response.cancelled) {
+          const outcome = tryCounterByWard(game, gameId, triggeredBy, wardController);
+          emitWardCounterOutcome(io, game, gameId, wardName, pid, outcome, 'declined to pay ward');
+          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+          broadcastGame(io, game, gameId);
+          break;
+        }
+
+        if (paymentType === 'mana') {
+          const payment = extractResolutionPaymentItems(response.selections as any);
+          const applied = applyWardManaPaymentSelection(game, pid, wardCost, payment);
+          if (!applied.ok) {
+            const appliedError = applied as { ok: false; code: string; message: string };
+            emitToPlayer(io, pid, 'error', {
+              code: appliedError.code,
+              message: appliedError.message,
+            });
+
+            const outcome = tryCounterByWard(game, gameId, triggeredBy, wardController);
+            emitWardCounterOutcome(io, game, gameId, wardName, pid, outcome, "couldn't pay ward");
+            if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+            broadcastGame(io, game, gameId);
+            break;
+          }
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${wardName}: ${getPlayerName(game, pid)} paid ward ${wardCost}.`,
+            ts: Date.now(),
+          });
+
+          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+          broadcastGame(io, game, gameId);
+          break;
+        }
+      }
+
       // Spell casting payment (replacement for legacy paymentRequired -> completeCastSpell handshake)
       if (stepData.spellPaymentRequired === true) {
         const effectId = String(stepData.effectId || '');
@@ -9501,21 +9808,8 @@ async function handleDiscardResponse(
       const pid = response.playerId;
 
       if (triggeredBy) {
-        const ctx = {
-          state: game.state,
-          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-          zones: game.state?.zones,
-          gameId,
-        } as unknown as GameContext;
-
-        counterStackItem(ctx, triggeredBy, wardController);
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `${wardName}: ${getPlayerName(game, pid)} declined to pay ward and the spell/ability was countered.`,
-          ts: Date.now(),
-        });
+        const outcome = tryCounterByWard(game, gameId, triggeredBy, wardController);
+        emitWardCounterOutcome(io, game, gameId, wardName, pid, outcome, 'declined to pay ward');
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
       }
     }
@@ -10670,21 +10964,8 @@ async function handleTargetSelectionResponse(
       const wardController = String(stepAny?.wardPermanentController || 'system');
       const wardName = String(stepAny?.wardPermanentName || step.sourceName || 'Ward');
       if (triggeredBy) {
-        const ctx = {
-          state: game.state,
-          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-          zones: game.state?.zones,
-          gameId,
-        } as unknown as GameContext;
-
-        counterStackItem(ctx, triggeredBy, wardController);
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `${wardName}: ${getPlayerName(game, pid)} declined to pay ward and the spell/ability was countered.`,
-          ts: Date.now(),
-        });
+        const outcome = tryCounterByWard(game, gameId, triggeredBy, wardController);
+        emitWardCounterOutcome(io, game, gameId, wardName, pid, outcome, 'declined to pay ward');
       }
 
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
@@ -10702,22 +10983,10 @@ async function handleTargetSelectionResponse(
       if (stage === 'ward_payment') {
         const sourceId = step.sourceId;
         const wardController = String(stepAny?.keywordBlightWardController || '');
-        const ctx = {
-          state: game.state,
-          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-          zones: game.state?.zones,
-          gameId,
-        } as unknown as GameContext;
 
         if (sourceId) {
-          counterStackItem(ctx, sourceId, wardController || 'system');
-          io.to(gameId).emit('chat', {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: 'system',
-            message: `${sourceName}: ${getPlayerName(game, controllerId)} declined to pay ward and the spell/ability was countered.`,
-            ts: Date.now(),
-          });
+          const outcome = tryCounterByWard(game, gameId, String(sourceId), wardController || 'system');
+          emitWardCounterOutcome(io, game, gameId, sourceName, controllerId, outcome, 'declined to pay ward');
         }
 
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
@@ -12559,20 +12828,6 @@ async function handleTargetSelectionResponse(
       return Number.isFinite(n) ? n : null;
     };
 
-    const canPayManaWard = async (payerId: string, wardCost: string): Promise<string | null> => {
-      try {
-        const { parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment } = await import('./util.js');
-        const parsed = parseManaCost(String(wardCost));
-        const pool = getOrInitManaPool(game.state, payerId) as any;
-        const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-        const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
-        return validationError || null;
-      } catch (err) {
-        debugWarn(1, `[Resolution] Failed ward mana affordability check`, err);
-        return 'Unable to validate ward payment';
-      }
-    };
-
       for (const targetId of selections) {
       const targetPerm = battlefield.find((p: any) => p && p.id === targetId);
       if (!targetPerm) continue;
@@ -12667,45 +12922,18 @@ async function handleTargetSelectionResponse(
 
       // ---- Mana ward costs (Ward {2} / Ward—{1}{U}) ----
       if (/\{[^}]+\}/.test(normalizedWardCost)) {
-        const validationError = await canPayManaWard(casterId, normalizedWardCost);
-        if (validationError) {
-          const ctx = {
-            state: game.state,
-            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-            zones: game.state?.zones,
-            gameId,
-          } as unknown as GameContext;
-
-          counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
-          io.to(gameId).emit('chat', {
-            id: `m_${Date.now()}`,
-            gameId,
-            from: 'system',
-            message: `${targetPerm.card?.name || 'Ward'} — ${normalizedWardCost}: ${getPlayerName(game, casterId)} couldn't pay ward and the spell/ability was countered.`,
-            ts: Date.now(),
-          });
-
-          if (typeof game.bumpSeq === 'function') game.bumpSeq();
-          return;
-        }
-
         ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.OPTION_CHOICE,
+          type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: casterId as any,
           status: ResolutionStepStatus.PENDING,
           sourceId,
-          sourceName: stackItem?.card?.name || stackItem?.sourceName || 'Ward',
+          sourceName: targetPerm.card?.name || 'Ward',
           description: `${targetPerm.card?.name || 'Ward'} has ward ${normalizedWardCost}. Pay ${normalizedWardCost} or the spell/ability will be countered.`,
-          mandatory: true,
+          mandatory: false,
           createdAt: Date.now(),
           priority: 0,
-          minSelections: 1,
-          maxSelections: 1,
-          options: [
-            { id: 'pay_ward_cost', label: `Pay ${normalizedWardCost}` },
-            { id: 'decline_ward_cost', label: 'Decline (counter)' },
-          ],
-
+          cardName: `${targetPerm.card?.name || 'Ward'} Ward`,
+          manaCost: normalizedWardCost,
           wardPayment: true,
           wardPaymentType: 'mana',
           wardCost: normalizedWardCost,

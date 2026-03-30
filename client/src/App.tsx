@@ -2384,19 +2384,23 @@ export function App() {
       }
 
       // Phyrexian mana payment choice via Resolution Queue
-      else if (step.type === 'mana_payment_choice' && step.spellPaymentRequired === true) {
+      else if (step.type === 'mana_payment_choice' && (step.spellPaymentRequired === true || (step as any).wardPayment === true)) {
         const cr = (step as any).costReduction;
         const co = (step as any).convokeOptions;
+        const isWardPayment = (step as any).wardPayment === true;
 
         setSpellToCast({
           cardId: String((step as any).cardId || step.sourceId || ''),
-          cardName: String((step as any).cardName || step.sourceName || 'Spell'),
-          manaCost: String((step as any).manaCost || ''),
+          cardName: isWardPayment
+            ? String((step as any).wardPermanentName || (step as any).cardName || step.sourceName || 'Ward')
+            : String((step as any).cardName || step.sourceName || 'Spell'),
+          manaCost: String((step as any).wardCost || (step as any).manaCost || ''),
+          oracleText: isWardPayment ? String(step.description || '') : undefined,
           targets: Array.isArray((step as any).targets) ? (step as any).targets : undefined,
-          effectId: String((step as any).effectId || ''),
-          costReduction: cr,
-          convokeOptions: co,
-          forcedAlternateCostId: (step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined,
+          effectId: isWardPayment ? undefined : String((step as any).effectId || ''),
+          costReduction: isWardPayment ? undefined : cr,
+          convokeOptions: isWardPayment ? undefined : co,
+          forcedAlternateCostId: isWardPayment ? undefined : ((step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined),
           // Track the resolution step id so confirm/cancel responds via the queue.
           paymentStepId: String(step.id),
         } as any);

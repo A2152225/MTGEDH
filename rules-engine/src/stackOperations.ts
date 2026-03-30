@@ -49,7 +49,7 @@ export function getStackItems(
   stack: Readonly<Stack> | readonly StackObject[] | null | undefined
 ): readonly StackObject[] {
   if (Array.isArray(stack)) return stack;
-  if (Array.isArray(stack?.objects)) return stack.objects;
+  if (stack && 'objects' in stack && Array.isArray(stack.objects)) return stack.objects;
   return [];
 }
 
