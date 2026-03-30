@@ -12,6 +12,11 @@ export interface CounterAction {
   readonly targetId: string;
 }
 
+export interface CounterSummary extends CounterResult {
+  readonly targetId: string;
+  readonly targetType: 'spell' | 'ability';
+}
+
 /**
  * Rule 701.6a: Countered spells go to graveyard
  */
@@ -57,4 +62,12 @@ export function countersSpellToGraveyard(targetType: 'spell' | 'ability'): boole
 
 export function createCounterResolution(action: CounterAction): CounterResult {
   return getCounterResult(action.targetType);
+}
+
+export function createCounterSummary(action: CounterAction): CounterSummary {
+  return {
+    targetId: action.targetId,
+    targetType: action.targetType,
+    ...createCounterResolution(action),
+  };
 }

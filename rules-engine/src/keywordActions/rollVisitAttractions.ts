@@ -15,6 +15,15 @@ export interface RollVisitAttractionsAction {
   readonly visitedAttractions?: readonly string[];
 }
 
+export interface RollVisitAttractionsResult {
+  readonly playerId: string;
+  readonly rollResult?: number;
+  readonly validRoll: boolean;
+  readonly visitedAttractions: readonly string[];
+  readonly visitedCount: number;
+  readonly triggersVisitAbilities: boolean;
+}
+
 /**
  * Rule 701.52a: Roll to visit
  */
@@ -73,4 +82,20 @@ export function getVisitedAttractions(
   return attractions
     .filter((attraction) => isAttractionVisited(attraction.litNumbers, rollResult))
     .map((attraction) => attraction.id);
+}
+
+export function createRollVisitAttractionsResult(
+  action: RollVisitAttractionsAction,
+): RollVisitAttractionsResult {
+  const visitedAttractions = action.visitedAttractions || [];
+  const validRoll = typeof action.rollResult === 'number' && isValidVisitRoll(action.rollResult);
+
+  return {
+    playerId: action.playerId,
+    rollResult: action.rollResult,
+    validRoll,
+    visitedAttractions,
+    visitedCount: visitedAttractions.length,
+    triggersVisitAbilities: validRoll && visitedAttractions.length > 0,
+  };
 }

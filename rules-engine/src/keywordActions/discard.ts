@@ -73,6 +73,10 @@ export interface DiscardResolution extends DiscardResult {
   readonly cardId?: string;
 }
 
+export interface DiscardSummary extends DiscardResolution {
+  readonly requiresChoice: boolean;
+}
+
 export function getDiscardResult(
   destination: 'graveyard' | 'hidden-zone',
   revealed: boolean
@@ -100,5 +104,16 @@ export function createDiscardResolution(
     mode: action.mode,
     cardId: action.cardId,
     ...getDiscardResult(destination, revealed),
+  };
+}
+
+export function createDiscardSummary(
+  action: DiscardAction,
+  destination: 'graveyard' | 'hidden-zone',
+  revealed: boolean,
+): DiscardSummary {
+  return {
+    ...createDiscardResolution(action, destination, revealed),
+    requiresChoice: requiresDiscardChoice(action.mode),
   };
 }

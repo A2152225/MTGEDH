@@ -101,6 +101,7 @@ export {
   hasRedundantIndestructible,
 } from './indestructible';
 export * from './lifelink';
+export * from './protection';
 export * from './reach';
 export * from './trample';
 export * from './vigilance';
@@ -322,6 +323,7 @@ export type KeywordAbility =
   | import('./reach').ReachAbility
   | import('./trample').TrampleAbility
   | import('./vigilance').VigilanceAbility
+    | import('./protection').ProtectionAbility
   // Part 2
   | import('./ward').WardAbility
   | import('./banding').BandingAbility

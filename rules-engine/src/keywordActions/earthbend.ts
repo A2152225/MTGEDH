@@ -16,6 +16,15 @@ export interface EarthbendAction {
   readonly n: number;
 }
 
+export interface EarthbendResult {
+  readonly playerId: string;
+  readonly landId: string;
+  readonly countersAdded: number;
+  readonly becomesCreature: boolean;
+  readonly gainsHaste: boolean;
+  readonly returnsWhenDiesOrExiled: boolean;
+}
+
 /**
  * Rule 701.66a: Earthbend N
  */
@@ -58,6 +67,17 @@ export function createEarthbendTrigger(
   return {
     landId,
     ownerId,
+    returnsWhenDiesOrExiled: true,
+  };
+}
+
+export function createEarthbendResult(action: EarthbendAction): EarthbendResult {
+  return {
+    playerId: action.playerId,
+    landId: action.landId,
+    countersAdded: Math.max(0, action.n),
+    becomesCreature: EARTHBENDED_PROPERTIES.addedTypes.includes('Creature'),
+    gainsHaste: EARTHBENDED_PROPERTIES.hasHaste,
     returnsWhenDiesOrExiled: true,
   };
 }

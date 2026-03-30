@@ -13,6 +13,14 @@ export interface ForageAction {
   readonly sacrificedFood?: string;
 }
 
+export interface ForageResult {
+  readonly playerId: string;
+  readonly method: 'exile' | 'sacrifice' | 'none';
+  readonly paidCost: boolean;
+  readonly exiledCardCount: number;
+  readonly sacrificedFood?: string;
+}
+
 type FoodLike = {
   readonly isFood?: boolean;
   readonly type_line?: string;
@@ -94,4 +102,16 @@ export function getForageMethod(action: ForageAction): 'exile' | 'sacrifice' | '
   }
 
   return 'none';
+}
+
+export function createForageResult(action: ForageAction): ForageResult {
+  const method = getForageMethod(action);
+
+  return {
+    playerId: action.playerId,
+    method,
+    paidCost: method !== 'none',
+    exiledCardCount: action.exiledCards?.length || 0,
+    sacrificedFood: action.sacrificedFood,
+  };
 }

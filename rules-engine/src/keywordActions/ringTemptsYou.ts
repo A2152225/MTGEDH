@@ -16,6 +16,14 @@ export interface RingTemptsYouAction {
   readonly temptCount: number;
 }
 
+export interface RingTemptationResult {
+  readonly playerId: string;
+  readonly chosenRingBearer?: string;
+  readonly temptCount: number;
+  readonly unlockedAbilityCount: number;
+  readonly changedRingBearer: boolean;
+}
+
 /**
  * Rule 701.54a: The Ring tempts you
  */
@@ -115,5 +123,18 @@ export function advanceRingTemptation(
     ...state,
     ringBearerId,
     temptCount: state.temptCount + 1,
+  };
+}
+
+export function createRingTemptationResult(
+  action: RingTemptsYouAction,
+  previousRingBearerId?: string,
+): RingTemptationResult {
+  return {
+    playerId: action.playerId,
+    chosenRingBearer: action.chosenRingBearer,
+    temptCount: action.temptCount,
+    unlockedAbilityCount: getRingAbilities(action.temptCount).length,
+    changedRingBearer: Boolean(action.chosenRingBearer) && action.chosenRingBearer !== previousRingBearerId,
   };
 }

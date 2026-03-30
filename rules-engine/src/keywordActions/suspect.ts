@@ -14,6 +14,14 @@ export interface SuspectAction {
   readonly playerId: string;
 }
 
+export interface SuspectResult {
+  readonly creatureId: string;
+  readonly playerId: string;
+  readonly becameSuspected: boolean;
+  readonly grantsMenace: boolean;
+  readonly cantBlock: boolean;
+}
+
 /**
  * Rule 701.60a: Suspect a creature
  */
@@ -97,4 +105,19 @@ export function canBlockWhileSuspected(isSuspected: boolean): boolean {
  */
 export function canBecomeSuspected(isSuspected: boolean): boolean {
   return !isSuspected;
+}
+
+export function createSuspectResult(
+  action: SuspectAction,
+  wasAlreadySuspected: boolean,
+): SuspectResult {
+  const becameSuspected = !wasAlreadySuspected;
+
+  return {
+    creatureId: action.creatureId,
+    playerId: action.playerId,
+    becameSuspected,
+    grantsMenace: becameSuspected && SUSPECTED_ABILITIES.menace,
+    cantBlock: becameSuspected && SUSPECTED_ABILITIES.cantBlock,
+  };
 }

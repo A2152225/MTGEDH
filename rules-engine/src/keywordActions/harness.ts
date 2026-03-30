@@ -12,6 +12,12 @@ export interface HarnessAction {
   readonly permanentId: string;
 }
 
+export interface HarnessResult {
+  readonly permanentId: string;
+  readonly becameHarnessed: boolean;
+  readonly alreadyHarnessed: boolean;
+}
+
 /**
  * Rule 701.64a: Harness a permanent
  */
@@ -65,4 +71,15 @@ export function clearHarnessedState(state: HarnessedState): HarnessedState {
 
 export function canBecomeHarnessed(isAlreadyHarnessed: boolean): boolean {
   return !isAlreadyHarnessed;
+}
+
+export function createHarnessResult(
+  action: HarnessAction,
+  isAlreadyHarnessed: boolean,
+): HarnessResult {
+  return {
+    permanentId: action.permanentId,
+    becameHarnessed: !isAlreadyHarnessed,
+    alreadyHarnessed: isAlreadyHarnessed,
+  };
 }

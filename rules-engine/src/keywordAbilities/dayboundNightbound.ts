@@ -31,6 +31,14 @@ export interface NightboundAbility {
   readonly isBackFace: boolean;
 }
 
+export interface DayNightTransitionSummary {
+  readonly becomesDay: boolean;
+  readonly entersTransformed: boolean;
+  readonly transformsToNight: boolean;
+  readonly transformsToDay: boolean;
+  readonly manualTransformAllowed: boolean;
+}
+
 /**
  * Create a daybound ability
  * Rule 702.145b - Front face of double-faced card
@@ -131,4 +139,21 @@ export function hasRedundantDaybound(abilities: readonly DayboundAbility[]): boo
  */
 export function hasRedundantNightbound(abilities: readonly NightboundAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createDayNightTransitionSummary(
+  isDayOrNight: boolean,
+  isNight: boolean,
+  isDay: boolean,
+  isFrontFace: boolean,
+  isBackFace: boolean,
+  manualTransformAttempt: boolean,
+): DayNightTransitionSummary {
+  return {
+    becomesDay: becomesDay(isDayOrNight),
+    entersTransformed: entersTransformed(isNight),
+    transformsToNight: shouldTransformToNight(isNight, isFrontFace),
+    transformsToDay: shouldTransformToDay(isDay, isBackFace),
+    manualTransformAllowed: canTransformByDayNightCycle(manualTransformAttempt),
+  };
 }

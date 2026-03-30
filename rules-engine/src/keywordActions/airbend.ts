@@ -15,6 +15,13 @@ export interface AirbendAction {
   readonly objectIds: readonly string[];
 }
 
+export interface AirbendResult {
+  readonly playerId: string;
+  readonly exiledObjectCount: number;
+  readonly grantsAlternateCost: boolean;
+  readonly alternateCost: string;
+}
+
 /**
  * Rule 701.65a: Airbend objects
  */
@@ -55,5 +62,14 @@ export function createAirbendedState(
     cardId,
     ownerId,
     canCastWithAlternateCost: true,
+  };
+}
+
+export function createAirbendResult(action: AirbendAction): AirbendResult {
+  return {
+    playerId: action.playerId,
+    exiledObjectCount: action.objectIds.length,
+    grantsAlternateCost: action.objectIds.length > 0,
+    alternateCost: getAirbendAlternateCost(),
   };
 }

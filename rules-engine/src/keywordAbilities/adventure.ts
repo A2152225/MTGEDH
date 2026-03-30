@@ -34,6 +34,15 @@ export interface AdventureAbility {
   readonly adventureCasterId?: string; // Player who sent it on adventure
 }
 
+export interface AdventureCastingSummary {
+  readonly source: string;
+  readonly state: AdventureState;
+  readonly optionCount: number;
+  readonly canCastCreature: boolean;
+  readonly canCastAdventure: boolean;
+  readonly adventureCasterId?: string;
+}
+
 /**
  * Adventure card state - tracks where the adventure card is
  */
@@ -262,5 +271,22 @@ export function getAdventureFaceFromCardFaces(
     manaCost: adventureFaceData.mana_cost || '',
     type: typeLine,
     oracleText: adventureFaceData.oracle_text || '',
+  };
+}
+
+export function createAdventureCastingSummary(
+  ability: AdventureAbility,
+  zone: string,
+): AdventureCastingSummary {
+  const state = getAdventureState(ability, zone);
+  const options = getAdventureCastingOptions(ability, state);
+
+  return {
+    source: ability.source,
+    state,
+    optionCount: options.length,
+    canCastCreature: options.some((option) => option.type === 'creature'),
+    canCastAdventure: options.some((option) => option.type === 'adventure'),
+    adventureCasterId: ability.adventureCasterId,
   };
 }

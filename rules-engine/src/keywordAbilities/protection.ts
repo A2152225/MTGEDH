@@ -45,6 +45,11 @@ export interface ProtectionCheckResult {
   readonly reason?: string;
 }
 
+export interface ProtectionDebtSummary extends ProtectionCheckResult {
+  readonly source: string;
+  readonly quality: string;
+}
+
 /**
  * Creates a protection ability
  * Rule 702.16a
@@ -377,6 +382,22 @@ export function parseProtectionFromText(
   }
   
   return abilities;
+}
+
+export function createProtectionDebtSummary(
+  ability: ProtectionAbility,
+  sourceInfo: {
+    colors?: readonly string[];
+    cardTypes?: readonly string[];
+    manaValue?: number;
+    controllerId?: string;
+  },
+): ProtectionDebtSummary {
+  return {
+    source: ability.source,
+    quality: describeProtectionQuality(ability.protectedFrom),
+    ...checkProtection([ability], sourceInfo),
+  };
 }
 
 /**

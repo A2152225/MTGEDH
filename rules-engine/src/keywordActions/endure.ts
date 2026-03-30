@@ -18,6 +18,15 @@ export interface EndureAction {
   readonly tokenId?: string;
 }
 
+export interface EndureResult {
+  readonly permanentId: string;
+  readonly controllerId: string;
+  readonly value: number;
+  readonly addsCounters: boolean;
+  readonly createsSpiritToken: boolean;
+  readonly tokenId?: string;
+}
+
 export const ENDURE_SPIRIT_TOKEN = {
   name: 'Spirit',
   colors: ['W'],
@@ -130,4 +139,15 @@ export function createEndureSpiritToken(tokenId: string, controllerId: string, n
  */
 export function getEndureValue(action: EndureAction): number {
   return Math.max(0, action.n);
+}
+
+export function createEndureResult(action: EndureAction): EndureResult {
+  return {
+    permanentId: action.permanentId,
+    controllerId: action.controllerId,
+    value: getEndureValue(action),
+    addsCounters: action.putCounters === true,
+    createsSpiritToken: action.createdToken === true,
+    tokenId: action.tokenId,
+  };
 }

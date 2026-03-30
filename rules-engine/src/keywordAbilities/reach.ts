@@ -13,6 +13,13 @@ export interface ReachAbility {
   readonly source: string; // ID of the object with reach
 }
 
+export interface ReachBlockSummary {
+  readonly source: string;
+  readonly attackerHasFlying: boolean;
+  readonly canBlock: boolean;
+  readonly usesReach: boolean;
+}
+
 /**
  * Create a reach ability
  * Rule 702.17a - Reach is a static ability
@@ -51,4 +58,16 @@ export function canBlockFlyingWithReach(hasReach: boolean, attackerHasFlying: bo
  */
 export function hasRedundantReach(abilities: readonly ReachAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createReachBlockSummary(
+  ability: ReachAbility,
+  attackerHasFlying: boolean,
+): ReachBlockSummary {
+  return {
+    source: ability.source,
+    attackerHasFlying,
+    canBlock: canBlockFlyingWithReach(true, attackerHasFlying),
+    usesReach: attackerHasFlying,
+  };
 }

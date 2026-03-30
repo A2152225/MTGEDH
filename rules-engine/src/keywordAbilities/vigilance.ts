@@ -13,6 +13,12 @@ export interface VigilanceAbility {
   readonly source: string; // ID of the object with vigilance
 }
 
+export interface VigilanceAttackSummary {
+  readonly source: string;
+  readonly tapsWhenAttacking: boolean;
+  readonly remainsUntapped: boolean;
+}
+
 /**
  * Create a vigilance ability
  * Rule 702.20a - Vigilance is a static ability that modifies the rules for the declare attackers step
@@ -47,4 +53,15 @@ export function tapsWhenAttacking(hasVigilance: boolean): boolean {
  */
 export function hasRedundantVigilance(abilities: readonly VigilanceAbility[]): boolean {
   return abilities.length > 1;
+}
+
+export function createVigilanceAttackSummary(
+  ability: VigilanceAbility,
+): VigilanceAttackSummary {
+  const taps = tapsWhenAttacking(true);
+  return {
+    source: ability.source,
+    tapsWhenAttacking: taps,
+    remainsUntapped: !taps,
+  };
 }

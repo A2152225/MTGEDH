@@ -42,6 +42,16 @@ export interface RegenerationUseResult {
   readonly reason?: string;
 }
 
+export interface RegenerationDestructionSummary {
+  readonly permanentId: string;
+  readonly availableShieldCount: number;
+  readonly canRegenerate: boolean;
+  readonly willRegenerate: boolean;
+  readonly permanentTapped: boolean;
+  readonly removedFromCombat: boolean;
+  readonly damageRemoved: boolean;
+}
+
 /**
  * Creates a regeneration shield for a permanent
  * Rule 701.15a: To regenerate a permanent means to create a replacement effect
@@ -267,5 +277,34 @@ export function processDestructionWithRegeneration(
     permanentTapped: result.permanentTapped,
     removedFromCombat: result.removedFromCombat,
     damageRemoved: result.regenerated,
+  };
+}
+
+export function createRegenerationDestructionSummary(
+  permanentId: string,
+  shields: readonly RegenerationShield[],
+  permanentIsTapped: boolean,
+  damageOnPermanent: number,
+  isInCombat: boolean,
+  cantRegenerate: boolean = false,
+): RegenerationDestructionSummary {
+  const availableShieldCount = getAvailableShields(permanentId, shields).length;
+  const result = processDestructionWithRegeneration(
+    permanentId,
+    shields,
+    permanentIsTapped,
+    damageOnPermanent,
+    isInCombat,
+    cantRegenerate,
+  );
+
+  return {
+    permanentId,
+    availableShieldCount,
+    canRegenerate: !cantRegenerate && availableShieldCount > 0,
+    willRegenerate: result.wasRegenerated,
+    permanentTapped: result.permanentTapped,
+    removedFromCombat: result.removedFromCombat,
+    damageRemoved: result.damageRemoved,
   };
 }

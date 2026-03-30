@@ -13,6 +13,13 @@ export interface OpenAttractionAction {
   readonly attractionId?: string;
 }
 
+export interface OpenAttractionResult {
+  readonly playerId: string;
+  readonly attractionId?: string;
+  readonly openedAttraction: boolean;
+  readonly triggersVisitAbilities: boolean;
+}
+
 /**
  * Rule 701.51a: Can only open in Attraction game
  */
@@ -54,4 +61,13 @@ export const TRIGGERS_WHEN_OPENING = true;
  */
 export function hasOpenedAttraction(action: OpenAttractionAction): boolean {
   return Boolean(String(action.attractionId || '').trim());
+}
+
+export function createOpenAttractionResult(action: OpenAttractionAction): OpenAttractionResult {
+  return {
+    playerId: action.playerId,
+    attractionId: action.attractionId,
+    openedAttraction: hasOpenedAttraction(action),
+    triggersVisitAbilities: TRIGGERS_WHEN_OPENING && hasOpenedAttraction(action),
+  };
 }

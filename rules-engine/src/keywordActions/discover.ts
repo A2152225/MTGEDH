@@ -19,6 +19,15 @@ export interface DiscoverAction {
   readonly exiledCardIds?: readonly string[];
 }
 
+export interface DiscoverResult {
+  readonly playerId: string;
+  readonly maxManaValue: number;
+  readonly discoveredCardId?: string;
+  readonly foundHit: boolean;
+  readonly castDiscoveredCard: boolean;
+  readonly bottomedCardCount: number;
+}
+
 type DiscoverCardLike = {
   readonly id: string;
   readonly manaValue?: number;
@@ -124,4 +133,20 @@ export function getDiscoverBottomedCards(
   discoveredCardId: string,
 ): readonly DiscoverCardLike[] {
   return exiledCards.filter((card) => card.id !== discoveredCardId);
+}
+
+export function createDiscoverResult(action: DiscoverAction): DiscoverResult {
+  const exiledCardIds = action.exiledCardIds || [];
+  const foundHit = Boolean(action.discoveredCardId);
+
+  return {
+    playerId: action.playerId,
+    maxManaValue: action.n,
+    discoveredCardId: action.discoveredCardId,
+    foundHit,
+    castDiscoveredCard: action.wasCast === true,
+    bottomedCardCount: foundHit
+      ? Math.max(0, exiledCardIds.filter((cardId) => cardId !== action.discoveredCardId).length)
+      : exiledCardIds.length,
+  };
 }

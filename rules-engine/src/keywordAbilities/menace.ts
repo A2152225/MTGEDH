@@ -15,6 +15,14 @@ export interface MenaceAbility {
   readonly source: string;
 }
 
+export interface MenaceBlockSummary {
+  readonly source: string;
+  readonly blockerCount: number;
+  readonly minimumBlockers: number;
+  readonly canBeBlocked: boolean;
+  readonly evasionRelevant: boolean;
+}
+
 /**
  * Create a menace ability
  * Rule 702.111
@@ -76,4 +84,17 @@ export function hasRedundantMenace(
   abilities: readonly MenaceAbility[]
 ): boolean {
   return abilities.length > 1;
+}
+
+export function createMenaceBlockSummary(
+  ability: MenaceAbility,
+  blockerIds: readonly string[],
+): MenaceBlockSummary {
+  return {
+    source: ability.source,
+    blockerCount: blockerIds.length,
+    minimumBlockers: getMinimumBlockers(),
+    canBeBlocked: canMenaceBeBlockedBy(blockerIds),
+    evasionRelevant: isMenaceEvasionRelevant(blockerIds.length),
+  };
 }

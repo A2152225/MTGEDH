@@ -15,6 +15,15 @@ export interface WaterbendAction {
   readonly manaPaid?: string;
 }
 
+export interface WaterbendResult {
+  readonly playerId: string;
+  readonly originalCost: string;
+  readonly tappedPermanentCount: number;
+  readonly remainingCost: string;
+  readonly manaPaid?: string;
+  readonly triggersWaterbendAbilities: boolean;
+}
+
 export interface WaterbendCostBreakdown {
   readonly genericMana: number;
   readonly nonGenericSymbols: readonly string[];
@@ -165,4 +174,17 @@ export function canTapForWaterbend(
   const isCreature = permanent.isCreature === true || typeLine.includes('creature');
   const isTapped = permanent.isTapped === true || permanent.tapped === true;
   return (isArtifact || isCreature) && !isTapped;
+}
+
+export function createWaterbendResult(action: WaterbendAction): WaterbendResult {
+  const tappedPermanentCount = action.tappedPermanents?.length || 0;
+
+  return {
+    playerId: action.playerId,
+    originalCost: action.cost,
+    tappedPermanentCount,
+    remainingCost: getWaterbendRemainingCost(action.cost, tappedPermanentCount),
+    manaPaid: action.manaPaid,
+    triggersWaterbendAbilities: triggersWhenWaterbends(Boolean(action.manaPaid) || tappedPermanentCount > 0),
+  };
 }

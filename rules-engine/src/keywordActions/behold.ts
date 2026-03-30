@@ -13,6 +13,14 @@ export interface BeholdAction {
   readonly cardOrPermanentId: string;
 }
 
+export interface BeholdResult {
+  readonly playerId: string;
+  readonly quality: string;
+  readonly objectId: string;
+  readonly usedPermanent: boolean;
+  readonly satisfiedQuality: boolean;
+}
+
 type BeholdCandidate = {
   readonly id?: string;
   readonly qualities?: readonly string[];
@@ -80,4 +88,14 @@ export function beheldPermanent(action: BeholdAction): boolean {
  */
 export function getBeholdedObjectId(action: BeholdAction): string {
   return action.cardOrPermanentId;
+}
+
+export function createBeholdResult(action: BeholdAction, satisfiedQuality: boolean): BeholdResult {
+  return {
+    playerId: action.playerId,
+    quality: action.quality,
+    objectId: action.cardOrPermanentId,
+    usedPermanent: beheldPermanent(action),
+    satisfiedQuality,
+  };
 }

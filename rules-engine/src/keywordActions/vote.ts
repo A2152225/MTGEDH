@@ -26,6 +26,15 @@ export interface VoteOutcome {
   readonly voteCounts: ReadonlyMap<string, number>; // Choice -> total votes
 }
 
+export interface VoteSummary {
+  readonly startingVoter?: string;
+  readonly voterCount: number;
+  readonly choiceCount: number;
+  readonly totalVotes: number;
+  readonly winner: string | null;
+  readonly hasWinner: boolean;
+}
+
 /**
  * Rotate the voter list so voting starts with the specified player.
  */
@@ -162,3 +171,16 @@ export function hasVoteWinner(outcome: VoteOutcome): boolean {
  * choices or decisions without using the word "vote."
  */
 export const VOTING_REQUIRES_VOTE_KEYWORD = true;
+
+export function createVoteSummary(action: VoteAction, outcome: VoteOutcome): VoteSummary {
+  const totalVotes = outcome.votes.reduce((sum, vote) => sum + vote.voteCount, 0);
+
+  return {
+    startingVoter: action.startingVoter,
+    voterCount: action.voters.length,
+    choiceCount: action.choices.length,
+    totalVotes,
+    winner: outcome.winner,
+    hasWinner: hasVoteWinner(outcome),
+  };
+}

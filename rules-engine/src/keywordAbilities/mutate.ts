@@ -110,6 +110,16 @@ export interface MutateTargetInfo {
   readonly mutationCount?: number;
 }
 
+export interface MutateMergeSummary {
+  readonly source: string;
+  readonly targetCreature?: string;
+  readonly usedMutateCost: boolean;
+  readonly legalTarget: boolean;
+  readonly merged: boolean;
+  readonly cardCount: number;
+  readonly topCardDeterminesCharacteristics: boolean;
+}
+
 /**
  * Create a mutate ability
  * Rule 702.140a
@@ -509,5 +519,20 @@ export function copyMutatedPermanent(
       // Copies are not commanders
       isCommander: false,
     })),
+  };
+}
+
+export function createMutateMergeSummary(
+  ability: MutateAbility,
+  targetValidation: MutateTargetValidation,
+): MutateMergeSummary {
+  return {
+    source: ability.source,
+    targetCreature: ability.targetCreature,
+    usedMutateCost: ability.hasMutated,
+    legalTarget: targetValidation.valid,
+    merged: ability.hasMutated && targetValidation.valid && ability.mergedCards.length > 0,
+    cardCount: ability.mergedCards.length,
+    topCardDeterminesCharacteristics: ability.onTop,
   };
 }
