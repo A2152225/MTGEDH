@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { cleanupGameAI, isAIPlayer } from '../src/socket/ai.js';
+import { cleanupGameAI, rehydrateAIPlayerRuntime } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 
@@ -103,7 +103,7 @@ describe('AI deck profile rehydration', () => {
 
     delete (game.state as any).aiDeckProfiles;
 
-    expect(isAIPlayer(gameId, 'ai_1' as any)).toBe(true);
+    expect(rehydrateAIPlayerRuntime(gameId, 'ai_1' as any, { refreshDeckProfile: true })).toBe(true);
 
     const profile = (game.state as any).aiDeckProfiles?.ai_1;
     expect(profile).toBeDefined();

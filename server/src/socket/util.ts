@@ -1290,35 +1290,17 @@ export function ensureGame(gameId: string, options?: EnsureGameOptions): InMemor
     // Re-register AI players after replay (done asynchronously to keep function synchronous)
     if (game.state && Array.isArray(game.state.players)) {
       // Dynamically import AI module to avoid circular dependencies
-      import('./ai.js').then(aiModule => {
-        // Also import AIStrategy enum from rules-engine to get proper strategy values
-        return Promise.all([
-          aiModule,
-          import('../../../rules-engine/src/AIEngine.js')
-        ]);
-      }).then(([aiModule, engineModule]) => {
-        if (aiModule && aiModule.registerAIPlayer) {
-          const AIStrategy = engineModule.AIStrategy;
-          const strategies = AIStrategy ? [
-            AIStrategy.BASIC,
-            AIStrategy.AGGRESSIVE,
-            AIStrategy.DEFENSIVE,
-            AIStrategy.CONTROL
-          ] : ['basic', 'aggressive', 'defensive', 'control'];
-          
-          for (const player of game.state.players) {
-            if (player && (player as any).isAI) {
-              // Use saved strategy if available, otherwise use basic as safe default
-              // Strategy should always be saved when AI is created, but fallback to basic for safety
-              let strategy = (player as any).strategy || AIStrategy.BASIC;
-              const difficulty = (player as any).difficulty ?? 0.5;
-              aiModule.registerAIPlayer(gameId, player.id as any, player.name || 'AI Opponent', strategy as any, difficulty);
-              debug(1, '[ensureGame] Re-registered AI player after replay:', { bootId: BOOT_ID, gameId, playerId: player.id, name: player.name, strategy, difficulty });
-            }
-          }
+      import('./ai.js').then((aiModule) => {
+        if (aiModule && aiModule.rehydrateAIGameRuntime) {
+          const restored = aiModule.rehydrateAIGameRuntime(gameId, { refreshDeckProfiles: true });
+          debug(1, '[ensureGame] Rehydrated AI runtime after replay:', {
+            bootId: BOOT_ID,
+            gameId,
+            restoredPlayers: restored,
+          });
         }
       }).catch(err => {
-        debugWarn(1, '[ensureGame] Error re-registering AI players:', { bootId: BOOT_ID, gameId }, err);
+        debugWarn(1, '[ensureGame] Error rehydrating AI runtime:', { bootId: BOOT_ID, gameId }, err);
       });
     }
 

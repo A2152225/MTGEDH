@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { games } from '../src/socket/socket.js';
-import { isAIPlayer } from '../src/socket/ai.js';
+import { isAIPlayer, rehydrateAIPlayerRuntime } from '../src/socket/ai.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 
 describe('AI runtime restoration after replay', () => {
@@ -37,6 +37,7 @@ describe('AI runtime restoration after replay', () => {
     expect(replayedAI?.strategy).toBe('basic');
     expect(replayedAI?.difficulty).toBe(0.5);
 
+    expect(rehydrateAIPlayerRuntime(gameId, 'ai_1' as any, { refreshDeckProfile: true })).toBe(true);
     expect(isAIPlayer(gameId, 'ai_1' as any)).toBe(true);
     expect((game.state as any).autoPassPlayers instanceof Set).toBe(true);
     expect((game.state as any).autoPassPlayers.has('ai_1')).toBe(true);

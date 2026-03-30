@@ -2234,6 +2234,93 @@ export function registerAIPlayer(
   debug(1, '[AI] Registered AI player:', { gameId, playerId, name, strategy, difficulty });
 }
 
+function getPersistedAIPlayerRuntimeData(gameId: string, playerId: PlayerID): {
+  game: any;
+  playerInState: any;
+  strategy: AIStrategy;
+  difficulty: number;
+  name: string;
+} | null {
+  const game = ensureGame(gameId);
+  const playerInState = (game?.state?.players || []).find((p: any) => p?.id === playerId) as any;
+  if (!playerInState || playerInState.isAI !== true) {
+    return null;
+  }
+
+  const strategy = (
+    typeof playerInState.strategy === 'string'
+      ? playerInState.strategy
+      : typeof playerInState.aiStrategy === 'string'
+        ? playerInState.aiStrategy
+        : AIStrategy.BASIC
+  ) as AIStrategy;
+  const difficulty = Number.isFinite(Number(playerInState.difficulty))
+    ? Number(playerInState.difficulty)
+    : Number.isFinite(Number(playerInState.aiDifficulty))
+      ? Number(playerInState.aiDifficulty)
+      : 0.5;
+
+  return {
+    game,
+    playerInState,
+    strategy,
+    difficulty,
+    name: String(playerInState.name || playerId),
+  };
+}
+
+export function rehydrateAIPlayerRuntime(
+  gameId: string,
+  playerId: PlayerID,
+  options?: { refreshDeckProfile?: boolean }
+): boolean {
+  const runtime = getPersistedAIPlayerRuntimeData(gameId, playerId);
+  if (!runtime) {
+    return false;
+  }
+
+  if (options?.refreshDeckProfile && runtime.game?.state) {
+    const stateAny = runtime.game.state as any;
+    if (stateAny.aiDeckProfiles && typeof stateAny.aiDeckProfiles === 'object') {
+      delete stateAny.aiDeckProfiles[playerId];
+    }
+  }
+
+  registerAIPlayer(
+    gameId,
+    playerId,
+    runtime.name,
+    runtime.strategy,
+    runtime.difficulty,
+  );
+  debug(1, '[AI] Rehydrated AI runtime from persisted state:', {
+    gameId,
+    playerId,
+    strategy: runtime.strategy,
+    difficulty: runtime.difficulty,
+    refreshDeckProfile: options?.refreshDeckProfile === true,
+  });
+  return true;
+}
+
+export function rehydrateAIGameRuntime(
+  gameId: string,
+  options?: { refreshDeckProfiles?: boolean }
+): PlayerID[] {
+  const game = ensureGame(gameId);
+  const restored: PlayerID[] = [];
+  for (const player of game?.state?.players || []) {
+    if (!player || (player as any).isAI !== true) continue;
+    const ok = rehydrateAIPlayerRuntime(gameId, player.id as PlayerID, {
+      refreshDeckProfile: options?.refreshDeckProfiles === true,
+    });
+    if (ok) {
+      restored.push(player.id as PlayerID);
+    }
+  }
+  return restored;
+}
+
 /**
  * Unregister an AI player
  */
@@ -2268,39 +2355,7 @@ export function isAIPlayer(gameId: string, playerId: PlayerID): boolean {
   const registered = aiPlayers.get(gameId)?.has(playerId) ?? false;
   if (registered) return true;
 
-  const game = ensureGame(gameId);
-  const playerInState = (game?.state?.players || []).find((p: any) => p?.id === playerId) as any;
-  if (!playerInState || playerInState.isAI !== true) {
-    return false;
-  }
-
-  const restoredStrategy = (
-    typeof playerInState.strategy === 'string'
-      ? playerInState.strategy
-      : typeof playerInState.aiStrategy === 'string'
-        ? playerInState.aiStrategy
-        : AIStrategy.BASIC
-  ) as AIStrategy;
-  const restoredDifficulty = Number.isFinite(Number(playerInState.difficulty))
-    ? Number(playerInState.difficulty)
-    : Number.isFinite(Number(playerInState.aiDifficulty))
-      ? Number(playerInState.aiDifficulty)
-      : 0.5;
-
-  registerAIPlayer(
-    gameId,
-    playerId,
-    String(playerInState.name || playerId),
-    restoredStrategy,
-    restoredDifficulty,
-  );
-  debug(1, '[AI] Restored AI runtime registration from replayed state:', {
-    gameId,
-    playerId,
-    strategy: restoredStrategy,
-    difficulty: restoredDifficulty,
-  });
-  return true;
+  return rehydrateAIPlayerRuntime(gameId, playerId, { refreshDeckProfile: true });
 }
 
 /**
