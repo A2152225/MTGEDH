@@ -16,6 +16,14 @@ export interface VillainousChoiceAction {
   readonly chosenOption?: 'A' | 'B';
 }
 
+export interface VillainousChoiceResult {
+  readonly playerId: string;
+  readonly chosenOption?: 'A' | 'B';
+  readonly chosenText: string | null;
+  readonly branchCount: number;
+  readonly canChooseIllegalOption: boolean;
+}
+
 /**
  * Rule 701.55a: Face a villainous choice
  */
@@ -75,6 +83,10 @@ export function chooseVillainousOption(
   };
 }
 
+export function hasChosenVillainousOption(action: VillainousChoiceAction): boolean {
+  return action.chosenOption === 'A' || action.chosenOption === 'B';
+}
+
 /**
  * Return the text of the chosen villainous option, if one has been selected.
  */
@@ -95,6 +107,18 @@ export function getChosenVillainousOptionText(action: VillainousChoiceAction): s
  */
 export function getVillainousOptions(action: VillainousChoiceAction): readonly string[] {
   return [action.optionA, action.optionB];
+}
+
+export function createVillainousChoiceResult(
+  action: VillainousChoiceAction,
+): VillainousChoiceResult {
+  return {
+    playerId: action.playerId,
+    chosenOption: action.chosenOption,
+    chosenText: getChosenVillainousOptionText(action),
+    branchCount: getVillainousOptions(action).length,
+    canChooseIllegalOption: CAN_CHOOSE_ILLEGAL_OPTION,
+  };
 }
 
 /**

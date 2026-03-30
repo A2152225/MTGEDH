@@ -23,6 +23,14 @@ export interface ManifestedPermanent {
   readonly manaCost?: string; // For turning face up
 }
 
+export interface ManifestResult {
+  readonly playerId: string;
+  readonly manifestedCount: number;
+  readonly fromZone: string;
+  readonly oneAtATime: boolean;
+  readonly canAnyTurnFaceUp: boolean;
+}
+
 /**
  * Rule 701.40a: Manifest a card
  * 
@@ -130,5 +138,24 @@ export function createManifestedPermanent(
     originalCardId,
     isFaceDown: true,
     canTurnFaceUp: isCreature && hasManaCost,
+  };
+}
+
+export function createsFaceDownCreature(
+  permanent: ManifestedPermanent,
+): boolean {
+  return permanent.isFaceDown;
+}
+
+export function createManifestResult(
+  action: ManifestAction,
+  permanents: readonly ManifestedPermanent[],
+): ManifestResult {
+  return {
+    playerId: action.playerId,
+    manifestedCount: action.cardIds.length,
+    fromZone: action.fromZone,
+    oneAtATime: MANIFEST_ONE_AT_A_TIME,
+    canAnyTurnFaceUp: permanents.some((permanent) => permanent.canTurnFaceUp),
   };
 }

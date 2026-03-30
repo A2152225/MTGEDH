@@ -17,6 +17,14 @@ export interface AssembleAction {
   readonly contraptionId?: string;
 }
 
+export interface AssembleResult {
+  readonly playerId: string;
+  readonly contraptionId?: string;
+  readonly assembled: boolean;
+  readonly requiresAvailableContraption: boolean;
+  readonly unsetMechanic: boolean;
+}
+
 /**
  * Rule 701.45a: Assemble (silver-bordered/Un-set mechanic)
  */
@@ -41,11 +49,28 @@ export function completeAssemble(
   };
 }
 
+export function assemblesContraption(action: AssembleAction): boolean {
+  return typeof action.contraptionId === 'string';
+}
+
 /**
  * Assemble requires an available Contraption to complete.
  */
 export function canAssemble(availableContraptionIds: readonly string[]): boolean {
   return availableContraptionIds.length > 0;
+}
+
+export function createAssembleResult(
+  action: AssembleAction,
+  availableContraptionIds: readonly string[] = [],
+): AssembleResult {
+  return {
+    playerId: action.playerId,
+    contraptionId: action.contraptionId,
+    assembled: assemblesContraption(action),
+    requiresAvailableContraption: canAssemble(availableContraptionIds),
+    unsetMechanic: UN_SET_MECHANIC,
+  };
 }
 
 /**

@@ -20,6 +20,15 @@ export interface ExploreAction {
   readonly cardToGraveyard?: boolean;
 }
 
+export interface ExploreResult {
+  readonly permanentId: string;
+  readonly controllerId: string;
+  readonly revealedCardId?: string;
+  readonly putsLandIntoHand: boolean;
+  readonly addsCounter: boolean;
+  readonly mayPutCardIntoGraveyard: boolean;
+}
+
 /**
  * Rule 701.44a: Explore
  */
@@ -49,6 +58,21 @@ export function completeExplore(
     wasLand,
     counterAdded: !wasLand,
     cardToGraveyard: wasLand ? false : cardToGraveyard,
+  };
+}
+
+export function createsExploreCounter(wasLand: boolean): boolean {
+  return !wasLand;
+}
+
+export function createExploreResult(action: ExploreAction): ExploreResult {
+  return {
+    permanentId: action.permanentId,
+    controllerId: action.controllerId,
+    revealedCardId: action.revealedCardId,
+    putsLandIntoHand: action.wasLand === true,
+    addsCounter: action.counterAdded === true,
+    mayPutCardIntoGraveyard: action.wasLand === false,
   };
 }
 

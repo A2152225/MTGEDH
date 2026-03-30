@@ -18,6 +18,15 @@ export interface ConniveAction {
   readonly discardedNonlandCount?: number;
 }
 
+export interface ConniveResult {
+  readonly permanentId: string;
+  readonly controllerId: string;
+  readonly drawnCards: number;
+  readonly discardedCards: number;
+  readonly countersAdded: number;
+  readonly usesLastKnownInformation: boolean;
+}
+
 /**
  * Rule 701.50a: Connive
  */
@@ -64,6 +73,10 @@ export function completeConnive(
   };
 }
 
+export function getConniveCounterCount(discardedNonlandCount: number): number {
+  return Math.max(0, discardedNonlandCount);
+}
+
 /**
  * Rule 701.50b: Connived even if impossible
  */
@@ -90,4 +103,22 @@ export function sortMultipleConnives(
     const indexB = apnapOrder.indexOf(b.controllerId);
     return indexA - indexB;
   });
+}
+
+export function createConniveResult(
+  action: ConniveAction,
+  usesLastKnownInformation: boolean = false,
+): ConniveResult {
+  const drawnCards = action.drawnCards ?? action.n ?? 1;
+  const discardedCards = action.n ?? 1;
+  const countersAdded = getConniveCounterCount(action.discardedNonlandCount ?? 0);
+
+  return {
+    permanentId: action.permanentId,
+    controllerId: action.controllerId,
+    drawnCards,
+    discardedCards,
+    countersAdded,
+    usesLastKnownInformation,
+  };
 }

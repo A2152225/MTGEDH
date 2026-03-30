@@ -18,6 +18,14 @@ export interface AmassAction {
   readonly createdToken?: boolean;
 }
 
+export interface AmassResult {
+  readonly playerId: string;
+  readonly subtype: string;
+  readonly chosenArmyId?: string;
+  readonly createdArmyToken: boolean;
+  readonly countersAdded: number;
+}
+
 /**
  * Rule 701.47a: Amass [subtype] N
  */
@@ -51,6 +59,20 @@ export function completeAmass(
     n,
     chosenArmyId,
     createdToken,
+  };
+}
+
+export function needsArmyToken(existingArmyCount: number): boolean {
+  return existingArmyCount === 0;
+}
+
+export function createAmassResult(action: AmassAction): AmassResult {
+  return {
+    playerId: action.playerId,
+    subtype: normalizeAmassSubtype(action.subtype),
+    chosenArmyId: action.chosenArmyId,
+    createdArmyToken: action.createdToken === true,
+    countersAdded: Math.max(0, action.n),
   };
 }
 

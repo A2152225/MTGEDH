@@ -12,6 +12,14 @@ export interface ExertAction {
   readonly controllerId: string;
 }
 
+export interface ExertResult {
+  readonly permanentId: string;
+  readonly controllerId: string;
+  readonly legal: boolean;
+  readonly appliesUntapRestriction: boolean;
+  readonly exertCount: number;
+}
+
 /**
  * Rule 701.43a: Exert a permanent
  * 
@@ -74,6 +82,24 @@ export function addExertion(state: ExertedState): ExertedState {
   return {
     ...state,
     exertCount: state.exertCount + 1,
+  };
+}
+
+export function hasExertUntapRestriction(state: ExertedState): boolean {
+  return state.exertCount > 0;
+}
+
+export function createExertResult(
+  action: ExertAction,
+  legal: boolean,
+  exertCount: number,
+): ExertResult {
+  return {
+    permanentId: action.permanentId,
+    controllerId: action.controllerId,
+    legal,
+    appliesUntapRestriction: legal && exertCount > 0,
+    exertCount,
   };
 }
 

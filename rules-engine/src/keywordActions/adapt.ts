@@ -14,6 +14,14 @@ export interface AdaptAction {
   readonly hadCounters: boolean;
 }
 
+export interface AdaptResult {
+  readonly permanentId: string;
+  readonly requestedCounters: number;
+  readonly countersAdded: number;
+  readonly hadCounters: boolean;
+  readonly adaptsSuccessfully: boolean;
+}
+
 /**
  * Rule 701.46a: Adapt N
  */
@@ -37,9 +45,25 @@ export function willAdaptAddCounters(currentCounters: number): boolean {
   return currentCounters === 0;
 }
 
+export function isAdaptLocked(currentCounters: number): boolean {
+  return currentCounters > 0;
+}
+
 /**
  * Get counters to add from adapt
  */
 export function getAdaptCounters(n: number, currentCounters: number): number {
   return currentCounters === 0 ? n : 0;
+}
+
+export function createAdaptResult(action: AdaptAction): AdaptResult {
+  const countersAdded = action.hadCounters ? 0 : action.n;
+
+  return {
+    permanentId: action.permanentId,
+    requestedCounters: action.n,
+    countersAdded,
+    hadCounters: action.hadCounters,
+    adaptsSuccessfully: countersAdded > 0,
+  };
 }

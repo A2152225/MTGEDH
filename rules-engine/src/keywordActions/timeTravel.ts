@@ -23,6 +23,20 @@ export interface TimeTravelChoice {
   readonly addCounter: boolean;
 }
 
+export interface TimeTravelActionResult {
+  readonly playerId: string;
+  readonly choiceCount: number;
+  readonly validSelection: boolean;
+  readonly netCounterChange: number;
+  readonly affectsPermanents: boolean;
+  readonly affectsSuspendedCards: boolean;
+}
+
+export interface TimeTravelChosenObject extends TimeTravelChoice {
+  readonly isPermanent?: boolean;
+  readonly isSuspended?: boolean;
+}
+
 type TimeTravelCandidate = {
   readonly isControlled?: boolean;
   readonly isOwned?: boolean;
@@ -110,9 +124,36 @@ export function isValidTimeTravelSelection(
   return true;
 }
 
+export function affectsSuspendedCards(
+  chosenObjects: readonly TimeTravelChosenObject[],
+): boolean {
+  return chosenObjects.some((choice) => choice.isSuspended === true);
+}
+
+export function affectsBattlefieldPermanents(
+  chosenObjects: readonly TimeTravelChosenObject[],
+): boolean {
+  return chosenObjects.some((choice) => choice.isPermanent === true);
+}
+
 /**
  * Net number of counters added minus removed across a time-travel choice set.
  */
 export function getNetTimeTravelCounterChange(chosenObjects: readonly TimeTravelChoice[]): number {
   return chosenObjects.reduce((sum, choice) => sum + (choice.addCounter ? 1 : -1), 0);
+}
+
+export function createTimeTravelActionResult(
+  action: TimeTravelAction,
+  eligibleObjectIds: readonly string[],
+  chosenObjects: readonly TimeTravelChosenObject[] = action.chosenObjects,
+): TimeTravelActionResult {
+  return {
+    playerId: action.playerId,
+    choiceCount: action.chosenObjects.length,
+    validSelection: isValidTimeTravelSelection(action.chosenObjects, eligibleObjectIds),
+    netCounterChange: getNetTimeTravelCounterChange(action.chosenObjects),
+    affectsPermanents: affectsBattlefieldPermanents(chosenObjects),
+    affectsSuspendedCards: affectsSuspendedCards(chosenObjects),
+  };
 }

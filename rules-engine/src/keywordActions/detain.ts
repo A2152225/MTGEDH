@@ -21,6 +21,16 @@ export interface DetainedState {
   readonly timestamp: number;
 }
 
+export interface DetainResult {
+  readonly permanentId: string;
+  readonly detainerId: string;
+  readonly detained: boolean;
+  readonly canAttack: boolean;
+  readonly canBlock: boolean;
+  readonly canActivateAbilities: boolean;
+  readonly expiresOnTurnOf: string;
+}
+
 /**
  * Rule 701.35a: Detain a permanent
  * 
@@ -81,4 +91,29 @@ export function canBlockIfDetained(detained: boolean): boolean {
 
 export function canActivateAbilitiesIfDetained(detained: boolean): boolean {
   return !detained;
+}
+
+export function hasDetainRestrictions(
+  state: DetainedState | null,
+  currentTurnPlayer: string,
+): boolean {
+  return isDetained(state, currentTurnPlayer);
+}
+
+export function createDetainResult(
+  action: DetainAction,
+  state: DetainedState,
+  currentTurnPlayer: string,
+): DetainResult {
+  const detained = hasDetainRestrictions(state, currentTurnPlayer);
+
+  return {
+    permanentId: action.permanentId,
+    detainerId: action.detainerId,
+    detained,
+    canAttack: canAttackIfDetained(detained),
+    canBlock: canBlockIfDetained(detained),
+    canActivateAbilities: canActivateAbilitiesIfDetained(detained),
+    expiresOnTurnOf: state.expiresOnTurnOf,
+  };
 }

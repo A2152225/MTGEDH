@@ -76,6 +76,13 @@ export interface BolsterResult {
   readonly countersAdded: number;
 }
 
+export interface BolsterSummary {
+  readonly playerId: string;
+  readonly targetCreatureId?: string;
+  readonly amongLeastToughness: boolean;
+  readonly countersAdded: number;
+}
+
 export function createBolsterResult(
   creatureId: string | null,
   n: number
@@ -84,5 +91,25 @@ export function createBolsterResult(
     bolstered: creatureId !== null,
     creatureId,
     countersAdded: creatureId !== null ? n : 0,
+  };
+}
+
+export function choosesLeastToughnessCreature(
+  action: BolsterAction,
+  leastToughnessCreatureIds: readonly string[],
+): boolean {
+  return typeof action.targetCreatureId === 'string'
+    && leastToughnessCreatureIds.includes(action.targetCreatureId);
+}
+
+export function createBolsterSummary(
+  action: BolsterAction,
+  leastToughnessCreatureIds: readonly string[],
+): BolsterSummary {
+  return {
+    playerId: action.playerId,
+    targetCreatureId: action.targetCreatureId,
+    amongLeastToughness: choosesLeastToughnessCreature(action, leastToughnessCreatureIds),
+    countersAdded: action.targetCreatureId ? action.n : 0,
   };
 }

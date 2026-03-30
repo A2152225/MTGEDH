@@ -19,6 +19,14 @@ export interface MonstrousState {
   readonly monstrosityX: number; // The value of X when it became monstrous
 }
 
+export interface MonstrosityResult {
+  readonly permanentId: string;
+  readonly becameMonstrous: boolean;
+  readonly alreadyMonstrous: boolean;
+  readonly countersAdded: number;
+  readonly monstrosityX: number;
+}
+
 /**
  * Rule 701.37a: Monstrosity N
  * 
@@ -88,5 +96,20 @@ export function createMonstrousState(permanentId: string): MonstrousState {
     permanentId,
     isMonstrous: false,
     monstrosityX: 0,
+  };
+}
+
+export function createMonstrosityResult(
+  action: MonstrosityAction,
+  previousState: MonstrousState,
+): MonstrosityResult {
+  const becameMonstrous = !previousState.isMonstrous;
+
+  return {
+    permanentId: action.permanentId,
+    becameMonstrous,
+    alreadyMonstrous: previousState.isMonstrous,
+    countersAdded: becameMonstrous ? action.n : 0,
+    monstrosityX: becameMonstrous ? action.n : previousState.monstrosityX,
   };
 }

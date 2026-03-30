@@ -16,6 +16,14 @@ export interface LearnAction {
   readonly revealedLesson?: string;
 }
 
+export interface LearnResult {
+  readonly playerId: string;
+  readonly discardedCard: boolean;
+  readonly drewCard: boolean;
+  readonly tookLesson: boolean;
+  readonly revealedLesson?: string;
+}
+
 /**
  * Rule 701.48a: Learn
  */
@@ -54,5 +62,19 @@ export function learnWithLesson(
     playerId,
     discardedCard: false,
     revealedLesson: lessonCardId,
+  };
+}
+
+export function usesLessonFallback(action: LearnAction): boolean {
+  return action.discardedCard === false && typeof action.revealedLesson === 'string';
+}
+
+export function createLearnResult(action: LearnAction): LearnResult {
+  return {
+    playerId: action.playerId,
+    discardedCard: action.discardedCard === true,
+    drewCard: action.drewCard === true,
+    tookLesson: usesLessonFallback(action),
+    revealedLesson: action.revealedLesson,
   };
 }

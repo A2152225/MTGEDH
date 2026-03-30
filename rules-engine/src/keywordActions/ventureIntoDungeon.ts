@@ -16,6 +16,15 @@ export interface VentureAction {
   readonly completedDungeon?: boolean;
 }
 
+export interface VentureResult {
+  readonly playerId: string;
+  readonly dungeonName?: string;
+  readonly enteredDungeon: boolean;
+  readonly movedRooms: boolean;
+  readonly completedDungeon: boolean;
+  readonly nextRoom?: string;
+}
+
 /**
  * Rule 701.49a: No dungeon in command zone
  */
@@ -77,5 +86,20 @@ export function ventureIntoQuality(
     type: 'venture-into-dungeon',
     playerId,
     dungeonName,
+  };
+}
+
+export function startsNewDungeon(action: VentureAction): boolean {
+  return action.currentRoom === 'entrance' || action.completedDungeon === true;
+}
+
+export function createVentureResult(action: VentureAction): VentureResult {
+  return {
+    playerId: action.playerId,
+    dungeonName: action.dungeonName,
+    enteredDungeon: startsNewDungeon(action),
+    movedRooms: typeof action.nextRoom === 'string',
+    completedDungeon: action.completedDungeon === true,
+    nextRoom: action.nextRoom,
   };
 }
