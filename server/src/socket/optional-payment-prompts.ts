@@ -185,6 +185,13 @@ export function queueShockLandPaymentStep(
     return;
   }
 
+  const getCurrentPermanent = () => {
+    const battlefield = Array.isArray((game.state as any)?.battlefield)
+      ? ((game.state as any).battlefield as any[])
+      : [];
+    return battlefield.find((entry: any) => String(entry?.id || '') === permanentId) || permanent;
+  };
+
   const existing = ResolutionQueueManager
     .getStepsForPlayer(gameId, playerId as any)
     .find((s: any) => (s as any)?.shockLandChoice === true && String((s as any)?.permanentId || '') === permanentId);
@@ -231,7 +238,10 @@ export function queueShockLandPaymentStep(
       (game.state as any).lifeLostThisTurn[playerId] =
         Number((game.state as any).lifeLostThisTurn[playerId] || 0) + 2;
 
-      (permanent as any).tapped = false;
+      const currentPermanent = getCurrentPermanent();
+      if (currentPermanent) {
+        (currentPermanent as any).tapped = false;
+      }
 
       io?.to?.(gameId)?.emit?.('chat', {
         id: `m_${Date.now()}`,
@@ -260,7 +270,10 @@ export function queueShockLandPaymentStep(
       }
     },
     onDecline: async () => {
-      (permanent as any).tapped = true;
+      const currentPermanent = getCurrentPermanent();
+      if (currentPermanent) {
+        (currentPermanent as any).tapped = true;
+      }
 
       io?.to?.(gameId)?.emit?.('chat', {
         id: `m_${Date.now()}`,

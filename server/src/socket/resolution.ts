@@ -1802,10 +1802,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     const nextStep = steps.length > 0 ? steps[0] : undefined;
     
     if (nextStep) {
-      socket.emit("resolutionStepPrompt", {
-        gameId,
-        step: sanitizeStepForClient(gameId, nextStep),
-      });
+      emitResolutionStepPrompt(socket, gameId, nextStep);
     } else {
       socket.emit("noResolutionStep", { gameId });
     }
@@ -5308,6 +5305,13 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
  * Sanitize a resolution step for sending to the client
  * Removes internal data and formats for client consumption
  */
+export function emitResolutionStepPrompt(socket: Socket, gameId: string, step: ResolutionStep): void {
+  socket.emit("resolutionStepPrompt", {
+    gameId,
+    step: sanitizeStepForClient(gameId, step),
+  });
+}
+
 function sanitizeStepForClient(gameId: string, step: ResolutionStep): any {
   const oracleText = getOracleTextFromResolutionStep(step);
   const oracleContext = oracleText ? buildOraclePromptContext(oracleText) : undefined;
@@ -5764,16 +5768,25 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('colors' in step) fields.colors = (step as any).colors;
       break;
 
+    case ResolutionStepType.MANA_PAYMENT_CHOICE:
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
       if ('cardId' in step) fields.cardId = (step as any).cardId;
       if ('castSpellArgs' in step) fields.castSpellArgs = (step as any).castSpellArgs;
       if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('spellPaymentRequired' in step) fields.spellPaymentRequired = (step as any).spellPaymentRequired;
+      if ('phyrexianManaChoice' in step) fields.phyrexianManaChoice = (step as any).phyrexianManaChoice;
       if ('abilityText' in step) fields.abilityText = (step as any).abilityText;
+      if ('effectId' in step) fields.effectId = (step as any).effectId;
+      if ('targets' in step) fields.targets = (step as any).targets;
       if ('totalManaCost' in step) fields.totalManaCost = (step as any).totalManaCost;
       if ('manaCost' in step) fields.manaCost = (step as any).manaCost;
       if ('genericCost' in step) fields.genericCost = (step as any).genericCost;
       if ('phyrexianChoices' in step) fields.phyrexianChoices = (step as any).phyrexianChoices;
       if ('playerLife' in step) fields.playerLife = (step as any).playerLife;
+      if ('imageUrl' in step) fields.imageUrl = (step as any).imageUrl;
+      if ('costReduction' in step) fields.costReduction = (step as any).costReduction;
+      if ('convokeOptions' in step) fields.convokeOptions = (step as any).convokeOptions;
+      if ('forcedAlternateCostId' in step) fields.forcedAlternateCostId = (step as any).forcedAlternateCostId;
       break;
 
     case ResolutionStepType.MUTATE_TARGET_SELECTION:
@@ -16875,7 +16888,7 @@ async function putCardOntoBattlefield(
   // ====================================================================================
   const isLand = tl.includes('land');
   const cardName = card.name || "Unknown";
-  if (isLand && isShockLand(cardName) && io && gameId) {
+  if (isLand && isShockLand(cardName, String(card?.oracle_text || '')) && io && gameId) {
     // Shock land detected - queue choice to player
     const currentLife = (game.state as any)?.life?.[controller] || 
                        (game as any)?.life?.[controller] || 40;

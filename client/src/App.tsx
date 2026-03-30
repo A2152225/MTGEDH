@@ -4253,6 +4253,19 @@ export function App() {
     });
   };
 
+  const requestCastSpellWithPromptSync = React.useCallback((payload: {
+    gameId: string;
+    cardId: string;
+    faceIndex?: number;
+    fromZone?: 'exile' | 'hand' | 'graveyard';
+  }) => {
+    socket.emit('requestCastSpell', payload);
+
+    window.setTimeout(() => {
+      socket.emit('getMyNextResolutionStep', { gameId: payload.gameId });
+    }, 0);
+  }, []);
+
   // Split/Adventure card choice handler
   const handleSplitCardChoose = (faceId: string, fused?: boolean) => {
     if (!splitCardData || !safeView || !you) return;
@@ -4299,7 +4312,7 @@ export function App() {
     }
     
     // Use MTG-compliant flow: request targets first if needed
-    socket.emit("requestCastSpell", {
+    requestCastSpellWithPromptSync({
       gameId: safeView.id,
       cardId: splitCardData.cardId,
       faceIndex,
@@ -4353,7 +4366,7 @@ export function App() {
     }
 
     // Most "cast/play from exile" permissions are handled via the normal cast request.
-    socket.emit('requestCastSpell', {
+    requestCastSpellWithPromptSync({
       gameId: safeView.id,
       cardId,
       fromZone: 'exile',
@@ -4918,7 +4931,7 @@ export function App() {
                 } else {
                   // Regular card - use MTG-compliant flow: request targets first, then payment
                   // Server will check if targets are needed and respond appropriately
-                  socket.emit("requestCastSpell", {
+                  requestCastSpellWithPromptSync({
                     gameId: safeView.id,
                     cardId,
                   });

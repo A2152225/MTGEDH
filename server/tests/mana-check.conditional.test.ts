@@ -6,6 +6,97 @@ import { getAvailableMana, parseManaCost, canPayManaCost } from '../src/state/mo
  * These sources should only produce colors that opponent lands/permanents can produce.
  */
 describe('Conditional Mana Sources', () => {
+  describe('Reflecting Pool', () => {
+    it('should only produce colors and colorless that your other lands could produce', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'pool_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Reflecting Pool',
+              type_line: 'Land',
+              oracle_text: '{T}: Add one mana of any type that a land you control could produce.',
+            },
+          },
+          {
+            id: 'island_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Island',
+              type_line: 'Basic Land — Island',
+              oracle_text: '',
+            },
+          },
+          {
+            id: 'wastes_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Wastes',
+              type_line: 'Basic Land — Wastes',
+              oracle_text: '{T}: Add {C}.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+
+      expect(mana.white).toBe(0);
+      expect(mana.blue).toBe(2);
+      expect(mana.black).toBe(0);
+      expect(mana.red).toBe(0);
+      expect(mana.green).toBe(0);
+      expect(mana.colorless).toBe(2);
+      expect((mana as any).anyColor || 0).toBe(0);
+    });
+
+    it('should not let Reflecting Pool count itself when no other land can make mana', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'pool_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Reflecting Pool',
+              type_line: 'Land',
+              oracle_text: '{T}: Add one mana of any type that a land you control could produce.',
+            },
+          },
+          {
+            id: 'pool_2',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Reflecting Pool',
+              type_line: 'Land',
+              oracle_text: '{T}: Add one mana of any type that a land you control could produce.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+
+      expect(mana.white).toBe(0);
+      expect(mana.blue).toBe(0);
+      expect(mana.black).toBe(0);
+      expect(mana.red).toBe(0);
+      expect(mana.green).toBe(0);
+      expect(mana.colorless).toBe(0);
+    });
+  });
+
   describe('Exotic Orchard', () => {
     it('should not produce any color when opponents have no lands', () => {
       const state = {

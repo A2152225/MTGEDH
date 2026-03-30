@@ -969,9 +969,21 @@ const ETB_STATIC_ALTERNATIVES = [
  */
 export function detectETBTriggers(card: any, permanent?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+  const isTransformCard = (card?.layout === 'transform' || card?.layout === 'double_faced_token') && cardFaces.length >= 2;
+  const activeFaceIndex = (permanent as any)?.transformed ? 1 : 0;
+  const activeFace = isTransformCard ? cardFaces[activeFaceIndex] || cardFaces[0] : undefined;
+  const oracleText = String(
+    isTransformCard
+      ? activeFace?.oracle_text || card?.oracle_text || ""
+      : card?.oracle_text || ""
+  );
   const lowerOracle = oracleText.toLowerCase();
-  const cardName = card?.name || "Unknown";
+  const cardName = String(
+    isTransformCard
+      ? activeFace?.name || card?.name || "Unknown"
+      : card?.name || "Unknown"
+  );
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
   

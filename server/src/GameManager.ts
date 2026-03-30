@@ -435,6 +435,7 @@ export type CreateGameOptions = { id?: string; startingState?: any };
 
 class GameManagerClass {
   private games: Map<string, any> = new Map();
+  private restoringGames: Set<string> = new Set();
   private rulesBridges: Map<string, RulesBridge> = new Map();
   private ioServer: any = null;
 
@@ -617,6 +618,10 @@ class GameManagerClass {
     let g = this.games.get(gameId);
     if (g) return g;
 
+    if (this.restoringGames.has(gameId)) {
+      return this.games.get(gameId);
+    }
+
     // IMPORTANT: Check if the game exists in the database before recreating it.
     // This prevents re-creating games that were previously deleted.
     // If the game doesn't exist in the database, don't create a new one.
@@ -644,6 +649,12 @@ class GameManagerClass {
     }
 
     this.initBasicShapes(game);
+
+    // Publish the partially-restored instance before replay so any re-entrant
+    // ensureGame calls during event replay reuse this object instead of
+    // rebuilding and replaying the same game again.
+    this.games.set(gameId, game);
+    this.restoringGames.add(gameId);
 
     // NEW: replay persisted events into a fresh game instance for this gameId
     try {
@@ -689,9 +700,9 @@ class GameManagerClass {
         { bootId: BOOT_ID, gameId },
         e
       );
+    } finally {
+      this.restoringGames.delete(gameId);
     }
-
-    this.games.set(gameId, game);
 
     // Initialize RulesBridge for rules engine integration
     if (this.ioServer && !this.rulesBridges.has(gameId)) {

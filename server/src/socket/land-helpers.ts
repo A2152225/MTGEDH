@@ -200,8 +200,15 @@ export const BOUNCE_LANDS = new Set([
 // ============================================================================
 
 /** Check if a card name is a shock land */
-export function isShockLand(cardName: string): boolean {
-  return SHOCK_LANDS.has((cardName || "").toLowerCase().trim());
+export function isShockLand(cardName: string, oracleText?: string): boolean {
+  const normalizedName = (cardName || "").toLowerCase().trim();
+  if (SHOCK_LANDS.has(normalizedName)) {
+    return true;
+  }
+
+  const normalizedOracleText = (oracleText || '').toLowerCase();
+  return normalizedOracleText.includes('you may pay 2 life') &&
+    normalizedOracleText.includes("if you don't, it enters tapped");
 }
 
 /** Check if a card name is a bounce land */

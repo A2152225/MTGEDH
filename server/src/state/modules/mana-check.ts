@@ -552,6 +552,113 @@ function getOpponentPermanentColors(state: any, playerId: PlayerID, onlyLands: b
   return opponentColors;
 }
 
+function getControlledPermanentColors(
+  state: any,
+  playerId: PlayerID,
+  onlyLands: boolean = true,
+  excludedPermanentId?: string,
+): Set<string> {
+  const controlledColors = new Set<string>();
+  const battlefield = state.battlefield || [];
+
+  for (const permanent of battlefield) {
+    if (permanent.controller !== playerId) continue;
+    if (!permanent.card) continue;
+    if (excludedPermanentId && String(permanent.id || '') === excludedPermanentId) continue;
+
+    const typeLine = (permanent.card.type_line || '').toLowerCase();
+    const cardName = (permanent.card.name || '').toLowerCase();
+    const oracleText = (permanent.card.oracle_text || '').toLowerCase();
+    const counters = permanent.counters || {};
+
+    if (onlyLands && !typeLine.includes('land')) continue;
+
+    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+      const landToColor: Record<string, string> = {
+        plains: 'white',
+        island: 'blue',
+        swamp: 'black',
+        mountain: 'red',
+        forest: 'green',
+      };
+      const colorKey = landToColor[cardName];
+      if (colorKey) controlledColors.add(colorKey);
+      continue;
+    }
+
+    const manaAbilityPattern = /(?:^|[.:])\s*(?:.*?(?:tap|enters|beginning|end|whenever|when))?\s*(?:.*?)add\s+([^.\n]+)/gi;
+    const matches = [...oracleText.matchAll(manaAbilityPattern)];
+    const abilityContextWindow = 100;
+
+    for (const match of matches) {
+      const fullManaText = match[1].trim();
+      const fullAbilityContext = match.input?.substring(
+        Math.max(0, match.index! - abilityContextWindow),
+        match.index! + abilityContextWindow,
+      ) || '';
+
+      if (/one mana of any color/i.test(fullManaText)) {
+        const hasCommanderCondition = /commander.*color identity/i.test(fullAbilityContext);
+        const hasOpponentLandCondition = /that (?:a |an )?land an opponent controls could produce/i.test(fullAbilityContext);
+        const hasOpponentPermanentCondition = /that (?:a |an )?permanent an opponent controls could produce/i.test(fullAbilityContext);
+        const hasControlledLandCondition = /that (?:a |an )?land you control could produce|among lands you control/i.test(fullAbilityContext);
+        const hasControlledPermanentCondition = /that (?:a |an )?permanent you control could produce|among permanents you control/i.test(fullAbilityContext);
+        const hasCounterReplacement = /if\s+.*\s+has\s+(?:a|an)\s+(\w+)\s+counter.*instead\s+add\s+one\s+mana\s+of\s+any\s+color/i.test(fullAbilityContext);
+
+        if (hasCommanderCondition || hasOpponentLandCondition || hasOpponentPermanentCondition) {
+          continue;
+        } else if (hasControlledLandCondition || hasControlledPermanentCondition) {
+          const nestedColors = getControlledPermanentColors(
+            state,
+            playerId,
+            hasControlledLandCondition,
+            String(permanent.id || ''),
+          );
+          for (const colorKey of nestedColors) {
+            controlledColors.add(colorKey);
+          }
+          continue;
+        } else if (hasCounterReplacement) {
+          const counterMatch = fullAbilityContext.match(/if\s+.*\s+has\s+(?:a|an)\s+(\w+)\s+counter/i);
+          const requiredCounterType = counterMatch ? counterMatch[1].toLowerCase() : null;
+
+          if (requiredCounterType && counters[requiredCounterType] && counters[requiredCounterType] > 0) {
+            controlledColors.add('white');
+            controlledColors.add('blue');
+            controlledColors.add('black');
+            controlledColors.add('red');
+            controlledColors.add('green');
+          }
+          continue;
+        } else {
+          controlledColors.add('white');
+          controlledColors.add('blue');
+          controlledColors.add('black');
+          controlledColors.add('red');
+          controlledColors.add('green');
+          continue;
+        }
+      }
+
+      const manaTokens = fullManaText.match(/\{([wubrgc])\}/gi) || [];
+      for (const token of manaTokens) {
+        const color = token.replace(/[{}]/g, '').toUpperCase();
+        const colorKey = {
+          W: 'white',
+          U: 'blue',
+          B: 'black',
+          R: 'red',
+          G: 'green',
+          C: 'colorless',
+        }[color];
+        if (colorKey) controlledColors.add(colorKey);
+      }
+    }
+  }
+
+  return controlledColors;
+}
+
 /**
  * Get total available mana for a player, including:
  * 1. Floating mana in their mana pool
@@ -911,16 +1018,18 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
           pool.anyColor = (pool.anyColor || 0) + 1;
         }
       } else if (isConditionalAnyColor) {
-        // Handle conditional "any color" sources like Exotic Orchard, Fellwar Stone, etc.
-        // These can only produce colors that opponent permanents can produce
-        const opponentColors = getOpponentPermanentColors(state, playerId);
-        
-        // Add 1 to each color that opponents can produce
-        // This ensures we only count mana we can actually produce
-        for (const colorKey of opponentColors) {
+        const checksControlledLands = /that (?:a |an )?land you control could produce|among lands you control/i.test(fullManaText);
+        const checksControlledPermanents = /that (?:a |an )?permanent you control could produce|among permanents you control/i.test(fullManaText);
+
+        // Handle conditional "any color" sources like Exotic Orchard, Fellwar Stone, Reflecting Pool, etc.
+        const conditionalColors = checksControlledLands || checksControlledPermanents
+          ? getControlledPermanentColors(state, playerId, checksControlledLands, String(permanent.id || ''))
+          : getOpponentPermanentColors(state, playerId);
+
+        for (const colorKey of conditionalColors) {
           pool[colorKey] = (pool[colorKey] || 0) + 1;
         }
-        
+
         // Note: We don't track these in 'anyColor' because they're not truly "any color"
         // They're restricted to what opponents can produce
       }

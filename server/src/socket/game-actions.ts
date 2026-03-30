@@ -1,7 +1,7 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
-import { processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder, queueMayAbilityStep } from "./resolution.js";
+import { emitResolutionStepPrompt, processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
 import {
@@ -52,6 +52,39 @@ import {
 } from "./land-helpers";
 
 export const emitPendingDamageTriggers = emitPendingDamageTriggersImpl;
+
+function findPendingSpellCastStep(gameId: string, playerId: string, cardId: string): any | undefined {
+  const normalizedCardId = String(cardId || '').trim();
+  if (!normalizedCardId) {
+    return undefined;
+  }
+
+  return ResolutionQueueManager
+    .getStepsForPlayer(gameId, playerId as any)
+    .find((step: any) => {
+      if (!step) {
+        return false;
+      }
+
+      const stepCardId = String(
+        step.cardId ??
+        step.mutateCardId ??
+        step.spellCastContext?.cardId ??
+        ''
+      ).trim();
+
+      if (stepCardId !== normalizedCardId) {
+        return false;
+      }
+
+      return (
+        (step.type === ResolutionStepType.MANA_PAYMENT_CHOICE && step.spellPaymentRequired === true) ||
+        (step.type === ResolutionStepType.TARGET_SELECTION && step.spellCastContext) ||
+        step.type === ResolutionStepType.MUTATE_TARGET_SELECTION ||
+        (step.type === ResolutionStepType.OPTION_CHOICE && step.mutateCastModeChoice === true)
+      );
+    });
+}
 
 /**
  * After resolveTopOfStack(), scan the resolved spell's oracle IR for optional
@@ -3052,7 +3085,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       // Check if this is a shock land and prompt the player
-      if (isShockLand(cardName)) {
+      const isShockLandCard = isShockLand(cardName, cardOracleText);
+      if (isShockLandCard) {
         // Find the permanent that was just played by its unique card ID (not by name)
         // This ensures we find the correct permanent when multiple copies of the same card exist
         const battlefield = game.state?.battlefield || [];
@@ -3078,7 +3112,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Check for other ETB-tapped lands (temples, gain lands, guildgates, etc.)
       // This detects lands that always enter tapped based on oracle text
-      if (!isShockLand(cardName) && !isBounceLand(cardName)) {
+      if (!isShockLandCard && !isBounceLand(cardName)) {
         const oracleText = (cardInZone as any)?.oracle_text || '';
         const etbPattern = detectETBTappedPattern(oracleText);
         
@@ -3435,17 +3469,45 @@ export function registerGameActions(io: Server, socket: Socket) {
     const castFaceIndex = faceIndex as number | undefined;
 
     try {
-      debug(2, `[requestCastSpell] ======== REQUEST START ========`);
-      debug(2, `[requestCastSpell] gameId: ${gameId}, cardId: ${cardId}, faceIndex: ${castFaceIndex}`);
-      
       const game = ensureGame(gameId);
       const playerId = socket.data.playerId;
       if (!game || !playerId) {
-        debug(1, `[requestCastSpell] ERROR: game or playerId not found`);
         return;
       }
 
       if (!ensureInGameRoom(gameId)) return;
+
+      const existingCastStep = findPendingSpellCastStep(gameId, String(playerId), String(cardId));
+      if (existingCastStep) {
+        debug(2, `[requestCastSpell] Existing cast flow already pending for card ${cardId}; re-emitting step ${existingCastStep.id}`);
+        emitResolutionStepPrompt(socket, gameId, existingCastStep);
+        return;
+      }
+
+      const pendingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any);
+      if (pendingSteps.length > 0) {
+        const nextPendingStep = pendingSteps[0] as any;
+        debug(2, `[requestCastSpell] Pending resolution step ${nextPendingStep.id} blocks starting a new cast for ${cardId}`);
+        emitResolutionStepPrompt(socket, gameId, nextPendingStep);
+        socket.emit('error', {
+          code: 'PENDING_DECISION',
+          message: 'Finish the current pending choice before starting another cast.',
+        });
+        return;
+      }
+
+      await requestCastSpellForSocket(io, socket, {
+        gameId,
+        cardId,
+        faceIndex: castFaceIndex,
+      });
+
+      const queuedCastStep = findPendingSpellCastStep(gameId, String(playerId), String(cardId));
+      if (queuedCastStep) {
+        debug(2, `[requestCastSpell] Explicitly emitting queued cast step ${queuedCastStep.id} for card ${cardId}`);
+        emitResolutionStepPrompt(socket, gameId, queuedCastStep);
+      }
+      return;
       
       debug(2, `[requestCastSpell] playerId: ${playerId}, priority: ${game.state.priority}`);
 
