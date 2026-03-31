@@ -5673,6 +5673,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         || (GameManager as any).getRulesBridge?.(gameId);
       if (bridge) {
         try {
+          // At this point the server has already validated the cast and committed mana/other costs.
+          // RulesBridge is advisory here because it does not mutate authoritative game.state.
           // Validate through rules engine
           const validation = bridge.validateAction({
             type: 'castSpell',
@@ -5685,36 +5687,34 @@ export function registerGameActions(io: Server, socket: Socket) {
           });
           
           if (!validation.legal) {
-            socket.emit("error", {
-              code: "INVALID_ACTION",
-              message: validation.reason || "Cannot cast spell",
+            debugWarn(
+              1,
+              `[castSpellFromHand] RulesBridge rejected post-payment cast of ${cardInHand.name} (${cardId}); continuing with authoritative applyEvent: ${validation.reason || 'Cannot cast spell'}`,
+            );
+          } else {
+            // Execute through rules engine (this will emit events)
+            const result = bridge.executeAction({
+              type: 'castSpell',
+              playerId,
+              cardId,
+              cardName: cardInHand.name,
+              manaCost: cardInHand.mana_cost,
+              cardTypes: (cardInHand.type_line || '').split('ΓÇö').map((s: string) => s.trim()),
+              targets: targets || [],
             });
-            return;
+            
+            if (!result.success) {
+              debugWarn(
+                1,
+                `[castSpellFromHand] RulesBridge failed post-payment cast execution for ${cardInHand.name} (${cardId}); continuing with authoritative applyEvent: ${result.error || 'Failed to cast spell'}`,
+              );
+            } else {
+              // RulesBridge validation passed - log it but still apply to real game state below
+              // The RulesBridge only validates and updates its internal state copy, NOT the actual game.state
+              // We MUST call applyEvent to update the real game state (remove from hand, add to stack)
+              debug(2, `[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) - RulesBridge validated`);
+            }
           }
-          
-          // Execute through rules engine (this will emit events)
-          const result = bridge.executeAction({
-            type: 'castSpell',
-            playerId,
-            cardId,
-            cardName: cardInHand.name,
-            manaCost: cardInHand.mana_cost,
-            cardTypes: (cardInHand.type_line || '').split('ΓÇö').map((s: string) => s.trim()),
-            targets: targets || [],
-          });
-          
-          if (!result.success) {
-            socket.emit("error", {
-              code: "EXECUTION_ERROR",
-              message: result.error || "Failed to cast spell",
-            });
-            return;
-          }
-          
-          // RulesBridge validation passed - log it but still apply to real game state below
-          // The RulesBridge only validates and updates its internal state copy, NOT the actual game.state
-          // We MUST call applyEvent to update the real game state (remove from hand, add to stack)
-          debug(2, `[castSpellFromHand] Player ${playerId} cast ${cardInHand.name} (${cardId}) - RulesBridge validated`);
         } catch (bridgeErr) {
           debugWarn(1, 'Rules engine validation failed, falling back to legacy:', bridgeErr);
           // Continue with legacy logic below

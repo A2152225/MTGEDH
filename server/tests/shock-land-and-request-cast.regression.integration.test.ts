@@ -1,6 +1,7 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { GameManager } from '../src/GameManager.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -443,5 +444,124 @@ describe('shock land and request-cast regressions (integration)', () => {
     expect(trainingCenter?.tapped).toBe(true);
     const homewardPath = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'homeward_path_1');
     expect(homewardPath?.tapped).toBe(true);
+  });
+
+  it('continues a paid targetless artifact cast when RulesBridge rejects the post-payment validation', async () => {
+    createGameIfNotExists(artifactCastGameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(artifactCastGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [
+      {
+        id: 'training_center_1',
+        controller: playerId,
+        tapped: false,
+        card: {
+          name: 'Training Center',
+          type_line: 'Land',
+          oracle_text: '{T}: Add {U} or {R}.',
+        },
+      },
+      {
+        id: 'homeward_path_1',
+        controller: playerId,
+        tapped: false,
+        card: {
+          name: 'Homeward Path',
+          type_line: 'Land',
+          oracle_text: '{T}: Add {C}.',
+        },
+      },
+    ];
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'runechanters_pike_1',
+            name: "Runechanter's Pike",
+            mana_cost: '{2}',
+            manaCost: '{2}',
+            type_line: 'Artifact — Equipment',
+            oracle_text: 'Equipped creature has first strike and gets +X/+0, where X is the number of instant and sorcery cards in your graveyard. Equip {2}.',
+            image_uris: { small: 'https://example.com/pike.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.data.gameId = artifactCastGameId;
+    socket.rooms.add(artifactCastGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: artifactCastGameId, cardId: 'runechanters_pike_1' });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(artifactCastGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: artifactCastGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: 'training_center_1', mana: 'U', count: 1 },
+          { permanentId: 'homeward_path_1', mana: 'C', count: 1 },
+        ],
+      },
+    });
+
+    const continueEvent = emitted.find(event => event.event === 'castSpellFromHandContinue');
+    expect(continueEvent?.payload?.cardId).toBe('runechanters_pike_1');
+
+    const syncRulesBridgeSpy = vi.spyOn(GameManager as any, 'syncRulesBridge').mockReturnValue({
+      validateAction: () => ({ legal: false, reason: 'bridge drift' }),
+      executeAction: () => ({ success: true }),
+    });
+
+    try {
+      emitted.length = 0;
+      await handlers['completeCastSpell'](continueEvent?.payload);
+    } finally {
+      syncRulesBridgeSpy.mockRestore();
+    }
+
+    const castError = emitted.find(event => event.event === 'error');
+    expect(castError).toBeUndefined();
+
+    const handIds = (((game.state as any).zones?.[playerId]?.hand) || []).map((card: any) => card.id);
+    expect(handIds).not.toContain('runechanters_pike_1');
+
+    const stackNames = ((game.state as any).stack || []).map((entry: any) => entry.card?.name || entry.sourceName || entry.id);
+    expect(stackNames).toContain("Runechanter's Pike");
   });
 });

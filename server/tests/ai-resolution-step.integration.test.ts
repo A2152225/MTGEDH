@@ -292,6 +292,53 @@ describe('AI resolution-step integration', () => {
     }
   });
 
+  it('passes priority instead of retrying a stale duplicate land already on the battlefield', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const duplicateLand = {
+      id: 'dup_land_card',
+      name: 'Myriad Landscape',
+      type_line: 'Land',
+      oracle_text: 'Myriad Landscape enters the battlefield tapped.\n{T}: Add {C}.',
+    };
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'precombatmain';
+    (game.state as any).step = 'main1';
+    (game.state as any).stack = [];
+    (game.state as any).landsPlayedThisTurn = {};
+    (game.state as any).zones = {
+      [playerId]: { hand: [duplicateLand], handCount: 1, library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'perm_dup_land',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: { ...duplicateLand },
+      },
+    ];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect((game.state as any).priority).toBe('opp1');
+    expect((game.state as any).battlefield).toHaveLength(1);
+  });
+
   it('deduplicates repeated broadcast-triggered human auto-pass scheduling', async () => {
     vi.useFakeTimers();
     try {

@@ -2587,6 +2587,11 @@ function canAIPlayLand(game: any, playerId: PlayerID): boolean {
   return isMainPhase && isAITurn && landsPlayed < maxLands;
 }
 
+function isCardAlreadyOnBattlefield(game: any, playerId: PlayerID, cardId: string): boolean {
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  return battlefield.some((permanent: any) => permanent?.controller === playerId && permanent?.card?.id === cardId);
+}
+
 /**
  * Find a playable land in the AI's hand
  */
@@ -2595,9 +2600,20 @@ function findPlayableLand(game: any, playerId: PlayerID): any | null {
   const hand = Array.isArray(zones?.hand) ? zones.hand : [];
   
   for (const card of hand) {
-    if (isLandCard(card)) {
-      return card;
+    if (!isLandCard(card)) {
+      continue;
     }
+
+    if (card?.id && isCardAlreadyOnBattlefield(game, playerId, String(card.id))) {
+      debugWarn(1, '[AI] Skipping stale duplicate land already on battlefield:', {
+        playerId,
+        cardId: card.id,
+        cardName: card.name,
+      });
+      continue;
+    }
+
+    return card;
   }
   return null;
 }
@@ -4226,10 +4242,13 @@ export async function handleAIPriority(
         const landCard = findPlayableLand(game, playerId);
         if (landCard) {
           debug(1, '[AI] Playing land:', landCard.name);
-          await executeAIPlayLand(io, gameId, playerId, landCard.id);
-          // After playing land, continue with more actions
-          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
-          return;
+          const playedLand = await executeAIPlayLand(io, gameId, playerId, landCard.id);
+          if (playedLand) {
+            // After playing land, continue with more actions
+            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            return;
+          }
+          debugWarn(1, '[AI] Land play attempt produced no state change, continuing main-phase decisions');
         } else {
           debug(1, '[AI] No land found in hand to play');
         }
@@ -4915,9 +4934,9 @@ async function executeAIPlayLand(
   gameId: string,
   playerId: PlayerID,
   cardId: string
-): Promise<void> {
+): Promise<boolean> {
   const game = ensureGame(gameId);
-  if (!game) return;
+  if (!game) return false;
   
   debug(1, '[AI] Playing land:', { gameId, playerId, cardId });
   
@@ -4929,8 +4948,14 @@ async function executeAIPlayLand(
 
     if (!cardToPlay) {
       debugWarn(1, '[AI] Land not found in AI hand:', { gameId, playerId, cardId });
-      return;
+      return false;
     }
+
+    const beforeOnBattlefield = isCardAlreadyOnBattlefield(game, playerId, cardId);
+    const beforeHandContains = Array.isArray(zones?.hand)
+      ? (zones.hand as any[]).some((c: any) => c?.id === cardId)
+      : false;
+    const beforeLandsPlayed = Number(game.state?.landsPlayedThisTurn?.[playerId] || 0);
 
     const bridge = (GameManager as any).syncRulesBridge?.(gameId, game.state)
       || (GameManager as any).getRulesBridge(gameId);
@@ -4948,7 +4973,7 @@ async function executeAIPlayLand(
           cardId,
           reason: validation?.reason,
         });
-        return;
+        return false;
       }
 
       const result = bridge.executeAction({
@@ -4964,7 +4989,7 @@ async function executeAIPlayLand(
           cardId,
           error: result?.error,
         });
-        return;
+        return false;
       }
     }
 
@@ -4972,13 +4997,41 @@ async function executeAIPlayLand(
       (game as any).playLand(playerId, cardId);
     } else {
       debugWarn(1, '[AI] game.playLand not available for AI land play');
-      return;
+      return false;
+    }
+
+    const afterZones = game.state?.zones?.[playerId];
+    const afterOnBattlefield = isCardAlreadyOnBattlefield(game, playerId, cardId);
+    const afterHandContains = Array.isArray(afterZones?.hand)
+      ? (afterZones.hand as any[]).some((c: any) => c?.id === cardId)
+      : false;
+    const afterLandsPlayed = Number(game.state?.landsPlayedThisTurn?.[playerId] || 0);
+    const didPlayLand =
+      (!beforeOnBattlefield && afterOnBattlefield) ||
+      (beforeHandContains && !afterHandContains) ||
+      afterLandsPlayed > beforeLandsPlayed;
+
+    if (!didPlayLand) {
+      debugWarn(1, '[AI] Ignoring no-op AI land play attempt:', {
+        gameId,
+        playerId,
+        cardId,
+        beforeOnBattlefield,
+        afterOnBattlefield,
+        beforeHandContains,
+        afterHandContains,
+        beforeLandsPlayed,
+        afterLandsPlayed,
+      });
+      return false;
     }
 
     finalizePlayedLand(io, game, gameId, String(playerId), cardId, cardToPlay, 'hand', { isAI: true });
+    return true;
     
   } catch (error) {
     debugError(1, '[AI] Error playing land:', error);
+    return false;
   }
 }
 
