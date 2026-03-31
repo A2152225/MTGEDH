@@ -336,6 +336,60 @@ describe('AI resolution-step integration', () => {
     }
   });
 
+  it('does not let the attacking AI declare blockers for itself', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'Attacking AI', spectator: false, life: 40, isAI: true },
+      { id: 'def_ai', name: 'Defending AI', spectator: false, life: 40, isAI: true },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_BLOCKERS';
+    (game.state as any).stack = [];
+    (game.state as any).blockersDeclaredBy = [];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      def_ai: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'attacker_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        attacking: 'def_ai',
+        counters: {},
+        card: {
+          id: 'attacker_card_1',
+          name: 'Goblin Raider',
+          type_line: 'Creature — Goblin Warrior',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    registerAIPlayer(gameId, playerId as any);
+    registerAIPlayer(gameId, 'def_ai' as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(((game.state as any).blockersDeclaredBy || [])).not.toContain(playerId);
+
+    (game.state as any).priority = 'def_ai';
+    await handleAIPriority(createNoopIo(), gameId, 'def_ai' as any);
+
+    expect(((game.state as any).blockersDeclaredBy || [])).not.toContain(playerId);
+    expect(String((game.state as any).step || '').toUpperCase()).not.toBe('DECLARE_BLOCKERS');
+  });
+
   it('does not synchronously chain multiple step advances after one AI auto-pass', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

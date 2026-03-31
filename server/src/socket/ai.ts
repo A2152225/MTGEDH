@@ -4422,6 +4422,12 @@ export async function handleAIPriority(
           // Don't take any action - wait for humans to declare blockers
           return;
         }
+
+        if (playerId === attackingPlayerId) {
+          debug(1, '[AI] Attacking player does not declare blockers, passing priority for defender declarations/responses');
+          await executePassPriority(io, gameId, playerId);
+          return;
+        }
         
         if (alreadyDeclared) {
           // Blockers already declared, just pass priority to allow responses
