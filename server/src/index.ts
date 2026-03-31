@@ -13,6 +13,7 @@ import {
 } from "./db/index.js";
 import { listDecks, saveDeck } from "./db/decks.js";
 import { addSuggestion, loadSuggestions } from "./db/houseRuleSuggestions.js";
+import { ensureLocalCardLookupIndex } from "./services/localCardLookup.js";
 import { parseDecklist, clearPlaneswalkerCache } from "./services/scryfall";
 import type {
   ClientToServerEvents,
@@ -33,6 +34,7 @@ type StartupOptions = {
   port: number;
   corsOrigin: string;
   clearPlaneswalkerCache: boolean;
+  warmLocalCardLookup: boolean;
   wipeGamesOnStartup: boolean;
   showHelp: boolean;
 };
@@ -40,6 +42,12 @@ type StartupOptions = {
 function readBooleanEnv(name: string): boolean {
   const raw = String(process.env[name] || '').trim().toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+function readBooleanEnvWithDefault(name: string, defaultValue: boolean): boolean {
+  const raw = String(process.env[name] || '').trim();
+  if (!raw) return defaultValue;
+  return readBooleanEnv(name);
 }
 
 function printStartupHelp(): void {
@@ -51,6 +59,7 @@ function printStartupHelp(): void {
   --sqlite-file <path>           Override SQLITE_FILE / SQLITE_PATH for this process.
   --debug-state <0|1|2>          Override DEBUG_STATE for this process.
   --clear-planeswalker-cache     Force the Scryfall planeswalker cache to be cleared at startup.
+  --skip-card-lookup-warmup      Do not prebuild the local deck-import card lookup table at startup.
   --wipe-games                   Delete persisted + in-memory games at startup.
   --wipe-games-on-startup        Alias for --wipe-games.
   --help                         Show this help and exit.
@@ -62,7 +71,7 @@ Examples:
 
 Environment variable equivalents:
   PORT, CORS_ORIGIN, SQLITE_FILE, SQLITE_PATH, DEBUG_STATE,
-  CLEAR_PLANESWALKER_CACHE, WIPE_GAMES_ON_STARTUP
+  CLEAR_PLANESWALKER_CACHE, LOCAL_CARD_LOOKUP_WARMUP, WIPE_GAMES_ON_STARTUP
 
 Note: --wipe-games only clears games and their persisted events. Saved decks are left intact.
 `);
@@ -87,6 +96,7 @@ function resolveStartupOptions(args: string[]): StartupOptions {
   let port = Number(process.env.PORT || 3001);
   let corsOrigin = process.env.CORS_ORIGIN || '*';
   let clearPlaneswalkerCacheOnStartup = readBooleanEnv('CLEAR_PLANESWALKER_CACHE');
+  let warmLocalCardLookup = readBooleanEnvWithDefault('LOCAL_CARD_LOOKUP_WARMUP', true);
   let wipeGamesOnStartup = readBooleanEnv('WIPE_GAMES_ON_STARTUP');
   let showHelp = false;
 
@@ -104,6 +114,12 @@ function resolveStartupOptions(args: string[]): StartupOptions {
     if (arg === '--clear-planeswalker-cache') {
       clearPlaneswalkerCacheOnStartup = true;
       process.env.CLEAR_PLANESWALKER_CACHE = 'true';
+      continue;
+    }
+
+    if (arg === '--skip-card-lookup-warmup') {
+      warmLocalCardLookup = false;
+      process.env.LOCAL_CARD_LOOKUP_WARMUP = 'false';
       continue;
     }
 
@@ -154,6 +170,7 @@ function resolveStartupOptions(args: string[]): StartupOptions {
     port,
     corsOrigin,
     clearPlaneswalkerCache: clearPlaneswalkerCacheOnStartup,
+    warmLocalCardLookup,
     wipeGamesOnStartup,
     showHelp,
   };
@@ -490,6 +507,25 @@ async function main() {
     // This is useful after adding new fields like loyalty to the ScryfallCard type
     if (startupOptions.clearPlaneswalkerCache) {
       clearPlaneswalkerCache();
+    }
+
+    if (startupOptions.warmLocalCardLookup) {
+      const startedAt = Date.now();
+      let lastLookupStatusMessage = '';
+      debug(1, '[Server] Warming local card lookup table for deck imports...');
+      try {
+        await ensureLocalCardLookupIndex({
+          onStatus: (status) => {
+            if (status.message && status.message !== lastLookupStatusMessage) {
+              debug(1, '[Server] Local card lookup warmup', { phase: status.phase, message: status.message });
+              lastLookupStatusMessage = status.message;
+            }
+          },
+        });
+        debug(1, '[Server] Local card lookup table ready', { durationMs: Date.now() - startedAt });
+      } catch (lookupError) {
+        debugWarn(1, '[Server] Local card lookup warmup failed; deck imports will build or fall back lazily', lookupError);
+      }
     }
   } catch (err) {
     debugError(1, "[Server] Failed to initialize database:", err);

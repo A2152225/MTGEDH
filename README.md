@@ -75,7 +75,10 @@ Server-only startup flags can be passed through the workspace script:
 ```bash
 npm --workspace @mtgedh/server run dev -- --wipe-games
 npm --workspace @mtgedh/server run dev -- --port 3002 --debug-state 1
+npm --workspace @mtgedh/server run dev -- --skip-card-lookup-warmup
 ```
+
+Deck imports now use a local SQLite card lookup table before Scryfall. By default the server warms that table at startup so the first real deck import does not pay the build cost. Set `LOCAL_CARD_LOOKUP_WARMUP=false` or pass `--skip-card-lookup-warmup` if you want to skip that prebuild step.
 
 5. Open browser to `http://localhost:3000`
 
