@@ -3510,6 +3510,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   sourceName: String((e as any).cardName || (permanent as any)?.card?.name || 'Ability'),
                   description: abilityText,
                   activatedAbilityText: activatedAbilityText || undefined,
+                  xValue: typeof (e as any).xValue === 'number' ? (e as any).xValue : undefined,
                 };
 
                 if (persistedTargets) {
@@ -3577,6 +3578,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   if (abilityText && String(item.description || '') !== abilityText) continue;
                   if (persistedTargets) {
                     (item as any).targets = persistedTargets.map((id: any) => String(id));
+                  }
+                  if (typeof (e as any).xValue === 'number') {
+                    (item as any).xValue = (e as any).xValue;
                   }
                   if (retargetValidTargets) {
                     (item as any).copyRetargetValidTargets = retargetValidTargets.map((target: any) => ({ ...target }));

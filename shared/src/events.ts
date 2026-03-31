@@ -500,7 +500,7 @@ export interface ClientToServerEvents {
   sacrificePermanent: (payload: { gameId: GameID; permanentId: string }) => void;
   
   // Activate ability on battlefield permanent
-  activateBattlefieldAbility: (payload: { gameId: GameID; permanentId: string; abilityId: string }) => void;
+  activateBattlefieldAbility: (payload: { gameId: GameID; permanentId: string; abilityId: string; xValue?: number }) => void;
   
   // Select mana color when tapping a creature for any color mana (e.g., Cryptolith Rite)
   manaColorSelect: (payload: { 

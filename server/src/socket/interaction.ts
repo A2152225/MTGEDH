@@ -396,6 +396,19 @@ function parseActivationCost(oracleText: string, abilityPattern: RegExp): {
   return { requiresTap, manaCost };
 }
 
+  function normalizeSelectedXValue(raw: unknown): number | undefined {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+    return Math.max(0, Math.floor(raw));
+  }
+
+  function applyXValueToText(text: string, xValue?: number): string {
+    if (typeof xValue !== 'number' || !Number.isFinite(xValue)) return String(text || '');
+    return String(text || '')
+      .replace(/\{X\}/gi, `{${xValue}}`)
+      .replace(/\bX\b/g, String(xValue))
+      .replace(/\bx\b/g, String(xValue));
+  }
+
 function extractActivatedAbilitiesFromText(text: string): Array<{ cost: string; effect: string; fullText: string }> {
   const extracted: Array<{ cost: string; effect: string; fullText: string }> = [];
   const seen = new Set<string>();
@@ -3352,10 +3365,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Activate a battlefield ability (fetch lands, mana abilities, etc.)
   socket.on(
     "activateBattlefieldAbility",
-    async (payload?: { gameId?: unknown; permanentId?: unknown; abilityId?: unknown }) => {
+    async (payload?: { gameId?: unknown; permanentId?: unknown; abilityId?: unknown; xValue?: unknown }) => {
     const gameIdRaw = payload?.gameId;
     const permanentId = payload?.permanentId;
     const abilityId = payload?.abilityId;
+    const selectedXValue = normalizeSelectedXValue(payload?.xValue);
 
     if (typeof permanentId !== "string") return;
 
@@ -8602,6 +8616,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    const resolvedAbilityText = applyXValueToText(abilityText, selectedXValue);
+    const resolvedActivatedAbilityText = applyXValueToText(
+      String(abilityConditionText || '').trim() || (manaCost ? `${manaCost}: ${abilityText}` : abilityText),
+      selectedXValue
+    );
+
     const maybeAutoTapForSimpleNonHybridCost = (required: { colors: Record<string, number>; generic: number }): void => {
       const manaPool = getOrInitManaPool(game.state, pid);
       const requiredColors: Record<string, number> = required?.colors || {};
@@ -8760,7 +8780,20 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ).join('');
         
         if (manaOnly) {
-          const parsedCost = parseManaCost(manaOnly);
+          const xSymbolCount = (manaOnly.match(/\{X\}/gi) || []).length;
+          if (xSymbolCount > 0 && selectedXValue === undefined) {
+            socket.emit('error', {
+              code: 'X_VALUE_REQUIRED',
+              message: `Choose a value for X before activating ${cardName}.`,
+            });
+            return;
+          }
+
+          const resolvedManaOnly = xSymbolCount > 0
+            ? applyXValueToText(manaOnly, selectedXValue)
+            : manaOnly;
+
+          const parsedCost = parseManaCost(resolvedManaOnly);
           const manaPool = getOrInitManaPool(game.state, pid);
           
           // For Phyrexian mana costs, we need to check if player can pay with mana OR life
@@ -8780,7 +8813,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           if (!canPayManaCost(availableForCheck as unknown as Record<string, number>, costForCheck, playerLife)) {
             socket.emit("error", {
               code: "INSUFFICIENT_MANA",
-              message: `Cannot pay ${manaOnly} - insufficient mana or life`,
+              message: `Cannot pay ${resolvedManaOnly} - insufficient mana or life`,
             });
             return;
           }
@@ -8891,7 +8924,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
               if (!paid) {
                 socket.emit("error", {
                   code: "INSUFFICIENT_MANA",
-                  message: `Cannot pay ${manaOnly} - insufficient mana`,
+                  message: `Cannot pay ${resolvedManaOnly} - insufficient mana`,
                 });
                 return;
               }
@@ -8913,7 +8946,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             if (validationError) {
               socket.emit('error', {
                 code: 'INSUFFICIENT_MANA',
-                message: `Cannot pay ${manaOnly}: ${validationError}`,
+                message: `Cannot pay ${resolvedManaOnly}: ${validationError}`,
               });
               return;
             }
@@ -8925,7 +8958,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             id: `m_${Date.now()}`,
             gameId,
             from: "system",
-            message: `${getPlayerName(game, pid)} paid ${manaOnly} to activate ${cardName}.`,
+            message: `${getPlayerName(game, pid)} paid ${resolvedManaOnly} to activate ${cardName}.`,
             ts: Date.now(),
           });
         }
@@ -9073,7 +9106,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Check if this is a tutor effect (searches library)
       const tutorInfo = detectTutorEffect(abilityText);
 
-      const activatedAbilityTextForStack = String(abilityConditionText || '').trim() || (manaCost ? `${manaCost}: ${abilityText}` : abilityText);
+      const activatedAbilityTextForStack = resolvedActivatedAbilityText;
 
       if (isBoastAbility) {
         (permanent as any).activatedThisTurn = true;
@@ -9091,7 +9124,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           controller: pid,
           source: permanentId,
           sourceName: cardName,
-          description: abilityText,
+          description: resolvedAbilityText,
           activatedAbilityText: activatedAbilityTextForStack,
           abilityType: 'tutor',
           searchParams: {
@@ -9180,8 +9213,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         controller: pid,
         source: permanentId,
         sourceName: cardName,
-        description: abilityText,
+        description: resolvedAbilityText,
         activatedAbilityText: activatedAbilityTextForStack,
+        xValue: selectedXValue,
       } as any;
       
       game.state.stack = game.state.stack || [];
@@ -9206,7 +9240,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         id: `m_${Date.now()}`,
         gameId,
         from: "system",
-        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s ability: ${abilityText}`,
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s ability: ${resolvedAbilityText}`,
         ts: Date.now(),
       });
     } else {
@@ -9647,15 +9681,16 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
 
-    const activatedAbilityText = String(abilityConditionText || '').trim() || (manaCost ? `${manaCost}: ${abilityText}` : abilityText);
+    const activatedAbilityText = resolvedActivatedAbilityText;
     
     appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", { 
       playerId: pid, 
       permanentId, 
       abilityId,
       cardName,
-      abilityText,
+      abilityText: resolvedAbilityText,
       activatedAbilityText,
+      xValue: selectedXValue,
       tappedPermanents: tappedPermanentsForCost,
       sacrificedPermanents: sacrificedPermanentsForCost,
       removedCountersForCost,

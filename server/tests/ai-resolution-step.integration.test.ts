@@ -196,6 +196,50 @@ describe('AI resolution-step integration', () => {
     }
   });
 
+  it('deduplicates repeated broadcast-triggered human auto-pass scheduling', async () => {
+    vi.useFakeTimers();
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: 'human1', name: 'Human 1', spectator: false, life: 40, isAI: false },
+        { id: 'human2', name: 'Human 2', spectator: false, life: 40, isAI: false },
+      ];
+      (game.state as any).turnPlayer = 'human1';
+      (game.state as any).activePlayer = 'human1';
+      (game.state as any).priority = 'human1';
+      (game.state as any).phase = 'beginning';
+      (game.state as any).step = 'UPKEEP';
+      (game.state as any).stack = [];
+      (game.state as any).battlefield = [];
+      (game.state as any).autoPassPlayers = new Set(['human1']);
+      (game.state as any).zones = {
+        human1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+        human2: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      };
+
+      const io = createNoopIo();
+      const timeoutSpy = vi.spyOn(global, 'setTimeout');
+      try {
+        broadcastGame(io, game, gameId);
+        broadcastGame(io, game, gameId);
+        broadcastGame(io, game, gameId);
+
+        const autoPassTimeouts = timeoutSpy.mock.calls.filter((call) => call[1] === 150);
+        expect(autoPassTimeouts).toHaveLength(1);
+
+        await vi.advanceTimersByTimeAsync(200);
+        expect((game.state as any).priority).toBe('human2');
+      } finally {
+        timeoutSpy.mockRestore();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('routes active option-choice steps through AI priority handling and submits the chosen option', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

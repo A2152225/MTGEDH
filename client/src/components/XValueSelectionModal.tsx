@@ -9,6 +9,8 @@ interface XValueSelectionModalProps {
   minValue?: number;
   maxValue?: number;
   suggestedMax?: number;
+  xCount?: number;
+  affordableXHint?: number;
 }
 
 /**
@@ -24,9 +26,16 @@ export function XValueSelectionModal({
   minValue = 0,
   maxValue = 20,
   suggestedMax,
+  xCount = 1,
+  affordableXHint,
 }: XValueSelectionModalProps) {
   const [xValue, setXValue] = useState(0);
   const effectiveMax = suggestedMax !== undefined ? Math.min(maxValue, suggestedMax) : maxValue;
+  const effectiveXCount = Math.max(1, xCount);
+  const totalManaForX = Math.max(0, xValue * effectiveXCount);
+  const sliderPercent = effectiveMax > minValue
+    ? ((xValue - minValue) / (effectiveMax - minValue)) * 100
+    : 100;
 
   useEffect(() => {
     if (isOpen) {
@@ -119,6 +128,18 @@ export function XValueSelectionModal({
             X Value: {xValue}
           </label>
 
+          {effectiveXCount > 1 && (
+            <div
+              style={{
+                marginBottom: 8,
+                fontSize: 13,
+                color: '#cbd5e1',
+              }}
+            >
+              Total mana paid for X: {totalManaForX} ({effectiveXCount} mana per X)
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <input
               id="x-value-input"
@@ -134,8 +155,8 @@ export function XValueSelectionModal({
                 borderRadius: 4,
                 outline: 'none',
                 background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${
-                  ((xValue - minValue) / (effectiveMax - minValue)) * 100
-                }%, #334155 ${((xValue - minValue) / (effectiveMax - minValue)) * 100}%, #334155 100%)`,
+                  sliderPercent
+                }%, #334155 ${sliderPercent}%, #334155 100%)`,
               }}
               autoFocus
             />
@@ -178,7 +199,33 @@ export function XValueSelectionModal({
             <span>Max: {effectiveMax}</span>
           </div>
 
-          {suggestedMax !== undefined && suggestedMax < maxValue && (
+          {effectiveXCount > 1 && (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: '#94a3b8',
+              }}
+            >
+              This activation has {effectiveXCount} X symbols, so the total mana paid changes in multiples of {effectiveXCount}.
+            </div>
+          )}
+
+          {affordableXHint !== undefined && (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: '#f59e0b',
+                fontStyle: 'italic',
+              }}
+            >
+              Current floating mana covers up to X={affordableXHint}
+              {effectiveXCount > 1 ? ` (${affordableXHint * effectiveXCount} total mana toward X)` : ''}.
+            </div>
+          )}
+
+          {suggestedMax !== undefined && suggestedMax < maxValue && affordableXHint === undefined && (
             <div
               style={{
                 marginTop: 8,

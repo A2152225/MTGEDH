@@ -43,6 +43,21 @@ import { getTopTriggeredAbilityAutoPassReason } from "./trigger-shortcuts.js";
  */
 const AUTO_PASS_DELAY_MS = 150;
 
+type PendingHumanAutoPass = {
+  playerId: PlayerID;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
+const pendingHumanAutoPassTimers = new Map<string, PendingHumanAutoPass>();
+
+function clearScheduledHumanAutoPass(gameId: string, playerId?: PlayerID | string | null) {
+  const pending = pendingHumanAutoPassTimers.get(gameId);
+  if (!pending) return;
+  if (playerId && pending.playerId !== playerId) return;
+  clearTimeout(pending.timeout);
+  pendingHumanAutoPassTimers.delete(gameId);
+}
+
 /**
  * Timeout for clearing the priority restoration flag.
  * This prevents recursive broadcasts when restoring stuck priority.
@@ -1711,6 +1726,11 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
   try {
     const stateAny = game.state as any;
     const priority = stateAny?.priority;
+    const priorityPlayerId = priority ? String(priority) as PlayerID : null;
+    const existingHumanAutoPass = pendingHumanAutoPassTimers.get(gameId);
+    if (existingHumanAutoPass && existingHumanAutoPass.playerId !== priorityPlayerId) {
+      clearScheduledHumanAutoPass(gameId);
+    }
     
     // ========================================================================
     // DEBUG: Track auto-pass calls to diagnose skip issues
@@ -1721,6 +1741,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     // ========================================================================
     
     if (!priority) {
+      clearScheduledHumanAutoPass(gameId);
       // CRITICAL FIX: If priority is null, check if we're stuck in resolution mode
       // Priority should only be null during:
       // 1. UNTAP step (Rule 502.1)
@@ -1791,6 +1812,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     // During pre_game, players are selecting decks, commanders, and making mulligan decisions.
     // Auto-pass should not interfere with these setup steps.
     if (stateAny?.phase === 'pre_game' || stateAny?.phase === 'PRE_GAME') {
+      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
       debug(2, `${ts()} [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: ${debugCallId})`);
       return;
     }
@@ -1810,6 +1832,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     const autoPassForTurn = stateAny.autoPassForTurn?.[priority] || false;
     
     if (!autoPassPlayers.has(priority) && !autoPassForTurn) {
+      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
       // Auto-pass not enabled for this player
       debug(2, `${ts()} [checkAndTriggerAutoPass] Auto-pass not enabled for ${priority}, returning (ID: ${debugCallId})`);
       return;
@@ -1819,6 +1842,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     const players = stateAny?.players || [];
     const priorityPlayer = players.find((p: any) => p?.id === priority);
     if (priorityPlayer && priorityPlayer.isAI) {
+      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
       // AI players are handled by checkAndTriggerAI, skip
       debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} is AI, handled separately (ID: ${debugCallId})`);
       return;
@@ -1829,6 +1853,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       stateAny.priorityClaimed = new Set<string>();
     }
     if (stateAny.priorityClaimed.has(priority)) {
+      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
       // Player has claimed priority, don't auto-pass
       debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} claimed priority, returning (ID: ${debugCallId})`);
       return;
@@ -1891,6 +1916,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       
       // If player can act, don't auto-pass
       if (playerCanAct) {
+        clearScheduledHumanAutoPass(gameId, priorityPlayerId);
         debug(2, `${ts()} [checkAndTriggerAutoPass] ${priority} CAN ACT - returning early, NO auto-pass (ID: ${debugCallId})`);
         return;
       }
@@ -1908,6 +1934,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     const isHumanPlayer = priorityPlayer && !priorityPlayer.isAI;
     
     const executeAutoPass = () => {
+      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
       debug(2, `${ts()} [executeAutoPass] ========== EXECUTING for ${priority} (ID: ${debugCallId}) ==========`);
       debug(2, `${ts()} [executeAutoPass] Phase: ${(game.state as any)?.phase}, Step: ${(game.state as any)?.step}`);
       
@@ -2052,9 +2079,19 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     // For human players without autoPassForTurn, add a small delay
     // This allows them to evaluate and claim priority if needed
     if (isHumanPlayer && !autoPassForTurn && !triggerAutoPassReason) {
+      if (existingHumanAutoPass?.playerId === priorityPlayerId) {
+        debug(2, `${ts()} [checkAndTriggerAutoPass] Auto-pass already scheduled for ${priority} (ID: ${debugCallId})`);
+        return;
+      }
+
       debug(2, `${ts()} [checkAndTriggerAutoPass] Scheduling auto-pass for ${priority} with ${AUTO_PASS_DELAY_MS}ms delay (ID: ${debugCallId})`);
-      setTimeout(executeAutoPass, AUTO_PASS_DELAY_MS);
+      const timeout = setTimeout(executeAutoPass, AUTO_PASS_DELAY_MS);
+      pendingHumanAutoPassTimers.set(gameId, {
+        playerId: priorityPlayerId as PlayerID,
+        timeout,
+      });
     } else {
+      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
       // AI players or autoPassForTurn: execute immediately
       debug(2, `${ts()} [checkAndTriggerAutoPass] Executing auto-pass for ${priority} IMMEDIATELY (isHuman=${isHumanPlayer}, autoPassForTurn=${autoPassForTurn}) (ID: ${debugCallId})`);
       executeAutoPass();

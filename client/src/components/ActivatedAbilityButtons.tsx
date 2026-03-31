@@ -722,6 +722,7 @@ export function ActivatedAbilityButtons({
           abilityText={xModalState.ability.effect}
           minValue={0}
           maxValue={20}
+          xCount={Math.max(1, Number(xModalState.ability.xCount || 1))}
         />
       )}
     </div>

@@ -3,7 +3,7 @@
 // Commander selection UI has been moved up into App.tsx, so this file no longer
 // handles suggestCommanders or commander modals directly.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BattlefieldPermanent,
   PlayerRef,
@@ -28,13 +28,33 @@ import { DeckManagerModal } from './DeckManagerModal';
 import { CentralStack } from './CentralStack';
 import { FloatingManaPool } from './FloatingManaPool';
 import { TokenGroups } from './TokenGroups';
+import { XValueSelectionModal } from './XValueSelectionModal';
 import { socket } from '../socket';
+import type { ParsedActivatedAbility } from '../utils/activatedAbilityParser';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayAreaGradientStyle, getBackgroundStyle, getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
+
+function getTotalFloatingMana(manaPool?: ManaPool | null) {
+  if (!manaPool) return 0;
+
+  const unrestricted =
+    Number(manaPool.white || 0) +
+    Number(manaPool.blue || 0) +
+    Number(manaPool.black || 0) +
+    Number(manaPool.red || 0) +
+    Number(manaPool.green || 0) +
+    Number(manaPool.colorless || 0) +
+    Number(manaPool.generic || 0);
+  const restricted = Array.isArray(manaPool.restricted)
+    ? manaPool.restricted.reduce((sum, entry) => sum + Number(entry?.amount || 0), 0)
+    : 0;
+
+  return unrestricted + restricted;
+}
 
 // Minimum zoom for initial board fit when joining a game.
 // Higher than manual zoom limits (0.15-0.2) to ensure UI elements are readable.
@@ -368,6 +388,7 @@ export function TableLayout(props: {
     return p.includes('main') || p.includes('precombat') || p.includes('postcombat');
   }, [phase]);
   const stackEmpty = useMemo(() => !stackItems || stackItems.length === 0, [stackItems]);
+  const totalFloatingMana = useMemo(() => getTotalFloatingMana(manaPool), [manaPool]);
 
   // Layout constants - sized for comfortable 7-card display in hand
   // Extended play areas by ~15% for better card visibility
@@ -426,6 +447,14 @@ export function TableLayout(props: {
   const dragRef = useRef<{ id: number; sx: number; sy: number; cx: number; cy: number; active: boolean } | null>(null);
   const [panKey, setPanKey] = useState(false);
   const [pendingTextSwapSource, setPendingTextSwapSource] = useState<string | null>(null);
+  const [pendingXActivation, setPendingXActivation] = useState<{
+    permanentId: string;
+    abilityId: string;
+    cardName: string;
+    abilityText?: string;
+    xCount: number;
+    affordableXHint?: number;
+  } | null>(null);
   // State for zone card context menu (works for hand, graveyard, exile, commander, library)
   const [zoneContextMenu, setZoneContextMenu] = useState<{ card: KnownCardRef; zone: ZoneType; x: number; y: number } | null>(null);
   // Keep track of which cards are ignored for playability checks
@@ -612,6 +641,56 @@ export function TableLayout(props: {
     }
     return all;
   }, [permanentsByPlayer]);
+
+  const battlefieldCardNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const permanent of allBattlefieldPerms) {
+      const card = permanent.card as KnownCardRef | undefined;
+      names.set(permanent.id, card?.name || permanent.id);
+    }
+    return names;
+  }, [allBattlefieldPerms]);
+
+  const emitBattlefieldAbilityActivation = useCallback((
+    permanentId: string,
+    abilityId: string | number,
+    ability?: ParsedActivatedAbility,
+    xValue?: number,
+  ) => {
+    if (!gameId) return;
+
+    const normalizedAbilityId = typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0');
+    if (xValue === undefined && ability?.hasXCost) {
+      const xCount = Math.max(1, Number(ability.xCount || 1));
+      setPendingXActivation({
+        permanentId,
+        abilityId: normalizedAbilityId,
+        cardName: battlefieldCardNames.get(permanentId) || ability.label || 'Activated Ability',
+        abilityText: ability.effect || ability.description,
+        xCount,
+        affordableXHint: totalFloatingMana > 0 ? Math.floor(totalFloatingMana / xCount) : undefined,
+      });
+      return;
+    }
+
+    socket.emit('activateBattlefieldAbility', {
+      gameId,
+      permanentId,
+      abilityId: normalizedAbilityId,
+      xValue,
+    });
+  }, [battlefieldCardNames, gameId, totalFloatingMana]);
+
+  const handlePendingXActivationSelect = useCallback((xValue: number) => {
+    if (!pendingXActivation || !gameId) return;
+    socket.emit('activateBattlefieldAbility', {
+      gameId,
+      permanentId: pendingXActivation.permanentId,
+      abilityId: pendingXActivation.abilityId,
+      xValue,
+    });
+    setPendingXActivation(null);
+  }, [gameId, pendingXActivation]);
 
   const cameraTransform =
     `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`;
@@ -1357,7 +1436,7 @@ export function TableLayout(props: {
                           players={players.map(p => ({ id: p.id, name: p.name }))}
                           onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
                           onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                          onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId: typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0') }) : undefined}
+                          onActivateAbility={isYouThis && gameId ? emitBattlefieldAbilityActivation : undefined}
                           onAddCounter={isYouThis ? onCounter : undefined}
                           onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                           onRemove={isYouThis ? onRemove : undefined}
@@ -1415,7 +1494,7 @@ export function TableLayout(props: {
                               onCounter={isYouPlayer ? onCounter : undefined}
                               onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
                               onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId: typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0') }) : undefined}
+                              onActivateAbility={isYouThis && gameId ? emitBattlefieldAbilityActivation : undefined}
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                               onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
                               onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
@@ -1454,7 +1533,7 @@ export function TableLayout(props: {
                               onCounter={isYouPlayer ? onCounter : undefined}
                               onTap={isYouThis && gameId ? (id) => socket.emit('tapPermanent', { gameId, permanentId: id }) : undefined}
                               onUntap={isYouThis && gameId ? (id) => socket.emit('untapPermanent', { gameId, permanentId: id }) : undefined}
-                              onActivateAbility={isYouThis && gameId ? (permanentId, abilityId) => socket.emit('activateBattlefieldAbility', { gameId, permanentId, abilityId: typeof abilityId === 'number' ? String(abilityId) : (abilityId || '0') }) : undefined}
+                              onActivateAbility={isYouThis && gameId ? emitBattlefieldAbilityActivation : undefined}
                               onSacrifice={isYouThis && gameId ? (id) => socket.emit('sacrificePermanent', { gameId, permanentId: id }) : undefined}
                               onIgnoreForAutoPass={isYouThis ? onIgnoreForAutoPass : undefined}
                               onUnignoreForAutoPass={isYouThis ? onUnignoreForAutoPass : undefined}
@@ -2015,6 +2094,20 @@ export function TableLayout(props: {
             </div>
           </div>
         </div>
+      )}
+
+      {pendingXActivation && (
+        <XValueSelectionModal
+          isOpen={true}
+          onClose={() => setPendingXActivation(null)}
+          onSelect={handlePendingXActivationSelect}
+          cardName={pendingXActivation.cardName}
+          abilityText={pendingXActivation.abilityText}
+          minValue={0}
+          maxValue={20}
+          xCount={pendingXActivation.xCount}
+          affordableXHint={pendingXActivation.affordableXHint}
+        />
       )}
       
       {/* Zone Card Context Menu (for hand, graveyard, exile, commander, library cards) */}

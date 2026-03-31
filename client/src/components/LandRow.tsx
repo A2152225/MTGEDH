@@ -83,7 +83,7 @@ export function LandRow(props: {
   // Context menu callbacks
   onTap?: (id: string) => void;
   onUntap?: (id: string) => void;
-  onActivateAbility?: (permanentId: string, abilityId: string, ability?: ParsedActivatedAbility) => void;
+  onActivateAbility?: (permanentId: string, abilityId: string, ability?: ParsedActivatedAbility, xValue?: number) => void;
   onSacrifice?: (id: string) => void;
   canActivate?: boolean;
   playerId?: string;
