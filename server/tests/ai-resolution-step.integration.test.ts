@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGameIfNotExists, initDb } from '../src/db/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
@@ -534,5 +535,110 @@ describe('AI resolution-step integration', () => {
     expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual(['trample']);
+  });
+
+  it('auto-resolves AI spell payment and completes the cast server-side', async () => {
+    const io = createNoopIo();
+    initializeAIResolutionHandler(io as any);
+
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const solRingCard = {
+      id: 'sol_ring_1',
+      name: 'Sol Ring',
+      type_line: 'Artifact',
+      oracle_text: '{T}: Add {C}{C}.',
+      mana_cost: '{1}',
+      cmc: 1,
+      zone: 'hand',
+    };
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, opp1: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'forest_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'forest_card_1',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '{T}: Add {G}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [{ ...solRingCard }],
+        handCount: 1,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).pendingSpellCasts = {
+      effect_sol_ring: {
+        cardId: 'sol_ring_1',
+        cardName: 'Sol Ring',
+        manaCost: '{1}',
+        playerId,
+        validTargetIds: [],
+        targets: [],
+        card: { ...solRingCard },
+      },
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: playerId as any,
+      description: 'Pay mana for Sol Ring.',
+      mandatory: true,
+      sourceId: 'effect_sol_ring',
+      sourceName: 'Sol Ring',
+      cardId: 'sol_ring_1',
+      cardName: 'Sol Ring',
+      effectId: 'effect_sol_ring',
+      spellPaymentRequired: true,
+      manaCost: '{1}',
+      totalManaCost: '{1}',
+      targets: [],
+    } as any);
+
+    await vi.waitFor(() => {
+      const hand = (game.state as any).zones?.[playerId]?.hand || [];
+      const stack = (game.state as any).stack || [];
+      const forest = ((game.state as any).battlefield || []).find((entry: any) => String(entry.id) === 'forest_1');
+
+      expect(hand.some((card: any) => String(card?.id || '') === 'sol_ring_1')).toBe(false);
+      expect(stack.some((entry: any) => String(entry?.card?.name || '') === 'Sol Ring')).toBe(true);
+      expect(forest?.tapped).toBe(true);
+      expect((game.state as any).pendingSpellCasts?.effect_sol_ring).toBeUndefined();
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const completed = queue.completedSteps.find((entry: any) => String(entry?.sourceId || '') === 'effect_sol_ring');
+    expect(completed?.response?.cancelled).toBe(false);
+    expect(completed?.response?.selections).toEqual({
+      payment: [{ permanentId: 'forest_1', mana: 'G' }],
+    });
   });
 });

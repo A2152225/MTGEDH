@@ -36,7 +36,7 @@ import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, is
 import { executeDeclareAttackers } from "./combat.js";
 import { parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
-import { handleBounceLandETB, chooseAILibrarySearchCards, chooseAIGraveyardSelectionIds } from "./ai.js";
+import { handleBounceLandETB, chooseAILibrarySearchCards, chooseAIGraveyardSelectionIds, chooseAISpellPaymentSelections } from "./ai.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { isShockLand } from "./land-helpers.js";
@@ -50,7 +50,7 @@ import { processDamageReceivedTriggers, resolveDamageTrigger, type DamageTrigger
 import { emitPendingDamageTriggers } from "./damage-triggers.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { executeTriggerEffect, triggerETBEffectsForToken } from "../state/modules/stack.js";
-import { creatureHasHaste, formatManaCostWithReduction, requestCastSpellForSocket } from "./game-actions.js";
+import { creatureHasHaste, formatManaCostWithReduction, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
@@ -204,6 +204,57 @@ function extractResolutionPaymentItems(rawSelections: any): ResolutionPaymentIte
       count: entry?.count != null ? Number(entry.count) : undefined,
     }))
     .filter((entry) => entry.permanentId && /^[WUBRGC]$/.test(entry.mana));
+}
+
+function createSyntheticAIGameActionSocket(gameId: string, playerId: string): { socket: any; handlers: Map<string, (...args: any[]) => any> } {
+  const handlers = new Map<string, (...args: any[]) => any>();
+  const socket: any = {
+    data: { gameId, playerId },
+    rooms: new Set([gameId]),
+    emit: (_event: string, _payload: any) => {
+      // AI uses server-side completion directly; client-facing emits are ignored here.
+    },
+    on: (event: string, handler: (...args: any[]) => any) => {
+      handlers.set(event, handler);
+      return socket;
+    },
+  };
+
+  return { socket, handlers };
+}
+
+async function resumeAISpellCastAfterPayment(
+  io: Server,
+  gameId: string,
+  playerId: string,
+  payload: {
+    cardId: string;
+    effectId?: string;
+    targets?: any[];
+    payment?: any[];
+    xValue?: number;
+    alternateCostId?: string;
+    convokeTappedCreatures?: string[];
+  },
+): Promise<void> {
+  const { socket, handlers } = createSyntheticAIGameActionSocket(gameId, playerId);
+  registerGameActions(io, socket as any);
+
+  const completeCastSpell = handlers.get('completeCastSpell');
+  if (typeof completeCastSpell !== 'function') {
+    throw new Error('Synthetic AI socket missing completeCastSpell handler');
+  }
+
+  await completeCastSpell({
+    gameId,
+    cardId: payload.cardId,
+    effectId: payload.effectId,
+    targets: payload.targets,
+    payment: payload.payment,
+    xValue: payload.xValue,
+    alternateCostId: payload.alternateCostId,
+    convokeTappedCreatures: payload.convokeTappedCreatures,
+  });
 }
 
 function validateWardManaPaymentSelection(
@@ -1916,6 +1967,35 @@ async function handleAIResolutionStep(
         }
         break;
       }
+
+      case ResolutionStepType.MANA_PAYMENT_CHOICE: {
+        const stepData = step as any;
+
+        if (stepData.spellPaymentRequired === true) {
+          const selections = await chooseAISpellPaymentSelections(io, gameId, game, step.playerId as any, stepData);
+          if (!selections) {
+            debugWarn(1, `[Resolution] AI could not assemble payment for ${String(stepData.cardName || stepData.sourceName || 'spell')}; cancelling cast`);
+            response = {
+              stepId: step.id,
+              playerId: step.playerId,
+              selections: { payment: [] },
+              cancelled: true,
+              timestamp: Date.now(),
+            };
+          } else {
+            response = {
+              stepId: step.id,
+              playerId: step.playerId,
+              selections,
+              cancelled: false,
+              timestamp: Date.now(),
+            };
+          }
+          break;
+        }
+
+        break;
+      }
       
       case ResolutionStepType.KEYWORD_CHOICE: {
         // Generic keyword choice - select first option
@@ -1963,8 +2043,40 @@ async function handleAIResolutionStep(
       // Complete the step with the AI's response
       const success = ResolutionQueueManager.completeStep(gameId, step.id, response);
       if (success) {
+        const shouldResumeSpellCast =
+          step.type === ResolutionStepType.MANA_PAYMENT_CHOICE &&
+          (step as any)?.spellPaymentRequired === true &&
+          response.cancelled !== true;
+
         // Trigger the response handler
         await handleStepResponse(io, game, gameId, step, response);
+
+        if (shouldResumeSpellCast) {
+          const stepData = step as any;
+          const selections = (response.selections || {}) as any;
+          const payment = Array.isArray(selections.payment)
+            ? selections.payment
+            : (Array.isArray(response.selections) ? response.selections : undefined);
+          const targets = Array.isArray(stepData.targets) ? stepData.targets : undefined;
+          const xValue = selections.xValue != null ? Number(selections.xValue) : undefined;
+          const alternateCostId = stepData.forcedAlternateCostId != null
+            ? String(stepData.forcedAlternateCostId)
+            : (selections.alternateCostId != null ? String(selections.alternateCostId) : undefined);
+          const convokeTappedCreatures = Array.isArray(selections.convokeTappedCreatures)
+            ? selections.convokeTappedCreatures.map((entry: any) => String(entry))
+            : undefined;
+
+          await resumeAISpellCastAfterPayment(io, gameId, String(step.playerId), {
+            cardId: String(stepData.cardId || stepData.sourceId || ''),
+            effectId: stepData.effectId != null ? String(stepData.effectId) : undefined,
+            targets,
+            payment,
+            xValue,
+            alternateCostId,
+            convokeTappedCreatures,
+          });
+        }
+
         // NOTE: Don't broadcast here - let the STEP_COMPLETED event handler broadcast
         // after exitResolutionMode has restored priority. This prevents a race condition
         // where the AI gets triggered before priority is restored.

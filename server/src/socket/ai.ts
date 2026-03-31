@@ -15,7 +15,7 @@ import type { Server, Socket } from "socket.io";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext, type AIPlayerConfig } from "../../../rules-engine/src/AIEngine.js";
 import { cardAnalyzer, CardCategory, SynergyArchetype, type DeckArchetypeProfile } from "../../../rules-engine/src/CardAnalyzer.js";
-import { calculateManaProduction, ensureGame, broadcastGame, getPlayerName, getOrInitManaPool } from "./util.js";
+import { calculateManaProduction, ensureGame, broadcastGame, getPlayerName, getOrInitManaPool, validateManaPayment } from "./util.js";
 import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
 import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
@@ -65,6 +65,8 @@ const AI_PAIN_LANDS = new Set([
   'horizon canopy', 'nurturing peatland', 'fiery islet', 'sunbaked canyon',
   'silent clearing', 'waterlogged grove',
 ]);
+
+const AI_MANA_ABILITY_PATTERN = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
 
 function normalizeRequestedGameSeed(rawSeed: unknown): number | undefined {
   if (rawSeed == null) return undefined;
@@ -3471,6 +3473,245 @@ function getPaymentSources(game: any, playerId: PlayerID, cost: { colors: Record
   return payments;
 }
 
+  function scoreAISacrificePermanentForManaAbility(game: any, playerId: PlayerID, permanent: any): number {
+    const profile = ensureAIDeckProfile(game, playerId);
+    const analysis = cardAnalyzer.analyzeCard(permanent);
+    const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+    const power = Number(permanent?.card?.power || permanent?.basePower || 0) || 0;
+    const toughness = Number(permanent?.card?.toughness || permanent?.baseToughness || 0) || 0;
+    let score = 0;
+
+    if ((permanent as any)?.isCommander) score += 1000;
+    if (typeLine.includes('land')) score += 500;
+    if (typeLine.includes('planeswalker')) score += 500;
+    if ((permanent as any)?.isToken) score -= 150;
+    if (typeLine.includes('treasure')) score -= 80;
+    if (typeLine.includes('clue') || typeLine.includes('food')) score -= 40;
+    if (hasManaAbility(permanent?.card)) score += 35;
+
+    score += analysis.comboPotential * 12;
+    score += calculateCardThemeAlignment(permanent?.card || permanent, profile) * 4;
+    score += power + toughness;
+
+    return score;
+  }
+
+  function chooseAISacrificePermanentForManaAbility(
+    game: any,
+    playerId: PlayerID,
+    sourcePermanent: any,
+    costSection: string,
+  ): any | null {
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    const lowerCost = String(costSection || '').toLowerCase();
+    const requireAnother = /\banother\b/i.test(lowerCost);
+    const requiredTypes: string[] = [];
+
+    if (/sacrifice\s+(?:an?\s+|another\s+)?creature/i.test(lowerCost)) requiredTypes.push('creature');
+    else if (/sacrifice\s+(?:an?\s+|another\s+)?artifact/i.test(lowerCost)) requiredTypes.push('artifact');
+    else if (/sacrifice\s+(?:an?\s+|another\s+)?enchantment/i.test(lowerCost)) requiredTypes.push('enchantment');
+    else if (/sacrifice\s+(?:an?\s+|another\s+)?land/i.test(lowerCost)) requiredTypes.push('land');
+
+    const candidates = battlefield
+      .filter((permanent: any) => {
+        if (!permanent || permanent.controller !== playerId) return false;
+        if (requireAnother && String(permanent.id || '') === String(sourcePermanent?.id || '')) return false;
+        if ((permanent as any)?.isCommander) return false;
+
+        const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+        return requiredTypes.length === 0 || requiredTypes.every((type) => typeLine.includes(type));
+      })
+      .sort((left: any, right: any) =>
+        scoreAISacrificePermanentForManaAbility(game, playerId, left) -
+        scoreAISacrificePermanentForManaAbility(game, playerId, right)
+      );
+
+    return candidates[0] || null;
+  }
+
+  function buildAIAvailableManaForSpellPayment(
+    game: any,
+    playerId: PlayerID,
+    paymentSources: Array<{ sourceId: string; produceColor: string }>,
+  ): Record<string, number> {
+    const pool = getOrInitManaPool(game.state, String(playerId)) as any;
+    const totalAvailable: Record<string, number> = {
+      white: Number(pool.white || 0),
+      blue: Number(pool.blue || 0),
+      black: Number(pool.black || 0),
+      red: Number(pool.red || 0),
+      green: Number(pool.green || 0),
+      colorless: Number(pool.colorless || 0),
+    };
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+
+    for (const source of paymentSources) {
+      const permanent = battlefield.find((entry: any) =>
+        entry &&
+        String(entry.id || '') === String(source.sourceId || '') &&
+        entry.controller === playerId &&
+        !entry.tapped
+      );
+      if (!permanent) continue;
+
+      const manaInfo = calculateManaProduction(game.state, permanent, String(playerId), source.produceColor);
+      const poolKey = COLOR_IDENTITY_MAP[String(source.produceColor || '').toUpperCase()] || 'colorless';
+      totalAvailable[poolKey] = Number(totalAvailable[poolKey] || 0) + Number(manaInfo.totalAmount || 0);
+
+      for (const bonus of manaInfo.bonusMana || []) {
+        const bonusKey = COLOR_IDENTITY_MAP[String(bonus?.color || '').toUpperCase()] || 'colorless';
+        totalAvailable[bonusKey] = Number(totalAvailable[bonusKey] || 0) + Number(bonus?.amount || 0);
+      }
+    }
+
+    return totalAvailable;
+  }
+
+  function canAIPaySpellCostWithPaymentSources(
+    game: any,
+    playerId: PlayerID,
+    parsedCost: ReturnType<typeof parseManaCost>,
+    paymentSources: Array<{ sourceId: string; produceColor: string }>,
+  ): boolean {
+    const totalAvailable = buildAIAvailableManaForSpellPayment(game, playerId, paymentSources);
+    return !validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+  }
+
+  function getAINonTapManaAbilityCandidates(
+    game: any,
+    playerId: PlayerID,
+    usedPermanentIds: Set<string>,
+  ): any[] {
+    const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+
+    return battlefield
+      .filter((permanent: any) => {
+        if (!permanent || permanent.controller !== playerId) return false;
+        if (usedPermanentIds.has(String(permanent.id || ''))) return false;
+        if (!hasManaAbility(permanent.card)) return false;
+
+        const oracleText = String(permanent.card?.oracle_text || '').toLowerCase();
+        const costSection = oracleText.split(':')[0] || '';
+        const isTapAbility = oracleText.includes('{t}:') || oracleText.includes('{t},');
+        const hasTargets = /target/i.test(oracleText);
+        const isManaAbility = AI_MANA_ABILITY_PATTERN.test(oracleText) && !hasTargets;
+
+        if (!isManaAbility || isTapAbility) return false;
+
+        if (/sacrifice\s+(?:an?\s+|another\s+)?(?:creature|artifact|enchantment|land|permanent)/i.test(costSection)) {
+          return Boolean(chooseAISacrificePermanentForManaAbility(game, playerId, permanent, costSection));
+        }
+
+        return true;
+      })
+      .sort((left: any, right: any) => {
+        const leftText = String(left?.card?.oracle_text || '').toLowerCase();
+        const rightText = String(right?.card?.oracle_text || '').toLowerCase();
+        const leftHasSacrifice = /\bsacrifice\b/i.test(leftText);
+        const rightHasSacrifice = /\bsacrifice\b/i.test(rightText);
+        if (leftHasSacrifice !== rightHasSacrifice) return leftHasSacrifice ? -1 : 1;
+
+        const leftMana = calculateManaProduction(game.state, left, String(playerId), 'C').totalAmount || 0;
+        const rightMana = calculateManaProduction(game.state, right, String(playerId), 'C').totalAmount || 0;
+        return Number(rightMana) - Number(leftMana);
+      });
+  }
+
+  async function tryActivateAINonTapManaAbilityForSpellPayment(
+    io: Server,
+    gameId: string,
+    game: any,
+    playerId: PlayerID,
+    usedPermanentIds: Set<string>,
+  ): Promise<boolean> {
+    const candidates = getAINonTapManaAbilityCandidates(game, playerId, usedPermanentIds);
+    if (candidates.length === 0) return false;
+
+    for (const permanent of candidates) {
+      const permanentId = String(permanent?.id || '');
+      if (!permanentId) continue;
+      usedPermanentIds.add(permanentId);
+
+      const manaPoolBefore = getOrInitManaPool(game.state, String(playerId)) as any;
+      const totalBefore = getTotalManaFromPool(manaPoolBefore);
+
+      await executeAIActivateAbility(
+        io,
+        gameId,
+        playerId,
+        {
+          cardName: String(permanent?.card?.name || 'Mana Ability'),
+          permanentId,
+          abilityText: String(permanent?.card?.oracle_text || ''),
+        },
+        false,
+      );
+
+      const manaPoolAfter = getOrInitManaPool(game.state, String(playerId)) as any;
+      const totalAfter = getTotalManaFromPool(manaPoolAfter);
+      if (totalAfter > totalBefore) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  export async function chooseAISpellPaymentSelections(
+    io: Server,
+    gameId: string,
+    game: any,
+    playerId: PlayerID,
+    step: any,
+  ): Promise<{ payment: Array<{ permanentId: string; mana: string; count?: number }> } | null> {
+    const manaCostText = String(step?.totalManaCost || step?.manaCost || '').trim();
+    const parsedCost = parseManaCost(manaCostText);
+    const needsMana = Number(parsedCost.generic || 0) > 0 || Object.values(parsedCost.colors || {}).some((value) => Number(value || 0) > 0);
+
+    if (!needsMana) {
+      return { payment: [] };
+    }
+
+    if (canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, [])) {
+      return { payment: [] };
+    }
+
+    const buildPlan = () => {
+      const paymentSources = getPaymentSources(game, playerId, {
+        colors: { ...(parsedCost.colors || {}) },
+        generic: Number(parsedCost.generic || 0),
+      });
+      if (!canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, paymentSources)) {
+        return null;
+      }
+
+      return {
+        payment: paymentSources.map((source) => ({
+          permanentId: String(source.sourceId),
+          mana: String(source.produceColor).toUpperCase(),
+        })),
+      };
+    };
+
+    let plan = buildPlan();
+    if (plan) return plan;
+
+    const usedPermanentIds = new Set<string>();
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const activated = await tryActivateAINonTapManaAbilityForSpellPayment(io, gameId, game, playerId, usedPermanentIds);
+      if (!activated) break;
+
+      plan = buildPlan();
+      if (plan) return plan;
+
+      if (canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, [])) {
+        return { payment: [] };
+      }
+    }
+
+    return null;
+  }
+
 /**
  * Check the maximum hand size for a player (considering "no maximum hand size" effects)
  */
@@ -4989,7 +5230,8 @@ async function executeAIActivateAbility(
   io: Server,
   gameId: string,
   playerId: PlayerID,
-  action: any
+  action: any,
+  continueAfterResolution: boolean = true,
 ): Promise<void> {
   const game = ensureGame(gameId);
   if (!game) return;
@@ -5022,8 +5264,10 @@ async function executeAIActivateAbility(
     let persistedSearchParams: any = undefined;
     let persistedChosenOpponentId = '';
     
-    // Check if this is a tap ability
+    // Check if this is a tap or mana ability
     const isTapAbility = abilityText.includes('{t}:') || abilityText.includes('{t},');
+    const hasTargets = /target/i.test(abilityText);
+    const isManaAbility = AI_MANA_ABILITY_PATTERN.test(abilityText) && !hasTargets;
     
     // Tap the permanent if it's a tap ability
     if (isTapAbility && !permanent.tapped) {
@@ -5070,20 +5314,8 @@ async function executeAIActivateAbility(
         });
       }
     }
-    // GENERIC TAP ABILITY: Check if it's a mana ability first
-    else if (isTapAbility) {
-      // Check if this is a mana ability (mana abilities don't use the stack - MTG Rule 605)
-      // Mana abilities produce mana and don't target
-      // Patterns matched:
-      //   - {W}, {U}, {B}, {R}, {G}, {C} (specific mana symbols)
-      //   - {R} or {W} (choice of colors, like Talismans)
-      //   - "add one mana", "add two mana", "add X mana"
-      //   - "mana of any color", "any color", "mana in any combination"
-      //   - Must NOT contain "target" (targeting abilities can't be mana abilities)
-      const manaProductionPattern = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
-      const hasTargets = /target/i.test(abilityText);
-      const isManaAbility = manaProductionPattern.test(abilityText) && !hasTargets;
-      
+    // GENERIC MANA/TAP ABILITY
+    else if (isManaAbility || isTapAbility) {
       if (isManaAbility) {
         persistedAbilityType = 'mana';
         const costSection = abilityText.split(':')[0] || '';
@@ -5095,6 +5327,7 @@ async function executeAIActivateAbility(
           'i'
         );
         const requiresSelfSacrifice = sacrificeSelfPattern.test(costSection);
+        const requiresPermanentSacrifice = /sacrifice\s+(?:an?\s+|another\s+)?(?:creature|artifact|enchantment|land|permanent)/i.test(costSection);
 
         // Mana abilities resolve immediately - don't put on stack
         debug(1, '[AI] Tapped for mana ability (resolves immediately, not on stack):', card.name);
@@ -5110,6 +5343,28 @@ async function executeAIActivateAbility(
             persistedSacrificedPermanents = [String(permanent.id)];
           } catch (err) {
             debugWarn(1, '[AI] Failed to sacrifice mana source as activation cost:', err);
+          }
+        } else if (requiresPermanentSacrifice) {
+          const sacrificedPermanent = chooseAISacrificePermanentForManaAbility(game, playerId, permanent, costSection);
+          if (!sacrificedPermanent) {
+            debugWarn(1, '[AI] No valid permanent available to sacrifice for mana ability:', card.name);
+            if (isTapAbility && tappedPermanents.includes(String(permanent.id))) {
+              permanent.tapped = false;
+              tappedPermanents.length = 0;
+            }
+            return;
+          }
+
+          try {
+            movePermanentToGraveyard(game as any, String(sacrificedPermanent.id), true);
+            persistedSacrificedPermanents = [String(sacrificedPermanent.id)];
+          } catch (err) {
+            debugWarn(1, '[AI] Failed to sacrifice permanent for mana ability:', err);
+            if (isTapAbility && tappedPermanents.includes(String(permanent.id))) {
+              permanent.tapped = false;
+              tappedPermanents.length = 0;
+            }
+            return;
           }
         }
 
@@ -5227,11 +5482,13 @@ async function executeAIActivateAbility(
         
         // Mana abilities don't pass priority - they resolve instantly
         // Continue AI turn after instant resolution
-        setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch((err) => {
-            debugError(1, '[AI] Error continuing after mana ability:', { gameId, playerId, cardName: card.name, error: err });
-          });
-        }, AI_REACTION_DELAY_MS);
+        if (continueAfterResolution) {
+          setTimeout(() => {
+            handleAIPriority(io, gameId, playerId).catch((err) => {
+              debugError(1, '[AI] Error continuing after mana ability:', { gameId, playerId, cardName: card.name, error: err });
+            });
+          }, AI_REACTION_DELAY_MS);
+        }
         return;
       } else {
         // For non-mana tap abilities, put them on the stack
