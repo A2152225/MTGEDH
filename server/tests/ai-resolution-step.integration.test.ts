@@ -240,6 +240,36 @@ describe('AI resolution-step integration', () => {
     }
   });
 
+  it('does not synchronously chain multiple step advances after one AI auto-pass', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40, isAI: false },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'beginning';
+    (game.state as any).step = 'UPKEEP';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).autoPassPlayers = new Set([playerId, 'opp1']);
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [{ id: 'draw1', name: 'Draw Step Card' }], graveyard: [], exile: [] },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(String((game.state as any).phase || '').toLowerCase()).toBe('beginning');
+    expect(String((game.state as any).step || '').toUpperCase()).toBe('DRAW');
+  });
+
   it('routes active option-choice steps through AI priority handling and submits the chosen option', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

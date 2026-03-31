@@ -95,6 +95,9 @@ async function createConfiguredGame(
   if (GameManager.getGame(gameId) || gameExistsInDb(gameId)) {
     throw Object.assign(new Error('Game already exists.'), {
       code: 'GAME_ALREADY_EXISTS',
+
+          // Let the normal broadcast-driven AI/auto-pass flow handle any
+          // further progression after this step settles.
     });
   }
 
@@ -5879,6 +5882,8 @@ async function executeAdvanceStep(
       debugWarn(2, '[AI] game.nextStep not available');
       return;
     }
+
+    delete (game.state as any)._autoPassResult;
     
     const newStep = String((game.state as any).step || '');
     const newPhase = String(game.state.phase || '');
@@ -6189,44 +6194,9 @@ async function executePassPriority(
         if (typeof (game as any).nextStep === 'function') {
           (game as any).nextStep();
           debug(2, `[AI] Advanced to next step for game ${gameId}`);
-          
-          // Check if the new step triggered auto-pass that wants to advance again
-          let autoPassLoopCount = 0;
-          const MAX_AUTO_PASS_LOOPS = 20;
-          
-          while (autoPassLoopCount < MAX_AUTO_PASS_LOOPS) {
-            const autoPassResult = (game.state as any)?._autoPassResult;
-            
-            // CRITICAL: Check if current priority player is human
-            // If a human player has priority, STOP advancing - they need time to act
-            const currentPriority = (game.state as any)?.priority;
-            if (currentPriority) {
-              const priorityPlayer = (game.state as any)?.players?.find((p: any) => p?.id === currentPriority);
-              if (priorityPlayer && !priorityPlayer.isAI) {
-                debug(2, `[AI] Auto-pass loop stopping - human player ${currentPriority} has priority`);
-                break;
-              }
-            }
-            
-            if (autoPassResult?.allPassed && autoPassResult?.advanceStep) {
-              debug(2, `[AI] Auto-pass detected after step advancement (iteration ${autoPassLoopCount + 1}), advancing again`);
-              
-              delete (game.state as any)._autoPassResult;
-              (game as any).nextStep();
-              
-              const newStep = (game.state as any)?.step || 'unknown';
-              debug(2, `[AI] Auto-advanced to ${newStep}`);
-              
-              autoPassLoopCount++;
-            } else {
-              break;
-            }
-          }
-          
-          if (autoPassLoopCount >= MAX_AUTO_PASS_LOOPS) {
-            debugWarn(2, `[AI] Auto-pass loop limit reached, stopping`);
-          }
-          
+
+          // Let the normal broadcast-driven AI/auto-pass flow handle any
+          // later progression after this step settles.
           delete (game.state as any)._autoPassResult;
         }
         
