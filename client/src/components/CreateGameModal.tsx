@@ -76,6 +76,7 @@ export interface GameCreationConfig {
   playerName: string;
   format: GameFormat;
   startingLife: number;
+  seed?: number;
   // AI opponent settings - support multiple AI opponents
   includeAI: boolean;
   aiOpponents?: AIOpponentConfig[];
@@ -135,6 +136,12 @@ const AI_STRATEGY_INFO: Record<AIStrategy, { name: string; description: string }
  * Modal for creating a new game with format, AI opponent, and deck selection
  */
 export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], onRefreshDecks }: CreateGameModalProps) {
+  const isLocalhost = typeof window !== 'undefined' && (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname === ''
+  );
+
   // Form state
   const [gameId, setGameId] = useState(() => `game_${Date.now().toString(36)}`);
   // Load player name from localStorage for persistence across sessions
@@ -147,6 +154,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   });
   const [format, setFormat] = useState<GameFormat>('commander');
   const [startingLife, setStartingLife] = useState(40);
+  const [seedInput, setSeedInput] = useState('');
   
   // AI opponent settings - now supports multiple AI opponents
   const [aiOpponents, setAiOpponents] = useState<Array<{
@@ -228,6 +236,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   useEffect(() => {
     if (open) {
       setGameId(`game_${Date.now().toString(36)}`);
+      setSeedInput('');
       // Reset save message when modal opens
       setSaveMessage(null);
     }
@@ -350,6 +359,17 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     
     // Sanitize and validate game ID
     const sanitizedGameId = sanitizeGameId(gameId.trim()) || `game_${Date.now().toString(36)}`;
+    const normalizedSeedInput = seedInput.trim();
+
+    let selectedSeed: number | undefined;
+    if (isLocalhost && normalizedSeedInput) {
+      const parsedSeed = Number(normalizedSeedInput);
+      if (!Number.isInteger(parsedSeed) || parsedSeed <= 0 || parsedSeed > 0xFFFFFFFF) {
+        alert('Seed must be an integer between 1 and 4294967295.');
+        return;
+      }
+      selectedSeed = parsedSeed >>> 0;
+    }
     
     // Save player name to localStorage for future sessions
     const finalPlayerName = playerName.trim() || 'Player';
@@ -386,6 +406,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
       playerName: finalPlayerName,
       format,
       startingLife,
+      seed: selectedSeed,
       includeAI: hasAI,
       aiOpponents: hasAI ? aiOpponentsConfig : undefined,
       // Legacy fields for backward compatibility with single AI
@@ -514,6 +535,35 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
               }}
             />
           </div>
+
+          {isLocalhost && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 500, fontSize: 14 }}>
+                Seed
+              </label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={4294967295}
+                step={1}
+                value={seedInput}
+                onChange={(e) => setSeedInput(e.target.value)}
+                placeholder="Leave blank for random seed"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  borderRadius: 4,
+                  border: '1px solid #ddd',
+                  fontSize: 14,
+                  boxSizing: 'border-box',
+                }}
+              />
+              <div style={{ marginTop: 4, fontSize: 11, color: '#888' }}>
+                Localhost only. Reuse the same seed to reproduce shuffles and other RNG-dependent behavior.
+              </div>
+            </div>
+          )}
 
           {/* Format Selection */}
           <div style={{ marginBottom: 16 }}>

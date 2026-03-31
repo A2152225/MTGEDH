@@ -16619,7 +16619,7 @@ async function handleLibrarySearchResponse(
   const { uid, parsePT, cardManaValue } = await import("../state/utils.js");
   const { applyCounterModifications } = await import("../state/modules/counters_tokens.js");
   const { getETBTriggersForPermanent } = await import("../state/modules/triggered-abilities.js");
-  const { triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped } = await import("../state/modules/stack.js");
+  const { triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped } = await import("../state/modules/stack.js");
   
   const state = game.state || {};
   const battlefield = state.battlefield = state.battlefield || [];
@@ -16771,7 +16771,7 @@ async function handleLibrarySearchResponse(
     for (const cardId of battlefieldIds || []) {
       const card = selectedCards.find(c => c && c.id === cardId);
       if (card) {
-        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped, game, io, gameId);
         createdPermanentIds.push(createdPermanentId);
 
         // Optional: add extra counters as part of the effect (planeswalker templates).
@@ -16807,7 +16807,7 @@ async function handleLibrarySearchResponse(
       if (!card) continue;
       
       if (destination === 'battlefield') {
-        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkCreatureEntersTapped, game, io, gameId);
+        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped, game, io, gameId);
         createdPermanentIds.push(createdPermanentId);
 
         // Optional: add extra counters as part of the effect (planeswalker templates).
@@ -17071,7 +17071,7 @@ async function putCardOntoBattlefield(
   triggerETBEffectsForPermanent: any,
   detectEntersWithCounters: any,
   creatureWillHaveHaste: any,
-  checkCreatureEntersTapped: any,
+  checkPermanentEntersTapped: any,
   game: any,
   io?: Server,
   gameId?: string
@@ -17084,8 +17084,8 @@ async function putCardOntoBattlefield(
   const hasHaste = isCreature && creatureWillHaveHaste(card, controller, battlefield);
   const hasSummoningSickness = isCreature && !hasHaste;
   let shouldEnterTapped = entersTapped;
-  if (isCreature && !entersTapped) {
-    shouldEnterTapped = checkCreatureEntersTapped(battlefield, controller, card);
+  if (!entersTapped) {
+    shouldEnterTapped = checkPermanentEntersTapped(battlefield, controller, card);
   }
   
   const initialCounters: Record<string, number> = {};

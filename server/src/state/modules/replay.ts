@@ -72,6 +72,48 @@ import { nextTurn, nextStep, passPriority } from "./turn.js";
 import { reconcileZonesConsistency } from "./zones.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 
+function applyRecordedLifePayment(ctx: GameContext, playerId: string, rawAmount: unknown): void {
+  const paidLife = Number(rawAmount || 0);
+  if (!playerId || !Number.isFinite(paidLife) || paidLife <= 0) return;
+
+  (ctx.state as any).life = (ctx.state as any).life || {};
+  const currentLife = Number((ctx.state as any).life?.[playerId] ?? ctx.state.startingLife ?? 40);
+  (ctx.state as any).life[playerId] = Math.max(0, currentLife - paidLife);
+
+  try {
+    (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
+    (ctx.state as any).lifeLostThisTurn[String(playerId)] =
+      (((ctx.state as any).lifeLostThisTurn[String(playerId)] || 0) + paidLife);
+  } catch {
+    // best-effort only
+  }
+
+  const player = ((ctx.state as any).players || []).find((entry: any) => entry?.id === playerId);
+  if (player) {
+    player.life = (ctx.state as any).life[playerId];
+  }
+}
+
+function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
+  const playerId = String(event?.playerId || '').trim();
+  const cardId = String(event?.card?.id || event?.cardId || '').trim();
+  if (!playerId || !cardId) return;
+
+  const battlefield = Array.isArray((ctx.state as any)?.battlefield) ? ((ctx.state as any).battlefield as any[]) : [];
+  const permanent = [...battlefield].reverse().find((entry: any) =>
+    String(entry?.controller || '') === playerId && String(entry?.card?.id || '') === cardId
+  );
+  if (!permanent) return;
+
+  if (typeof event?.entersTapped === 'boolean') {
+    permanent.tapped = event.entersTapped;
+  }
+
+  if (event?.paidLife != null) {
+    applyRecordedLifePayment(ctx, playerId, event.paidLife);
+  }
+}
+
 /* applyEvent: mirror of monolithic behavior */
 export function applyEvent(ctx: GameContext, e: GameEvent) {
   switch (e.type) {
@@ -280,6 +322,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         }
 
         playLand(ctx, (e as any).playerId, cardData);
+        applyRecordedPlayLandReplayState(ctx, e);
       }
       break;
 

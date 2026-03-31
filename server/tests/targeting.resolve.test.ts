@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, TargetRef } from '../../shared/src';
-import { categorizeSpell, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
+import { categorizeSpell, evaluateTargeting, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
 
 describe('Targeting resolve destroy/exile', () => {
   it('destroys chosen targets', () => {
@@ -150,6 +150,41 @@ describe('Targeting resolve destroy/exile', () => {
     expect(spec?.minTargets).toBe(0);
     expect(spec?.maxTargets).toBe(2);
     expect(spec?.nonlandOnly).toBe(true);
+  });
+
+  it('categorizeSpell + evaluateTargeting: Beast Within stays on target permanent despite later token text', () => {
+    const g = createInitialGameState('tgt_beast_within');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    g.state.battlefield.push({
+      id: 'sol_ring',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'ring', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
+    } as any);
+    g.state.battlefield.push({
+      id: 'island',
+      owner: p2,
+      controller: p2,
+      tapped: false,
+      card: { id: 'island_card', name: 'Island', type_line: 'Basic Land — Island', oracle_text: '' },
+    } as any);
+
+    const spec = categorizeSpell('Beast Within', 'Destroy target permanent. Its controller creates a 3/3 green Beast creature token.')!;
+    expect(spec.op).toBe('DESTROY_TARGET');
+    expect(spec.filter).toBe('PERMANENT');
+
+    const targets = evaluateTargeting(g.state as any, p1, spec);
+    expect(targets).toEqual(
+      expect.arrayContaining([
+        { kind: 'permanent', id: 'sol_ring' },
+        { kind: 'permanent', id: 'island' },
+      ])
+    );
   });
 
   it('DESTROY_TARGET with nonlandOnly skips lands (defensive)', () => {

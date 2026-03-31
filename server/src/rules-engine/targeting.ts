@@ -2184,6 +2184,14 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     const m = t.trim().match(/^exile\s+target\s+nonland\s+permanent\.?$/i);
     if (m) return { op: 'EXILE_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1, nonlandOnly: true, targetDescription: 'target nonland permanent' };
   }
+  {
+    const m = t.trim().match(/^destroy\s+target\s+permanent\b/i);
+    if (m) return { op: 'DESTROY_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1, targetDescription: 'target permanent' };
+  }
+  {
+    const m = t.trim().match(/^exile\s+target\s+permanent\b/i);
+    if (m) return { op: 'EXILE_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1, targetDescription: 'target permanent' };
+  }
 
   if (/exile target/.test(t)) return { op: 'EXILE_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };
   if (/destroy target/.test(t)) return { op: 'DESTROY_TARGET', filter, minTargets: 1, maxTargets: 1, ...(multiFilter && { multiFilter }), ...(creatureRestriction && { creatureRestriction }) };

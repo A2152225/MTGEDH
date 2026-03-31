@@ -2435,8 +2435,8 @@ function enqueueLibrarySearchStep(
 }
 
 /**
- * Check if a creature should enter the battlefield tapped due to effects on the battlefield.
- * This handles cards like:
+ * Check if a permanent should enter the battlefield tapped.
+ * This handles the permanent's own ETB-tapped text plus battlefield effects like:
  * - Authority of the Consuls: "Creatures your opponents control enter the battlefield tapped."
  * - Blind Obedience: "Artifacts and creatures your opponents control enter the battlefield tapped."
  * - Urabrask the Hidden: "Creatures your opponents control enter the battlefield tapped."
@@ -2446,15 +2446,28 @@ function enqueueLibrarySearchStep(
  * - Kismet: "Artifacts, creatures, and lands your opponents play come into play tapped."
  * 
  * @param battlefield - All permanents on the battlefield
- * @param creatureController - The player who controls the entering creature
- * @param creatureCard - The creature card entering
- * @returns true if the creature should enter tapped
+ * @param permanentController - The player who controls the entering permanent
+ * @param permanentCard - The card entering
+ * @returns true if the permanent should enter tapped
  */
-export function checkCreatureEntersTapped(
+export function checkPermanentEntersTapped(
   battlefield: any[],
-  creatureController: string,
-  creatureCard: any
+  permanentController: string,
+  permanentCard: any
 ): boolean {
+  const permanentName = permanentCard?.name || 'Permanent';
+  const permanentTypeLine = (permanentCard?.type_line || '').toLowerCase();
+  const permanentOracleText = String(permanentCard?.oracle_text || '');
+  const isCreature = permanentTypeLine.includes('creature');
+  const isArtifact = permanentTypeLine.includes('artifact');
+  const isLand = permanentTypeLine.includes('land');
+  const isBasicLand = isLand && permanentTypeLine.includes('basic');
+
+  if (detectETBTappedPattern(permanentOracleText) === 'always') {
+    debug(2, `[checkPermanentEntersTapped] ${permanentName} enters tapped due to its own oracle text`);
+    return true;
+  }
+
   for (const perm of battlefield) {
     if (!perm || !perm.card) continue;
     
@@ -2463,72 +2476,85 @@ export function checkCreatureEntersTapped(
     const permController = perm.controller;
     
     // Skip if this is controlled by the same player (these effects affect opponents)
-    if (permController === creatureController) continue;
+    if (permController === permanentController) continue;
     
     // Authority of the Consuls: "Creatures your opponents control enter the battlefield tapped."
-    if (cardName.includes('authority of the consuls') ||
-        (oracleText.includes('creatures your opponents control enter') && oracleText.includes('tapped'))) {
-      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+    if (isCreature && (cardName.includes('authority of the consuls') ||
+      (oracleText.includes('creatures your opponents control enter') && oracleText.includes('tapped')))) {
+      debug(2, `[checkPermanentEntersTapped] ${permanentName} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
     // Blind Obedience: "Artifacts and creatures your opponents control enter the battlefield tapped."
-    if (cardName.includes('blind obedience') ||
-        (oracleText.includes('artifacts and creatures your opponents control enter') && oracleText.includes('tapped'))) {
-      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+    if ((isArtifact || isCreature) && (cardName.includes('blind obedience') ||
+        (oracleText.includes('artifacts and creatures your opponents control enter') && oracleText.includes('tapped')))) {
+      debug(2, `[checkPermanentEntersTapped] ${permanentName} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
     // Urabrask the Hidden: "Creatures your opponents control enter the battlefield tapped."
-    if (cardName.includes('urabrask the hidden') ||
-        cardName.includes('urabrask,')) {
+    if (isCreature && (cardName.includes('urabrask the hidden') ||
+      cardName.includes('urabrask,'))) {
       if (oracleText.includes('creatures your opponents control enter') && oracleText.includes('tapped')) {
-        debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+        debug(2, `[checkPermanentEntersTapped] ${permanentName} enters tapped due to ${perm.card.name || 'effect'}`);
         return true;
       }
     }
     
     // Imposing Sovereign: "Creatures your opponents control enter the battlefield tapped."
-    if (cardName.includes('imposing sovereign')) {
-      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+    if (isCreature && cardName.includes('imposing sovereign')) {
+      debug(2, `[checkPermanentEntersTapped] ${permanentName} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
     // Thalia, Heretic Cathar: "Creatures and nonbasic lands your opponents control enter the battlefield tapped."
-    if (cardName.includes('thalia, heretic cathar') ||
-        (oracleText.includes('creatures') && oracleText.includes('your opponents control enter') && oracleText.includes('tapped'))) {
-      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
-      return true;
+    if (cardName.includes('thalia, heretic cathar') || oracleText.includes('your opponents control enter')) {
+      if ((isCreature && oracleText.includes('creatures') && oracleText.includes('tapped')) ||
+          (isLand && !isBasicLand && oracleText.includes('nonbasic lands') && oracleText.includes('tapped'))) {
+        debug(2, `[checkPermanentEntersTapped] ${permanentName} enters tapped due to ${perm.card.name || 'effect'}`);
+        return true;
+      }
     }
     
     // Frozen Aether: "Permanents your opponents control enter the battlefield tapped."
     if (cardName.includes('frozen aether') ||
         (oracleText.includes('permanents your opponents control enter') && oracleText.includes('tapped'))) {
-      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+      debug(2, `[checkPermanentEntersTapped] ${permanentName} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
     // Kismet: "Artifacts, creatures, and lands your opponents play come into play tapped."
-    if (cardName.includes('kismet') ||
-        (oracleText.includes('creatures') && oracleText.includes('your opponents') && oracleText.includes('play') && oracleText.includes('tapped'))) {
-      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'}`);
+    if ((isArtifact || isCreature || isLand) && (cardName.includes('kismet') ||
+        (oracleText.includes('your opponents') && oracleText.includes('play') && oracleText.includes('tapped') &&
+          ((isArtifact && oracleText.includes('artifacts')) ||
+           (isCreature && oracleText.includes('creatures')) ||
+           (isLand && oracleText.includes('lands')))))) {
+      debug(2, `[checkPermanentEntersTapped] ${permanentName} enters tapped due to ${perm.card.name || 'effect'}`);
       return true;
     }
     
     // Generic pattern detection: "creatures your opponents control enter the battlefield tapped"
     // This catches future cards with similar text
-    if (oracleText.includes('creatures') && 
+    if (isCreature && oracleText.includes('creatures') && 
         oracleText.includes('opponents') && 
         oracleText.includes('control') &&
         oracleText.includes('enter') && 
         oracleText.includes('battlefield') &&
         oracleText.includes('tapped')) {
-      debug(2, `[checkCreatureEntersTapped] ${creatureCard.name || 'Creature'} enters tapped due to ${perm.card.name || 'effect'} (generic pattern)`);
+      debug(2, `[checkPermanentEntersTapped] ${permanentName} enters tapped due to ${perm.card.name || 'effect'} (generic pattern)`);
       return true;
     }
   }
   
   return false;
+}
+
+export function checkCreatureEntersTapped(
+  battlefield: any[],
+  creatureController: string,
+  creatureCard: any
+): boolean {
+  return checkPermanentEntersTapped(battlefield, creatureController, creatureCard);
 }
 
 /* Push an item onto the stack */
@@ -8647,10 +8673,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     // Check if this creature should enter tapped due to effects like Authority of the Consuls, Blind Obedience, etc.
-    let shouldEnterTapped = false;
-    if (isCreature) {
-      shouldEnterTapped = checkCreatureEntersTapped(state.battlefield || [], controller, effectiveCard);
-    }
+    const shouldEnterTapped = checkPermanentEntersTapped(state.battlefield || [], controller, effectiveCard);
     
     state.battlefield = state.battlefield || [];
     const newPermId = uid("perm");

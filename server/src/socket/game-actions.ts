@@ -53,6 +53,338 @@ import {
 
 export const emitPendingDamageTriggers = emitPendingDamageTriggersImpl;
 
+export function finalizePlayedLand(
+  io: Server,
+  game: any,
+  gameId: string,
+  playerId: string,
+  cardId: string,
+  cardInZone: any,
+  sourceZone: 'hand' | 'graveyard' | 'exile' = 'hand',
+  eventExtras?: Record<string, unknown>,
+): void {
+  const cardName = (cardInZone as any)?.name || "";
+  const cardImageUrl = (cardInZone as any)?.image_uris?.small || (cardInZone as any)?.image_uris?.normal;
+  const cardOracleText = (cardInZone as any)?.oracle_text || '';
+  const zones = game.state?.zones?.[playerId];
+
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, "playLand", {
+      playerId,
+      cardId,
+      fromZone: sourceZone,
+      card: cardInZone,
+      ...(eventExtras || {}),
+    });
+  } catch (e) {
+    debugWarn(1, 'appendEvent(playLand) failed:', e);
+  }
+
+  const isShockLandCard = isShockLand(cardName, cardOracleText);
+  if (isShockLandCard) {
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) =>
+      p.card?.id === cardId &&
+      p.controller === playerId
+    );
+
+    if (permanent) {
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find((s: any) => (s as any)?.shockLandChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
+      if (!existing) {
+        queueShockLandPaymentStep(io, game, gameId, String(playerId), permanent, cardName, cardImageUrl);
+      }
+    }
+  }
+
+  if (!isShockLandCard && !isBounceLand(cardName)) {
+    const oracleText = (cardInZone as any)?.oracle_text || '';
+    const etbPattern = detectETBTappedPattern(oracleText);
+
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) =>
+      p.card?.id === cardId &&
+      p.controller === playerId
+    );
+
+    if (etbPattern === 'always' && permanent && !permanent.tapped) {
+      permanent.tapped = true;
+      debug(2, `[playLand] ${cardName} enters tapped (ETB-tapped pattern detected)`);
+    } else if (etbPattern === 'conditional' && permanent) {
+      const otherLandCount = battlefield.filter((p: any) => {
+        if (p.id === permanent.id) return false;
+        if (p.controller !== playerId) return false;
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+        return typeLine.includes('land');
+      }).length;
+
+      const controlledLandTypes: string[] = [];
+      let basicLandCount = 0;
+      for (const p of battlefield) {
+        if (p.id === permanent.id) continue;
+        if (p.controller !== playerId) continue;
+        const typeLine = (p.card?.type_line || '').toLowerCase();
+
+        if (typeLine.includes('basic')) {
+          basicLandCount++;
+        }
+
+        const subtypes = getLandSubtypes(typeLine);
+        controlledLandTypes.push(...subtypes);
+      }
+
+      const hasBattleLandPattern = oracleText.toLowerCase().includes('two or more basic lands');
+      const playerHand = Array.isArray(zones?.hand) ? zones.hand : [];
+      const allPlayers = (game.state as any)?.players || [];
+      const opponentCount = allPlayers.filter((p: any) => p.id !== playerId).length;
+
+      let evaluation;
+      if (hasBattleLandPattern) {
+        const shouldTap = basicLandCount < 2;
+        evaluation = {
+          shouldEnterTapped: shouldTap,
+          reason: shouldTap
+            ? `Enters tapped (you control only ${basicLandCount} basic land${basicLandCount !== 1 ? 's' : ''})`
+            : `Enters untapped (you control ${basicLandCount} basic lands)`,
+        };
+      } else {
+        const controlledPermanents = battlefield.filter((p: any) =>
+          p.id !== permanent.id && p.controller === playerId
+        );
+
+        evaluation = evaluateConditionalLandETB(
+          oracleText,
+          otherLandCount,
+          controlledLandTypes,
+          playerHand,
+          basicLandCount,
+          opponentCount,
+          controlledPermanents
+        );
+      }
+
+      debug(2, `[playLand] ${cardName} conditional ETB: ${evaluation.reason}`);
+
+      if (evaluation.requiresRevealPrompt && evaluation.canReveal) {
+        const revealTypes: string[] = Array.isArray(evaluation.revealTypes) ? evaluation.revealTypes : [];
+        const eligible = playerHand
+          .filter((c: any) => {
+            const typeLine = String(c?.type_line || '');
+            if (!/\bland\b/i.test(typeLine)) return false;
+            if (revealTypes.length === 0) return true;
+            return revealTypes.some((t) => new RegExp(`\\b${String(t).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i').test(typeLine));
+          })
+          .map((c: any) => ({
+            id: String(c?.id || ''),
+            label: String(c?.name || 'Card'),
+            description: String(c?.type_line || ''),
+            imageUrl: c?.image_uris?.small || c?.image_uris?.normal,
+          }))
+          .filter((o: any) => o.id);
+
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => (s as any)?.revealLandChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: playerId as any,
+            sourceName: cardName,
+            sourceId: permanent.id,
+            sourceImage: cardImageUrl,
+            description: `You may reveal a ${revealTypes.join(' or ')} card from your hand. If you don't, ${cardName} enters tapped.`,
+            mandatory: true,
+            options: [
+              ...eligible,
+              { id: 'decline_reveal', label: "Don't reveal (enter tapped)" },
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+            revealLandChoice: true,
+            permanentId: permanent.id,
+            cardName,
+            revealTypes,
+          } as any);
+        }
+      } else if (evaluation.shouldEnterTapped && !permanent.tapped) {
+        permanent.tapped = true;
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)}'s ${cardName} enters tapped. (${evaluation.reason})`,
+          ts: Date.now(),
+        });
+      }
+    }
+  }
+
+  const oracleText = (cardInZone as any)?.oracle_text || '';
+  const scryAmount = detectScryOnETB(oracleText);
+  if (scryAmount && scryAmount > 0) {
+    (game.state as any).pendingScry = (game.state as any).pendingScry || {};
+    (game.state as any).pendingScry[playerId] = ((game.state as any).pendingScry[playerId] || 0) + scryAmount;
+
+    debug(2, `[playLand] ${cardName} has "scry ${scryAmount}" ETB trigger`);
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${cardName} enters the battlefield. ${getPlayerName(game, playerId)} scries ${scryAmount}.`,
+      ts: Date.now(),
+    });
+  }
+
+  const sacrificeCost = detectSacrificeUnlessPayETB(cardName, oracleText);
+  if (sacrificeCost) {
+    const battlefield = game.state?.battlefield || [];
+    const permanent = battlefield.find((p: any) =>
+      p.card?.id === cardId &&
+      p.controller === playerId
+    );
+
+    if (permanent) {
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find((s: any) => (s as any)?.sacrificeUnlessPayChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
+
+      if (!existing) {
+        queueOptionalPaymentStep(gameId, {
+          playerId: playerId as any,
+          sourceName: cardName,
+          sourceId: permanent.id,
+          sourceImage: cardImageUrl,
+          description: `${cardName}: Sacrifice it unless you pay ${sacrificeCost}. (Float mana first, then choose Pay.)`,
+          mandatory: true,
+          payChoiceId: 'pay_cost',
+          payLabel: `Pay ${sacrificeCost}`,
+          declineChoiceId: 'sacrifice',
+          declineLabel: `Don't pay (sacrifice ${cardName})`,
+          validationKind: 'mana',
+          manaCost: sacrificeCost,
+          stepData: {
+            sacrificeUnlessPayChoice: true,
+            permanentId: permanent.id,
+            cardName,
+            manaCost: sacrificeCost,
+          },
+          onPay: async () => {
+            const gameState = (game.state || {}) as any;
+            gameState.battlefield = gameState.battlefield || [];
+            const battlefieldState = gameState.battlefield as any[];
+            const permanentIndex = battlefieldState.findIndex((p: any) => p && p.id === permanent.id);
+            if (permanentIndex === -1) {
+              return;
+            }
+
+            const permanentOnBattlefield = battlefieldState[permanentIndex];
+            const cardLabel = String(cardName || permanentOnBattlefield?.card?.name || 'Permanent');
+
+            try {
+              const parsed = parseManaCost(sacrificeCost);
+              const pool = getOrInitManaPool(game.state, playerId) as any;
+              const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+              const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
+
+              if (validationError) {
+                emitToPlayer(io, playerId, 'error', {
+                  code: 'INSUFFICIENT_MANA',
+                  message: validationError,
+                });
+                return;
+              }
+
+              consumeManaFromPool(pool, parsed.colors, parsed.generic);
+              io.to(gameId).emit('chat', {
+                id: `m_${Date.now()}`,
+                gameId,
+                from: 'system',
+                message: `${getPlayerName(game, playerId)} pays ${sacrificeCost} for ${cardLabel}.`,
+                ts: Date.now(),
+              });
+
+              try {
+                await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
+                  playerId,
+                  permanentId: permanent.id,
+                  payMana: true,
+                  cardName: cardLabel,
+                });
+              } catch (e) {
+                debugWarn(1, '[playLand] Failed to persist sacrificeUnlessPayChoice event:', e);
+              }
+
+              if (typeof (game as any).bumpSeq === 'function') {
+                (game as any).bumpSeq();
+              }
+              broadcastGame(io, game, gameId);
+            } catch (err) {
+              debugError(1, `[playLand] Failed to process payment (${sacrificeCost || 'unknown'}) for ${cardLabel}.`, err);
+              emitToPlayer(io, playerId, 'error', {
+                code: 'UNSUPPORTED_COST',
+                message: `Failed to process payment (${sacrificeCost || 'unknown'}) for ${cardLabel}.`,
+              });
+            }
+          },
+          onDecline: async () => {
+            const gameState = (game.state || {}) as any;
+            gameState.battlefield = gameState.battlefield || [];
+            const battlefieldState = gameState.battlefield as any[];
+            const permanentIndex = battlefieldState.findIndex((p: any) => p && p.id === permanent.id);
+            if (permanentIndex === -1) {
+              return;
+            }
+
+            const [permanentOnBattlefield] = battlefieldState.splice(permanentIndex, 1);
+            const cardLabel = String(cardName || permanentOnBattlefield?.card?.name || 'Permanent');
+            const playerZones = game.state?.zones?.[playerId];
+            if (playerZones) {
+              (playerZones as any).graveyard = (playerZones as any).graveyard || [];
+              ((playerZones as any).graveyard as any[]).push({ ...(permanentOnBattlefield as any).card, zone: 'graveyard' });
+              (playerZones as any).graveyardCount = ((playerZones as any).graveyard as any[]).length;
+            }
+
+            io.to(gameId).emit('chat', {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: 'system',
+              message: `${getPlayerName(game, playerId)} sacrifices ${cardLabel} (didn't pay ${sacrificeCost}).`,
+              ts: Date.now(),
+            });
+
+            try {
+              await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
+                playerId,
+                permanentId: permanent.id,
+                payMana: false,
+                cardName: cardLabel,
+              });
+            } catch (e) {
+              debugWarn(1, '[playLand] Failed to persist sacrificeUnlessPayChoice event:', e);
+            }
+
+            if (typeof (game as any).bumpSeq === 'function') {
+              (game as any).bumpSeq();
+            }
+            broadcastGame(io, game, gameId);
+          },
+        });
+      }
+      debug(2, `[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
+    }
+  }
+
+  checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
+  checkColorChoiceForNewPermanents(io, game, gameId);
+  checkPlayerSelectionForNewPermanents(io, game, gameId);
+  checkEnchantmentETBTriggers(io, game, gameId);
+
+  broadcastGame(io, game, gameId);
+}
+
 function mapSpellTargetRefToDisplay(game: any, playerId: string, targetRef: any): any {
   if (targetRef?.kind === 'permanent') {
     const permanent = (game.state.battlefield || []).find((entry: any) => entry.id === targetRef.id);
@@ -3096,379 +3428,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         debugWarn(1, 'Legacy playLand failed:', e);
       }
       
-      // Persist the event to DB with full card data for reliable replay after server restart
-      // Note: We store the full card object so that during replay the card can be placed on
-      // the battlefield even if the hand state differs
-      try {
-        appendEvent(gameId, (game as any).seq ?? 0, "playLand", { 
-          playerId, 
-          cardId,
-          fromZone: sourceZone, // Track which zone the land was played from
-          // Include full card data for replay to work correctly after server restart
-          card: cardInZone
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(playLand) failed:', e);
-      }
-
-      // Check if this is a shock land and prompt the player
-      const isShockLandCard = isShockLand(cardName, cardOracleText);
-      if (isShockLandCard) {
-        // Find the permanent that was just played by its unique card ID (not by name)
-        // This ensures we find the correct permanent when multiple copies of the same card exist
-        const battlefield = game.state?.battlefield || [];
-        const permanent = battlefield.find((p: any) => 
-          p.card?.id === cardId && 
-          p.controller === playerId
-        );
-        
-        if (permanent) {
-          // Get player's current life
-          const currentLife = (game.state as any)?.life?.[playerId] || (game as any)?.life?.[playerId] || 40;
-
-          // Queue shock land replacement choice via Resolution Queue.
-          // AI will handle this via generic option-choice handling.
-          const existing = ResolutionQueueManager
-            .getStepsForPlayer(gameId, playerId as any)
-            .find((s: any) => (s as any)?.shockLandChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
-          if (!existing) {
-            queueShockLandPaymentStep(io, game, gameId, String(playerId), permanent, cardName, cardImageUrl);
-          }
-        }
-      }
-
-      // Check for other ETB-tapped lands (temples, gain lands, guildgates, etc.)
-      // This detects lands that always enter tapped based on oracle text
-      if (!isShockLandCard && !isBounceLand(cardName)) {
-        const oracleText = (cardInZone as any)?.oracle_text || '';
-        const etbPattern = detectETBTappedPattern(oracleText);
-        
-        // Find the permanent that was just played
-        const battlefield = game.state?.battlefield || [];
-        const permanent = battlefield.find((p: any) => 
-          p.card?.id === cardId && 
-          p.controller === playerId
-        );
-        
-        if (etbPattern === 'always' && permanent && !permanent.tapped) {
-          permanent.tapped = true;
-          debug(2, `[playLand] ${cardName} enters tapped (ETB-tapped pattern detected)`);
-        } else if (etbPattern === 'conditional' && permanent) {
-          // Evaluate the conditional ETB tapped pattern
-          // Count OTHER lands (not including this one)
-          const otherLandCount = battlefield.filter((p: any) => {
-            if (p.id === permanent.id) return false; // Exclude this land
-            if (p.controller !== playerId) return false;
-            const typeLine = (p.card?.type_line || '').toLowerCase();
-            return typeLine.includes('land');
-          }).length;
-          
-          // Get controlled land types from other lands
-          // For battle/tango lands like Cinder Glade, we need to count BASIC lands
-          // A basic land has "Basic Land" in its type line (e.g., "Basic Land ΓÇö Forest")
-          const controlledLandTypes: string[] = [];
-          let basicLandCount = 0;
-          for (const p of battlefield) {
-            if (p.id === permanent.id) continue; // Exclude this land
-            if (p.controller !== playerId) continue;
-            const typeLine = (p.card?.type_line || '').toLowerCase();
-            
-            // Check if this is a basic land (has "basic" in the type line)
-            if (typeLine.includes('basic')) {
-              basicLandCount++;
-            }
-            
-            const subtypes = getLandSubtypes(typeLine);
-            controlledLandTypes.push(...subtypes);
-          }
-          
-          // For battle lands, we need to pass the basic land count
-          // We do this by padding the controlledLandTypes array with dummy entries
-          // that represent basic lands (for the battleLand check)
-          // Actually, let's enhance the function signature instead
-          // For now, we use a workaround: check the oracle text here first
-          const hasBattleLandPattern = oracleText.toLowerCase().includes('two or more basic lands');
-          
-          // Get player's hand for reveal land checks
-          const playerHand = Array.isArray(zones?.hand) ? zones.hand : [];
-          
-          // Count opponents (other players in the game, excluding the current player)
-          const allPlayers = (game.state as any)?.players || [];
-          const opponentCount = allPlayers.filter((p: any) => p.id !== playerId).length;
-          
-          // Evaluate the conditional ETB
-          // For battle lands, use basic land count instead of land types
-          let evaluation;
-          if (hasBattleLandPattern) {
-            // Battle land - check basic land count
-            const shouldTap = basicLandCount < 2;
-            evaluation = {
-              shouldEnterTapped: shouldTap,
-              reason: shouldTap 
-                ? `Enters tapped (you control only ${basicLandCount} basic land${basicLandCount !== 1 ? 's' : ''})` 
-                : `Enters untapped (you control ${basicLandCount} basic lands)`,
-            };
-          } else {
-            // Get controlled permanents (for legendary creature check, etc.)
-            const controlledPermanents = battlefield.filter((p: any) => 
-              p.id !== permanent.id && p.controller === playerId
-            );
-            
-            evaluation = evaluateConditionalLandETB(
-              oracleText,
-              otherLandCount,
-              controlledLandTypes,
-              playerHand,
-              basicLandCount,
-              opponentCount,
-              controlledPermanents
-            );
-          }
-          
-          debug(2, `[playLand] ${cardName} conditional ETB: ${evaluation.reason}`);
-          
-          if (evaluation.requiresRevealPrompt && evaluation.canReveal) {
-            // Land can be revealed - queue choice via Resolution Queue.
-            // Use OPTION_CHOICE with one option per eligible card + a decline option.
-            const revealTypes: string[] = Array.isArray(evaluation.revealTypes) ? evaluation.revealTypes : [];
-            const eligible = playerHand
-              .filter((c: any) => {
-                const typeLine = String(c?.type_line || '');
-                if (!/\bland\b/i.test(typeLine)) return false;
-                if (revealTypes.length === 0) return true;
-                return revealTypes.some((t) => new RegExp(`\\b${String(t).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, 'i').test(typeLine));
-              })
-              .map((c: any) => ({
-                id: String(c?.id || ''),
-                label: String(c?.name || 'Card'),
-                description: String(c?.type_line || ''),
-                imageUrl: c?.image_uris?.small || c?.image_uris?.normal,
-              }))
-              .filter((o: any) => o.id);
-
-            const existing = ResolutionQueueManager
-              .getStepsForPlayer(gameId, playerId as any)
-              .find((s: any) => (s as any)?.revealLandChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
-            if (!existing) {
-              ResolutionQueueManager.addStep(gameId, {
-                type: ResolutionStepType.OPTION_CHOICE,
-                playerId: playerId as any,
-                sourceName: cardName,
-                sourceId: permanent.id,
-                sourceImage: cardImageUrl,
-                description: `You may reveal a ${revealTypes.join(' or ')} card from your hand. If you don't, ${cardName} enters tapped.`,
-                mandatory: true,
-                options: [
-                  ...eligible,
-                  { id: 'decline_reveal', label: "Don't reveal (enter tapped)" },
-                ],
-                minSelections: 1,
-                maxSelections: 1,
-                revealLandChoice: true,
-                permanentId: permanent.id,
-                cardName,
-                revealTypes,
-              } as any);
-            }
-          } else if (evaluation.shouldEnterTapped && !permanent.tapped) {
-            // Land should enter tapped based on condition check
-            permanent.tapped = true;
-            
-            // Send chat message about the land entering tapped
-            io.to(gameId).emit("chat", {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: "system",
-              message: `${getPlayerName(game, playerId)}'s ${cardName} enters tapped. (${evaluation.reason})`,
-              ts: Date.now(),
-            });
-          }
-        }
-      }
-
-      // Check for scry on ETB (Temple of Malice, etc.)
-      const oracleText = (cardInZone as any)?.oracle_text || '';
-      const scryAmount = detectScryOnETB(oracleText);
-      if (scryAmount && scryAmount > 0) {
-        // Set pendingScry state - will be processed by processPendingScry() after stack resolution
-        (game.state as any).pendingScry = (game.state as any).pendingScry || {};
-        (game.state as any).pendingScry[playerId] = ((game.state as any).pendingScry[playerId] || 0) + scryAmount;
-        
-        debug(2, `[playLand] ${cardName} has "scry ${scryAmount}" ETB trigger`);
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${cardName} enters the battlefield. ${getPlayerName(game, playerId)} scries ${scryAmount}.`,
-          ts: Date.now(),
-        });
-        
-        // Legacy beginScryPrompt emission removed - now handled by processPendingScry()
-      }
-
-      // Check for "sacrifice unless you pay" ETB triggers (Transguild Promenade, Gateway Plaza, etc.)
-      const sacrificeCost = detectSacrificeUnlessPayETB(cardName, oracleText);
-      if (sacrificeCost) {
-        // Find the permanent that was just played
-        const battlefield = game.state?.battlefield || [];
-        const permanent = battlefield.find((p: any) => 
-          p.card?.id === cardId && 
-          p.controller === playerId
-        );
-        
-        if (permanent) {
-          // Queue sacrifice-unless-pay via Resolution Queue.
-          const existing = ResolutionQueueManager
-            .getStepsForPlayer(gameId, playerId as any)
-            .find((s: any) => (s as any)?.sacrificeUnlessPayChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
-
-          if (!existing) {
-            queueOptionalPaymentStep(gameId, {
-              playerId: playerId as any,
-              sourceName: cardName,
-              sourceId: permanent.id,
-              sourceImage: cardImageUrl,
-              description: `${cardName}: Sacrifice it unless you pay ${sacrificeCost}. (Float mana first, then choose Pay.)`,
-              mandatory: true,
-              payChoiceId: 'pay_cost',
-              payLabel: `Pay ${sacrificeCost}`,
-              declineChoiceId: 'sacrifice',
-              declineLabel: `Don't pay (sacrifice ${cardName})`,
-              validationKind: 'mana',
-              manaCost: sacrificeCost,
-              stepData: {
-                sacrificeUnlessPayChoice: true,
-                permanentId: permanent.id,
-                cardName,
-                manaCost: sacrificeCost,
-              },
-              onPay: async () => {
-                const gameState = (game.state || {}) as any;
-                gameState.battlefield = gameState.battlefield || [];
-                const battlefieldState = gameState.battlefield as any[];
-                const permanentIndex = battlefieldState.findIndex((p: any) => p && p.id === permanent.id);
-                if (permanentIndex === -1) {
-                  return;
-                }
-
-                const permanentOnBattlefield = battlefieldState[permanentIndex];
-                const cardLabel = String(cardName || permanentOnBattlefield?.card?.name || 'Permanent');
-
-                try {
-                  const parsed = parseManaCost(sacrificeCost);
-                  const pool = getOrInitManaPool(game.state, playerId) as any;
-                  const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-                  const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
-
-                  if (validationError) {
-                    emitToPlayer(io, playerId, 'error', {
-                      code: 'INSUFFICIENT_MANA',
-                      message: validationError,
-                    });
-                    return;
-                  }
-
-                  consumeManaFromPool(pool, parsed.colors, parsed.generic);
-                  io.to(gameId).emit('chat', {
-                    id: `m_${Date.now()}`,
-                    gameId,
-                    from: 'system',
-                    message: `${getPlayerName(game, playerId)} pays ${sacrificeCost} for ${cardLabel}.`,
-                    ts: Date.now(),
-                  });
-
-                  try {
-                    await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
-                      playerId,
-                      permanentId: permanent.id,
-                      payMana: true,
-                      cardName: cardLabel,
-                    });
-                  } catch (e) {
-                    debugWarn(1, '[playLand] Failed to persist sacrificeUnlessPayChoice event:', e);
-                  }
-
-                  if (typeof (game as any).bumpSeq === 'function') {
-                    (game as any).bumpSeq();
-                  }
-                  broadcastGame(io, game, gameId);
-                } catch (err) {
-                  debugError(1, `[playLand] Failed to process payment (${sacrificeCost || 'unknown'}) for ${cardLabel}.`, err);
-                  emitToPlayer(io, playerId, 'error', {
-                    code: 'UNSUPPORTED_COST',
-                    message: `Failed to process payment (${sacrificeCost || 'unknown'}) for ${cardLabel}.`,
-                  });
-                }
-              },
-              onDecline: async () => {
-                const gameState = (game.state || {}) as any;
-                gameState.battlefield = gameState.battlefield || [];
-                const battlefieldState = gameState.battlefield as any[];
-                const permanentIndex = battlefieldState.findIndex((p: any) => p && p.id === permanent.id);
-                if (permanentIndex === -1) {
-                  return;
-                }
-
-                const [permanentOnBattlefield] = battlefieldState.splice(permanentIndex, 1);
-                const cardLabel = String(cardName || permanentOnBattlefield?.card?.name || 'Permanent');
-                const zones = game.state?.zones?.[playerId];
-                if (zones) {
-                  (zones as any).graveyard = (zones as any).graveyard || [];
-                  ((zones as any).graveyard as any[]).push({ ...(permanentOnBattlefield as any).card, zone: 'graveyard' });
-                  (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
-                }
-
-                io.to(gameId).emit('chat', {
-                  id: `m_${Date.now()}`,
-                  gameId,
-                  from: 'system',
-                  message: `${getPlayerName(game, playerId)} sacrifices ${cardLabel} (didn't pay ${sacrificeCost}).`,
-                  ts: Date.now(),
-                });
-
-                try {
-                  await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
-                    playerId,
-                    permanentId: permanent.id,
-                    payMana: false,
-                    cardName: cardLabel,
-                  });
-                } catch (e) {
-                  debugWarn(1, '[playLand] Failed to persist sacrificeUnlessPayChoice event:', e);
-                }
-
-                if (typeof (game as any).bumpSeq === 'function') {
-                  (game as any).bumpSeq();
-                }
-                broadcastGame(io, game, gameId);
-              },
-            });
-          }
-          debug(2, `[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
-        }
-      }
-
-      // Check for creature type selection requirements (e.g., Cavern of Souls, Unclaimed Territory)
-      checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
-      
-      // Check for color choice requirements (e.g., Caged Sun, Gauntlet of Power)
-      checkColorChoiceForNewPermanents(io, game, gameId);
-      
-      // Check for player selection requirements (e.g., Stuffy Doll, Vislor Turlough)
-      checkPlayerSelectionForNewPermanents(io, game, gameId);
-      
-      // Check for enchantment ETB triggers (e.g., Growing Rites of Itlimoc)
-      checkEnchantmentETBTriggers(io, game, gameId);
-
-      // NOTE: Bounce land ETB triggers are now handled in stack.ts playLand function
-      // via the unified ETB trigger detection system. No need for duplicate handling here.
-
-      // NOTE: Landfall triggers are now handled in stack.ts playLand function
-      // via the unified trigger detection system. No need for duplicate handling here.
-      // This prevents double-triggering issues like the one with Geode Rager and Helm of the Host.
-
-      broadcastGame(io, game, gameId);
+      finalizePlayedLand(io, game, gameId, String(playerId), cardId, cardInZone, sourceZone);
     } catch (err: any) {
       debugError(1, `playLand error for game ${gameId}:`, err);
       socket.emit("error", {

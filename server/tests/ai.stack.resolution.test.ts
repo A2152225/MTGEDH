@@ -28,6 +28,16 @@ function createInstantSpell(id: string, name: string, oracleText: string = ''): 
   };
 }
 
+function createArtifactPermanent(id: string, name: string, oracleText: string = ''): Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> {
+  return {
+    id,
+    name,
+    type_line: 'Artifact',
+    oracle_text: oracleText,
+    image_uris: undefined,
+  };
+}
+
 /**
  * Tests for AI stack resolution functionality
  * These tests verify that when an AI passes priority after all players have passed,
@@ -202,6 +212,35 @@ describe('AI Stack Resolution', () => {
       expect(g.state.stack.length).toBe(0);
       expect(g.state.battlefield.length).toBe(1);
       expect(g.state.battlefield[0].card.name).toBe('Grizzly Bears');
+    });
+
+    it('should keep artifacts with ETB tapped text tapped when resolved', () => {
+      const g = createInitialGameState('ai_resolve_fire_diamond');
+
+      const p1 = 'p1' as PlayerID;
+
+      g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+
+      g.applyEvent({
+        type: 'pushStack',
+        item: {
+          id: 'st_fire_diamond',
+          controller: p1,
+          card: createArtifactPermanent(
+            'card_fire_diamond',
+            'Fire Diamond',
+            'Fire Diamond enters the battlefield tapped.\n{T}: Add {R}.'
+          ),
+          targets: []
+        }
+      });
+
+      g.resolveTopOfStack();
+
+      expect(g.state.stack.length).toBe(0);
+      expect(g.state.battlefield.length).toBe(1);
+      expect(g.state.battlefield[0].card.name).toBe('Fire Diamond');
+      expect(g.state.battlefield[0].tapped).toBe(true);
     });
     
     it('should remove instant/sorcery from stack when resolved', () => {

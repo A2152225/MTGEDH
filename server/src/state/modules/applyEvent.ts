@@ -274,6 +274,26 @@ function applyRecordedLifePayment(ctx: GameContext, playerId: string, rawAmount:
   }
 }
 
+function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
+  const playerId = String(event?.playerId || '').trim();
+  const cardId = String(event?.card?.id || event?.cardId || '').trim();
+  if (!playerId || !cardId) return;
+
+  const battlefield = Array.isArray((ctx.state as any)?.battlefield) ? ((ctx.state as any).battlefield as any[]) : [];
+  const permanent = [...battlefield].reverse().find((entry: any) =>
+    String(entry?.controller || '') === playerId && String(entry?.card?.id || '') === cardId
+  );
+  if (!permanent) return;
+
+  if (typeof event?.entersTapped === 'boolean') {
+    permanent.tapped = event.entersTapped;
+  }
+
+  if (event?.paidLife != null) {
+    applyRecordedLifePayment(ctx, playerId, event.paidLife);
+  }
+}
+
 function consumeRecordedManaCostFromPool(pool: Record<string, number>, manaCost?: string): void {
   if (!pool || !manaCost) return;
 
@@ -1572,6 +1592,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // best-effort only
         }
         playLand(ctx as any, (e as any).playerId, cardData);
+        applyRecordedPlayLandReplayState(ctx, e);
         break;
       }
 

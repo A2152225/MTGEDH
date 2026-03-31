@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGameIfNotExists, initDb } from '../src/db/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -125,6 +125,35 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.selections).toEqual(['scepter']);
   });
 
+  it('advances out of untap instead of passing priority repeatedly', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'beginning';
+    (game.state as any).step = 'UNTAP';
+    (game.state as any).stack = [];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).battlefield = [];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(String((game.state as any).step || '').toUpperCase()).toBe('UPKEEP');
+    expect(String((game.state as any).phase || '').toLowerCase()).toBe('beginning');
+  });
+
   it('routes active option-choice steps through AI priority handling and submits the chosen option', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -175,6 +204,211 @@ describe('AI resolution-step integration', () => {
     const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
     expect(completed?.response?.selections).toEqual(['no']);
     expect(completed?.response?.cancelled).toBe(true);
+  });
+
+  it('plays shock lands through the shared option-choice flow instead of pre-paying life inline', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 18, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 18, opp1: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).landsPlayedThisTurn = { [playerId]: 0 };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'hallowed_fountain_1',
+            name: 'Hallowed Fountain',
+            type_line: 'Land — Plains Island',
+            oracle_text: '({T}: Add {W} or {U}.)\nAs Hallowed Fountain enters, you may pay 2 life. If you don\'t, it enters tapped.',
+            zone: 'hand',
+            image_uris: { small: 'hf.jpg' },
+          },
+        ],
+        handCount: 1,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const timeoutSpy = vi.spyOn(global, 'setTimeout').mockImplementation(() => 0 as any);
+    try {
+      await handleAIPriority(createNoopIo(), gameId, playerId as any);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const shockChoiceStep = queue.steps.find((entry: any) => (entry as any).shockLandChoice === true) as any;
+    expect(shockChoiceStep).toBeDefined();
+    expect((game.state as any).life?.[playerId]).toBe(18);
+
+    const permanent = ((game.state as any).battlefield || []).find((entry: any) => entry.card?.id === 'hallowed_fountain_1');
+    expect(permanent).toBeDefined();
+  });
+
+  it('starts spell casting through the shared requestCastSpell flow', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, opp1: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).landsPlayedThisTurn = { [playerId]: 1 };
+    (game.state as any).manaPool = { [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } };
+    (game.state as any).battlefield = [
+      {
+        id: 'forest_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: { id: 'forest_card_1', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+      },
+      {
+        id: 'forest_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: { id: 'forest_card_2', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+      },
+      {
+        id: 'forest_3',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: { id: 'forest_card_3', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+      },
+      {
+        id: 'target_artifact',
+        controller: 'opp1',
+        owner: 'opp1',
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: { id: 'target_artifact_card', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '{T}: Add {C}{C}.' },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'beast_within_1',
+            name: 'Beast Within',
+            type_line: 'Instant',
+            oracle_text: 'Destroy target permanent. Its controller creates a 3/3 green Beast creature token.',
+            mana_cost: '{2}{G}',
+            zone: 'hand',
+            image_uris: { small: 'beast_within.jpg' },
+          },
+          {
+            id: 'dummy_spell_1',
+            name: 'Dummy Spell 1',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw a card.',
+            mana_cost: '{9}',
+            zone: 'hand',
+          },
+          {
+            id: 'dummy_spell_2',
+            name: 'Dummy Spell 2',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw a card.',
+            mana_cost: '{9}',
+            zone: 'hand',
+          },
+          {
+            id: 'dummy_spell_3',
+            name: 'Dummy Spell 3',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw a card.',
+            mana_cost: '{9}',
+            zone: 'hand',
+          },
+          {
+            id: 'dummy_spell_4',
+            name: 'Dummy Spell 4',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw a card.',
+            mana_cost: '{9}',
+            zone: 'hand',
+          },
+          {
+            id: 'dummy_spell_5',
+            name: 'Dummy Spell 5',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw a card.',
+            mana_cost: '{9}',
+            zone: 'hand',
+          },
+          {
+            id: 'dummy_spell_6',
+            name: 'Dummy Spell 6',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw a card.',
+            mana_cost: '{9}',
+            zone: 'hand',
+          },
+          {
+            id: 'dummy_spell_7',
+            name: 'Dummy Spell 7',
+            type_line: 'Sorcery',
+            oracle_text: 'Draw a card.',
+            mana_cost: '{9}',
+            zone: 'hand',
+          },
+        ],
+        handCount: 8,
+        library: [],
+        graveyard: [],
+        exile: [],
+      },
+      opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+
+    registerAIPlayer(gameId, playerId as any);
+
+    const timeoutSpy = vi.spyOn(global, 'setTimeout').mockImplementation(() => 0 as any);
+    try {
+      await handleAIPriority(createNoopIo(), gameId, playerId as any);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const targetSelectionStep = queue.steps.find((entry: any) => String((entry as any).type || '').toLowerCase() === 'target_selection') as any;
+    expect(targetSelectionStep).toBeDefined();
+    expect(String(targetSelectionStep?.sourceName || '')).toBe('Beast Within');
+    expect(((game.state as any).stack || []).length).toBe(0);
   });
 
   it('routes active mode-selection steps through AI priority handling and submits the chosen mode', async () => {

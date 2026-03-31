@@ -1393,6 +1393,7 @@ export function App() {
         playerName: config.playerName,
         format: config.format,
         startingLife: config.startingLife,
+        seed: config.seed,
         aiOpponents: config.aiOpponents,
       });
     } else if (config.includeAI) {
@@ -1402,6 +1403,7 @@ export function App() {
         playerName: config.playerName,
         format: config.format,
         startingLife: config.startingLife,
+        seed: config.seed,
         aiName: config.aiName,
         aiStrategy: config.aiStrategy,
         aiDifficulty: config.aiDifficulty,
@@ -1415,6 +1417,7 @@ export function App() {
         gameId: config.gameId,
         format: config.format,
         startingLife: config.startingLife,
+        seed: config.seed,
       });
     }
     

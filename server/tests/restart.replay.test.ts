@@ -327,4 +327,79 @@ describe('Server restart replay', () => {
     expect(landsOnBattlefield2.length).toBe(1);
     expect(landsOnBattlefield2[0].card.name).toBe('Forest');
   });
+
+  it('should replay AI land plays from persisted card snapshots', () => {
+    const gameId = 'ai_land_replay_test';
+    const p1 = 'p_ai' as PlayerID;
+    const commandTower = {
+      id: 'command_tower_1',
+      name: 'Command Tower',
+      type_line: 'Land',
+      oracle_text: '{T}: Add one mana of any color in your commander\'s color identity.',
+      zone: 'hand',
+    } as any;
+
+    const dbEvents = [
+      {
+        type: 'playLand',
+        payload: {
+          playerId: p1,
+          cardId: commandTower.id,
+          card: commandTower,
+          fromZone: 'hand',
+          isAI: true,
+          entersTapped: false,
+        },
+      },
+    ];
+
+    const replayEvents = transformDbEventsForReplay(dbEvents);
+    const game = createInitialGameState(gameId);
+    (game.state as any).life = { [p1]: 40 };
+    (game as any).replay(replayEvents);
+
+    const battlefield = ((game.state as any).battlefield || []) as any[];
+    expect(battlefield).toHaveLength(1);
+    expect(battlefield[0].card?.name).toBe('Command Tower');
+    expect(battlefield[0].tapped).toBe(false);
+  });
+
+  it('should replay AI shock land outcomes using persisted land state', () => {
+    const gameId = 'ai_shock_land_replay_test';
+    const p1 = 'p_ai_shock' as PlayerID;
+    const hallowedFountain = {
+      id: 'hallowed_fountain_1',
+      name: 'Hallowed Fountain',
+      type_line: 'Land — Plains Island',
+      oracle_text: '({T}: Add {W} or {U}.)\nAs Hallowed Fountain enters, you may pay 2 life. If you don\'t, it enters tapped.',
+      zone: 'hand',
+    } as any;
+
+    const dbEvents = [
+      {
+        type: 'playLand',
+        payload: {
+          playerId: p1,
+          cardId: hallowedFountain.id,
+          card: hallowedFountain,
+          fromZone: 'hand',
+          isAI: true,
+          entersTapped: false,
+          paidLife: 2,
+        },
+      },
+    ];
+
+    const replayEvents = transformDbEventsForReplay(dbEvents);
+    const game = createInitialGameState(gameId);
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).players = [{ id: p1, name: 'AI', life: 40, spectator: false }];
+    (game as any).replay(replayEvents);
+
+    const battlefield = ((game.state as any).battlefield || []) as any[];
+    expect(battlefield).toHaveLength(1);
+    expect(battlefield[0].card?.name).toBe('Hallowed Fountain');
+    expect(battlefield[0].tapped).toBe(false);
+    expect((game.state as any).life?.[p1]).toBe(38);
+  });
 });

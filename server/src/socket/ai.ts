@@ -28,6 +28,7 @@ import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { runSBA } from "../state/modules/counters_tokens.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
+import { finalizePlayedLand, requestCastSpellForSocket } from "./game-actions.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -65,12 +66,93 @@ const AI_PAIN_LANDS = new Set([
   'silent clearing', 'waterlogged grove',
 ]);
 
+function normalizeRequestedGameSeed(rawSeed: unknown): number | undefined {
+  if (rawSeed == null) return undefined;
+  if (typeof rawSeed === 'string' && rawSeed.trim() === '') return undefined;
+
+  const parsedSeed = typeof rawSeed === 'number' ? rawSeed : Number(rawSeed);
+  if (!Number.isFinite(parsedSeed) || !Number.isInteger(parsedSeed) || parsedSeed <= 0 || parsedSeed > 0xFFFFFFFF) {
+    throw new Error('Invalid game seed. Expected an integer between 1 and 4294967295.');
+  }
+
+  return parsedSeed >>> 0;
+}
+
+async function createConfiguredGame(
+  gameId: string,
+  format: unknown,
+  startingLife: unknown,
+  seed: unknown,
+  logPrefix: string,
+): Promise<{
+  game: any;
+  selectedFormat: string;
+  selectedStartingLife: number;
+  selectedSeed: number | undefined;
+}> {
+  if (GameManager.getGame(gameId) || gameExistsInDb(gameId)) {
+    throw Object.assign(new Error('Game already exists.'), {
+      code: 'GAME_ALREADY_EXISTS',
+    });
+  }
+
+  let game = GameManager.getGame(gameId);
+  if (!game) {
+    try {
+      game = GameManager.createGame({ id: gameId });
+      debug(1, `${logPrefix} Created new game via GameManager:`, gameId);
+    } catch (createErr: any) {
+      game = GameManager.getGame(gameId);
+      if (!game) {
+        debugError(1, `${logPrefix} Failed to create or get game:`, createErr);
+        throw new Error('Failed to create game');
+      }
+      debug(1, `${logPrefix} Game was created by another request, reusing:`, gameId);
+    }
+  }
+
+  game.state = (game.state || {}) as any;
+  const selectedFormat = typeof format === 'string' ? format : 'commander';
+  const selectedStartingLife = typeof startingLife === 'number'
+    ? startingLife
+    : (selectedFormat === 'commander' ? 40 : 20);
+  const selectedSeed = normalizeRequestedGameSeed(seed);
+
+  (game.state as any).format = selectedFormat;
+  (game.state as any).startingLife = selectedStartingLife;
+
+  if (selectedSeed !== undefined) {
+    try {
+      if (typeof (game as any).seedRng === 'function') {
+        (game as any).seedRng(selectedSeed);
+      }
+    } catch (err) {
+      debugWarn(1, `${logPrefix} Failed to set rng seed on game instance (continuing):`, err);
+    }
+
+    try {
+      (game.state as any).rngSeed = selectedSeed;
+      (game as any)._rngSeed = selectedSeed;
+    } catch {
+      // best-effort only
+    }
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, 'rngSeed', { seed: selectedSeed });
+    } catch (err) {
+      debugWarn(1, `${logPrefix} appendEvent rngSeed failed (continuing):`, err);
+    }
+  }
+
+  return { game, selectedFormat, selectedStartingLife, selectedSeed };
+}
+
 /**
  * Extract color identity from a card's mana cost and oracle text
  */
 function extractColorIdentity(card: any): string[] {
   const colors = new Set<string>();
-  
+
   // Extract from mana cost
   const manaCost = card.mana_cost || '';
   for (const colorSymbol of Object.keys(COLOR_IDENTITY_MAP)) {
@@ -78,14 +160,14 @@ function extractColorIdentity(card: any): string[] {
       colors.add(colorSymbol);
     }
   }
-  
+
   // Extract from color_identity if available (Scryfall provides this)
   if (Array.isArray(card.color_identity)) {
     for (const c of card.color_identity) {
       colors.add(c);
     }
   }
-  
+
   // Extract from oracle text (for hybrid mana and ability costs)
   const oracleText = card.oracle_text || '';
   for (const colorSymbol of Object.keys(COLOR_IDENTITY_MAP)) {
@@ -93,7 +175,7 @@ function extractColorIdentity(card: any): string[] {
       colors.add(colorSymbol);
     }
   }
-  
+
   return Array.from(colors);
 }
 
@@ -167,7 +249,7 @@ function calculateColorMatchScore(commanders: any[], deckColors: Set<string>): {
       commanderColors.add(color);
     }
   }
-  
+
   // Count how many deck colors are covered
   let coverage = 0;
   for (const color of deckColors) {
@@ -175,7 +257,7 @@ function calculateColorMatchScore(commanders: any[], deckColors: Set<string>): {
       coverage++;
     }
   }
-  
+
   // Count how many extra colors the commander has (not in deck)
   let extraColors = 0;
   for (const color of commanderColors) {
@@ -183,11 +265,11 @@ function calculateColorMatchScore(commanders: any[], deckColors: Set<string>): {
       extraColors++;
     }
   }
-  
+
   // Score: prioritize coverage, penalize extra colors
   // Perfect match: coverage = deckColors.size, extraColors = 0
   const score = (coverage * 10) - (extraColors * 5);
-  
+
   return { score, coverage, extraColors };
 }
 
@@ -4051,8 +4133,19 @@ export async function handleAIPriority(
       return;
     }
     
-    // BEGINNING PHASES (Untap, Upkeep, Draw) - only active player can advance
+    // BEGINNING PHASES - the untap step should advance directly.
+    // nextTurn currently leaves the active player with priority in UNTAP for engine compatibility,
+    // but routing that state through passPriority can loop on auto-pass instead of leaving UNTAP.
     if (phase === 'beginning' || phase.includes('begin')) {
+      const normalizedStep = String(step || '').toLowerCase();
+      const isUntapStep = normalizedStep === 'untap';
+
+      if (isUntapStep && isAITurn && stackEmpty) {
+        debug(1, '[AI] Beginning phase, step:', step, '- advancing out of untap');
+        await executeAdvanceStep(io, gameId, playerId);
+        return;
+      }
+
       debug(1, '[AI] Beginning phase, step:', step, '- passing priority');
       await executePassPriority(io, gameId, playerId);
       return;
@@ -4516,119 +4609,59 @@ async function executeAIPlayLand(
   debug(1, '[AI] Playing land:', { gameId, playerId, cardId });
   
   try {
-    // Find the card in hand to check its properties
     const zones = game.state?.zones?.[playerId];
-    let cardToPlay: any = null;
-    
-    if (zones && Array.isArray(zones.hand)) {
-      cardToPlay = (zones.hand as any[]).find((c: any) => c?.id === cardId);
+    const cardToPlay = zones && Array.isArray(zones.hand)
+      ? (zones.hand as any[]).find((c: any) => c?.id === cardId)
+      : null;
+
+    if (!cardToPlay) {
+      debugWarn(1, '[AI] Land not found in AI hand:', { gameId, playerId, cardId });
+      return;
     }
-    
-    // Determine if this land enters tapped
-    let entersTapped = false;
-    let paidLife = false;
-    
-    if (cardToPlay) {
-      const cardName = (cardToPlay.name || '').toLowerCase();
-      
-      // Check if it's a shock land
-      if (isShockLand(cardName)) {
-        // AI decides whether to pay 2 life
-        if (shouldAIPayShockLandLife(game, playerId)) {
-          // Pay 2 life to enter untapped (but keep a buffer of at least 4 life)
-          const players = game.state?.players || [];
-          const player = players.find((p: any) => p.id === playerId) as any;
-          if (player && player.life >= 4) {
-            player.life -= 2;
-            paidLife = true;
-            debug(1, '[AI] Paid 2 life for shock land to enter untapped:', cardName);
-          } else {
-            // Life too low, enters tapped to preserve life buffer
-            entersTapped = true;
-          }
-        } else {
-          // Choose not to pay, enters tapped
-          entersTapped = true;
-          debug(1, '[AI] Shock land enters tapped (chose not to pay):', cardName);
-        }
-      } else if (landEntersTapped(cardToPlay)) {
-        // This land always enters tapped
-        entersTapped = true;
-        debug(1, '[AI] Land enters tapped:', cardName);
+
+    const bridge = (GameManager as any).getRulesBridge(gameId);
+    if (bridge) {
+      const validation = bridge.validateAction({
+        type: 'playLand',
+        playerId,
+        cardId,
+      });
+
+      if (!validation?.legal) {
+        debugWarn(1, '[AI] RulesBridge rejected AI playLand:', {
+          gameId,
+          playerId,
+          cardId,
+          reason: validation?.reason,
+        });
+        return;
+      }
+
+      const result = bridge.executeAction({
+        type: 'playLand',
+        playerId,
+        cardId,
+      });
+
+      if (!result?.success) {
+        debugWarn(1, '[AI] RulesBridge failed to execute AI playLand:', {
+          gameId,
+          playerId,
+          cardId,
+          error: result?.error,
+        });
+        return;
       }
     }
-    
-    // Use game's playLand method if available
+
     if (typeof (game as any).playLand === 'function') {
       (game as any).playLand(playerId, cardId);
-      
-      // If land should enter tapped, find and tap it
-      if (entersTapped) {
-        const battlefield = game.state?.battlefield || [];
-        // Find by unique cardId only - name-based fallback removed to prevent issues
-        // with multiple copies of the same card (e.g., basic lands, tokens)
-        const newPerm = battlefield.find((p: any) => 
-          p.controller === playerId && 
-          p.card?.id === cardId
-        );
-        if (newPerm) {
-          newPerm.tapped = true;
-        }
-      }
     } else {
-      // Fallback: manually move card from hand to battlefield
-      if (zones && Array.isArray(zones.hand)) {
-        const hand = zones.hand as any[];
-        const idx = hand.findIndex((c: any) => c?.id === cardId);
-        if (idx !== -1) {
-          const [card] = hand.splice(idx, 1);
-          zones.handCount = hand.length;
-          
-          // Add to battlefield (tapped if necessary)
-          game.state.battlefield = game.state.battlefield || [];
-          const permanent = {
-            id: `perm_${Date.now()}_${cardId}`,
-            controller: playerId,
-            owner: playerId,
-            card: { ...card, zone: 'battlefield' },
-            tapped: entersTapped,
-            counters: {},
-          };
-          game.state.battlefield.push(permanent as any);
-          
-          // Increment lands played
-          game.state.landsPlayedThisTurn = game.state.landsPlayedThisTurn || {};
-          (game.state.landsPlayedThisTurn as any)[playerId] = ((game.state.landsPlayedThisTurn as any)[playerId] || 0) + 1;
-        }
-      }
+      debugWarn(1, '[AI] game.playLand not available for AI land play');
+      return;
     }
-    
-    // Handle bounce land ETB trigger - return a land to hand
-    if (cardToPlay && isBounceLand((cardToPlay.name || '').toLowerCase())) {
-      await handleBounceLandETB(game, playerId, cardToPlay.name);
-    }
-    
-    // Persist event
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, 'playLand', { 
-        playerId, 
-        cardId, 
-        isAI: true,
-        entersTapped,
-        paidLife: paidLife ? 2 : 0,
-        isBounceLand: cardToPlay ? isBounceLand((cardToPlay.name || '').toLowerCase()) : false,
-      });
-    } catch (e) {
-      debugWarn(1, '[AI] Failed to persist playLand event:', e);
-    }
-    
-    // Bump sequence
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-    
-    // Broadcast updated state
-    broadcastGame(io, game, gameId);
+
+    finalizePlayedLand(io, game, gameId, String(playerId), cardId, cardToPlay, 'hand', { isAI: true });
     
   } catch (error) {
     debugError(1, '[AI] Error playing land:', error);
@@ -4798,183 +4831,24 @@ async function executeAICastSpell(
   debug(1, '[AI] Casting spell:', { gameId, playerId, cardName: card.name, cost });
   
   try {
-    // Get mana sources to tap for payment (lands, artifacts, creatures)
-    const payments = getPaymentSources(game, playerId, cost);
-    
-    // Initialize mana pool if needed
-    (game.state as any).manaPool = (game.state as any).manaPool || {};
-    (game.state as any).manaPool[playerId] = (game.state as any).manaPool[playerId] || {
-      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-    };
-    
-    const colorMap: Record<string, string> = { 
-      W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' 
-    };
-    
-    // Tap the mana sources and add mana to pool based on assigned colors
-    const battlefield = game.state?.battlefield || [];
-    for (const payment of payments) {
-      const perm = battlefield.find((p: any) => p?.id === payment.sourceId) as any;
-      if (perm && !perm.tapped) {
-        perm.tapped = true;
-        
-        // Check if this source produces 2 mana (Sol Ring, etc.)
-        const oracleText = ((perm.card as any)?.oracle_text || '').toLowerCase();
-        const producesTwoMana = oracleText.includes('{c}{c}') || oracleText.includes('add {c}{c}');
-        
-        // Add the specific color this source was assigned to produce
-        const colorKey = colorMap[payment.produceColor] || 'colorless';
-        (game.state as any).manaPool[playerId][colorKey] += producesTwoMana ? 2 : 1;
-      }
-    }
-    
-    // Determine targets for targeted spells
-    let targets: TargetRef[] = [];
-    const oracleText = card.oracle_text || '';
-    const typeLine = (card.type_line || '').toLowerCase();
-    const isAura = typeLine.includes('enchantment') && typeLine.includes('aura');
-    
-    // Handle Auras specially - they use "Enchant X" patterns instead of "target" patterns
-    if (isAura) {
-      const auraTarget = findAuraTarget(game.state, playerId, card);
-      if (auraTarget) {
-        targets = [{ kind: 'permanent', id: auraTarget.id }];
-        debug(1, '[AI] Selected Aura target:', { 
-          cardName: card.name, 
-          targetName: auraTarget.card?.name || auraTarget.id
-        });
-      } else {
-        debugWarn(2, '[AI] Cannot cast Aura - no valid targets:', card.name);
-        return;
-      }
-    } else {
-      // Non-Aura spells use categorizeSpell for targeting
-      const spellSpec = categorizeSpell(card.name, oracleText);
-      
-      if (spellSpec && spellSpec.minTargets > 0) {
-        // This spell requires targets - use evaluateTargeting to find valid options
-        const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
-        
-        if (validTargets.length > 0) {
-          targets = chooseAITargetsForSpell(game, playerId, card, spellSpec, validTargets)
-            .slice(0, spellSpec.maxTargets || validTargets.length);
-          
-          debug(1, '[AI] Selected targets for spell:', { 
-            cardName: card.name, 
-            targetCount: targets.length,
-            targets: targets.map((t: TargetRef) => {
-              if (t.kind === 'player') {
-                const player = game.state?.players?.find((entry: any) => entry?.id === t.id);
-                return player?.name || t.id;
-              }
-              const perm = battlefield.find((p: any) => p.id === t.id);
-              return perm?.card?.name || t.id;
-            })
+    const aiSocket = {
+      data: { playerId },
+      emit: (event: string, payload: any) => {
+        if (event === 'error') {
+          debugWarn(1, '[AI] requestCastSpellForSocket rejected cast:', {
+            gameId,
+            playerId,
+            cardId: card?.id,
+            payload,
           });
-        } else {
-          // No valid targets available - cannot cast this spell
-          debugWarn(2, '[AI] Cannot cast spell - no valid targets:', card.name);
-          return;
         }
-      }
-    }
-    
-    // Move card from hand to stack
-    const zones = game.state?.zones?.[playerId];
-    if (zones && Array.isArray(zones.hand)) {
-      const hand = zones.hand as any[];
-      const idx = hand.findIndex((c: any) => c?.id === card.id);
-      if (idx !== -1) {
-        const [removedCard] = hand.splice(idx, 1);
-        zones.handCount = hand.length;
-        
-        // Add to stack with targets
-        game.state.stack = game.state.stack || [];
-        const stackItem = {
-          id: `stack_${Date.now()}_${card.id}`,
-          controller: playerId,
-          card: { ...removedCard, zone: 'stack' },
-          targets: targets,
-        };
-        game.state.stack.push(stackItem as any);
-        
-        debug(1, '[AI] Spell added to stack:', card.name, 'with', targets.length, 'target(s)');
-      }
-    }
+      },
+    } as any;
 
-    // Track: "no opponent cast a spell since your last turn ended" (best-effort)
-    // Only flips `false -> true` for already-known opponent entries to avoid guessing in team games.
-    try {
-      const stateAny = game.state as any;
-      const map = stateAny?.opponentCastSpellSinceYourLastTurnEnded;
-      if (map && typeof map === 'object') {
-        for (const [, inner] of Object.entries(map)) {
-          if (!inner || typeof inner !== 'object' || Array.isArray(inner)) continue;
-          if (typeof (inner as any)[playerId] === 'boolean') (inner as any)[playerId] = true;
-        }
-        if (typeof (map as any)[playerId] === 'boolean') (map as any)[playerId] = true;
-      }
-    } catch {
-      // best-effort only
-    }
-    
-    // Consume mana from pool to pay for spell (leave any excess)
-    const pool = (game.state as any).manaPool[playerId];
-    
-    // Pay colored costs first
-    for (const [color, needed] of Object.entries(cost.colors)) {
-      const colorKey = colorMap[color];
-      if (colorKey && needed > 0) {
-        pool[colorKey] = Math.max(0, (pool[colorKey] || 0) - (needed as number));
-      }
-    }
-    
-    // Pay generic cost with remaining mana (prefer colorless first)
-    let genericLeft = cost.generic;
-    if (genericLeft > 0 && pool.colorless > 0) {
-      const use = Math.min(pool.colorless, genericLeft);
-      pool.colorless -= use;
-      genericLeft -= use;
-    }
-    // Use colored mana for remaining generic
-    for (const colorKey of ['white', 'blue', 'black', 'red', 'green']) {
-      if (genericLeft <= 0) break;
-      if (pool[colorKey] > 0) {
-        const use = Math.min(pool[colorKey], genericLeft);
-        pool[colorKey] -= use;
-        genericLeft -= use;
-      }
-    }
-    
-    // Persist event with targets for proper replay
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, 'castSpell', { 
-        playerId, 
-        cardId: card.id, 
-        cardName: card.name,
-        targets: targets,  // Include targets for replay
-        card: card,  // Include full card data for replay
-        isAI: true 
-      });
-    } catch (e) {
-      debugWarn(1, '[AI] Failed to persist castSpell event:', e);
-    }
-    
-    // Bump sequence
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-    
-    // Broadcast updated state to all players
-    broadcastGame(io, game, gameId);
-    
-    // IMPORTANT: After casting a spell, pass priority to opponents
-    // This allows human players to respond before the spell resolves
-    // The spell will resolve when all players pass priority in succession
-    setTimeout(async () => {
-      await executePassPriority(io, gameId, playerId);
-    }, AI_REACTION_DELAY_MS);
-    
+    await requestCastSpellForSocket(io, aiSocket, {
+      gameId,
+      cardId: String(card?.id || ''),
+    });
   } catch (error) {
     debugError(1, '[AI] Error casting spell:', error);
   }
@@ -6504,57 +6378,42 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     gameId?: unknown;
     format?: unknown;
     startingLife?: unknown;
+    seed?: unknown;
   }) => {
     const gameId = payload?.gameId;
     const format = payload?.format;
     const startingLife = payload?.startingLife;
+    const seed = payload?.seed;
 
     try {
       if (!gameId || typeof gameId !== 'string') {
         socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Invalid game creation payload' });
         return;
       }
-      debug(1, '[Game] Creating game without AI:', { gameId, format, startingLife });
+      debug(1, '[Game] Creating game without AI:', { gameId, format, startingLife, seed });
 
-      // Safety: creation handlers must never mutate an existing game.
-      // If the game already exists in DB or memory, require the normal join/ensure flow.
-      if (GameManager.getGame(gameId) || gameExistsInDb(gameId)) {
+      const { game, selectedFormat, selectedStartingLife, selectedSeed } = await createConfiguredGame(
+        gameId,
+        format,
+        startingLife,
+        seed,
+        '[Game]',
+      );
+
+      debug(1, '[Game] Game created successfully:', {
+        gameId,
+        format: selectedFormat,
+        startingLife: selectedStartingLife,
+        seed: selectedSeed ?? (game.state as any).rngSeed,
+      });
+    } catch (err) {
+      if ((err as any)?.code === 'GAME_ALREADY_EXISTS') {
         socket.emit('error', {
           code: 'GAME_ALREADY_EXISTS',
           message: 'Game already exists.',
         });
         return;
       }
-      
-      // Create a NEW game using GameManager.createGame() which handles DB persistence
-      let game = GameManager.getGame(gameId);
-      if (!game) {
-        try {
-          game = GameManager.createGame({ id: gameId });
-          debug(1, '[Game] Created new game via GameManager:', gameId);
-        } catch (createErr: any) {
-          // Game might already exist (race condition), try to get it again
-          game = GameManager.getGame(gameId);
-          if (!game) {
-            debugError(1, '[Game] Failed to create or get game:', createErr);
-            socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
-            return;
-          }
-          debug(1, '[Game] Game was created by another request, reusing:', gameId);
-        }
-      }
-      
-      // Set format and starting life
-      game.state = (game.state || {}) as any;
-      const selectedFormat = typeof format === 'string' ? format : 'commander';
-      const selectedStartingLife = typeof startingLife === 'number'
-        ? startingLife
-        : (selectedFormat === 'commander' ? 40 : 20);
-      (game.state as any).format = selectedFormat;
-      (game.state as any).startingLife = selectedStartingLife;
-      
-      debug(1, '[Game] Game created successfully:', { gameId, format: (game.state as any).format, startingLife: (game.state as any).startingLife });
-    } catch (err) {
       debugError(1, '[Game] Error creating game:', err);
       socket.emit('error', { 
         code: 'GAME_CREATE_FAILED', 
@@ -6569,6 +6428,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     playerName?: unknown;
     format?: unknown;
     startingLife?: unknown;
+    seed?: unknown;
     aiName?: unknown;
     aiStrategy?: unknown;
     aiDifficulty?: unknown;
@@ -6580,6 +6440,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     const playerName = payload?.playerName;
     const format = payload?.format;
     const startingLife = payload?.startingLife;
+    const seed = payload?.seed;
     const aiName = payload?.aiName;
     const aiStrategy = payload?.aiStrategy;
     const aiDifficulty = payload?.aiDifficulty;
@@ -6592,45 +6453,15 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Invalid game creation payload' });
         return;
       }
-      debug(1, '[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, aiDifficulty, hasText: !!aiDeckText });
+      debug(1, '[AI] Creating game with AI:', { gameId, playerName, aiName, aiStrategy, aiDifficulty, hasText: !!aiDeckText, seed });
 
-      // Safety: must not mutate an existing game.
-      if (GameManager.getGame(gameId) || gameExistsInDb(gameId)) {
-        socket.emit('error', {
-          code: 'GAME_ALREADY_EXISTS',
-          message: 'Game already exists.',
-        });
-        return;
-      }
-      
-      // Create a NEW game using GameManager.createGame() which handles DB persistence
-      // This is critical - ensureGame() checks if the game exists in DB first,
-      // which fails for NEW games. We must use createGame() for new games.
-      let game = GameManager.getGame(gameId);
-      if (!game) {
-        try {
-          game = GameManager.createGame({ id: gameId });
-          debug(1, '[AI] Created new game via GameManager:', gameId);
-        } catch (createErr: any) {
-          // Game might already exist (race condition), try to get it again
-          game = GameManager.getGame(gameId);
-          if (!game) {
-            debugError(1, '[AI] Failed to create or get game:', createErr);
-            socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
-            return;
-          }
-          debug(1, '[AI] Game was created by another request, reusing:', gameId);
-        }
-      }
-      
-      // Set format and starting life
-      game.state = (game.state || {}) as any;
-      const selectedFormat = typeof format === 'string' ? format : 'commander';
-      const selectedStartingLife = typeof startingLife === 'number'
-        ? startingLife
-        : (selectedFormat === 'commander' ? 40 : 20);
-      (game.state as any).format = selectedFormat;
-      (game.state as any).startingLife = selectedStartingLife;
+      const { game } = await createConfiguredGame(
+        gameId,
+        format,
+        startingLife,
+        seed,
+        '[AI]',
+      );
       
       // Join the AI player to the game first
       // This will generate a playerId and properly initialize the player
@@ -6854,6 +6685,13 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       }
       
     } catch (error) {
+      if ((error as any)?.code === 'GAME_ALREADY_EXISTS') {
+        socket.emit('error', {
+          code: 'GAME_ALREADY_EXISTS',
+          message: 'Game already exists.',
+        });
+        return;
+      }
       debugError(1, '[AI] Error creating game with AI:', error);
       socket.emit('error', { code: 'AI_CREATE_FAILED', message: 'Failed to create AI opponent' });
     }
@@ -6865,12 +6703,14 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
     playerName?: unknown;
     format?: unknown;
     startingLife?: unknown;
+    seed?: unknown;
     aiOpponents?: unknown;
   }) => {
     const gameId = payload?.gameId;
     const playerName = payload?.playerName;
     const format = payload?.format;
     const startingLife = payload?.startingLife;
+    const seed = payload?.seed;
     const aiOpponentsRaw = payload?.aiOpponents;
 
     try {
@@ -6891,48 +6731,19 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       debug(1, '[AI] Creating game with multiple AI opponents:', { 
         gameId, 
         playerName, 
+        seed,
         aiCount: aiOpponents.length,
         aiNames: aiOpponents.map(ai => ai.name),
         aiDifficulties: aiOpponents.map(ai => ai.difficulty ?? 0.5),
       });
 
-      // Safety: must not mutate an existing game.
-      if (GameManager.getGame(gameId) || gameExistsInDb(gameId)) {
-        socket.emit('error', {
-          code: 'GAME_ALREADY_EXISTS',
-          message: 'Game already exists.',
-        });
-        return;
-      }
-      
-      // Create a NEW game using GameManager.createGame() which handles DB persistence
-      // This is critical - ensureGame() checks if the game exists in DB first,
-      // which fails for NEW games. We must use createGame() for new games.
-      let game = GameManager.getGame(gameId);
-      if (!game) {
-        try {
-          game = GameManager.createGame({ id: gameId });
-          debug(1, '[AI] Created new game via GameManager:', gameId);
-        } catch (createErr: any) {
-          // Game might already exist (race condition), try to get it again
-          game = GameManager.getGame(gameId);
-          if (!game) {
-            debugError(1, '[AI] Failed to create or get game:', createErr);
-            socket.emit('error', { code: 'GAME_CREATE_FAILED', message: 'Failed to create game' });
-            return;
-          }
-          debug(1, '[AI] Game was created by another request, reusing:', gameId);
-        }
-      }
-      
-      // Set format and starting life
-      game.state = (game.state || {}) as any;
-      const selectedFormat = typeof format === 'string' ? format : 'commander';
-      const selectedStartingLife = typeof startingLife === 'number'
-        ? startingLife
-        : (selectedFormat === 'commander' ? 40 : 20);
-      (game.state as any).format = selectedFormat;
-      (game.state as any).startingLife = selectedStartingLife;
+      const { game } = await createConfiguredGame(
+        gameId,
+        format,
+        startingLife,
+        seed,
+        '[AI]',
+      );
       game.state.players = game.state.players || [];
       
       const createdAIPlayers: Array<{ playerId: string; name: string; strategy: string; deckLoaded: boolean }> = [];
@@ -7138,6 +6949,13 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       });
       
     } catch (error) {
+      if ((error as any)?.code === 'GAME_ALREADY_EXISTS') {
+        socket.emit('error', {
+          code: 'GAME_ALREADY_EXISTS',
+          message: 'Game already exists.',
+        });
+        return;
+      }
       debugError(1, '[AI] Error creating game with multiple AI opponents:', error);
       socket.emit('error', { code: 'AI_CREATE_FAILED', message: 'Failed to create AI opponents' });
     }
