@@ -688,15 +688,18 @@ export function getAttackTriggersForCreatures(
   
   // Check for Background enchantments that grant abilities to commanders
   // Example: Agent of the Shadow Thieves - grants attack trigger to commanders
-  const commandZone = (ctx.state as any).commandZone?.[attackingPlayer];
-  const commanderIds = commandZone?.commanderIds || [];
-  
   for (const attacker of attackingCreatures) {
-    // Check if this attacking creature is a commander owned by the attacking player
-    const isCommander = commanderIds.includes(attacker.card?.id) || 
-                       (attacker.card?.name && commandZone?.commanderNames?.includes(attacker.card.name));
+    const attackerOwner = String(attacker?.owner || attackingPlayer);
+    const ownerCommandZone = (ctx.state as any).commandZone?.[attackerOwner];
+    const ownerCommanderIds = ownerCommandZone?.commanderIds || [];
+    const ownerCommanderNames = ownerCommandZone?.commanderNames || [];
+    const isOwnedByAttackingPlayer = attackerOwner === attackingPlayer;
+    const isCommander =
+      attacker?.isCommander === true ||
+      ownerCommanderIds.includes(attacker.card?.id) ||
+      (attacker.card?.name && ownerCommanderNames.includes(attacker.card.name));
     
-    if (isCommander) {
+    if (isOwnedByAttackingPlayer && isCommander) {
       // Check all permanents for backgrounds that grant abilities to commanders
       for (const permanent of battlefield) {
         if (!permanent || permanent.controller !== attackingPlayer) continue;

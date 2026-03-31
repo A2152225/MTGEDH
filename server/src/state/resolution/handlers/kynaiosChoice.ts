@@ -7,6 +7,13 @@ import {
 } from '../index.js';
 import { appendEvent } from '../../../db/index.js';
 import { debugWarn } from '../../../utils/debug.js';
+import { applyCounterModifications } from '../../modules/counters_tokens.js';
+import {
+  checkPermanentEntersTapped,
+  detectEntersWithCounters,
+  triggerETBEffectsForPermanent,
+} from '../../modules/stack.js';
+import { getETBTriggersForPermanent } from '../../modules/triggered-abilities.js';
 
 function drawKynaiosCard(game: any, playerId: PlayerID): void {
   if (typeof game?.drawCards === 'function') {
@@ -59,7 +66,11 @@ export function moveKynaiosLandFromHandToBattlefield(
   game: any,
   playerId: PlayerID,
   landCardId: string,
-  createdPermanentId?: string
+  createdPermanentId?: string,
+  options?: {
+    triggerEtb?: boolean;
+    gameId?: string;
+  }
 ): { moved: boolean; permanentId?: string; cardName?: string } {
   const zones = game?.state?.zones?.[playerId];
   if (!zones?.hand || !Array.isArray(zones.hand)) {
@@ -72,19 +83,109 @@ export function moveKynaiosLandFromHandToBattlefield(
   }
 
   const [card] = zones.hand.splice(cardIndex, 1);
+  const battlefield = Array.isArray(game.state.battlefield) ? game.state.battlefield : [];
   const permanentId = String(createdPermanentId || `perm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
+  const entersTapped = checkPermanentEntersTapped(battlefield, playerId, card);
+  const initialCounters = detectEntersWithCounters(card);
+  const modifiedCounters = applyCounterModifications(game.state, permanentId, initialCounters || {});
   const permanent = {
     id: permanentId,
     controller: playerId,
     owner: playerId,
-    tapped: false,
-    counters: {},
+    tapped: entersTapped,
+    counters: Object.keys(modifiedCounters).length > 0 ? modifiedCounters : {},
     card: { ...card, zone: 'battlefield' },
   };
 
-  game.state.battlefield = Array.isArray(game.state.battlefield) ? game.state.battlefield : [];
-  game.state.battlefield.push(permanent);
+  battlefield.push(permanent);
+  game.state.battlefield = battlefield;
   zones.handCount = zones.hand.length;
+
+  if (options?.triggerEtb) {
+    const selfEtbTriggerTypes = new Set([
+      'etb_modal_choice',
+      'job_select',
+      'living_weapon',
+      'etb_sacrifice_unless_pay',
+      'etb_bounce_land',
+      'etb_gain_life',
+      'etb_draw',
+      'etb_search',
+      'etb_create_token',
+      'etb_counter',
+    ]);
+
+    game.state.stack = Array.isArray(game.state.stack) ? game.state.stack : [];
+    for (const trigger of getETBTriggersForPermanent(card, permanent)) {
+      if (!selfEtbTriggerTypes.has(String(trigger?.triggerType || ''))) continue;
+      const triggerAny = trigger as any;
+
+      const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const stackItem = {
+        id: triggerId,
+        type: 'triggered_ability',
+        controller: playerId,
+        source: permanent.id,
+        sourceName: trigger.cardName,
+        description: trigger.description,
+        triggerType: trigger.triggerType,
+        mandatory: trigger.mandatory,
+        permanentId: permanent.id,
+        effect: trigger.effect || trigger.description,
+        requiresChoice: trigger.requiresChoice,
+        requiresTarget: trigger.requiresTarget,
+        targetType: trigger.targetType,
+        targetConstraint: trigger.targetConstraint,
+        needsTargetSelection: trigger.requiresTarget || false,
+        isModal: triggerAny.isModal,
+        modalOptions: triggerAny.modalOptions,
+        targetPlayer: triggerAny.targetPlayer,
+        value: trigger.value,
+        effectData: triggerAny.effectData,
+      } as any;
+
+      game.state.stack.push(stackItem);
+
+      if (options.gameId) {
+        try {
+          appendEvent(options.gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+            triggerId,
+            sourceId: permanent.id,
+            permanentId: permanent.id,
+            sourceName: trigger.cardName,
+            controllerId: playerId,
+            description: trigger.description,
+            triggerType: trigger.triggerType,
+            effect: trigger.effect || trigger.description,
+            mandatory: trigger.mandatory,
+            requiresChoice: trigger.requiresChoice,
+            requiresTarget: trigger.requiresTarget,
+            targetType: trigger.targetType,
+            targetConstraint: trigger.targetConstraint,
+            needsTargetSelection: trigger.requiresTarget || false,
+            isModal: triggerAny.isModal,
+            modalOptions: triggerAny.modalOptions,
+            targetPlayer: triggerAny.targetPlayer,
+            value: trigger.value,
+            effectData: triggerAny.effectData,
+          });
+        } catch (err) {
+          debugWarn(1, '[Kynaios] appendEvent(pushTriggeredAbility self ETB) failed:', err);
+        }
+      }
+    }
+
+    triggerETBEffectsForPermanent(
+      {
+        state: game.state,
+        gameId: options.gameId,
+        libraries: game.libraries,
+        players: game.state?.players,
+      } as any,
+      permanent,
+      playerId
+    );
+  }
 
   return {
     moved: true,
@@ -192,7 +293,10 @@ export function handleKynaiosChoiceResponse(
       return;
     }
 
-    const moveResult = moveKynaiosLandFromHandToBattlefield(game, pid, String(landCardId));
+    const moveResult = moveKynaiosLandFromHandToBattlefield(game, pid, String(landCardId), undefined, {
+      triggerEtb: true,
+      gameId,
+    });
     if (!moveResult.moved) {
       debugWarn(1, `[Resolution] Failed to move Kynaios land choice ${landCardId} for ${pid}`);
       return;

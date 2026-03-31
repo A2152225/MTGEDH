@@ -12309,16 +12309,24 @@ async function handleTargetSelectionResponse(
 
     const battlefieldAbilityType = String(stepAny?.abilityType || abilityId || '');
 
-    if (battlefieldAbilityType === 'fortify' || battlefieldAbilityType === 'reconfigure_attach') {
-      const targetingCost = battlefieldAbilityType === 'fortify'
-        ? String(stepAny?.fortifyCost || '').trim()
-        : String(stepAny?.reconfigureCost || '').trim();
+    if (battlefieldAbilityType === 'equip' || battlefieldAbilityType === 'fortify' || battlefieldAbilityType === 'reconfigure_attach') {
+      const targetingCost = battlefieldAbilityType === 'equip'
+        ? String(stepAny?.equipCost || '').trim()
+        : battlefieldAbilityType === 'fortify'
+          ? String(stepAny?.fortifyCost || '').trim()
+          : String(stepAny?.reconfigureCost || '').trim();
       if (targetingCost) {
         const pool = getOrInitManaPool(game.state, controllerId);
         const paid = validateAndConsumeManaCostFromPool(
           pool as any,
           targetingCost,
-          { logPrefix: battlefieldAbilityType === 'fortify' ? '[Resolution:fortify]' : '[Resolution:reconfigure_attach]' }
+          {
+            logPrefix: battlefieldAbilityType === 'equip'
+              ? '[Resolution:equip]'
+              : battlefieldAbilityType === 'fortify'
+                ? '[Resolution:fortify]'
+                : '[Resolution:reconfigure_attach]'
+          }
         );
         if (!paid.ok) {
           emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });

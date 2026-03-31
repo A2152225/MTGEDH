@@ -205,4 +205,76 @@ describe('KynaiosChoice resolution', () => {
     // No draw for B since they put a land
     expect(game.drawCards).not.toHaveBeenCalled();
   });
+
+  it('plays a bounce land through Kynaios using normal ETB semantics', () => {
+    const { io } = makeIoStub();
+    const gameId = 'g2_bounce';
+
+    const game = makeDrawGame();
+    game.state.players = [
+      { id: 'A', name: 'A', spectator: false, life: 40 },
+      { id: 'B', name: 'B', spectator: false, life: 40 },
+    ];
+    game.state.zones.A = { hand: [], handCount: 0 };
+    game.state.zones.B = {
+      hand: [{
+        id: 'growth_1',
+        name: 'Simic Growth Chamber',
+        type_line: 'Land',
+        oracle_text: 'Simic Growth Chamber enters tapped.\nWhen Simic Growth Chamber enters, return a land you control to its owner\'s hand.\n{T}: Add {G}{U}.',
+        zone: 'hand',
+      }],
+      handCount: 1,
+    };
+    game.state.battlefield = [{
+      id: 'forest_1',
+      controller: 'B',
+      owner: 'B',
+      tapped: false,
+      counters: {},
+      card: {
+        id: 'forest_card_1',
+        name: 'Forest',
+        type_line: 'Basic Land - Forest',
+        oracle_text: '{T}: Add {G}.',
+      },
+    }];
+    game.state.stack = [];
+
+    const batchId = 'batch-bounce';
+    const [stepB] = ResolutionQueueManager.addStepsWithAPNAP(gameId, [
+      {
+        type: ResolutionStepType.KYNAIOS_CHOICE,
+        playerId: 'B',
+        description: 'B choice',
+        mandatory: false,
+        sourceName: 'Kynaios and Tiro of Meletis',
+        kynaiosBatchId: batchId,
+        landPlayOrFallbackIsController: false,
+        landPlayOrFallbackSourceController: 'A',
+        landPlayOrFallbackCanPlayLand: true,
+        landPlayOrFallbackLandsInHand: [{ id: 'growth_1', name: 'Simic Growth Chamber' }],
+        landPlayOrFallbackOptions: ['play_land', 'draw_card'],
+      },
+    ], ['A', 'B'], 'A').filter((step) => step.playerId === 'B');
+
+    const response: any = {
+      stepId: stepB.id,
+      playerId: 'B',
+      selections: { choice: 'play_land', landCardId: 'growth_1' },
+      cancelled: false,
+      timestamp: Date.now(),
+    };
+    const completed = ResolutionQueueManager.completeStep(gameId, stepB.id, response)!;
+    handleKynaiosChoiceResponse(io, game, gameId, completed as any, response, deps);
+
+    const chamber = game.state.battlefield.find((perm: any) => perm?.card?.name === 'Simic Growth Chamber');
+    expect(chamber).toBeTruthy();
+    expect(chamber?.tapped).toBe(true);
+
+    const bounceTrigger = (game.state.stack || []).find(
+      (item: any) => item?.type === 'triggered_ability' && item?.triggerType === 'etb_bounce_land' && item?.source === chamber.id
+    );
+    expect(bounceTrigger).toBeTruthy();
+  });
 });
