@@ -6230,6 +6230,11 @@ async function executeDeclareAttackers(
 
       if (typeof (game as any).nextStep === 'function') {
         await (game as any).nextStep();
+        await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
+          playerId,
+          isAI: true,
+          reason: 'declareNoAttackers',
+        });
       }
 
       await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', {

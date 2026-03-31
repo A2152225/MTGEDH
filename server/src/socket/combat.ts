@@ -2764,6 +2764,10 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Advance to next step
       if (typeof (game as any).nextStep === "function") {
         await (game as any).nextStep();
+        await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
+          playerId,
+          reason: 'skipDeclareAttackers',
+        });
       }
 
       // Record authoritative evidence for last-turn attack templates.

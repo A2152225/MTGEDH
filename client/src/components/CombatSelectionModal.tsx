@@ -430,6 +430,8 @@ export function CombatSelectionModal({
   // For attackers mode, only the turn player can interact
   // For blockers mode, only the defending player can interact
   const isInteractive = !readOnly && (mode === 'blockers' || isYourTurn);
+  const isReadOnlyAttackerView = readOnly && mode === 'attackers';
+  const isReadOnlyBlockerView = readOnly && mode === 'blockers';
   
   // Reset selections when modal opens
   React.useEffect(() => {
@@ -471,6 +473,14 @@ export function CombatSelectionModal({
   const availableForAttack = useMemo(() => {
     return readOnly ? availableCreatures : availableCreatures.filter(c => !c.tapped);
   }, [availableCreatures, readOnly]);
+
+  const defenderNameById = useMemo(() => {
+    const lookup = new Map<string, string>();
+    for (const defender of defenders) {
+      lookup.set(String(defender.id), defender.name);
+    }
+    return lookup;
+  }, [defenders]);
 
   // Filter to only untapped creatures for blocking
   const availableForBlock = useMemo(() => {
@@ -736,34 +746,43 @@ export function CombatSelectionModal({
     <div
       style={{
         position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        top: readOnly ? 16 : 0,
+        left: readOnly ? 16 : 0,
+        right: readOnly ? 'auto' : 0,
+        bottom: readOnly ? 'auto' : 0,
+        backgroundColor: readOnly ? 'transparent' : 'rgba(0, 0, 0, 0.8)',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        alignItems: readOnly ? 'flex-start' : 'center',
+        justifyContent: readOnly ? 'flex-start' : 'center',
         zIndex: 10001,
+        pointerEvents: readOnly ? 'none' : 'auto',
       }}
     >
       <div
         style={{
-          backgroundColor: '#1a1a2e',
+          backgroundColor: readOnly ? 'rgba(26, 26, 46, 0.96)' : '#1a1a2e',
           borderRadius: 12,
-          padding: 24,
-          maxWidth: 900,
-          width: '95%',
-          maxHeight: '85vh',
+          padding: readOnly ? 18 : 24,
+          maxWidth: readOnly ? 420 : 900,
+          width: readOnly ? 'min(420px, calc(100vw - 32px))' : '95%',
+          maxHeight: readOnly ? '70vh' : '85vh',
           overflow: 'auto',
           boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           color: '#fff',
+          border: readOnly ? '1px solid rgba(148, 163, 184, 0.35)' : 'none',
+          pointerEvents: 'auto',
         }}
       >
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
-            {mode === 'attackers' ? '⚔️ Declare Attackers' : '🛡️ Declare Blockers'}
+            {isReadOnlyAttackerView
+              ? '⚔️ Incoming Attacks'
+              : isReadOnlyBlockerView
+                ? '🛡️ Combat Snapshot'
+                : mode === 'attackers'
+                  ? '⚔️ Declare Attackers'
+                  : '🛡️ Declare Blockers'}
           </h2>
           {onCancel && (
             <button
@@ -782,9 +801,13 @@ export function CombatSelectionModal({
         </div>
 
         <div style={{ fontSize: 13, color: '#aaa', marginBottom: 16 }}>
-          {mode === 'attackers' 
-            ? 'Click on creatures to select them as attackers. Choose a target for each attacker.'
-            : 'Click on your creatures, then click an attacker to block it. Watch for dangerous abilities!'}
+          {isReadOnlyAttackerView
+            ? 'Live preview of the active player\'s attack allocations. This panel is informational and does not block your priority actions.'
+            : isReadOnlyBlockerView
+              ? 'Read-only combat view for watching attackers and blockers as combat develops.'
+              : mode === 'attackers'
+                ? 'Click on creatures to select them as attackers. Choose a target for each attacker.'
+                : 'Click on your creatures, then click an attacker to block it. Watch for dangerous abilities!'}
         </div>
 
         {/* Menace warning banner */}
@@ -811,7 +834,7 @@ export function CombatSelectionModal({
         {mode === 'attackers' && (
           <div>
             {/* Bulk Attack Controls */}
-            {availableForAttack.length > 0 && defenders.length > 0 && (
+            {isInteractive && availableForAttack.length > 0 && defenders.length > 0 && (
               <div style={{
                 display: 'flex',
                 flexWrap: 'wrap',
@@ -928,12 +951,12 @@ export function CombatSelectionModal({
             )}
             
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-              Your Creatures ({availableForAttack.length} available, {selectedAttackers.size} selected)
+              {isReadOnlyAttackerView ? 'Attacking Creatures Preview' : 'Your Creatures'} ({availableForAttack.length} available, {selectedAttackers.size} selected)
             </div>
             
             {availableForAttack.length === 0 ? (
               <div style={{ color: '#666', padding: 12, textAlign: 'center' }}>
-                No untapped creatures available to attack
+                {isReadOnlyAttackerView ? 'No attackers previewed yet' : 'No untapped creatures available to attack'}
               </div>
             ) : availableForAttack.length > 2 ? (
               /* Grouped view for many creatures */
@@ -1009,6 +1032,7 @@ export function CombatSelectionModal({
                         </div>
                         
                         {/* Group controls */}
+                        {isInteractive && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           {/* Target selector for group */}
                           {defenders.length > 1 && (
@@ -1093,6 +1117,7 @@ export function CombatSelectionModal({
                             </div>
                           )}
                         </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1115,10 +1140,10 @@ export function CombatSelectionModal({
                         borderRadius: 8,
                         border: isSelected ? '2px solid #ef4444' : '2px solid #333',
                         background: isSelected ? 'rgba(239,68,68,0.2)' : 'rgba(0,0,0,0.3)',
-                        cursor: 'pointer',
+                        cursor: isInteractive ? 'pointer' : 'default',
                         transition: 'all 0.15s ease',
                       }}
-                      onClick={() => handleToggleAttacker(creature.id)}
+                      onClick={isInteractive ? () => handleToggleAttacker(creature.id) : undefined}
                     >
                       {imageUrl ? (
                         <img
@@ -1172,7 +1197,7 @@ export function CombatSelectionModal({
                       <DangerIndicatorBadges dangers={dangers} />
                       
                       {/* Target selector for selected attackers */}
-                      {isSelected && defenders.length > 0 && (
+                      {isSelected && defenders.length > 0 && isInteractive && (
                         <select
                           value={targetId || ''}
                           onChange={(e) => {
@@ -1197,6 +1222,23 @@ export function CombatSelectionModal({
                             </option>
                           ))}
                         </select>
+                      )}
+                      {isSelected && defenders.length > 0 && !isInteractive && (
+                        <div
+                          style={{
+                            width: '100%',
+                            marginTop: 6,
+                            padding: '4px 6px',
+                            fontSize: 10,
+                            borderRadius: 4,
+                            border: '1px solid rgba(239, 68, 68, 0.35)',
+                            background: 'rgba(239, 68, 68, 0.12)',
+                            color: '#fecaca',
+                            textAlign: 'center',
+                          }}
+                        >
+                          Attacking → {defenderNameById.get(String(targetId || '')) || 'Unassigned'}
+                        </div>
                       )}
                     </div>
                   );
@@ -1718,62 +1760,64 @@ export function CombatSelectionModal({
         )}
 
         {/* Action buttons */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 12,
-            justifyContent: 'flex-end',
-            marginTop: 24,
-            paddingTop: 16,
-            borderTop: '1px solid #333',
-          }}
-        >
-          <button
-            onClick={handleSkip}
-            disabled={!isInteractive}
+        {isInteractive && (
+          <div
             style={{
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: '1px solid #4a4a6a',
-              backgroundColor: 'transparent',
-              color: '#fff',
-              cursor: !isInteractive ? 'not-allowed' : 'pointer',
-              fontSize: 14,
-              opacity: !isInteractive ? 0.5 : 1,
+              display: 'flex',
+              gap: 12,
+              justifyContent: 'flex-end',
+              marginTop: 24,
+              paddingTop: 16,
+              borderTop: '1px solid #333',
             }}
           >
-            {mode === 'attackers' ? "Don't Attack" : "Don't Block"}
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={
-              !isInteractive ||
-              (mode === 'attackers' && selectedAttackers.size === 0) ||
-              (mode === 'blockers' && menaceViolations.size > 0)
-            }
-            style={{
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: 'none',
-              backgroundColor: mode === 'attackers' ? '#ef4444' : '#10b981',
-              color: '#fff',
-              cursor: (!isInteractive ||
-                (mode === 'attackers' && selectedAttackers.size === 0) ||
-                (mode === 'blockers' && menaceViolations.size > 0)) ? 'not-allowed' : 'pointer',
-              fontSize: 14,
-              fontWeight: 600,
-              opacity: (
+            <button
+              onClick={handleSkip}
+              disabled={!isInteractive}
+              style={{
+                padding: '10px 20px',
+                borderRadius: 8,
+                border: '1px solid #4a4a6a',
+                backgroundColor: 'transparent',
+                color: '#fff',
+                cursor: !isInteractive ? 'not-allowed' : 'pointer',
+                fontSize: 14,
+                opacity: !isInteractive ? 0.5 : 1,
+              }}
+            >
+              {mode === 'attackers' ? "Don't Attack" : "Don't Block"}
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={
                 !isInteractive ||
                 (mode === 'attackers' && selectedAttackers.size === 0) ||
                 (mode === 'blockers' && menaceViolations.size > 0)
-              ) ? 0.5 : 1,
-            }}
-          >
-            {mode === 'attackers' 
-              ? `Attack with ${selectedAttackers.size} Creature${selectedAttackers.size !== 1 ? 's' : ''}`
-              : `Confirm Blockers (${countTotalBlockAssignments(selectedBlockers)})`}
-          </button>
-        </div>
+              }
+              style={{
+                padding: '10px 20px',
+                borderRadius: 8,
+                border: 'none',
+                backgroundColor: mode === 'attackers' ? '#ef4444' : '#10b981',
+                color: '#fff',
+                cursor: (!isInteractive ||
+                  (mode === 'attackers' && selectedAttackers.size === 0) ||
+                  (mode === 'blockers' && menaceViolations.size > 0)) ? 'not-allowed' : 'pointer',
+                fontSize: 14,
+                fontWeight: 600,
+                opacity: (
+                  !isInteractive ||
+                  (mode === 'attackers' && selectedAttackers.size === 0) ||
+                  (mode === 'blockers' && menaceViolations.size > 0)
+                ) ? 0.5 : 1,
+              }}
+            >
+              {mode === 'attackers' 
+                ? `Attack with ${selectedAttackers.size} Creature${selectedAttackers.size !== 1 ? 's' : ''}`
+                : `Confirm Blockers (${countTotalBlockAssignments(selectedBlockers)})`}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

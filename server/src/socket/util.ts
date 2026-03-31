@@ -2045,8 +2045,12 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
               debug(2, `${ts()} [executeAutoPass] Advancing step after auto-pass for ${priority} (ID: ${debugCallId})`);
               if (typeof (game as any).nextStep === 'function') {
                 (game as any).nextStep();
+                appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
+                  reason: 'autoPassAdvance',
+                  by: priority,
+                  auto: true,
+                });
               }
-              // Note: Don't call appendGameEvent here - nextStep() already handles event persistence
             }
             
             // Clear the in-progress flag before broadcasting
@@ -2204,7 +2208,7 @@ export function schedulePriorityTimeout(
           // Auto-advance to next step
           if (typeof (game as any).nextStep === 'function') {
             (game as any).nextStep();
-            appendGameEvent(game, gameId, "nextStep", { reason: 'noPriority' });
+            appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'noPriority' });
             broadcastGame(io, game, gameId);
             debug(2, `[schedulePriorityTimeout] Auto-advanced step (no priority) for game ${gameId}`,
               { bootId: BOOT_ID, gameId }

@@ -10810,6 +10810,10 @@ async function handleDiscardResponse(
     try {
       if (typeof (game as any).nextStep === 'function') {
         (game as any).nextStep();
+        appendEvent(gameId, (game as any).seq ?? 0, 'nextStep', {
+          playerId: pid,
+          reason: 'cleanupDiscardResolved',
+        });
       }
     } catch (err) {
       debugWarn(1, `[Resolution] Failed to advance after cleanup discard:`, err);

@@ -7260,7 +7260,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           (game as any).nextStep();
           debug(2, `[passPriority] All players passed priority - advanced to next step for game ${gameId}`);
           
-          appendGameEvent(game, gameId, "nextStep", { reason: 'allPlayersPassed' });
+          appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'allPlayersPassed' });
           
           const newStep = (game.state as any)?.step || 'unknown';
           io.to(gameId).emit("chat", {
@@ -8017,7 +8017,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           (game as any).nextStep();
           debug(2, `[nextStep] All players passed priority - advanced to next step for game ${gameId}`);
           
-          appendGameEvent(game, gameId, "nextStep", { reason: 'allPlayersPassed' });
+          appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'allPlayersPassed' });
           
           const newStep = (game.state as any)?.step || 'unknown';
           io.to(gameId).emit("chat", {
@@ -8749,6 +8749,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           try {
             if (typeof (game as any).nextStep === "function") {
               (game as any).nextStep();
+              appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'skipToPhaseCleanup' });
               debug(2, `[skipToPhase] Cleanup complete, advanced via nextStep for game ${gameId}`);
             }
           } catch (err) {

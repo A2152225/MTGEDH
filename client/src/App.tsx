@@ -1515,14 +1515,25 @@ export function App() {
           hasShownAttackersModal.current = turnId; // Mark that we've shown the modal
         }
       } else {
-        // Non-active players: show a read-only declare attackers modal
-        if (hasShownAttackersModal.current === turnId) {
-          return;
+        const battlefield = (safeView.battlefield || []) as BattlefieldPermanent[];
+        const anyPreviewTargets = !!combatPreviewAttackTargets && Object.keys(combatPreviewAttackTargets).length > 0;
+        const anyAttackersDeclared = battlefield.some((p: any) => !!p?.attacking);
+        const activePlayerHasCombatCreatures = battlefield.some((p: BattlefieldPermanent) => {
+          if (p.controller !== turnPlayer) return false;
+          if (!isCurrentlyCreature(p)) return false;
+          return canCreatureAttack(p) || !!(p as any).attacking;
+        });
+
+        if (anyPreviewTargets || anyAttackersDeclared || activePlayerHasCombatCreatures) {
+          setCombatMode('attackers');
+          setCombatModalReadOnly(true);
+          setCombatModalError(null);
+          setCombatModalOpen(true);
+        } else {
+          setCombatModalOpen(false);
+          setCombatModalError(null);
+          setCombatModalReadOnly(false);
         }
-        setCombatMode('attackers');
-        setCombatModalReadOnly(true);
-        setCombatModalOpen(true);
-        hasShownAttackersModal.current = turnId;
       }
     }
     // Show blocker modal when you're being attacked during declare blockers step
@@ -1783,7 +1794,9 @@ export function App() {
     
     // For now, just show priority modal when relevant (not in main phases)
     // BUT also check if player can actually take actions
-    if (youHavePriority && stackLength === 0 && !combatModalOpen) {
+    const blockingCombatModalOpen = combatModalOpen && !combatModalReadOnly;
+
+    if (youHavePriority && stackLength === 0 && !blockingCombatModalOpen) {
       const priorityChanged = lastPriorityStep.current !== step;
       
       if (priorityChanged) {
@@ -1811,7 +1824,7 @@ export function App() {
       // Reset tracking when we don't have priority
       lastCanRespond.current = null;
     }
-  }, [safeView, you, combatModalOpen, autoPassSteps, autoPassForTurn, phaseNavigatorAdvancing, pendingTriggers]);
+  }, [safeView, you, combatModalOpen, combatModalReadOnly, autoPassSteps, autoPassForTurn, phaseNavigatorAdvancing, pendingTriggers]);
 
   // Mulligan bottom selection prompt listener (London Mulligan)
   // (Legacy mulliganBottomPrompt removed; mulligan bottom uses Resolution Queue HAND_TO_BOTTOM)
