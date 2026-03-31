@@ -402,4 +402,73 @@ describe('Server restart replay', () => {
     expect(battlefield[0].tapped).toBe(false);
     expect((game.state as any).life?.[p1]).toBe(38);
   });
+
+  it('should replay a resolved commander cast onto the battlefield after restart', () => {
+    const gameId = 'commander_restart_replay_test';
+    const p1 = 'p_commander' as PlayerID;
+    const commander = {
+      id: 'commander_1',
+      name: 'Legendary Commander',
+      type_line: 'Legendary Creature — Human Soldier',
+      oracle_text: 'Vigilance',
+      image_uris: {},
+      mana_cost: '{2}{W}',
+      power: '3',
+      toughness: '3',
+    } as any;
+    const deck = [commander, ...mkCards(99, 'Card')];
+
+    const g1 = createInitialGameState(gameId);
+    g1.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' } as any);
+    g1.applyEvent({ type: 'importDeck', playerId: p1, cards: deck } as any);
+    g1.setCommander(p1, [commander.name], [commander.id], ['W']);
+    g1.applyEvent({
+      type: 'pushStack',
+      item: {
+        id: 'stack_live_commander',
+        controller: p1,
+        source: 'command',
+        fromZone: 'command',
+        castSourceZone: 'command',
+        card: {
+          ...commander,
+          zone: 'stack',
+          isCommander: true,
+          source: 'command',
+          fromZone: 'command',
+          castSourceZone: 'command',
+        },
+        targets: [],
+      },
+    } as any);
+    g1.castCommander(p1, commander.id);
+    g1.applyEvent({ type: 'resolveTopOfStack', playerId: p1 } as any);
+
+    const sessionOneBattlefield = ((g1.state as any).battlefield || []).filter((permanent: any) =>
+      permanent.controller === p1 && permanent.card?.id === commander.id
+    );
+    expect(sessionOneBattlefield).toHaveLength(1);
+    expect((g1.state as any).commandZone?.[p1]?.inCommandZone || []).not.toContain(commander.id);
+
+    const dbEvents = [
+      { type: 'join', payload: { playerId: p1, name: 'Player 1' } },
+      { type: 'importDeck', payload: { playerId: p1, cards: deck } },
+      { type: 'setCommander', payload: { playerId: p1, commanderNames: [commander.name], commanderIds: [commander.id], colorIdentity: ['W'] } },
+      { type: 'castCommander', payload: { playerId: p1, commanderId: commander.id, cardId: commander.id, cardName: commander.name, card: commander } },
+      { type: 'resolveTopOfStack', payload: { playerId: p1 } },
+    ];
+
+    const replayEvents = transformDbEventsForReplay(dbEvents);
+    const g2 = createInitialGameState(gameId);
+    (g2 as any).replay(replayEvents);
+
+    const replayBattlefield = ((g2.state as any).battlefield || []).filter((permanent: any) =>
+      permanent.controller === p1 && permanent.card?.id === commander.id
+    );
+    expect(replayBattlefield).toHaveLength(1);
+    expect(replayBattlefield[0].card?.name).toBe(commander.name);
+    expect(replayBattlefield[0].card?.isCommander || replayBattlefield[0].isCommander).toBe(true);
+    expect((g2.state as any).stack || []).toHaveLength(0);
+    expect((g2.state as any).commandZone?.[p1]?.inCommandZone || []).not.toContain(commander.id);
+  });
 });

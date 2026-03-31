@@ -98,6 +98,31 @@ function resolveReplayCommanderId(ctx: any, event: any): string {
 
   return '';
 }
+
+function resolveReplayCommanderCard(ctx: any, event: any, commanderId: string): any | undefined {
+  if (event?.card && typeof event.card === 'object' && !Array.isArray(event.card)) {
+    return event.card;
+  }
+
+  const playerId = String(event?.playerId || '').trim();
+  const commanderInfo = playerId ? (ctx?.state as any)?.commandZone?.[playerId] : undefined;
+  const commanderCards = Array.isArray(commanderInfo?.commanderCards) ? commanderInfo.commanderCards : [];
+
+  if (commanderId) {
+    const matchedById = commanderCards.find((card: any) => String(card?.id || '').trim() === commanderId);
+    if (matchedById) return matchedById;
+  }
+
+  const fallbackNames = [event?.cardName, event?.card?.name]
+    .map((name: any) => String(name || '').trim().toLowerCase())
+    .filter(Boolean);
+  for (const fallbackName of fallbackNames) {
+    const matchedByName = commanderCards.find((card: any) => String(card?.name || '').trim().toLowerCase() === fallbackName);
+    if (matchedByName) return matchedByName;
+  }
+
+  return undefined;
+}
 import { join, leave as leaveModule } from "./join";
 import { resolveSpell } from "../../rules-engine/targeting";
 import { evaluateAction } from "../../rules-engine/index";
@@ -1109,6 +1134,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "castCommander": {
         const playerId = (e as any).playerId;
         const commanderId = resolveReplayCommanderId(ctx, e);
+        const commanderCard = resolveReplayCommanderCard(ctx, e, commanderId);
         debug(1, `[applyEvent] Replaying castCommander event:`, { playerId, commanderId });
 
         if (!(e as any).commanderId && commanderId) {
@@ -1129,6 +1155,31 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           break;
         }
         
+        if (playerId && commanderCard) {
+          pushStack(ctx as any, {
+            id: generateDeterministicId(ctx as any, 'stack', commanderId),
+            controller: playerId,
+            source: 'command',
+            fromZone: 'command',
+            castSourceZone: 'command',
+            card: {
+              ...commanderCard,
+              zone: 'stack',
+              isCommander: true,
+              source: 'command',
+              fromZone: 'command',
+              castSourceZone: 'command',
+            },
+            targets: [],
+          } as any);
+        } else {
+          debugWarn(1, `[applyEvent] Unable to rebuild commander stack item during castCommander replay`, {
+            playerId,
+            commanderId,
+            hasCardSnapshot: !!(e as any).card,
+          });
+        }
+
         castCommander(
           ctx as any,
           playerId,

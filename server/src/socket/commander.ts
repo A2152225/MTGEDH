@@ -905,7 +905,14 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
           throw new Error("Cannot persist castCommander event with undefined commanderId");
         }
         debug(2, `[castCommander] About to append event and broadcast`);
-        appendEvent(gameId, game.seq, "castCommander", { playerId: pid, commanderId, payment: paymentItems });
+        appendEvent(gameId, game.seq, "castCommander", {
+          playerId: pid,
+          commanderId,
+          cardId: commanderCard.id,
+          cardName: commanderCard.name,
+          card: commanderCard,
+          payment: paymentItems,
+        });
         debug(2, `[castCommander] Event appended successfully`);
         
         io.to(gameId).emit("chat", {
