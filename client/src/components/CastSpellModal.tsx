@@ -426,10 +426,13 @@ interface CastSpellModalProps {
   manaCost?: string;
   oracleText?: string;
   forcedAlternateCostId?: string;
-  availableSources: Array<{ id: string; name: string; options: Color[] }>;
+  availableSources: Array<{ id: string; name: string; options: Color[]; amount?: number }>;
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
   castFromZone?: 'hand' | 'graveyard' | 'exile' | 'command';
+  title?: string;
+  confirmLabel?: string;
+  manualFloatingManaSelection?: boolean;
   costReduction?: {
     generic: number;
     colors: Record<string, number>;
@@ -458,6 +461,9 @@ export function CastSpellModal({
   otherCardsInHand = [],
   floatingMana,
   castFromZone = 'hand',
+  title,
+  confirmLabel,
+  manualFloatingManaSelection = false,
   costReduction,
   convokeOptions,
   onConfirm,
@@ -587,6 +593,7 @@ export function CastSpellModal({
   const getManaCountForSource = (permanentId: string): number => {
     const source = availableSources.find(s => s.id === permanentId);
     if (!source) return 1;
+    if (source.amount && source.amount > 0) return source.amount;
     return getTotalManaProduction(source.options);
   };
 
@@ -635,7 +642,7 @@ export function CastSpellModal({
     <div style={backdrop}>
       <div style={modal}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 16 }}>Cast {cardName}</h3>
+          <h3 style={{ margin: 0, fontSize: 16 }}>{title || `Cast ${cardName}`}</h3>
           <button onClick={handleCancel} style={{ fontSize: 18, padding: '2px 8px' }}>×</button>
         </div>
 
@@ -795,7 +802,7 @@ export function CastSpellModal({
         {floatingMana && (
           <div style={{ marginBottom: 12 }}>
             <FloatingManaPool manaPool={floatingMana} compact />
-            {hasFloatingManaToUse && (
+            {!manualFloatingManaSelection && hasFloatingManaToUse && (
               <div style={{ 
                 marginTop: 6, 
                 fontSize: 12, 
@@ -838,13 +845,14 @@ export function CastSpellModal({
             onChange={setPayment}
             otherCardsInHand={otherCardsInHand}
             floatingMana={floatingMana}
+            manualFloatingManaSelection={manualFloatingManaSelection}
           />
         )}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button onClick={handleCancel}>Cancel</button>
           <button onClick={handleConfirm} style={{ background: '#2b6cb0', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: 6, cursor: 'pointer' }}>
-            {selectedCostId !== 'normal' ? `Cast with ${currentCost?.label}` : 'Cast Spell'}
+            {confirmLabel || (selectedCostId !== 'normal' ? `Cast with ${currentCost?.label}` : 'Cast Spell')}
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import type { PlayerID } from '../../shared/src';
 
 function addPlayer(game: any, id: PlayerID, name: string) {
@@ -57,10 +58,19 @@ describe('fight replay semantics', () => {
     expect(Number(taunter?.damage || 0)).toBe(2);
     expect(Number(bear?.damage || 0)).toBe(1);
 
-    const pendingTriggers = (game.state as any).pendingDamageTriggers || {};
-    const triggerEntries = Object.values(pendingTriggers) as any[];
-    expect(triggerEntries).toHaveLength(1);
-    expect(triggerEntries[0]).toMatchObject({
+    expect((game.state as any).pendingDamageTriggers).toBeUndefined();
+
+    const queue = ResolutionQueueManager.getQueue('t_fight_replay_damage_trigger');
+    const step = queue.steps.find((entry: any) => entry?.type === ResolutionStepType.TARGET_SELECTION);
+    expect(step).toBeDefined();
+    expect(step).toMatchObject({
+      playerId: p1,
+      sourceId: 'taunter_1',
+      sourceName: 'Brash Taunter',
+      mandatory: true,
+      damageReceivedTrigger: true,
+    });
+    expect((step as any).damageTrigger).toMatchObject({
       sourceId: 'taunter_1',
       sourceName: 'Brash Taunter',
       controller: p1,

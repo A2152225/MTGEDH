@@ -61,7 +61,7 @@ import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
-import { categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
+import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
 import { handleImportWipeConfirmVote } from "./deck.js";
@@ -73,6 +73,14 @@ import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilit
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import {
+  detectManaModifiers,
+  getCreatureCountManaAmount,
+  getDevotionManaAmount,
+  getExtraManaProduction,
+  getManaAbilitiesForPermanent,
+  getManaMultiplier,
+} from "../state/modules/mana-abilities.js";
 
 type ResolutionPaymentItem = {
   permanentId: string;
@@ -88,6 +96,32 @@ const MANA_POOL_KEY_BY_SYMBOL: Record<string, string> = {
   G: 'green',
   C: 'colorless',
 };
+
+const FLOATING_MANA_PAYMENT_PREFIX = '__pool__:';
+
+function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | null {
+  const rawId = String(permanentId || '').trim();
+  if (!rawId.startsWith(FLOATING_MANA_PAYMENT_PREFIX)) return null;
+
+  const encodedKey = rawId.slice(FLOATING_MANA_PAYMENT_PREFIX.length).split(':')[0];
+  const normalized = String(encodedKey || '').trim().toLowerCase();
+  if (['white', 'blue', 'black', 'red', 'green', 'colorless'].includes(normalized)) {
+    return normalized;
+  }
+
+  return MANA_POOL_KEY_BY_SYMBOL[String(mana || '').toUpperCase()] || null;
+}
+
+function getFightAbilityDescription(step: any): string {
+  const activatedAbilityText = String(step?.activatedAbilityText || step?.description || '').trim();
+  if (!activatedAbilityText) {
+    return 'This creature fights target creature';
+  }
+
+  const parts = activatedAbilityText.split(/:(.+)/);
+  const effectText = String(parts[1] || activatedAbilityText).trim();
+  return effectText || activatedAbilityText;
+}
 
 function getWardTargetName(game: any, triggeredBy: string): string {
   const stackItem = (game.state?.stack || []).find((entry: any) => entry && String(entry.id || '') === String(triggeredBy || ''));
@@ -271,19 +305,31 @@ function validateWardManaPaymentSelection(
 ): { ok: true; parsedCost: ReturnType<typeof parseManaCost> } | { ok: false; code: string; message: string } {
   const parsedCost = parseManaCost(String(wardCost || ''));
   const pool = getOrInitManaPool(game.state, playerId) as any;
-  const totalAvailable: Record<string, number> = {
-    white: Number(pool.white || 0),
-    blue: Number(pool.blue || 0),
-    black: Number(pool.black || 0),
-    red: Number(pool.red || 0),
-    green: Number(pool.green || 0),
-    colorless: Number(pool.colorless || 0),
-  };
+  const explicitPaymentSelected = Boolean(payment && payment.length > 0);
+  const totalAvailable: Record<string, number> = explicitPaymentSelected
+    ? { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
+    : {
+        white: Number(pool.white || 0),
+        blue: Number(pool.blue || 0),
+        black: Number(pool.black || 0),
+        red: Number(pool.red || 0),
+        green: Number(pool.green || 0),
+        colorless: Number(pool.colorless || 0),
+      };
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
   const usedPermanentIds = new Set<string>();
+  const selectedFloatingMana: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
 
   if (payment && payment.length > 0) {
     for (const { permanentId, mana, count } of payment) {
+      const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
+      if (floatingPoolKey) {
+        const amount = Math.max(1, Number(count || 1));
+        selectedFloatingMana[floatingPoolKey] = (selectedFloatingMana[floatingPoolKey] || 0) + amount;
+        totalAvailable[floatingPoolKey] = (totalAvailable[floatingPoolKey] || 0) + amount;
+        continue;
+      }
+
       if (usedPermanentIds.has(permanentId)) {
         return { ok: false, code: 'INVALID_PAYMENT', message: 'A mana source can only be used once for ward payment.' };
       }
@@ -325,6 +371,12 @@ function validateWardManaPaymentSelection(
         }
       }
     }
+
+    for (const [poolKey, amount] of Object.entries(selectedFloatingMana)) {
+      if (Number(pool[poolKey] || 0) < Number(amount || 0)) {
+        return { ok: false, code: 'INSUFFICIENT_MANA', message: `Not enough ${poolKey} mana selected from your pool.` };
+      }
+    }
   }
 
   const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
@@ -346,9 +398,17 @@ function applyWardManaPaymentSelection(
 
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
   const manaPool = getOrInitManaPool(game.state, playerId) as any;
+  const selectedPaymentTotals: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
 
   if (payment && payment.length > 0) {
     for (const { permanentId, mana, count } of payment) {
+      const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
+      if (floatingPoolKey) {
+        const amount = Math.max(1, Number(count || 1));
+        selectedPaymentTotals[floatingPoolKey] = (selectedPaymentTotals[floatingPoolKey] || 0) + amount;
+        continue;
+      }
+
       const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
       if (!permanent) {
         return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield` };
@@ -360,6 +420,7 @@ function applyWardManaPaymentSelection(
       const poolKey = MANA_POOL_KEY_BY_SYMBOL[mana];
       if (poolKey && manaAmount > 0) {
         manaPool[poolKey] = (manaPool[poolKey] || 0) + manaAmount;
+        selectedPaymentTotals[poolKey] = (selectedPaymentTotals[poolKey] || 0) + manaAmount;
       }
 
       for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
@@ -370,9 +431,21 @@ function applyWardManaPaymentSelection(
         }
       }
     }
+    for (const [poolKey, amount] of Object.entries(selectedPaymentTotals)) {
+      if (Number(manaPool[poolKey] || 0) < Number(amount || 0)) {
+        return { ok: false, code: 'INSUFFICIENT_MANA', message: `Selected payment used more ${poolKey} mana than is available.` };
+      }
+    }
+
+    for (const [poolKey, amount] of Object.entries(selectedPaymentTotals)) {
+      if (amount > 0) {
+        manaPool[poolKey] = Number(manaPool[poolKey] || 0) - amount;
+      }
+    }
+  } else {
+    consumeManaFromPool(manaPool, validation.parsedCost.colors, validation.parsedCost.generic, '[wardPayment]');
   }
 
-  consumeManaFromPool(manaPool, validation.parsedCost.colors, validation.parsedCost.generic, '[wardPayment]');
   return { ok: true };
 }
 
@@ -791,12 +864,14 @@ async function handleAIResolutionStep(
         const stepData = step as any;
         const battlefield = game.state?.battlefield || [];
         const sourceId = String(step.sourceId || stepData.sourceId || '');
+        const sourceCreature = (Array.isArray(battlefield) ? battlefield : []).find((perm: any) => perm?.id === sourceId);
         const targetFilter = stepData.targetFilter || {};
         const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
         const excludeSource = targetFilter.excludeSource !== false;
 
         const candidates = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
           if (!perm || typeof perm.id !== 'string') return false;
+          if (!sourceCreature) return false;
           if (excludeSource && perm.id === sourceId) return false;
 
           const typeLine = String(perm.card?.type_line || '').toLowerCase();
@@ -804,6 +879,7 @@ async function handleAIResolutionStep(
 
           if (controllerFilter === 'you' && perm.controller !== step.playerId) return false;
           if (controllerFilter === 'opponent' && perm.controller === step.playerId) return false;
+          if (!canPermanentBeTargetedByPlayer(perm, game.state as any, step.playerId as any)) return false;
 
           return true;
         });
@@ -4039,6 +4115,11 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           socket.emit('error', { code: 'INVALID_TARGET', message: "Target must be a creature you don't control" });
           return;
         }
+
+        if (!canPermanentBeTargetedByPlayer(targetCreature as any, game.state as any, pid as any)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target cannot be legally targeted' });
+          return;
+        }
       }
     }
 
@@ -6903,85 +6984,36 @@ async function handleStepResponse(
         break;
       }
 
-      const sourcePower = getEffectivePower(sourceCreature);
-      const targetPower = getEffectivePower(targetCreature);
-
-      sourceCreature.damageMarked = (sourceCreature.damageMarked || 0) + targetPower;
-      targetCreature.damageMarked = (targetCreature.damageMarked || 0) + sourcePower;
-
-      // Best-effort per-turn damage tracking for intervening-if clauses.
-      try {
-        const stateAny = game.state as any;
-        const srcId = String(sourceId || '').trim();
-        const tgtId = String(targetCreatureId || '').trim();
-
-        // Track creature damaged by this creature this turn.
-        if (srcId && tgtId) {
-          stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
-          stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] = stateAny.creaturesDamagedByThisCreatureThisTurn[srcId] || {};
-          stateAny.creaturesDamagedByThisCreatureThisTurn[srcId][tgtId] = true;
-          stateAny.creaturesDamagedByThisCreatureThisTurn[tgtId] = stateAny.creaturesDamagedByThisCreatureThisTurn[tgtId] || {};
-          stateAny.creaturesDamagedByThisCreatureThisTurn[tgtId][srcId] = true;
-        }
-
-        // Keep the per-permanent "tookDamageThisTurn"/"damageThisTurn" flags in sync.
-        if (targetPower > 0) {
-          sourceCreature.damageThisTurn = (sourceCreature.damageThisTurn || 0) + targetPower;
-          sourceCreature.tookDamageThisTurn = true;
-        }
-        if (sourcePower > 0) {
-          targetCreature.damageThisTurn = (targetCreature.damageThisTurn || 0) + sourcePower;
-          targetCreature.tookDamageThisTurn = true;
-        }
-      } catch {
-        // best-effort only
-      }
-
-      // Queue damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
-      const ctx: GameContext = {
-        state: game.state,
-        libraries: (game as any).libraries,
-        bumpSeq: () => {
-          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-        },
-        rng: (game as any).rng,
-        gameId,
-      } as any;
-
-      const queueDamageTrigger = (perm: any, damageAmount: number) => {
-        processDamageReceivedTriggers(ctx, perm, damageAmount, (triggerInfo) => {
-          if (dispatchDamageReceivedTrigger(ctx as any, triggerInfo)) {
-            return;
-          }
-
-          (game.state as any).pendingDamageTriggers = (game.state as any).pendingDamageTriggers || {};
-          (game.state as any).pendingDamageTriggers[triggerInfo.triggerId] = {
-            sourceId: triggerInfo.sourceId,
-            sourceName: triggerInfo.sourceName,
-            controller: triggerInfo.controller,
-            damageAmount: triggerInfo.damageAmount,
-            triggerType: 'dealt_damage',
-            targetType: triggerInfo.targetType,
-            effect: triggerInfo.effect,
-            ...(triggerInfo.effectMode ? { effectMode: triggerInfo.effectMode } : {}),
-            ...(triggerInfo.attackingPlayerId ? { attackingPlayerId: triggerInfo.attackingPlayerId } : {}),
-            targetRestriction: triggerInfo.targetRestriction,
-          };
+      if (!canPermanentBeTargetedByPlayer(targetCreature as any, game.state as any, pid as any)) {
+        emitToPlayer(io, pid as any, 'error', {
+          code: 'INVALID_TARGET',
+          message: 'Target cannot be legally targeted',
         });
-      };
-
-      queueDamageTrigger(sourceCreature, targetPower);
-      queueDamageTrigger(targetCreature, sourcePower);
+        break;
+      }
 
       const sourceName = String(step.sourceName || sourceCreature.card?.name || 'Creature');
       const targetName = String(targetCreature.card?.name || 'Creature');
+      const activatedAbilityText = String(stepData.activatedAbilityText || stepData.description || '').trim();
+      const description = getFightAbilityDescription(stepData);
 
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: 'system',
-        message: `⚔️ ${sourceName} fights ${targetName}! ${sourceName} deals ${sourcePower} damage, ${targetName} deals ${targetPower} damage.`,
-        ts: Date.now(),
+      (game.state as any).stack = Array.isArray((game.state as any).stack) ? (game.state as any).stack : [];
+      (game.state as any).stack.push({
+        id: uid('ability'),
+        type: 'ability',
+        controller: pid,
+        source: sourceId,
+        sourceName,
+        description,
+        activatedAbilityText: activatedAbilityText || description,
+        abilityType: 'fight',
+        targets: [targetCreatureId],
+        fightParams: {
+          sourceCreatureId: sourceId,
+          targetCreatureId,
+          sourceCreatureName: sourceName,
+          targetCreatureName: targetName,
+        },
       });
 
       if (typeof game.bumpSeq === 'function') {
@@ -6989,16 +7021,28 @@ async function handleStepResponse(
       }
 
       try {
-        appendEvent(gameId, (game as any).seq ?? 0, 'fight', {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
           playerId: pid,
-          sourceId,
-          targetId: targetCreatureId,
-          sourcePower,
-          targetPower,
+          permanentId: sourceId,
+          abilityId: String(stepData.abilityId || ''),
+          cardName: sourceName,
+          abilityText: description,
+          activatedAbilityText: activatedAbilityText || description,
+          abilityType: 'fight',
+          targets: [targetCreatureId],
+          tappedPermanents: Boolean(sourceCreature?.tapped) ? [sourceId] : [],
         });
       } catch (e) {
-        debugWarn(1, 'appendEvent(fight) failed:', e);
+        debugWarn(1, 'appendEvent(activateBattlefieldAbility:fight) failed:', e);
       }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${sourceName} targets ${targetName} to fight. Ability on the stack.`,
+        ts: Date.now(),
+      });
 
       broadcastGame(io, game, gameId);
       break;
@@ -8141,6 +8185,331 @@ async function handleStepResponse(
           });
 
           if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+          broadcastGame(io, game, gameId);
+          break;
+        }
+      }
+
+      if (stepData.activationPaymentChoice === true) {
+        if (response.cancelled) {
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${getPlayerName(game, pid)} cancelled ${String(stepData.cardName || step.sourceName || 'the activation')}.`,
+            ts: Date.now(),
+          });
+
+          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+          broadcastGame(io, game, gameId);
+          break;
+        }
+
+        const payment = extractResolutionPaymentItems(response.selections as any);
+        const manaCost = String(stepData.manaCost || '').trim();
+        const applied = applyWardManaPaymentSelection(game, pid, manaCost, payment);
+        if (!applied.ok) {
+          const appliedError = applied as { ok: false; code: string; message: string };
+          emitToPlayer(io, pid as any, 'error', {
+            code: appliedError.code,
+            message: appliedError.message,
+          });
+          break;
+        }
+
+        if (stepData.activationPaymentContext === 'battlefield_targeted') {
+          const controllerId = String(step.playerId || pid);
+          const permanentId = String(stepData?.permanentId || step.sourceId || '').trim();
+          const abilityId = String(stepData?.abilityId || '').trim();
+          const cardName = String(stepData?.cardName || step.sourceName || 'Ability');
+          const abilityText = String(stepData?.abilityText || step.description || '').trim();
+          const activatedAbilityText = String(stepData?.activatedAbilityText || '').trim();
+          const selectedTargetIds = Array.isArray(stepData?.targetIds) ? stepData.targetIds.map((value: any) => String(value)) : [];
+          const validTargets = Array.isArray(stepData?.validTargets) ? stepData.validTargets : [];
+          const targetTypes = Array.isArray(stepData?.targetTypes) ? stepData.targetTypes : [];
+          const minTargets = Number(stepData?.minTargets ?? 1);
+          const maxTargets = Number(stepData?.maxTargets ?? 1);
+          const targetDescription = String(stepData?.targetDescription || 'target');
+          const battlefieldAbilityType = String(stepData?.abilityType || abilityId || '');
+          const tappedPermanentsForCost = Array.isArray(stepData?.tappedPermanentsForCost)
+            ? stepData.tappedPermanentsForCost.map((id: any) => String(id)).filter(Boolean)
+            : [];
+
+          const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+          const sourcePerm = battlefield.find((perm: any) => perm && String(perm.id) === permanentId);
+          if (!sourcePerm) {
+            emitToPlayer(io, controllerId, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
+            break;
+          }
+
+          const stackItem = {
+            id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            type: 'ability' as const,
+            controller: controllerId,
+            source: permanentId,
+            sourceName: cardName,
+            description: abilityText,
+            activatedAbilityText: activatedAbilityText || undefined,
+            targets: selectedTargetIds,
+            copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
+            copyRetargetTargetTypes: [...targetTypes],
+            copyRetargetMinTargets: minTargets,
+            copyRetargetMaxTargets: maxTargets,
+            copyRetargetTargetDescription: targetDescription,
+          } as any;
+
+          if (battlefieldAbilityType === 'equip') {
+            const targetCreatureId = String(selectedTargetIds[0] || '');
+            const targetCreature = battlefield.find((perm: any) => perm && String(perm.id) === targetCreatureId);
+            stackItem.abilityType = 'equip';
+            stackItem.equipParams = {
+              equipmentId: permanentId,
+              targetCreatureId,
+              equipmentName: cardName,
+              targetCreatureName: String(targetCreature?.card?.name || 'Creature'),
+            };
+          } else if (battlefieldAbilityType === 'fortify') {
+            const targetLandId = String(selectedTargetIds[0] || '');
+            const targetLand = battlefield.find((perm: any) => perm && String(perm.id) === targetLandId);
+            stackItem.abilityType = 'fortify';
+            stackItem.fortifyParams = {
+              fortificationId: permanentId,
+              targetLandId,
+              fortificationName: cardName,
+              targetLandName: String(targetLand?.card?.name || 'Land'),
+            };
+          } else if (battlefieldAbilityType === 'reconfigure_attach') {
+            const targetCreatureId = String(selectedTargetIds[0] || '');
+            const targetCreature = battlefield.find((perm: any) => perm && String(perm.id) === targetCreatureId);
+            stackItem.abilityType = 'reconfigure_attach';
+            stackItem.reconfigureParams = {
+              reconfigureId: permanentId,
+              targetCreatureId,
+              reconfigureName: cardName,
+              targetCreatureName: String(targetCreature?.card?.name || 'Creature'),
+            };
+          }
+
+          game.state.stack = game.state.stack || [];
+          game.state.stack.push(stackItem);
+          fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+
+          io.to(gameId).emit('stackUpdate', {
+            gameId,
+            stack: (game.state.stack || []).map((s: any) => ({
+              id: s.id,
+              type: s.type,
+              name: s.sourceName || s.card?.name || 'Ability',
+              controller: s.controller,
+              targets: s.targets,
+              source: s.source,
+              sourceName: s.sourceName,
+              description: s.description,
+            })),
+          });
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}. Ability on the stack.`,
+            ts: Date.now(),
+          });
+
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+              playerId: controllerId,
+              permanentId,
+              abilityId: abilityId || undefined,
+              cardName,
+              abilityText,
+              targets: selectedTargetIds,
+              tappedPermanents: tappedPermanentsForCost,
+              activatedAbilityText: activatedAbilityText || undefined,
+              abilityType: battlefieldAbilityType || undefined,
+              ...(battlefieldAbilityType === 'equip'
+                ? { equipParams: stackItem.equipParams }
+                : battlefieldAbilityType === 'fortify'
+                  ? { fortifyParams: stackItem.fortifyParams }
+                  : battlefieldAbilityType === 'reconfigure_attach'
+                    ? { reconfigureParams: stackItem.reconfigureParams }
+                    : {}),
+            });
+          } catch {
+            // ignore persistence failures
+          }
+
+          broadcastGame(io, game, gameId);
+          break;
+        }
+
+        if (stepData.activationPaymentContext === 'mana_ability') {
+          const permanentId = String(stepData.permanentId || step.sourceId || '').trim();
+          const cardName = String(stepData.cardName || step.sourceName || 'Ability');
+          const abilityId = String(stepData.abilityId || '').trim();
+          const abilityText = String(stepData.abilityText || step.description || '').trim();
+          const activatedAbilityText = String(stepData.activatedAbilityText || '').trim();
+          const requiresTap = stepData.requiresTap === true;
+          const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+          const permanent = battlefield.find((entry: any) => entry && String(entry.id) === permanentId);
+          if (!permanent) {
+            emitToPlayer(io, pid as any, 'error', {
+              code: 'PERMANENT_NOT_FOUND',
+              message: 'Permanent no longer on battlefield',
+            });
+            break;
+          }
+
+          if (requiresTap && !(permanent as any).tapped) {
+            (permanent as any).tapped = true;
+          }
+
+          game.state.manaPool = game.state.manaPool || {};
+          game.state.manaPool[pid] = game.state.manaPool[pid] || {
+            white: 0,
+            blue: 0,
+            black: 0,
+            red: 0,
+            green: 0,
+            colorless: 0,
+          };
+
+          const colorToPoolKey: Record<string, string> = {
+            W: 'white',
+            U: 'blue',
+            B: 'black',
+            R: 'red',
+            G: 'green',
+            C: 'colorless',
+          };
+
+          const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+          const isLand = typeLine.includes('land');
+          const isBasic = typeLine.includes('basic');
+          const devotionMana = getDevotionManaAmount(game.state, permanent, pid);
+          const creatureCountMana = getCreatureCountManaAmount(game.state, permanent, pid);
+          const manaMultiplier = getManaMultiplier(game.state, permanent, pid);
+          let effectiveMultiplier = manaMultiplier;
+          if (manaMultiplier > 1 && !isBasic && isLand) {
+            const modifiers = detectManaModifiers(game.state, pid);
+            const virtueModifier = modifiers.find(m =>
+              m.cardName.toLowerCase().includes('virtue of strength') &&
+              m.type === 'mana_multiplier'
+            );
+            if (virtueModifier) {
+              const otherMultiplier = modifiers
+                .filter(m => m.type === 'mana_multiplier' && m.cardName !== virtueModifier.cardName)
+                .reduce((acc, m) => acc * (m.multiplier || 1), 1);
+              effectiveMultiplier = otherMultiplier;
+            }
+          }
+
+          if (devotionMana && devotionMana.amount > 0) {
+            const totalAmount = devotionMana.amount * effectiveMultiplier;
+            const poolKey = colorToPoolKey[devotionMana.color] || 'green';
+            (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+            broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
+          } else if (creatureCountMana && (creatureCountMana.amount > 0 || (creatureCountMana as any).requiresColorChoice === true)) {
+            const totalAmount = creatureCountMana.amount * effectiveMultiplier;
+
+            if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
+              ResolutionQueueManager.addStep(gameId, {
+                type: ResolutionStepType.MANA_COLOR_SELECTION,
+                playerId: pid as PlayerID,
+                sourceId: permanentId,
+                sourceName: cardName,
+                sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+                description: `Choose a color for ${cardName}'s mana.`,
+                mandatory: true,
+                selectionKind: 'any_color',
+                permanentId,
+                abilityId,
+                cardName,
+                amount: totalAmount,
+                allowedColors: ['W', 'U', 'B', 'R', 'G'],
+                dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
+                manaMultiplier: effectiveMultiplier,
+                tappedPermanentsForCost: requiresTap ? [permanentId] : [],
+              } as any);
+              broadcastGame(io, game, gameId);
+              break;
+            }
+
+            const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
+            (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+            broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
+          } else {
+            const manaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
+            const manaAbility = manaAbilities[0];
+            const produces = Array.isArray(manaAbility?.produces) ? manaAbility.produces : [];
+
+            if (manaAbility && manaAbility.producesAllAtOnce && produces.length > 1) {
+              for (const manaColor of produces) {
+                const poolKey = colorToPoolKey[manaColor] || 'colorless';
+                (game.state.manaPool[pid] as any)[poolKey] += effectiveMultiplier;
+              }
+              broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
+            } else if (manaAbility && produces.length > 1) {
+              const extraMana = getExtraManaProduction(game.state, permanent, pid, produces[0]);
+              const totalExtra = extraMana.reduce((acc, entry) => acc + Number(entry.amount || 0), 0);
+              const finalTotal = (1 * effectiveMultiplier) + totalExtra;
+              ResolutionQueueManager.addStep(gameId, {
+                type: ResolutionStepType.MANA_COLOR_SELECTION,
+                playerId: pid as PlayerID,
+                sourceId: permanentId,
+                sourceName: cardName,
+                sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+                description: `Choose a color for ${cardName}'s mana.`,
+                mandatory: true,
+                selectionKind: 'any_color',
+                permanentId,
+                abilityId,
+                cardName,
+                amount: finalTotal,
+                tappedPermanentsForCost: requiresTap ? [permanentId] : [],
+              } as any);
+              broadcastGame(io, game, gameId);
+              break;
+            } else if (manaAbility && produces.length === 1) {
+              const manaColor = produces[0];
+              const poolKey = colorToPoolKey[manaColor] || 'colorless';
+              const baseAmount = 1;
+              const extraMana = getExtraManaProduction(game.state, permanent, pid, manaColor);
+              for (const extra of extraMana) {
+                const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
+                (game.state.manaPool[pid] as any)[extraPoolKey] += extra.amount;
+              }
+              (game.state.manaPool[pid] as any)[poolKey] += baseAmount * effectiveMultiplier;
+              broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
+            }
+          }
+
+          try {
+            const stateAny = game.state as any;
+            stateAny.addedManaWithThisAbilityThisTurn = stateAny.addedManaWithThisAbilityThisTurn || {};
+            stateAny.addedManaWithThisAbilityThisTurn[String(pid)] = stateAny.addedManaWithThisAbilityThisTurn[String(pid)] || {};
+            const permKey = String(permanentId);
+            const k = abilityId ? `${permKey}:${abilityId}` : permKey;
+            (stateAny.addedManaWithThisAbilityThisTurn[String(pid)] as any)[k] = true;
+          } catch {}
+
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+              playerId: pid,
+              permanentId,
+              abilityId: abilityId || undefined,
+              cardName,
+              abilityText,
+              activatedAbilityText: activatedAbilityText || undefined,
+              tappedPermanents: requiresTap ? [permanentId] : [],
+            });
+          } catch {
+            // ignore persistence failures
+          }
+
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
           broadcastGame(io, game, gameId);
           break;
         }
@@ -12316,23 +12685,39 @@ async function handleTargetSelectionResponse(
           ? String(stepAny?.fortifyCost || '').trim()
           : String(stepAny?.reconfigureCost || '').trim();
       if (targetingCost) {
-        const pool = getOrInitManaPool(game.state, controllerId);
-        const paid = validateAndConsumeManaCostFromPool(
-          pool as any,
-          targetingCost,
-          {
-            logPrefix: battlefieldAbilityType === 'equip'
-              ? '[Resolution:equip]'
-              : battlefieldAbilityType === 'fortify'
-                ? '[Resolution:fortify]'
-                : '[Resolution:reconfigure_attach]'
-          }
-        );
-        if (!paid.ok) {
-          emitToPlayer(io, controllerId, 'error', { code: 'INSUFFICIENT_MANA', message: (paid as any).error || 'Insufficient mana.' });
-          return;
-        }
-        broadcastManaPoolUpdate(io, gameId, controllerId, pool as any, 'Ability activated', game);
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+          playerId: controllerId as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: step.sourceImage,
+          description: `Choose how to pay ${targetingCost} for ${cardName}.`,
+          mandatory: true,
+          activationPaymentChoice: true,
+          activationPaymentContext: 'battlefield_targeted',
+          confirmLabel: 'Pay and Activate',
+          permanentId,
+          abilityId,
+          cardName,
+          manaCost: targetingCost,
+          abilityText,
+          activatedAbilityText,
+          targetIds: selectedTargetIds,
+          validTargets,
+          targetTypes: Array.isArray(targetStepData.targetTypes) ? [...targetStepData.targetTypes] : [],
+          minTargets,
+          maxTargets,
+          targetDescription: String(targetStepData.targetDescription || 'target'),
+          abilityType: battlefieldAbilityType,
+          equipCost: stepAny?.equipCost,
+          fortifyCost: stepAny?.fortifyCost,
+          reconfigureCost: stepAny?.reconfigureCost,
+          tappedPermanentsForCost,
+        } as any);
+
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+        broadcastGame(io, game, gameId);
+        return;
       }
     }
 

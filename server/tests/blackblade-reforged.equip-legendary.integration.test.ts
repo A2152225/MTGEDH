@@ -53,7 +53,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     games.delete(gameId as any);
   });
 
-  it('charges the legendary equip cost when the parser-routed equip target is chosen', async () => {
+  it('queues equip payment after targeting and preserves unselected floating mana', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -65,7 +65,7 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
     (game.state as any).manaPool = {
-      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 3 },
     };
     (game.state as any).battlefield = [
       {
@@ -134,7 +134,22 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
       selections: ['commander_1'],
     });
 
+    const paymentStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(paymentStep.type).toBe('mana_payment_choice');
+    expect(paymentStep.activationPaymentChoice).toBe(true);
+    expect(paymentStep.activationPaymentContext).toBe('battlefield_targeted');
+    expect(paymentStep.manaCost).toBe('{3}');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [{ permanentId: '__pool__:colorless', mana: 'C', count: 3 }],
+      },
+    });
+
     expect((game.state as any).manaPool?.[playerId]?.colorless).toBe(0);
+    expect((game.state as any).manaPool?.[playerId]?.red).toBe(1);
     const stack = (game.state as any).stack || [];
     expect(stack).toHaveLength(1);
     expect(stack[0]?.abilityType).toBe('equip');

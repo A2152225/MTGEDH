@@ -100,10 +100,16 @@ describe('Adapt and monstrosity generic ability routing (integration)', () => {
 
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'adapt_1', abilityId: 'adapt_card_1-adapt-0' });
 
+    expect(((game.state as any).stack || [])).toHaveLength(1);
     const permanent = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'adapt_1');
-    expect(permanent?.counters?.['+1/+1']).toBe(2);
+    expect(permanent?.counters?.['+1/+1'] ?? 0).toBe(0);
     expect((game.state as any).manaPool?.[playerId]?.green).toBe(0);
     expect((game.state as any).manaPool?.[playerId]?.colorless).toBe(0);
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+    expect(permanent?.counters?.['+1/+1']).toBe(2);
   });
 
   it('activates monstrosity through the parser-emitted generic id', async () => {
@@ -145,11 +151,19 @@ describe('Adapt and monstrosity generic ability routing (integration)', () => {
 
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'monster_1', abilityId: 'monster_card_1-monstrosity-0' });
 
+    expect(((game.state as any).stack || [])).toHaveLength(1);
     const permanent = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'monster_1');
+    expect(permanent?.counters?.['+1/+1'] ?? 0).toBe(0);
+    expect(permanent?.isMonstrous).not.toBe(true);
+    expect(permanent?.monstrous).not.toBe(true);
+    expect((game.state as any).manaPool?.[playerId]?.green).toBe(0);
+    expect((game.state as any).manaPool?.[playerId]?.colorless).toBe(0);
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).stack || [])).toHaveLength(0);
     expect(permanent?.counters?.['+1/+1']).toBe(3);
     expect(permanent?.isMonstrous).toBe(true);
     expect(permanent?.monstrous).toBe(true);
-    expect((game.state as any).manaPool?.[playerId]?.green).toBe(0);
-    expect((game.state as any).manaPool?.[playerId]?.colorless).toBe(0);
   });
 });

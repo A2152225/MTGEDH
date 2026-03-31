@@ -4727,6 +4727,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       );
       
       debug(2, `[activateBattlefieldAbility] Control change ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}${requiresTap ? 'tapped, ' : ''}prompting for opponent selection`);
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
       broadcastGame(io, game, gameId);
       return;
     }
@@ -4788,8 +4791,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         playerId: pid as PlayerID,
         sourceId: permanentId,
         sourceName: cardName,
+        abilityId,
         sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
         description: scopedAbilityFullText,
+        activatedAbilityText: scopedAbilityFullText,
         mandatory: true,
         targetFilter: {
           types: ['creature'],
@@ -4800,6 +4805,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       debug(2, `[activateBattlefieldAbility] Fight ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target creature (controller: ${fightController})`);
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
       broadcastGame(io, game, gameId);
       return;
     }
@@ -4908,6 +4916,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       debug(2, `[activateBattlefieldAbility] Counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for target (controller: ${targetController}, counter: ${counterType})`);
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
       broadcastGame(io, game, gameId);
       return;
     }
@@ -4971,6 +4982,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
 
       debug(2, `[activateBattlefieldAbility] Move counter ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}queued counter movement step`);
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
       broadcastGame(io, game, gameId);
       return;
     }
@@ -5033,6 +5047,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       debug(2, `[activateBattlefieldAbility] Tap/Untap ability on ${cardName}: ${manaCost ? `paid ${manaCost}, ` : ''}prompting for ${tapUntapParams.count} target(s)`);
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
       broadcastGame(io, game, gameId);
       return;
     }
@@ -5258,59 +5275,46 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:level-up]');
       
-      // Add a level counter to the permanent
-      (permanent as any).counters = (permanent as any).counters || {};
-      const currentLevel = (permanent as any).counters.level || 0;
-      (permanent as any).counters.level = currentLevel + 1;
-      const newLevel = (permanent as any).counters.level;
-      
-      // Determine which level bracket this puts the creature in
-      // Look for LEVEL N1-N2 and LEVEL N3+ patterns in the oracle text
-      let levelBracket = `Level ${newLevel}`;
-      const levelRangePattern = /level\s+(\d+)-(\d+)/gi;
-      const levelPlusPattern = /level\s+(\d+)\+/gi;
-      
-      // Use matchAll for safe iteration over global regex matches
-      for (const match of oracleText.matchAll(levelRangePattern)) {
-        const minLevel = parseInt(match[1], 10);
-        const maxLevel = parseInt(match[2], 10);
-        if (newLevel >= minLevel && newLevel <= maxLevel) {
-          levelBracket = `Level ${minLevel}-${maxLevel}`;
-          break;
-        }
-      }
-      
-      for (const match of oracleText.matchAll(levelPlusPattern)) {
-        const minLevel = parseInt(match[1], 10);
-        if (newLevel >= minLevel) {
-          levelBracket = `Level ${minLevel}+`;
-          break;
-        }
-      }
-      
-      io.to(gameId).emit("chat", {
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push({
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability',
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: 'Put a level counter on this permanent',
+        activatedAbilityText: scopedAbilityFullText,
+        abilityType: 'level_up',
+        levelUpParams: {
+          amount: 1,
+        },
+      } as any);
+
+      io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
-        from: "system",
-        message: `📊 ${getPlayerName(game, pid)} paid ${levelUpCost} to level up ${cardName}! (${newLevel} level counter${newLevel !== 1 ? 's' : ''}, ${levelBracket})`,
+        from: 'system',
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s level up ability. Ability on the stack.`,
         ts: Date.now(),
       });
-      
-      if (typeof game.bumpSeq === "function") {
+
+      if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
-      
-      // Append event to game log
-      appendGameEvent(game, gameId, 'level_up', {
+
+      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
         playerId: pid,
         permanentId,
+        abilityId,
         cardName,
-        cost: levelUpCost,
-        newLevel,
-        levelBracket,
-        ts: Date.now(),
+        abilityText: 'Put a level counter on this permanent',
+        activatedAbilityText: scopedAbilityFullText,
+        abilityType: 'level_up',
+        levelUpParams: {
+          amount: 1,
+        },
       });
-      
+
       broadcastGame(io, game, gameId);
       return;
     }
@@ -5369,35 +5373,50 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Tap the creature as part of the cost
       permanent.tapped = true;
-      
-      // Add a +1/+1 counter to the creature
-      (permanent as any).counters = (permanent as any).counters || {};
-      const currentCounters = (permanent as any).counters['+1/+1'] || 0;
-      (permanent as any).counters['+1/+1'] = currentCounters + 1;
-      const newCount = (permanent as any).counters['+1/+1'];
-      
-      io.to(gameId).emit("chat", {
+
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push({
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability',
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: 'Put a +1/+1 counter on this creature',
+        activatedAbilityText: scopedAbilityFullText,
+        abilityType: 'outlast',
+        outlastParams: {
+          amount: 1,
+          counterType: '+1/+1',
+        },
+      } as any);
+
+      io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
-        from: "system",
-        message: `💪 ${getPlayerName(game, pid)} paid ${outlastCost} and tapped ${cardName} to outlast! (${newCount} +1/+1 counter${newCount !== 1 ? 's' : ''})`,
+        from: 'system',
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s outlast ability. Ability on the stack.`,
         ts: Date.now(),
       });
-      
-      if (typeof game.bumpSeq === "function") {
+
+      if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
-      
-      // Append event to game log
-      appendGameEvent(game, gameId, 'outlast', {
+
+      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
         playerId: pid,
         permanentId,
+        abilityId,
         cardName,
-        cost: outlastCost,
-        newCounterCount: newCount,
-        ts: Date.now(),
+        abilityText: 'Put a +1/+1 counter on this creature',
+        activatedAbilityText: scopedAbilityFullText,
+        abilityType: 'outlast',
+        outlastParams: {
+          amount: 1,
+          counterType: '+1/+1',
+        },
+        tappedPermanents: [permanentId],
       });
-      
+
       broadcastGame(io, game, gameId);
       return;
     }
@@ -5432,31 +5451,44 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:monstrosity]');
 
-      (permanent as any).counters = (permanent as any).counters || {};
-      const currentCounters = (permanent as any).counters['+1/+1'] || 0;
-      (permanent as any).counters['+1/+1'] = currentCounters + monstrosityN;
-      (permanent as any).isMonstrous = true;
-      (permanent as any).monstrous = true;
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push({
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability',
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: `Monstrosity ${monstrosityN}`,
+        activatedAbilityText: scopedAbilityFullText,
+        abilityType: 'monstrosity',
+        monstrosityParams: {
+          amount: monstrosityN,
+        },
+      } as any);
 
-      io.to(gameId).emit("chat", {
+      io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
-        from: "system",
-        message: `💪 ${getPlayerName(game, pid)} paid ${monstrosityCost} to make ${cardName} monstrous! (${monstrosityN} +1/+1 counter${monstrosityN !== 1 ? 's' : ''})`,
+        from: 'system',
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s monstrosity ability. Ability on the stack.`,
         ts: Date.now(),
       });
 
-      if (typeof game.bumpSeq === "function") {
+      if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
 
-      appendGameEvent(game, gameId, 'monstrosity', {
+      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
         playerId: pid,
         permanentId,
+        abilityId,
         cardName,
-        cost: monstrosityCost,
-        countersAdded: monstrosityN,
-        ts: Date.now(),
+        abilityText: `Monstrosity ${monstrosityN}`,
+        activatedAbilityText: scopedAbilityFullText,
+        abilityType: 'monstrosity',
+        monstrosityParams: {
+          amount: monstrosityN,
+        },
       });
 
       broadcastGame(io, game, gameId);
@@ -5493,28 +5525,44 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:adapt]');
 
-      (permanent as any).counters = (permanent as any).counters || {};
-      (permanent as any).counters['+1/+1'] = currentCounters + adaptN;
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push({
+        id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        type: 'ability',
+        controller: pid,
+        source: permanentId,
+        sourceName: cardName,
+        description: `Adapt ${adaptN}`,
+        activatedAbilityText: scopedAbilityFullText,
+        abilityType: 'adapt',
+        adaptParams: {
+          amount: adaptN,
+        },
+      } as any);
 
-      io.to(gameId).emit("chat", {
+      io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
-        from: "system",
-        message: `💪 ${getPlayerName(game, pid)} paid ${adaptCost} to adapt ${cardName}! (${adaptN} +1/+1 counter${adaptN !== 1 ? 's' : ''})`,
+        from: 'system',
+        message: `⚡ ${getPlayerName(game, pid)} activated ${cardName}'s adapt ability. Ability on the stack.`,
         ts: Date.now(),
       });
 
-      if (typeof game.bumpSeq === "function") {
+      if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
 
-      appendGameEvent(game, gameId, 'adapt', {
+      appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
         playerId: pid,
         permanentId,
+        abilityId,
         cardName,
-        cost: adaptCost,
-        countersAdded: adaptN,
-        ts: Date.now(),
+        abilityText: `Adapt ${adaptN}`,
+        activatedAbilityText: scopedAbilityFullText,
+        abilityType: 'adapt',
+        adaptParams: {
+          amount: adaptN,
+        },
       });
 
       broadcastGame(io, game, gameId);
@@ -8795,6 +8843,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
           const parsedCost = parseManaCost(resolvedManaOnly);
           const manaPool = getOrInitManaPool(game.state, pid);
+          const wouldBeManaAbility = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i.test(abilityText) &&
+            !/target/i.test(abilityText);
           
           // For Phyrexian mana costs, we need to check if player can pay with mana OR life
           const playerLife = game.state.life?.[pid] || 40;
@@ -8886,6 +8936,40 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             
             debug(2, `[activateBattlefieldAbility] ${cardName} has Phyrexian mana costs. Prompting ${pid} for payment choice.`);
             return; // Wait for player's choice
+          }
+
+          if (wouldBeManaAbility && (!parsedCost.hybrids || parsedCost.hybrids.length === 0) && !sacrificeType) {
+            const activatedAbilityText = (() => {
+              const scopedAbilityText = String(abilityConditionText || '').trim();
+              if (scopedAbilityText.includes(':')) return scopedAbilityText;
+              return manaOnly ? `${manaOnly}: ${abilityText}` : (scopedAbilityText || abilityText);
+            })();
+
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+              description: `Choose how to pay ${resolvedManaOnly} for ${cardName}.`,
+              mandatory: true,
+              activationPaymentChoice: true,
+              activationPaymentContext: 'mana_ability',
+              confirmLabel: 'Pay and Activate',
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              activatedAbilityText,
+              manaCost: resolvedManaOnly,
+              requiresTap,
+            } as any);
+
+            if (typeof game.bumpSeq === 'function') {
+              game.bumpSeq();
+            }
+            broadcastGame(io, game, gameId);
+            return;
           }
           
           // No Phyrexian costs - handle regular hybrid costs (like {W/U} or {2/W})

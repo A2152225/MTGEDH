@@ -169,10 +169,16 @@ describe('Crew, level-up, and outlast generic ability routing (integration)', ()
 
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'leveler_1', abilityId: 'leveler_card_1-level-up-0' });
 
+    expect(((game.state as any).stack || [])).toHaveLength(1);
     const leveler = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'leveler_1');
-    expect(leveler?.counters?.level).toBe(1);
+    expect(leveler?.counters?.level ?? 0).toBe(0);
     expect((game.state as any).manaPool?.[playerId]?.green).toBe(0);
     expect((game.state as any).manaPool?.[playerId]?.colorless).toBe(0);
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+    expect(leveler?.counters?.level).toBe(1);
   });
 
   it('activates outlast through the parser-emitted id and adds a +1/+1 counter', async () => {
@@ -219,9 +225,15 @@ describe('Crew, level-up, and outlast generic ability routing (integration)', ()
 
     await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'outlast_1', abilityId: 'outlast_card_1-outlast-0' });
 
+    expect(((game.state as any).stack || [])).toHaveLength(1);
     const outlastCreature = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'outlast_1');
     expect(Boolean(outlastCreature?.tapped)).toBe(true);
-    expect(outlastCreature?.counters?.['+1/+1']).toBe(1);
+    expect(outlastCreature?.counters?.['+1/+1'] ?? 0).toBe(0);
     expect((game.state as any).manaPool?.[playerId]?.white).toBe(0);
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+    expect(outlastCreature?.counters?.['+1/+1']).toBe(1);
   });
 });

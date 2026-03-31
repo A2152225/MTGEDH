@@ -100,6 +100,7 @@ export interface PaymentPickerProps {
   onConvokeChange?: (creatureIds: string[]) => void;
   // Floating mana usage state
   onClearFloatingMana?: () => void;
+  manualFloatingManaSelection?: boolean;
 }
 
 export function PaymentPicker(props: PaymentPickerProps) {
@@ -118,6 +119,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
     chosenConvokeCreatures = [],
     onConvokeChange,
     onClearFloatingMana,
+    manualFloatingManaSelection = false,
   } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
@@ -127,10 +129,51 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const cost = useMemo(() => ({ colors: parsed.colors, generic: parsed.generic + Math.max(0, Number(xValue || 0) * xMultiplier), hybrids: parsed.hybrids }), [parsed, xValue, xMultiplier]);
   
   // Calculate remaining cost after floating mana
-  const { colors: costAfterFloating, generic: genericAfterFloating, hybrids: hybridsAfterFloating, usedFromPool } = useMemo(() => 
-    calculateRemainingCostAfterFloatingMana(cost, floatingMana), 
-    [cost, floatingMana]
+  const floatingSources = useMemo(() => {
+    if (!manualFloatingManaSelection || !floatingMana) return [] as Array<{ id: string; name: string; options: Color[]; amount?: number }>;
+
+    const entries: Array<{ id: string; name: string; options: Color[]; amount?: number }> = [];
+    const poolEntries: Array<[keyof ManaPool, Color]> = [
+      ['white', 'W'],
+      ['blue', 'U'],
+      ['black', 'B'],
+      ['red', 'R'],
+      ['green', 'G'],
+      ['colorless', 'C'],
+    ];
+
+    for (const [poolKey, symbol] of poolEntries) {
+      const amount = Number(floatingMana[poolKey] || 0);
+      for (let index = 0; index < amount; index++) {
+        entries.push({
+          id: `__pool__:${String(poolKey)}:${index}`,
+          name: `Floating {${symbol}}`,
+          options: [symbol],
+          amount: 1,
+        });
+      }
+    }
+
+    return entries;
+  }, [floatingMana, manualFloatingManaSelection]);
+
+  const effectiveSources = useMemo(
+    () => (manualFloatingManaSelection ? [...floatingSources, ...sources] : sources),
+    [floatingSources, manualFloatingManaSelection, sources]
   );
+
+  const { colors: costAfterFloating, generic: genericAfterFloating, hybrids: hybridsAfterFloating, usedFromPool } = useMemo(() => {
+    if (manualFloatingManaSelection) {
+      return {
+        colors: { ...cost.colors },
+        generic: cost.generic,
+        hybrids: [...cost.hybrids],
+        usedFromPool: {},
+      };
+    }
+
+    return calculateRemainingCostAfterFloatingMana(cost, floatingMana);
+  }, [cost, floatingMana, manualFloatingManaSelection]);
   const costForPayment = useMemo(() => ({ 
     colors: costAfterFloating, 
     generic: genericAfterFloating, 
@@ -154,8 +197,8 @@ export function PaymentPicker(props: PaymentPickerProps) {
   // Calculate suggested payment when no sources have been chosen yet (considers floating mana)
   const suggestedPayment = useMemo(() => {
     if (chosen.length > 0) return new Map<string, Color>();
-    return calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
-  }, [cost, sources, colorsToPreserve, chosen.length, floatingMana]);
+    return calculateSuggestedPayment(cost, effectiveSources, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
+  }, [cost, effectiveSources, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection]);
 
   // Helper to get mana count for a source - uses amount if specified (for Priest of Titania, etc.)
   // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources:
@@ -163,7 +206,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
   // - Command Tower ['W','U','B','R','G'] = 1 mana (all unique = choice)
   // - Priest of Titania with amount=7 ['G'] = 7 mana
   const getManaCountForSource = (permanentId: string): number => {
-    const source = sources.find(s => s.id === permanentId);
+    const source = effectiveSources.find(s => s.id === permanentId);
     if (!source) return 1;
     // Use explicit amount if provided (for devotion/creature-count mana)
     if (source.amount && source.amount > 0) return source.amount;
@@ -182,7 +225,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
   // Clear all selections including floating mana
   const clear = () => {
     onChange([]);
-    if (onClearFloatingMana) {
+    if (!manualFloatingManaSelection && onClearFloatingMana) {
       onClearFloatingMana();
     }
   };
@@ -191,7 +234,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
     // Use the suggested payment to auto-fill (considers floating mana)
     if (suggestedPayment.size === 0) {
       // Recalculate if already chosen some
-      const newSuggested = calculateSuggestedPayment(cost, sources, colorsToPreserve, floatingMana);
+      const newSuggested = calculateSuggestedPayment(cost, effectiveSources, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
       const newPayment: PaymentItem[] = [];
       for (const [permanentId, mana] of newSuggested.entries()) {
         const count = getManaCountForSource(permanentId);
@@ -279,11 +322,12 @@ export function PaymentPicker(props: PaymentPickerProps) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, maxHeight: 220, overflow: 'auto', paddingRight: 2 }}>
-        {sources.map(s => {
+        {effectiveSources.map(s => {
           const used = chosenById.has(s.id);
           const suggested = suggestedPayment.get(s.id);
           const isSuggested = suggested !== undefined && !used;
           const hasAmount = s.amount && s.amount > 1;
+          const isFloatingSource = s.id.startsWith('__pool__:');
           
           return (
             <div 
@@ -304,7 +348,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                 ) : isSuggested ? (
                   <span style={{ fontSize: 11, color: '#4caf50', fontWeight: 600 }}>suggested</span>
                 ) : (
-                  <span style={{ fontSize: 11, opacity: 0.7 }}>untapped</span>
+                  <span style={{ fontSize: 11, opacity: 0.7 }}>{isFloatingSource ? 'floating' : 'untapped'}</span>
                 )}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -347,7 +391,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
             </div>
           );
         })}
-        {sources.length === 0 && (
+        {effectiveSources.length === 0 && (
           <div style={{ opacity: 0.7, fontSize: 12 }}>No untapped mana sources available</div>
         )}
       </div>

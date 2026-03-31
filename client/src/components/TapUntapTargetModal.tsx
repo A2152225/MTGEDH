@@ -44,6 +44,8 @@ export interface TapUntapTargetModalProps {
   availablePermanents: BattlefieldPermanent[];
   // Current player ID
   playerId: string;
+  // Whether the chosen action should also filter targets by current tap state.
+  enforceActionAvailability?: boolean;
   // Callback when selection is confirmed
   onConfirm: (selectedPermanentIds: string[], action: 'tap' | 'untap') => void;
   onCancel: () => void;
@@ -57,7 +59,8 @@ function matchesFilter(
   filter: TapUntapTargetModalProps['targetFilter'],
   sourceId: string,
   playerId: string,
-  requiredAction: 'tap' | 'untap' | 'both'
+  requiredAction: 'tap' | 'untap' | 'both',
+  enforceActionAvailability: boolean
 ): boolean {
   const card = perm.card as KnownCardRef;
   if (!card) return false;
@@ -74,8 +77,10 @@ function matchesFilter(
   if (filter.tapStatus === 'untapped' && perm.tapped) return false;
   
   // If action is specific (not 'both'), check if the permanent can be affected
-  if (requiredAction === 'tap' && perm.tapped) return false; // Already tapped
-  if (requiredAction === 'untap' && !perm.tapped) return false; // Already untapped
+  if (enforceActionAvailability) {
+    if (requiredAction === 'tap' && perm.tapped) return false; // Already tapped
+    if (requiredAction === 'untap' && !perm.tapped) return false; // Already untapped
+  }
   
   // Check type filter
   if (filter.types && filter.types.length > 0) {
@@ -104,6 +109,7 @@ export function TapUntapTargetModal({
   targetCount,
   availablePermanents,
   playerId,
+  enforceActionAvailability = true,
   onConfirm,
   onCancel,
 }: TapUntapTargetModalProps) {
@@ -121,9 +127,16 @@ export function TapUntapTargetModal({
   // Filter permanents to only valid targets
   const validTargets = useMemo(() => {
     return availablePermanents.filter(perm => 
-      matchesFilter(perm, targetFilter, source.id, playerId, action === 'both' ? chosenAction : action)
+      matchesFilter(
+        perm,
+        targetFilter,
+        source.id,
+        playerId,
+        action === 'both' ? chosenAction : action,
+        enforceActionAvailability,
+      )
     );
-  }, [availablePermanents, targetFilter, source.id, playerId, action, chosenAction]);
+  }, [availablePermanents, targetFilter, source.id, playerId, action, chosenAction, enforceActionAvailability]);
 
   const toggleSelect = useCallback((permanentId: string) => {
     setSelectedIds(prev => {

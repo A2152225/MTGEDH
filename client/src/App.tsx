@@ -237,10 +237,14 @@ export function App() {
     manaCost?: string;
     oracleText?: string;  // Oracle text for parsing alternate costs (Overload, Flashback, Surge, etc.)
     forcedAlternateCostId?: string;
+    title?: string;
+    confirmLabel?: string;
+    manualFloatingManaSelection?: boolean;
     tax?: number;
     isCommander?: boolean;
     targets?: string[];  // Targets selected via requestCastSpell flow
     effectId?: string;   // Effect ID for MTG-compliant flow
+    paymentStepId?: string;
     costReduction?: {
       generic: number;
       colors: Record<string, number>;
@@ -2422,6 +2426,25 @@ export function App() {
           forcedAlternateCostId: isWardPayment ? undefined : ((step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined),
           // Track the resolution step id so confirm/cancel responds via the queue.
           paymentStepId: String(step.id),
+          title: isWardPayment
+            ? `Pay Ward for ${String((step as any).wardPermanentName || (step as any).cardName || step.sourceName || 'Ward')}`
+            : `Pay for ${String((step as any).cardName || step.sourceName || 'Spell')}`,
+          confirmLabel: isWardPayment ? 'Pay Ward' : 'Pay Cost',
+          manualFloatingManaSelection: !isWardPayment,
+        } as any);
+        setCastSpellModalOpen(true);
+      }
+
+      else if (step.type === 'mana_payment_choice' && (step as any).activationPaymentChoice === true) {
+        setSpellToCast({
+          cardId: String((step as any).cardId || step.sourceId || ''),
+          cardName: String((step as any).cardName || step.sourceName || 'Ability'),
+          manaCost: String((step as any).manaCost || ''),
+          oracleText: String((step as any).abilityText || step.description || ''),
+          paymentStepId: String(step.id),
+          title: `Pay for ${String((step as any).cardName || step.sourceName || 'Ability')}`,
+          confirmLabel: String((step as any).confirmLabel || 'Pay and Continue'),
+          manualFloatingManaSelection: true,
         } as any);
         setCastSpellModalOpen(true);
       }
@@ -3930,6 +3953,7 @@ export function App() {
       manaCost: totalManaCost,
       tax,
       isCommander: true,
+      title: `Cast ${commanderName}`,
     });
     setCastSpellModalOpen(true);
   };
@@ -4335,6 +4359,8 @@ export function App() {
         cardId: splitCardData.cardId,
         cardName: displayName,
         manaCost: manaCost || (card as any).mana_cost,
+        title: `Cast ${displayName}`,
+        manualFloatingManaSelection: true,
       });
       setCastSpellModalOpen(true);
       return;
@@ -5591,6 +5617,7 @@ export function App() {
         targetCount={1}
         availablePermanents={safeView?.battlefield || []}
         playerId={you || ""}
+        enforceActionAvailability={false}
         onConfirm={(selectedPermanentIds) => {
           if (fightTargetModalData && safeView && selectedPermanentIds.length > 0) {
             socket.emit('submitResolutionResponse', {
@@ -5820,6 +5847,9 @@ export function App() {
             }));
         }, [safeView, you, spellToCast])}
         floatingMana={manaPool || undefined}
+        title={spellToCast?.title}
+        confirmLabel={spellToCast?.confirmLabel}
+        manualFloatingManaSelection={spellToCast?.manualFloatingManaSelection === true}
         costReduction={spellToCast?.costReduction}
         convokeOptions={spellToCast?.convokeOptions}
         onConfirm={handleCastSpellConfirm}

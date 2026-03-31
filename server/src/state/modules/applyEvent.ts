@@ -3513,6 +3513,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const persistedAbilityType = String((e as any).abilityType || (e as any).abilityId || '').trim().toLowerCase();
             const isEquipActivation = persistedAbilityType === 'equip';
             const isFortifyActivation = persistedAbilityType === 'fortify';
+            const isFightActivation = persistedAbilityType === 'fight';
+            const isLevelUpActivation = persistedAbilityType === 'level_up';
+            const isOutlastActivation = persistedAbilityType === 'outlast';
+            const isMonstrosityActivation = persistedAbilityType === 'monstrosity';
+            const isAdaptActivation = persistedAbilityType === 'adapt';
             const isReconfigureAttachActivation = persistedAbilityType === 'reconfigure_attach';
             const isReconfigureUnattachActivation = persistedAbilityType === 'reconfigure_unattach';
             const tappedPermanentsForCost = Array.isArray((e as any).tappedPermanents)
@@ -3532,6 +3537,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const shouldRebuildStack = Boolean(abilityText) && playerId != null && permId != null && (
               isEquipActivation ||
               isFortifyActivation ||
+              isLevelUpActivation ||
+              isOutlastActivation ||
+              isMonstrosityActivation ||
+              isAdaptActivation ||
               isReconfigureAttachActivation ||
               isReconfigureUnattachActivation ||
               Boolean(persistedTargets && persistedTargets.length > 0) ||
@@ -3606,6 +3615,39 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     fortificationName: String((e as any).cardName || rebuiltStackItem.sourceName || 'Fortification'),
                     targetLandName: String((e as any)?.fortifyParams?.targetLandName || validTarget?.name || validTarget?.card?.name || ''),
                   };
+                } else if (isFightActivation) {
+                  const targetCreatureId = String(persistedTargets?.[0] || (e as any)?.fightParams?.targetCreatureId || '');
+                  const validTarget = retargetValidTargets
+                    ? retargetValidTargets.find((target: any) => String(target?.id || '') === targetCreatureId)
+                    : battlefield.find((target: any) => target && String(target.id || '') === targetCreatureId);
+                  rebuiltStackItem.abilityType = 'fight';
+                  rebuiltStackItem.fightParams = {
+                    sourceCreatureId: String(permId || ''),
+                    targetCreatureId,
+                    sourceCreatureName: String((e as any).cardName || rebuiltStackItem.sourceName || 'Creature'),
+                    targetCreatureName: String(validTarget?.name || validTarget?.card?.name || ''),
+                  };
+                } else if (isLevelUpActivation) {
+                  rebuiltStackItem.abilityType = 'level_up';
+                  rebuiltStackItem.levelUpParams = {
+                    amount: Number((e as any)?.levelUpParams?.amount || 1),
+                  };
+                } else if (isOutlastActivation) {
+                  rebuiltStackItem.abilityType = 'outlast';
+                  rebuiltStackItem.outlastParams = {
+                    amount: Number((e as any)?.outlastParams?.amount || 1),
+                    counterType: String((e as any)?.outlastParams?.counterType || '+1/+1'),
+                  };
+                } else if (isMonstrosityActivation) {
+                  rebuiltStackItem.abilityType = 'monstrosity';
+                  rebuiltStackItem.monstrosityParams = {
+                    amount: Number((e as any)?.monstrosityParams?.amount || 0),
+                  };
+                } else if (isAdaptActivation) {
+                  rebuiltStackItem.abilityType = 'adapt';
+                  rebuiltStackItem.adaptParams = {
+                    amount: Number((e as any)?.adaptParams?.amount || 0),
+                  };
                 } else if (isReconfigureAttachActivation) {
                   const targetCreatureId = String(persistedTargets?.[0] || (e as any)?.reconfigureParams?.targetCreatureId || '');
                   const validTarget = retargetValidTargets
@@ -3670,6 +3712,39 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                       targetLandId,
                       fortificationName: String((e as any).cardName || item.sourceName || 'Fortification'),
                       targetLandName: String(validTarget?.name || ''),
+                    };
+                  } else if (isFightActivation) {
+                    const targetCreatureId = String(persistedTargets?.[0] || '');
+                    const validTarget = retargetValidTargets
+                      ? retargetValidTargets.find((target: any) => String(target?.id || '') === targetCreatureId)
+                      : null;
+                    (item as any).abilityType = 'fight';
+                    (item as any).fightParams = {
+                      sourceCreatureId: String(permId || ''),
+                      targetCreatureId,
+                      sourceCreatureName: String((e as any).cardName || item.sourceName || 'Creature'),
+                      targetCreatureName: String(validTarget?.name || ''),
+                    };
+                  } else if (isLevelUpActivation) {
+                    (item as any).abilityType = 'level_up';
+                    (item as any).levelUpParams = {
+                      amount: Number((e as any)?.levelUpParams?.amount || 1),
+                    };
+                  } else if (isOutlastActivation) {
+                    (item as any).abilityType = 'outlast';
+                    (item as any).outlastParams = {
+                      amount: Number((e as any)?.outlastParams?.amount || 1),
+                      counterType: String((e as any)?.outlastParams?.counterType || '+1/+1'),
+                    };
+                  } else if (isMonstrosityActivation) {
+                    (item as any).abilityType = 'monstrosity';
+                    (item as any).monstrosityParams = {
+                      amount: Number((e as any)?.monstrosityParams?.amount || 0),
+                    };
+                  } else if (isAdaptActivation) {
+                    (item as any).abilityType = 'adapt';
+                    (item as any).adaptParams = {
+                      amount: Number((e as any)?.adaptParams?.amount || 0),
                     };
                   } else if (isReconfigureAttachActivation) {
                     const targetCreatureId = String(persistedTargets?.[0] || '');

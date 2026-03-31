@@ -19,7 +19,7 @@ import {
   type KeywordTriggerResult,
   type KeywordTriggerContext
 } from "./keyword-handlers.js";
-import { categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
+import { canPermanentBeTargetedByPlayer, categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { appendEvent } from '../../db/index.js';
 import { 
@@ -52,7 +52,7 @@ import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
-import { broadcastGame, consumeManaFromPool, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
+import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
 import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
@@ -7883,6 +7883,215 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle equip ability resolution
     // CRITICAL: Equipment attachments must go through the stack and can be responded to
+    if (abilityType === 'fight') {
+      debug(2, `[resolveTopOfStack] Resolving fight ability from ${sourceName} for ${controller}`);
+
+      const fightParams = (item as any).fightParams || {};
+      const sourceCreatureId = String(fightParams.sourceCreatureId || (item as any).source || '');
+      const targetCreatureId = String(fightParams.targetCreatureId || (item as any).targets?.[0] || '');
+
+      if (!sourceCreatureId || !targetCreatureId) {
+        debugWarn(2, `[resolveTopOfStack] Fight ability missing parameters`);
+        bumpSeq();
+        return;
+      }
+
+      const battlefield = state.battlefield || [];
+      const sourceCreature = battlefield.find((p: any) => p.id === sourceCreatureId);
+      const targetCreature = battlefield.find((p: any) => p.id === targetCreatureId);
+
+      if (!sourceCreature) {
+        debug(2, `[resolveTopOfStack] Fight source ${sourceName || sourceCreatureId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      if (!targetCreature) {
+        debug(2, `[resolveTopOfStack] Fight target ${fightParams.targetCreatureName || targetCreatureId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      if (!isCreatureNow(sourceCreature) || !isCreatureNow(targetCreature)) {
+        debug(2, `[resolveTopOfStack] Fight source or target is no longer a creature`);
+        bumpSeq();
+        return;
+      }
+
+      if (!canPermanentBeTargetedByPlayer(targetCreature as any, state as any, controller as any)) {
+        debug(2, `[resolveTopOfStack] Fight target ${fightParams.targetCreatureName || targetCreatureId} is no longer a legal target`);
+        bumpSeq();
+        return;
+      }
+
+      const sourcePower = getEffectivePower(sourceCreature as any);
+      const targetPower = getEffectivePower(targetCreature as any);
+
+      (sourceCreature as any).damageMarked = ((sourceCreature as any).damageMarked || 0) + targetPower;
+      (targetCreature as any).damageMarked = ((targetCreature as any).damageMarked || 0) + sourcePower;
+
+      try {
+        const stateAny = state as any;
+        stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
+        stateAny.creaturesDamagedByThisCreatureThisTurn[sourceCreatureId] = stateAny.creaturesDamagedByThisCreatureThisTurn[sourceCreatureId] || {};
+        stateAny.creaturesDamagedByThisCreatureThisTurn[sourceCreatureId][targetCreatureId] = true;
+        stateAny.creaturesDamagedByThisCreatureThisTurn[targetCreatureId] = stateAny.creaturesDamagedByThisCreatureThisTurn[targetCreatureId] || {};
+        stateAny.creaturesDamagedByThisCreatureThisTurn[targetCreatureId][sourceCreatureId] = true;
+
+        if (targetPower > 0) {
+          (sourceCreature as any).damageThisTurn = ((sourceCreature as any).damageThisTurn || 0) + targetPower;
+          (sourceCreature as any).tookDamageThisTurn = true;
+        }
+        if (sourcePower > 0) {
+          (targetCreature as any).damageThisTurn = ((targetCreature as any).damageThisTurn || 0) + sourcePower;
+          (targetCreature as any).tookDamageThisTurn = true;
+        }
+      } catch {
+        // best-effort only
+      }
+
+      const queueDamageTrigger = (perm: any, damageAmount: number) => {
+        processDamageReceivedTriggers(ctx as any, perm, damageAmount, (triggerInfo) => {
+          if (dispatchDamageReceivedTrigger(ctx as any, triggerInfo)) {
+            return;
+          }
+
+          (state as any).pendingDamageTriggers = (state as any).pendingDamageTriggers || {};
+          (state as any).pendingDamageTriggers[triggerInfo.triggerId] = {
+            sourceId: triggerInfo.sourceId,
+            sourceName: triggerInfo.sourceName,
+            controller: triggerInfo.controller,
+            damageAmount: triggerInfo.damageAmount,
+            triggerType: 'dealt_damage',
+            targetType: triggerInfo.targetType,
+            effect: triggerInfo.effect,
+            ...(triggerInfo.effectMode ? { effectMode: triggerInfo.effectMode } : {}),
+            ...(triggerInfo.attackingPlayerId ? { attackingPlayerId: triggerInfo.attackingPlayerId } : {}),
+            ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
+          };
+        });
+      };
+
+      queueDamageTrigger(sourceCreature, targetPower);
+      queueDamageTrigger(targetCreature, sourcePower);
+
+      try {
+        const gameId = String((ctx as any).gameId || '').trim();
+        if (gameId) {
+          appendEvent(gameId, (state as any).seq ?? 0, 'fight', {
+            playerId: controller,
+            sourceId: sourceCreatureId,
+            targetId: targetCreatureId,
+            sourcePower,
+            targetPower,
+          });
+        }
+      } catch (err) {
+        debugWarn(1, '[resolveTopOfStack] appendEvent(fight) failed:', err);
+      }
+
+      runSBA(ctx);
+      bumpSeq();
+      return;
+    }
+
+    if (abilityType === 'level_up') {
+      debug(2, `[resolveTopOfStack] Resolving level up ability from ${sourceName} for ${controller}`);
+
+      const sourcePermanentId = String((item as any).source || '');
+      const battlefield = state.battlefield || [];
+      const sourcePerm = battlefield.find((p: any) => p.id === sourcePermanentId);
+      if (!sourcePerm) {
+        debug(2, `[resolveTopOfStack] Level up source ${sourceName || sourcePermanentId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      (sourcePerm as any).counters = (sourcePerm as any).counters || {};
+      (sourcePerm as any).counters.level = Number((sourcePerm as any).counters.level || 0) + Number((item as any).levelUpParams?.amount || 1);
+
+      runSBA(ctx);
+      bumpSeq();
+      return;
+    }
+
+    if (abilityType === 'outlast') {
+      debug(2, `[resolveTopOfStack] Resolving outlast ability from ${sourceName} for ${controller}`);
+
+      const sourcePermanentId = String((item as any).source || '');
+      const battlefield = state.battlefield || [];
+      const sourcePerm = battlefield.find((p: any) => p.id === sourcePermanentId);
+      if (!sourcePerm) {
+        debug(2, `[resolveTopOfStack] Outlast source ${sourceName || sourcePermanentId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      (sourcePerm as any).counters = (sourcePerm as any).counters || {};
+      (sourcePerm as any).counters['+1/+1'] = Number((sourcePerm as any).counters['+1/+1'] || 0) + Number((item as any).outlastParams?.amount || 1);
+
+      runSBA(ctx);
+      bumpSeq();
+      return;
+    }
+
+    if (abilityType === 'monstrosity') {
+      debug(2, `[resolveTopOfStack] Resolving monstrosity ability from ${sourceName} for ${controller}`);
+
+      const sourcePermanentId = String((item as any).source || '');
+      const battlefield = state.battlefield || [];
+      const sourcePerm = battlefield.find((p: any) => p.id === sourcePermanentId);
+      if (!sourcePerm) {
+        debug(2, `[resolveTopOfStack] Monstrosity source ${sourceName || sourcePermanentId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      if ((sourcePerm as any).isMonstrous === true || (sourcePerm as any).monstrous === true) {
+        debug(2, `[resolveTopOfStack] ${sourceName || sourcePermanentId} is already monstrous`);
+        bumpSeq();
+        return;
+      }
+
+      const countersToAdd = Number((item as any).monstrosityParams?.amount || 0);
+      (sourcePerm as any).counters = (sourcePerm as any).counters || {};
+      (sourcePerm as any).counters['+1/+1'] = Number((sourcePerm as any).counters['+1/+1'] || 0) + Math.max(0, countersToAdd);
+      (sourcePerm as any).isMonstrous = true;
+      (sourcePerm as any).monstrous = true;
+
+      runSBA(ctx);
+      bumpSeq();
+      return;
+    }
+
+    if (abilityType === 'adapt') {
+      debug(2, `[resolveTopOfStack] Resolving adapt ability from ${sourceName} for ${controller}`);
+
+      const sourcePermanentId = String((item as any).source || '');
+      const battlefield = state.battlefield || [];
+      const sourcePerm = battlefield.find((p: any) => p.id === sourcePermanentId);
+      if (!sourcePerm) {
+        debug(2, `[resolveTopOfStack] Adapt source ${sourceName || sourcePermanentId} no longer on battlefield`);
+        bumpSeq();
+        return;
+      }
+
+      const currentCounters = Number((sourcePerm as any)?.counters?.['+1/+1'] || 0);
+      if (currentCounters > 0) {
+        debug(2, `[resolveTopOfStack] ${sourceName || sourcePermanentId} already has +1/+1 counters`);
+        bumpSeq();
+        return;
+      }
+
+      const countersToAdd = Number((item as any).adaptParams?.amount || 0);
+      (sourcePerm as any).counters = (sourcePerm as any).counters || {};
+      (sourcePerm as any).counters['+1/+1'] = currentCounters + Math.max(0, countersToAdd);
+
+      runSBA(ctx);
+      bumpSeq();
+      return;
+    }
+
     if (abilityType === 'equip') {
       debug(2, `[resolveTopOfStack] Resolving equip ability from ${sourceName} for ${controller}`);
       
@@ -9391,6 +9600,25 @@ export function resolveTopOfStack(ctx: GameContext) {
             // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
             if ((trigger as any).nontokenOnly && isToken) {
               continue; // Skip - this trigger only fires for nontoken creatures
+            }
+            if ((trigger as any).tokenOnly && !isToken) {
+              continue;
+            }
+            if ((trigger as any).controlledOnly) {
+              const triggerController = perm.controller || controller;
+              if (controller !== triggerController) {
+                continue;
+              }
+            }
+            const requiredTypeRaw = typeof (trigger as any).requiredTypePhrase === 'string'
+              ? String((trigger as any).requiredTypePhrase)
+              : '';
+            const requiredType = requiredTypeRaw.replace(/\bcreatures\b/gi, 'creature').replace(/\bartifacts\b/gi, 'artifact').trim();
+            if (requiredType) {
+              const enteringTypeLine = String(card?.type_line || '');
+              if (!matchesRequiredTypePhrase(enteringTypeLine, requiredType, isToken)) {
+                continue;
+              }
             }
             etbTriggers.push({ ...trigger, permanentId: perm.id });
           } else if (trigger.triggerType === 'another_permanent_etb') {

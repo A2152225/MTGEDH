@@ -54,6 +54,21 @@ import {
 
 export const emitPendingDamageTriggers = emitPendingDamageTriggersImpl;
 
+const FLOATING_MANA_PAYMENT_PREFIX = '__pool__:';
+
+function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | null {
+  const rawId = String(permanentId || '').trim();
+  if (!rawId.startsWith(FLOATING_MANA_PAYMENT_PREFIX)) return null;
+
+  const encodedKey = rawId.slice(FLOATING_MANA_PAYMENT_PREFIX.length).split(':')[0];
+  const normalized = String(encodedKey || '').trim().toLowerCase();
+  if (['white', 'blue', 'black', 'red', 'green', 'colorless'].includes(normalized)) {
+    return normalized;
+  }
+
+  return MANA_COLOR_NAMES[String(mana || '').toUpperCase()] || null;
+}
+
 export function finalizePlayedLand(
   io: Server,
   game: any,
@@ -5089,18 +5104,30 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Calculate total available mana using calculateManaProduction to account for 
       // mana-increasing effects (Wild Growth, Mana Reflection, Caged Sun, etc.)
       const globalBattlefield = game.state?.battlefield || [];
-      const totalAvailable: Record<string, number> = {
-        white: existingPool.white || 0,
-        blue: existingPool.blue || 0,
-        black: existingPool.black || 0,
-        red: existingPool.red || 0,
-        green: existingPool.green || 0,
-        colorless: existingPool.colorless || 0,
-      };
+      const explicitPaymentSelected = Boolean(payment && payment.length > 0);
+      const totalAvailable: Record<string, number> = explicitPaymentSelected
+        ? { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
+        : {
+            white: existingPool.white || 0,
+            blue: existingPool.blue || 0,
+            black: existingPool.black || 0,
+            red: existingPool.red || 0,
+            green: existingPool.green || 0,
+            colorless: existingPool.colorless || 0,
+          };
+      const selectedFloatingMana: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
       
       // Add mana from payment sources, using calculateManaProduction for accurate amounts
       if (payment && payment.length > 0) {
         for (const { permanentId, mana, count } of payment) {
+          const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
+          if (floatingPoolKey) {
+            const amount = Math.max(1, Number(count || 1));
+            selectedFloatingMana[floatingPoolKey] = (selectedFloatingMana[floatingPoolKey] || 0) + amount;
+            totalAvailable[floatingPoolKey] = (totalAvailable[floatingPoolKey] || 0) + amount;
+            continue;
+          }
+
           const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
           if (permanent && !(permanent as any).tapped) {
             // Calculate actual mana production with effects
@@ -5119,6 +5146,16 @@ export function registerGameActions(io: Server, socket: Socket) {
             if (colorKey && manaAmount > 0) {
               totalAvailable[colorKey] = (totalAvailable[colorKey] || 0) + manaAmount;
             }
+          }
+        }
+
+        for (const [poolKey, amount] of Object.entries(selectedFloatingMana)) {
+          if ((existingPool as any)[poolKey] < amount) {
+            socket.emit('error', {
+              code: 'INSUFFICIENT_MANA',
+              message: `Not enough ${poolKey} mana selected from your pool.`,
+            });
+            return;
           }
         }
       }
@@ -5252,6 +5289,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const producedTreasureByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
       const producedNonTreasureByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
 
+      const selectedPaymentTotals: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+
       if (!isForceAltCostPaid && payment && payment.length > 0) {
         debug(2, `[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
         
@@ -5260,6 +5299,13 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process each payment item: tap the permanent and add mana to pool
         for (const { permanentId, mana, count } of payment) {
+          const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
+          if (floatingPoolKey) {
+            const amount = Math.max(1, Number(count || 1));
+            selectedPaymentTotals[floatingPoolKey] = (selectedPaymentTotals[floatingPoolKey] || 0) + amount;
+            continue;
+          }
+
           const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === playerId);
           
           if (!permanent) {
@@ -5357,6 +5403,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           const poolKey = manaColorMap[mana];
           if (poolKey && manaAmount > 0) {
             (game.state.manaPool[playerId] as any)[poolKey] += manaAmount;
+            selectedPaymentTotals[poolKey] = (selectedPaymentTotals[poolKey] || 0) + manaAmount;
             if (isSnowSource) {
               producedSnowByColor[poolKey] = (producedSnowByColor[poolKey] || 0) + manaAmount;
             } else {
@@ -5377,15 +5424,42 @@ export function registerGameActions(io: Server, socket: Socket) {
       const pool = getOrInitManaPool(game.state, playerId);
       const manaConsumption = isForceAltCostPaid
         ? { consumed: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
-        : consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
+        : explicitPaymentSelected
+          ? (() => {
+              for (const [poolKey, amount] of Object.entries(selectedPaymentTotals)) {
+                if (amount <= 0) continue;
+                if (Number((pool as any)[poolKey] || 0) < amount) {
+                  socket.emit('error', {
+                    code: 'INSUFFICIENT_MANA',
+                    message: `Selected payment used more ${poolKey} mana than is available.`,
+                  });
+                  return null as any;
+                }
+              }
 
-      const manaSpentTotal = Object.values(manaConsumption.consumed).reduce((sum, v) => sum + (typeof v === 'number' ? v : 0), 0);
+              for (const [poolKey, amount] of Object.entries(selectedPaymentTotals)) {
+                if (amount > 0) {
+                  (pool as any)[poolKey] = Number((pool as any)[poolKey] || 0) - amount;
+                }
+              }
+
+              return { consumed: { ...selectedPaymentTotals } };
+            })()
+          : consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]');
+
+      if (!manaConsumption) {
+        return;
+      }
+
+      const manaSpentBreakdown = manaConsumption.consumed as Record<string, number>;
+      const manaColorsSpent = Object.entries(manaSpentBreakdown)
+        .filter(([color, amount]) => color !== 'colorless' && amount > 0)
+        .map(([color]) => color);
+      const manaSpentTotal = Object.values(manaSpentBreakdown).reduce((sum, amount) => sum + amount, 0);
       
       // Calculate converge value (number of different mana colors spent)
       // This is used by cards like Bring to Light, Radiant Flames, etc.
-      const convergeValue = Object.entries(manaConsumption.consumed)
-        .filter(([color, amount]) => color !== 'colorless' && amount > 0)
-        .length;
+      const convergeValue = manaColorsSpent.length;
       
       if (convergeValue > 0) {
         debug(2, `[castSpellFromHand] Converge: ${convergeValue} different color(s) spent for ${cardInHand.name}`);
@@ -5776,9 +5850,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               ...(convergeValue > 0
                 ? {
                     convergeValue,
-                    manaColorsSpent: Object.entries(manaConsumption.consumed)
-                      .filter(([color, amount]) => color !== 'colorless' && amount > 0)
-                      .map(([color]) => color),
+                    manaColorsSpent,
                   }
                 : {}),
               ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0
@@ -5837,11 +5909,9 @@ export function registerGameActions(io: Server, socket: Socket) {
             if (convergeValue > 0 && game.state.stack && game.state.stack.length > 0) {
               const topStackItem = game.state.stack[game.state.stack.length - 1];
               (topStackItem as any).convergeValue = convergeValue;
-              (topStackItem as any).manaColorsSpent = Object.entries(manaConsumption.consumed)
-                .filter(([color, amount]) => color !== 'colorless' && amount > 0)
-                .map(([color]) => color);
+              (topStackItem as any).manaColorsSpent = manaColorsSpent;
               (topStackItem as any).manaSpentTotal = manaSpentTotal;
-              (topStackItem as any).manaSpentBreakdown = { ...manaConsumption.consumed };
+              (topStackItem as any).manaSpentBreakdown = { ...manaSpentBreakdown };
 
               // Plumb chosen alternate-cost id onto the stack item so intervening-if clauses can evaluate.
               if (alternateCostId) {
@@ -6173,11 +6243,9 @@ export function registerGameActions(io: Server, socket: Socket) {
                 : {}),
               // Converge tracking for cards like Bring to Light
               convergeValue: convergeValue > 0 ? convergeValue : undefined,
-              manaColorsSpent: convergeValue > 0 ? Object.entries(manaConsumption.consumed)
-                .filter(([color, amount]) => color !== 'colorless' && amount > 0)
-                .map(([color]) => color) : undefined,
+              manaColorsSpent: convergeValue > 0 ? manaColorsSpent : undefined,
               manaSpentTotal,
-              manaSpentBreakdown: { ...manaConsumption.consumed },
+              manaSpentBreakdown: { ...manaSpentBreakdown },
               // Mark if this is an adventure spell (face index 1 is adventure for adventure cards)
               // For adventure cards: faceIndex 1 = adventure side (instant/sorcery), faceIndex 0 or undefined = creature/enchantment side
               // Note: faceIndex is not available in this fallback path
@@ -6232,7 +6300,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           castFromHand: castSourceZone === 'hand',
           // Persist mana/payment metadata for deterministic replay / intervening-if.
           manaSpentTotal,
-          manaSpentBreakdown: { ...manaConsumption.consumed },
+          manaSpentBreakdown: { ...manaSpentBreakdown },
           ...(bargainResolved === true && typeof wasBargained === 'boolean'
             ? {
                 bargainResolved: true,
@@ -6242,9 +6310,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           ...(convergeValue > 0
             ? {
                 convergeValue,
-                manaColorsSpent: Object.entries(manaConsumption.consumed)
-                  .filter(([color, amount]) => color !== 'colorless' && amount > 0)
-                  .map(([color]) => color),
+                manaColorsSpent,
               }
             : {}),
           ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0

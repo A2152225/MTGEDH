@@ -4,6 +4,57 @@ import type { PlayerID } from '../../shared/src';
 import { triggerETBEffectsForPermanent } from '../src/state/modules/stack';
 
 describe('Intervening-if ETB triggers', () => {
+  it('does not let an opponent Thalia\'s Lieutenant trigger when your non-Human creature resolves from the stack', () => {
+    const g = createInitialGameState('t_thalias_lieutenant_opponent_scope');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    const lieutenant = {
+      id: 'lt_1',
+      controller: p2,
+      owner: p2,
+      tapped: false,
+      counters: {},
+      card: {
+        id: 'lt_card',
+        name: "Thalia's Lieutenant",
+        type_line: 'Creature — Human Soldier',
+        oracle_text: 'When Thalia\'s Lieutenant enters the battlefield, put a +1/+1 counter on each other Human you control.\nWhenever another Human enters the battlefield under your control, put a +1/+1 counter on Thalia\'s Lieutenant.',
+        power: '1',
+        toughness: '1',
+      },
+    } as any;
+
+    (g.state.battlefield as any).push(lieutenant);
+
+    g.applyEvent({
+      type: 'pushStack',
+      item: {
+        id: 'st_bear',
+        controller: p1,
+        card: {
+          id: 'bear_card',
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+        targets: [],
+      },
+    } as any);
+
+    g.resolveTopOfStack();
+
+    const triggerFromLieutenant = ((g.state.stack || []) as any[]).some(
+      (item) => item?.type === 'triggered_ability' && item?.sourceName === "Thalia's Lieutenant"
+    );
+    expect(triggerFromLieutenant).toBe(false);
+    expect(((lieutenant as any).counters || {})['+1/+1'] || 0).toBe(0);
+  });
+
   it('matches ETB trigger required type phrases with token/nontoken qualifiers', () => {
     const g = createInitialGameState('t_etb_required_type_token_qualifiers');
     const p1 = 'p1' as PlayerID;
