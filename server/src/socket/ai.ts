@@ -29,6 +29,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { runSBA } from "../state/modules/counters_tokens.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { finalizePlayedLand, requestCastSpellForSocket } from "./game-actions.js";
+import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 
 /** AI timing delays for more natural behavior */
 const AI_THINK_TIME_MS = 500;
@@ -5913,6 +5914,7 @@ async function executeAdvanceStep(
     // Use game's nextStep method if available
     if (typeof (game as any).nextStep === 'function') {
       (game as any).nextStep();
+      flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
     } else {
       debugWarn(2, '[AI] game.nextStep not available');
       return;
@@ -6228,6 +6230,7 @@ async function executePassPriority(
         debug(1, '[AI] All players passed priority with empty stack, advancing step');
         if (typeof (game as any).nextStep === 'function') {
           (game as any).nextStep();
+          flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
           debug(2, `[AI] Advanced to next step for game ${gameId}`);
 
           // Let the normal broadcast-driven AI/auto-pass flow handle any
@@ -6284,6 +6287,7 @@ async function executeDeclareAttackers(
 
       if (typeof (game as any).nextStep === 'function') {
         await (game as any).nextStep();
+        flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
         await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
           playerId,
           isAI: true,

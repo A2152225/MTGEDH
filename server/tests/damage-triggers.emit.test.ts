@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { emitPendingDamageTriggers } from '../src/socket/game-actions.js';
+import { flushPendingDamageTriggersAfterStepAdvance } from '../src/socket/step-advance.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 function createNoopIo() {
@@ -237,5 +238,58 @@ describe('Pending damage triggers (emission)', () => {
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.length).toBe(0);
+  });
+
+  it('flushes queued damage trigger prompts immediately after a step advance', () => {
+    const gameId = 'game_damage_trigger_step_advance';
+    ResolutionQueueManager.clearAllSteps(gameId);
+
+    const game = {
+      nextStep: () => {
+        (game.state as any).pendingDamageTriggers = {
+          trig_wall: {
+            sourceId: 'src_wall',
+            sourceName: 'Wall of Souls',
+            controller: 'p1',
+            damageAmount: 3,
+            targetType: 'opponent_or_planeswalker',
+            targetRestriction: 'opponent or planeswalker',
+          },
+        };
+      },
+      state: {
+        players: [{ id: 'p1', name: 'P1' }, { id: 'p2', name: 'P2' }],
+        battlefield: [
+          {
+            id: 'src_wall',
+            controller: 'p1',
+            card: {
+              name: 'Wall of Souls',
+              type_line: 'Creature — Wall',
+            },
+          },
+          {
+            id: 'pw_1',
+            controller: 'p1',
+            card: {
+              name: 'Liliana of the Veil',
+              type_line: 'Legendary Planeswalker — Liliana',
+            },
+          },
+        ],
+      },
+    } as any;
+
+    game.nextStep();
+    const emitted = flushPendingDamageTriggersAfterStepAdvance(createNoopIo(), game, gameId);
+
+    expect(emitted).toBe(1);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect(step.sourceName).toBe('Wall of Souls');
+    expect(step.targetDescription).toBe('target opponent or planeswalker');
   });
 });

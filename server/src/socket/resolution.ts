@@ -73,6 +73,7 @@ import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTri
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
+import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 
 type ResolutionPaymentItem = {
   permanentId: string;
@@ -10813,6 +10814,7 @@ async function handleDiscardResponse(
     try {
       if (typeof (game as any).nextStep === 'function') {
         (game as any).nextStep();
+        flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
         appendEvent(gameId, (game as any).seq ?? 0, 'nextStep', {
           playerId: pid,
           reason: 'cleanupDiscardResolved',

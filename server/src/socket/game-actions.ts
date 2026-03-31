@@ -28,6 +28,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/
 import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
+import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
@@ -7260,6 +7261,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (advanceStep) {
         if (typeof (game as any).nextStep === 'function') {
           (game as any).nextStep();
+          flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
           debug(2, `[passPriority] All players passed priority - advanced to next step for game ${gameId}`);
           
           appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'allPlayersPassed' });
@@ -7883,6 +7885,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         try {
           if (typeof (game as any).nextStep === "function") {
             await (game as any).nextStep();
+            flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
             debug(2, 
               `[nextStep] Pre-game: advanced step for game ${gameId}`
             );
@@ -7934,6 +7937,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         try {
           if (typeof (game as any).nextStep === "function") {
             await (game as any).nextStep();
+            flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
             debug(2, 
               `[nextStep] Single-player: advanced step for game ${gameId}`
             );
@@ -8017,6 +8021,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (advanceStep) {
         if (typeof (game as any).nextStep === 'function') {
           (game as any).nextStep();
+          flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
           debug(2, `[nextStep] All players passed priority - advanced to next step for game ${gameId}`);
           
           appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'allPlayersPassed' });
@@ -8751,6 +8756,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           try {
             if (typeof (game as any).nextStep === "function") {
               (game as any).nextStep();
+              flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
               appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'skipToPhaseCleanup' });
               debug(2, `[skipToPhase] Cleanup complete, advanced via nextStep for game ${gameId}`);
             }

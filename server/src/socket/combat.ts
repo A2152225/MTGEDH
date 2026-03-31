@@ -19,6 +19,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
+import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 
 function persistTriggeredAbilityPush(
   gameId: string,
@@ -2764,6 +2765,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // Advance to next step
       if (typeof (game as any).nextStep === "function") {
         await (game as any).nextStep();
+        flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
         await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
           playerId,
           reason: 'skipDeclareAttackers',

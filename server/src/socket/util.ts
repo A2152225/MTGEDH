@@ -31,6 +31,7 @@ import { BOOT_ID } from "../utils/bootId.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
 import { getTopTriggeredAbilityAutoPassReason } from "./trigger-shortcuts.js";
+import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 
 // ============================================================================
 // Constants
@@ -2045,6 +2046,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
               debug(2, `${ts()} [executeAutoPass] Advancing step after auto-pass for ${priority} (ID: ${debugCallId})`);
               if (typeof (game as any).nextStep === 'function') {
                 (game as any).nextStep();
+                flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
                 appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
                   reason: 'autoPassAdvance',
                   by: priority,
@@ -2208,6 +2210,7 @@ export function schedulePriorityTimeout(
           // Auto-advance to next step
           if (typeof (game as any).nextStep === 'function') {
             (game as any).nextStep();
+            flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
             appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'noPriority' });
             broadcastGame(io, game, gameId);
             debug(2, `[schedulePriorityTimeout] Auto-advanced step (no priority) for game ${gameId}`,
