@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGameIfNotExists, initDb } from '../src/db/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { initializeAIResolutionHandler } from '../src/socket/resolution.js';
-import { ensureGame } from '../src/socket/util.js';
+import { broadcastGame, ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { handleAIPriority, registerAIPlayer, unregisterAIPlayer } from '../src/socket/ai.js';
 
@@ -153,6 +153,47 @@ describe('AI resolution-step integration', () => {
 
     expect(String((game.state as any).step || '').toUpperCase()).toBe('UPKEEP');
     expect(String((game.state as any).phase || '').toLowerCase()).toBe('beginning');
+  });
+
+  it('deduplicates repeated broadcast-triggered AI untap handling', async () => {
+    vi.useFakeTimers();
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).activePlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'beginning';
+      (game.state as any).step = 'UNTAP';
+      (game.state as any).stack = [];
+      (game.state as any).zones = {
+        [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+        opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      };
+      (game.state as any).battlefield = [];
+
+      registerAIPlayer(gameId, playerId as any);
+
+      const io = createNoopIo();
+      broadcastGame(io, game, gameId);
+      broadcastGame(io, game, gameId);
+      broadcastGame(io, game, gameId);
+
+      // One broadcast-triggered AI reaction plus the scheduled priority handoff.
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(String((game.state as any).step || '').toUpperCase()).toBe('UPKEEP');
+      expect(String((game.state as any).phase || '').toLowerCase()).toBe('beginning');
+      expect((game.state as any).priority).toBe('opp1');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('routes active option-choice steps through AI priority handling and submits the chosen option', async () => {

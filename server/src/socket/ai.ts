@@ -768,6 +768,7 @@ export async function handleAIGameFlow(
   gameId: string,
   playerId: PlayerID
 ): Promise<void> {
+  return runExclusiveAIAction(io, gameId, playerId, 'gameFlow', async () => {
   if (!isAIPlayer(gameId, playerId)) {
     return;
   }
@@ -828,7 +829,7 @@ export async function handleAIGameFlow(
         if (success) {
           debug(1, '[AI] Commander selection complete, continuing game flow');
           // Re-trigger game flow after commander selection
-          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+          scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
         }
       }, AI_REACTION_DELAY_MS);
       return;
@@ -868,7 +869,7 @@ export async function handleAIGameFlow(
           broadcastGame(io, game, gameId);
           
           // After keeping hand, re-trigger game flow to check for advancement
-          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+          scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         } else {
           // Take a mulligan
@@ -887,7 +888,7 @@ export async function handleAIGameFlow(
               mulligansTaken: currentMulligans,
             };
             broadcastGame(io, game, gameId);
-            setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+            scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
             return;
           }
           
@@ -952,7 +953,7 @@ export async function handleAIGameFlow(
           broadcastGame(io, game, gameId);
           
           // Re-trigger game flow to evaluate the new hand
-          setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+          scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         }
       }
@@ -1010,7 +1011,7 @@ export async function handleAIGameFlow(
         // immediately after keeping hand, but we give a small grace period
         if (hasPendingLeylineActions) {
           // Re-check after a delay to allow human players to play/skip Leylines
-          setTimeout(() => handleAIGameFlow(io, gameId, playerId), LEYLINE_RESOLUTION_DELAY_MS);
+          scheduleAIGameFlow(io, gameId, playerId, LEYLINE_RESOLUTION_DELAY_MS);
           return;
         }
         
@@ -1046,7 +1047,7 @@ export async function handleAIGameFlow(
             broadcastGame(io, game, gameId);
             
             // Re-trigger AI game flow to handle the new phase
-            setTimeout(() => handleAIGameFlow(io, gameId, playerId), AI_THINK_TIME_MS);
+            scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
           } else {
             debugError(1, '[AI] game.nextTurn not available');
           }
@@ -1070,10 +1071,9 @@ export async function handleAIGameFlow(
   
   if (hasPriority || (isCleanupStep && isAITurn)) {
     // Small delay before AI takes action
-    setTimeout(async () => {
-      await handleAIPriority(io, gameId, playerId);
-    }, AI_REACTION_DELAY_MS);
+    scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
   }
+  });
 }
 
 // Singleton AI Engine instance
@@ -1081,6 +1081,102 @@ const aiEngine = new AIEngine();
 
 // Track AI players per game
 const aiPlayers = new Map<string, Map<PlayerID, AIPlayerConfig>>();
+
+type AIScheduledActionKind = 'gameFlow' | 'priority';
+
+type AIScheduledAction = {
+  kind: AIScheduledActionKind;
+  timer: ReturnType<typeof setTimeout>;
+  runAt: number;
+};
+
+const aiScheduledActions = new Map<string, AIScheduledAction>();
+const aiActionsInProgress = new Set<string>();
+
+function getAIActionKey(gameId: string, playerId: PlayerID): string {
+  return `${gameId}:${String(playerId)}`;
+}
+
+function clearScheduledAIAction(gameId: string, playerId: PlayerID): void {
+  const key = getAIActionKey(gameId, playerId);
+  const existing = aiScheduledActions.get(key);
+  if (existing) {
+    clearTimeout(existing.timer);
+    aiScheduledActions.delete(key);
+  }
+}
+
+function scheduleAIActionInternal(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  kind: AIScheduledActionKind,
+  delayMs: number,
+): void {
+  const key = getAIActionKey(gameId, playerId);
+  const runAt = Date.now() + Math.max(0, delayMs);
+  const existing = aiScheduledActions.get(key);
+
+  if (existing && existing.runAt <= runAt) {
+    return;
+  }
+
+  if (existing) {
+    clearTimeout(existing.timer);
+  }
+
+  const timer = setTimeout(() => {
+    aiScheduledActions.delete(key);
+    const invoke = kind === 'gameFlow' ? handleAIGameFlow : handleAIPriority;
+    void invoke(io, gameId, playerId).catch((err) => debugError(1, err));
+  }, Math.max(0, delayMs));
+
+  aiScheduledActions.set(key, {
+    kind,
+    timer,
+    runAt,
+  });
+}
+
+export function scheduleAIGameFlow(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  delayMs: number = AI_REACTION_DELAY_MS,
+): void {
+  scheduleAIActionInternal(io, gameId, playerId, 'gameFlow', delayMs);
+}
+
+export function scheduleAIPriority(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  delayMs: number = AI_REACTION_DELAY_MS,
+): void {
+  scheduleAIActionInternal(io, gameId, playerId, 'priority', delayMs);
+}
+
+async function runExclusiveAIAction(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  kind: AIScheduledActionKind,
+  action: () => Promise<void>,
+): Promise<void> {
+  const key = getAIActionKey(gameId, playerId);
+  if (aiActionsInProgress.has(key)) {
+    debug(2, `[AI] ${kind} already in progress, scheduling follow-up`, { gameId, playerId });
+    scheduleAIActionInternal(io, gameId, playerId, kind, 0);
+    return;
+  }
+
+  aiActionsInProgress.add(key);
+  try {
+    await action();
+  } finally {
+    aiActionsInProgress.delete(key);
+  }
+}
 
 const ARCHETYPE_CATEGORY_WEIGHTS: Record<string, Partial<Record<CardCategory, number>>> = {
   [SynergyArchetype.ARISTOCRATS]: {
@@ -2410,6 +2506,8 @@ export function rehydrateAIGameRuntime(
  */
 export function unregisterAIPlayer(gameId: string, playerId: PlayerID): void {
   aiEngine.unregisterAI(playerId);
+  clearScheduledAIAction(gameId, playerId);
+  aiActionsInProgress.delete(getAIActionKey(gameId, playerId));
   
   const gameAIs = aiPlayers.get(gameId);
   if (gameAIs) {
@@ -3863,6 +3961,7 @@ export async function handleAIPriority(
   gameId: string,
   playerId: PlayerID
 ): Promise<void> {
+  return runExclusiveAIAction(io, gameId, playerId, 'priority', async () => {
   if (!isAIPlayer(gameId, playerId)) {
     return;
   }
@@ -4140,9 +4239,7 @@ export async function handleAIPriority(
           debug(1, '[AI] Playing land:', landCard.name);
           await executeAIPlayLand(io, gameId, playerId, landCard.id);
           // After playing land, continue with more actions
-          setTimeout(() => {
-            handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
-          }, AI_THINK_TIME_MS);
+          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         } else {
           debug(1, '[AI] No land found in hand to play');
@@ -4170,9 +4267,7 @@ export async function handleAIPriority(
         const didTap = await executeAITapLandsForMana(io, gameId, playerId);
         if (didTap) {
           // After tapping lands, continue with more actions (in case we can now cast something)
-          setTimeout(() => {
-            handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
-          }, AI_THINK_TIME_MS);
+          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         }
       }
@@ -4192,9 +4287,7 @@ export async function handleAIPriority(
           debug(1, '[AI] Activating ability:', abilityDecision.action.cardName, '-', abilityDecision.reasoning);
           await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
           // After activating ability, continue with more actions
-          setTimeout(() => {
-            handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
-          }, AI_THINK_TIME_MS);
+          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         }
       }
@@ -4205,9 +4298,7 @@ export async function handleAIPriority(
         debug(1, '[AI] Casting commander from command zone:', commanderCastResult.card.name);
         await executeAICastCommander(io, gameId, playerId, commanderCastResult.card, commanderCastResult.cost);
         // After casting, continue with more actions
-        setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
-        }, AI_THINK_TIME_MS);
+        scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
         return;
       }
       
@@ -4226,9 +4317,7 @@ export async function handleAIPriority(
         
         await executeAICastSpell(io, gameId, playerId, bestSpell.card, bestSpell.cost);
         // After casting, continue with more actions
-        setTimeout(() => {
-          handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
-        }, AI_THINK_TIME_MS);
+        scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
         return;
       }
       
@@ -4245,9 +4334,7 @@ export async function handleAIPriority(
         if (abilityDecision.action?.activate) {
           debug(1, '[AI] Activating ability (after spell attempts):', abilityDecision.action.cardName);
           await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
-          setTimeout(() => {
-            handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
-          }, AI_THINK_TIME_MS);
+          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         }
       }
@@ -4416,6 +4503,7 @@ export async function handleAIPriority(
       debugError(1, '[AI] Failed fallback action:', e);
     }
   }
+  });
 }
 
 /**
@@ -5483,11 +5571,7 @@ async function executeAIActivateAbility(
         // Mana abilities don't pass priority - they resolve instantly
         // Continue AI turn after instant resolution
         if (continueAfterResolution) {
-          setTimeout(() => {
-            handleAIPriority(io, gameId, playerId).catch((err) => {
-              debugError(1, '[AI] Error continuing after mana ability:', { gameId, playerId, cardName: card.name, error: err });
-            });
-          }, AI_REACTION_DELAY_MS);
+          scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
         }
         return;
       } else {
@@ -5828,9 +5912,7 @@ async function executeAdvanceStep(
     const isCleanupStep = String((game.state as any).step || '').toLowerCase().includes('cleanup');
     
     if (newPriority === playerId && isAIPlayer(gameId, playerId) && isStillAITurn && !isCleanupStep) {
-      setTimeout(() => {
-        handleAIPriority(io, gameId, playerId).catch(err => debugError(1, err));
-      }, AI_THINK_TIME_MS);
+      scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
     }
     
   } catch (error) {
@@ -6164,9 +6246,7 @@ async function executePassPriority(
     const nextPriority = (game.state as any)?.priority;
     if (nextPriority && isAIPlayer(gameId, nextPriority)) {
       // Small delay before AI acts
-      setTimeout(() => {
-        handleAIPriority(io, gameId, nextPriority).catch(err => debugError(1, err));
-      }, AI_REACTION_DELAY_MS);
+      scheduleAIPriority(io, gameId, nextPriority, AI_REACTION_DELAY_MS);
     }
     
   } catch (error) {
@@ -7478,9 +7558,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         const hasPriority = game.state?.priority === playerId;
         if (hasPriority) {
           // Delay briefly to allow state to update
-          setTimeout(() => {
-            handleAIPriority(io, gameId, playerId);
-          }, AI_THINK_TIME_MS);
+          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
         }
       } else {
         // Disable AI control for this player

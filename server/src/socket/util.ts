@@ -1654,16 +1654,17 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
           const playerObj = players.find((p: any) => p?.id === playerId);
           if (playerObj && playerObj.isAI) {
             // Trigger AI to handle Kynaios choice
-            setTimeout(async () => {
-              try {
-                const aiModule = await import('./ai.js');
-                if (typeof aiModule.handleAIGameFlow === 'function') {
-                  await aiModule.handleAIGameFlow(io, gameId, playerId);
-                }
-              } catch (e) {
-                debugError(1, '[util] Failed to trigger AI handler for Kynaios choice:', { gameId, playerId, error: e });
+            void import('./ai.js').then((aiModule) => {
+              if (typeof aiModule.scheduleAIGameFlow === 'function') {
+                aiModule.scheduleAIGameFlow(io, gameId, playerId, AI_REACTION_DELAY_MS);
+              } else if (typeof aiModule.handleAIGameFlow === 'function') {
+                void aiModule.handleAIGameFlow(io, gameId, playerId).catch((e: any) => {
+                  debugError(1, '[util] Failed to trigger AI handler for Kynaios choice:', { gameId, playerId, error: e });
+                });
               }
-            }, AI_REACTION_DELAY_MS);
+            }).catch((e) => {
+              debugError(1, '[util] Failed to trigger AI handler for Kynaios choice:', { gameId, playerId, error: e });
+            });
             return; // Exit - handle one AI at a time
           }
         }
@@ -1677,18 +1678,21 @@ function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string): void
     
     if (priorityPlayer && priorityPlayer.isAI) {
       // Dynamically import AI handler to avoid circular deps
-      setTimeout(async () => {
-        try {
-          const aiModule = await import('./ai.js');
-          if (typeof aiModule.handleAIGameFlow === 'function') {
-            await aiModule.handleAIGameFlow(io, gameId, priority);
-          } else if (typeof aiModule.handleAIPriority === 'function') {
-            await aiModule.handleAIPriority(io, gameId, priority);
-          }
-        } catch (e) {
-          debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
+      void import('./ai.js').then((aiModule) => {
+        if (typeof aiModule.scheduleAIGameFlow === 'function') {
+          aiModule.scheduleAIGameFlow(io, gameId, priority, AI_REACTION_DELAY_MS);
+        } else if (typeof aiModule.handleAIGameFlow === 'function') {
+          void aiModule.handleAIGameFlow(io, gameId, priority).catch((e: any) => {
+            debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
+          });
+        } else if (typeof aiModule.handleAIPriority === 'function') {
+          void aiModule.handleAIPriority(io, gameId, priority).catch((e: any) => {
+            debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
+          });
         }
-      }, AI_REACTION_DELAY_MS);
+      }).catch((e) => {
+        debugError(1, '[util] Failed to trigger AI handler:', { gameId, playerId: priority, error: e });
+      });
     }
   } catch (e) {
     debugError(1, '[util] checkAndTriggerAI error:', { gameId, error: e });
