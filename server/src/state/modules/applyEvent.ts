@@ -104,7 +104,7 @@ import { evaluateAction } from "../../rules-engine/index";
 import { mulberry32 } from "../../utils/rng";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { checkGraveyardTrigger, parsePlaneswalkerAbilities } from "./triggered-abilities.js";
-import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
+import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { processLifeChange } from "./game-state-effects";
 import { sacrificePermanent } from "./upkeep-triggers";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
@@ -2880,6 +2880,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
             const queueDamageTrigger = (perm: any, damageAmount: number) => {
               processDamageReceivedTriggers(ctx as any, perm, damageAmount, (triggerInfo) => {
+                if (dispatchDamageReceivedTrigger(ctx as any, triggerInfo)) {
+                  return;
+                }
+
                 const stateAny = ctx.state as any;
                 stateAny.pendingDamageTriggers = stateAny.pendingDamageTriggers || {};
                 stateAny.pendingDamageTriggers[triggerInfo.triggerId] = {

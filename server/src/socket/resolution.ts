@@ -52,8 +52,7 @@ import { applyTriggerOrderToStack } from "../state/resolution/handlers/triggerOr
 import { sacrificePermanent } from "../state/modules/upkeep-triggers.js";
 import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
-import { processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
-import { emitPendingDamageTriggers } from "./damage-triggers.js";
+import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
 import { getTokenImageUrls } from "../services/tokens.js";
 import { executeTriggerEffect, triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { creatureHasHaste, formatManaCostWithReduction, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
@@ -6946,10 +6945,15 @@ async function handleStepResponse(
           if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
         },
         rng: (game as any).rng,
+        gameId,
       } as any;
 
       const queueDamageTrigger = (perm: any, damageAmount: number) => {
         processDamageReceivedTriggers(ctx, perm, damageAmount, (triggerInfo) => {
+          if (dispatchDamageReceivedTrigger(ctx as any, triggerInfo)) {
+            return;
+          }
+
           (game.state as any).pendingDamageTriggers = (game.state as any).pendingDamageTriggers || {};
           (game.state as any).pendingDamageTriggers[triggerInfo.triggerId] = {
             sourceId: triggerInfo.sourceId,
@@ -12441,7 +12445,8 @@ async function handleTargetSelectionResponse(
 
   // ========================================================================
   // DAMAGE-RECEIVED TRIGGER TARGETING (Brash Taunter, Boros Reckoner, etc.)
-  // These triggers are enqueued as TARGET_SELECTION steps from pendingDamageTriggers.
+  // These triggers normally arrive here as direct TARGET_SELECTION queue steps.
+  // Legacy pendingDamageTriggers are still supported as a fallback path.
   // ========================================================================
   if (stepAny?.damageReceivedTrigger === true) {
     const damageTrigger = (stepAny?.damageTrigger || {}) as any;
@@ -12488,6 +12493,10 @@ async function handleTargetSelectionResponse(
     const targetPerm = battlefield.find((p: any) => p && String(p.id) === targetId);
     if (targetPerm && triggerInfo.damageAmount > 0) {
       processDamageReceivedTriggers(ctx, targetPerm, triggerInfo.damageAmount, (nextTrigger) => {
+        if (dispatchDamageReceivedTrigger(ctx as any, nextTrigger)) {
+          return;
+        }
+
         (game.state as any).pendingDamageTriggers = (game.state as any).pendingDamageTriggers || {};
         (game.state as any).pendingDamageTriggers[nextTrigger.triggerId] = {
           sourceId: nextTrigger.sourceId,
@@ -12503,9 +12512,6 @@ async function handleTargetSelectionResponse(
         };
       });
 
-      // Convert any newly-created pending damage triggers into Resolution Queue steps immediately
-      // so follow-up triggers chain naturally in resolution mode.
-      emitPendingDamageTriggers(io as any, game as any, gameId);
     }
 
     if (typeof game.bumpSeq === 'function') game.bumpSeq();

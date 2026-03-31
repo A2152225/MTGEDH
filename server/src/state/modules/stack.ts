@@ -37,7 +37,7 @@ import {
   cantAttackOwner,
   checkGraveyardTrigger,
 } from "./triggered-abilities.js";
-import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
+import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { detectCombatDamageTriggers } from "./triggers/index.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { isCreatureNow } from "../creatureTypeNow.js";
@@ -6485,6 +6485,10 @@ export function executeTriggerEffect(
           
           // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
           processDamageReceivedTriggers(ctx, targetPerm, damage, (triggerInfo) => {
+            if (dispatchDamageReceivedTrigger(ctx, triggerInfo)) {
+              return;
+            }
+
             // Initialize pendingDamageTriggers if needed
             if (!state.pendingDamageTriggers) {
               state.pendingDamageTriggers = {};
@@ -11721,6 +11725,10 @@ function executeSpellEffect(
         
         // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
         processDamageReceivedTriggers(ctx, perm, dmg, (triggerInfo) => {
+          if (dispatchDamageReceivedTrigger(ctx, triggerInfo)) {
+            return;
+          }
+
           // Initialize pendingDamageTriggers if needed
           if (!state.pendingDamageTriggers) {
             state.pendingDamageTriggers = {};

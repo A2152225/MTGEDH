@@ -7293,10 +7293,8 @@ export function registerGameActions(io: Server, socket: Socket) {
   
   /**
    * Check for pending damage triggers and emit them to the appropriate players.
-   * Damage triggers are queued in game.state.pendingDamageTriggers during:
-   * - Combat damage (turn.ts dealCombatDamage)
-   * - Fight resolution (interaction.ts)
-   * - Spell damage effects
+   * This is now primarily a compatibility fallback for any legacy or replay-restored
+   * pendingDamageTriggers state that still needs to be converted into Resolution Queue steps.
    */
   function checkAndEmitDamageTriggers(io: Server, game: InMemoryGame, gameId: string) {
     emitPendingDamageTriggers(io, game, gameId);

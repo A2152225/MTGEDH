@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { initDb, createGameIfNotExists } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
+import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
@@ -395,5 +396,81 @@ describe('Damage triggers via Resolution Queue (integration)', () => {
     const chatEvt = emitted.find(e => e.room === gameId && e.event === 'chat');
     expect(chatEvt).toBeDefined();
     expect(String(chatEvt!.payload.message || '')).toContain('each opponent');
+  });
+
+  it('emits a queued damage trigger prompt immediately when passPriority advances the step', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_BLOCKERS';
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).battlefield = [
+      {
+        id: 'src_wall',
+        controller: p1,
+        card: {
+          name: 'Wall of Souls',
+          type_line: 'Creature — Wall',
+          image_uris: { small: 'https://example.com/wall.jpg' },
+        },
+      },
+      {
+        id: 'pw_1',
+        controller: p1,
+        card: {
+          name: 'Liliana of the Veil',
+          type_line: 'Legendary Planeswalker — Liliana',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any; from?: string }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    (game as any).passPriority = () => ({ changed: true, resolvedNow: false, advanceStep: true });
+    (game as any).nextStep = () => {
+      (game.state as any).step = 'DAMAGE';
+      (game.state as any).pendingDamageTriggers = {
+        trig_wall: {
+          sourceId: 'src_wall',
+          sourceName: 'Wall of Souls',
+          controller: p1,
+          damageAmount: 3,
+          triggerType: 'dealt_damage',
+          targetType: 'opponent_or_planeswalker',
+          targetRestriction: 'opponent or planeswalker',
+        },
+      };
+    };
+
+    expect(typeof handlers['passPriority']).toBe('function');
+    await handlers['passPriority']({ gameId });
+
+    const promptEvt = emitted.find(e => e.event === 'resolutionStepPrompt');
+    expect(promptEvt).toBeDefined();
+    expect(promptEvt!.payload.step?.sourceName).toBe('Wall of Souls');
+    expect(promptEvt!.payload.step?.targetDescription).toBe('target opponent or planeswalker');
+    expect((game.state as any).pendingDamageTriggers).toBeUndefined();
+    expect((game.state as any).priority).toBe(null);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+    expect((queue.steps[0] as any).damageReceivedTrigger).toBe(true);
   });
 });

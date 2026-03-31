@@ -20,6 +20,9 @@
 import type { GameContext } from "../../context.js";
 import { KNOWN_DAMAGE_RECEIVED_TRIGGERS, KNOWN_DAMAGE_RECEIVED_AURAS, KNOWN_DAMAGE_RECEIVED_EQUIPMENT } from "./card-data-tables.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
+import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
+import { processLifeChange } from "../game-state-effects.js";
+import { triggerLifeGainEffects } from "../../utils.js";
 
 function escapeRegex(text: string): string {
   return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -251,6 +254,180 @@ export function processDamageReceivedTriggers(
 
   // Call the callback to handle queueing and client notification
   onTriggerDetected(damageTrigger);
+}
+
+function syncPlayerLife(state: any, playerId: string, lifeTotal: number): void {
+  state.life = state.life || {};
+  state.life[playerId] = lifeTotal;
+
+  const player = (Array.isArray(state.players) ? state.players : []).find((entry: any) => String(entry?.id) === String(playerId));
+  if (player) {
+    player.life = lifeTotal;
+  }
+}
+
+function applyAutomaticLifeChange(
+  ctx: GameContext,
+  playerId: string,
+  amount: number,
+  isGain: boolean,
+): number {
+  const numericAmount = Math.max(0, Number(amount || 0));
+  if (!playerId || numericAmount <= 0) return 0;
+
+  const stateAny = (ctx as any).state as any;
+  const startingLife = Number(stateAny?.startingLife ?? 40);
+  const currentLife = Number(stateAny?.life?.[playerId] ?? startingLife);
+  const result = processLifeChange(ctx, playerId, numericAmount, isGain);
+  if (result.prevented || Number(result.finalAmount || 0) === 0) {
+    return 0;
+  }
+
+  if (isGain) {
+    const finalAmount = Number(result.finalAmount || 0);
+    syncPlayerLife(stateAny, playerId, currentLife + finalAmount);
+    try {
+      stateAny.lifeGainedThisTurn = stateAny.lifeGainedThisTurn || {};
+      stateAny.lifeGainedThisTurn[playerId] = (stateAny.lifeGainedThisTurn[playerId] || 0) + finalAmount;
+      triggerLifeGainEffects(stateAny, playerId, finalAmount);
+    } catch {
+      // best-effort bookkeeping only
+    }
+    return finalAmount;
+  }
+
+  const finalAmount = Math.max(0, Number(result.finalAmount || 0));
+  syncPlayerLife(stateAny, playerId, currentLife - finalAmount);
+  try {
+    stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
+    stateAny.lifeLostThisTurn[playerId] = (stateAny.lifeLostThisTurn[playerId] || 0) + finalAmount;
+  } catch {
+    // best-effort bookkeeping only
+  }
+  return -finalAmount;
+}
+
+function addDamageTriggerPlayerTargets(validTargets: any[], players: any[], predicate: (player: any) => boolean): void {
+  for (const player of players) {
+    if (!player?.id || !predicate(player)) continue;
+    validTargets.push({
+      id: String(player.id),
+      label: String(player.name || player.id),
+      description: 'player',
+    });
+  }
+}
+
+function addDamageTriggerPermanentTargets(validTargets: any[], battlefield: any[], predicate: (perm: any, typeLineLower: string) => boolean): void {
+  for (const perm of battlefield) {
+    if (!perm?.id || !perm?.card) continue;
+    const typeLine = String(perm.card?.type_line || 'permanent');
+    const typeLineLower = typeLine.toLowerCase();
+    if (!predicate(perm, typeLineLower)) continue;
+    validTargets.push({
+      id: String(perm.id),
+      label: String(perm.card?.name || 'Permanent'),
+      description: typeLine,
+      imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+    });
+  }
+}
+
+export function dispatchDamageReceivedTrigger(ctx: GameContext, triggerInfo: DamageTriggerInfo): boolean {
+  const state = (ctx as any).state as any;
+  const gameId = String((ctx as any).gameId || '').trim();
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const sourcePerm = battlefield.find((perm: any) => String(perm?.id) === String(triggerInfo.sourceId || ''));
+  const controllerId = String(triggerInfo.controller || '');
+  const damageAmount = Math.max(0, Number(triggerInfo.damageAmount || 0));
+  const targetType = String(triggerInfo.targetType || 'any');
+  const targetRestriction = String(triggerInfo.targetRestriction || '');
+
+  if (!controllerId || damageAmount <= 0) return false;
+
+  if (targetType === 'none' && String(triggerInfo.effectMode || '') === 'gain_life') {
+    applyAutomaticLifeChange(ctx, controllerId, damageAmount, true);
+    return true;
+  }
+
+  if (targetType === 'none' && String(triggerInfo.effectMode || '') === 'gain_life_and_attacking_player_loses_life') {
+    const attackerId = String(triggerInfo.attackingPlayerId || state?.activePlayer || state?.turnPlayer || '');
+    applyAutomaticLifeChange(ctx, controllerId, damageAmount, true);
+    if (attackerId) {
+      applyAutomaticLifeChange(ctx, attackerId, damageAmount, false);
+    }
+    return true;
+  }
+
+  if (targetType === 'each_opponent') {
+    resolveDamageTrigger(ctx, triggerInfo);
+    return true;
+  }
+
+  if (!gameId) return false;
+
+  const validTargets: any[] = [];
+  let targetDescription = 'any target';
+  let targetTypes: string[] = ['any_target'];
+
+  if (targetType === 'opponent') {
+    targetDescription = 'target opponent';
+    targetTypes = ['player'];
+    addDamageTriggerPlayerTargets(validTargets, players, player => String(player.id) !== controllerId);
+  } else if (targetType === 'opponent_or_planeswalker') {
+    targetDescription = 'target opponent or planeswalker';
+    targetTypes = ['player', 'planeswalker'];
+    addDamageTriggerPlayerTargets(validTargets, players, player => String(player.id) !== controllerId);
+    addDamageTriggerPermanentTargets(validTargets, battlefield, (_perm, typeLineLower) => typeLineLower.includes('planeswalker'));
+  } else if (targetType === 'controller') {
+    targetDescription = 'you';
+    targetTypes = ['player'];
+    addDamageTriggerPlayerTargets(validTargets, players, player => String(player.id) === controllerId);
+  } else if (targetType === 'any_non_dragon') {
+    targetDescription = "any target that isn't a Dragon";
+    targetTypes = ['any_target'];
+    addDamageTriggerPlayerTargets(validTargets, players, _player => true);
+    addDamageTriggerPermanentTargets(validTargets, battlefield, (_perm, typeLineLower) => {
+      const isTargetKind = typeLineLower.includes('creature') || typeLineLower.includes('planeswalker');
+      return isTargetKind && !typeLineLower.includes('dragon');
+    });
+  } else {
+    addDamageTriggerPlayerTargets(validTargets, players, _player => true);
+    addDamageTriggerPermanentTargets(validTargets, battlefield, (_perm, typeLineLower) => typeLineLower.includes('creature') || typeLineLower.includes('planeswalker'));
+  }
+
+  if (validTargets.length === 0) {
+    return true;
+  }
+
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.TARGET_SELECTION,
+    playerId: controllerId as any,
+    sourceId: String(triggerInfo.sourceId || ''),
+    sourceName: String(triggerInfo.sourceName || 'Damage Trigger'),
+    sourceImage: sourcePerm?.card?.image_uris?.small || sourcePerm?.card?.image_uris?.normal,
+    description: `${triggerInfo.sourceName} was dealt ${damageAmount} damage. Choose a target to deal ${damageAmount} damage to${targetRestriction ? ` (${targetRestriction})` : ''}.`,
+    mandatory: true,
+    validTargets,
+    targetTypes,
+    minTargets: 1,
+    maxTargets: 1,
+    targetDescription,
+    damageReceivedTrigger: true,
+    damageTrigger: {
+      triggerId: String(triggerInfo.triggerId || ''),
+      sourceId: String(triggerInfo.sourceId || ''),
+      sourceName: String(triggerInfo.sourceName || ''),
+      controller: controllerId,
+      damageAmount,
+      triggerType: 'dealt_damage',
+      targetType,
+      targetRestriction,
+    },
+  } as any);
+
+  return true;
 }
 
 /**

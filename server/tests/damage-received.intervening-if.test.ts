@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { GameContext } from '../src/state/context';
-import { processDamageReceivedTriggers } from '../src/state/modules/triggers/damage-received';
+import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from '../src/state/modules/triggers/damage-received';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 describe('Intervening-if filtering for damage-received triggers (trigger time)', () => {
   it('does not queue a damage-received trigger when recognized intervening-if is false', () => {
@@ -150,5 +151,90 @@ describe('Intervening-if filtering for damage-received triggers (trigger time)',
     expect(triggerInfo.targetType).toBe('none');
     expect(triggerInfo.effectMode).toBe('gain_life_and_attacking_player_loses_life');
     expect(triggerInfo.attackingPlayerId).toBe(p2);
+  });
+
+  it('dispatches Wall of Souls directly into Resolution Queue without staging pending damage triggers', () => {
+    const gameId = 'damage_received_direct_queue_wall';
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    ResolutionQueueManager.clearAllSteps(gameId);
+
+    const state: any = {
+      players: [{ id: p1, name: 'P1' }, { id: p2, name: 'P2' }],
+      life: { [p1]: 40, [p2]: 40 },
+      battlefield: [
+        {
+          id: 'wall_perm',
+          controller: p1,
+          owner: p1,
+          card: {
+            id: 'wall_card',
+            name: 'Wall of Souls',
+            type_line: 'Creature — Wall',
+            oracle_text:
+              'Defender\nWhenever this creature is dealt combat damage, it deals that much damage to target opponent or planeswalker.',
+          },
+        },
+      ],
+    };
+
+    const ctx = { state, gameId } as unknown as GameContext;
+
+    let triggerInfo: any = null;
+    processDamageReceivedTriggers(ctx, state.battlefield[0], 3, (nextTrigger) => {
+      triggerInfo = nextTrigger;
+    });
+
+    expect(triggerInfo).toBeTruthy();
+    expect(dispatchDamageReceivedTrigger(ctx, triggerInfo)).toBe(true);
+    expect(state.pendingDamageTriggers).toBeUndefined();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+    expect((queue.steps[0] as any).type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect((queue.steps[0] as any).sourceName).toBe('Wall of Souls');
+  });
+
+  it('auto-resolves Wall of Essence directly without staging pending damage triggers', () => {
+    const gameId = 'damage_received_direct_autoresolve_essence';
+    const p1 = 'p1';
+
+    ResolutionQueueManager.clearAllSteps(gameId);
+
+    const state: any = {
+      players: [{ id: p1, name: 'P1', life: 40 }],
+      startingLife: 40,
+      life: { [p1]: 40 },
+      battlefield: [
+        {
+          id: 'essence_perm',
+          controller: p1,
+          owner: p1,
+          card: {
+            id: 'essence_card',
+            name: 'Wall of Essence',
+            type_line: 'Creature — Wall',
+            oracle_text:
+              'Defender\nWhenever this creature is dealt combat damage, you gain that much life.',
+          },
+        },
+      ],
+    };
+
+    const ctx = { state, gameId } as unknown as GameContext;
+
+    let triggerInfo: any = null;
+    processDamageReceivedTriggers(ctx, state.battlefield[0], 4, (nextTrigger) => {
+      triggerInfo = nextTrigger;
+    });
+
+    expect(triggerInfo).toBeTruthy();
+    expect(dispatchDamageReceivedTrigger(ctx, triggerInfo)).toBe(true);
+    expect(state.pendingDamageTriggers).toBeUndefined();
+    expect(state.life[p1]).toBe(44);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(0);
   });
 });

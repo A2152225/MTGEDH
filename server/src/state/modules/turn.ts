@@ -31,7 +31,7 @@ import {
   getTriggersForTiming,
   checkDamageReceivedTrigger
 } from "./triggered-abilities.js";
-import { processDamageReceivedTriggers } from "./triggers/damage-received.js";
+import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
@@ -422,13 +422,10 @@ function dequeuePendingEndOfCombatZoneChangeTriggers(ctx: GameContext): any[] {
 }
 
 /**
- * Queue a damage received trigger for later processing by the socket layer.
- * This is used when a creature with a "whenever this creature is dealt damage" trigger
- * is dealt damage during combat, from spells, or from any other source.
- * 
- * The trigger is added to game.state.pendingDamageTriggers and will be processed
- * by the socket layer which will emit the appropriate UI prompts to the player.
- * 
+ * Dispatch a damage-received trigger after a permanent is dealt damage.
+ * This prefers direct Resolution Queue creation or immediate no-choice resolution,
+ * and only falls back to pendingDamageTriggers when direct dispatch is unavailable.
+ *
  * @param ctx Game context
  * @param permanent The permanent that was dealt damage
  * @param damageAmount Amount of damage dealt
@@ -438,6 +435,10 @@ function queueDamageReceivedTrigger(ctx: GameContext, permanent: any, damageAmou
   
   // Use the centralized damage trigger system
   processDamageReceivedTriggers(ctx, permanent, damageAmount, (triggerInfo) => {
+    if (dispatchDamageReceivedTrigger(ctx, triggerInfo)) {
+      return;
+    }
+
     // Initialize pendingDamageTriggers if needed
     if (!(ctx as any).state.pendingDamageTriggers) {
       (ctx as any).state.pendingDamageTriggers = {};

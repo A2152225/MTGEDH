@@ -75,8 +75,9 @@ function applyAutomaticLifeChange(
 /**
  * Emit any queued damage-received triggers to the appropriate controllers.
  *
- * These triggers are queued into `game.state.pendingDamageTriggers` by state modules
- * (combat damage, fight, spell damage, etc) and are emitted after priority handling.
+ * Live damage-received triggers now prefer direct Resolution Queue dispatch at the
+ * producer sites. This helper remains as a compatibility path for any staged
+ * `game.state.pendingDamageTriggers` entries that still need to be materialized.
  *
  * Returns the number of trigger prompts emitted.
  */
