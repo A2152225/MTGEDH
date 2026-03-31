@@ -4183,23 +4183,9 @@ export async function handleAIPriority(
       // CRITICAL: During DECLARE_BLOCKERS step, check if ALL defending players have declared
       // Don't let AI pass priority until all humans have had a chance to select blockers
       if (phase === 'combat' && (step.includes('blockers') || step === 'declare_blockers')) {
-        const state = game.state as any;
-        const blockersDeclaredBy = state.blockersDeclaredBy || [];
-        const players = game.state?.players || [];
-        // The attacking player is the turn player - they cannot block their own attackers
-        const attackingPlayerId = game.state.turnPlayer;
-        
-        // Get all defending players (everyone except the attacking/turn player)
-        // and check if any human players haven't declared blockers yet
-        const humanDefendersStillDeciding = players.filter((p: any) => {
-          if (p.id === attackingPlayerId) return false; // Skip attacker (turn player cannot block)
-          if (p.isAI) return false; // AI handled above
-          if (blockersDeclaredBy.includes(p.id)) return false; // Already declared
-          return true; // Human who hasn't declared yet
-        });
-        
-        if (humanDefendersStillDeciding.length > 0) {
-          debug(1, `[AI] Waiting for ${humanDefendersStillDeciding.length} human player(s) to declare blockers, not passing priority`);
+        const pendingBlockers = getPendingBlockerDeclaration(game, gameId);
+        if (pendingBlockers.hasPending && !pendingBlockers.defendingPlayerIsAI) {
+          debug(1, `[AI] Waiting for human defender ${pendingBlockers.defendingPlayer || 'unknown'} to declare blockers, not passing priority`);
           // Don't take any action - wait for humans to declare blockers
           return;
         }
@@ -4402,25 +4388,15 @@ export async function handleAIPriority(
         const blockersDeclaredBy = state.blockersDeclaredBy || [];
         const alreadyDeclared = blockersDeclaredBy.includes(playerId);
         
-        // CRITICAL: Check if all defending players have declared blockers
-        // The attacking player (AI) should wait until all defenders have declared
-        const players = game.state?.players || [];
-        // The attacking player is the turn player - they cannot block their own attackers
-        const attackingPlayerId = game.state.turnPlayer;
-        
-        // Get all defending players (everyone except the attacking/turn player)
-        const humanDefendersStillDeciding = players.filter((p: any) => {
-          if (p.id === attackingPlayerId) return false; // Skip attacker (turn player cannot block)
-          if (p.isAI) return false; // AI defenders will declare on their own
-          if (blockersDeclaredBy.includes(p.id)) return false; // Already declared
-          return true; // Human who hasn't declared yet
-        });
-        
-        if (humanDefendersStillDeciding.length > 0) {
-          debug(1, `[AI] As attacker, waiting for ${humanDefendersStillDeciding.length} human defender(s) to declare blockers`);
+        const pendingBlockers = getPendingBlockerDeclaration(game, gameId);
+        if (pendingBlockers.hasPending && !pendingBlockers.defendingPlayerIsAI) {
+          debug(1, `[AI] As attacker, waiting for human defender ${pendingBlockers.defendingPlayer || 'unknown'} to declare blockers`);
           // Don't take any action - wait for humans to declare blockers
           return;
         }
+
+        // The attacking player is the turn player - they cannot block their own attackers
+        const attackingPlayerId = game.state.turnPlayer;
 
         if (playerId === attackingPlayerId) {
           debug(1, '[AI] Attacking player does not declare blockers, passing priority for defender declarations/responses');
@@ -7661,6 +7637,25 @@ function checkPendingModals(game: any, gameId: string): { hasPending: boolean; r
   if (pendingInteractions.hasPending) {
     const pendingTypes = pendingInteractions.pendingTypes.join(', ');
     return { hasPending: true, reason: `players have pending interactions: ${pendingTypes}` };
+  }
+  return { hasPending: false };
+}
+
+function getPendingBlockerDeclaration(
+  game: any,
+  gameId: string,
+): { hasPending: boolean; defendingPlayer?: string; defendingPlayerIsAI?: boolean } {
+  const ctx = { state: game.state, bumpSeq: () => {}, gameId } as any;
+  const pendingInteractions = getPendingInteractions(ctx);
+  if (pendingInteractions.pendingTypes.includes('blocker_declaration')) {
+    const defendingPlayer = String(pendingInteractions.details?.defendingPlayer || '');
+    const players = Array.isArray(game.state?.players) ? game.state.players : [];
+    const defendingPlayerEntry = players.find((player: any) => String(player?.id || '') === defendingPlayer);
+    return {
+      hasPending: true,
+      defendingPlayer,
+      defendingPlayerIsAI: Boolean(defendingPlayerEntry?.isAI),
+    };
   }
   return { hasPending: false };
 }

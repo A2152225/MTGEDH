@@ -336,6 +336,77 @@ describe('AI resolution-step integration', () => {
     }
   });
 
+  it('does not auto-pass a human defender who can flash in a blocker after attackers are declared', async () => {
+    vi.useFakeTimers();
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'Attacking AI', spectator: false, life: 40, isAI: true },
+        { id: 'human_def', name: 'Human Defender', spectator: false, life: 40, isAI: false },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).activePlayer = playerId;
+      (game.state as any).priority = 'human_def';
+      (game.state as any).phase = 'combat';
+      (game.state as any).step = 'DECLARE_ATTACKERS';
+      (game.state as any).stack = [];
+      (game.state as any).battlefield = [
+        {
+          id: 'attacker_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: true,
+          summoningSickness: false,
+          attacking: 'human_def',
+          counters: {},
+          card: {
+            id: 'attacker_card_1',
+            name: 'Goblin Raider',
+            type_line: 'Creature — Goblin Warrior',
+            oracle_text: '',
+            power: '2',
+            toughness: '2',
+          },
+        },
+      ];
+      (game.state as any).autoPassPlayers = new Set(['human_def']);
+      (game.state as any).zones = {
+        [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+        human_def: {
+          hand: [
+            {
+              id: 'flash_blocker',
+              name: 'Ambush Viper',
+              type_line: 'Creature — Snake',
+              mana_cost: '{1}{G}',
+              oracle_text: 'Flash\nDeathtouch',
+            },
+          ],
+          handCount: 1,
+          library: [],
+          graveyard: [],
+          exile: [],
+        },
+      };
+      (game.state as any).manaPool = {
+        [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        human_def: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+      };
+
+      const io = createNoopIo();
+      broadcastGame(io, game, gameId);
+
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect((game.state as any).priority).toBe('human_def');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not let the attacking AI declare blockers for itself', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -388,6 +459,120 @@ describe('AI resolution-step integration', () => {
 
     expect(((game.state as any).blockersDeclaredBy || [])).not.toContain(playerId);
     expect(String((game.state as any).step || '').toUpperCase()).not.toBe('DECLARE_BLOCKERS');
+  });
+
+  it('does not wait on a human defender with no blockers during declare blockers', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'Attacking AI', spectator: false, life: 40, isAI: true },
+      { id: 'human_def', name: 'Human Defender', spectator: false, life: 40, isAI: false },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_BLOCKERS';
+    (game.state as any).stack = [];
+    (game.state as any).blockersDeclaredBy = [];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      human_def: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'attacker_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        attacking: 'human_def',
+        counters: {},
+        card: {
+          id: 'attacker_card_1',
+          name: 'Goblin Raider',
+          type_line: 'Creature — Goblin Warrior',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    registerAIPlayer(gameId, playerId as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect(
+      String((game.state as any).step || '').toUpperCase() !== 'DECLARE_BLOCKERS' ||
+        (game.state as any).priority === 'human_def',
+    ).toBe(true);
+  });
+
+  it('passes priority when an AI defender still needs to declare blockers', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'Attacking AI', spectator: false, life: 40, isAI: true },
+      { id: 'def_ai', name: 'Defending AI', spectator: false, life: 40, isAI: true },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_BLOCKERS';
+    (game.state as any).stack = [];
+    (game.state as any).blockersDeclaredBy = [];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      def_ai: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'attacker_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        attacking: 'def_ai',
+        counters: {},
+        card: {
+          id: 'attacker_card_1',
+          name: 'Goblin Raider',
+          type_line: 'Creature — Goblin Warrior',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'blocker_1',
+        controller: 'def_ai',
+        owner: 'def_ai',
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'blocker_card_1',
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+
+    registerAIPlayer(gameId, playerId as any);
+    registerAIPlayer(gameId, 'def_ai' as any);
+
+    await handleAIPriority(createNoopIo(), gameId, playerId as any);
+
+    expect((game.state as any).priority).toBe('def_ai');
   });
 
   it('advances out of declare attackers when the AI chooses no attackers', async () => {
