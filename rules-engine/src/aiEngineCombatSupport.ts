@@ -7,6 +7,10 @@ import { AIDecisionType, type AIDecision, type AIDecisionContext, type AIPlayerC
 type CombatDeckModifiers = { attackBias: number; preserveBias: number };
 type CombatValueEvaluation = { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number };
 
+function isActiveCombatPlayer(player: any): boolean {
+  return Boolean(player?.id) && !player?.hasLost && !player?.eliminated && !player?.conceded && !player?.spectator && !player?.isSpectator;
+}
+
 export function makeBasicAttackDecision(
   context: AIDecisionContext,
   config: AIPlayerConfig,
@@ -54,7 +58,9 @@ export function makeBasicAttackDecision(
 
   const goadedCreatureIds = getGoadedAttackers(context.gameState, context.playerId);
   const goadedSet = new Set(goadedCreatureIds);
-  const allPlayerIds = context.gameState.players.map(p => p.id);
+  const allPlayerIds = context.gameState.players
+    .filter((p: any) => isActiveCombatPlayer(p) || p.id === context.playerId)
+    .map(p => p.id);
   const goadedAttackers: Array<{ creatureId: string; defendingPlayerId: string }> = [];
 
   for (const goadedId of goadedCreatureIds) {

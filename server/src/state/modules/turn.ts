@@ -708,11 +708,20 @@ function checkPendingInteractions(ctx: GameContext): {
       const hasAttackers = battlefield.some((perm: any) => perm && perm.attacking);
       
       if (hasAttackers) {
+        const activePlayerIds = new Set(
+          (Array.isArray(state.players) ? state.players : [])
+            .filter((player: any) => player && !player.hasLost && !player.eliminated && !player.conceded && !player.spectator && !player.isSpectator)
+            .map((player: any) => String(player.id))
+        );
+
         // Get all defending players (players being attacked)
         const defendingPlayersSet = new Set<string>();
         for (const perm of battlefield) {
           if (perm && perm.attacking) {
-            defendingPlayersSet.add(perm.attacking);
+            const defenderId = String(perm.attacking || '').trim();
+            if (defenderId && activePlayerIds.has(defenderId)) {
+              defendingPlayersSet.add(defenderId);
+            }
           }
         }
         

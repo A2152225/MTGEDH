@@ -94,7 +94,10 @@ export function selectAttackTarget(args: {
   hasPermanentType: HasPermanentType;
 }): PlayerID {
   const { gameState, playerId, getProcessedBattlefield, hasPermanentType } = args;
-  const opponents = gameState.players.filter(p => p.id !== playerId);
+  const opponents = gameState.players.filter(p => {
+    const player = p as any;
+    return player.id !== playerId && !player.hasLost && !player.eliminated && !player.conceded && !player.spectator && !player.isSpectator;
+  });
   if (opponents.length === 0) return playerId;
   if (opponents.length === 1) return opponents[0].id;
 

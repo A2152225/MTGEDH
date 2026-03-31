@@ -219,6 +219,44 @@ describe('AIEngine', () => {
       
       expect(decision.action.attackers.length).toBe(0);
     });
+
+    it('should not target eliminated opponents when choosing attack targets', async () => {
+      testGameState.players = [
+        { id: 'ai1', name: 'AI', life: 40 } as any,
+        { id: 'ai2', name: 'Active Opponent', life: 18 } as any,
+        { id: 'ai3', name: 'Eliminated Opponent', life: -2, hasLost: true, eliminated: true } as any,
+      ];
+      testGameState.battlefield = [
+        {
+          id: 'creature1',
+          controller: 'ai1',
+          owner: 'ai1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'bear1',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        } as any,
+      ];
+
+      const context: AIDecisionContext = {
+        gameState: testGameState,
+        playerId: 'ai1',
+        decisionType: AIDecisionType.DECLARE_ATTACKERS,
+        options: [],
+      };
+
+      const decision = await aiEngine.makeDecision(context);
+
+      expect(decision.action.attackers.length).toBeGreaterThan(0);
+      expect(decision.action.attackers.every((attacker: any) => attacker.defendingPlayerId === 'ai2')).toBe(true);
+    });
   });
   
   describe('Strategy Variations', () => {

@@ -126,6 +126,102 @@ describe('AI resolution-step integration', () => {
     expect(completed?.response?.selections).toEqual(['scepter']);
   });
 
+  it('auto-resolves AI target-selection steps from the shared resolution queue handler', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Combo Opponent', spectator: false, life: 40 },
+        { id: 'opp2', name: 'Big Creature Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'main';
+      (game.state as any).step = 'precombat_main';
+      (game.state as any).stack = [];
+      (game.state as any).zones = {
+        [playerId]: {
+          hand: [],
+          library: [],
+          graveyard: [],
+          exile: [],
+        },
+      };
+      (game.state as any).battlefield = [
+        {
+          id: 'scepter',
+          controller: 'opp1',
+          owner: 'opp1',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'c1',
+            name: 'Isochron Scepter',
+            type_line: 'Artifact',
+            oracle_text: 'Imprint — When Isochron Scepter enters the battlefield, you may exile an instant card with mana value 2 or less from your hand.',
+          },
+        },
+        {
+          id: 'beater',
+          controller: 'opp2',
+          owner: 'opp2',
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'c2',
+            name: 'Ancient Brontodon',
+            type_line: 'Creature — Dinosaur',
+            oracle_text: '',
+            power: '9',
+            toughness: '9',
+          },
+        },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: playerId as any,
+        description: 'Choose target permanent.',
+        mandatory: true,
+        sourceId: 'spell1',
+        sourceName: 'Beast Within',
+        targetTypes: ['permanent'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'target permanent',
+        validTargets: [
+          { id: 'scepter', label: 'Isochron Scepter' },
+          { id: 'beater', label: 'Ancient Brontodon' },
+        ],
+        spellCastContext: {
+          cardId: 'spell1',
+          cardName: 'Beast Within',
+          manaCost: '{2}{G}',
+          playerId,
+          effectId: 'effect1',
+          oracleText: 'Destroy target permanent. Its controller creates a 3/3 green Beast creature token.',
+        },
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['scepter']);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
   it('advances out of untap instead of passing priority repeatedly', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

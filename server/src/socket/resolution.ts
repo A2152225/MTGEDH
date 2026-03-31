@@ -36,7 +36,13 @@ import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, is
 import { executeDeclareAttackers } from "./combat.js";
 import { parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
-import { handleBounceLandETB, chooseAILibrarySearchCards, chooseAIGraveyardSelectionIds, chooseAISpellPaymentSelections } from "./ai.js";
+import {
+  handleBounceLandETB,
+  chooseAILibrarySearchCards,
+  chooseAIGraveyardSelectionIds,
+  chooseAISpellPaymentSelections,
+  chooseAITargetSelectionsForChoiceStep,
+} from "./ai.js";
 import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { isShockLand } from "./land-helpers.js";
@@ -900,6 +906,25 @@ async function handleAIResolutionStep(
           timestamp: Date.now(),
         };
         debug(2, `[Resolution] AI TAP_UNTAP_TARGET: chose ${chosenIds.length} target(s)`);
+        break;
+      }
+
+      case ResolutionStepType.TARGET_SELECTION: {
+        const targetStep = step as TargetSelectionStep;
+        const filteredValidTargets = getFilteredValidTargetsForStep(gameId, targetStep);
+        const selections = chooseAITargetSelectionsForChoiceStep(game, step.playerId, {
+          ...targetStep,
+          validTargets: filteredValidTargets,
+        });
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI TARGET_SELECTION: chose ${selections.length} target(s)`);
         break;
       }
 
@@ -5926,7 +5951,7 @@ async function handleRulesChoiceGroupResponse(
  * Initialize global AI resolution handler
  * Should be called once when server starts
  */
-export function initializeAIResolutionHandler(io: Server): void {
+export function initializeAIResolutionHandler(io: Server) {
   // Set up global handler for AI steps
   const aiHandler = (
     event: ResolutionQueueEvent,
@@ -5943,6 +5968,8 @@ export function initializeAIResolutionHandler(io: Server): void {
   
   ResolutionQueueManager.on(aiHandler);
   debug(1, '[Resolution] AI handler initialized');
+
+  return aiHandler;
 }
 
 /**
