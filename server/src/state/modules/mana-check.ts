@@ -75,6 +75,8 @@ export function parseManaCost(manaCost?: string): {
   return result;
 }
 
+type ParsedManaCost = ReturnType<typeof parseManaCost>;
+
 /**
  * Get total available mana from a mana pool.
  * 
@@ -362,6 +364,330 @@ export function getEmptyManaPool(): Record<string, number> {
  */
 export function getManaPoolFromState(state: any, playerId: PlayerID): Record<string, number> {
   return (state as any).manaPool?.[playerId] || getEmptyManaPool();
+}
+
+const SIMPLE_MANA_KEYS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
+type SimpleManaKey = typeof SIMPLE_MANA_KEYS[number];
+
+type ExactManaSourceOption = {
+  activationCost?: ParsedManaCost;
+  produced: Record<SimpleManaKey, number>;
+};
+
+type ExactManaSource = {
+  id: string;
+  options: ExactManaSourceOption[];
+};
+
+function createSimpleManaPool(seed?: Record<string, number>): Record<SimpleManaKey, number> {
+  return {
+    white: Number(seed?.white || 0),
+    blue: Number(seed?.blue || 0),
+    black: Number(seed?.black || 0),
+    red: Number(seed?.red || 0),
+    green: Number(seed?.green || 0),
+    colorless: Number(seed?.colorless || 0),
+  };
+}
+
+function manaSymbolToColorKey(symbol: string): SimpleManaKey | undefined {
+  const symbolMap: Record<string, SimpleManaKey> = {
+    W: 'white',
+    U: 'blue',
+    B: 'black',
+    R: 'red',
+    G: 'green',
+    C: 'colorless',
+  };
+
+  return symbolMap[String(symbol || '').toUpperCase()];
+}
+
+function addProducedMana(
+  pool: Record<SimpleManaKey, number>,
+  produced: Record<SimpleManaKey, number>,
+): Record<SimpleManaKey, number> {
+  const nextPool = createSimpleManaPool(pool);
+  for (const key of SIMPLE_MANA_KEYS) {
+    nextPool[key] += Number(produced[key] || 0);
+  }
+  return nextPool;
+}
+
+function createSingleColorProduction(colorKey: SimpleManaKey, amount: number = 1): Record<SimpleManaKey, number> {
+  const pool = createSimpleManaPool();
+  pool[colorKey] = amount;
+  return pool;
+}
+
+function normalizePoolSignature(pool: Record<SimpleManaKey, number>): string {
+  return SIMPLE_MANA_KEYS.map((key) => String(pool[key] || 0)).join(',');
+}
+
+function filterOutCostedTapMatches(
+  noCostMatches: RegExpMatchArray[],
+  costMatches: RegExpMatchArray[],
+): RegExpMatchArray[] {
+  return noCostMatches.filter((match) => {
+    const matchIndex = typeof match.index === 'number' ? match.index : -1;
+    if (matchIndex < 0) return true;
+
+    return !costMatches.some((costMatch) => {
+      const costIndex = typeof costMatch.index === 'number' ? costMatch.index : -1;
+      if (costIndex < 0) return false;
+      const costEnd = costIndex + String(costMatch[0] || '').length;
+      return matchIndex >= costIndex && matchIndex < costEnd;
+    });
+  });
+}
+
+function spendGenericManaFromPool(
+  pool: Record<SimpleManaKey, number>,
+  genericCost: number,
+): Record<SimpleManaKey, number> | null {
+  if (genericCost <= 0) return createSimpleManaPool(pool);
+
+  const totalAvailable = SIMPLE_MANA_KEYS.reduce((sum, key) => sum + Number(pool[key] || 0), 0);
+  if (totalAvailable < genericCost) return null;
+
+  const remainingPool = createSimpleManaPool(pool);
+  let toPay = genericCost;
+
+  if (remainingPool.colorless > 0) {
+    const fromColorless = Math.min(remainingPool.colorless, toPay);
+    remainingPool.colorless -= fromColorless;
+    toPay -= fromColorless;
+  }
+
+  if (toPay > 0) {
+    for (const key of ['white', 'blue', 'black', 'red', 'green'] as const) {
+      if (toPay <= 0) break;
+      const available = remainingPool[key];
+      if (available <= 0) continue;
+      const toDeduct = Math.min(available, toPay);
+      remainingPool[key] -= toDeduct;
+      toPay -= toDeduct;
+    }
+  }
+
+  return toPay === 0 ? remainingPool : null;
+}
+
+function spendHybridManaFromPool(
+  pool: Record<SimpleManaKey, number>,
+  hybridCosts: Array<string[]>,
+  lifeAvailable: number,
+  index: number = 0,
+): { pool: Record<SimpleManaKey, number>; lifeAvailable: number } | null {
+  if (index >= hybridCosts.length) {
+    return { pool: createSimpleManaPool(pool), lifeAvailable };
+  }
+
+  const options = hybridCosts[index] || [];
+  for (const option of options) {
+    if (option.startsWith('LIFE:')) {
+      const lifeCost = parseInt(option.split(':')[1] || '0', 10);
+      if (lifeAvailable < lifeCost) continue;
+      const result = spendHybridManaFromPool(pool, hybridCosts, lifeAvailable - lifeCost, index + 1);
+      if (result) return result;
+      continue;
+    }
+
+    if (option.startsWith('GENERIC:')) {
+      const genericCost = parseInt(option.split(':')[1] || '0', 10);
+      const nextPool = spendGenericManaFromPool(pool, genericCost);
+      if (!nextPool) continue;
+      const result = spendHybridManaFromPool(nextPool, hybridCosts, lifeAvailable, index + 1);
+      if (result) return result;
+      continue;
+    }
+
+    const colorKey = manaSymbolToColorKey(option);
+    if (!colorKey || pool[colorKey] <= 0) continue;
+
+    const nextPool = createSimpleManaPool(pool);
+    nextPool[colorKey] -= 1;
+    const result = spendHybridManaFromPool(nextPool, hybridCosts, lifeAvailable, index + 1);
+    if (result) return result;
+  }
+
+  return null;
+}
+
+function spendManaCostFromExactPool(
+  pool: Record<SimpleManaKey, number>,
+  parsedCost: ParsedManaCost,
+  lifeAvailable: number = Infinity,
+): { pool: Record<SimpleManaKey, number>; lifeAvailable: number } | null {
+  const remainingPool = createSimpleManaPool(pool);
+  let remainingLife = lifeAvailable;
+
+  for (const [colorSymbol, needed] of Object.entries(parsedCost.colors || {})) {
+    const colorKey = manaSymbolToColorKey(colorSymbol);
+    if (!colorKey || Number(needed || 0) <= 0) continue;
+    if (remainingPool[colorKey] < Number(needed)) {
+      return null;
+    }
+    remainingPool[colorKey] -= Number(needed);
+  }
+
+  if (parsedCost.hybrid && parsedCost.hybrid.length > 0) {
+    const hybridResult = spendHybridManaFromPool(remainingPool, parsedCost.hybrid, remainingLife);
+    if (!hybridResult) return null;
+    remainingLife = hybridResult.lifeAvailable;
+    for (const key of SIMPLE_MANA_KEYS) {
+      remainingPool[key] = hybridResult.pool[key];
+    }
+  }
+
+  const genericResult = spendGenericManaFromPool(remainingPool, parsedCost.generic || 0);
+  if (!genericResult) return null;
+
+  return {
+    pool: genericResult,
+    lifeAvailable: remainingLife,
+  };
+}
+
+function buildProducedManaOptions(
+  state: any,
+  playerId: PlayerID,
+  permanent: any,
+  fullManaText: string,
+): Array<Record<SimpleManaKey, number>> {
+  const manaText = String(fullManaText || '').trim();
+  if (!manaText) return [];
+
+  const hasOrClause = /\{[wubrgc]\}(?:,?\s*\{[wubrgc]\})*,?\s+or\s+\{[wubrgc]\}/i.test(manaText);
+  const manaTokens = manaText.match(/\{([wubrgc])\}/gi) || [];
+  const isConditionalAnyColor = /that (?:a |an )?(?:land|permanent)|among (?:lands|permanents)/i.test(manaText);
+  const isUnconditionalAnyColor = /one mana of any color|add.*any color/i.test(manaText);
+  const isCommanderColorIdentity = /commander.*color identity|color identity.*commander/i.test(manaText);
+
+  if (isUnconditionalAnyColor && !isConditionalAnyColor) {
+    const colorKeys = isCommanderColorIdentity
+      ? Array.from(getCommanderColorIdentity(state, playerId))
+      : (['white', 'blue', 'black', 'red', 'green'] as string[]);
+
+    return colorKeys
+      .map((key) => key as SimpleManaKey)
+      .map((key) => createSingleColorProduction(key));
+  }
+
+  if (isConditionalAnyColor) {
+    const checksControlledLands = /that (?:a |an )?land you control could produce|among lands you control/i.test(manaText);
+    const checksControlledPermanents = /that (?:a |an )?permanent you control could produce|among permanents you control/i.test(manaText);
+    const conditionalColors = checksControlledLands || checksControlledPermanents
+      ? getControlledPermanentColors(state, playerId, checksControlledLands, String(permanent.id || ''))
+      : getOpponentPermanentColors(state, playerId);
+
+    return Array.from(conditionalColors)
+      .map((key) => key as SimpleManaKey)
+      .map((key) => createSingleColorProduction(key));
+  }
+
+  if (hasOrClause) {
+    const seen = new Set<SimpleManaKey>();
+    const options: Array<Record<SimpleManaKey, number>> = [];
+    for (const token of manaTokens) {
+      const colorKey = manaSymbolToColorKey(token.replace(/[{}]/g, ''));
+      if (!colorKey || seen.has(colorKey)) continue;
+      seen.add(colorKey);
+      options.push(createSingleColorProduction(colorKey));
+    }
+    return options;
+  }
+
+  if (manaTokens.length > 0) {
+    const produced = createSimpleManaPool();
+    for (const token of manaTokens) {
+      const colorKey = manaSymbolToColorKey(token.replace(/[{}]/g, ''));
+      if (!colorKey) continue;
+      produced[colorKey] += 1;
+    }
+    return [produced];
+  }
+
+  return [];
+}
+
+function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[] {
+  const battlefield = state?.battlefield || [];
+  const sources: ExactManaSource[] = [];
+
+  for (const permanent of battlefield) {
+    if (permanent.controller !== playerId) continue;
+    if (permanent.tapped) continue;
+    if (!permanent.card) continue;
+
+    const oracleText = String(permanent.card.oracle_text || '').toLowerCase();
+    const cardName = String(permanent.card.name || '').toLowerCase();
+    const typeLine = String(permanent.card.type_line || '').toLowerCase();
+    const isCreature = typeLine.includes('creature');
+    const isLand = typeLine.includes('land');
+
+    if (isCreature && !isLand && permanent.summoningSickness) {
+      const hasHaste = creatureHasHaste(permanent, battlefield, playerId);
+      if (!hasHaste) continue;
+    }
+
+    if (/^(plains|island|swamp|mountain|forest)$/i.test(cardName)) {
+      const landToColor: Record<string, SimpleManaKey> = {
+        plains: 'white',
+        island: 'blue',
+        swamp: 'black',
+        mountain: 'red',
+        forest: 'green',
+      };
+      const colorKey = landToColor[cardName];
+      if (colorKey) {
+        sources.push({
+          id: String(permanent.id || `${cardName}_${sources.length}`),
+          options: [{ produced: createSingleColorProduction(colorKey) }],
+        });
+      }
+      continue;
+    }
+
+    const manaAbilityWithCostPattern = /\{([0-9]+|[wubrgc])\}(?:,\s*)?\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
+    const manaAbilityNoCostPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
+    const costMatches = [...oracleText.matchAll(manaAbilityWithCostPattern)];
+    const noCostMatches = filterOutCostedTapMatches([...oracleText.matchAll(manaAbilityNoCostPattern)], costMatches);
+    const options: ExactManaSourceOption[] = [];
+
+    for (const match of costMatches) {
+      const activationCost = parseManaCost(`{${match[1]}}`);
+      const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[2] || ''));
+      for (const produced of producedOptions) {
+        options.push({ activationCost, produced });
+      }
+    }
+
+    for (const match of noCostMatches) {
+      const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[1] || ''));
+      for (const produced of producedOptions) {
+        options.push({ produced });
+      }
+    }
+
+    if (options.length > 0) {
+      const dedupedOptions = new Map<string, ExactManaSourceOption>();
+      for (const option of options) {
+        const activationSignature = option.activationCost
+          ? JSON.stringify(option.activationCost)
+          : 'none';
+        const productionSignature = normalizePoolSignature(option.produced);
+        dedupedOptions.set(`${activationSignature}|${productionSignature}`, option);
+      }
+
+      sources.push({
+        id: String(permanent.id || `${cardName}_${sources.length}`),
+        options: Array.from(dedupedOptions.values()),
+      });
+    }
+  }
+
+  return sources;
 }
 
 /**
@@ -806,12 +1132,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     // Now check for abilities WITHOUT activation costs (basic lands, Sol Ring, etc.)
     // Filter out the ones we already processed with costs
-    const noCostMatches = [...oracleText.matchAll(manaAbilityNoCostPattern)]
-      .filter(match => {
-        // Exclude if this same ability was already matched with a cost
-        const matchText = match[0];
-        return !costMatches.some(costMatch => matchText.includes(costMatch[0]));
-      });
+    const noCostMatches = filterOutCostedTapMatches([...oracleText.matchAll(manaAbilityNoCostPattern)], costMatches);
 
     // IMPORTANT: A single permanent can have multiple distinct tap-for-mana abilities (multiple lines).
     // These are alternatives, not additive. We must avoid counting them as multiple mana sources.
@@ -1037,4 +1358,85 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
   }
   
   return pool;
+}
+
+/**
+ * Check whether the player can pay a mana cost using their floating mana plus untapped mana sources.
+ * This exact helper is primarily used when activation-cost sources like Signets are present,
+ * because aggregate optimistic pools can overcount those sources for castability checks.
+ */
+export function canPayManaCostWithAvailableSources(
+  state: any,
+  playerId: PlayerID,
+  parsedCost: ParsedManaCost,
+  lifeAvailable: number = Infinity,
+): boolean {
+  const floatingPool = createSimpleManaPool(getManaPoolFromState(state, playerId));
+  if (canPayManaCost(floatingPool, parsedCost, lifeAvailable)) {
+    return true;
+  }
+
+  const sources = buildExactManaSources(state, playerId);
+  const hasActivationCostSource = sources.some((source) =>
+    source.options.some((option) => option.activationCost),
+  );
+
+  if (!hasActivationCostSource) {
+    return canPayManaCost(getAvailableMana(state, playerId), parsedCost, lifeAvailable);
+  }
+
+  const memo = new Map<string, boolean>();
+
+  const search = (
+    pool: Record<SimpleManaKey, number>,
+    life: number,
+    remainingSources: ExactManaSource[],
+  ): boolean => {
+    if (canPayManaCost(pool, parsedCost, life)) {
+      return true;
+    }
+
+    if (remainingSources.length === 0) {
+      return false;
+    }
+
+    const key = `${normalizePoolSignature(pool)}|${life}|${remainingSources.map((source) => source.id).join(',')}`;
+    const cached = memo.get(key);
+    if (typeof cached === 'boolean') {
+      return cached;
+    }
+
+    for (let index = 0; index < remainingSources.length; index += 1) {
+      const source = remainingSources[index];
+      const nextRemainingSources = remainingSources
+        .slice(0, index)
+        .concat(remainingSources.slice(index + 1));
+
+      for (const option of source.options) {
+        let workingPool = createSimpleManaPool(pool);
+        let workingLife = life;
+
+        if (option.activationCost) {
+          const spent = spendManaCostFromExactPool(workingPool, option.activationCost, workingLife);
+          if (!spent) {
+            continue;
+          }
+
+          workingPool = spent.pool;
+          workingLife = spent.lifeAvailable;
+        }
+
+        const producedPool = addProducedMana(workingPool, option.produced);
+        if (search(producedPool, workingLife, nextRemainingSources)) {
+          memo.set(key, true);
+          return true;
+        }
+      }
+    }
+
+    memo.set(key, false);
+    return false;
+  };
+
+  return search(floatingPool, lifeAvailable, sources);
 }

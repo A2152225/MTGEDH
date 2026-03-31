@@ -1,11 +1,49 @@
 import { describe, it, expect } from 'vitest';
-import { getAvailableMana, parseManaCost, canPayManaCost } from '../src/state/modules/mana-check.js';
+import { getAvailableMana, parseManaCost, canPayManaCost, canPayManaCostWithAvailableSources } from '../src/state/modules/mana-check.js';
 
 /**
  * Tests for conditional mana sources like Exotic Orchard, Fellwar Stone, etc.
  * These sources should only produce colors that opponent lands/permanents can produce.
  */
 describe('Conditional Mana Sources', () => {
+  describe('Activation-cost mana sources', () => {
+    it('treats Izzet Signet plus Island as able to make UR but not UU', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'island_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Island',
+              type_line: 'Basic Land — Island',
+              oracle_text: '',
+            },
+          },
+          {
+            id: 'izzet_signet_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Izzet Signet',
+              type_line: 'Artifact',
+              oracle_text: '{1}, {T}: Add {U}{R}.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const aggregateMana = getAvailableMana(state, 'player1');
+      expect(canPayManaCost(aggregateMana, parseManaCost('{U}{U}'))).toBe(true);
+
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{U}{U}'))).toBe(false);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{U}{R}'))).toBe(true);
+    });
+  });
+
   describe('Reflecting Pool', () => {
     it('should only produce colors and colorless that your other lands could produce', () => {
       const state = {

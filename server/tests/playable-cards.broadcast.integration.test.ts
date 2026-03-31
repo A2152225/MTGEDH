@@ -128,4 +128,130 @@ describe('broadcastGame playable card refresh', () => {
     expect(stateEvent?.payload?.view?.playableCards).toEqual(['land_1']);
     expect(stateEvent?.payload?.view?.playableCards).not.toContain('spell_1');
   });
+
+  it('does not highlight Baeloth when Homeward Path, Training Center, and Izzet Signet only make three mana total', () => {
+    const gameId = 'playable_cards_baeloth_signet';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+        { id: 'p3', seat: 3, name: 'Player 3' },
+      ],
+      stack: [],
+      battlefield: [
+        {
+          id: 'homeward_path_1',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Homeward Path', type_line: 'Land', oracle_text: '{T}: Add {C}.' },
+        },
+        {
+          id: 'training_center_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Training Center',
+            type_line: 'Land',
+            oracle_text: '{T}: Add {C}.\n{T}: Add {U} or {R}. Activate only if you have two or more opponents.',
+          },
+        },
+        {
+          id: 'izzet_signet_1',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Izzet Signet', type_line: 'Artifact', oracle_text: '{1}, {T}: Add {U}{R}.' },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'baeloth_1',
+              name: 'Baeloth Barrityl, Entertainer',
+              mana_cost: '{4}{R}',
+              type_line: 'Legendary Creature — Human Warrior',
+              oracle_text: 'Creatures your opponents control with power less than Baeloth Barrityl, Entertainer are goaded.',
+            },
+          ],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 1,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+        p3: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40, p3: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p3: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0, p3: 0 },
+      playableCards: ['baeloth_1'],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: ['baeloth_1'],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('baeloth_1');
+  });
 });

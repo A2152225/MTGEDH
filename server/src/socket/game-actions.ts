@@ -6983,7 +6983,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
       // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast
-      handleCastSpellFromHand({
+      await handleCastSpellFromHand({
         gameId,
         cardId,
         targets: finalTargets,
@@ -10592,7 +10592,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   /**
    * Handle casting a foretold card from exile
    */
-  socket.on("castForetold", (payload?: { gameId?: unknown; cardId?: unknown }) => {
+  socket.on("castForetold", async (payload?: { gameId?: unknown; cardId?: unknown }) => {
     const gameId = payload?.gameId;
     const cardId = payload?.cardId;
 
@@ -10661,7 +10661,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       debug(2, `[castForetold] ${playerId} starting cast for foretold ${card.name} (cost ${foretellCost})`);
 
       // Start the normal spell cast flow (will request targets via Resolution Queue, then payment).
-      handleCastSpellFromHand({ gameId, cardId });
+      await handleCastSpellFromHand({ gameId, cardId });
 
       broadcastGame(io, game, gameId);
     } catch (err: any) {

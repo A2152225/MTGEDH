@@ -22,7 +22,7 @@ import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../se
 import type { PlayerID } from "../../../shared/src/types.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
-import { getAvailableMana, parseManaCost, canPayManaCost, getTotalManaFromPool } from "../state/modules/mana-check.js";
+import { getAvailableMana, parseManaCost, canPayManaCost, canPayManaCostWithAvailableSources, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -1769,7 +1769,7 @@ export function chooseAIOptionSelectionsForStep(
       const wardCost = String(step?.wardCost || '');
       const parsed = parseManaCost(wardCost);
       const manaPool = getAvailableMana(game.state, playerId);
-      const canPay = canPayManaCost(manaPool, parsed);
+      const canPay = canPayManaCostWithAvailableSources(game.state, playerId, parsed);
       return { selections: [canPay ? 'pay_ward_cost' : 'decline_ward_cost'], cancelled: false };
     }
     if (paymentType === 'life') {
@@ -1857,7 +1857,7 @@ function chooseOverloadMode(game: any, playerId: PlayerID, step: any, modes: any
   const overloadMatch = oracleText.match(/overload\s*\{([^}]+)\}/i);
   const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
   const manaPool = getAvailableMana(game.state, playerId);
-  const canPayOverload = overloadCost ? canPayManaCost(manaPool, parseManaCost(overloadCost)) : false;
+  const canPayOverload = overloadCost ? canPayManaCostWithAvailableSources(game.state, playerId, parseManaCost(overloadCost)) : false;
   const opponentNonlandPermanents = (game?.state?.battlefield || []).filter((perm: any) =>
     perm?.controller !== playerId && !String(perm?.card?.type_line || '').toLowerCase().includes('land')
   ).length;
@@ -2941,7 +2941,7 @@ function findCastableSpells(game: any, playerId: PlayerID): any[] {
     const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
     
     // Check if we can afford it using shared function
-    if (canPayManaCost(manaPool, parsedCost)) {
+    if (canPayManaCostWithAvailableSources(game.state, playerId, parsedCost)) {
       castable.push({
         card,
         cost: parsedCost,
@@ -3181,7 +3181,7 @@ function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost
     };
     
     // Check if we can afford it using shared function
-    if (canPayManaCost(manaPool, totalCost)) {
+    if (canPayManaCostWithAvailableSources(game.state, playerId, totalCost)) {
       const typeLine = (card.type_line || '').toLowerCase();
       const isBackground = typeLine.includes('background');
       const cmc = totalCost.generic + Object.values(totalCost.colors).reduce((a, b) => a + b, 0);
@@ -3795,7 +3795,7 @@ function chooseCardsToDiscard(game: any, playerId: PlayerID, discardCount: numbe
     // A spell is "castable" if the AI can afford it with current/potential mana
     // Add +2 mana buffer for "next turn" (likely land drop)
     const canCastSoon = cmc <= totalAvailableMana + 2;
-    const canCastNow = canPayManaCost(manaPool, parsedCost);
+    const canCastNow = canPayManaCostWithAvailableSources(game.state, playerId, parsedCost);
     
     if (canCastNow) {
       score += 60; // Can cast right now - definitely keep

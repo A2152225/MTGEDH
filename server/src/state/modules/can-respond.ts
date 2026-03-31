@@ -16,7 +16,7 @@
 
 import type { GameContext } from "../context";
 import type { PlayerID } from "../../../../shared/src";
-import { parseManaCost, canPayManaCost, getManaPoolFromState, getAvailableMana } from "./mana-check";
+import { parseManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
 import { calculateMaxLandsPerTurn } from "./game-state-effects";
@@ -557,7 +557,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
         const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
         
         // Check normal mana cost
-        if (canPayManaCost(pool, adjustedCost)) {
+        if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
           // Also check if the spell has valid targets (if it requires targets)
           if (hasValidTargetsForSpell(state, playerId, card)) {
             return true;
@@ -602,7 +602,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
           const parsedCost = parseManaCost(flashbackInfo.cost);
           const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
           const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-          if (canPayManaCost(pool, adjustedCost)) {
+          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
             // Also check if the spell has valid targets (if it requires targets)
             if (hasValidTargetsForSpell(state, playerId, card)) {
               return true;
@@ -651,7 +651,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
             const parsedCost = parseManaCost(foretellInfo.cost);
             const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-            if (canPayManaCost(pool, adjustedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
               // Also check if the spell has valid targets (if it requires targets)
               if (hasValidTargetsForSpell(state, playerId, card)) {
                 return true;
@@ -682,7 +682,7 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
             const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             
-            if (canPayManaCost(pool, adjustedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
               // Also check if the spell has valid targets (if it requires targets)
               if (hasValidTargetsForSpell(state, playerId, card)) {
                 return true;
@@ -789,7 +789,6 @@ function hasActivatableAbility(
   ctx: GameContext,
   playerId: PlayerID,
   permanent: any,
-  pool: Record<string, number>
 ): boolean {
   if (!permanent || !permanent.card) return false;
   
@@ -877,7 +876,7 @@ function hasActivatableAbility(
       if (manaCostMatch) {
         const costString = manaCostMatch.join("");
         const parsedCost = parseManaCost(costString);
-        if (!canPayManaCost(pool, parsedCost)) {
+        if (!canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
           return false; // Can't pay mana cost
         }
       }
@@ -889,7 +888,7 @@ function hasActivatableAbility(
       if (manaCostMatch) {
         const costString = manaCostMatch.join("");
         const parsedCost = parseManaCost(costString);
-        if (!canPayManaCost(pool, parsedCost)) {
+        if (!canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
           return false; // Can't pay mana cost
         }
       }
@@ -977,7 +976,7 @@ function hasActivatableAbility(
     const parsedCost = parseManaCost(costPart);
     
     // Check if we can pay it
-    if (canPayManaCost(pool, parsedCost)) {
+    if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
       return true;
     }
   }
@@ -996,9 +995,10 @@ function hasGraveyardActivatedAbility(
   ctx: GameContext,
   playerId: PlayerID,
   card: any,
-  pool: Record<string, number>
 ): boolean {
   if (!card || typeof card === "string") return false;
+
+  const { state } = ctx;
   
   const oracleText = card.oracle_text || "";
   const cardName = card.name || "this card";
@@ -1037,7 +1037,7 @@ function hasGraveyardActivatedAbility(
     const parsedCost = parseManaCost(costPart);
     
     // Check if we can pay it
-    if (canPayManaCost(pool, parsedCost)) {
+    if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
       return true;
     }
   }
@@ -1073,7 +1073,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
         continue;
       }
       
-      if (hasActivatableAbility(ctx, playerId, permanent, pool)) {
+      if (hasActivatableAbility(ctx, playerId, permanent)) {
         return true;
       }
     }
@@ -1099,7 +1099,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
           continue; // Card is on battlefield, don't allow graveyard abilities
         }
         
-        if (hasGraveyardActivatedAbility(ctx, playerId, card, pool)) {
+        if (hasGraveyardActivatedAbility(ctx, playerId, card)) {
           return true;
         }
       }
@@ -1600,7 +1600,7 @@ function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): 
       };
       
       // Check if player can pay the cost
-      if (canPayManaCost(pool, totalCost)) {
+      if (canPayManaCostWithAvailableSources(state, playerId, totalCost)) {
         // Also check if this commander has flash (can be cast at instant speed)
         const typeLine = (commander.type_line || "").toLowerCase();
         const oracleText = (commander.oracle_text || "").toLowerCase();
@@ -2050,7 +2050,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
         const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
         
         // Check normal mana cost
-        if (canPayManaCost(pool, adjustedCost)) {
+        if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
           // Also check if the spell has valid targets (if it requires targets)
           if (hasValidTargetsForSpell(state, playerId, card)) {
             return true;
@@ -2105,7 +2105,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             const parsedCost = parseManaCost(flashbackInfo.cost);
             const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-            if (canPayManaCost(pool, adjustedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
               // Also check if the spell has valid targets (if it requires targets)
               if (hasValidTargetsForSpell(state, playerId, card)) {
                 return true;
@@ -2150,7 +2150,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             
-            if (canPayManaCost(pool, adjustedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
               // Also check if the spell has valid targets (if it requires targets)
               if (hasValidTargetsForSpell(state, playerId, card)) {
                 return true;
@@ -2196,7 +2196,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             const parsedCost = parseManaCost(foretellInfo.cost);
             const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-            if (canPayManaCost(pool, adjustedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
               // Also check if the spell has valid targets (if it requires targets)
               if (hasValidTargetsForSpell(state, playerId, card)) {
                 return true;
@@ -2227,7 +2227,7 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
             const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
             const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
             
-            if (canPayManaCost(pool, adjustedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
               // Also check if the spell has valid targets (if it requires targets)
               if (hasValidTargetsForSpell(state, playerId, card)) {
                 return true;
@@ -2287,7 +2287,7 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
           const costString = equipMatch[1];
           if (costString) {
             const parsedCost = parseManaCost(costString);
-            if (canPayManaCost(pool, parsedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
               // Also check if there's a valid target (a creature to equip)
               const hasCreatureTarget = battlefield.some((p: any) => 
                 p.controller === playerId && 
@@ -2307,7 +2307,7 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
         if (reconfigureMatch) {
           const costString = reconfigureMatch[1];
           const parsedCost = parseManaCost(costString);
-          if (canPayManaCost(pool, parsedCost)) {
+          if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
             return true;
           }
         }
@@ -2324,7 +2324,7 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
           const costString = match[1];
           if (costString) {
             const parsedCost = parseManaCost(costString);
-            if (canPayManaCost(pool, parsedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
               return true;
             }
           }

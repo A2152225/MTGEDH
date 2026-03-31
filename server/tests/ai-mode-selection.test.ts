@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerID } from '../../shared/src';
-import { chooseAIModeSelectionsForStep } from '../src/socket/ai.js';
+import { chooseAIModeSelectionsForStep, chooseAIOptionSelectionsForStep } from '../src/socket/ai.js';
 
 function createPlayer(id: string, name: string, life = 40) {
   return { id, name, life } as any;
@@ -78,5 +78,43 @@ describe('AI mode selection', () => {
     });
 
     expect(decision).toEqual({ selections: ['overload'], cancelled: false });
+  });
+
+  it('declines ward when a Signet bundle only looks affordable in the aggregate pool', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = {
+      state: {
+        players: [createPlayer(playerId, 'AI'), createPlayer('opp1', 'Opponent')],
+        battlefield: [
+          {
+            id: 'island_1',
+            controller: playerId,
+            tapped: false,
+            card: { name: 'Island', type_line: 'Basic Land — Island', oracle_text: '' },
+          },
+          {
+            id: 'izzet_signet_1',
+            controller: playerId,
+            tapped: false,
+            card: { name: 'Izzet Signet', type_line: 'Artifact', oracle_text: '{1}, {T}: Add {U}{R}.' },
+          },
+        ],
+        manaPool: {
+          [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      },
+    } as any;
+
+    const decision = chooseAIOptionSelectionsForStep(game, playerId, {
+      wardPayment: true,
+      wardPaymentType: 'mana',
+      wardCost: '{U}{U}',
+      options: [
+        { id: 'pay_ward_cost', label: 'Pay ward' },
+        { id: 'decline_ward_cost', label: 'Decline ward' },
+      ],
+    });
+
+    expect(decision).toEqual({ selections: ['decline_ward_cost'], cancelled: false });
   });
 });

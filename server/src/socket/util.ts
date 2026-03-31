@@ -19,7 +19,7 @@ import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionTy
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCostAdjustmentInfo, isTransformBackFace } from "../state/modules/can-respond.js";
-import { parseManaCost as parseManaFromString, canPayManaCost, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
+import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
 import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRestrictions.js";
@@ -395,7 +395,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const reducedCost = applyCostReduction(parsedCost, reduction);
           const actualCost = { ...reducedCost, hasX: (reducedCost as any).hasX ?? (parsedCost as any).hasX ?? false };
           
-          if (canPayManaCost(availableMana, actualCost) || hasPayableAlternateCost(game as any, playerId, card)) {
+          if (canPayManaCostWithAvailableSources(state, playerId, actualCost) || hasPayableAlternateCost(game as any, playerId, card)) {
             playableIds.push(card.id);
           }
         }
@@ -450,7 +450,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
           
           // Check if player can pay the cost (normal or alternate like WUBRG/Omniscience)
-          if (canCastNow && (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, commander))) {
+          if (canCastNow && (canPayManaCostWithAvailableSources(state, playerId, parsedCost) || hasPayableAlternateCost(game as any, playerId, commander))) {
             playableIds.push(commanderId);
           }
         }
@@ -477,7 +477,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             const isInstantSpeed = typeLine.includes("instant");
             const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
             
-            if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
+            if (canCastNow && canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
               playableIds.push(card.id);
             }
           }
@@ -514,7 +514,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
             
             // Check if player can pay the cost (normal or alternate)
-            if (canCastNow && (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {
+            if (canCastNow && (canPayManaCostWithAvailableSources(state, playerId, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {
               playableIds.push(card.id);
             }
           }
@@ -546,7 +546,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
           
           // Check if player can pay the cost (normal or alternate)
-          if (canCastNow && (canPayManaCost(availableMana, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {
+          if (canCastNow && (canPayManaCostWithAvailableSources(state, playerId, parsedCost) || hasPayableAlternateCost(game as any, playerId, card))) {
             playableIds.push(card.id);
           }
         }
@@ -583,7 +583,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           // Check if the effect mentions "from your graveyard" or "from a graveyard"
           if (effectPart.toLowerCase().includes("graveyard")) {
             const parsedCost = parseManaFromString(costPart);
-            if (canPayManaCost(availableMana, parsedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
               hasGraveyardAbility = true;
               break;
             }
@@ -635,7 +635,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
             const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
             
-            if (canCastNow && canPayManaCost(availableMana, parsedCost)) {
+            if (canCastNow && canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
               // Highlight the library zone instead of the individual card
               playableIds.push(`library-${playerId}`);
             }
@@ -691,7 +691,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         if (effectLower.includes("equip") || effectLower.includes("reconfigure")) {
           if (isMainPhase && stackIsEmpty) {
             const parsedCost = parseManaFromString(costPart);
-            if (canPayManaCost(availableMana, parsedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
               hasActivatableAbility = true;
             }
           }
@@ -702,7 +702,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText)) {
           if (isMainPhase && stackIsEmpty) {
             const parsedCost = parseManaFromString(costPart);
-            if (canPayManaCost(availableMana, parsedCost)) {
+            if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
               hasActivatableAbility = true;
             }
           }
@@ -711,7 +711,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         
         // Instant-speed abilities - check if we can pay the cost
         const parsedCost = parseManaFromString(costPart);
-        if (canPayManaCost(availableMana, parsedCost)) {
+        if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
           hasActivatableAbility = true;
           break;
         }
