@@ -45,6 +45,8 @@ export type ScryfallCard = {
   }>;
 };
 
+const defaultScryfallRequestTimeoutMs = Number(process.env.SCRYFALL_REQUEST_TIMEOUT_MS ?? 8000);
+
 //
 // Normalization + decklist parsing
 //
@@ -278,27 +280,55 @@ function ensureFetch(): typeof fetch {
   return f.bind(globalThis);
 }
 
-async function doFetchJSON(url: string, options?: RequestInit, retries = 3, backoffMs = 300): Promise<any> {
+async function doFetchJSON(
+  url: string,
+  options?: RequestInit,
+  retries = 3,
+  backoffMs = 300,
+  timeoutMs = defaultScryfallRequestTimeoutMs,
+): Promise<any> {
   const f = ensureFetch();
   let attempt = 0;
   for (;;) {
-    const res = await f(url, {
-      ...(options || {}),
-      headers: {
-        Accept: "application/json",
-        ...(options?.headers || {}),
-      },
-    });
-    if (res.ok) {
-      return res.json();
+    let timeoutHandle: NodeJS.Timeout | null = null;
+    try {
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      if (controller && timeoutMs > 0) {
+        timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+      }
+
+      const res = await f(url, {
+        ...(options || {}),
+        headers: {
+          Accept: "application/json",
+          ...(options?.headers || {}),
+        },
+        signal: controller?.signal,
+      });
+      if (res.ok) {
+        return res.json();
+      }
+      if ((res.status === 429 || res.status >= 500) && attempt < retries) {
+        const retryAfter = Number(res.headers.get("Retry-After")) || backoffMs * Math.pow(2, attempt);
+        await new Promise((r) => setTimeout(r, retryAfter));
+        attempt++;
+        continue;
+      }
+      throw new Error(`Scryfall error ${res.status} (${url})`);
+    } catch (error: any) {
+      const timedOut = error?.name === 'AbortError';
+      if (timedOut && attempt < retries) {
+        await new Promise((r) => setTimeout(r, backoffMs * Math.pow(2, attempt)));
+        attempt++;
+        continue;
+      }
+      if (timedOut) {
+        throw new Error(`Scryfall request timed out after ${timeoutMs}ms (${url})`);
+      }
+      throw error;
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
     }
-    if ((res.status === 429 || res.status >= 500) && attempt < retries) {
-      const retryAfter = Number(res.headers.get("Retry-After")) || backoffMs * Math.pow(2, attempt);
-      await new Promise((r) => setTimeout(r, retryAfter));
-      attempt++;
-      continue;
-    }
-    throw new Error(`Scryfall error ${res.status} (${url})`);
   }
 }
 

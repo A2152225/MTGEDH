@@ -2,15 +2,14 @@ import type { Server, Socket } from "socket.io";
 import * as crypto from "node:crypto";
 import {
   parseDecklist,
-  fetchCardsByExactNamesBatch,
   fetchCardByExactNameStrict,
   validateDeck,
-  normalizeName,
   shouldSkipDeckLine,
   fetchDeckFromMoxfield,
   isMoxfieldUrl,
   parsedDecklistToExpandedString,
 } from "../services/scryfall";
+import { resolveDeckList, type ResolveDeckListStatus } from "../services/deckImport.js";
 import { ensureGame, broadcastGame } from "./util";
 import { appendEvent } from "../db";
 import {
@@ -53,6 +52,59 @@ function generateUniqueCardInstanceId(scryfallId: string): string {
   // Use crypto for better randomness
   const randomBytes = crypto.randomBytes(4).toString('hex');
   return `${scryfallId}_${timestamp}_${counter}_${randomBytes}`;
+}
+
+function createDeckResolutionStatusReporter(
+  io: Server,
+  socket: Socket,
+  gameId: string,
+  scope: string,
+  options: {
+    playerId?: PlayerID;
+    slowFallbackNotice?: "room" | "socket" | "none";
+  } = {},
+) {
+  let lastLogAt = 0;
+  let slowFallbackNotified = false;
+
+  return (status: ResolveDeckListStatus) => {
+    const now = Date.now();
+    const shouldLog =
+      status.phase === "start" ||
+      status.phase === "scryfall-slow" ||
+      status.phase === "local-load" ||
+      status.phase === "done" ||
+      status.completed >= status.total ||
+      now - lastLogAt >= 1500;
+
+    if (shouldLog) {
+      debug(1, `[deck] ${scope} ${status.phase}`, {
+        gameId,
+        playerId: options.playerId,
+        source: status.source,
+        completed: status.completed,
+        total: status.total,
+        message: status.message,
+      });
+      lastLogAt = now;
+    }
+
+    if (!slowFallbackNotified && status.phase === "scryfall-slow") {
+      slowFallbackNotified = true;
+      const payload = {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `Scryfall is slow to respond. Falling back to local card data for deck import.`,
+        ts: Date.now(),
+      };
+      if (options.slowFallbackNotice === "room") {
+        io.to(gameId).emit("chat", payload);
+      } else if (options.slowFallbackNotice === "socket") {
+        socket.emit("chat", payload);
+      }
+    }
+  };
 }
 
 /**
@@ -1291,51 +1343,20 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      const requestedNames = parsed.map((p) => p.name);
-      let byName: Map<string, any> | null = null;
-      try {
-        byName = await fetchCardsByExactNamesBatch(requestedNames);
-      } catch {
-        byName = null;
-      }
-
-      const resolvedCards: Array<
-        Pick<
-          KnownCardRef,
-          "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout" | "loyalty"
-        >
-      > = [];
-      const validationCards: any[] = [];
-      const missing: string[] = [];
-
-      if (byName) {
-        for (const { name, count } of parsed) {
-          const key = normalizeName(name).toLowerCase();
-          const c = byName.get(key);
-          if (!c) {
-            missing.push(name);
-            continue;
-          }
-          for (let i = 0; i < (count || 1); i++) {
-            validationCards.push(c);
-            // Generate unique instance ID to avoid duplicate ID issues with multiple copies
-            resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
-          }
-        }
-      } else {
-        for (const { name, count } of parsed) {
-          try {
-            const c = await fetchCardByExactNameStrict(name);
-            for (let i = 0; i < (count || 1); i++) {
-              validationCards.push(c);
-              // Generate unique instance ID to avoid duplicate ID issues with multiple copies
-              resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
-            }
-          } catch {
-            missing.push(name);
-          }
-        }
-      }
+      const {
+        resolvedCards,
+        validationCards,
+        missing,
+        usedLocalFallback,
+        sourcesUsed,
+        scryfallTimedOut,
+      } = await resolveDeckList(parsed, {
+        uniqueInstanceIds: true,
+        onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "importDeck", {
+          playerId: pid,
+          slowFallbackNotice: "room",
+        }),
+      });
 
       // Compact log: only show counts + first/last card, not whole deck
       const sampleFirst = resolvedCards[0];
@@ -1348,6 +1369,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         playerId: pid,
         resolvedCount: resolvedCards.length,
         missingCount: missing.length,
+        usedLocalFallback,
+        sourcesUsed,
+        scryfallTimedOut,
         firstCard: sampleFirst
           ? {
               name: sampleFirst.name,
@@ -1835,38 +1859,24 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          const requestedNames = parsed.map((p) => p.name);
-          let byName: Map<string, any> | null = null;
-          try {
-            byName = await fetchCardsByExactNamesBatch(requestedNames);
-          } catch {
-            byName = null;
-          }
+          const resolution = await resolveDeckList(parsed, {
+            uniqueInstanceIds: true,
+            onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "useSavedDeck", {
+              playerId: pid,
+              slowFallbackNotice: "socket",
+            }),
+          });
+          resolvedCards = resolution.resolvedCards;
+          missing = resolution.missing;
 
-          if (byName) {
-            for (const { name, count } of parsed) {
-              const key = normalizeName(name).toLowerCase();
-              const c = byName.get(key);
-              if (!c) {
-                missing.push(name);
-                continue;
-              }
-              for (let i = 0; i < (count || 1); i++) {
-                resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
-              }
-            }
-          } else {
-            for (const { name, count } of parsed) {
-              try {
-                const c = await fetchCardByExactNameStrict(name);
-                for (let i = 0; i < (count || 1); i++) {
-                  resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
-                }
-              } catch {
-                missing.push(name);
-              }
-            }
-          }
+          debug(1, "[deck] useSavedDeck uncached resolution metadata", {
+            gameId,
+            deckId,
+            playerId: pid,
+            usedLocalFallback: resolution.usedLocalFallback,
+            sourcesUsed: resolution.sourcesUsed,
+            scryfallTimedOut: resolution.scryfallTimedOut,
+          });
         }
 
         const sampleFirst = resolvedCards[0];
@@ -2235,27 +2245,22 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           let resolvedCardsJson: string | null = null;
           if (cacheCards && parsed.length > 0) {
             try {
-              const requestedNames = parsed.map((p) => p.name);
-              const byName = await fetchCardsByExactNamesBatch(requestedNames);
-              
-              if (byName) {
-                const resolvedCards: any[] = [];
-                for (const { name, count } of parsed) {
-                  const key = normalizeName(name).toLowerCase();
-                  const c = byName.get(key);
-                  if (c) {
-                    for (let i = 0; i < (count || 1); i++) {
-                      resolvedCards.push(createCardFromScryfall(c));
-                    }
-                  }
-                }
-                if (resolvedCards.length > 0) {
-                  resolvedCardsJson = JSON.stringify(resolvedCards);
-                  debug(1, "[deck] saveDeck caching resolved cards", {
-                    deckId,
-                    resolvedCount: resolvedCards.length,
-                  });
-                }
+              const resolution = await resolveDeckList(parsed, {
+                uniqueInstanceIds: false,
+                onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "saveDeck cacheCards", {
+                  playerId: pid,
+                  slowFallbackNotice: "none",
+                }),
+              });
+              if (resolution.resolvedCards.length > 0) {
+                resolvedCardsJson = JSON.stringify(resolution.resolvedCards);
+                debug(1, "[deck] saveDeck caching resolved cards", {
+                  deckId,
+                  resolvedCount: resolution.resolvedCards.length,
+                  usedLocalFallback: resolution.usedLocalFallback,
+                  sourcesUsed: resolution.sourcesUsed,
+                  scryfallTimedOut: resolution.scryfallTimedOut,
+                });
               }
             } catch (e) {
               debugWarn(1, "saveDeck: failed to resolve cards for caching", e);
@@ -2676,37 +2681,14 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           return;
         }
 
-        const requestedNames = parsed.map((p) => p.name);
-        let byName: Map<string, any> | null = null;
-        try {
-          byName = await fetchCardsByExactNamesBatch(requestedNames);
-        } catch (e) {
-          debugWarn(1, "cacheSavedDeck: fetchCardsByExactNamesBatch failed", e);
-          socket.emit("deckError", {
-            gameId,
-            message: "Failed to fetch card data from Scryfall.",
-          });
-          return;
-        }
-
-        if (!byName) {
-          socket.emit("deckError", {
-            gameId,
-            message: "Failed to resolve cards.",
-          });
-          return;
-        }
-
-        const resolvedCards: any[] = [];
-        for (const { name, count } of parsed) {
-          const key = normalizeName(name).toLowerCase();
-          const c = byName.get(key);
-          if (c) {
-            for (let i = 0; i < (count || 1); i++) {
-              resolvedCards.push(createCardFromScryfall(c));
-            }
-          }
-        }
+        const resolution = await resolveDeckList(parsed, {
+          uniqueInstanceIds: false,
+          onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "cacheSavedDeck", {
+            playerId: pid,
+            slowFallbackNotice: "socket",
+          }),
+        });
+        const resolvedCards = resolution.resolvedCards;
 
         if (resolvedCards.length === 0) {
           socket.emit("deckError", {
@@ -2732,6 +2714,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           gameId,
           deckId,
           cachedCount: resolvedCards.length,
+          usedLocalFallback: resolution.usedLocalFallback,
+          sourcesUsed: resolution.sourcesUsed,
+          scryfallTimedOut: resolution.scryfallTimedOut,
         });
 
         socket.emit("deckCached", { gameId, deckId, cachedCount: resolvedCards.length });
@@ -3296,58 +3281,29 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           ts: Date.now(),
         });
 
-        // Now resolve the cards via Scryfall (same as importDeck)
-        const requestedNames = parsed.map((p) => p.name);
-        let byName: Map<string, any> | null = null;
-        try {
-          byName = await fetchCardsByExactNamesBatch(requestedNames);
-        } catch {
-          byName = null;
-        }
-
-        const resolvedCards: Array<
-          Pick<
-            KnownCardRef,
-            "id" | "name" | "type_line" | "oracle_text" | "image_uris" | "mana_cost" | "power" | "toughness" | "card_faces" | "layout" | "loyalty"
-          >
-        > = [];
-        const validationCards: any[] = [];
-        const missing: string[] = [];
-
-        if (byName) {
-          for (const { name, count } of parsed) {
-            const key = normalizeName(name).toLowerCase();
-            const c = byName.get(key);
-            if (!c) {
-              missing.push(name);
-              continue;
-            }
-            for (let i = 0; i < (count || 1); i++) {
-              validationCards.push(c);
-              // Generate unique instance ID to avoid duplicate ID issues with multiple copies
-              resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
-            }
-          }
-        } else {
-          for (const { name, count } of parsed) {
-            try {
-              const c = await fetchCardByExactNameStrict(name);
-              for (let i = 0; i < (count || 1); i++) {
-                validationCards.push(c);
-                // Generate unique instance ID to avoid duplicate ID issues with multiple copies
-                resolvedCards.push(createCardFromScryfall(c, { instanceId: generateUniqueCardInstanceId(c.id) }));
-              }
-            } catch {
-              missing.push(name);
-            }
-          }
-        }
+        const {
+          resolvedCards,
+          validationCards,
+          missing,
+          usedLocalFallback,
+          sourcesUsed,
+          scryfallTimedOut,
+        } = await resolveDeckList(parsed, {
+          uniqueInstanceIds: true,
+          onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "importDeckFromUrl", {
+            playerId: pid,
+            slowFallbackNotice: "room",
+          }),
+        });
 
         debug(1, "[deck] importDeckFromUrl resolved cards", {
           gameId,
           playerId: pid,
           resolvedCount: resolvedCards.length,
           missingCount: missing.length,
+          usedLocalFallback,
+          sourcesUsed,
+          scryfallTimedOut,
         });
 
         try {
