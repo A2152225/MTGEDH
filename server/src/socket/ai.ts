@@ -4390,9 +4390,8 @@ export async function handleAIPriority(
         if (decision.action?.attackers?.length > 0) {
           await executeDeclareAttackers(io, gameId, playerId, decision.action.attackers);
         } else {
-          // No attackers, pass priority (step will advance when all players pass)
-          debug(1, '[AI] No attackers to declare, passing priority');
-          await executePassPriority(io, gameId, playerId);
+          debug(1, '[AI] No attackers to declare, skipping attackers step');
+          await executeDeclareAttackers(io, gameId, playerId, []);
         }
         return;
       }
@@ -6245,6 +6244,39 @@ async function executeDeclareAttackers(
   debug(1, '[AI] Declaring attackers:', { gameId, playerId, attackers });
   
   try {
+    if (attackers.length === 0) {
+      const state = game.state as any;
+
+      state.attackedPlayersThisTurnByPlayer = state.attackedPlayersThisTurnByPlayer || {};
+      state.attackedPlayersThisTurnByPlayer[String(playerId)] = [];
+      state.attackedDefendingPlayersThisCombatByPlayer = state.attackedDefendingPlayersThisCombatByPlayer || {};
+      state.attackedDefendingPlayersThisCombatByPlayer[String(playerId)] = [];
+
+      if (typeof (game as any).nextStep === 'function') {
+        await (game as any).nextStep();
+      }
+
+      await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', {
+        playerId,
+        attackers: [],
+      });
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} attacks with no creatures.`,
+        ts: Date.now(),
+      });
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
     // Extract creature IDs for game.declareAttackers
     const attackerIds = attackers.map(a => a.creatureId);
     

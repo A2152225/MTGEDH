@@ -451,6 +451,7 @@ async function advanceLiveGame(
     tickMs: number;
     maxTurns: number;
     maxStagnantTicks: number;
+    maxNoTurnAdvanceMs?: number;
     stopWhen?: (game: any) => boolean;
     label?: string;
   },
@@ -458,6 +459,7 @@ async function advanceLiveGame(
   let lastSeq = Number(game.seq || 0);
   let stagnantTicks = 0;
   let lastLoggedTurn = Number((game.state as any).turnNumber || 0);
+  let lastTurnAdvanceElapsedMs = 0;
   const startedAt = process.hrtime.bigint();
 
   const maybeLogProgress = (reason: string) => {
@@ -476,6 +478,7 @@ async function advanceLiveGame(
 
     await vi.advanceTimersByTimeAsync(options.tickMs);
 
+    const simulatedElapsedMs = (tick + 1) * options.tickMs;
     const currentSeq = Number(game.seq || 0);
     const currentTurn = Number((game.state as any).turnNumber || 0);
 
@@ -488,6 +491,7 @@ async function advanceLiveGame(
 
     if (currentTurn > lastLoggedTurn) {
       lastLoggedTurn = currentTurn;
+      lastTurnAdvanceElapsedMs = simulatedElapsedMs;
       maybeLogProgress(`advanced-turn-${currentTurn}`);
     } else if (LIVE_PRECON_PROGRESS_LOG && tick > 0 && tick % 100 === 0) {
       maybeLogProgress(`heartbeat-${tick}`);
@@ -506,6 +510,17 @@ async function advanceLiveGame(
     if (stagnantTicks >= options.maxStagnantTicks) {
       maybeLogProgress('stalled');
       throw new Error(`Game stalled without state changes: ${JSON.stringify(stateSnapshot(game))}`);
+    }
+
+    if (
+      options.maxNoTurnAdvanceMs &&
+      currentTurn > 0 &&
+      simulatedElapsedMs - lastTurnAdvanceElapsedMs >= options.maxNoTurnAdvanceMs
+    ) {
+      maybeLogProgress('turn-stalled');
+      throw new Error(
+        `Game stalled without advancing turns for ${options.maxNoTurnAdvanceMs}ms: ${JSON.stringify(stateSnapshot(game))}`,
+      );
     }
   }
 
@@ -567,6 +582,7 @@ describe('live server precon end-to-end', () => {
         tickMs: 30_000,
         maxTurns: 250,
         maxStagnantTicks: 12,
+        maxNoTurnAdvanceMs: 300_000,
         label: 'slow-finish',
       });
 
