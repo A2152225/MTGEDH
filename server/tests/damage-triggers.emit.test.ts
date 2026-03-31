@@ -2,6 +2,19 @@ import { describe, it, expect } from 'vitest';
 import { emitPendingDamageTriggers } from '../src/socket/game-actions.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
+function createNoopIo() {
+  return {
+    to: (_room: string) => ({
+      emit: (_event: string, _payload: any) => {
+        // no-op
+      },
+    }),
+    emit: (_event: string, _payload: any) => {
+      // no-op
+    },
+  } as any;
+}
+
 describe('Pending damage triggers (emission)', () => {
   it('does not emit when there are no pending triggers', () => {
     const gameId = 'game_1';
@@ -80,5 +93,149 @@ describe('Pending damage triggers (emission)', () => {
     expect(step.damageTrigger?.damageAmount).toBe(5);
     expect(Array.isArray(step.validTargets)).toBe(true);
     expect(step.validTargets.length).toBeGreaterThan(0);
+  });
+
+  it('offers opponents and planeswalkers for opponent-or-planeswalker damage triggers', () => {
+    const gameId = 'game_wall_of_souls_emit';
+    ResolutionQueueManager.clearAllSteps(gameId);
+
+    const game = {
+      state: {
+        players: [{ id: 'p1', name: 'P1' }, { id: 'p2', name: 'P2' }],
+        battlefield: [
+          {
+            id: 'src_wall',
+            controller: 'p1',
+            card: {
+              name: 'Wall of Souls',
+              type_line: 'Creature — Wall',
+            },
+          },
+          {
+            id: 'pw_1',
+            controller: 'p1',
+            card: {
+              name: 'Liliana of the Veil',
+              type_line: 'Legendary Planeswalker — Liliana',
+            },
+          },
+          {
+            id: 'creature_1',
+            controller: 'p2',
+            card: {
+              name: 'Grizzly Bears',
+              type_line: 'Creature — Bear',
+            },
+          },
+        ],
+        pendingDamageTriggers: {
+          trig_wall: {
+            sourceId: 'src_wall',
+            sourceName: 'Wall of Souls',
+            controller: 'p1',
+            damageAmount: 3,
+            targetType: 'opponent_or_planeswalker',
+            targetRestriction: 'opponent or planeswalker',
+          },
+        },
+      },
+    } as any;
+
+    const emitted = emitPendingDamageTriggers({} as any, game, gameId);
+    expect(emitted).toBe(1);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(1);
+
+    const step = queue.steps[0] as any;
+    expect(step.targetDescription).toBe('target opponent or planeswalker');
+    expect(step.validTargets.map((t: any) => t.id)).toContain('p2');
+    expect(step.validTargets.map((t: any) => t.id)).toContain('pw_1');
+    expect(step.validTargets.map((t: any) => t.id)).not.toContain('p1');
+    expect(step.validTargets.map((t: any) => t.id)).not.toContain('creature_1');
+  });
+
+  it('auto-resolves combat-damage life-gain triggers without creating a target step', () => {
+    const gameId = 'game_wall_of_essence_emit';
+    ResolutionQueueManager.clearAllSteps(gameId);
+
+    const game = {
+      state: {
+        players: [{ id: 'p1', name: 'P1', life: 40 }, { id: 'p2', name: 'P2', life: 40 }],
+        startingLife: 40,
+        life: { p1: 40, p2: 40 },
+        battlefield: [
+          {
+            id: 'src_essence',
+            controller: 'p1',
+            card: {
+              name: 'Wall of Essence',
+              type_line: 'Creature — Wall',
+            },
+          },
+        ],
+        pendingDamageTriggers: {
+          trig_essence: {
+            sourceId: 'src_essence',
+            sourceName: 'Wall of Essence',
+            controller: 'p1',
+            damageAmount: 4,
+            targetType: 'none',
+            effect: 'You gain that much life',
+            effectMode: 'gain_life',
+          },
+        },
+      },
+    } as any;
+
+    const emitted = emitPendingDamageTriggers(createNoopIo(), game, gameId);
+    expect(emitted).toBe(1);
+    expect((game.state as any).life.p1).toBe(44);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(0);
+  });
+
+  it('auto-resolves Souls of the Faultless using the recorded attacking player', () => {
+    const gameId = 'game_souls_faultless_emit';
+    ResolutionQueueManager.clearAllSteps(gameId);
+
+    const game = {
+      state: {
+        players: [{ id: 'p1', name: 'P1', life: 40 }, { id: 'p2', name: 'P2', life: 40 }],
+        startingLife: 40,
+        life: { p1: 40, p2: 40 },
+        battlefield: [
+          {
+            id: 'src_souls',
+            controller: 'p1',
+            card: {
+              name: 'Souls of the Faultless',
+              type_line: 'Creature — Spirit',
+            },
+          },
+        ],
+        pendingDamageTriggers: {
+          trig_souls: {
+            sourceId: 'src_souls',
+            sourceName: 'Souls of the Faultless',
+            controller: 'p1',
+            damageAmount: 3,
+            targetType: 'none',
+            effect: 'You gain that much life and attacking player loses that much life',
+            effectMode: 'gain_life_and_attacking_player_loses_life',
+            attackingPlayerId: 'p2',
+          },
+        },
+      },
+    } as any;
+
+    const emitted = emitPendingDamageTriggers(createNoopIo(), game, gameId);
+    expect(emitted).toBe(1);
+    expect((game.state as any).life.p1).toBe(43);
+    expect((game.state as any).life.p2).toBe(37);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.length).toBe(0);
   });
 });

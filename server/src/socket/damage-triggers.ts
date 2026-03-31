@@ -1,8 +1,76 @@
 import type { Server } from 'socket.io';
 import type { InMemoryGame } from '../state/types';
-import { broadcastGame } from './util';
+import { broadcastGame, getPlayerName } from './util';
+import { processLifeChange } from '../state/modules/game-state-effects.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../state/resolution/index.js';
+import { triggerLifeGainEffects } from '../state/utils.js';
 import { debug, debugWarn } from '../utils/debug.js';
+
+function syncPlayerLife(state: any, playerId: string, lifeTotal: number): void {
+  state.life = state.life || {};
+  state.life[playerId] = lifeTotal;
+
+  const player = (Array.isArray(state.players) ? state.players : []).find((entry: any) => String(entry?.id) === String(playerId));
+  if (player) {
+    player.life = lifeTotal;
+  }
+}
+
+function applyAutomaticLifeChange(
+  game: InMemoryGame,
+  gameId: string,
+  playerId: string,
+  amount: number,
+  isGain: boolean,
+): number {
+  const numericAmount = Math.max(0, Number(amount || 0));
+  if (!playerId || numericAmount <= 0) return 0;
+
+  const ctx: any = {
+    state: game.state,
+    libraries: (game as any).libraries,
+    bumpSeq: () => {
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+    },
+    rng: (game as any).rng,
+    gameId,
+  };
+
+  const stateAny = game.state as any;
+  const startingLife = Number(stateAny?.startingLife ?? 40);
+  const currentLife = Number(stateAny?.life?.[playerId] ?? startingLife);
+  const result = processLifeChange(ctx, playerId, numericAmount, isGain);
+  if (result.prevented || Number(result.finalAmount || 0) === 0) {
+    return 0;
+  }
+
+  if (isGain) {
+    const finalAmount = Number(result.finalAmount || 0);
+    syncPlayerLife(stateAny, playerId, currentLife + finalAmount);
+    try {
+      if (finalAmount > 0) {
+        stateAny.lifeGainedThisTurn = stateAny.lifeGainedThisTurn || {};
+        stateAny.lifeGainedThisTurn[playerId] = (stateAny.lifeGainedThisTurn[playerId] || 0) + finalAmount;
+        triggerLifeGainEffects(stateAny, playerId, finalAmount);
+      } else if (finalAmount < 0) {
+        stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
+        stateAny.lifeLostThisTurn[playerId] = (stateAny.lifeLostThisTurn[playerId] || 0) + Math.abs(finalAmount);
+      }
+    } catch {}
+
+    return finalAmount;
+  }
+
+  const finalAmount = Math.max(0, Number(result.finalAmount || 0));
+  syncPlayerLife(stateAny, playerId, currentLife - finalAmount);
+  try {
+    stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
+    stateAny.lifeLostThisTurn[playerId] = (stateAny.lifeLostThisTurn[playerId] || 0) + finalAmount;
+  } catch {}
+  return -finalAmount;
+}
 
 /**
  * Emit any queued damage-received triggers to the appropriate controllers.
@@ -34,18 +102,64 @@ export function emitPendingDamageTriggers(
     const trigger = pendingTriggers[triggerId];
     if (!trigger) continue;
 
-    const { sourceId, sourceName, controller, damageAmount, targetType, targetRestriction } = trigger;
+    const { sourceId, sourceName, controller, damageAmount, targetType, targetRestriction, effectMode } = trigger as any;
 
     // Clean up the pending entry immediately to avoid double-enqueue
     delete pendingTriggers[triggerId];
 
     const sourcePerm = battlefield.find((p: any) => p?.id === sourceId);
     const imageUrl = sourcePerm?.card?.image_uris?.small || sourcePerm?.card?.image_uris?.normal;
+    const controllerId = String(controller || '');
+    const dmg = Number(damageAmount || 0);
+
+    if (String(targetType) === 'none' && String(effectMode || '') === 'gain_life') {
+      if (controllerId && dmg > 0) {
+        const gained = applyAutomaticLifeChange(game, gameId, controllerId, dmg, true);
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game as any, controllerId)} ${gained < 0 ? `loses ${Math.abs(gained)}` : `gains ${gained}`} life.`,
+          ts: Date.now(),
+        });
+
+        if (typeof (game as any).bumpSeq === 'function') {
+          (game as any).bumpSeq();
+        }
+        broadcastGame(io, game, gameId);
+      }
+
+      emitted++;
+      continue;
+    }
+
+    if (String(targetType) === 'none' && String(effectMode || '') === 'gain_life_and_attacking_player_loses_life') {
+      if (controllerId && dmg > 0) {
+        const attackerId = String((trigger as any).attackingPlayerId || (game.state as any)?.activePlayer || (game.state as any)?.turnPlayer || '');
+        const gained = applyAutomaticLifeChange(game, gameId, controllerId, dmg, true);
+        const lost = attackerId ? applyAutomaticLifeChange(game, gameId, attackerId, dmg, false) : 0;
+        const attackerLabel = attackerId ? getPlayerName(game as any, attackerId) : 'The attacking player';
+
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${sourceName}: ${getPlayerName(game as any, controllerId)} ${gained < 0 ? `loses ${Math.abs(gained)}` : `gains ${gained}`} life and ${attackerLabel} loses ${Math.abs(lost)} life.`,
+          ts: Date.now(),
+        });
+
+        if (typeof (game as any).bumpSeq === 'function') {
+          (game as any).bumpSeq();
+        }
+        broadcastGame(io, game, gameId);
+      }
+
+      emitted++;
+      continue;
+    }
 
     // Some triggers do not require target selection (e.g., "each opponent")
     if (String(targetType) === 'each_opponent') {
-      const controllerId = String(controller || '');
-      const dmg = Number(damageAmount || 0);
       if (controllerId && dmg > 0) {
         const sourceTypeLineLower = String(sourcePerm?.card?.type_line || '').toLowerCase();
         const isSourceCreature = sourceTypeLineLower.includes('creature');
@@ -97,7 +211,6 @@ export function emitPendingDamageTriggers(
       continue;
     }
 
-    const controllerId = String(controller || '');
     if (!controllerId) continue;
 
     const targetTypeStr = String(targetType || 'any');
@@ -138,6 +251,11 @@ export function emitPendingDamageTriggers(
       targetDescription = 'target opponent';
       targetTypes = ['player'];
       addPlayerTargets(p => String(p.id) !== controllerId);
+    } else if (targetTypeStr === 'opponent_or_planeswalker') {
+      targetDescription = 'target opponent or planeswalker';
+      targetTypes = ['player', 'planeswalker'];
+      addPlayerTargets(p => String(p.id) !== controllerId);
+      addPermanentTargets((_perm, typeLineLower) => typeLineLower.includes('planeswalker'));
     } else if (targetTypeStr === 'controller') {
       targetDescription = 'you';
       targetTypes = ['player'];

@@ -40,6 +40,21 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       mandatory: isMandatoryEffect(effect),
     });
   }
+
+  // Postcombat main phase triggers.
+  const postcombatMatch = oracleText.match(/at the beginning of (?:(?:each of )?your )?(?:post-?combat|second) main phases?,?\s*([^.]+(?:\.\s*if you do,?\s*[^.]+)?)/i);
+  if (postcombatMatch) {
+    const effect = postcombatMatch[1].trim();
+    triggers.push({
+      id: `${permanentId}_postcombat_main`,
+      permanentId,
+      controllerId,
+      cardName,
+      timing: 'postcombat_main',
+      effect,
+      mandatory: isMandatoryEffect(effect),
+    });
+  }
   
   // End step triggers
   const endStepMatch = oracleText.match(/at the beginning of (?:your |each )?end step,?\s*([^.]+)/);

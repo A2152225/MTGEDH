@@ -282,6 +282,33 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
       batched: true,
     });
   }
+
+  // "When/Whenever you're dealt combat damage"
+  const youAreDealtCombatDamageMatch = oracleText.match(/when(?:ever)?\s+you(?:'re| are)\s+dealt\s+combat\s+damage,?\s*([^.]+)/i);
+  if (youAreDealtCombatDamageMatch && !triggers.some(t => t.triggerType === 'you_are_dealt_combat_damage')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'you_are_dealt_combat_damage',
+      description: youAreDealtCombatDamageMatch[1].trim(),
+      effect: youAreDealtCombatDamageMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+
+  // "Whenever one or more creatures deal combat damage to you"
+  const creaturesDealCombatDamageToYouMatch = oracleText.match(/whenever\s+one\s+or\s+more\s+creatures\s+deal\s+combat\s+damage\s+to\s+you,?\s*([^.]+)/i);
+  if (creaturesDealCombatDamageToYouMatch && !triggers.some(t => t.triggerType === 'creatures_deal_combat_damage_to_you_batched')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creatures_deal_combat_damage_to_you_batched',
+      description: creaturesDealCombatDamageToYouMatch[1].trim(),
+      effect: creaturesDealCombatDamageToYouMatch[1].trim(),
+      mandatory: true,
+      batched: true,
+    });
+  }
   
   // "Whenever ~ deals damage to a player" (includes combat and non-combat)
   const damagePlayerPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNameEscaped})\\s+deals\\s+damage\\s+to\\s+(?:a\\s+)?(?:player|an?\\s+opponent),?\\s*([^.]+)`, 'i');
@@ -1125,7 +1152,7 @@ export interface DamageReceivedTriggerInfo {
   sourceName: string;
   controller: string;
   damageAmount: number;
-  targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller';
+  targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller' | 'opponent_or_planeswalker';
   targetRestriction?: string;
 }
 
@@ -1156,15 +1183,20 @@ export function checkDamageReceivedTrigger(
   // Pattern 2: "Whenever [CardName] is dealt damage"
   const hasTrigger = 
     oracleText.includes("whenever this creature is dealt damage") ||
-    oracleText.includes(`whenever ${lowerName} is dealt damage`);
+    oracleText.includes("whenever this creature is dealt combat damage") ||
+    oracleText.includes(`whenever ${lowerName} is dealt damage`) ||
+    oracleText.includes(`whenever ${lowerName} is dealt combat damage`);
   
   if (!hasTrigger) return null;
   
   // Determine target type from oracle text
-  let targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller' = 'any';
+  let targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'each_opponent' | 'controller' | 'opponent_or_planeswalker' = 'any';
   let targetRestriction = '';
   
-  if (oracleText.includes("target opponent")) {
+  if (oracleText.includes("target opponent or planeswalker")) {
+    targetType = 'opponent_or_planeswalker';
+    targetRestriction = 'opponent or planeswalker';
+  } else if (oracleText.includes("target opponent")) {
     targetType = 'opponent';
     targetRestriction = 'opponent';
   } else if (oracleText.includes("any target that isn't a dragon")) {

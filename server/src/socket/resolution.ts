@@ -6957,6 +6957,9 @@ async function handleStepResponse(
             damageAmount: triggerInfo.damageAmount,
             triggerType: 'dealt_damage',
             targetType: triggerInfo.targetType,
+            effect: triggerInfo.effect,
+            ...(triggerInfo.effectMode ? { effectMode: triggerInfo.effectMode } : {}),
+            ...(triggerInfo.attackingPlayerId ? { attackingPlayerId: triggerInfo.attackingPlayerId } : {}),
             targetRestriction: triggerInfo.targetRestriction,
           };
         });
@@ -12491,6 +12494,9 @@ async function handleTargetSelectionResponse(
           damageAmount: nextTrigger.damageAmount,
           triggerType: 'dealt_damage',
           targetType: nextTrigger.targetType,
+          effect: nextTrigger.effect,
+          ...(nextTrigger.effectMode ? { effectMode: nextTrigger.effectMode } : {}),
+          ...(nextTrigger.attackingPlayerId ? { attackingPlayerId: nextTrigger.attackingPlayerId } : {}),
           targetRestriction: nextTrigger.targetRestriction,
         };
       });

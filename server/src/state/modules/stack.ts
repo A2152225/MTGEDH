@@ -3618,6 +3618,91 @@ export function triggerETBEffectsForPermanent(
 }
 
 /**
+ * Get player ids that were dealt combat damage this turn.
+ */
+function getCombatDamagedPlayerIds(state: any): string[] {
+  const tracker = state?.creaturesThatDealtDamageToPlayer;
+  if (!tracker || typeof tracker !== 'object') return [];
+
+  return Object.entries(tracker)
+    .filter(([, entry]) => entry && typeof entry === 'object' && Object.keys(entry as any).length > 0)
+    .map(([playerId]) => String(playerId));
+}
+
+function countOpponentsDealtCombatDamageThisTurn(state: any, controller: PlayerID): number {
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const opponentIds = new Set(
+    players
+      .map((player: any) => String(player?.id || ''))
+      .filter((playerId: string) => playerId && playerId !== String(controller))
+  );
+
+  return getCombatDamagedPlayerIds(state).filter((playerId) => opponentIds.has(playerId)).length;
+}
+
+function countPlayersDealtCombatDamageThisTurn(state: any): number {
+  return getCombatDamagedPlayerIds(state).length;
+}
+
+function countOpponentsDealtCombatDamageBySourceOrSubtypeThisTurn(
+  state: any,
+  controller: PlayerID,
+  options: {
+    sourcePermanentId?: string;
+    sourceName?: string;
+    subtype?: string;
+  }
+): number {
+  const tracker = state?.creaturesThatDealtDamageToPlayer;
+  if (!tracker || typeof tracker !== 'object') return 0;
+
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const opponentIds = new Set(
+    players
+      .map((player: any) => String(player?.id || ''))
+      .filter((playerId: string) => playerId && playerId !== String(controller))
+  );
+
+  const sourcePermanentId = String(options.sourcePermanentId || '').trim();
+  const sourceName = String(options.sourceName || '').trim().toLowerCase();
+  const subtype = String(options.subtype || '').trim().toLowerCase();
+
+  let count = 0;
+  for (const playerId of opponentIds) {
+    const entry = (tracker as any)?.[String(playerId)];
+    if (!entry || typeof entry !== 'object') continue;
+
+    const matched = Object.entries(entry as Record<string, any>).some(([creatureId, data]) => {
+      const damageSourceName = String((data as any)?.creatureName || '').trim().toLowerCase();
+      if (sourcePermanentId && String(creatureId) === sourcePermanentId) {
+        return true;
+      }
+      if (sourceName && damageSourceName === sourceName) {
+        return true;
+      }
+      if (!subtype) {
+        return false;
+      }
+
+      const permanent = battlefield.find((candidate: any) => String(candidate?.id || '') === String(creatureId));
+      if (!permanent || String(permanent?.controller || '') !== String(controller)) {
+        return false;
+      }
+
+      const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+      return typeLine.includes(subtype);
+    });
+
+    if (matched) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+/**
  * Execute a triggered ability effect based on its description.
  * Handles common trigger effects like life gain/loss, counters, draw, etc.
  */
@@ -3762,6 +3847,137 @@ export function executeTriggerEffect(
     const amount = Math.abs(delta);
     debug(2, `[executeTriggerEffect] ${playerId} ${action} ${amount} life (${currentLife} -> ${state.life[playerId]})`);
   };
+
+  // Count-based combat-damage effects that depend on tracked players damaged this turn.
+  if (desc.includes('draw cards equal to the number of opponents who were dealt combat damage this turn')) {
+    const drawCount = countOpponentsDealtCombatDamageThisTurn(state, controller);
+    if (drawCount > 0) {
+      drawCardsFromZone(ctx, controller, drawCount);
+      debug(2, `[executeTriggerEffect] ${sourceName}: ${controller} draws ${drawCount} card(s) based on opponents dealt combat damage this turn`);
+    }
+    return;
+  }
+
+  if (desc.includes('draw a card for each player who was dealt combat damage this turn')) {
+    const drawCount = countPlayersDealtCombatDamageThisTurn(state);
+    if (drawCount > 0) {
+      drawCardsFromZone(ctx, controller, drawCount);
+      debug(2, `[executeTriggerEffect] ${sourceName}: ${controller} draws ${drawCount} card(s) based on players dealt combat damage this turn`);
+    }
+    return;
+  }
+
+  {
+    const combatDamageXMatch = desc.match(/draw x cards and lose x life, where x is the number of your opponents who were dealt combat damage by (.+) this turn/);
+    if (combatDamageXMatch) {
+      const clause = String(combatDamageXMatch[1] || '').trim();
+      const parts = clause.split(/\s+or\s+/).map((part) => part.trim()).filter(Boolean);
+      let subtype = '';
+      const includesSource = parts.some((part) => part === sourceNameLower || part === triggerSourceNameLower);
+
+      for (const part of parts) {
+        const subtypeMatch = part.match(/^a[n]?\s+([a-z-]+)$/i);
+        if (subtypeMatch) {
+          subtype = String(subtypeMatch[1] || '').trim().toLowerCase();
+          break;
+        }
+      }
+
+      const drawCount = countOpponentsDealtCombatDamageBySourceOrSubtypeThisTurn(state, controller, {
+        sourcePermanentId: includesSource ? String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '') : '',
+        sourceName: includesSource ? sourceNameLower : '',
+        subtype,
+      });
+
+      if (drawCount > 0) {
+        drawCardsFromZone(ctx, controller, drawCount);
+        modifyLife(controller, -drawCount);
+        debug(2, `[executeTriggerEffect] ${sourceName}: ${controller} draws ${drawCount} card(s) and loses ${drawCount} life based on combat damage tracking`);
+      }
+      return;
+    }
+  }
+
+  if (
+    desc.includes('you may pay x life') &&
+    desc.includes('where x is the number of opponents that were dealt combat damage this turn') &&
+    desc.includes('if you do, draw x cards')
+  ) {
+    const drawCount = countOpponentsDealtCombatDamageThisTurn(state, controller);
+    if (drawCount <= 0) {
+      return;
+    }
+
+    const gameId = String((ctx as any).gameId || (ctx as any).id || triggerItem?.gameId || '').trim();
+    if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) {
+      return;
+    }
+
+    queueOptionalPaymentStep(gameId, {
+      playerId: controller,
+      sourceName,
+      sourceId: String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '').trim() || undefined,
+      description: `${sourceName}: You may pay ${drawCount} life. If you do, draw ${drawCount} card${drawCount === 1 ? '' : 's'}.`,
+      mandatory: true,
+      payChoiceId: 'pay_life',
+      payLabel: `Pay ${drawCount} life`,
+      payDescription: `Pay ${drawCount} life and draw ${drawCount} card${drawCount === 1 ? '' : 's'}.`,
+      declineChoiceId: 'decline',
+      declineLabel: 'Decline',
+      declineDescription: 'Do not pay life or draw cards.',
+      validationKind: 'life',
+      lifeAmount: drawCount,
+      stepData: {
+        tymnaCombatDamageDraw: true,
+        tymnaDrawCount: drawCount,
+        cardName: sourceName,
+      },
+      onPay: async () => {
+        modifyLife(controller, -drawCount);
+        drawCardsFromZone(ctx, controller, drawCount);
+        if (typeof (ctx as any).bumpSeq === 'function') {
+          (ctx as any).bumpSeq();
+        }
+        const io = (ctx as any).io;
+        if (io) {
+          broadcastGame(io as any, ctx as any, gameId);
+        }
+      },
+      onDecline: async () => {
+        if (typeof (ctx as any).bumpSeq === 'function') {
+          (ctx as any).bumpSeq();
+        }
+        const io = (ctx as any).io;
+        if (io) {
+          broadcastGame(io as any, ctx as any, gameId);
+        }
+      },
+    });
+    return;
+  }
+
+  if (desc === 'sacrifice this creature' || desc === 'sacrifice this creature.') {
+    const sourceId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '').trim();
+    if (sourceId) {
+      movePermanentToGraveyard(ctx, sourceId, true);
+    }
+    return;
+  }
+
+  if (desc === 'the attacking player gains control of this artifact and untaps it') {
+    const sourceId = String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || '').trim();
+    const attackingPlayerId = String((triggerItem as any)?.attackingPlayerId || '').trim();
+    if (sourceId && attackingPlayerId) {
+      const sourcePerm = Array.isArray(state.battlefield)
+        ? state.battlefield.find((perm: any) => perm && String(perm.id || '') === sourceId)
+        : null;
+      if (sourcePerm) {
+        (sourcePerm as any).controller = attackingPlayerId;
+        (sourcePerm as any).tapped = false;
+      }
+    }
+    return;
+  }
   
   // ===== SPECIAL HANDLERS =====
   // These need to be checked before general pattern matching
@@ -6282,6 +6498,9 @@ export function executeTriggerEffect(
               damageAmount: triggerInfo.damageAmount,
               triggerType: 'dealt_damage' as const,
               targetType: triggerInfo.targetType,
+              effect: triggerInfo.effect,
+              ...(triggerInfo.effectMode ? { effectMode: triggerInfo.effectMode } : {}),
+              ...(triggerInfo.attackingPlayerId ? { attackingPlayerId: triggerInfo.attackingPlayerId } : {}),
               ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
             };
             
@@ -11515,6 +11734,9 @@ function executeSpellEffect(
             damageAmount: triggerInfo.damageAmount,
             triggerType: 'dealt_damage' as const,
             targetType: triggerInfo.targetType,
+            effect: triggerInfo.effect,
+            ...(triggerInfo.effectMode ? { effectMode: triggerInfo.effectMode } : {}),
+            ...(triggerInfo.attackingPlayerId ? { attackingPlayerId: triggerInfo.attackingPlayerId } : {}),
             ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
           };
           

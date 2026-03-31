@@ -908,8 +908,9 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
  */
 export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, { 
   effect: string;
-  targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'controller';
+  targetType: 'opponent' | 'any' | 'any_non_dragon' | 'chosen_player' | 'controller' | 'opponent_or_planeswalker' | 'none';
   triggerOn: 'self' | 'dragon_controlled' | 'creature_controlled';
+  effectMode?: 'gain_life' | 'gain_life_and_attacking_player_loses_life';
 }> = {
   // Brash Taunter - "Whenever Brash Taunter is dealt damage, it deals that much damage to target opponent."
   "brash taunter": {
@@ -958,6 +959,33 @@ export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, {
     targetType: 'opponent',
     triggerOn: 'self',
   },
+  // Pious Warrior - "Whenever this creature is dealt combat damage, you gain that much life."
+  "pious warrior": {
+    effect: "You gain that much life",
+    targetType: 'none',
+    triggerOn: 'self',
+    effectMode: 'gain_life',
+  },
+  // Souls of the Faultless - "Whenever this creature is dealt combat damage, you gain that much life and attacking player loses that much life."
+  "souls of the faultless": {
+    effect: "You gain that much life and attacking player loses that much life",
+    targetType: 'none',
+    triggerOn: 'self',
+    effectMode: 'gain_life_and_attacking_player_loses_life',
+  },
+  // Wall of Essence - "Whenever this creature is dealt combat damage, you gain that much life."
+  "wall of essence": {
+    effect: "You gain that much life",
+    targetType: 'none',
+    triggerOn: 'self',
+    effectMode: 'gain_life',
+  },
+  // Wall of Souls - "Whenever this creature is dealt combat damage, it deals that much damage to target opponent or planeswalker."
+  "wall of souls": {
+    effect: "Deals that much damage to target opponent or planeswalker",
+    targetType: 'opponent_or_planeswalker',
+    triggerOn: 'self',
+  },
   // Truefire Captain - "Whenever Truefire Captain is dealt damage, it deals that much damage to target player."
   "truefire captain": {
     effect: "Deals that much damage to target player",
@@ -989,7 +1017,8 @@ export const KNOWN_DAMAGE_RECEIVED_TRIGGERS: Record<string, {
  */
 export interface AttachmentDamageReceivedTrigger {
   effect: string;
-  targetType: 'opponent' | 'any' | 'each_opponent' | 'controller';
+  targetType: 'opponent' | 'any' | 'each_opponent' | 'controller' | 'none';
+  effectMode?: 'gain_life' | 'gain_life_and_attacking_player_loses_life';
 }
 
 /**

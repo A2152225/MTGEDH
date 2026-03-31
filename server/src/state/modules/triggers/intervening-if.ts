@@ -2023,7 +2023,52 @@ function evaluateInterveningIfClauseInternal(
     }
   }
 
-  // "if a player was dealt combat damage by a Zombie this turn" (conservative)
+  // "if a player was dealt combat damage by a Zombie this turn"
+  // Generic subtype / supertype form used by cards like Lost Monarch of Ifnir.
+  {
+    const m = clause.match(/^if\s+a\s+player\s+was\s+dealt\s+combat\s+damage\s+by\s+a(?:n)?\s+(.+?)\s+this\s+turn$/i);
+    if (m) {
+      const combatDamageDescriptor = String(m[1] || '').trim().toLowerCase();
+      if (!combatDamageDescriptor) return null;
+
+      const tracker = (ctx as any).state?.creaturesThatDealtDamageToPlayer;
+      if (!tracker || typeof tracker !== 'object' || Object.keys(tracker).length === 0) return null;
+
+      const anyDamageTracked = Object.values(tracker as any).some(
+        (entry: any) => entry && typeof entry === 'object' && Object.keys(entry).length > 0
+      );
+      if (!anyDamageTracked) return false;
+
+      const battlefield = (ctx as any).state?.battlefield;
+      if (!Array.isArray(battlefield)) return null;
+
+      let sawUnknown = false;
+
+      for (const perDamagedPlayer of Object.values(tracker as any)) {
+        if (!perDamagedPlayer || typeof perDamagedPlayer !== 'object') continue;
+        for (const creatureId of Object.keys(perDamagedPlayer as any)) {
+          const perm = battlefield.find((p: any) => p && String(p.id || '') === String(creatureId));
+          if (!perm) {
+            sawUnknown = true;
+            continue;
+          }
+
+          const typeLine = String(perm.card?.type_line || '').toLowerCase();
+          const isLegendaryCreature = typeLine.includes('legendary') && typeLine.includes('creature');
+          if (combatDamageDescriptor === 'legendary creature') {
+            if (isLegendaryCreature) return true;
+            continue;
+          }
+
+          if (typeLine.includes(combatDamageDescriptor)) return true;
+        }
+      }
+
+      return sawUnknown ? null : false;
+    }
+  }
+
+  // "if a player was dealt combat damage by a Zombie this turn" (legacy exact alias)
   if (/^if\s+a\s+player\s+was\s+dealt\s+combat\s+damage\s+by\s+a\s+zombie\s+this\s+turn$/i.test(clause)) {
     const tracker = (ctx as any).state?.creaturesThatDealtDamageToPlayer;
     if (!tracker || typeof tracker !== 'object' || Object.keys(tracker).length === 0) return null;

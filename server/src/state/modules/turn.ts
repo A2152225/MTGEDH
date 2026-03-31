@@ -452,6 +452,9 @@ function queueDamageReceivedTrigger(ctx: GameContext, permanent: any, damageAmou
       triggerType: 'dealt_damage',
       targetType: triggerInfo.targetType,
       targetRestriction: triggerInfo.targetRestriction,
+      effect: triggerInfo.effect,
+      ...(triggerInfo.effectMode ? { effectMode: triggerInfo.effectMode } : {}),
+      ...(triggerInfo.attackingPlayerId ? { attackingPlayerId: triggerInfo.attackingPlayerId } : {}),
     };
     
     debug(2, `${ts()} [queueDamageReceivedTrigger] Queued damage trigger: ${triggerInfo.sourceName} was dealt ${damageAmount} damage`);
@@ -1860,6 +1863,93 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       }
     } catch (err) {
       debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue per-attacker combat damage triggers:`, err);
+    }
+
+    // Queue defender-side combat damage triggers for permanents controlled by players who were dealt combat damage.
+    // This covers text like "When you're dealt combat damage, ..."
+    try {
+      const state = (ctx as any).state;
+      state.stack = state.stack || [];
+
+      for (const [damagedPlayerId, totalDamage] of Object.entries(result.damageToPlayers || {})) {
+        if (Number(totalDamage || 0) <= 0) continue;
+
+        const attackerIds = result.attackersThatDealtDamage?.[damagedPlayerId];
+        const damagingIds = attackerIds instanceof Set
+          ? Array.from(attackerIds)
+          : (Array.isArray(attackerIds) ? attackerIds : []);
+
+        const attackingControllers = new Set<string>();
+        for (const attackerId of damagingIds as any[]) {
+          const attackerPerm = battlefield.find((p: any) => p?.id === attackerId);
+          if (attackerPerm?.controller) {
+            attackingControllers.add(String(attackerPerm.controller));
+          }
+        }
+
+        const attackingPlayerId = attackingControllers.size === 1
+          ? Array.from(attackingControllers)[0]
+          : String(state.activePlayer || state.turnPlayer || '');
+
+        for (const perm of battlefield) {
+          if (String(perm?.controller || '') !== String(damagedPlayerId) || !perm?.card) continue;
+
+          const triggers = detectCombatDamageTriggers(perm.card, perm);
+          const defenderTriggers = triggers.filter((trigger) =>
+            trigger.triggerType === 'you_are_dealt_combat_damage' ||
+            trigger.triggerType === 'creatures_deal_combat_damage_to_you_batched'
+          );
+
+          for (const trigger of defenderTriggers) {
+            const text = String(trigger.description || trigger.effect || '').trim();
+            if (!text) continue;
+
+            try {
+              const synthetic = trigger.triggerType === 'creatures_deal_combat_damage_to_you_batched'
+                ? `Whenever one or more creatures deal combat damage to you, ${text}`
+                : `When you're dealt combat damage, ${text}`;
+              const ok = isInterveningIfSatisfied(
+                ctx as any,
+                String(perm.controller),
+                synthetic,
+                perm,
+                {
+                  damagedPlayerId: String(damagedPlayerId),
+                  attackingPlayerId,
+                  defendingPlayerId: String(damagedPlayerId),
+                }
+              );
+              if (ok === false) {
+                debug(2, `${ts()} [dealCombatDamage] Skipping defender trigger from ${perm.card?.name || perm.id} due to intervening-if being false: ${text}`);
+                continue;
+              }
+            } catch {
+              // Defensive: if evaluation fails, do not block.
+            }
+
+            state.stack.push({
+              id: uid('trigger'),
+              type: 'triggered_ability',
+              controller: perm.controller,
+              source: perm.id,
+              permanentId: perm.id,
+              sourceName: perm.card?.name || trigger.cardName,
+              description: text,
+              triggerType: trigger.triggerType,
+              mandatory: trigger.mandatory !== false,
+              effect: trigger.effect || text,
+              targets: [],
+              damagedPlayerId: String(damagedPlayerId),
+              attackingPlayerId,
+              card: perm.card,
+            } as any);
+
+            debug(2, `${ts()} [dealCombatDamage] Pushed defender combat damage trigger onto stack: ${perm.card?.name || trigger.cardName} - ${text}`);
+          }
+        }
+      }
+    } catch (err) {
+      debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue defender-side combat damage triggers:`, err);
     }
     
     // Run state-based actions to destroy creatures that have lethal damage
@@ -4410,6 +4500,13 @@ export function nextStep(ctx: GameContext) {
           const precombatMainTriggers = getTriggersForTiming(ctx, 'precombat_main', turnPlayer);
           pushTriggersToStack(precombatMainTriggers, 'precombat_main', 'main');
           debug(2, `${ts()} [nextStep] Checking precombat main triggers for ${turnPlayer}, found ${precombatMainTriggers.length} trigger(s)`);
+        }
+
+        // Beginning of postcombat main phase / second main phase triggers.
+        else if (nextStep === "MAIN2") {
+          const postcombatMainTriggers = getTriggersForTiming(ctx, 'postcombat_main', turnPlayer);
+          pushTriggersToStack(postcombatMainTriggers, 'postcombat_main', 'main');
+          debug(2, `${ts()} [nextStep] Checking postcombat main triggers for ${turnPlayer}, found ${postcombatMainTriggers.length} trigger(s)`);
         }
         
         // Clear the skip flag after processing triggers

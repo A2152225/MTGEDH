@@ -2889,6 +2889,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   damageAmount: triggerInfo.damageAmount,
                   triggerType: 'dealt_damage',
                   targetType: triggerInfo.targetType,
+                  effect: triggerInfo.effect,
+                  ...(triggerInfo.effectMode ? { effectMode: triggerInfo.effectMode } : {}),
+                  ...(triggerInfo.attackingPlayerId ? { attackingPlayerId: triggerInfo.attackingPlayerId } : {}),
                   ...(triggerInfo.targetRestriction ? { targetRestriction: triggerInfo.targetRestriction } : {}),
                 };
               });

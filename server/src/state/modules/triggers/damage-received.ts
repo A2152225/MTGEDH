@@ -30,7 +30,7 @@ function extractDamageReceivedAbilityText(oracleText: string, creatureName: stri
   const nameEscaped = escapeRegex(String(creatureName || ""));
 
   const pattern = new RegExp(
-    `(whenever\\s+(?:this creature|${nameEscaped}|enchanted creature|equipped creature)\\s+is\\s+dealt\\s+damage[^.]*)(?:\\.|$)`,
+    `(whenever\\s+(?:this creature|${nameEscaped}|enchanted creature|equipped creature)\\s+is\\s+dealt\\s+(?:combat\\s+)?damage[^.]*)(?:\\.|$)`,
     "i"
   );
 
@@ -49,9 +49,11 @@ export interface DamageTriggerInfo {
   controller: string;
   damageAmount: number;
   triggerType: 'dealt_damage';
-  targetType: 'opponent' | 'any' | 'each_opponent' | 'any_non_dragon' | 'controller';
+  targetType: 'opponent' | 'any' | 'each_opponent' | 'any_non_dragon' | 'controller' | 'chosen_player' | 'opponent_or_planeswalker' | 'none';
   targetRestriction?: string;
   effect: string;
+  effectMode?: 'gain_life' | 'gain_life_and_attacking_player_loses_life';
+  attackingPlayerId?: string;
 }
 
 /**
@@ -65,7 +67,7 @@ export interface DamageTriggerInfo {
 export function getDamageReceivedTrigger(
   permanent: any,
   state: any
-): { controllerId: string; targetType: string; effect: string; targetRestriction?: string; oracleTextForInterveningIf?: string } | null {
+): { controllerId: string; targetType: string; effect: string; targetRestriction?: string; oracleTextForInterveningIf?: string; effectMode?: 'gain_life' | 'gain_life_and_attacking_player_loses_life' } | null {
   if (!permanent) return null;
 
   const card = permanent.card || {};
@@ -80,6 +82,7 @@ export function getDamageReceivedTrigger(
       controllerId: permanent.controller,
       targetType: triggerInfo.targetType,
       effect: triggerInfo.effect,
+      effectMode: triggerInfo.effectMode,
       oracleTextForInterveningIf,
     };
   }
@@ -97,6 +100,7 @@ export function getDamageReceivedTrigger(
             controllerId: attachment.controller || permanent.controller,
             targetType: triggerInfo.targetType,
             effect: triggerInfo.effect,
+            effectMode: triggerInfo.effectMode,
             oracleTextForInterveningIf:
               extractDamageReceivedAbilityText(attachment.card?.oracle_text || "", attachment.card?.name || "") ||
               (attachment.card?.oracle_text || ""),
@@ -109,6 +113,7 @@ export function getDamageReceivedTrigger(
             controllerId: attachment.controller || permanent.controller,
             targetType: triggerInfo.targetType,
             effect: triggerInfo.effect,
+            effectMode: triggerInfo.effectMode,
             oracleTextForInterveningIf:
               extractDamageReceivedAbilityText(attachment.card?.oracle_text || "", attachment.card?.name || "") ||
               (attachment.card?.oracle_text || ""),
@@ -119,33 +124,56 @@ export function getDamageReceivedTrigger(
   }
 
   // Dynamic pattern matching for unknown cards
-  // Pattern: "Whenever this creature is dealt damage" or "Whenever ~ is dealt damage"
+  // Pattern: "Whenever this creature is dealt damage/combat damage" or "Whenever ~ is dealt damage/combat damage"
   if (oracleText.includes("whenever this creature is dealt damage") ||
+      oracleText.includes("whenever this creature is dealt combat damage") ||
       oracleText.includes(`whenever ${creatureName} is dealt damage`) ||
+      oracleText.includes(`whenever ${creatureName} is dealt combat damage`) ||
       oracleText.includes("whenever enchanted creature is dealt damage") ||
-      oracleText.includes("whenever equipped creature is dealt damage")) {
+      oracleText.includes("whenever enchanted creature is dealt combat damage") ||
+      oracleText.includes("whenever equipped creature is dealt damage") ||
+      oracleText.includes("whenever equipped creature is dealt combat damage")) {
     
     // Determine target type from oracle text
     let targetType = 'any'; // Default to any target
     let targetRestriction = '';
+    let effectMode: 'gain_life' | 'gain_life_and_attacking_player_loses_life' | undefined;
+
+    if (oracleText.includes("you gain that much life and attacking player loses that much life")) {
+      targetType = 'none';
+      effectMode = 'gain_life_and_attacking_player_loses_life';
+    } else if (oracleText.includes("you gain that much life")) {
+      targetType = 'none';
+      effectMode = 'gain_life';
+    }
     
-    if (oracleText.includes("target opponent")) {
+    if (targetType !== 'none' && oracleText.includes("target opponent or planeswalker")) {
+      targetType = 'opponent_or_planeswalker';
+      targetRestriction = 'opponent or planeswalker';
+    } else if (targetType !== 'none' && oracleText.includes("target opponent")) {
       targetType = 'opponent';
       targetRestriction = 'opponent';
-    } else if (oracleText.includes("each opponent")) {
+    } else if (targetType !== 'none' && oracleText.includes("each opponent")) {
       targetType = 'each_opponent';
       targetRestriction = 'each opponent';
-    } else if (oracleText.includes("any target that isn't a dragon")) {
+    } else if (targetType !== 'none' && oracleText.includes("any target that isn't a dragon")) {
       targetType = 'any_non_dragon';
       targetRestriction = "that isn't a Dragon";
-    } else if (oracleText.includes("target player")) {
+    } else if (targetType !== 'none' && oracleText.includes("the chosen player")) {
+      targetType = 'chosen_player';
+      targetRestriction = 'chosen player';
+    } else if (targetType !== 'none' && oracleText.includes("target player")) {
       targetType = 'any';
       targetRestriction = 'player';
     }
     
     // Extract effect description
     let effect = "Deals that much damage to target";
-    if (oracleText.includes("deals that much damage to")) {
+    if (effectMode === 'gain_life_and_attacking_player_loses_life') {
+      effect = 'You gain that much life and attacking player loses that much life';
+    } else if (effectMode === 'gain_life') {
+      effect = 'You gain that much life';
+    } else if (oracleText.includes("deals that much damage to")) {
       const match = oracleText.match(/deals that much damage to ([^.]+)/);
       if (match) {
         effect = `Deals that much damage to ${match[1]}`;
@@ -156,6 +184,7 @@ export function getDamageReceivedTrigger(
       controllerId: permanent.controller,
       targetType,
       effect,
+      effectMode,
       targetRestriction,
       oracleTextForInterveningIf,
     };
@@ -200,6 +229,10 @@ export function processDamageReceivedTriggers(
   const card = permanent.card || {};
   const creatureName = card.name || "Unknown";
   const triggerId = `damage_trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const phase = String(state?.phase || '').toLowerCase();
+  const attackingPlayerId = triggerInfo.effectMode === 'gain_life_and_attacking_player_loses_life' && phase === 'combat'
+    ? String(state?.activePlayer || state?.turnPlayer || '') || undefined
+    : undefined;
 
   // Create trigger info
   const damageTrigger: DamageTriggerInfo = {
@@ -212,6 +245,8 @@ export function processDamageReceivedTriggers(
     targetType: triggerInfo.targetType as any,
     targetRestriction: triggerInfo.targetRestriction,
     effect: triggerInfo.effect,
+    effectMode: triggerInfo.effectMode,
+    attackingPlayerId,
   };
 
   // Call the callback to handle queueing and client notification

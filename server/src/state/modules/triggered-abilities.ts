@@ -217,6 +217,24 @@ export function analyzeCardTriggers(card: any, permanentId: string, controllerId
       mandatory: !precombatMatch[1].includes('you may'),
     });
   }
+
+  // Postcombat main phase triggers
+  // Patterns:
+  // - "At the beginning of your second main phase"
+  // - "At the beginning of your postcombat main phase"
+  // - "At the beginning of each of your postcombat main phases"
+  const postcombatMatch = oracleText.match(/at the beginning of (?:(?:each of )?your )?(?:post-?combat|second) main phases?,?\s*([^.]+(?:\.\s*if you do,?\s*[^.]+)?)/i);
+  if (postcombatMatch) {
+    triggers.push({
+      id: `${permanentId}_postcombat_main`,
+      permanentId,
+      controllerId,
+      cardName,
+      timing: 'postcombat_main',
+      effect: postcombatMatch[1].trim(),
+      mandatory: !postcombatMatch[1].includes('you may'),
+    });
+  }
   
   // End step triggers
   const endStepMatch = oracleText.match(/at the beginning of (?:your |each )?end step,?\s*([^.]+)/);
@@ -497,6 +515,8 @@ export interface TriggeredAbility {
     | 'deals_damage'
     | 'deals_combat_damage'
     | 'creatures_deal_combat_damage_batched' // Batched trigger for one or more creatures dealing combat damage
+    | 'you_are_dealt_combat_damage'
+    | 'creatures_deal_combat_damage_to_you_batched'
     | 'annihilator'
     | 'melee'
     | 'myriad'
@@ -605,6 +625,33 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       effect: batchedCombatDamageMatch[1].trim(),
       mandatory: true,
       batched: true,  // This trigger should only fire once per combat damage step if any creatures dealt damage
+    });
+  }
+
+  // "When/Whenever you're dealt combat damage" detection
+  const youAreDealtCombatDamageMatch = oracleText.match(/when(?:ever)?\s+you(?:'re| are)\s+dealt\s+combat\s+damage,?\s*([^.]+)/i);
+  if (youAreDealtCombatDamageMatch && !triggers.some(t => t.triggerType === 'you_are_dealt_combat_damage')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'you_are_dealt_combat_damage',
+      description: youAreDealtCombatDamageMatch[1].trim(),
+      effect: youAreDealtCombatDamageMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+
+  // "Whenever one or more creatures deal combat damage to you" (batched defender trigger)
+  const creaturesDealCombatDamageToYouMatch = oracleText.match(/whenever\s+one\s+or\s+more\s+creatures\s+deal\s+combat\s+damage\s+to\s+you,?\s*([^.]+)/i);
+  if (creaturesDealCombatDamageToYouMatch && !triggers.some(t => t.triggerType === 'creatures_deal_combat_damage_to_you_batched')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'creatures_deal_combat_damage_to_you_batched',
+      description: creaturesDealCombatDamageToYouMatch[1].trim(),
+      effect: creaturesDealCombatDamageToYouMatch[1].trim(),
+      mandatory: true,
+      batched: true,
     });
   }
   
