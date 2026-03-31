@@ -498,6 +498,32 @@ class GameManagerClass {
     return this.rulesBridges.get(gameId);
   }
 
+  /**
+   * Ensure the RulesBridge exists and is synchronized with the authoritative game state.
+   */
+  syncRulesBridge(gameId: string, gameState: any): RulesBridge | undefined {
+    if (!this.ioServer) return undefined;
+
+    let bridge = this.rulesBridges.get(gameId);
+    if (!bridge) {
+      try {
+        bridge = createRulesBridge(gameId, this.ioServer);
+        this.rulesBridges.set(gameId, bridge);
+      } catch (e) {
+        debugWarn(1, `[GameManager] RulesBridge creation failed for ${gameId}:`, e);
+        return undefined;
+      }
+    }
+
+    try {
+      bridge.initialize(gameState);
+      return bridge;
+    } catch (e) {
+      debugWarn(1, `[GameManager] RulesBridge sync failed for ${gameId}:`, e);
+      return undefined;
+    }
+  }
+
   listGameIds(): string[] {
     return Array.from(this.games.keys());
   }
@@ -705,14 +731,10 @@ class GameManagerClass {
     }
 
     // Initialize RulesBridge for rules engine integration
-    if (this.ioServer && !this.rulesBridges.has(gameId)) {
-      try {
-        const bridge = createRulesBridge(gameId, this.ioServer);
-        bridge.initialize(game.state);
-        this.rulesBridges.set(gameId, bridge);
+    if (this.ioServer) {
+      const bridge = this.syncRulesBridge(gameId, game.state);
+      if (bridge) {
         debug(2, `[GameManager] RulesBridge initialized for game ${gameId}`);
-      } catch (e) {
-        debugWarn(1, `[GameManager] RulesBridge initialization failed for ${gameId}:`, e);
       }
     }
 

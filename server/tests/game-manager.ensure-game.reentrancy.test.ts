@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const createInitialGameStateMock = vi.fn();
 const getEventsMock = vi.fn();
 const gameExistsInDbMock = vi.fn();
+const bridgeInitializeMock = vi.fn();
+const createRulesBridgeMock = vi.fn(() => ({
+  initialize: bridgeInitializeMock,
+}));
 
 vi.mock('../src/state/index.js', () => ({
   createInitialGameState: createInitialGameStateMock,
@@ -15,9 +19,7 @@ vi.mock('../src/db/index.js', () => ({
 }));
 
 vi.mock('../src/rules-bridge.js', () => ({
-  createRulesBridge: vi.fn(() => ({
-    initialize: vi.fn(),
-  })),
+  createRulesBridge: createRulesBridgeMock,
 }));
 
 describe('GameManager.ensureGame replay reentrancy', () => {
@@ -26,6 +28,8 @@ describe('GameManager.ensureGame replay reentrancy', () => {
     createInitialGameStateMock.mockReset();
     getEventsMock.mockReset();
     gameExistsInDbMock.mockReset();
+    bridgeInitializeMock.mockReset();
+    createRulesBridgeMock.mockClear();
     gameExistsInDbMock.mockReturnValue(true);
     getEventsMock.mockReturnValue([{ type: 'test_event' }]);
   });
@@ -56,5 +60,32 @@ describe('GameManager.ensureGame replay reentrancy', () => {
     expect(createInitialGameStateMock).toHaveBeenCalledTimes(1);
     expect(getEventsMock).toHaveBeenCalledTimes(1);
     expect(GameManager.getGame('game_reentrant_restore')).toBe(game);
+  });
+
+  it('reinitializes an existing RulesBridge with the latest authoritative state', async () => {
+    createInitialGameStateMock.mockImplementation((gameId: string) => ({
+      gameId,
+      state: { priority: 'p1', turnPlayer: 'p1', players: [{ id: 'p1' }, { id: 'p2' }] },
+      seq: 0,
+      replay: () => {},
+    }));
+
+    const { GameManager } = await import('../src/GameManager.js');
+    GameManager.clearAllGames();
+    GameManager.setIOServer({} as any);
+
+    const game = GameManager.ensureGame('game_rules_bridge_sync');
+    expect(game).toBeDefined();
+    expect(createRulesBridgeMock).toHaveBeenCalledTimes(1);
+    expect(bridgeInitializeMock).toHaveBeenCalledTimes(1);
+    expect(bridgeInitializeMock).toHaveBeenLastCalledWith((game as any).state);
+
+    const updatedState = { ...(game as any).state, priority: 'p2', turnPlayer: 'p2' };
+    const bridge = GameManager.syncRulesBridge('game_rules_bridge_sync', updatedState);
+
+    expect(bridge).toBeDefined();
+    expect(createRulesBridgeMock).toHaveBeenCalledTimes(1);
+    expect(bridgeInitializeMock).toHaveBeenCalledTimes(2);
+    expect(bridgeInitializeMock).toHaveBeenLastCalledWith(updatedState);
   });
 });

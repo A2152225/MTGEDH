@@ -1,5 +1,5 @@
 
-Tuesday, March 31, 2026 1:19:56 PM
+Tuesday, March 31, 2026 1:51:42 PM
 
 > @mtgedh/server@0.1.0 dev:noreload
 > npm run start
@@ -8,7 +8,7 @@ Tuesday, March 31, 2026 1:19:56 PM
 > @mtgedh/server@0.1.0 start
 > node --enable-source-maps --import tsx/esm src/index.ts
 
-[Server] Boot { bootId: 'd392522e-5f1e-45db-a349-d605da86c4b1', pid: 46144, node: 'v22.20.0', port: 3001 }
+[Server] Boot { bootId: '7e114520-a3cc-43ac-b0dc-4013c4d49705', pid: 8452, node: 'v22.20.0', port: 3001 }
 [Resolution] AI handler initialized
 mtgedh> [Resolution] Priority management handler initialized
 [setCommander] Initialized inCommandZone for p_y224aygi: [ 'card_b4036bb7-835d-4690-aca1-1ab566776e9a_32286aa94026c234' ]
@@ -65,34 +65,927 @@ mtgedh> [Resolution] Priority management handler initialized
 [canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, currentPriority: p_lqdzh8c9, turnPlayer: p_lqdzh8c9
 [canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[GameManager] ensureGame: replayed persisted events { bootId: 'd392522e-5f1e-45db-a349-d605da86c4b1', gameId: 'game_mne16n2m', count: 89 }
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
-[AI] Added AI player to auto-pass set: { gameId: 'game_mne16n2m', playerId: 'p_y224aygi' }
-[AI] Registered AI player: { gameId: 'game_mne16n2m', playerId: 'p_y224aygi', name: 'AI Opponent 1', strategy: 'aggressive', difficulty: 0.5 }
-[AI] Rehydrated AI runtime from persisted state: { gameId: 'game_mne16n2m', playerId: 'p_y224aygi', strategy: 'aggressive', difficulty: 0.5, refreshDeckProfile: true }
-[AI] handleAIGameFlow: { gameId: 'game_mne16n2m',
-  playerId: 'p_y224aygi',
-  phase: 'COMBAT',
-  step: 'BEGIN_COMBAT',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 7,
-  isAITurn: false,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_mne16n2m',
-  playerId: 'p_y224aygi',
-  phase: 'combat',
-  step: 'begin_combat',
-  isAITurn: false,
-  stackEmpty: true,
-  priority: 'p_y224aygi',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_mne16n2m', playerId: 'p_y224aygi' }
-[AI] All players passed priority with empty stack, advancing step
 [canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, currentPriority: p_lqdzh8c9, turnPlayer: p_lqdzh8c9
 [canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[GameManager] ensureGame: replayed persisted events { bootId: '7e114520-a3cc-43ac-b0dc-4013c4d49705', gameId: 'game_mne16n2m', count: 92 }
+Socket disconnected: 3-lV3lGrjiFHA9sZAAAB. Reason: transport close
 [canAct] p_bzhvmfrt: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_y224aygi, turnPlayer: p_lqdzh8c9
+[canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_lqdzh8c9, turnPlayer: p_lqdzh8c9
+[canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[AI] Added AI player to auto-pass set: { gameId: 'game_mne16n2m', playerId: 'p_lqdzh8c9' }
+[AI] Registered AI player: { gameId: 'game_mne16n2m', playerId: 'p_lqdzh8c9', name: 'AI Opponent 2', strategy: 'control', difficulty: 0.5 }
+[AI] Rehydrated AI runtime from persisted state: { gameId: 'game_mne16n2m', playerId: 'p_lqdzh8c9', strategy: 'control', difficulty: 0.5, refreshDeckProfile: true }
+[AI] handleAIGameFlow: { gameId: 'game_mne16n2m',
+  playerId: 'p_lqdzh8c9',
+  phase: 'COMBAT',
+  step: 'DECLARE_BLOCKERS',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 6,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_lqdzh8c9',
+  phase: 'combat',
+  step: 'declare_blockers',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_lqdzh8c9',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Attacking player does not declare blockers, passing priority for defender declarations/responses
+[AI] Passing priority: { gameId: 'game_mne16n2m', playerId: 'p_lqdzh8c9' }
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_pok6jwis, turnPlayer: p_lqdzh8c9
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_lqdzh8c9, turnPlayer: p_lqdzh8c9
+[canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_lqdzh8c9',
+  phase: 'combat',
+  step: 'damage',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_lqdzh8c9',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Combat step damage - passing priority
+[AI] Passing priority: { gameId: 'game_mne16n2m', playerId: 'p_lqdzh8c9' }
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_pok6jwis, turnPlayer: p_lqdzh8c9
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_lqdzh8c9, turnPlayer: p_lqdzh8c9
+[canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_lqdzh8c9',
+  phase: 'combat',
+  step: 'end_combat',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_lqdzh8c9',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Combat step end_combat - passing priority
+[AI] Passing priority: { gameId: 'game_mne16n2m', playerId: 'p_lqdzh8c9' }
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_pok6jwis, turnPlayer: p_lqdzh8c9
+[AI] All players passed priority with empty stack, advancing step
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_lqdzh8c9, turnPlayer: p_lqdzh8c9
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_lqdzh8c9',
+  phase: 'postcombatmain',
+  step: 'main2',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_lqdzh8c9',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Cannot play land: { isMainPhase: true, isAITurn: true, landsPlayed: 1, maxLands: 1, reason: 'already played max lands' }
+[AI] findCastableSpells: Checking 6 cards in hand
+[AI] Available mana pool: { total: 5, colors: { white: 0, blue: 0, black: 1, red: 2, green: 1, colorless: 1 } }
+[AI] findCastableSpells: Found 3 castable spell(s): [ "Kodama's Reach (CMC 3, priority 84)", 'Sol Ring (CMC 1, priority 147)', "Commander's Sphere (CMC 3, priority 160)" ]
+[AI] Casting spell: Commander's Sphere with priority 160
+[AI] Casting spell: { gameId: 'game_mne16n2m',
+  playerId: 'p_lqdzh8c9',
+  cardName: "Commander's Sphere",
+  cost: { colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, generic: 3, hasX: false, hybrid: [] } }
+[priority] Entering resolution mode - priority will return to p_lqdzh8c9 after resolution completes
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[priority] Exiting resolution mode - priority restored to p_lqdzh8c9
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[completeCastSpell] Using client-sent targets: none
+[completeCastSpell] Final targets to use: none
+[AI] handleAIGameFlow: { gameId: 'game_mne16n2m',
+  playerId: 'p_lqdzh8c9',
+  phase: 'POSTCOMBATMAIN',
+  step: 'MAIN2',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 6,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_lqdzh8c9',
+  phase: 'postcombatmain',
+  step: 'main2',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_lqdzh8c9',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Cannot play land: { isMainPhase: true, isAITurn: true, landsPlayed: 1, maxLands: 1, reason: 'already played max lands' }
+[AI] findCastableSpells: Checking 6 cards in hand
+[AI] Available mana pool: { total: 0, colors: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
+[AI] findCastableSpells: No castable spells. Reasons: [ 'Arcane Denial: no valid targets (needs 1, found 0)',
+  `Kodama's Reach: need 3 mana (have 0), colors: {"W":0,"U":0,"B":0,"R":0,"G":1,"C":0}`,
+  'Edric, Spymaster of Trest: need 3 mana (have 0), colors: {"W":0,"U":1,"B":0,"R":0,"G":1,"C":0}',
+  'Sphere of Safety: need 5 mana (have 0), colors: {"W":1,"U":0,"B":0,"R":0,"G":0,"C":0}',
+  'Sol Ring: need 1 mana (have 0), colors: {"W":0,"U":0,"B":0,"R":0,"G":0,"C":0}' ]
+[AI] ... and 1 more cards not castable
+[AI] Main phase, no more actions, passing priority
+[AI] Passing priority: { gameId: 'game_mne16n2m', playerId: 'p_lqdzh8c9' }
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_pok6jwis, turnPlayer: p_lqdzh8c9
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_lqdzh8c9, turnPlayer: p_lqdzh8c9
+[canAct] p_lqdzh8c9: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_lqdzh8c9',
+  phase: 'ending',
+  step: 'end',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_lqdzh8c9',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Ending phase, step: end - passing priority
+[AI] Passing priority: { gameId: 'game_mne16n2m', playerId: 'p_lqdzh8c9' }
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_pok6jwis, turnPlayer: p_lqdzh8c9
+[AI] All players passed priority with empty stack, advancing step
+[recalculateHandVisibility] Players with hand reveal effects: none
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[AI] Added AI player to auto-pass set: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis' }
+[AI] Registered AI player: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', name: 'AI Opponent 3', strategy: 'aggressive', difficulty: 0.5 }
+[AI] Rehydrated AI runtime from persisted state: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', strategy: 'aggressive', difficulty: 0.5, refreshDeckProfile: true }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'beginning',
+  step: 'untap',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Beginning phase, step: untap - advancing out of untap
+[AI] Advancing step: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', currentPhase: 'beginning', currentStep: 'UNTAP' }
+[canAct] p_pok6jwis: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_pok6jwis, turnPlayer: p_pok6jwis
+[canAct] p_pok6jwis: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[AI] Step advanced: { newPhase: 'beginning', newStep: 'UPKEEP' }
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[AI] handleAIGameFlow: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'BEGINNING',
+  step: 'UPKEEP',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 6,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'beginning',
+  step: 'upkeep',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Beginning phase, step: upkeep - passing priority
+[AI] Passing priority: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis' }
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_bzhvmfrt, turnPlayer: p_pok6jwis
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_pok6jwis: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_pok6jwis, turnPlayer: p_pok6jwis
+[canAct] p_pok6jwis: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'beginning',
+  step: 'draw',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Beginning phase, step: draw - passing priority
+[AI] Passing priority: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis' }
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_bzhvmfrt, turnPlayer: p_pok6jwis
+[AI] All players passed priority with empty stack, advancing step
+[canPlayLand] p_pok6jwis: Sample cards in hand: [Avenger of Zendikar(Creature ΓÇö Elemental), Drey Keeper(Creature ΓÇö Elf Druid), Swamp(Basic Land ΓÇö Swamp)]
+[priority] autoPassLoop starting - active players: p_bzhvmfrt, p_y224aygi, p_lqdzh8c9, p_pok6jwis, autoPassEnabled: p_y224aygi, p_lqdzh8c9, p_pok6jwis, p_bzhvmfrt, currentPriority: p_pok6jwis, turnPlayer: p_pok6jwis
+[canPlayLand] p_pok6jwis: Sample cards in hand: [Avenger of Zendikar(Creature ΓÇö Elemental), Drey Keeper(Creature ΓÇö Elf Druid), Swamp(Basic Land ΓÇö Swamp)]
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mne16n2m players=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] zones=[p_bzhvmfrt,p_y224aygi,p_lqdzh8c9,p_pok6jwis] handCount=5 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+node.exe : [AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\A2\AppData\Roaming\npm ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([AI] RulesBridg...game_mne16n2m',:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+[AI] AI player checking priority: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_pok6jwis',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mne16n2m', playerId: 'p_pok6jwis', cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273' }
+[AI] RulesBridge rejected AI playLand: { gameId: 'game_mne16n2m',
+  playerId: 'p_pok6jwis',
+  cardId: 'card_e43ac31a-942e-4871-be29-426e19e52701_a0976af51deee273',
+  reason: 'Player does not have priority' }
+
+
+[DBG]: PS D:\Git\MTGEDH>>

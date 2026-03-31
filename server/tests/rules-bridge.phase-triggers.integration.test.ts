@@ -33,6 +33,88 @@ describe('RulesBridge phase-trigger integration', () => {
     ResolutionQueueManager.removeQueue(eachEndStepGameId);
   });
 
+  it('uses refreshed priority state when reinitialized before validating land plays', () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const bridge = createRulesBridge('test_rules_bridge_play_land_resync', io);
+
+    const initialState = {
+      id: 'test_rules_bridge_play_land_resync',
+      format: 'commander',
+      turn: 3,
+      turnNumber: 3,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnOrder: ['p1', 'p2'],
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        {
+          id: 'p1',
+          name: 'Player 1',
+          life: 40,
+          hand: [{ id: 'land_p1', name: 'Plains', type_line: 'Basic Land — Plains' }],
+          library: [],
+          graveyard: [],
+          battlefield: [],
+          exile: [],
+          commandZone: [],
+          counters: {},
+        },
+        {
+          id: 'p2',
+          name: 'Player 2',
+          life: 40,
+          hand: [{ id: 'land_p2', name: 'Island', type_line: 'Basic Land — Island' }],
+          library: [],
+          graveyard: [],
+          battlefield: [],
+          exile: [],
+          commandZone: [],
+          counters: {},
+        },
+      ],
+      stack: [],
+      battlefield: [],
+      startingLife: 40,
+      commandZone: {},
+      zones: {},
+      manaPool: {},
+    } as any;
+
+    bridge.initialize(initialState);
+
+    expect(bridge.validateAction({ type: 'playLand', playerId: 'p1', cardId: 'land_p1' })).toEqual({ legal: true });
+    expect(bridge.validateAction({ type: 'playLand', playerId: 'p2', cardId: 'land_p2' })).toMatchObject({
+      legal: false,
+      reason: 'Player does not have priority',
+    });
+
+    const updatedState = {
+      ...initialState,
+      turnPlayer: 'p2',
+      priority: 'p2',
+      players: [
+        {
+          ...initialState.players[0],
+          hand: [],
+        },
+        {
+          ...initialState.players[1],
+          hand: [{ id: 'land_p2', name: 'Island', type_line: 'Basic Land — Island' }],
+        },
+      ],
+    } as any;
+
+    bridge.initialize(updatedState);
+
+    expect(bridge.validateAction({ type: 'playLand', playerId: 'p2', cardId: 'land_p2' })).toEqual({ legal: true });
+    expect(bridge.validateAction({ type: 'playLand', playerId: 'p1', cardId: 'land_p1' })).toMatchObject({
+      legal: false,
+      reason: 'Player does not have priority',
+    });
+  });
+
   it('enqueues beginning-of-combat triggered choices after advanceGame enters BEGIN_COMBAT', () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const io = createMockIo(emitted);

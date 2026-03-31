@@ -4932,7 +4932,8 @@ async function executeAIPlayLand(
       return;
     }
 
-    const bridge = (GameManager as any).getRulesBridge(gameId);
+    const bridge = (GameManager as any).syncRulesBridge?.(gameId, game.state)
+      || (GameManager as any).getRulesBridge(gameId);
     if (bridge) {
       const validation = bridge.validateAction({
         type: 'playLand',
