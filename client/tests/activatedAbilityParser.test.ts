@@ -32,11 +32,46 @@ describe('parseActivatedAbilities station parsing', () => {
     expect(abilities).toHaveLength(2);
     expect(abilities[0]?.id).toBe('sphere-card-1-ability-0');
     expect(abilities[0]?.cost).toBe('{T}');
+    expect(abilities[0]?.isManaAbility).toBe(true);
     expect(abilities[1]?.id).toBe('sphere-card-1-ability-1');
     expect(abilities[1]?.cost).toBe("Sacrifice Commander's Sphere");
     expect(abilities[1]?.effect).toBe('Draw a card.');
     expect(abilities[1]?.requiresSacrifice).toBe(true);
     expect(abilities[1]?.isManaAbility).toBe(false);
+  });
+
+  it('parses Arcane Signet as a single mana ability without a duplicate synthetic entry', () => {
+    const card: KnownCardRef = {
+      id: 'signet-card-1',
+      name: 'Arcane Signet',
+      type_line: 'Artifact',
+      oracle_text: "{T}: Add one mana of any color in your commander's color identity.",
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.id).toBe('signet-card-1-ability-0');
+    expect(abilities[0]?.cost).toBe('{T}');
+    expect(abilities[0]?.effect).toBe("Add one mana of any color in your commander's color identity.");
+    expect(abilities[0]?.isManaAbility).toBe(true);
+  });
+
+  it('parses Luxury Suite mana text as a mana ability', () => {
+    const card: KnownCardRef = {
+      id: 'suite-card-1',
+      name: 'Luxury Suite',
+      type_line: 'Land',
+      oracle_text: 'Luxury Suite enters the battlefield tapped unless you have two or more opponents.\n{T}: Add {B} or {R}.',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.id).toBe('suite-card-1-ability-0');
+    expect(abilities[0]?.cost).toBe('{T}');
+    expect(abilities[0]?.effect).toBe('Add {B} or {R}.');
+    expect(abilities[0]?.isManaAbility).toBe(true);
   });
 
   it('parses pay-life activations as generic abilities with a life cost', () => {

@@ -708,6 +708,7 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
         targetDescription = targetMatch[1].trim();
       }
     }
+    const isParsedManaAbility = !requiresTarget && parseManaProduction(effectPart) !== null;
 
     let label: string;
     const shortEffect = effectPart.split('.')[0];
@@ -730,7 +731,7 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       cost: costPart,
       effect: effectPart,
       ...costComponents,
-      isManaAbility: false,
+      isManaAbility: isParsedManaAbility,
       isLoyaltyAbility: false,
       isFetchAbility: false,
       requiresTarget,
