@@ -296,6 +296,18 @@ export function detectCombatDamageTriggers(card: any, permanent: any): CombatTri
     });
   }
 
+  const youAreDealtDamageMatch = oracleText.match(/when(?:ever)?\s+you(?:'re| are)\s+dealt\s+damage,?\s*([^.]+)/i);
+  if (youAreDealtDamageMatch && !triggers.some(t => t.triggerType === 'you_are_dealt_damage')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'you_are_dealt_damage',
+      description: youAreDealtDamageMatch[1].trim(),
+      effect: youAreDealtDamageMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+
   // "Whenever one or more creatures deal combat damage to you"
   const creaturesDealCombatDamageToYouMatch = oracleText.match(/whenever\s+one\s+or\s+more\s+creatures\s+deal\s+combat\s+damage\s+to\s+you,?\s*([^.]+)/i);
   if (creaturesDealCombatDamageToYouMatch && !triggers.some(t => t.triggerType === 'creatures_deal_combat_damage_to_you_batched')) {

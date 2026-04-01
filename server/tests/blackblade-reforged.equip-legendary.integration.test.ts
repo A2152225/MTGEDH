@@ -135,6 +135,19 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
       selections: ['commander_1'],
     });
 
+    const paymentPrompt = emitted
+      .filter((entry) => entry.event === 'resolutionStepPrompt')
+      .map((entry) => entry.payload)
+      .find((payload: any) => String(payload?.step?.type || '') === 'mana_payment_choice');
+    expect(paymentPrompt?.step).toEqual(
+      expect.objectContaining({
+        activationPaymentChoice: true,
+        activationPaymentContext: 'battlefield_targeted',
+        confirmLabel: 'Pay and Activate',
+        manaCost: '{3}',
+      })
+    );
+
     const paymentStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
     expect(paymentStep.type).toBe('mana_payment_choice');
     expect(paymentStep.activationPaymentChoice).toBe(true);

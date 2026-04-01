@@ -45,6 +45,7 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 describe('mana payment choice selection flow', () => {
   const signetGameId = 'test_mana_payment_choice_signet';
   const spellGameId = 'test_mana_payment_choice_spell';
+  const mikokoroGameId = 'test_mana_payment_choice_mikokoro';
   const playerId = 'p1';
 
   beforeAll(async () => {
@@ -56,8 +57,10 @@ describe('mana payment choice selection flow', () => {
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(signetGameId);
     ResolutionQueueManager.removeQueue(spellGameId);
+    ResolutionQueueManager.removeQueue(mikokoroGameId);
     games.delete(signetGameId as any);
     games.delete(spellGameId as any);
+    games.delete(mikokoroGameId as any);
   });
 
   it('lets a signet activation spend chosen floating mana and keep the rest', async () => {
@@ -212,5 +215,130 @@ describe('mana payment choice selection flow', () => {
 
     const stackNames = ((game.state as any).stack || []).map((entry: any) => entry.card?.name || entry.sourceName || entry.id);
     expect(stackNames).toContain("Wayfarer's Bauble");
+  });
+
+  it('lets Mikokoro exact-payment pick a single land that produces extra mana from Dictates', async () => {
+    createGameIfNotExists(mikokoroGameId, 'commander', 40);
+    const game = ensureGame(mikokoroGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, p2: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'mikokoro_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'mikokoro_card_1',
+          name: 'Mikokoro, Center of the Sea',
+          type_line: 'Legendary Land',
+          oracle_text: '{T}: Add {C}.\n{2}, {T}: Each player draws a card.',
+        },
+      },
+      {
+        id: 'island_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'island_card_1',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '({T}: Add {U}.)',
+        },
+      },
+      {
+        id: 'island_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'island_card_2',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '({T}: Add {U}.)',
+        },
+      },
+      {
+        id: 'dictate_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'dictate_card_1',
+          name: 'Dictate of Karametra',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever a player taps a land for mana, that player adds one mana of any type that land produced.',
+        },
+      },
+      {
+        id: 'dictate_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'dictate_card_2',
+          name: 'Dictate of Karametra',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever a player taps a land for mana, that player adds one mana of any type that land produced.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, mikokoroGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: mikokoroGameId,
+      permanentId: 'mikokoro_1',
+      abilityId: 'mikokoro_1-ability-1',
+    });
+
+    const paymentStep = ResolutionQueueManager.getQueue(mikokoroGameId).steps[0] as any;
+    expect(paymentStep.type).toBe('mana_payment_choice');
+    expect(paymentStep.activationPaymentChoice).toBe(true);
+    expect(paymentStep.activationPaymentContext).toBe('battlefield_group_draw');
+    expect(paymentStep.manaCost).toBe('{2}');
+
+    await handlers['submitResolutionResponse']({
+      gameId: mikokoroGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [{ permanentId: 'island_1', mana: 'U', count: 2 }],
+      },
+    });
+
+    const mikokoro = (game.state as any).battlefield.find((entry: any) => entry.id === 'mikokoro_1');
+    const island1 = (game.state as any).battlefield.find((entry: any) => entry.id === 'island_1');
+    const island2 = (game.state as any).battlefield.find((entry: any) => entry.id === 'island_2');
+    expect(mikokoro?.tapped).toBe(true);
+    expect(island1?.tapped).toBe(true);
+    expect(island2?.tapped).toBe(false);
+    expect((game.state as any).manaPool[playerId]).toEqual({
+      white: 0,
+      blue: 1,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+    expect(((game.state as any).stack || []).some((entry: any) => String(entry?.sourceName || '') === 'Mikokoro, Center of the Sea')).toBe(true);
   });
 });

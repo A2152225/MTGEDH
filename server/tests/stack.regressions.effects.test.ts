@@ -310,6 +310,104 @@ describe('Stack / zone regression effects', () => {
     expect((hidden.zones as any)[p1]?.libraryTop).toBeUndefined();
   });
 
+  it('Deploy to the Front counts all creatures and uses shared token replacement effects', () => {
+    const g = createInitialGameState('deploy_to_the_front_scaling');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'Player 1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'Player 2' });
+
+    const deploy = {
+      id: 'deploy_1',
+      name: 'Deploy to the Front',
+      type_line: 'Sorcery',
+      mana_cost: '{5}{W}{W}',
+      oracle_text: 'Create X 1/1 white Soldier creature tokens, where X is the number of creatures on the battlefield.',
+    } as any;
+
+    g.importDeckResolved(p1, [deploy]);
+    g.drawCards(p1, 1);
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    for (let i = 0; i < 3; i++) {
+      (g.state.battlefield as any[]).push({
+        id: `p1_creature_${i}`,
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: `p1_creature_card_${i}`,
+          name: `P1 Creature ${i}`,
+          type_line: 'Creature — Soldier',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      } as any);
+    }
+
+    for (let i = 0; i < 3; i++) {
+      (g.state.battlefield as any[]).push({
+        id: `p2_creature_${i}`,
+        controller: p2,
+        owner: p2,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: `p2_creature_card_${i}`,
+          name: `P2 Creature ${i}`,
+          type_line: 'Creature — Soldier',
+          oracle_text: '',
+          power: '1',
+          toughness: '1',
+        },
+      } as any);
+    }
+
+    (g.state.battlefield as any[]).push({
+      id: 'token_doubler_1',
+      controller: p1,
+      owner: p1,
+      tapped: false,
+      card: {
+        id: 'token_doubler_card',
+        name: 'Exalted Sunborn',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: 'If one or more tokens would be created under your control, twice that many of those tokens are created instead.',
+        power: '4',
+        toughness: '4',
+      },
+    } as any);
+
+    (g.state as any).stack = [
+      {
+        id: 'deploy_spell_1',
+        type: 'spell',
+        controller: p1,
+        sourceName: 'Deploy to the Front',
+        description: deploy.oracle_text,
+        card: {
+          ...deploy,
+          zone: 'stack',
+        },
+        targets: [],
+      },
+    ];
+
+    g.resolveTopOfStack();
+
+    const soldierTokens = ((g.state as any).battlefield || []).filter(
+      (perm: any) => perm?.controller === p1 && perm?.isToken === true && perm?.card?.name === 'Soldier'
+    );
+    expect(soldierTokens).toHaveLength(14);
+  });
+
   it('Steel Hellkite {X} destroys nonland permanents with mana value X for damaged opponents', () => {
     const ctx = createContext('steel_hellkite_x_ability');
 

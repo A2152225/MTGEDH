@@ -146,4 +146,79 @@ describe('Combat-damage-to-you regressions', () => {
     expect(permanent?.controller).toBe(p1);
     expect(permanent?.tapped).toBe(false);
   });
+
+  it('queues Darien with the full combat damage amount and creates that many Soldiers on resolution', () => {
+    const game = createInitialGameState('combat_damage_to_you_darien');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+    setupToMain1(game, [p1, p2]);
+
+    const active = game.state.turnPlayer as PlayerID;
+    const defending = active === p1 ? p2 : p1;
+
+    const attacker = {
+      id: 'attacker_1',
+      controller: active,
+      owner: active,
+      tapped: false,
+      counters: {},
+      summoningSickness: false,
+      basePower: 6,
+      baseToughness: 6,
+      attacking: defending,
+      blockedBy: [],
+      card: {
+        id: 'attacker_card_1',
+        name: 'Test Attacker',
+        type_line: 'Creature — Human',
+        oracle_text: '',
+        power: '6',
+        toughness: '6',
+      },
+    };
+    const darien = {
+      id: 'darien_1',
+      controller: defending,
+      owner: defending,
+      tapped: false,
+      counters: {},
+      summoningSickness: false,
+      basePower: 3,
+      baseToughness: 3,
+      card: {
+        id: 'darien_card_1',
+        name: 'Darien, King of Kjeldor',
+        type_line: 'Legendary Creature — Human Soldier',
+        oracle_text: "Whenever you're dealt damage, you may create that many 1/1 white Soldier creature tokens.",
+        power: '3',
+        toughness: '3',
+      },
+    };
+
+    (game.state.battlefield as any[]).push(attacker as any, darien as any);
+
+    game.applyEvent({ type: 'nextStep' });
+    game.applyEvent({ type: 'nextStep' });
+    game.applyEvent({ type: 'nextStep' });
+    (attacker as any).attacking = defending;
+    (attacker as any).blockedBy = [];
+    game.applyEvent({ type: 'nextStep' });
+
+    const trigger = ((game.state as any).stack || []).find(
+      (item: any) => item?.type === 'triggered_ability' && item?.source === 'darien_1'
+    );
+    expect(trigger).toBeTruthy();
+    expect(trigger?.triggerType).toBe('you_are_dealt_damage');
+    expect(trigger?.damageAmount).toBe(6);
+
+    game.resolveTopOfStack();
+
+    const soldierTokens = ((game.state as any).battlefield || []).filter(
+      (perm: any) => perm?.controller === defending && perm?.isToken === true && perm?.card?.name === 'Soldier'
+    );
+    expect(soldierTokens).toHaveLength(6);
+  });
 });

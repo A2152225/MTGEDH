@@ -63,6 +63,7 @@ import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-
 import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
 import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
+import { resolveGiftAwareOracleText } from "../../utils/gift.js";
 import {
   createMutatedPermanent,
   getMutatedPermanentAbilities,
@@ -7913,6 +7914,22 @@ export function executeTriggerEffect(
     return;
   }
   
+  // ===== DARIEN, KING OF KJELDOR =====
+  // "Whenever you're dealt damage, you may create that many 1/1 white Soldier creature tokens."
+  if (
+    sourceName.toLowerCase().includes('darien, king of kjeldor') ||
+    desc.includes('create that many 1/1 white soldier creature tokens')
+  ) {
+    const damageAmount = Math.max(0, Number((triggerItem as any)?.damageAmount || 0));
+    if (damageAmount > 0) {
+      createToken(ctx, controller, 'Soldier', damageAmount, 1, 1, {
+        colors: ['W'],
+        typeLine: 'Token Creature — Soldier',
+      });
+    }
+    return;
+  }
+
   // ===== DEPLOY TO THE FRONT =====
   // Pattern: "Create X 1/1 white Soldier creature tokens, where X is the number of creatures on the battlefield"
   // Deploy to the Front: "Create X 1/1 white Soldier creature tokens, where X is the number of creatures on the battlefield."
@@ -7932,45 +7949,11 @@ export function executeTriggerEffect(
     }
     
     debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${creatureCount} Soldier tokens for ${controller} (creatures on battlefield: ${creatureCount})`);
-    
-    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
-    const tokensToCreate = creatureCount * getTokenDoublerMultiplier(controller, state);
-    
-    // Create X 1/1 white Soldier tokens
-    for (let i = 0; i < tokensToCreate; i++) {
-      const tokenId = uid("token");
-      const typeLine = 'Token Creature — Soldier';
-      const imageUrls = getTokenImageUrls('Soldier', 1, 1, ['W']);
-      
-      const soldierToken = {
-        id: tokenId,
-        controller,
-        owner: controller,
-        tapped: false,
-        counters: {},
-        basePower: 1,
-        baseToughness: 1,
-        summoningSickness: true,
-        isToken: true,
-        card: {
-          id: tokenId,
-          name: 'Soldier',
-          type_line: typeLine,
-          power: '1',
-          toughness: '1',
-          zone: 'battlefield',
-          colors: ['W'],
-          image_uris: imageUrls,
-        },
-      };
-      
-      state.battlefield.push(soldierToken as any);
-      
-      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
-      triggerETBEffectsForToken(ctx, soldierToken, controller);
-      
-      debug(2, `[executeTriggerEffect] Created Soldier token ${i + 1}/${tokensToCreate}`);
-    }
+
+    createToken(ctx, controller, 'Soldier', creatureCount, 1, 1, {
+      colors: ['W'],
+      typeLine: 'Token Creature — Soldier',
+    });
     
     return;
   }
@@ -8012,45 +7995,11 @@ export function executeTriggerEffect(
     }
     
     debug(2, `[executeTriggerEffect] ${sourceName}: Creating ${opponentCreatureCount} Human Soldier tokens for ${controller} (opponent creatures: ${opponentCreatureCount})`);
-    
-    // Apply token doublers (Anointed Procession, Doubling Season, etc.)
-    const tokensToCreate = opponentCreatureCount * getTokenDoublerMultiplier(controller, state);
-    
-    // Create X 1/1 white Human Soldier tokens
-    for (let i = 0; i < tokensToCreate; i++) {
-      const tokenId = uid("token");
-      const typeLine = 'Token Creature — Human Soldier';
-      const imageUrls = getTokenImageUrls('Human Soldier', 1, 1, ['W']);
-      
-      const soldierToken = {
-        id: tokenId,
-        controller,
-        owner: controller,
-        tapped: false,
-        counters: {},
-        basePower: 1,
-        baseToughness: 1,
-        summoningSickness: true,
-        isToken: true,
-        card: {
-          id: tokenId,
-          name: 'Human Soldier',
-          type_line: typeLine,
-          power: '1',
-          toughness: '1',
-          zone: 'battlefield',
-          colors: ['W'],
-          image_uris: imageUrls,
-        },
-      };
-      
-      state.battlefield.push(soldierToken as any);
-      
-      // Trigger ETB effects for each token (Cathars' Crusade, Soul Warden, Impact Tremors, etc.)
-      triggerETBEffectsForToken(ctx, soldierToken, controller);
-      
-      debug(2, `[executeTriggerEffect] Created Human Soldier token ${i + 1}/${tokensToCreate}`);
-    }
+
+    createToken(ctx, controller, 'Human Soldier', opponentCreatureCount, 1, 1, {
+      colors: ['W'],
+      typeLine: 'Token Creature — Human Soldier',
+    });
     
     return;
   }
@@ -10644,7 +10593,10 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
   } else if (effectiveCard) {
     // Non-permanent spell (instant/sorcery) - execute effects before moving to graveyard
-    const oracleText = effectiveCard.oracle_text || '';
+    const oracleText = resolveGiftAwareOracleText(
+      effectiveCard.oracle_text || '',
+      Boolean((item as any)?.giftPromised ?? (item as any)?.card?.giftPromised),
+    );
     const oracleTextLower = oracleText.toLowerCase();
     const spellSpec = categorizeSpell(effectiveCard.name || '', oracleText);
     const gameId = (ctx as any).gameId || 'unknown';
@@ -10998,11 +10950,50 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Handle token creation spells (where the caster creates tokens)
     // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
-    const tokenCreationResult = parseTokenCreation(effectiveCard.name, oracleTextLower, controller, state, spellXValue);
-    if (tokenCreationResult) {
-      createTokenFromSpec(ctx, controller, tokenCreationResult);
-      debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
-    }
+      let handledSpecialTokenSpell = false;
+
+      if (String(effectiveCard.name || '').toLowerCase().includes('deploy to the front')) {
+        const creatureCount = (state.battlefield || []).filter((perm: any) =>
+          String(perm?.card?.type_line || '').toLowerCase().includes('creature')
+        ).length;
+        createToken(ctx, controller, 'Soldier', creatureCount, 1, 1, {
+          colors: ['W'],
+          typeLine: 'Token Creature — Soldier',
+        });
+        handledSpecialTokenSpell = true;
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${creatureCount} Soldier token(s) for ${controller}`);
+      }
+
+      if (String(effectiveCard.name || '').toLowerCase().includes('call the coppercoats')) {
+        const targetedOpponents = targets
+          .map((target: any) => typeof target === 'string' ? target : target?.id)
+          .filter((targetId: any) => typeof targetId === 'string' && !String(targetId).startsWith('perm_'));
+        const opponentIds = targetedOpponents.length > 0
+          ? targetedOpponents
+          : ((state.players || []) as any[])
+              .map((player: any) => player?.id)
+              .filter((playerId: any) => typeof playerId === 'string' && String(playerId) !== String(controller));
+        const opponentCreatureCount = (state.battlefield || []).filter((perm: any) =>
+          opponentIds.includes(String(perm?.controller || '')) &&
+          String(perm?.card?.type_line || '').toLowerCase().includes('creature')
+        ).length;
+        createToken(ctx, controller, 'Human Soldier', opponentCreatureCount, 1, 1, {
+          colors: ['W'],
+          typeLine: 'Token Creature — Human Soldier',
+        });
+        handledSpecialTokenSpell = true;
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${opponentCreatureCount} Human Soldier token(s) for ${controller}`);
+      }
+
+      // Handle token creation spells (where the caster creates tokens)
+      // Patterns: "create X 1/1 tokens", "create two 1/1 tokens", etc.
+      if (!handledSpecialTokenSpell) {
+        const tokenCreationResult = parseTokenCreation(effectiveCard.name, oracleTextLower, controller, state, spellXValue);
+        if (tokenCreationResult) {
+          createTokenFromSpec(ctx, controller, tokenCreationResult);
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name} created ${tokenCreationResult.count} ${tokenCreationResult.name} token(s) for ${controller} (xValue: ${spellXValue ?? 'N/A'})`);
+        }
+      }
     
     // Handle conditional board wipes based on X value
     // Pattern: "If X is N or more, destroy all other creatures" (Martial Coup, etc.)

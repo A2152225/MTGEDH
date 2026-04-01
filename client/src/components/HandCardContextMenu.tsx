@@ -68,7 +68,13 @@ export function HandCardContextMenu({
   const [position, setPosition] = useState({ x, y });
   
   const name = card?.name || 'Card';
-  const typeLine = (card?.type_line || '').toLowerCase();
+  const layout = String((card as any)?.layout || '').toLowerCase();
+  const cardFaces = Array.isArray((card as any)?.card_faces) ? (card as any).card_faces : undefined;
+  const typeLine = (
+    layout === 'transform' && cardFaces?.[0]?.type_line
+      ? cardFaces[0].type_line
+      : card?.type_line || ''
+  ).toLowerCase();
   const oracleText = (card?.oracle_text || '').toLowerCase();
   const isLand = /\bland\b/i.test(typeLine);
   

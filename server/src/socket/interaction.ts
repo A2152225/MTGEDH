@@ -8993,6 +8993,41 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             broadcastGame(io, game, gameId);
             return;
           }
+
+          if (!wouldBeManaAbility && (!parsedCost.hybrids || parsedCost.hybrids.length === 0) && !sacrificeType && /each player draws?/i.test(String(abilityText || ''))) {
+            const activatedAbilityText = (() => {
+              const scopedAbilityText = String(abilityConditionText || '').trim();
+              if (scopedAbilityText.includes(':')) return scopedAbilityText;
+              return manaOnly ? `${manaOnly}: ${abilityText}` : (scopedAbilityText || abilityText);
+            })();
+
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+              playerId: pid as PlayerID,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+              description: `Choose how to pay ${resolvedManaOnly} for ${cardName}.`,
+              mandatory: true,
+              activationPaymentChoice: true,
+              activationPaymentContext: 'battlefield_group_draw',
+              confirmLabel: 'Pay and Activate',
+              permanentId,
+              abilityId,
+              cardName,
+              abilityText,
+              activatedAbilityText,
+              manaCost: resolvedManaOnly,
+              requiresTap,
+              xValue: selectedXValue,
+            } as any);
+
+            if (typeof game.bumpSeq === 'function') {
+              game.bumpSeq();
+            }
+            broadcastGame(io, game, gameId);
+            return;
+          }
           
           // No Phyrexian costs - handle regular hybrid costs (like {W/U} or {2/W})
           if (parsedCost.hybrids && parsedCost.hybrids.length > 0) {

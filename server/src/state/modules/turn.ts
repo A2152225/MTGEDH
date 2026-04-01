@@ -1903,8 +1903,23 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           if (String(perm?.controller || '') !== String(damagedPlayerId) || !perm?.card) continue;
 
           const triggers = detectCombatDamageTriggers(perm.card, perm);
+          const oracleText = String(perm.card?.oracle_text || '');
+          if (!triggers.some((trigger) => trigger.triggerType === 'you_are_dealt_damage')) {
+            const youAreDealtDamageMatch = oracleText.match(/when(?:ever)?\s+you(?:'re| are)\s+dealt\s+damage,?\s*([^.]+)/i);
+            if (youAreDealtDamageMatch) {
+              triggers.push({
+                permanentId: String(perm.id || ''),
+                cardName: String(perm.card?.name || 'Unknown'),
+                triggerType: 'you_are_dealt_damage',
+                description: youAreDealtDamageMatch[1].trim(),
+                effect: youAreDealtDamageMatch[1].trim(),
+                mandatory: true,
+              } as any);
+            }
+          }
           const defenderTriggers = triggers.filter((trigger) =>
             trigger.triggerType === 'you_are_dealt_combat_damage' ||
+            trigger.triggerType === 'you_are_dealt_damage' ||
             trigger.triggerType === 'creatures_deal_combat_damage_to_you_batched'
           );
 
@@ -1915,7 +1930,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             try {
               const synthetic = trigger.triggerType === 'creatures_deal_combat_damage_to_you_batched'
                 ? `Whenever one or more creatures deal combat damage to you, ${text}`
-                : `When you're dealt combat damage, ${text}`;
+                : trigger.triggerType === 'you_are_dealt_damage'
+                  ? `Whenever you're dealt damage, ${text}`
+                  : `When you're dealt combat damage, ${text}`;
               const ok = isInterveningIfSatisfied(
                 ctx as any,
                 String(perm.controller),
@@ -1949,6 +1966,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               targets: [],
               damagedPlayerId: String(damagedPlayerId),
               attackingPlayerId,
+              damageAmount: Number(totalDamage || 0),
               card: perm.card,
             } as any);
 
@@ -2037,6 +2055,23 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
                 debug(2, `${ts()} [dealCombatDamage] Untapped all lands for ${controllerId} from ${trigger.cardName}`);
               } catch (untapErr) {
                 debugError(1, `${ts()} [dealCombatDamage] Failed to untap lands:`, untapErr);
+              }
+            }
+
+            if (
+              effectLower.includes('tap all lands defending player controls') ||
+              effectLower.includes('tap all lands that player controls')
+            ) {
+              try {
+                for (const permanent of battlefield) {
+                  if (!permanent || String(permanent.controller || '') !== String(defendingPlayerId)) continue;
+                  const permanentTypeLine = String(permanent.card?.type_line || '').toLowerCase();
+                  if (!permanentTypeLine.includes('land')) continue;
+                  (permanent as any).tapped = true;
+                }
+                debug(2, `${ts()} [dealCombatDamage] Tapped all lands for defending player ${defendingPlayerId} from ${trigger.cardName}`);
+              } catch (tapErr) {
+                debugError(1, `${ts()} [dealCombatDamage] Failed to tap defending lands:`, tapErr);
               }
             }
             

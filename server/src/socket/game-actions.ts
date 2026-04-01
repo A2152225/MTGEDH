@@ -35,6 +35,7 @@ import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
+import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
 
 // Import land-related helpers from modularized module
@@ -482,7 +483,7 @@ function findPendingSpellCastStep(gameId: string, playerId: string, cardId: stri
         (step.type === ResolutionStepType.MANA_PAYMENT_CHOICE && step.spellPaymentRequired === true) ||
         (step.type === ResolutionStepType.TARGET_SELECTION && step.spellCastContext) ||
         step.type === ResolutionStepType.MUTATE_TARGET_SELECTION ||
-        (step.type === ResolutionStepType.OPTION_CHOICE && step.mutateCastModeChoice === true)
+        (step.type === ResolutionStepType.OPTION_CHOICE && (step.mutateCastModeChoice === true || step.giftCastChoice === true))
       );
     });
 }
@@ -520,6 +521,7 @@ async function processOracleIRInteractions(
     controllerId: resolvedController as PlayerID,
     sourceId: stackItemId,
     sourceName: cardName,
+    giftPromised: Boolean((topItem as any)?.giftPromised ?? (topItem as any)?.card?.giftPromised),
   };
 
   let ir: any;
@@ -2579,7 +2581,7 @@ export async function requestCastSpellForSocket(
     }
 
     // Get oracle text (possibly from card face if split/adventure)
-    let oracleText = (cardInHand.oracle_text || "").toLowerCase();
+    let oracleTextRaw = cardInHand.oracle_text || "";
     let manaCost = isFreeCast ? '{0}' : (cardInHand.mana_cost || "");
     let cardName = cardInHand.name || "Card";
     let faceTypeLine = typeLine;
@@ -2594,7 +2596,7 @@ export async function requestCastSpellForSocket(
       }
       const face = cardFaces[faceIndex];
       if (face) {
-        oracleText = (face.oracle_text || "").toLowerCase();
+        oracleTextRaw = face.oracle_text || "";
         manaCost = face.mana_cost || manaCost;
         cardName = face.name || cardName;
         faceTypeLine = (face.type_line || "").toLowerCase();
@@ -2602,12 +2604,78 @@ export async function requestCastSpellForSocket(
     } else if (layout === 'transform' && Array.isArray(cardFaces) && cardFaces.length >= 2) {
       const frontFace = cardFaces[0];
       if (frontFace) {
-        oracleText = (frontFace.oracle_text || "").toLowerCase();
+        oracleTextRaw = frontFace.oracle_text || "";
         manaCost = frontFace.mana_cost || manaCost;
         cardName = frontFace.name || cardName;
         faceTypeLine = (frontFace.type_line || "").toLowerCase();
       }
     }
+
+    const giftInfo = extractGiftInfo(oracleTextRaw);
+    const transientGiftChoiceResolved = giftInfo.hasGift && (cardInHand as any).giftChoiceResolved === true;
+    const transientGiftPromised = giftInfo.hasGift && (cardInHand as any).giftPromised === true;
+    const transientGiftRecipient = giftInfo.hasGift ? String((cardInHand as any).giftRecipient || '').trim() : '';
+    const transientGiftType = giftInfo.hasGift ? String((cardInHand as any).giftType || giftInfo.giftType || '').trim() : '';
+
+    if (giftInfo.hasGift && !transientGiftChoiceResolved) {
+      const opponents = ((game.state?.players || []) as any[])
+        .filter((entry: any) => entry && String(entry.id || '') !== String(playerId))
+        .filter((entry: any) => !entry.hasLost && !entry.spectator && !entry.isSpectator)
+        .map((entry: any) => ({
+          id: String(entry.id),
+          label: `Promise ${giftInfo.giftType || 'a gift'} to ${String(entry.name || entry.id)}`,
+          description: String(entry.name || entry.id),
+        }));
+
+      if (opponents.length > 0) {
+        const existingGiftChoice = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((step: any) => step?.type === ResolutionStepType.OPTION_CHOICE && step?.giftCastChoice === true && String(step?.giftCardId || '') === String(cardId));
+
+        if (!existingGiftChoice) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: playerId as any,
+            sourceId: String(cardId),
+            sourceName: cardName,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: `Choose whether to promise ${giftInfo.giftType || 'a gift'} as you cast ${cardName}.`,
+            mandatory: true,
+            options: [
+              { id: 'gift:none', label: 'Cast without promising a gift' },
+              ...opponents.map((entry) => ({
+                id: `gift:${entry.id}`,
+                label: entry.label,
+                description: entry.description,
+              })),
+            ],
+            minSelections: 1,
+            maxSelections: 1,
+            giftCastChoice: true,
+            giftCardId: String(cardId),
+            giftCardName: cardName,
+            giftType: giftInfo.giftType,
+            giftFaceIndex: faceIndex,
+            giftFromZone: castSourceZone,
+          } as any);
+        }
+
+        debug(2, `[requestCastSpell] Queued Gift choice for ${cardName}`);
+        return;
+      }
+    }
+
+    const giftPromised = giftInfo.hasGift ? transientGiftPromised : false;
+    const giftRecipient = giftInfo.hasGift && transientGiftRecipient ? transientGiftRecipient : undefined;
+    const giftType = giftInfo.hasGift ? (transientGiftType || giftInfo.giftType || undefined) : undefined;
+    if (giftInfo.hasGift) {
+      delete (cardInHand as any).giftChoiceResolved;
+      delete (cardInHand as any).giftPromised;
+      delete (cardInHand as any).giftRecipient;
+      delete (cardInHand as any).giftType;
+    }
+
+    const oracleText = resolveGiftAwareOracleText(oracleTextRaw, giftInfo.hasGift ? giftPromised : undefined).toLowerCase();
 
     // Forced alternate cost (Miracle / Mutate)
     if (options?.forcedAlternateCostId === 'miracle') {
@@ -2735,6 +2803,13 @@ export async function requestCastSpellForSocket(
         mutateCost: manaCost,
         costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
+        ...(giftInfo.hasGift
+          ? {
+              giftPromised,
+              giftRecipient,
+              giftType,
+            }
+          : {}),
       };
 
       ResolutionQueueManager.addStep(gameId, {
@@ -2834,6 +2909,13 @@ export async function requestCastSpellForSocket(
         forcedAlternateCostId: options?.forcedAlternateCostId,
         castWithoutPayingManaCost: isFreeCast,
         bypassExilePermissionCheck,
+        ...(giftInfo.hasGift
+          ? {
+              giftPromised,
+              giftRecipient,
+              giftType,
+            }
+          : {}),
       };
 
       const additionalCost = detectAdditionalCost(oracleText);
@@ -3030,6 +3112,13 @@ export async function requestCastSpellForSocket(
       forcedAlternateCostId: options?.forcedAlternateCostId,
       castWithoutPayingManaCost: isFreeCast,
       bypassExilePermissionCheck,
+      ...(giftInfo.hasGift
+        ? {
+            giftPromised,
+            giftRecipient,
+            giftType,
+          }
+        : {}),
     };
 
     const additionalCost = detectAdditionalCost(oracleText);
@@ -3759,7 +3848,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const shouldSkipAllPrompts = skipInteractivePrompts === true;
       
       // Check timing restrictions for sorcery-speed spells
-      const oracleText = (cardInHand.oracle_text || "").toLowerCase();
+      const giftPromisedForCast = (cardInHand as any).giftPromised === true;
+      const oracleText = resolveGiftAwareOracleText(cardInHand.oracle_text || "", giftPromisedForCast).toLowerCase();
 
       // Carry over additional-cost payment state from requestCastSpell -> completeCastSpell.
       // Many resolution paths check this flag on the card object.
@@ -5858,6 +5948,13 @@ export function registerGameActions(io: Server, socket: Socket) {
               xValue,
               alternateCostId,
               ...(isFreeCast ? { castWithoutPayingManaCost: true } : {}),
+              ...(giftPromisedForCast === true
+                ? {
+                    giftPromised: true,
+                    giftRecipient: String((cardInHand as any).giftRecipient || '') || undefined,
+                    giftType: String((cardInHand as any).giftType || '') || undefined,
+                  }
+                : {}),
               // Provenance / replay-stable metadata for intervening-if templates.
               fromZone: castSourceZone,
               castFromHand: castSourceZone === 'hand',
@@ -6266,10 +6363,28 @@ export function registerGameActions(io: Server, socket: Socket) {
             const stackItem = {
               id: `stack_${Date.now()}_${cardId}`,
               controller: playerId,
-              card: { ...removedCard, zone: "stack", ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}) },
+              card: {
+                ...removedCard,
+                zone: "stack",
+                ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
+                ...(giftPromisedForCast === true
+                  ? {
+                      giftPromised: true,
+                      giftRecipient: String((cardInHand as any).giftRecipient || '') || undefined,
+                      giftType: String((cardInHand as any).giftType || '') || undefined,
+                    }
+                  : {}),
+              },
               targets: targets || [],
               targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
               xValue,
+              ...(giftPromisedForCast === true
+                ? {
+                    giftPromised: true,
+                    giftRecipient: String((cardInHand as any).giftRecipient || '') || undefined,
+                    giftType: String((cardInHand as any).giftType || '') || undefined,
+                  }
+                : {}),
               ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
               ...(additionalCost && typeof additionalCostPaid === 'boolean'
                 ? {
@@ -6355,6 +6470,13 @@ export function registerGameActions(io: Server, socket: Socket) {
           alternateCostId,
           fromZone: castSourceZone,
           castFromHand: castSourceZone === 'hand',
+          ...(giftPromisedForCast === true
+            ? {
+                giftPromised: true,
+                giftRecipient: String((cardInHand as any).giftRecipient || '') || undefined,
+                giftType: String((cardInHand as any).giftType || '') || undefined,
+              }
+            : {}),
           // Persist mana/payment metadata for deterministic replay / intervening-if.
           manaSpentTotal,
           manaSpentBreakdown: { ...manaConsumption.consumed },
@@ -7049,7 +7171,8 @@ export function registerGameActions(io: Server, socket: Socket) {
             const fromZone = String(pendingCast?.fromZone || 'hand').toLowerCase().trim();
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
             const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
-            const sourceArr = fromZone === 'exile' ? exile : hand;
+            const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
+            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : hand;
             const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
             if (cardObj) {
               (cardObj as any).isMutating = true;
@@ -7059,6 +7182,33 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
           } catch (e) {
             debugWarn(1, '[completeCastSpell] Failed to apply mutate metadata:', e);
+          }
+        }
+
+        if ('giftPromised' in pendingCast || 'giftRecipient' in pendingCast || 'giftType' in pendingCast) {
+          try {
+            const zones = (game.state as any)?.zones?.[playerId];
+            const fromZone = String(pendingCast?.fromZone || 'hand').toLowerCase().trim();
+            const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+            const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
+            const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
+            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : hand;
+            const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
+            if (cardObj) {
+              (cardObj as any).giftPromised = pendingCast?.giftPromised === true;
+              if (pendingCast?.giftRecipient) {
+                (cardObj as any).giftRecipient = String(pendingCast.giftRecipient);
+              } else {
+                delete (cardObj as any).giftRecipient;
+              }
+              if (pendingCast?.giftType) {
+                (cardObj as any).giftType = String(pendingCast.giftType);
+              } else {
+                delete (cardObj as any).giftType;
+              }
+            }
+          } catch (e) {
+            debugWarn(1, '[completeCastSpell] Failed to apply gift metadata:', e);
           }
         }
         

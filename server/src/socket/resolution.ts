@@ -389,7 +389,7 @@ function validateWardManaPaymentSelection(
       for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
         const bonusKey = MANA_POOL_KEY_BY_SYMBOL[String(bonus?.color || '').toUpperCase()];
         const bonusAmount = Number(bonus?.amount || 0);
-        if (bonusKey && bonusAmount > 0) {
+        if (bonusKey && bonusAmount > 0 && (count == null || bonusKey !== poolKey)) {
           totalAvailable[bonusKey] = (totalAvailable[bonusKey] || 0) + bonusAmount;
         }
       }
@@ -439,17 +439,20 @@ function applyWardManaPaymentSelection(
 
       (permanent as any).tapped = true;
       const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
-      const manaAmount = count != null ? Number(count) : Number(manaInfo.totalAmount || 0);
+      const producedAmount = count != null
+        ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0))
+        : Number(manaInfo.totalAmount || 0);
+      const spentAmount = count != null ? Math.max(Number(count) || 0, 0) : producedAmount;
       const poolKey = MANA_POOL_KEY_BY_SYMBOL[mana];
-      if (poolKey && manaAmount > 0) {
-        manaPool[poolKey] = (manaPool[poolKey] || 0) + manaAmount;
-        selectedPaymentTotals[poolKey] = (selectedPaymentTotals[poolKey] || 0) + manaAmount;
+      if (poolKey && producedAmount > 0) {
+        manaPool[poolKey] = (manaPool[poolKey] || 0) + producedAmount;
+        selectedPaymentTotals[poolKey] = (selectedPaymentTotals[poolKey] || 0) + spentAmount;
       }
 
       for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
         const bonusKey = MANA_POOL_KEY_BY_SYMBOL[String(bonus?.color || '').toUpperCase()];
         const bonusAmount = Number(bonus?.amount || 0);
-        if (bonusKey && bonusAmount > 0) {
+        if (bonusKey && bonusAmount > 0 && (count == null || bonusKey !== poolKey)) {
           manaPool[bonusKey] = (manaPool[bonusKey] || 0) + bonusAmount;
         }
       }
@@ -6351,6 +6354,9 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('cardId' in step) fields.cardId = (step as any).cardId;
       if ('castSpellArgs' in step) fields.castSpellArgs = (step as any).castSpellArgs;
       if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('activationPaymentChoice' in step) fields.activationPaymentChoice = (step as any).activationPaymentChoice;
+      if ('activationPaymentContext' in step) fields.activationPaymentContext = (step as any).activationPaymentContext;
+      if ('confirmLabel' in step) fields.confirmLabel = (step as any).confirmLabel;
       if ('wardPayment' in step) fields.wardPayment = (step as any).wardPayment;
       if ('wardPaymentType' in step) fields.wardPaymentType = (step as any).wardPaymentType;
       if ('wardCost' in step) fields.wardCost = (step as any).wardCost;
@@ -8671,6 +8677,86 @@ async function handleStepResponse(
               abilityText,
               activatedAbilityText: activatedAbilityText || undefined,
               tappedPermanents: requiresTap ? [permanentId] : [],
+            });
+          } catch {
+            // ignore persistence failures
+          }
+
+          if (typeof game.bumpSeq === 'function') game.bumpSeq();
+          broadcastGame(io, game, gameId);
+          break;
+        }
+
+        if (stepData.activationPaymentContext === 'battlefield_group_draw') {
+          const controllerId = String(step.playerId || pid);
+          const permanentId = String(stepData.permanentId || step.sourceId || '').trim();
+          const abilityId = String(stepData.abilityId || '').trim();
+          const cardName = String(stepData.cardName || step.sourceName || 'Ability');
+          const abilityText = String(stepData.abilityText || step.description || '').trim();
+          const activatedAbilityText = String(stepData.activatedAbilityText || '').trim();
+          const requiresTap = stepData.requiresTap === true;
+          const xValue = typeof stepData?.xValue === 'number' ? stepData.xValue : undefined;
+          const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+          const permanent = battlefield.find((entry: any) => entry && String(entry.id) === permanentId);
+          if (!permanent) {
+            emitToPlayer(io, pid as any, 'error', {
+              code: 'PERMANENT_NOT_FOUND',
+              message: 'Permanent no longer on battlefield',
+            });
+            break;
+          }
+
+          if (requiresTap && !(permanent as any).tapped) {
+            (permanent as any).tapped = true;
+          }
+
+          const stackItem = {
+            id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            type: 'ability' as const,
+            controller: controllerId,
+            source: permanentId,
+            sourceName: cardName,
+            description: abilityText,
+            activatedAbilityText: activatedAbilityText || undefined,
+            xValue,
+          } as any;
+
+          game.state.stack = game.state.stack || [];
+          game.state.stack.push(stackItem);
+          fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
+
+          io.to(gameId).emit('stackUpdate', {
+            gameId,
+            stack: (game.state.stack || []).map((s: any) => ({
+              id: s.id,
+              type: s.type,
+              name: s.sourceName || s.card?.name || 'Ability',
+              controller: s.controller,
+              targets: s.targets,
+              source: s.source,
+              sourceName: s.sourceName,
+              description: s.description,
+            })),
+          });
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `⚡ ${getPlayerName(game, controllerId)} activated ${cardName}. Ability on the stack.`,
+            ts: Date.now(),
+          });
+
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+              playerId: controllerId,
+              permanentId,
+              abilityId: abilityId || undefined,
+              cardName,
+              abilityText,
+              activatedAbilityText: activatedAbilityText || undefined,
+              xValue,
+              tappedPermanents: Array.from(new Set([...tappedPaymentPermanents, ...(requiresTap ? [permanentId] : [])])),
             });
           } catch {
             // ignore persistence failures
@@ -19457,6 +19543,62 @@ async function handleOptionChoiceResponse(
     if (sel && typeof sel === 'object') return (sel as any).id || (sel as any).value || null;
     return null;
   };
+
+  if (stepData.giftCastChoice === true) {
+    const choiceId = extractId(selectedOption) || 'gift:none';
+    const cardId = String(stepData.giftCardId || step.sourceId || '').trim();
+    const faceIndex = typeof stepData.giftFaceIndex === 'number' ? stepData.giftFaceIndex : undefined;
+    const fromZone = stepData.giftFromZone === 'exile' || stepData.giftFromZone === 'graveyard' ? stepData.giftFromZone : 'hand';
+    const zones = (game.state as any)?.zones?.[playerId];
+    const sourceArr: any[] = fromZone === 'exile'
+      ? (Array.isArray((zones as any)?.exile) ? (zones as any).exile : [])
+      : fromZone === 'graveyard'
+        ? (Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [])
+        : (Array.isArray((zones as any)?.hand) ? (zones as any).hand : []);
+    const cardObj = sourceArr.find((entry: any) => entry && String(entry.id || '') === cardId);
+    if (!cardObj) {
+      emitToPlayer(io, playerId as any, 'error', {
+        code: 'CARD_NOT_FOUND',
+        message: 'Card not found for Gift choice.',
+      });
+      return;
+    }
+
+    const promised = choiceId.startsWith('gift:') && choiceId !== 'gift:none';
+    const recipientId = promised ? String(choiceId.slice('gift:'.length)).trim() : '';
+    (cardObj as any).giftChoiceResolved = true;
+    (cardObj as any).giftPromised = promised;
+    if (recipientId) {
+      (cardObj as any).giftRecipient = recipientId;
+    } else {
+      delete (cardObj as any).giftRecipient;
+    }
+    if (stepData.giftType) {
+      (cardObj as any).giftType = String(stepData.giftType);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: promised && recipientId
+        ? `${getPlayerName(game, playerId)} promises ${String(stepData.giftType || 'a gift')} to ${getPlayerName(game, recipientId)} while casting ${String(stepData.giftCardName || step.sourceName || 'that spell')}.`
+        : `${getPlayerName(game, playerId)} casts ${String(stepData.giftCardName || step.sourceName || 'that spell')} without promising a gift.`,
+      ts: Date.now(),
+    });
+
+    emitToPlayer(io, playerId as any, 'castSpellFromHandContinue', {
+      gameId,
+      cardId,
+      restartCastRequest: true,
+      faceIndex,
+      fromZone,
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   if (stepData.spellBottomRevealUntilNonlandChoice === true) {
     const choiceId = extractId(selectedOption) || 'no';

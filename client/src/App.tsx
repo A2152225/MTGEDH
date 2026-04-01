@@ -2008,6 +2008,13 @@ export function App() {
           selectedCastMode: payload.selectedCastMode,
           convokeTappedCreatures: payload.convokeTappedCreatures,
         } as any);
+      } else if (payload?.restartCastRequest === true) {
+        requestCastSpellWithPromptSync({
+          gameId: safeView.id,
+          cardId: payload.cardId,
+          faceIndex: typeof payload.faceIndex === 'number' ? payload.faceIndex : undefined,
+          fromZone: payload.fromZone === 'exile' || payload.fromZone === 'graveyard' ? payload.fromZone : undefined,
+        });
       } else {
         socket.emit('castSpellFromHand', {
           gameId: safeView.id,
@@ -2019,6 +2026,8 @@ export function App() {
           selectedCastMode: payload.selectedCastMode,
           skipInteractivePrompts: payload.skipInteractivePrompts,
           convokeTappedCreatures: payload.convokeTappedCreatures,
+          fromZone: payload.fromZone,
+          faceIndex: payload.faceIndex,
         } as any);
       }
     };
@@ -3531,9 +3540,25 @@ export function App() {
   };
 
   // Hand interaction helpers: used to gate client UI; server still validates rules.
-  const reasonCannotPlayLand = (card: { type_line?: string | null }) => {
+  const getHandPlayableTypeLine = (card: {
+    type_line?: string | null;
+    layout?: string | null;
+    card_faces?: Array<{ type_line?: string | null }> | null;
+  }) => {
+    const layout = String(card?.layout || '').toLowerCase();
+    if (layout === 'transform' && Array.isArray(card?.card_faces) && card.card_faces.length > 0) {
+      return card.card_faces[0]?.type_line || card.type_line || '';
+    }
+    return card.type_line || '';
+  };
+
+  const reasonCannotPlayLand = (card: {
+    type_line?: string | null;
+    layout?: string | null;
+    card_faces?: Array<{ type_line?: string | null }> | null;
+  }) => {
     if (!safeView || !you) return "No game state";
-    if (!isLandTypeLine(card.type_line)) return "Not a land";
+    if (!isLandTypeLine(getHandPlayableTypeLine(card))) return "Not a land";
 
     const turnPlayer = safeView.turnPlayer;
     const phase = safeView.phase;
@@ -3556,9 +3581,13 @@ export function App() {
     return null;
   };
 
-  const reasonCannotCast = (card: { type_line?: string | null }) => {
+  const reasonCannotCast = (card: {
+    type_line?: string | null;
+    layout?: string | null;
+    card_faces?: Array<{ type_line?: string | null }> | null;
+  }) => {
     if (!safeView || !you) return "No game state";
-    if (isLandTypeLine(card.type_line)) return "Lands are played, not cast";
+    if (isLandTypeLine(getHandPlayableTypeLine(card))) return "Lands are played, not cast";
     // Check priority instead of turn - you can cast instants on other players' turns
     if (safeView.priority !== you) return "You don't have priority";
     return null;
@@ -3728,6 +3757,17 @@ export function App() {
     
     // Get player's battlefield permanents (filter global battlefield by controller)
     const battlefield = (safeView.battlefield || []).filter(perm => perm.controller === playerId);
+    const globalLandExtraCount = (safeView.battlefield || []).reduce((count, perm) => {
+      const permName = String((perm as any)?.card?.name || '').toLowerCase();
+      if (
+        permName.includes('mana flare') ||
+        permName.includes('heartbeat of spring') ||
+        permName.includes('dictate of karametra')
+      ) {
+        return count + 1;
+      }
+      return count;
+    }, 0);
     
     for (const perm of battlefield) {
       if (!perm || perm.tapped) continue; // Skip tapped permanents
@@ -3759,17 +3799,32 @@ export function App() {
       
       if (basicColors.length > 0) {
         // Land has basic land types - use those colors
-        sources.push({ id: perm.id, name, options: basicColors });
+        sources.push({
+          id: perm.id,
+          name,
+          options: basicColors,
+          ...(globalLandExtraCount > 0 ? { amount: 1 + globalLandExtraCount } : {}),
+        });
       } else if (typeLine.includes('land')) {
         // Non-basic land without basic land types - parse oracle text
         // Only include if it actually produces mana
         if (landProducesMana(oracleText)) {
           const oracleColors = parseManaColorsFromOracleText(oracleText);
           if (oracleColors.length > 0) {
-            sources.push({ id: perm.id, name, options: oracleColors });
+            sources.push({
+              id: perm.id,
+              name,
+              options: oracleColors,
+              ...(globalLandExtraCount > 0 ? { amount: 1 + globalLandExtraCount } : {}),
+            });
           } else {
             // Default to colorless if we can't determine the colors but it does produce mana
-            sources.push({ id: perm.id, name, options: ['C'] });
+            sources.push({
+              id: perm.id,
+              name,
+              options: ['C'],
+              ...(globalLandExtraCount > 0 ? { amount: 1 + globalLandExtraCount } : {}),
+            });
           }
         }
         // If land doesn't produce mana (e.g., fetch lands), skip it

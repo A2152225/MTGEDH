@@ -265,4 +265,65 @@ describe('Combat damage batched triggers - intervening-if at trigger time', () =
     const landAfter = g.state.battlefield.find((p: any) => p?.id === 'land_1') as any;
     expect(landAfter.tapped).toBe(false);
   });
+
+  it("Nature's Will untaps the attacker's lands and taps the defending player's lands", () => {
+    const g = createInitialGameState('natures_will_combat_damage');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    setupToMain1(g, p1, p2);
+
+    const active = g.state.turnPlayer as PlayerID;
+    const defending = active === p1 ? p2 : p1;
+
+    const attackerLand = {
+      id: 'attacker_land_1',
+      controller: active,
+      owner: active,
+      card: { id: 'attacker_land_card', name: 'Test Land', type_line: 'Land', oracle_text: '{T}: Add {G}.' },
+      tapped: true,
+    };
+    const defendingLand = {
+      id: 'defending_land_1',
+      controller: defending,
+      owner: defending,
+      card: { id: 'defending_land_card', name: 'Defending Land', type_line: 'Land', oracle_text: '{T}: Add {W}.' },
+      tapped: false,
+    };
+    const naturesWill = {
+      id: 'natures_will_1',
+      controller: active,
+      owner: active,
+      tapped: false,
+      card: {
+        id: 'natures_will_card',
+        name: "Nature's Will",
+        type_line: 'Enchantment',
+        oracle_text: 'Whenever one or more creatures you control deal combat damage to a player, untap all lands you control and tap all lands that player controls.',
+      },
+    };
+
+    (g.state.battlefield as any[]).push(attackerLand as any, defendingLand as any, naturesWill as any);
+
+    (g as any).createToken(active, 'Test Attacker', 1, 2, 2);
+    const attacker = g.state.battlefield.find((p: any) => p?.card?.name === 'Test Attacker' && p?.controller === active) as any;
+    expect(attacker).toBeTruthy();
+
+    g.applyEvent({ type: 'nextStep' });
+    g.applyEvent({ type: 'nextStep' });
+    g.applyEvent({ type: 'nextStep' });
+
+    attacker.attacking = defending;
+    attacker.blockedBy = [];
+
+    g.applyEvent({ type: 'nextStep' });
+
+    const attackerLandAfter = g.state.battlefield.find((p: any) => p?.id === 'attacker_land_1') as any;
+    const defendingLandAfter = g.state.battlefield.find((p: any) => p?.id === 'defending_land_1') as any;
+    expect(attackerLandAfter.tapped).toBe(false);
+    expect(defendingLandAfter.tapped).toBe(true);
+  });
 });

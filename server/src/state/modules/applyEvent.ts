@@ -1873,6 +1873,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if ((e as any).castWithoutPayingManaCost === true) {
               applyToStackItem('castWithoutPayingManaCost', true);
             }
+            if ((e as any).giftPromised === true) {
+              applyToStackItem('giftPromised', true);
+            }
+            if (typeof (e as any).giftRecipient === 'string' && (e as any).giftRecipient) {
+              applyToStackItem('giftRecipient', String((e as any).giftRecipient));
+            }
+            if (typeof (e as any).giftType === 'string' && (e as any).giftType) {
+              applyToStackItem('giftType', String((e as any).giftType));
+            }
 
             // Alternate-cost identifier
             const alt =

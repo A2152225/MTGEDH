@@ -515,6 +515,7 @@ export interface TriggeredAbility {
     | 'deals_damage'
     | 'deals_combat_damage'
     | 'creatures_deal_combat_damage_batched' // Batched trigger for one or more creatures dealing combat damage
+    | 'you_are_dealt_damage'
     | 'you_are_dealt_combat_damage'
     | 'creatures_deal_combat_damage_to_you_batched'
     | 'annihilator'
@@ -637,6 +638,18 @@ export function detectCombatDamageTriggers(card: any, permanent: any): Triggered
       triggerType: 'you_are_dealt_combat_damage',
       description: youAreDealtCombatDamageMatch[1].trim(),
       effect: youAreDealtCombatDamageMatch[1].trim(),
+      mandatory: true,
+    });
+  }
+
+  const youAreDealtDamageMatch = oracleText.match(/when(?:ever)?\s+you(?:'re| are)\s+dealt\s+damage,?\s*([^.]+)/i);
+  if (youAreDealtDamageMatch && !triggers.some(t => t.triggerType === 'you_are_dealt_damage')) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'you_are_dealt_damage',
+      description: youAreDealtDamageMatch[1].trim(),
+      effect: youAreDealtDamageMatch[1].trim(),
       mandatory: true,
     });
   }
