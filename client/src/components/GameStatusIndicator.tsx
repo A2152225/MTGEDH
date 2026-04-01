@@ -6,6 +6,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { PlayerRef, PlayerID } from '../../../shared/src';
 
+type UndoScope = 'step' | 'phase' | 'turn';
+
 interface AIStrategy {
   id: string;
   name: string;
@@ -34,7 +36,7 @@ interface Props {
   gameOver?: boolean;
   onConcede?: () => void;
   onLeaveGame?: () => void;
-  onUndo?: (count: number) => void;
+  onUndo?: (scope: UndoScope) => void;
   availableUndoCount?: number;
   smartUndoCounts?: { stepCount: number; phaseCount: number; turnCount: number };
   // Randomness handlers
@@ -86,9 +88,11 @@ export function GameStatusIndicator({
 }: Props) {
   const [showDiceMenu, setShowDiceMenu] = useState(false);
   const [showAIMenu, setShowAIMenu] = useState(false);
+  const [showUndoMenu, setShowUndoMenu] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState(aiStrategy || 'basic');
   const diceMenuRef = useRef<HTMLDivElement>(null);
   const aiMenuRef = useRef<HTMLDivElement>(null);
+  const undoMenuRef = useRef<HTMLDivElement>(null);
   
   // Default strategies if none provided
   const strategies = availableAIStrategies || [
@@ -108,15 +112,24 @@ export function GameStatusIndicator({
       if (aiMenuRef.current && !aiMenuRef.current.contains(event.target as Node)) {
         setShowAIMenu(false);
       }
+      if (undoMenuRef.current && !undoMenuRef.current.contains(event.target as Node)) {
+        setShowUndoMenu(false);
+      }
     }
-    if (showDiceMenu || showAIMenu) {
+    if (showDiceMenu || showAIMenu || showUndoMenu) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [showDiceMenu, showAIMenu]);
+  }, [showDiceMenu, showAIMenu, showUndoMenu]);
   
   const phaseKey = String(phase || '').toLowerCase();
   const stepKey = String(step || '').toLowerCase();
+  const undoOptions: Array<{ scope: UndoScope; label: string; count: number }> = [
+    { scope: 'step', label: 'Current Step', count: Number(smartUndoCounts?.stepCount || 0) },
+    { scope: 'phase', label: 'Current Phase', count: Number(smartUndoCounts?.phaseCount || 0) },
+    { scope: 'turn', label: 'Current Turn', count: Number(smartUndoCounts?.turnCount || 0) },
+  ];
+  const hasAnyUndoOption = undoOptions.some((option) => option.count > 0);
   
   const phaseInfo = phaseConfig[phase || ''] || phaseConfig[phaseKey] || { label: phase || '-', color: '#6b7280', icon: '🎮' };
   const stepInfo = stepConfig[step || ''] || stepConfig[stepKey] || { label: step || '', subColor: '#9ca3af' };
@@ -664,23 +677,95 @@ export function GameStatusIndicator({
             </button>
           )}
           {onUndo && availableUndoCount > 0 && (
-            <button
-              onClick={() => onUndo(1)}
-              disabled={!isYouPlayer}
-              style={{
-                background: '#6366f1',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 4,
-                padding: '4px 8px',
-                cursor: isYouPlayer ? 'pointer' : 'not-allowed',
-                fontSize: 11,
-                opacity: isYouPlayer ? 1 : 0.6,
-              }}
-              title={`Undo (${availableUndoCount} available)`}
-            >
-              ⏪ Undo
-            </button>
+            <div ref={undoMenuRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => {
+                  if (!isYouPlayer || !hasAnyUndoOption) return;
+                  setShowUndoMenu(!showUndoMenu);
+                }}
+                disabled={!isYouPlayer || !hasAnyUndoOption}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: showUndoMenu ? '#4f46e5' : '#6366f1',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '4px 8px',
+                  cursor: isYouPlayer && hasAnyUndoOption ? 'pointer' : 'not-allowed',
+                  fontSize: 11,
+                  opacity: isYouPlayer && hasAnyUndoOption ? 1 : 0.6,
+                }}
+                title={`Undo (${availableUndoCount} available)`}
+              >
+                <span>⏪ Undo</span>
+                <span>▼</span>
+              </button>
+
+              {showUndoMenu && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: 4,
+                    background: 'rgba(30, 30, 40, 0.98)',
+                    border: '1px solid rgba(99, 102, 241, 0.5)',
+                    borderRadius: 8,
+                    padding: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    zIndex: 1000,
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
+                    minWidth: 180,
+                  }}
+                >
+                  <div style={{
+                    fontSize: 11,
+                    color: '#9ca3af',
+                    marginBottom: 4,
+                    padding: '2px 4px',
+                    borderBottom: '1px solid rgba(255,255,255,0.1)',
+                  }}>
+                    ⏪ Undo Scope
+                  </div>
+                  {undoOptions.map((option) => {
+                    const enabled = option.count > 0;
+                    return (
+                      <button
+                        key={option.scope}
+                        onClick={() => {
+                          if (!enabled) return;
+                          onUndo(option.scope);
+                          setShowUndoMenu(false);
+                        }}
+                        disabled={!enabled}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: 11,
+                          background: enabled ? 'rgba(99, 102, 241, 0.18)' : 'rgba(75, 85, 99, 0.22)',
+                          border: '1px solid rgba(99, 102, 241, 0.28)',
+                          borderRadius: 4,
+                          color: enabled ? '#e5e7eb' : '#6b7280',
+                          cursor: enabled ? 'pointer' : 'not-allowed',
+                          textAlign: 'left',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                        }}
+                        title={enabled ? `${option.label} (${option.count} event${option.count === 1 ? '' : 's'})` : `${option.label} unavailable`}
+                      >
+                        <span>{option.label}</span>
+                        <span style={{ color: enabled ? '#c7d2fe' : '#6b7280' }}>{option.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}

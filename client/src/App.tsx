@@ -439,7 +439,6 @@ export function App() {
   // Undo request modal state
   const [undoModalOpen, setUndoModalOpen] = useState(false);
   const [undoRequestData, setUndoRequestData] = useState<UndoRequestData | null>(null);
-  const [undoCount, setUndoCount] = useState<number>(1); // Number of actions to undo
   const [availableUndoCount, setAvailableUndoCount] = useState<number>(0); // Available events to undo
   
   // Smart undo counts (step, phase, turn)
@@ -4289,16 +4288,20 @@ export function App() {
     setUndoRequestData(null);
   };
 
-  const handleRequestUndo = (count: number = 1) => {
+  const handleRequestUndo = (scope: 'step' | 'phase' | 'turn') => {
     if (!safeView) return;
-    // Clamp between 1 and available count (max 50)
-    const maxUndo = Math.min(availableUndoCount, 50);
-    const actionsToUndo = Math.max(1, Math.min(maxUndo, count));
-    socket.emit("requestUndo", {
-      gameId: safeView.id,
-      type: "action",
-      actionsToUndo,
-    });
+
+    switch (scope) {
+      case 'step':
+        socket.emit('requestUndoToStep', { gameId: safeView.id });
+        break;
+      case 'phase':
+        socket.emit('requestUndoToPhase', { gameId: safeView.id });
+        break;
+      case 'turn':
+        socket.emit('requestUndoToTurn', { gameId: safeView.id });
+        break;
+    }
   };
 
   const requestCastSpellWithPromptSync = React.useCallback((payload: {
@@ -4838,7 +4841,7 @@ export function App() {
             gameOver={(safeView as any).gameOver}
             onConcede={() => socket.emit("concede", { gameId: safeView.id })}
             onLeaveGame={() => leaveGame(() => setJoinCollapsed(false))}
-            onUndo={(count: number) => handleRequestUndo(count)}
+            onUndo={(scope) => handleRequestUndo(scope)}
             availableUndoCount={availableUndoCount}
             smartUndoCounts={smartUndoCounts}
             onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}
