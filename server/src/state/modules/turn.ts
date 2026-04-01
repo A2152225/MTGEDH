@@ -1905,16 +1905,27 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           const triggers = detectCombatDamageTriggers(perm.card, perm);
           const oracleText = String(perm.card?.oracle_text || '');
           if (!triggers.some((trigger) => trigger.triggerType === 'you_are_dealt_damage')) {
+            const lowerOracleText = oracleText.toLowerCase();
             const youAreDealtDamageMatch = oracleText.match(/when(?:ever)?\s+you(?:'re| are)\s+dealt\s+damage,?\s*([^.]+)/i);
-            if (youAreDealtDamageMatch) {
+            const fallbackEffectText = oracleText.split(/,\s*/, 2)[1]?.trim();
+            if (
+              youAreDealtDamageMatch ||
+              lowerOracleText.includes("whenever you're dealt damage") ||
+              lowerOracleText.includes("when you're dealt damage") ||
+              lowerOracleText.includes('whenever you are dealt damage') ||
+              lowerOracleText.includes('when you are dealt damage')
+            ) {
+              const effectText = youAreDealtDamageMatch?.[1]?.trim() || fallbackEffectText || '';
+              if (effectText) {
               triggers.push({
                 permanentId: String(perm.id || ''),
                 cardName: String(perm.card?.name || 'Unknown'),
                 triggerType: 'you_are_dealt_damage',
-                description: youAreDealtDamageMatch[1].trim(),
-                effect: youAreDealtDamageMatch[1].trim(),
+                description: effectText,
+                effect: effectText,
                 mandatory: true,
               } as any);
+              }
             }
           }
           const defenderTriggers = triggers.filter((trigger) =>

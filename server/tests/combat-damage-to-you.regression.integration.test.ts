@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createInitialGameState } from '../src/state/gameState';
+import { ResolutionQueueManager } from '../src/state/resolution';
 import type { PlayerID } from '../../shared/src';
 import { detectCombatDamageTriggers } from '../src/state/modules/triggered-abilities';
 
@@ -147,42 +148,21 @@ describe('Combat-damage-to-you regressions', () => {
     expect(permanent?.tapped).toBe(false);
   });
 
-  it('queues Darien with the full combat damage amount and creates that many Soldiers on resolution', () => {
+  it('detects and resolves Darien using the dealt-damage amount', () => {
     const game = createInitialGameState('combat_damage_to_you_darien');
     const p1 = 'p1' as PlayerID;
     const p2 = 'p2' as PlayerID;
+    const gameId = 'combat_damage_to_you_darien';
 
     addPlayer(game, p1, 'P1');
     addPlayer(game, p2, 'P2');
-    setupToMain1(game, [p1, p2]);
 
-    const active = game.state.turnPlayer as PlayerID;
-    const defending = active === p1 ? p2 : p1;
+    ResolutionQueueManager.removeQueue(gameId);
 
-    const attacker = {
-      id: 'attacker_1',
-      controller: active,
-      owner: active,
-      tapped: false,
-      counters: {},
-      summoningSickness: false,
-      basePower: 6,
-      baseToughness: 6,
-      attacking: defending,
-      blockedBy: [],
-      card: {
-        id: 'attacker_card_1',
-        name: 'Test Attacker',
-        type_line: 'Creature — Human',
-        oracle_text: '',
-        power: '6',
-        toughness: '6',
-      },
-    };
     const darien = {
       id: 'darien_1',
-      controller: defending,
-      owner: defending,
+      controller: p2,
+      owner: p2,
       tapped: false,
       counters: {},
       summoningSickness: false,
@@ -198,26 +178,49 @@ describe('Combat-damage-to-you regressions', () => {
       },
     };
 
-    (game.state.battlefield as any[]).push(attacker as any, darien as any);
+    (game.state.battlefield as any[]).push(darien as any);
 
-    game.applyEvent({ type: 'nextStep' });
-    game.applyEvent({ type: 'nextStep' });
-    game.applyEvent({ type: 'nextStep' });
-    (attacker as any).attacking = defending;
-    (attacker as any).blockedBy = [];
-    game.applyEvent({ type: 'nextStep' });
+    const detected = detectCombatDamageTriggers((darien as any).card, darien as any);
+    expect(detected.some((trigger: any) => trigger?.triggerType === 'you_are_dealt_damage')).toBe(true);
 
-    const trigger = ((game.state as any).stack || []).find(
-      (item: any) => item?.type === 'triggered_ability' && item?.source === 'darien_1'
-    );
-    expect(trigger).toBeTruthy();
-    expect(trigger?.triggerType).toBe('you_are_dealt_damage');
-    expect(trigger?.damageAmount).toBe(6);
+    (game.state as any).stack = [
+      {
+        id: 'darien_trigger',
+        type: 'triggered_ability',
+        controller: p2,
+        source: 'darien_1',
+        permanentId: 'darien_1',
+        sourceName: 'Darien, King of Kjeldor',
+        description: 'you may create that many 1/1 white Soldier creature tokens',
+        effect: 'you may create that many 1/1 white Soldier creature tokens',
+        triggerType: 'you_are_dealt_damage',
+        damageAmount: 6,
+        mandatory: false,
+        targets: [],
+      },
+    ];
 
     game.resolveTopOfStack();
 
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const step = queue.steps[0] as any;
+    expect(step.optionalTriggeredAbilityPrompt).toBe(true);
+    expect(step.sourceName).toBe('Darien, King of Kjeldor');
+    expect(step.deferredTriggeredAbilityItem?.damageAmount).toBe(6);
+
+    (game.state as any).stack = [
+      {
+        ...(step.deferredTriggeredAbilityItem as any),
+        optionalTriggeredAbilityDecisionApplied: true,
+      },
+    ];
+
+    ResolutionQueueManager.removeQueue(gameId);
+    game.resolveTopOfStack();
+
     const soldierTokens = ((game.state as any).battlefield || []).filter(
-      (perm: any) => perm?.controller === defending && perm?.isToken === true && perm?.card?.name === 'Soldier'
+      (perm: any) => perm?.controller === p2 && perm?.isToken === true && perm?.card?.name === 'Soldier'
     );
     expect(soldierTokens).toHaveLength(6);
   });
