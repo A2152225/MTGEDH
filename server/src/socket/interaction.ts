@@ -3817,14 +3817,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     // 1. It's a land (not creature, not non-land artifact)
     // 2. Has sacrifice + search your library
     // 3. Specifically searches for LAND cards (not artifacts, dragons, etc.)
-    const hasFetchPattern = oracleText.includes("sacrifice") && 
-      oracleText.includes("search your library") && 
-      (oracleText.includes("land card") || 
+    const hasFetchPattern = lowerScopedAbilityFullText.includes("sacrifice") && 
+      lowerScopedAbilityFullText.includes("search your library") && 
+      (lowerScopedAbilityFullText.includes("land card") || 
        // Check for basic land type searching like "search...for a forest or plains"
-       (oracleText.match(/search[^.]*for[^.]*(?:forest|plains|island|swamp|mountain)/) !== null));
+       (lowerScopedAbilityFullText.match(/search[^.]*for[^.]*(?:forest|plains|island|swamp|mountain)/) !== null));
     
     // Exclude creatures and non-land artifacts from fetch land detection
-    const isFetchLandAbility = (abilityId === "fetch-land" || hasLegacyAbilityToken("-fetch-")) && 
+    const isFetchLandAbility = (abilityId === "fetch-land" || hasLegacyAbilityToken("-fetch-") || (isGenericActivatedAbilityId && hasFetchPattern)) && 
       isLand && !isCreature && !isArtifact && hasFetchPattern;
     if (isFetchLandAbility) {
       // Split Second: can't activate non-mana abilities.
@@ -3845,10 +3845,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      const fetchAbilityText = (abilityId === "fetch-land" || hasLegacyAbilityToken("-fetch-"))
+        ? oracleText
+        : lowerScopedAbilityFullText;
+
       let manaCostStr = '';
       // Parse and validate mana cost from oracle text
       // Examples: "{2}, {T}, Sacrifice ~" (Myriad Landscape), "{3}{G}, {T}, Sacrifice ~" (Blighted Woodland)
-      const manaCostMatch = oracleText.match(/\{[^}]+\}(?:\s*,\s*\{[^}]+\})*(?=\s*,\s*\{t\})/i);
+      const manaCostMatch = fetchAbilityText.match(/\{[^}]+\}(?:\s*,\s*\{[^}]+\})*(?=\s*,\s*\{t\})/i);
       if (manaCostMatch) {
         manaCostStr = manaCostMatch[0];
         const parsedCost = parseManaCost(manaCostStr);
@@ -3883,7 +3887,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Check if it's a true fetch (pay 1 life)
-      const isTrueFetch = oracleText.includes("pay 1 life");
+      const isTrueFetch = fetchAbilityText.includes("pay 1 life");
       
       // Pay life cost if required (costs are paid immediately when activating)
       if (isTrueFetch) {
@@ -3931,11 +3935,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Parse what land types this fetch can find
-      const filter = parseSearchCriteria(oracleText);
+      const filter = parseSearchCriteria(fetchAbilityText);
       
       // Parse maxSelections from oracle text (e.g., "up to two" in Myriad Landscape)
       let maxSelections = 1; // Default to 1
-      const upToMatch = oracleText.match(/search your library for up to (\w+)/i);
+      const upToMatch = fetchAbilityText.match(/search your library for up to (\w+)/i);
       if (upToMatch) {
         const num = upToMatch[1].toLowerCase();
         if (num === 'two') maxSelections = 2;
@@ -3952,7 +3956,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // - "put it onto the battlefield tapped"
       // - "put them onto the battlefield tapped"
       // - "enters the battlefield tapped"
-      const entersTapped = /(?:put (?:it|them) onto|enters) the battlefield tapped/i.test(oracleText);
+      const entersTapped = /(?:put (?:it|them) onto|enters) the battlefield tapped/i.test(fetchAbilityText);
       
       // Build description for the ability
       let searchDescription = "Search your library for a land card";
@@ -4003,7 +4007,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         abilityId, 
         cardName,
         stackId: abilityStackId,
-        activatedAbilityText: scopedAbilityFullText,
+        activatedAbilityText: fetchAbilityText,
         ...(manaCostStr ? { manaCost: manaCostStr } : {}),
         ...(isTrueFetch ? { lifePaidForCost: 1 } : {}),
         searchParams: {

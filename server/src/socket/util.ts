@@ -18,7 +18,7 @@ import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
-import { canRespond, canAct, getCostAdjustmentInfo, getHandCastEvaluationCard, isCardPlayableAsLandFromHand, isTransformBackFace } from "../state/modules/can-respond.js";
+import { canRespond, canAct, getCostAdjustmentInfo, getHandCastEvaluationCards, isCardPlayableAsLandFromHand, isTransformBackFace } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
@@ -378,13 +378,6 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     if (Array.isArray(zones.hand)) {
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
-
-        const castCard = getHandCastEvaluationCard(card);
-
-        // Chosen-name cast restrictions (e.g., Meddling Mage / Nevermore)
-        if (isSpellCastingProhibitedByChosenName(state, playerId, (castCard as any).name || '').prohibited) {
-          continue;
-        }
         
         // For transform cards, check if this represents the back face
         // Transform cards from Scryfall have layout="transform" and card_faces array
@@ -414,66 +407,63 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           // Modal DFCs can be cast as either face - don't skip them here
           // The player will be prompted to choose which face to cast
         }
-        
-        const typeLine = (castCard.type_line || "").toLowerCase();
-        const oracleText = (castCard.oracle_text || "").toLowerCase();
-        
-        // Skip lands - they're checked separately
-        if (isCardPlayableAsLandFromHand(card)) continue;
-        
-        // Check for special casting timing restrictions
-        // Example: Delirium - "Cast this spell only during an opponent's turn"
-        const turnPlayer = state.turnPlayer;
-        const timingRestriction = checkSpellTimingRestriction(
-          castCard.oracle_text || "",
-          playerId,
-          turnPlayer,
-          state as any
-        );
-        
-        if (!timingRestriction.canCast) {
-          continue;
-        }
-        
-        // Check for target availability using the same dynamic targeting logic as the target selector.
-        // This prevents marking targeted spells as playable when no legal targets exist.
-        const hasTargets = hasValidTargetsForSpell(state as any, playerId, castCard, { conservative: false });
-        if (!hasTargets) {
-          continue;
-        }
-        
-        // Check if it's instant-speed (instant or flash)
-        const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
-        
-        // Check if it's sorcery-speed and we're in the right timing
-        const isSorcerySpeed = 
-          typeLine.includes("creature") ||
-          typeLine.includes("sorcery") ||
-          typeLine.includes("artifact") ||
-          typeLine.includes("enchantment") ||
-          typeLine.includes("planeswalker") ||
-          typeLine.includes("battle");
-        
-        const canCastNow = isInstantSpeed || (isSorcerySpeed && isMainPhase && stackIsEmpty && isMyTurn);
-        
-        if (canCastNow) {
-          // Calculate cost reduction for this spell
+
+        for (const castCard of getHandCastEvaluationCards(card)) {
+          if (isSpellCastingProhibitedByChosenName(state, playerId, (castCard as any).name || '').prohibited) {
+            continue;
+          }
+
+          const typeLine = (castCard.type_line || "").toLowerCase();
+          const oracleText = (castCard.oracle_text || "").toLowerCase();
+
+          if (/\bland\b/i.test(typeLine)) continue;
+
+          const turnPlayer = state.turnPlayer;
+          const timingRestriction = checkSpellTimingRestriction(
+            castCard.oracle_text || "",
+            playerId,
+            turnPlayer,
+            state as any
+          );
+
+          if (!timingRestriction.canCast) {
+            continue;
+          }
+
+          const hasTargets = hasValidTargetsForSpell(state as any, playerId, castCard, { conservative: false });
+          if (!hasTargets) {
+            continue;
+          }
+
+          const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
+          const isSorcerySpeed = 
+            typeLine.includes("creature") ||
+            typeLine.includes("sorcery") ||
+            typeLine.includes("artifact") ||
+            typeLine.includes("enchantment") ||
+            typeLine.includes("planeswalker") ||
+            typeLine.includes("battle");
+
+          const canCastNow = isInstantSpeed || (isSorcerySpeed && isMainPhase && stackIsEmpty && isMyTurn);
+
+          if (!canCastNow) {
+            continue;
+          }
+
           const reduction = calculateCostReduction(game as any, playerId, castCard, false);
-          
-          // For transform/modal DFC cards, get mana cost from the front face
+
           let manaCost = castCard.mana_cost || "";
           if (!manaCost && cardFaces && cardFaces.length > 0) {
             manaCost = cardFaces[0].mana_cost || "";
           }
-          
+
           const parsedCost = parseManaFromString(manaCost);
-          
-          // Apply cost reduction to get the actual cost
           const reducedCost = applyCostReduction(parsedCost, reduction);
           const actualCost = { ...reducedCost, hasX: (reducedCost as any).hasX ?? (parsedCost as any).hasX ?? false };
-          
+
           if (canPayManaCostWithAvailableSources(state, playerId, actualCost) || hasPayableAlternateCost(game as any, playerId, castCard)) {
             playableIds.push(card.id);
+            break;
           }
         }
       }

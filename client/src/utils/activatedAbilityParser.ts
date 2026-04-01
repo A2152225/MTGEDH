@@ -477,41 +477,6 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
     });
   }
   
-  // ======== FETCH LAND ABILITIES ========
-  // Detect sacrifice + search patterns for fetch lands
-  if (lowerOracle.includes('sacrifice') && lowerOracle.includes('search')) {
-    const isTrueFetch = lowerOracle.includes('pay 1 life');
-    
-    // Determine what land types it can fetch
-    let fetchDescription = 'Search your library for a land';
-    let targetTypes = 'land';
-    
-    // Match specific land type patterns
-    const landTypeMatch = oracleText.match(
-      /search your library for (?:a|an) ((?:basic )?(?:(?:Forest|Plains|Island|Mountain|Swamp)(?: or (?:Forest|Plains|Island|Mountain|Swamp))*|land)) card/i
-    );
-    if (landTypeMatch) {
-      targetTypes = landTypeMatch[1];
-      fetchDescription = `Search for: ${targetTypes}`;
-    }
-    
-    abilities.push({
-      id: `${card.id}-fetch-${abilityIndex++}`,
-      label: isTrueFetch ? 'Fetch Land (pay 1 life)' : 'Fetch Land',
-      description: fetchDescription,
-      cost: isTrueFetch ? '{T}, Pay 1 life, Sacrifice' : '{T}, Sacrifice',
-      effect: `Search your library for a ${targetTypes} card`,
-      requiresTap: true,
-      requiresUntap: false,
-      requiresSacrifice: true,
-      lifeCost: isTrueFetch ? 1 : undefined,
-      isManaAbility: false,
-      isLoyaltyAbility: false,
-      isFetchAbility: true,
-      targetDescription: targetTypes,
-    });
-  }
-  
   // ======== PLANESWALKER LOYALTY ABILITIES ========
   if (typeLine.includes('planeswalker')) {
     // Match planeswalker ability patterns: +N:, -N:, or 0: at start of line
@@ -595,6 +560,13 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       const costComponents = parseCostComponents(costPart);
       const manaProduced = parseManaProduction(effectPart);
       const isManaAbility = !!manaProduced && !effectPart.toLowerCase().includes('target');
+      const lowerEffectPart = effectPart.toLowerCase();
+      const isFetchAbility =
+        typeLine.includes('land') &&
+        costComponents.requiresSacrifice === true &&
+        lowerEffectPart.includes('search your library') &&
+        (lowerEffectPart.includes('land card') ||
+          /\bforest\b|\bplains\b|\bisland\b|\bswamp\b|\bmountain\b/i.test(effectPart));
       
       // Determine if this requires a target
       const requiresTarget = /\btarget\b/i.test(effectPart);
@@ -625,6 +597,8 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       let label: string;
       if (isManaAbility) {
         label = `Add ${manaProduced}`;
+      } else if (isFetchAbility) {
+        label = /up to\s+two/i.test(effectPart) ? 'Fetch Lands' : 'Fetch Land';
       } else if (isMillAbility && millCount) {
         // Mill ability label
         const targetStr = millTargetType === 'self' ? '' : 
@@ -668,7 +642,7 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
         ...costComponents,
         isManaAbility,
         isLoyaltyAbility: false,
-        isFetchAbility: false,
+        isFetchAbility,
         isMillAbility,
         millCount,
         millTargetType,

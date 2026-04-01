@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, suppressAutomationOnNextBroadcast } from "./util";
 import { emitResolutionStepPrompt, processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -867,8 +867,6 @@ function checkCreatureTypeSelectionForNewPermanents(
       debug(2, `[game-actions] Queued creature type selection for ${cardName} (${permanentId}) from ${controller}`);
     }
   }
-  
-  broadcastGame(io, game, gameId);
 }
 
 /**
@@ -1042,9 +1040,26 @@ function checkEnchantmentETBTriggers(
         const controller = permanent.controller;
         permanent.etbProcessed = true;
         
-        // Get library
-        const zones = game.state.zones?.[controller];
-        if (!zones || !Array.isArray(zones.library)) continue;
+        const library = Array.isArray((game as any).libraries?.get(controller))
+          ? ((game as any).libraries.get(controller) as any[])
+          : [];
+
+        const availableCards = library
+          .filter((candidate: any) => String(candidate?.type_line || '').toLowerCase().includes('forest'))
+          .map((candidate: any) => ({
+            id: candidate.id,
+            name: candidate.name,
+            type_line: candidate.type_line,
+            oracle_text: candidate.oracle_text,
+            image_uris: candidate.image_uris,
+            imageUrl: candidate.image_uris?.normal,
+            mana_cost: candidate.mana_cost,
+            cmc: candidate.cmc,
+            colors: candidate.colors,
+            power: candidate.power,
+            toughness: candidate.toughness,
+            loyalty: candidate.loyalty,
+          }));
         
         // Queue library tutor via Resolution Queue
         ResolutionQueueManager.addStep(gameId, {
@@ -1059,8 +1074,8 @@ function checkEnchantmentETBTriggers(
           destination: 'battlefield',
           reveal: false,
           shuffleAfter: true,
-          availableCards: zones.library,
-          filter: { subtype: 'Forest' },
+          availableCards,
+          filter: { subtypes: ['Forest'] },
           entersTapped: true,
         } as any);
         
@@ -1661,8 +1676,10 @@ export function extractCreatureTypes(typeLine: string): string[] {
   const types: string[] = [];
   const lower = typeLine.toLowerCase();
   
-  // Check for creature types after "ΓÇö" or "-"
-  const dashIndex = lower.indexOf("ΓÇö") !== -1 ? lower.indexOf("ΓÇö") : lower.indexOf("-");
+  // Support normal em dash, mojibake fallback, and plain hyphen separators.
+  const dashIndex = lower.indexOf('—') !== -1
+    ? lower.indexOf('—')
+    : (lower.indexOf("ΓÇö") !== -1 ? lower.indexOf("ΓÇö") : lower.indexOf("-"));
   if (dashIndex !== -1) {
     const subtypes = lower.slice(dashIndex + 1).trim().split(/\s+/);
     types.push(...subtypes.filter(t => t.length > 0));
@@ -2283,9 +2300,30 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
       
       const grantorOracle = (perm.card.oracle_text || "").toLowerCase();
       const grantorController = perm.controller;
+      const chosenAbilities = Array.isArray((perm as any)?.chosenOptions)
+        ? (perm as any).chosenOptions
+        : [((perm as any)?.chosenOption ?? '')];
+      const chosenKeywordSet = new Set(
+        chosenAbilities
+          .map((value: any) => String(value || '').trim().toLowerCase())
+          .filter((value: string) => value.length > 0)
+      );
       
       // Only check permanents controlled by the same player
       if (grantorController === controller) {
+        if (perm.id !== permanent.id && chosenKeywordSet.has(lowerKeyword) && grantorOracle.includes('abilities of your choice among')) {
+          const creatureTypes = extractCreatureTypes(permTypeLine);
+          for (const creatureType of creatureTypes) {
+            const chosenGrantPattern = new RegExp(
+              `other\\s+${creatureType}s?\\s+(?:creatures?\\s+)?you\\s+control\\s+(?:get\\s+[^.]*\\s+and\\s+have|have)\\s+all\\s+abilities\\s+of\\s+your\\s+choice\\s+among`,
+              'i'
+            );
+            if (chosenGrantPattern.test(grantorOracle)) {
+              return true;
+            }
+          }
+        }
+
         // Global grants: "creatures you control have [keyword]"
         if (grantorOracle.includes(`creatures you control have ${lowerKeyword}`) ||
             grantorOracle.includes(`other creatures you control have ${lowerKeyword}`)) {
@@ -2445,6 +2483,67 @@ function checkAndPromptMiracle(
       normalCost: firstCard.mana_cost || '',
     } as any);
   }
+}
+
+function buildSelectedSpellFace(card: any, face: any, faceIndex: number, extras?: Record<string, unknown>): any {
+  const manaCost = face?.mana_cost ?? face?.manaCost ?? card?.mana_cost ?? card?.manaCost;
+  return {
+    ...card,
+    ...(face || {}),
+    name: face?.name || card?.name,
+    type_line: face?.type_line || face?.typeLine || card?.type_line,
+    oracle_text: face?.oracle_text || face?.oracleText || card?.oracle_text,
+    mana_cost: manaCost,
+    manaCost,
+    colors: Array.isArray(face?.colors) ? face.colors : card?.colors,
+    image_uris: face?.image_uris || card?.image_uris,
+    faceIndex,
+    ...(extras || {}),
+  };
+}
+
+function resolveSelectedSpellCard(card: any, faceIndex?: number): { card: any; faceIndex?: number; castAsAdventure?: boolean } {
+  if (!card || typeof card === 'string') {
+    return { card, faceIndex };
+  }
+
+  const layout = String(card?.layout || '').toLowerCase();
+  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+
+  if ((layout === 'transform' || layout === 'double_faced_token') && cardFaces.length >= 1) {
+    return {
+      card: buildSelectedSpellFace(card, cardFaces[0], 0),
+      faceIndex: 0,
+    };
+  }
+
+  if (typeof faceIndex === 'number' && cardFaces[faceIndex]) {
+    const castAsAdventure = layout === 'adventure' ? faceIndex === 1 : undefined;
+    return {
+      card: buildSelectedSpellFace(
+        card,
+        cardFaces[faceIndex],
+        faceIndex,
+        castAsAdventure === undefined ? undefined : { castAsAdventure }
+      ),
+      faceIndex,
+      castAsAdventure,
+    };
+  }
+
+  if (layout === 'adventure' && cardFaces.length >= 1) {
+    return {
+      card: buildSelectedSpellFace(card, cardFaces[0], 0, { castAsAdventure: false }),
+      faceIndex: 0,
+      castAsAdventure: false,
+    };
+  }
+
+  return {
+    card,
+    faceIndex,
+    castAsAdventure: layout === 'adventure' ? false : undefined,
+  };
 }
 
 export async function requestCastSpellForSocket(
@@ -2608,41 +2707,29 @@ export async function requestCastSpellForSocket(
       }
     }
 
-    if (typeLine.includes("land") && layout !== 'transform') {
+    if (faceIndex !== undefined && (!Array.isArray(cardFaces) || faceIndex < 0 || faceIndex >= cardFaces.length)) {
+      socket.emit("error", {
+        code: "INVALID_FACE_INDEX",
+        message: `Invalid face index: ${faceIndex}`,
+      });
+      return;
+    }
+
+    const selectedSpell = resolveSelectedSpellCard(cardInHand, faceIndex);
+    const cardForCast = selectedSpell.card;
+    const selectedFaceIndex = selectedSpell.faceIndex;
+    const effectiveTypeLine = String(cardForCast?.type_line || typeLine || '').toLowerCase();
+
+    if (effectiveTypeLine.includes("land")) {
       socket.emit("error", { code: "CANNOT_CAST_LAND", message: "Lands cannot be cast as spells." });
       return;
     }
 
     // Get oracle text (possibly from card face if split/adventure)
-    let oracleTextRaw = cardInHand.oracle_text || "";
-    let manaCost = isFreeCast ? '{0}' : (cardInHand.mana_cost || "");
-    let cardName = cardInHand.name || "Card";
-    let faceTypeLine = typeLine;
-
-    if (faceIndex !== undefined && Array.isArray(cardFaces)) {
-      if (faceIndex < 0 || faceIndex >= cardFaces.length) {
-        socket.emit("error", {
-          code: "INVALID_FACE_INDEX",
-          message: `Invalid face index: ${faceIndex}`,
-        });
-        return;
-      }
-      const face = cardFaces[faceIndex];
-      if (face) {
-        oracleTextRaw = face.oracle_text || "";
-        manaCost = face.mana_cost || manaCost;
-        cardName = face.name || cardName;
-        faceTypeLine = (face.type_line || "").toLowerCase();
-      }
-    } else if (layout === 'transform' && Array.isArray(cardFaces) && cardFaces.length >= 2) {
-      const frontFace = cardFaces[0];
-      if (frontFace) {
-        oracleTextRaw = frontFace.oracle_text || "";
-        manaCost = frontFace.mana_cost || manaCost;
-        cardName = frontFace.name || cardName;
-        faceTypeLine = (frontFace.type_line || "").toLowerCase();
-      }
-    }
+    let oracleTextRaw = cardForCast.oracle_text || "";
+    let manaCost = isFreeCast ? '{0}' : (cardForCast.mana_cost || "");
+    let cardName = cardForCast.name || "Card";
+    let faceTypeLine = effectiveTypeLine;
 
     const giftInfo = extractGiftInfo(oracleTextRaw);
     const transientGiftChoiceResolved = giftInfo.hasGift && (cardInHand as any).giftChoiceResolved === true;
@@ -2671,7 +2758,7 @@ export async function requestCastSpellForSocket(
             playerId: playerId as any,
             sourceId: String(cardId),
             sourceName: cardName,
-            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
             description: `Choose whether to promise ${giftInfo.giftType || 'a gift'} as you cast ${cardName}.`,
             mandatory: true,
             options: [
@@ -2688,7 +2775,7 @@ export async function requestCastSpellForSocket(
             giftCardId: String(cardId),
             giftCardName: cardName,
             giftType: giftInfo.giftType,
-            giftFaceIndex: faceIndex,
+            giftFaceIndex: selectedFaceIndex,
             giftFromZone: castSourceZone,
           } as any);
         }
@@ -2745,8 +2832,8 @@ export async function requestCastSpellForSocket(
     }
 
     // Effective type line for the face being cast (used by several downstream checks)
-    const effectiveTypeLine = faceTypeLine || typeLine;
-    const isInstantOrSorcery = effectiveTypeLine.includes('instant') || effectiveTypeLine.includes('sorcery');
+    const spellTypeLine = faceTypeLine || effectiveTypeLine || typeLine;
+    const isInstantOrSorcery = spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery');
 
     // Mutate casting-mode prompt (for mutate creatures).
     // Mutate reminder text lives on the card, but a creature spell only targets when cast for its mutate cost.
@@ -2755,7 +2842,7 @@ export async function requestCastSpellForSocket(
       options?.skipMutateModePrompt !== true &&
       options?.forcedAlternateCostId == null &&
       !isInstantOrSorcery &&
-      effectiveTypeLine.includes('creature')
+      spellTypeLine.includes('creature')
     ) {
       const ctx: any = { state: game.state };
       const hasMutate = /\bmutate\b/i.test(String(oracleText || ''));
@@ -2773,7 +2860,7 @@ export async function requestCastSpellForSocket(
             playerId: playerId as any,
             sourceId: String(cardId),
             sourceName: cardName,
-            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
             description: `Choose how to cast ${cardName}.`,
             mandatory: true,
             options: [
@@ -2785,7 +2872,7 @@ export async function requestCastSpellForSocket(
 
             mutateCastModeChoice: true,
             mutateCardId: String(cardId),
-            mutateFaceIndex: faceIndex,
+            mutateFaceIndex: selectedFaceIndex,
             mutateCost,
           } as any);
         }
@@ -2810,13 +2897,13 @@ export async function requestCastSpellForSocket(
           mandatory: true,
           sourceId: String(cardId),
           sourceName: cardName,
-          sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
           minValue: 0,
           maxValue: 20,
           xCount,
           spellCastXSelection: true,
           spellCardId: String(cardId),
-          spellFaceIndex: faceIndex,
+          spellFaceIndex: selectedFaceIndex,
           spellFromZone: castSourceZone,
           spellForcedAlternateCostId: options?.forcedAlternateCostId,
           spellCastWithoutPayingManaCost: isFreeCast,
@@ -2831,7 +2918,7 @@ export async function requestCastSpellForSocket(
     const resolvedManaCost = expandManaCostWithChosenX(manaCost, chosenXValue);
 
     // Check if this spell requires targets
-    const isAura = effectiveTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
+    const isAura = spellTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
     const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpell(cardName, oracleText) : null;
     const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
 
@@ -2860,8 +2947,8 @@ export async function requestCastSpellForSocket(
         return;
       }
 
-      const costReduction = calculateCostReduction(game, playerId, cardInHand);
-      const convokeOptions = calculateConvokeOptions(game, playerId, cardInHand);
+      const costReduction = calculateCostReduction(game, playerId, cardForCast);
+      const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
 
       (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
       (game.state as any).pendingSpellCasts[effectId] = {
@@ -2871,10 +2958,10 @@ export async function requestCastSpellForSocket(
         rawManaCost: manaCost,
         fromZone: castSourceZone,
         playerId,
-        faceIndex,
+        faceIndex: selectedFaceIndex,
         xValue: chosenXValue,
         validTargetIds: valid.map((t: any) => String(t.permanentId)),
-        card: { ...cardInHand },
+        card: { ...cardForCast },
         forcedAlternateCostId: 'mutate',
         mutateCost: manaCost,
         costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
@@ -2893,7 +2980,7 @@ export async function requestCastSpellForSocket(
         playerId: playerId as any,
         sourceId: effectId,
         sourceName: cardName,
-        sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
         description: `Choose a creature to mutate onto for ${cardName}.`,
         mandatory: true,
 
@@ -2901,7 +2988,7 @@ export async function requestCastSpellForSocket(
         cardId,
         cardName,
         mutateCost: manaCost,
-        imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
         validTargets: valid.map((t: any) => {
           const perm: any = (game.state.battlefield || []).find((p: any) => p && String(p.id) === String(t.permanentId));
           return {
@@ -2985,10 +3072,10 @@ export async function requestCastSpellForSocket(
           rawManaCost: manaCost,
           fromZone: castSourceZone,
           playerId,
-          faceIndex,
+          faceIndex: selectedFaceIndex,
           xValue: chosenXValue,
           validTargetIds: validTargetList.map((t: any) => t.id),
-          card: { ...cardInHand },
+          card: { ...cardForCast },
           forcedAlternateCostId: options?.forcedAlternateCostId,
           castWithoutPayingManaCost: isFreeCast,
           bypassExilePermissionCheck,
@@ -3043,7 +3130,7 @@ export async function requestCastSpellForSocket(
                 mandatory: true,
                 sourceId: effectId,
                 sourceName: cardName,
-                sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+                sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
                 options: [
                   {
                     id: 'blight_cost',
@@ -3085,7 +3172,7 @@ export async function requestCastSpellForSocket(
                   mandatory: !blightIsOptional,
                   sourceId: effectId,
                   sourceName: cardName,
-                  sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+                  sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
                   validTargets: validBlightTargets,
                   targetTypes: ['creature'],
                   minTargets: 1,
@@ -3115,7 +3202,7 @@ export async function requestCastSpellForSocket(
             mandatory: true,
             sourceId: effectId,
             sourceName: cardName,
-            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
             modes: modal.options.map(o => ({ id: o.id, label: o.label, description: o.description })),
             minModes: modal.minModes,
             maxModes: modal.maxModes,
@@ -3156,10 +3243,10 @@ export async function requestCastSpellForSocket(
             manaCost: resolvedManaCost,
             rawManaCost: manaCost,
             playerId,
-            faceIndex,
+            faceIndex: selectedFaceIndex,
             effectId,
             oracleText,
-            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
             forcedAlternateCostId: options?.forcedAlternateCostId,
             castWithoutPayingManaCost: isFreeCast,
             bypassExilePermissionCheck,
@@ -3174,8 +3261,8 @@ export async function requestCastSpellForSocket(
     }
 
     // No targets needed — still need to handle additional costs before payment.
-    const costReduction = calculateCostReduction(game, playerId, cardInHand);
-    const convokeOptions = calculateConvokeOptions(game, playerId, cardInHand);
+    const costReduction = calculateCostReduction(game, playerId, cardForCast);
+    const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
     const paymentManaCost = formatManaCostWithReduction(resolvedManaCost, costReduction, chosenXValue);
 
     (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
@@ -3186,11 +3273,11 @@ export async function requestCastSpellForSocket(
       rawManaCost: manaCost,
       fromZone: castSourceZone,
       playerId,
-      faceIndex,
+      faceIndex: selectedFaceIndex,
       xValue: chosenXValue,
       validTargetIds: [],
       targets: [],
-      card: { ...cardInHand },
+      card: { ...cardForCast },
       noTargets: true,
       pendingPaymentAfterAdditionalCost: false,
       costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
@@ -3248,7 +3335,7 @@ export async function requestCastSpellForSocket(
           mandatory: true,
           sourceId: effectId,
           sourceName: cardName,
-          sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
           options: [
             {
               id: 'blight_cost',
@@ -3293,7 +3380,7 @@ export async function requestCastSpellForSocket(
           mandatory: !blightIsOptional,
           sourceId: effectId,
           sourceName: cardName,
-          sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
           validTargets: validBlightTargets,
           targetTypes: ['creature'],
           minTargets: 1,
@@ -3326,7 +3413,7 @@ export async function requestCastSpellForSocket(
         playerId: playerId as any,
         sourceId: cardId,
         sourceName: cardName,
-        sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
         description: `Pay costs to cast ${cardName}.`,
         mandatory: true,
 
@@ -3337,7 +3424,7 @@ export async function requestCastSpellForSocket(
         xValue: chosenXValue,
         effectId,
         targets: undefined,
-        imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+        imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
         costReduction: costReduction.messages.length > 0 ? costReduction : undefined,
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         forcedAlternateCostId: options?.forcedAlternateCostId,
@@ -3657,6 +3744,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         debugWarn(1, 'Legacy playLand failed:', e);
       }
       
+      suppressAutomationOnNextBroadcast(game as any);
       finalizePlayedLand(io, game, gameId, String(playerId), cardId, cardInZone, sourceZone);
     } catch (err: any) {
       debugError(1, `playLand error for game ${gameId}:`, err);
@@ -3740,6 +3828,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   const handleCastSpellFromHand = async (payload?: {
     gameId?: unknown;
     cardId?: unknown;
+    faceIndex?: unknown;
     targets?: unknown;
     payment?: unknown;
     skipInteractivePrompts?: unknown;
@@ -3755,6 +3844,9 @@ export function registerGameActions(io: Server, socket: Socket) {
     try {
       const gameId = payload?.gameId;
       const cardId = payload?.cardId;
+      const faceIndex = typeof payload?.faceIndex === 'number' && Number.isFinite(payload.faceIndex)
+        ? payload.faceIndex
+        : undefined;
       let targets: any = payload?.targets as any;
       const payment = Array.isArray(payload?.payment) ? (payload?.payment as PaymentItem[]) : undefined;
       const skipInteractivePrompts = payload?.skipInteractivePrompts === true;
@@ -3785,6 +3877,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // DEBUG: Log incoming parameters to trace targeting loop
       debug(2, `[handleCastSpellFromHand] ======== DEBUG START ========`);
       debug(2, `[handleCastSpellFromHand] cardId: ${cardId}`);
+      if (typeof faceIndex === 'number') debug(2, `[handleCastSpellFromHand] faceIndex: ${faceIndex}`);
       debug(2, `[handleCastSpellFromHand] targets: ${targets ? JSON.stringify(targets) : 'undefined'}`);
       debug(2, `[handleCastSpellFromHand] payment: ${payment ? JSON.stringify(payment) : 'undefined'}`);
       debug(2, `[handleCastSpellFromHand] skipInteractivePrompts: ${skipInteractivePrompts}`);
@@ -3904,6 +3997,20 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
       }
+
+      const rawCardFaces = Array.isArray((cardInHand as any)?.card_faces) ? (cardInHand as any).card_faces : [];
+      if (faceIndex !== undefined && (!Array.isArray((cardInHand as any)?.card_faces) || faceIndex < 0 || faceIndex >= rawCardFaces.length)) {
+        socket.emit("error", {
+          code: "INVALID_FACE_INDEX",
+          message: `Invalid face index: ${faceIndex}`,
+        });
+        return;
+      }
+
+      const selectedSpell = resolveSelectedSpellCard(cardInHand, faceIndex);
+      const selectedFaceIndex = selectedSpell.faceIndex;
+      const castAsAdventure = selectedSpell.castAsAdventure;
+      cardInHand = selectedSpell.card;
 
       // Validate card is castable (not a land)
       const typeLine = (cardInHand.type_line || "").toLowerCase();
@@ -6032,8 +6139,11 @@ export function registerGameActions(io: Server, socket: Socket) {
               type: "castSpell",
               playerId,
               cardId,
+              card: { ...cardInHand },
               targets: targets || [],
               xValue,
+              ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
+              ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
               alternateCostId,
               ...(isFreeCast ? { castWithoutPayingManaCost: true } : {}),
               ...(giftPromisedForCast === true
@@ -6452,7 +6562,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               id: `stack_${Date.now()}_${cardId}`,
               controller: playerId,
               card: {
-                ...removedCard,
+                ...cardInHand,
                 zone: "stack",
                 ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
                 ...(giftPromisedForCast === true
@@ -6506,10 +6616,8 @@ export function registerGameActions(io: Server, socket: Socket) {
                 .map(([color]) => color) : undefined,
               manaSpentTotal,
               manaSpentBreakdown: { ...manaConsumption.consumed },
-              // Mark if this is an adventure spell (face index 1 is adventure for adventure cards)
-              // For adventure cards: faceIndex 1 = adventure side (instant/sorcery), faceIndex 0 or undefined = creature/enchantment side
-              // Note: faceIndex is not available in this fallback path
-              castAsAdventure: removedCard.layout === 'adventure' ? false : undefined,
+              ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
+              ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
               // Track source zone for rebound and other "cast from hand" effects
               castFromHand: castSourceZone === 'hand',
               source: castSourceZone,
@@ -6528,7 +6636,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               game.bumpSeq();
             }
             
-            debug(2, `[castSpell] Player ${playerId} cast ${removedCard.name} (${cardId}) from ${castSourceZone} via fallback`);
+            debug(2, `[castSpell] Player ${playerId} cast ${cardInHand.name} (${cardId}) from ${castSourceZone} via fallback`);
 
             // Track per-turn "cast from hand" (best-effort)
             if (castSourceZone === 'hand') {
@@ -6555,6 +6663,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Include full card data for replay to work correctly after server restart
           card: cardInHand,
           xValue,
+          ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
+          ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
           alternateCostId,
           fromZone: castSourceZone,
           castFromHand: castSourceZone === 'hand',
@@ -7195,6 +7305,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   socket.on("completeCastSpell", async (payload?: {
     gameId?: unknown;
     cardId?: unknown;
+    faceIndex?: unknown;
     targets?: unknown;
     payment?: unknown;
     effectId?: unknown;
@@ -7204,6 +7315,9 @@ export function registerGameActions(io: Server, socket: Socket) {
   }) => {
     const gameId = payload?.gameId;
     const cardId = payload?.cardId;
+    const faceIndex = typeof payload?.faceIndex === 'number' && Number.isFinite(payload.faceIndex)
+      ? payload.faceIndex
+      : undefined;
     const targets = payload?.targets;
     const payment = payload?.payment;
     const effectId = payload?.effectId;
@@ -7233,6 +7347,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       let pendingFromZone: 'hand' | 'exile' | 'graveyard' | undefined;
       let pendingBypassExilePermissionCheck = false;
       let pendingXValue: number | undefined;
+      let pendingFaceIndex: number | undefined;
 
       // DEBUG: Log incoming parameters
       debug(2, `[completeCastSpell] DEBUG START ========================================`);
@@ -7253,6 +7368,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         pendingFromZone = (pendingCast?.fromZone as any) || undefined;
         pendingBypassExilePermissionCheck = pendingCast?.bypassExilePermissionCheck === true;
         pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
+        pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
 
         // Mutate metadata is stored on pendingCast; copy it to the actual card object in hand before casting.
         if (String(pendingCast?.forcedAlternateCostId || '') === 'mutate') {
@@ -7359,6 +7475,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       await handleCastSpellFromHand({
         gameId,
         cardId,
+        faceIndex: faceIndex ?? pendingFaceIndex,
         targets: finalTargets,
         payment: payment as PaymentItem[] | undefined,
         skipInteractivePrompts: true,

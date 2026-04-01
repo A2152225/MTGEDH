@@ -117,6 +117,52 @@ describe('activateManaAbility replay semantics', () => {
     expect((game.state as any).players?.find((player: any) => player.id === p1)?.life).toBe(39);
   });
 
+  it('replays a multi-ability land mana activation without sacrificing the land', () => {
+    const game = createInitialGameState('t_activate_mana_ability_myriad_landscape_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'myriad_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'myriad_card_1',
+          name: 'Myriad Landscape',
+          type_line: 'Land',
+          oracle_text: 'Myriad Landscape enters the battlefield tapped.\n{T}: Add {C}.\n{2}, {T}, Sacrifice Myriad Landscape: Search your library for up to two basic land cards that share a land type, put them onto the battlefield tapped, then shuffle.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateManaAbility',
+      playerId: p1,
+      permanentId: 'myriad_1',
+      abilityId: 'myriad_1-ability-0',
+      manaColor: 'C',
+      addedMana: { colorless: 1 },
+    } as any);
+
+    expect((game.state as any).battlefield).toHaveLength(1);
+    expect((game.state as any).battlefield[0]?.id).toBe('myriad_1');
+    expect((game.state as any).battlefield[0]?.tapped).toBe(true);
+    expect((game.state as any).zones[p1]?.graveyard ?? []).toHaveLength(0);
+    expect((game.state as any).manaPool?.[p1]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 1 });
+  });
+
   it('replays recorded mana even after a prior activation-cost sacrifice removed the source', () => {
     const game = createInitialGameState('t_activate_mana_ability_sacrificed_source_replay');
     const p1 = 'p1' as PlayerID;

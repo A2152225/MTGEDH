@@ -2011,6 +2011,7 @@ export function App() {
         socket.emit('completeCastSpell', {
           gameId: safeView.id,
           cardId: payload.cardId,
+          faceIndex: typeof payload.faceIndex === 'number' ? payload.faceIndex : undefined,
           targets: payload.targets,
           payment: payload.payment,
           effectId: payload.effectId,
@@ -3572,6 +3573,12 @@ export function App() {
     const layout = String(card?.layout || '').toLowerCase();
     if (layout === 'transform' && Array.isArray(card?.card_faces) && card.card_faces.length > 0) {
       return card.card_faces[0]?.type_line || card.type_line || '';
+    }
+    if (layout === 'modal_dfc' && Array.isArray(card?.card_faces) && card.card_faces.length > 0) {
+      const spellFace = card.card_faces.find((face) => !isLandTypeLine(String(face?.type_line || '')));
+      if (spellFace?.type_line) {
+        return spellFace.type_line;
+      }
     }
     return card.type_line || '';
   };

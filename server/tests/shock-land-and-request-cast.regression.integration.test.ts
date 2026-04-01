@@ -47,6 +47,8 @@ describe('shock land and request-cast regressions (integration)', () => {
   const castGameId = 'test_request_cast_duplicate_regression';
   const targetedCastGameId = 'test_request_cast_targeted_completion_regression';
   const artifactCastGameId = 'test_request_cast_artifact_completion_regression';
+  const modalDfcCastGameId = 'test_request_cast_modal_dfc_spell_face_regression';
+  const adventureCastGameId = 'test_request_cast_adventure_face_regression';
   const playerId = 'p1';
   const opponentId = 'p2';
 
@@ -61,10 +63,14 @@ describe('shock land and request-cast regressions (integration)', () => {
     ResolutionQueueManager.removeQueue(castGameId);
     ResolutionQueueManager.removeQueue(targetedCastGameId);
     ResolutionQueueManager.removeQueue(artifactCastGameId);
+    ResolutionQueueManager.removeQueue(modalDfcCastGameId);
+    ResolutionQueueManager.removeQueue(adventureCastGameId);
     games.delete(shockGameId as any);
     games.delete(castGameId as any);
     games.delete(targetedCastGameId as any);
     games.delete(artifactCastGameId as any);
+    games.delete(modalDfcCastGameId as any);
+    games.delete(adventureCastGameId as any);
   });
 
   it('keeps Steam Vents tapped when the player chooses enter tapped through the live playLand flow', async () => {
@@ -563,5 +569,173 @@ describe('shock land and request-cast regressions (integration)', () => {
 
     const stackNames = ((game.state as any).stack || []).map((entry: any) => entry.card?.name || entry.sourceName || entry.id);
     expect(stackNames).toContain("Runechanter's Pike");
+  });
+
+  it('queues payment instead of rejecting a modal DFC when casting its spell face', async () => {
+    createGameIfNotExists(modalDfcCastGameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(modalDfcCastGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'mdfc_spell_1',
+            name: 'Shatterskull Smashing',
+            layout: 'modal_dfc',
+            type_line: 'Land',
+            oracle_text: '',
+            card_faces: [
+              {
+                name: 'Shatterskull Smashing',
+                type_line: 'Sorcery',
+                mana_cost: '{R}{R}',
+                oracle_text: 'Draw a card.',
+                image_uris: { small: 'https://example.com/mdfc-spell.jpg' },
+              },
+              {
+                name: 'Shatterskull, the Hammer Pass',
+                type_line: 'Land',
+                oracle_text: '{T}: Add {R}.',
+                image_uris: { small: 'https://example.com/mdfc-land.jpg' },
+              },
+            ],
+            image_uris: { small: 'https://example.com/mdfc-card.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.data.gameId = modalDfcCastGameId;
+    socket.rooms.add(modalDfcCastGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: modalDfcCastGameId, cardId: 'mdfc_spell_1', faceIndex: 0 });
+
+    const castError = emitted.find(event => event.event === 'error' && event.payload?.code === 'CANNOT_CAST_LAND');
+    expect(castError).toBeUndefined();
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(modalDfcCastGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.cardName).toBe('Shatterskull Smashing');
+  });
+
+  it('preserves the Adventure face through completeCastSpell and stacks the spell face', async () => {
+    createGameIfNotExists(adventureCastGameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(adventureCastGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [];
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'adventure_1',
+            name: 'Storybook Creature',
+            layout: 'adventure',
+            type_line: 'Creature — Human Wizard',
+            mana_cost: '{2}{U}',
+            oracle_text: 'Creature face',
+            card_faces: [
+              {
+                name: 'Storybook Creature',
+                type_line: 'Creature — Human Wizard',
+                mana_cost: '{2}{U}',
+                oracle_text: 'Creature face',
+                image_uris: { small: 'https://example.com/adventure-creature.jpg' },
+              },
+              {
+                name: 'Quick Tale',
+                type_line: 'Instant — Adventure',
+                mana_cost: '{U}',
+                oracle_text: 'Draw a card.',
+                image_uris: { small: 'https://example.com/adventure-spell.jpg' },
+              },
+            ],
+            image_uris: { small: 'https://example.com/adventure-card.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.data.gameId = adventureCastGameId;
+    socket.rooms.add(adventureCastGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: adventureCastGameId, cardId: 'adventure_1', faceIndex: 1 });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(adventureCastGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: adventureCastGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: '__pool__:blue', mana: 'U', count: 1 },
+        ],
+      },
+    });
+
+    const continueEvent = emitted.find(event => event.event === 'castSpellFromHandContinue');
+    expect(continueEvent?.payload?.effectId).toBeDefined();
+
+    emitted.length = 0;
+    await handlers['completeCastSpell'](continueEvent?.payload);
+
+    const castError = emitted.find(event => event.event === 'error');
+    expect(castError).toBeUndefined();
+
+    const top = ((game.state as any).stack || [])[0] as any;
+    expect(top?.card?.name).toBe('Quick Tale');
+    expect(top?.card?.type_line).toContain('Instant');
+    expect(top?.castAsAdventure).toBe(true);
+    expect(top?.faceIndex).toBe(1);
   });
 });

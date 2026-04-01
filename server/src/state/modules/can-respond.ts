@@ -44,6 +44,59 @@ function isSplitSecondLockActive(state: any): boolean {
   return false;
 }
 
+function isLandTypeLine(typeLine: unknown): boolean {
+  return /\bland\b/i.test(String(typeLine || ''));
+}
+
+function buildCastEvaluationFace(card: any, face: any, faceIndex: number, extras?: Record<string, unknown>): any {
+  const manaCost = face?.mana_cost ?? face?.manaCost ?? card?.mana_cost ?? card?.manaCost;
+  return {
+    ...card,
+    ...(face || {}),
+    name: face?.name || card?.name,
+    type_line: face?.type_line || face?.typeLine || card?.type_line,
+    oracle_text: face?.oracle_text || face?.oracleText || card?.oracle_text,
+    mana_cost: manaCost,
+    manaCost,
+    colors: Array.isArray(face?.colors) ? face.colors : card?.colors,
+    image_uris: face?.image_uris || card?.image_uris,
+    faceIndex,
+    ...(extras || {}),
+  };
+}
+
+export function getHandCastEvaluationCards(card: any): any[] {
+  if (!card || typeof card === 'string') return [];
+  if (isTransformBackFace(card)) return [];
+
+  const layout = String(card?.layout || '').toLowerCase();
+  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+
+  if ((layout === 'transform' || layout === 'double_faced_token') && cardFaces.length >= 1) {
+    return [buildCastEvaluationFace(card, cardFaces[0], 0)];
+  }
+
+  if (layout === 'adventure' && cardFaces.length >= 2) {
+    return [
+      buildCastEvaluationFace(card, cardFaces[0], 0, { castAsAdventure: false }),
+      buildCastEvaluationFace(card, cardFaces[1], 1, { castAsAdventure: true }),
+    ];
+  }
+
+  if (layout === 'modal_dfc' && cardFaces.length >= 1) {
+    return cardFaces
+      .map((face: any, index: number) => ({ face, index }))
+      .filter(({ face }) => !isLandTypeLine(face?.type_line || face?.typeLine))
+      .map(({ face, index }) => buildCastEvaluationFace(card, face, index));
+  }
+
+  if (layout === 'split' && cardFaces.length >= 2) {
+    return cardFaces.map((face: any, index: number) => buildCastEvaluationFace(card, face, index));
+  }
+
+  return [card];
+}
+
 /**
  * Check if a card has flash or is an instant
  */
@@ -529,11 +582,6 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
     if (Array.isArray(zones.hand)) {
       for (const card of zones.hand as any[]) {
         if (!card || typeof card === "string") continue;
-
-        // Chosen-name cast restrictions (e.g., Meddling Mage / Nevermore)
-        if (isSpellCastingProhibitedByChosenName(state, playerId, card.name || '').prohibited) {
-          continue;
-        }
         
         // Skip ignored cards - they shouldn't trigger auto-pass prompts
         if (ignoredCards[card.id]) {
@@ -546,29 +594,29 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
           debug(2, `[canCastAnySpell] Skipping transform back face: ${card.name || 'unknown'}`);
           continue;
         }
-        
-        // Skip non-instant/flash cards
-        if (!hasFlashOrInstant(card)) continue;
-        
-        // Check if player can pay the cost (either normal or alternate)
-        const manaCost = card.mana_cost || "";
-        const parsedCost = parseManaCost(manaCost);
-        const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
-        const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-        
-        // Check normal mana cost
-        if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-          // Also check if the spell has valid targets (if it requires targets)
-          if (hasValidTargetsForSpell(state, playerId, card)) {
-            return true;
+
+        for (const castCard of getHandCastEvaluationCards(card)) {
+          if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
+            continue;
           }
-        }
-        
-        // Check alternate costs
-        if (hasPayableAlternateCost(ctx, playerId, card)) {
-          // Also check if the spell has valid targets (if it requires targets)
-          if (hasValidTargetsForSpell(state, playerId, card)) {
-            return true;
+
+          if (!hasFlashOrInstant(castCard)) continue;
+
+          const manaCost = castCard.mana_cost || "";
+          const parsedCost = parseManaCost(manaCost);
+          const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
+          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+
+          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
+            if (hasValidTargetsForSpell(state, playerId, castCard)) {
+              return true;
+            }
+          }
+
+          if (hasPayableAlternateCost(ctx, playerId, castCard)) {
+            if (hasValidTargetsForSpell(state, playerId, castCard)) {
+              return true;
+            }
           }
         }
       }
@@ -1242,26 +1290,8 @@ export function isTransformBackFace(card: any): boolean {
 }
 
 export function getHandCastEvaluationCard(card: any): any {
-  if (!card || typeof card === 'string') return card;
-
-  const layout = String(card?.layout || '').toLowerCase();
-  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
-
-  if ((layout === 'transform' || layout === 'double_faced_token') && cardFaces.length >= 1 && !isTransformBackFace(card)) {
-    const frontFace = cardFaces[0] || {};
-    return {
-      ...card,
-      name: frontFace.name || card.name,
-      type_line: frontFace.type_line || card.type_line,
-      oracle_text: frontFace.oracle_text || card.oracle_text,
-      mana_cost: frontFace.mana_cost || card.mana_cost,
-      colors: frontFace.colors || card.colors,
-      power: frontFace.power ?? card.power,
-      toughness: frontFace.toughness ?? card.toughness,
-    };
-  }
-
-  return card;
+  const candidates = getHandCastEvaluationCards(card);
+  return candidates[0] || card;
 }
 
 export function isCardPlayableAsLandFromHand(card: any): boolean {
@@ -2058,50 +2088,47 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
           continue;
         }
 
-        const castCard = getHandCastEvaluationCard(card);
-        const typeLine = (castCard.type_line || "").toLowerCase();
-        const oracleText = (castCard.oracle_text || "").toLowerCase();
-        
-        // Check if it's a sorcery-speed spell (not instant, not land)
-        const isSorcerySpeed = 
-          typeLine.includes("creature") ||
-          typeLine.includes("sorcery") ||
-          typeLine.includes("artifact") ||
-          typeLine.includes("enchantment") ||
-          typeLine.includes("planeswalker") ||
-          typeLine.includes("battle");
-        
-        // Skip if it's instant or has flash (already checked in canCastAnySpell)
-        if (typeLine.includes("instant") || oracleText.includes("flash")) {
-          continue;
-        }
-        
-        // Skip lands (checked separately in canPlayLand)
-        if (isCardPlayableAsLandFromHand(card)) {
-          continue;
-        }
-        
-        if (!isSorcerySpeed) continue;
-        
-        // Check if player can pay the cost (either normal or alternate)
-        const manaCost = castCard.mana_cost || "";
-        const parsedCost = parseManaCost(manaCost);
-        const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
-        const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-        
-        // Check normal mana cost
-        if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-          // Also check if the spell has valid targets (if it requires targets)
-          if (hasValidTargetsForSpell(state, playerId, castCard)) {
-            return true;
+        for (const castCard of getHandCastEvaluationCards(card)) {
+          if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
+            continue;
           }
-        }
-        
-        // Check alternate costs
-        if (hasPayableAlternateCost(ctx, playerId, castCard)) {
-          // Also check if the spell has valid targets (if it requires targets)
-          if (hasValidTargetsForSpell(state, playerId, castCard)) {
-            return true;
+
+          const typeLine = (castCard.type_line || "").toLowerCase();
+          const oracleText = (castCard.oracle_text || "").toLowerCase();
+
+          const isSorcerySpeed = 
+            typeLine.includes("creature") ||
+            typeLine.includes("sorcery") ||
+            typeLine.includes("artifact") ||
+            typeLine.includes("enchantment") ||
+            typeLine.includes("planeswalker") ||
+            typeLine.includes("battle");
+
+          if (typeLine.includes("instant") || oracleText.includes("flash")) {
+            continue;
+          }
+
+          if (isLandTypeLine(typeLine)) {
+            continue;
+          }
+
+          if (!isSorcerySpeed) continue;
+
+          const manaCost = castCard.mana_cost || "";
+          const parsedCost = parseManaCost(manaCost);
+          const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
+          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+
+          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
+            if (hasValidTargetsForSpell(state, playerId, castCard)) {
+              return true;
+            }
+          }
+
+          if (hasPayableAlternateCost(ctx, playerId, castCard)) {
+            if (hasValidTargetsForSpell(state, playerId, castCard)) {
+              return true;
+            }
           }
         }
       }

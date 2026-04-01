@@ -102,6 +102,46 @@ describe('canCastAnySpell', () => {
     expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return true when an Adventure instant face is castable from hand', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'adventure1',
+              name: 'Storybook Creature',
+              layout: 'adventure',
+              type_line: 'Creature — Human Wizard',
+              mana_cost: '{2}{U}',
+              oracle_text: 'Creature face',
+              card_faces: [
+                {
+                  name: 'Storybook Creature',
+                  type_line: 'Creature — Human Wizard',
+                  mana_cost: '{2}{U}',
+                  oracle_text: 'Creature face',
+                },
+                {
+                  name: 'Quick Tale',
+                  type_line: 'Instant — Adventure',
+                  mana_cost: '{U}',
+                  oracle_text: 'Draw a card.',
+                },
+              ],
+            },
+          ],
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      battlefield: [],
+      stack: [],
+    });
+
+    expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return false when spell requires a creature target but no creatures exist', () => {
     const ctx = createTestContext({
       players: [{ id: 'p1' }, { id: 'p2' }],
@@ -891,6 +931,58 @@ describe('canAct', () => {
       stack: [],
     });
     
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return true when a modal DFC has a spell face and a land face in hand', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'mdfc1',
+              name: 'Shatterskull Smashing',
+              layout: 'modal_dfc',
+              type_line: 'Land',
+              mana_cost: '',
+              oracle_text: '',
+              card_faces: [
+                {
+                  name: 'Shatterskull Smashing',
+                  type_line: 'Sorcery',
+                  mana_cost: '{X}{R}{R}',
+                  oracle_text: 'Shatterskull Smashing deals X damage divided as you choose among up to two target creatures and/or planeswalkers.',
+                },
+                {
+                  name: 'Shatterskull, the Hammer Pass',
+                  type_line: 'Land',
+                  oracle_text: '{T}: Add {R}.',
+                },
+              ],
+            },
+          ],
+        },
+      },
+      battlefield: [
+        {
+          id: 'target_creature',
+          controller: 'p2',
+          card: {
+            name: 'Runeclaw Bear',
+            type_line: 'Creature — Bear',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 1 },
+      },
+      players: [{ id: 'p1' }, { id: 'p2' }],
+      step: 'MAIN1',
+      stack: [],
+      turnPlayer: 'p1',
+      priority: 'p1',
+    });
+
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
   });
 

@@ -1873,6 +1873,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if ((e as any).castWithoutPayingManaCost === true) {
               applyToStackItem('castWithoutPayingManaCost', true);
             }
+            if (typeof (e as any).faceIndex === 'number') {
+              applyToStackItem('faceIndex', Number((e as any).faceIndex));
+            }
+            if (typeof (e as any).castAsAdventure === 'boolean') {
+              applyToStackItem('castAsAdventure', (e as any).castAsAdventure);
+            }
             if ((e as any).giftPromised === true) {
               applyToStackItem('giftPromised', true);
             }

@@ -74,6 +74,27 @@ describe('parseActivatedAbilities station parsing', () => {
     expect(abilities[0]?.isManaAbility).toBe(true);
   });
 
+  it('keeps Myriad Landscape abilities aligned with server scoped ability indexes', () => {
+    const card: KnownCardRef = {
+      id: 'myriad-card-1',
+      name: 'Myriad Landscape',
+      type_line: 'Land',
+      oracle_text: '{T}: Add {C}.\n{2}, {T}, Sacrifice Myriad Landscape: Search your library for up to two basic land cards that share a land type, put them onto the battlefield tapped, then shuffle.',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(2);
+    expect(abilities[0]?.id).toBe('myriad-card-1-ability-0');
+    expect(abilities[0]?.cost).toBe('{T}');
+    expect(abilities[0]?.isManaAbility).toBe(true);
+    expect(abilities[0]?.isFetchAbility).toBe(false);
+    expect(abilities[1]?.id).toBe('myriad-card-1-ability-1');
+    expect(abilities[1]?.cost).toBe('{2}, {T}, Sacrifice Myriad Landscape');
+    expect(abilities[1]?.isManaAbility).toBe(false);
+    expect(abilities[1]?.isFetchAbility).toBe(true);
+  });
+
   it('parses pay-life activations as generic abilities with a life cost', () => {
     const card: KnownCardRef = {
       id: 'greed-card-1',

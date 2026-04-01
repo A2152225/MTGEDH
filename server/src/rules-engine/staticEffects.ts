@@ -143,6 +143,22 @@ function parseAbilities(text: string): string[] {
   return found;
 }
 
+function resolveGrantedAbilities(source: BattlefieldPermanent, text: string): string[] {
+  const lowerText = String(text || '').toLowerCase();
+  if (!lowerText.includes('abilities of your choice among')) {
+    return parseAbilities(text);
+  }
+
+  const chosenValues = Array.isArray((source as any)?.chosenOptions)
+    ? (source as any).chosenOptions
+    : [((source as any)?.chosenOption ?? '')];
+
+  return chosenValues
+    .map((value: any) => String(value || '').trim().toLowerCase())
+    .filter((value: string) => value.length > 0)
+    .filter((value: string) => ABILITIES.includes(value));
+}
+
 function isCreature(permanent: BattlefieldPermanent): boolean {
   const tl = ((permanent.card as any)?.type_line || '').toLowerCase();
   return /\bcreature\b/.test(tl);
@@ -268,7 +284,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
         }
       }
       // Abilities in tail
-      const abilities = parseAbilities(tail);
+      const abilities = resolveGrantedAbilities(source, tail);
       if (abilities.length) {
         for (const perm of state.battlefield) {
           if (perm.controller === controller && isCreature(perm)) {
@@ -283,7 +299,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     // Must check before "creatures you control have" to handle "other" correctly
     const otherCtrlHaveMatch = oracle.match(/other creatures you control have ([^.]+)/);
     if (otherCtrlHaveMatch) {
-      const abilities = parseAbilities(otherCtrlHaveMatch[1]);
+      const abilities = resolveGrantedAbilities(source, otherCtrlHaveMatch[1]);
       if (abilities.length) {
         for (const perm of state.battlefield) {
           // "other" means exclude the source permanent itself
@@ -299,7 +315,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     // This gives the player hexproof AND other creatures hexproof, but NOT the source creature
     const youAndOtherMatch = oracle.match(/you and other creatures you control have ([^.]+)/);
     if (youAndOtherMatch) {
-      const abilities = parseAbilities(youAndOtherMatch[1]);
+      const abilities = resolveGrantedAbilities(source, youAndOtherMatch[1]);
       if (abilities.length) {
         // Grant abilities to OTHER creatures (not the source)
         for (const perm of state.battlefield) {
@@ -317,7 +333,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     // "You and permanents you control have <abilities>" (broader pattern)
     const youAndPermsMatch = oracle.match(/you and permanents you control have ([^.]+)/);
     if (youAndPermsMatch) {
-      const abilities = parseAbilities(youAndPermsMatch[1]);
+      const abilities = resolveGrantedAbilities(source, youAndPermsMatch[1]);
       if (abilities.length) {
         // Grant abilities to ALL permanents (not just creatures), excluding self if "other" was in text
         const excludeSelf = oracle.includes('other permanents');
@@ -341,7 +357,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     if (!otherCtrlHaveMatch && !youAndOtherMatch) {
       const ctrlHaveMatch = oracle.match(/creatures you control have ([^.]+)/);
       if (ctrlHaveMatch) {
-        const abilities = parseAbilities(ctrlHaveMatch[1]);
+        const abilities = resolveGrantedAbilities(source, ctrlHaveMatch[1]);
         if (abilities.length) {
           for (const perm of state.battlefield) {
             if (perm.controller === controller && isCreature(perm)) {
@@ -360,7 +376,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     // This grants abilities to ALL permanents (not just creatures), excluding the source
     const otherPermsHaveMatch = oracle.match(/other permanents you control have ([^.]+)/);
     if (otherPermsHaveMatch) {
-      const abilities = parseAbilities(otherPermsHaveMatch[1]);
+      const abilities = resolveGrantedAbilities(source, otherPermsHaveMatch[1]);
       if (abilities.length) {
         for (const perm of state.battlefield) {
           // "other" means exclude the source permanent itself
@@ -387,7 +403,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     if (!otherPermsHaveMatch) {
       const permsHaveMatch = oracle.match(/permanents you control have ([^.]+)/);
       if (permsHaveMatch && !oracle.includes('other permanents')) {
-        const abilities = parseAbilities(permsHaveMatch[1]);
+        const abilities = resolveGrantedAbilities(source, permsHaveMatch[1]);
         if (abilities.length) {
           for (const perm of state.battlefield) {
             if (perm.controller === controller) {
@@ -466,7 +482,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
     const monumentMatch = oracle.match(/creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/);
     if (monumentMatch) {
       const buff = parseBuffSegment(monumentMatch[1]);
-      const abilities = parseAbilities(monumentMatch[2]);
+      const abilities = resolveGrantedAbilities(source, monumentMatch[2]);
       if (buff) {
         for (const perm of state.battlefield) {
           if (perm.controller === controller && isCreature(perm)) {
@@ -528,7 +544,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
               agg.tDelta += buff.t;
               // Check for abilities in the tail text (e.g., "and have first strike")
               const tail = otherTypeMatch[3] || '';
-              const abilities = parseAbilities(tail);
+              const abilities = resolveGrantedAbilities(source, tail);
               for (const a of abilities) agg.abilities.add(a);
             }
           }
@@ -553,7 +569,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
               agg.tDelta += buff.t;
               // Check for abilities in the tail text
               const tail = typeMatch[2] || '';
-              const abilities = parseAbilities(tail);
+              const abilities = resolveGrantedAbilities(source, tail);
               for (const a of abilities) agg.abilities.add(a);
             }
           }
@@ -567,7 +583,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       );
       const otherTypeAbilitiesMatch = oracle.match(otherTypeAbilitiesPattern);
       if (otherTypeAbilitiesMatch) {
-        const abilities = parseAbilities(otherTypeAbilitiesMatch[1]);
+        const abilities = resolveGrantedAbilities(source, otherTypeAbilitiesMatch[1]);
         for (const perm of state.battlefield) {
           if (perm.controller === controller && 
               isCreature(perm) && 
@@ -593,7 +609,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       // 3. The oracle text doesn't contain "you control" for this type (double-check)
       const hasYouControlAbilities = oracle.match(new RegExp(`other\\s+${creatureType}\\s+creatures?\\s+you\\s+control\\s+have`, 'i'));
       if (otherTypeGlobalAbilitiesMatch && !otherTypeAbilitiesMatch && !hasYouControlAbilities) {
-        const abilities = parseAbilities(otherTypeGlobalAbilitiesMatch[1]);
+        const abilities = resolveGrantedAbilities(source, otherTypeGlobalAbilitiesMatch[1]);
         for (const perm of state.battlefield) {
           // Global effect - affects ALL creatures of the type, not just controller's
           if (isCreature(perm) && 
@@ -634,7 +650,7 @@ export function computeContinuousEffects(state: GameState): ContinuousEffectResu
       // Generic "chosen type" ability grants: "Creatures you control of the chosen type have [ABILITY]"
       const chosenTypeAbilitiesMatch = oracle.match(/creatures you control of the chosen type have\s+([^.]+)/i);
       if (chosenTypeAbilitiesMatch) {
-        const abilities = parseAbilities(chosenTypeAbilitiesMatch[1]);
+        const abilities = resolveGrantedAbilities(source, chosenTypeAbilitiesMatch[1]);
         for (const perm of state.battlefield) {
           if (perm.controller === controller && 
               isCreature(perm) && 
