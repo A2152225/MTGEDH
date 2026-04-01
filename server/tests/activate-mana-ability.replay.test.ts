@@ -170,4 +170,53 @@ describe('activateManaAbility replay semantics', () => {
     expect((game.state as any).battlefield).toHaveLength(0);
     expect((game.state as any).manaPool?.[p1]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 0 });
   });
+
+  it('replays storage-counter mana activations with recorded counter removal', () => {
+    const game = createInitialGameState('t_activate_mana_ability_storage_counter_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'calciform_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: { storage: 3 },
+        card: {
+          id: 'calciform_card_1',
+          name: 'Calciform Pools',
+          type_line: 'Land',
+          oracle_text: '{T}: Add {C}.\n{1}, {T}: Put a storage counter on Calciform Pools.\n{T}, Remove X storage counters from Calciform Pools: Add X mana in any combination of {W} and/or {U}.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'calciform_1',
+      abilityId: 'calciform_1-ability-2',
+      cardName: 'Calciform Pools',
+      abilityText: '{T}, Remove X storage counters from Calciform Pools: Add X mana in any combination of {W} and/or {U}.',
+      activatedAbilityText: '{T}, Remove X storage counters from Calciform Pools: Add X mana in any combination of {W} and/or {U}.',
+      tappedPermanents: ['calciform_1'],
+      removedCountersForCost: [{ permanentId: 'calciform_1', counterType: 'storage', count: 3 }],
+    } as any);
+
+    game.applyEvent({
+      type: 'activateManaAbility',
+      playerId: p1,
+      permanentId: 'calciform_1',
+      abilityId: 'calciform_1-ability-2',
+      manaColor: 'MULTI',
+      addedMana: { white: 2, blue: 1 },
+    } as any);
+
+    const permanent = (game.state as any).battlefield[0];
+    expect(Boolean(permanent?.tapped)).toBe(true);
+    expect(Number(permanent?.counters?.storage || 0)).toBe(0);
+    expect((game.state as any).manaPool?.[p1]).toEqual({ white: 2, blue: 1, black: 0, red: 0, green: 0, colorless: 0 });
+  });
 });

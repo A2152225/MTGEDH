@@ -294,6 +294,8 @@ function applyRecordedLifePayment(ctx: GameContext, playerId: string, rawAmount:
   (ctx.state as any).life = (ctx.state as any).life || {};
   const currentLife = Number((ctx.state as any).life?.[playerId] ?? ctx.state.startingLife ?? 40);
   (ctx.state as any).life[playerId] = Math.max(0, currentLife - paidLife);
+  (ctx as any).life = (ctx as any).life || {};
+  (ctx as any).life[playerId] = (ctx.state as any).life[playerId];
 
   try {
     (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
@@ -302,6 +304,104 @@ function applyRecordedLifePayment(ctx: GameContext, playerId: string, rawAmount:
   } catch {
     // best-effort only
   }
+
+  const player = ((ctx.state as any).players || []).find((p: any) => p?.id === playerId);
+  if (player) {
+    player.life = (ctx.state as any).life[playerId];
+  }
+}
+
+function getOrInitReplayPlayerZones(state: any, playerId: string): any {
+  state.zones = state.zones || {};
+  const zones = (state.zones[playerId] = state.zones[playerId] || {});
+  zones.hand = Array.isArray(zones.hand) ? zones.hand : [];
+  zones.graveyard = Array.isArray(zones.graveyard) ? zones.graveyard : [];
+  zones.exile = Array.isArray(zones.exile) ? zones.exile : [];
+  zones.handCount = Array.isArray(zones.hand) ? zones.hand.length : Number(zones.handCount || 0);
+  zones.graveyardCount = Array.isArray(zones.graveyard) ? zones.graveyard.length : Number(zones.graveyardCount || 0);
+  zones.exileCount = Array.isArray(zones.exile) ? zones.exile.length : Number(zones.exileCount || 0);
+  return zones;
+}
+
+function applyReplayCardUpdates(targetCard: any, rawUpdates: unknown): void {
+  if (!targetCard || !rawUpdates || typeof rawUpdates !== 'object' || Array.isArray(rawUpdates)) return;
+
+  for (const [key, value] of Object.entries(rawUpdates as Record<string, unknown>)) {
+    if (!key) continue;
+    if (value === null) {
+      delete targetCard[key];
+      continue;
+    }
+    if (Array.isArray(value)) {
+      targetCard[key] = value.slice();
+      continue;
+    }
+    if (value && typeof value === 'object') {
+      targetCard[key] = { ...(value as Record<string, unknown>) };
+      continue;
+    }
+    targetCard[key] = value;
+  }
+}
+
+function applyReplayHandCardMove(ctx: GameContext, playerId: string, moveSpec: any): void {
+  const cardId = String(moveSpec?.cardId || '').trim();
+  const destination = String(moveSpec?.destination || '').trim().toLowerCase();
+  if (!playerId || !cardId || !destination) return;
+
+  const zones = getOrInitReplayPlayerZones(ctx.state as any, playerId);
+  const hand = zones.hand as any[];
+  const handIndex = hand.findIndex((card: any) => card && String(card.id || '') === cardId);
+  if (handIndex === -1) return;
+
+  const [card] = hand.splice(handIndex, 1);
+  if (!card) return;
+
+  const movedCard = { ...card };
+  applyReplayCardUpdates(movedCard, moveSpec?.cardUpdates);
+
+  if (destination === 'graveyard') {
+    movedCard.zone = 'graveyard';
+    (zones.graveyard as any[]).push(movedCard);
+    zones.graveyardCount = (zones.graveyard as any[]).length;
+    recordCardPutIntoGraveyardThisTurn(ctx as any, String(playerId), movedCard, { fromBattlefield: false });
+  } else if (destination === 'exile') {
+    movedCard.zone = 'exile';
+    (zones.exile as any[]).push(movedCard);
+    zones.exileCount = (zones.exile as any[]).length;
+  } else if (destination === 'hand') {
+    movedCard.zone = 'hand';
+    hand.push(movedCard);
+  }
+
+  zones.handCount = hand.length;
+}
+
+function applyReplayCardUpdatesInHand(ctx: GameContext, playerId: string, cardId: string, rawUpdates: unknown): void {
+  if (!playerId || !cardId) return;
+
+  const zones = getOrInitReplayPlayerZones(ctx.state as any, playerId);
+  const card = (zones.hand as any[]).find((entry: any) => entry && String(entry.id || '') === cardId);
+  if (!card) return;
+
+  applyReplayCardUpdates(card, rawUpdates);
+}
+
+function applyReplaySacrificedPermanent(ctx: GameContext, permanentId: string): void {
+  const normalizedPermanentId = String(permanentId || '').trim();
+  if (!normalizedPermanentId) return;
+
+  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === normalizedPermanentId);
+  if (!permanent) return;
+
+  try {
+    trackPermanentSacrificedThisTurn(ctx.state, permanent);
+  } catch {
+    // best-effort only
+  }
+
+  movePermanentToGraveyard(ctx as any, normalizedPermanentId, true);
 }
 
 function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
@@ -1867,6 +1967,38 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           }
         } catch {
           // best-effort only
+        }
+        break;
+      }
+
+      case "castSpellContinuation": {
+        const playerId = String((e as any).playerId || '').trim();
+        const cardId = String((e as any).cardId || '').trim();
+
+        try {
+          if (playerId && (e as any).lifePaid != null) {
+            applyRecordedLifePayment(ctx, playerId, (e as any).lifePaid);
+          }
+
+          const moveHandCards = Array.isArray((e as any).moveHandCards) ? (e as any).moveHandCards : [];
+          for (const moveSpec of moveHandCards) {
+            applyReplayHandCardMove(ctx, playerId, moveSpec);
+          }
+
+          if (playerId && cardId && (e as any).cardUpdates && typeof (e as any).cardUpdates === 'object') {
+            applyReplayCardUpdatesInHand(ctx, playerId, cardId, (e as any).cardUpdates);
+          }
+
+          const sacrificedPermanentIds = Array.isArray((e as any).sacrificedPermanentIds)
+            ? (e as any).sacrificedPermanentIds
+            : (Array.isArray((e as any).sacrificedPermanents) ? (e as any).sacrificedPermanents : []);
+          for (const permanentId of sacrificedPermanentIds) {
+            applyReplaySacrificedPermanent(ctx, String(permanentId || ''));
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(castSpellContinuation): failed', err);
         }
         break;
       }

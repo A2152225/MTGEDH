@@ -466,6 +466,18 @@ function getTappedResolutionPaymentPermanentIds(payment?: ResolutionPaymentItem[
   );
 }
 
+function appendCastSpellContinuationEvent(
+  gameId: string,
+  game: any,
+  payload: Record<string, unknown>
+): void {
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'castSpellContinuation', payload);
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(castSpellContinuation) failed:', err);
+  }
+}
+
 function pushTapTriggerOntoStack(
   io: Server,
   game: any,
@@ -7917,6 +7929,15 @@ async function handleStepResponse(
       const playerObj = ((game.state as any).players || []).find((p: any) => p?.id === pid);
       if (playerObj) playerObj.life = (game.state as any).life[pid];
 
+      appendCastSpellContinuationEvent(gameId, game, {
+        playerId: pid,
+        cardId,
+        lifePaid: lifePayment,
+        cardUpdates: {
+          lifePaymentAmount: lifePayment,
+        },
+      });
+
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -7958,6 +7979,7 @@ async function handleStepResponse(
       const permanentId = String(stepData.permanentId || step.sourceId || '');
       const cardName = String(stepData.cardName || step.sourceName || '');
       const abilityId = stepData.abilityId;
+      const removedCountersForCost: Array<{ permanentId: string; counterType: string; count: number }> = [];
 
       const { getOrInitManaPool, broadcastManaPoolUpdate, recordTreasureManaProduced } = await import('./util.js');
       const manaPool = getOrInitManaPool(game.state, pid) as any;
@@ -8043,6 +8065,12 @@ async function handleStepResponse(
               } else {
                 delete (perm as any).counters[counterType];
               }
+
+              removedCountersForCost.push({
+                permanentId,
+                counterType,
+                count: removeN,
+              });
             }
           }
         }
@@ -8155,7 +8183,11 @@ async function handleStepResponse(
           ? stepData.sacrificedPermanentsForCost.map((x: any) => String(x))
           : [];
 
-        const hasEvidence = (lifeToPay > 0) || tappedPermanentsForCost.length > 0 || sacrificedPermanentsForCost.length > 0;
+        const hasEvidence =
+          (lifeToPay > 0) ||
+          tappedPermanentsForCost.length > 0 ||
+          sacrificedPermanentsForCost.length > 0 ||
+          removedCountersForCost.length > 0;
         if (hasEvidence) {
           if (lifeToPay > 0) {
             try {
@@ -8183,7 +8215,7 @@ async function handleStepResponse(
             activatedAbilityText: '',
             tappedPermanents: tappedPermanentsForCost,
             sacrificedPermanents: sacrificedPermanentsForCost,
-            removedCountersForCost: [],
+            removedCountersForCost,
             lifePaidForCost: lifeToPay,
           });
         }
@@ -8622,6 +8654,14 @@ async function handleStepResponse(
             if (cardInHand) {
               delete (cardInHand as any).isFirstDrawnThisTurn;
               delete (cardInHand as any).drawnAt;
+              appendCastSpellContinuationEvent(gameId, game, {
+                playerId: pid,
+                cardId,
+                cardUpdates: {
+                  isFirstDrawnThisTurn: null,
+                  drawnAt: null,
+                },
+              });
             }
           }
 
@@ -9038,6 +9078,15 @@ async function handleStepResponse(
             (cardInHand as any).selectedSpreeModes = selectedModes;
           }
 
+          appendCastSpellContinuationEvent(gameId, game, {
+            playerId: pid,
+            cardId,
+            cardUpdates: {
+              selectedModes,
+              selectedSpreeModes: purpose === 'spree' ? selectedModes : null,
+            },
+          });
+
           const modeOptions: any[] = Array.isArray(stepData?.modes) ? stepData.modes : [];
           const labels = selectedModes.map((id: string) => {
             const m = modeOptions.find(o => String(o?.id) === id);
@@ -9069,6 +9118,14 @@ async function handleStepResponse(
 
         if (purpose === 'abundantChoice') {
           (cardInHand as any).abundantChoice = String(chosenMode);
+
+          appendCastSpellContinuationEvent(gameId, game, {
+            playerId: pid,
+            cardId,
+            cardUpdates: {
+              abundantChoice: String(chosenMode),
+            },
+          });
 
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
@@ -9108,6 +9165,15 @@ async function handleStepResponse(
             (cardInHand as any).castWithOverload = true;
             (cardInHand as any).overloadCost = overloadCost;
 
+            appendCastSpellContinuationEvent(gameId, game, {
+              playerId: pid,
+              cardId,
+              cardUpdates: {
+                castWithOverload: true,
+                overloadCost,
+              },
+            });
+
             io.to(gameId).emit('chat', {
               id: `m_${Date.now()}`,
               gameId,
@@ -9136,6 +9202,15 @@ async function handleStepResponse(
           // Normal mode: clear overload flag and continue the original cast attempt.
           delete (cardInHand as any).castWithOverload;
           delete (cardInHand as any).overloadCost;
+
+          appendCastSpellContinuationEvent(gameId, game, {
+            playerId: pid,
+            cardId,
+            cardUpdates: {
+              castWithOverload: null,
+              overloadCost: null,
+            },
+          });
 
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
@@ -9983,6 +10058,15 @@ async function handleStepResponse(
         (cardInHand as any).bargainResolved = true;
         (cardInHand as any).wasBargained = false;
 
+        appendCastSpellContinuationEvent(gameId, game, {
+          playerId: pid,
+          cardId,
+          cardUpdates: {
+            bargainResolved: true,
+            wasBargained: false,
+          },
+        });
+
         const basePayment = Array.isArray(castArgs?.payment) ? castArgs.payment : [];
         const alreadyMarked = basePayment.some((p: any) => p && p.bargainResolved === true);
         const paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, { bargainResolved: true, wasBargained: false }];
@@ -10072,6 +10156,23 @@ async function handleStepResponse(
         paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, { additionalCostPaid: true }];
       }
 
+      appendCastSpellContinuationEvent(gameId, game, {
+        playerId: pid,
+        cardId,
+        moveHandCards: costType === 'discard'
+          ? selectedIds.map((selectedCardId) => ({ cardId: selectedCardId, destination: 'graveyard' }))
+          : [],
+        sacrificedPermanentIds: costType === 'sacrifice' ? selectedIds : [],
+        cardUpdates: isBargain
+          ? {
+              bargainResolved: true,
+              wasBargained: true,
+            }
+          : {
+              additionalCostPaid: true,
+            },
+      });
+
       emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
         gameId,
         cardId,
@@ -10115,6 +10216,15 @@ async function handleStepResponse(
 
       (cardInHand as any).squadTimesPaid = timesPaid;
       (cardInHand as any).additionalCostPaid = true;
+
+      appendCastSpellContinuationEvent(gameId, game, {
+        playerId: pid,
+        cardId,
+        cardUpdates: {
+          squadTimesPaid: timesPaid,
+          additionalCostPaid: true,
+        },
+      });
 
       if (timesPaid > 0) {
         io.to(gameId).emit('chat', {
@@ -20021,6 +20131,27 @@ async function handleOptionChoiceResponse(
         (spellInHand as any).lifePaymentAmount = lifeAmount;
       }
     }
+
+    appendCastSpellContinuationEvent(gameId, game, {
+      playerId,
+      cardId: spellCardId,
+      lifePaid: requiresLifePayment && lifeAmount > 0 ? lifeAmount : 0,
+      moveHandCards: [
+        {
+          cardId: String(exileCardId),
+          destination: 'exile',
+          cardUpdates: {
+            exiledForAlternateCost: true,
+            exiledForSpellCardId: spellCardId,
+          },
+        },
+      ],
+      cardUpdates: {
+        forceAltCostPaid: true,
+        forceAltCostExiledCardId: String(exileCardId),
+        ...(requiresLifePayment && lifeAmount > 0 ? { lifePaymentAmount: lifeAmount } : {}),
+      },
+    });
 
     const exileName = String((chosenCard as any)?.name || 'a blue card');
     const paidLifeText = requiresLifePayment && lifeAmount > 0 ? ` and pays ${lifeAmount} life` : '';

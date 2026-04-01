@@ -27,10 +27,12 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'activateUpgradeAbility',
   'bounceLandChoice',
   'cardNameChoice',
+  'castSpellContinuation',
   'clashResolve',
   'colorChoice',
   'confirmForbiddenOrchardTarget',
   'confirmGraveyardTargets',
+  'counterPlacementResolve',
   'counter_moved',
   'counterTargetChosen',
   'crewVehicle',
@@ -68,6 +70,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
 ]);
 
 const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
+  allPlayersPassed: 'nextStep reason marker captured by the appendEvent meta regex, not a standalone persisted event type',
   adjustLife: 'non-interactive gameplay primitive; covered by direct life bookkeeping tests rather than prompt-resolution replay guard',
   castSpell: 'core gameplay event, not a queued interaction outcome',
   concede: 'lifecycle event, not a replay-specific interaction contract',
@@ -85,6 +88,7 @@ const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
   sacrificePermanent: 'generic gameplay primitive, not a queued interaction outcome',
   setHouseRules: 'configuration event, not a queued interaction outcome',
   setTriggerShortcut: 'preference/configuration event, not a queued interaction outcome',
+  skipToPhaseCleanup: 'nextStep reason marker captured by the appendEvent meta regex, not a standalone persisted event type',
 };
 
 function walkFiles(dirPath: string): string[] {

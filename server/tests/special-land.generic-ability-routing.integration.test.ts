@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -289,6 +289,29 @@ describe('special land generic ability routing (integration)', () => {
     expect(String(queue.steps[0]?.type || '')).toBe('mana_color_selection');
     expect(Number((queue.steps[0] as any)?.removeCounterCount || 0)).toBe(3);
     expect(Number((queue.steps[0] as any)?.totalAmount || 0)).toBe(3);
+
+    await handlers['submitResolutionResponse']({
+      gameId: storageRemoveGameId,
+      stepId: String(queue.steps[0]?.id || ''),
+      selections: { W: 2, U: 1 },
+    });
+
+    expect(Number(permanent?.counters?.storage || 0)).toBe(0);
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 2, blue: 1, black: 0, red: 0, green: 0, colorless: 0 });
+
+    const events = getEvents(storageRemoveGameId);
+    const activationEvents = events.filter((event) => String(event?.type) === 'activateBattlefieldAbility');
+    expect(activationEvents.length).toBeGreaterThan(0);
+    const lastActivation = activationEvents[activationEvents.length - 1] as any;
+    expect(lastActivation?.payload?.tappedPermanents).toEqual([]);
+    expect(lastActivation?.payload?.removedCountersForCost).toEqual([
+      { permanentId: 'calciform_2', counterType: 'storage', count: 3 },
+    ]);
+
+    const manaEvents = events.filter((event) => String(event?.type) === 'activateManaAbility');
+    expect(manaEvents.length).toBeGreaterThan(0);
+    const lastManaEvent = manaEvents[manaEvents.length - 1] as any;
+    expect(lastManaEvent?.payload?.addedMana).toEqual({ white: 2, blue: 1 });
   });
 
   it('routes Windbrisk Heights hideaway play through the generic parsed ability id', async () => {
