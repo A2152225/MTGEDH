@@ -173,6 +173,9 @@ export interface CommanderInfo {
     mana_cost?: string;
     power?: string;
     toughness?: string;
+    loyalty?: string;
+    card_faces?: CardFace[];
+    layout?: string;
   }>;
   /** Which commander IDs are currently in the command zone (not on stack/battlefield) */
   inCommandZone?: readonly string[];

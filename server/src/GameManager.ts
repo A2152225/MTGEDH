@@ -13,6 +13,7 @@
 
 import { randomUUID } from "crypto";
 import { createInitialGameState } from "./state/index.js";
+import { buildCommanderCardSnapshot } from "./state/modules/commander.js";
 import { createGameIfNotExists, getEvents, gameExistsInDb } from "./db"; // NEW: import getEvents for replay, gameExistsInDb for deleted game check
 import { createRulesBridge, type RulesBridge } from "./rules-bridge.js";
 import { debug, debugWarn, debugError } from "./utils/debug.js";
@@ -292,12 +293,24 @@ export class MinimalGameAdapter {
     }
     info.tax = Object.values(info.taxById).reduce((a: number, b: number) => a + (b ?? 0), 0);
 
-    // Remove commanders from library (prefer libraries Map if present)
     let lib: any[] | undefined;
     if (this.libraries && typeof this.libraries.get === "function") {
       lib = this.libraries.get(playerId);
     }
     if (!lib) lib = this._fallbackLibraries?.[playerId];
+
+    const prevCards = Array.isArray(info.commanderCards) ? info.commanderCards : [];
+    info.commanderCards = cleanIds.map((cid, index) => {
+      const src =
+        prevCards.find((card: any) => card?.id === cid) ||
+        lib?.find((card: any) => card?.id === cid);
+
+      return src
+        ? buildCommanderCardSnapshot(src, cleanNames[index] ?? cid)
+        : { id: cid, name: cleanNames[index] ?? cid };
+    });
+
+    // Remove commanders from library (prefer libraries Map if present)
     if (Array.isArray(lib) && lib.length > 0 && cleanIds.length > 0) {
       const indicesToRemove: number[] = [];
       for (const cid of cleanIds) {

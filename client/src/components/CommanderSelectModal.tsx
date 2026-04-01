@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
 import { createPortal } from 'react-dom';
+import { getPrimaryCardImageUrl } from '../utils/cardImages';
 
 /**
  * CommanderSelectModal
@@ -283,7 +284,7 @@ export const CommanderSelectModal: React.FC<CommanderSelectModalProps> = ({
               <div style={galleryStyle}>
                 {candidates.map(c => {
                   const isSelected = selectedIds.includes(c.id);
-                  const img = (c as any)?.image_uris?.normal || (c as any)?.image_uris?.small;
+                  const img = getPrimaryCardImageUrl(c, 'normal');
                   const mana = (c as any)?.mana_cost || (c as any)?.mana || null;
                   const power = (c as any)?.power ?? (c as any)?.powerToughness?.power ?? null;
                   const toughness = (c as any)?.toughness ?? (c as any)?.powerToughness?.toughness ?? null;

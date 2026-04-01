@@ -3,6 +3,7 @@ import type { PlayerZones, CommanderInfo, KnownCardRef } from "../../../shared/s
 import { showCardPreview, hideCardPreview } from "./CardPreviewLayer";
 import type { AppearanceSettings } from "../utils/appearanceSettings";
 import { getPlayableCardHighlight } from "../utils/appearanceSettings";
+import { getPrimaryCardImageUrl } from "../utils/cardImages";
 
 /**
  * ZonesPiles: shows library/graveyard/exile and command zone slots.
@@ -157,7 +158,7 @@ export function ZonesPiles(props: {
             const hasCard = !!previewCard || !!slot.id || !!name;
             const commanderId = slot.id || previewCard?.id || name;
             // prefer art_crop -> normal -> small for commander tile too
-            const img = previewCard?.image_uris?.art_crop || previewCard?.image_uris?.normal || previewCard?.image_uris?.small || null;
+            const img = getPrimaryCardImageUrl(previewCard, "art_crop");
             const canCast = canCastCommander && hasCard && slot.isInCZ && onCastCommander;
             const isPlayable = commanderId && playableCards.includes(commanderId);
 

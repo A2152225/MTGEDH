@@ -7,6 +7,64 @@ import type { GameContext } from "../context";
 import { shuffleLibrary, drawCards } from "./zones";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
+type CommanderCardSnapshot = {
+  id: string;
+  name: string;
+  type_line?: string;
+  oracle_text?: string;
+  image_uris?: any;
+  mana_cost?: string;
+  power?: string;
+  toughness?: string;
+  loyalty?: string;
+  card_faces?: any[];
+  layout?: string;
+};
+
+function getFrontFaceValue<T = unknown>(src: any, key: string): T | undefined {
+  if (!src || typeof src !== "object") return undefined;
+  if (src[key] !== undefined) return src[key] as T;
+
+  const frontFace = src?.card_faces?.[0] ?? src?.scryfall?.card_faces?.[0];
+  if (frontFace && frontFace[key] !== undefined) return frontFace[key] as T;
+
+  return undefined;
+}
+
+export function getCommanderImageUris(src: any) {
+  if (!src || typeof src !== "object") return undefined;
+
+  return (
+    src?.image_uris ||
+    src?.imageUris ||
+    src?.scryfall?.image_uris ||
+    src?.card_faces?.[0]?.image_uris ||
+    src?.scryfall?.card_faces?.[0]?.image_uris ||
+    undefined
+  );
+}
+
+export function buildCommanderCardSnapshot(src: any, fallbackName?: string): CommanderCardSnapshot {
+  const cardFaces = Array.isArray(src?.card_faces)
+    ? src.card_faces
+    : (Array.isArray(src?.scryfall?.card_faces) ? src.scryfall.card_faces : undefined);
+  const layout = src?.layout ?? src?.scryfall?.layout;
+
+  return {
+    id: src?.id,
+    name: src?.name ?? getFrontFaceValue<string>(src, "name") ?? fallbackName ?? src?.id,
+    type_line: getFrontFaceValue<string>(src, "type_line"),
+    oracle_text: getFrontFaceValue<string>(src, "oracle_text"),
+    image_uris: getCommanderImageUris(src),
+    mana_cost: getFrontFaceValue<string>(src, "mana_cost"),
+    power: getFrontFaceValue<string>(src, "power"),
+    toughness: getFrontFaceValue<string>(src, "toughness"),
+    loyalty: getFrontFaceValue<string>(src, "loyalty"),
+    card_faces: cardFaces,
+    layout,
+  };
+}
+
 /**
  * Commander handling: snapshot commander metadata, remove from library,
  * update zones and perform pending opening draw if required.
@@ -88,31 +146,21 @@ export function setCommander(
   info.tax = Object.values(info.taxById || {}).reduce((a: number, b: number) => a + b, 0);
 
   // Build commanderCards snapshot (prefer prior cached, then library entries, then battlefield)
-  const built: Array<{ id: string; name: string; type_line?: string; oracle_text?: string; image_uris?: any; mana_cost?: string; power?: string; toughness?: string; loyalty?: string }> = [];
+  const built: CommanderCardSnapshot[] = [];
   const prevCards = (info as any).commanderCards as any[] | undefined;
 
   // Snapshot before removing from library.
   const lib = libraries.get(playerId) || [];
-  for (const cid of info.commanderIds || []) {
+  for (const [index, cid] of (info.commanderIds || []).entries()) {
     let src =
       prevCards?.find((pc) => pc && pc.id === cid) ||
       lib.find((c: any) => c?.id === cid) ||
       (ctx.state.battlefield || []).find((b: any) => (b.card as any)?.id === cid)?.card;
     if (src) {
-      built.push({
-        id: src.id,
-        name: src.name,
-        type_line: (src as any).type_line,
-        oracle_text: (src as any).oracle_text,
-        image_uris: (src as any).image_uris,
-        mana_cost: (src as any).mana_cost,
-        power: (src as any).power,
-        toughness: (src as any).toughness,
-        loyalty: (src as any).loyalty,
-      });
+      built.push(buildCommanderCardSnapshot(src, commanderNames?.[index] ?? cid));
     } else {
       // placeholder minimal snapshot if we have only id
-      built.push({ id: cid, name: commanderNames?.[0] ?? cid });
+      built.push({ id: cid, name: commanderNames?.[index] ?? cid });
     }
   }
 

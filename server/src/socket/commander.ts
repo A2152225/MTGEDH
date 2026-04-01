@@ -18,6 +18,7 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName } from "./util";
 import { getCostAdjustmentForCard } from "../state/modules/can-respond.js";
+import { getCommanderImageUris } from "../state/modules/commander.js";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../../shared/src";
@@ -125,11 +126,11 @@ function makeCandidateList(arr: any[] | undefined) {
   const out = (arr || []).map((c: any) => ({
     id: c?.id || c?.cardId || null,
     name: c?.name || c?.cardName || null,
-    image_uris:
-      c?.image_uris ||
-      c?.imageUris ||
-      (c?.scryfall && c.scryfall.image_uris) ||
-      null,
+    image_uris: getCommanderImageUris(c) || null,
+    card_faces: Array.isArray(c?.card_faces)
+      ? c.card_faces
+      : (Array.isArray(c?.scryfall?.card_faces) ? c.scryfall.card_faces : undefined),
+    layout: c?.layout || c?.scryfall?.layout || undefined,
   }));
   return out;
 }
