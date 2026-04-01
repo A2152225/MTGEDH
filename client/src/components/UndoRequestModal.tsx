@@ -20,6 +20,7 @@ export interface UndoRequestData {
   expiresAt: number;
   approvals: Record<string, boolean>;
   playerIds: string[];
+  playerNames?: Record<string, string>;
 }
 
 export interface UndoRequestModalProps {
@@ -121,6 +122,7 @@ export function UndoRequestModal({
             {request.playerIds.map(playerId => {
               const status = request.approvals[playerId];
               const isYou = playerId === you;
+              const displayName = isYou ? 'You' : (request.playerNames?.[playerId] || playerId);
               let color = '#4a5568'; // pending
               let label = 'Pending';
               if (status === true) {
@@ -144,7 +146,7 @@ export function UndoRequestModal({
                     fontSize: 12,
                   }}
                 >
-                  {isYou ? 'You' : playerId}
+                    {displayName}
                   <span style={{ opacity: 0.8 }}>({label})</span>
                 </div>
               );

@@ -2109,6 +2109,7 @@ export function App() {
           expiresAt: payload.expiresAt,
           approvals: payload.approvals || {},
           playerIds: payload.playerIds || [],
+          playerNames: payload.playerNames || {},
         });
         setUndoModalOpen(true);
       }
@@ -2221,14 +2222,18 @@ export function App() {
     });
   }, [safeView?.id]);
 
-  // Request undo count on game state changes (no polling to reduce overhead)
+  // Request total undo count on game state changes (no polling to reduce overhead)
   React.useEffect(() => {
     if (!safeView?.id) return;
     
-    // Request undo count and smart undo counts on game state change
+    // Request only the cheap total count here. Smart counts are computed on demand.
     socket.emit("getUndoCount", { gameId: safeView.id });
-    socket.emit("getSmartUndoCounts", { gameId: safeView.id });
   }, [safeView?.id, safeView?.turn, safeView?.step, safeView?.priority]);
+
+  const handleOpenUndoMenu = React.useCallback(() => {
+    if (!safeView?.id) return;
+    socket.emit("getSmartUndoCounts", { gameId: safeView.id });
+  }, [safeView?.id]);
   
   // Resolution Queue system handler for Kynaios, Join Forces, Tempting Offer, and Bounce Land
   // Listens for resolution step prompts and opens the appropriate modals
@@ -4842,6 +4847,7 @@ export function App() {
             onConcede={() => socket.emit("concede", { gameId: safeView.id })}
             onLeaveGame={() => leaveGame(() => setJoinCollapsed(false))}
             onUndo={(scope) => handleRequestUndo(scope)}
+            onOpenUndoMenu={handleOpenUndoMenu}
             availableUndoCount={availableUndoCount}
             smartUndoCounts={smartUndoCounts}
             onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}

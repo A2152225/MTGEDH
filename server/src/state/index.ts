@@ -65,6 +65,8 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     // core state and seq
     gameId,
     state: ctx.state,
+    joinedBySocket: ctx.joinedBySocket,
+    participantsList: ctx.participantsList,
 
     get seq() {
       const s = (ctx as any).seq;

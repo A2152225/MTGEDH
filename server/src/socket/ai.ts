@@ -1110,6 +1110,14 @@ function clearScheduledAIAction(gameId: string, playerId: PlayerID): void {
   }
 }
 
+export function clearScheduledAIActionsForGame(gameId: string): void {
+  for (const [key, existing] of aiScheduledActions.entries()) {
+    if (!key.startsWith(`${gameId}:`)) continue;
+    clearTimeout(existing.timer);
+    aiScheduledActions.delete(key);
+  }
+}
+
 function scheduleAIActionInternal(
   io: Server,
   gameId: string,
@@ -7667,6 +7675,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
  * Clean up AI players when game ends
  */
 export function cleanupGameAI(gameId: string): void {
+  clearScheduledAIActionsForGame(gameId);
   const gameAIs = aiPlayers.get(gameId);
   if (gameAIs) {
     for (const playerId of gameAIs.keys()) {

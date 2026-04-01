@@ -124,6 +124,28 @@ function getFightAbilityDescription(step: any): string {
   return effectText || activatedAbilityText;
 }
 
+function invalidateAutomationAfterHiddenDraw(game: any, affectedPlayerIds: string[], reason: string): void {
+  const stateAny = game?.state as any;
+  if (!stateAny || affectedPlayerIds.length === 0) return;
+
+  const affectedSet = new Set(affectedPlayerIds.map(playerId => String(playerId || '')));
+  const justSkipped = stateAny.justSkippedToPhase;
+  if (justSkipped?.playerId && affectedSet.has(String(justSkipped.playerId))) {
+    delete stateAny.justSkippedToPhase;
+    debug(2, `[Resolution] Cleared justSkippedToPhase for ${justSkipped.playerId} after ${reason}`);
+  }
+
+  const autoPassForTurn = stateAny.autoPassForTurn;
+  if (!autoPassForTurn || typeof autoPassForTurn !== 'object') return;
+
+  for (const playerId of affectedSet) {
+    if (autoPassForTurn[playerId]) {
+      delete autoPassForTurn[playerId];
+      debug(2, `[Resolution] Cleared autoPassForTurn for ${playerId} after ${reason}`);
+    }
+  }
+}
+
 function getWardTargetName(game: any, triggeredBy: string): string {
   const stackItem = (game.state?.stack || []).find((entry: any) => entry && String(entry.id || '') === String(triggeredBy || ''));
   if (stackItem) {
@@ -8238,6 +8260,35 @@ async function handleStepResponse(
         debugWarn(1, 'appendEvent(activateManaAbility) failed:', e);
       }
 
+      // Forbidden Orchard uses the any-color mana path, so its target-opponent trigger
+      // must be queued here after the mana color has been chosen.
+      if (String(cardName || '').trim().toLowerCase() === 'forbidden orchard') {
+        const players = Array.isArray(game.state?.players) ? game.state.players : [];
+        const opponents = players.filter(
+          (player: any) => player?.id != null && String(player.id) !== String(pid) && !player?.hasLost
+        );
+
+        if (opponents.length > 0) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: pid as PlayerID,
+            sourceId: permanentId,
+            sourceName: 'Forbidden Orchard',
+            description: 'Choose target opponent to create a 1/1 colorless Spirit creature token.',
+            mandatory: true,
+            options: opponents.map((player: any) => ({
+              id: String(player.id),
+              label: String(player.name || player.id),
+            })),
+            minSelections: 1,
+            maxSelections: 1,
+            forbiddenOrchardTargetChoice: true,
+            permanentId,
+            cardName: 'Forbidden Orchard',
+          } as any);
+        }
+      }
+
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
       broadcastManaPoolUpdate(io, gameId, pid, manaPool, `Added mana (${cardName || 'ability'})`, game);
       broadcastGame(io, game, gameId);
@@ -16295,6 +16346,8 @@ async function handleActivatedAbilityResponse(
             }
             break;
         }
+
+        invalidateAutomationAfterHiddenDraw(game, affectedPlayers, `${groupDrawEffect.cardName || cardName} draw`);
         
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,

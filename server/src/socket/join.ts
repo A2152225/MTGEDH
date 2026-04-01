@@ -85,6 +85,57 @@ function makeSeatToken() {
   return randomBytes(6).toString("hex"); // 12 hex chars, reasonably unique for local use
 }
 
+function upsertParticipantBinding(
+  game: any,
+  socketId: string,
+  playerId: string,
+  spectator: boolean
+) {
+  const participant = {
+    socketId,
+    playerId,
+    spectator: Boolean(spectator),
+  };
+
+  try {
+    if ((game as any)?.joinedBySocket instanceof Map) {
+      for (const [existingSocketId, existingParticipant] of (game as any)
+        .joinedBySocket as Map<string, { socketId: string; playerId: string; spectator: boolean }>) {
+        if (
+          existingSocketId === socketId ||
+          existingParticipant?.playerId === playerId
+        ) {
+          (game as any).joinedBySocket.delete(existingSocketId);
+        }
+      }
+      (game as any).joinedBySocket.set(socketId, participant);
+    }
+  } catch {
+    // non-fatal
+  }
+
+  try {
+    if (Array.isArray((game as any)?.participantsList)) {
+      for (
+        let index = (game as any).participantsList.length - 1;
+        index >= 0;
+        index--
+      ) {
+        const existing = (game as any).participantsList[index];
+        if (
+          existing?.socketId === socketId ||
+          existing?.playerId === playerId
+        ) {
+          (game as any).participantsList.splice(index, 1);
+        }
+      }
+      (game as any).participantsList.push(participant);
+    }
+  } catch {
+    // non-fatal
+  }
+}
+
 /**
  * Ensure the authoritative in-memory game.state.zones has entries for all players
  * This prevents other modules from reading undefined for zones[playerId].
@@ -716,13 +767,12 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
             // Helper: rebind engine-level participants to the current socket if possible
             function rebindEngineParticipant(gameObj: any, pid: string, sid: string) {
               try {
-                if (typeof gameObj.participants === "function") {
-                  const parts = gameObj.participants();
-                  const target = parts.find((pp: any) => pp.playerId === pid);
-                  if (target) {
-                    target.socketId = sid;
-                  }
-                }
+                upsertParticipantBinding(
+                  gameObj,
+                  sid,
+                  pid,
+                  Boolean(spectator)
+                );
               } catch {
                 // non-fatal
               }
@@ -934,6 +984,17 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               ensureStateZonesForPlayers(game);
             } catch (e) {
               /* ignore */
+            }
+
+            try {
+              upsertParticipantBinding(
+                game,
+                socket.id,
+                playerId,
+                Boolean(spectator)
+              );
+            } catch {
+              // non-fatal
             }
 
             // Session metadata + socket room

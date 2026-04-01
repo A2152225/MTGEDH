@@ -387,4 +387,281 @@ describe('broadcastGame playable card refresh', () => {
     expect(stateEvent?.payload?.view?.playableCards).not.toContain('backlash_1');
     expect(stateEvent?.payload?.view?.playableCards).not.toContain('plate_1');
   });
+
+  it('does not highlight Growing Rites as a land play when its front face is an enchantment', () => {
+    const gameId = 'playable_cards_growing_rites_not_land';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [],
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'growing_rites',
+              name: 'Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun',
+              layout: 'transform',
+              type_line: 'Legendary Enchantment // Legendary Land',
+              oracle_text: '',
+              card_faces: [
+                {
+                  name: 'Growing Rites of Itlimoc',
+                  type_line: 'Legendary Enchantment',
+                  oracle_text: 'When Growing Rites of Itlimoc enters the battlefield, look at the top four cards of your library.',
+                  mana_cost: '{2}{G}',
+                },
+                {
+                  name: 'Itlimoc, Cradle of the Sun',
+                  type_line: 'Legendary Land',
+                  oracle_text: '(Transforms from Growing Rites of Itlimoc.)',
+                },
+              ],
+            },
+          ],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 1,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0 },
+      playableCards: ['growing_rites'],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: ['growing_rites'],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('growing_rites');
+  });
+
+  it('still highlights Growing Rites as a castable spell after land plays are exhausted', () => {
+    const gameId = 'playable_cards_growing_rites_spell';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [
+        { id: 'forest_1', controller: 'p1', tapped: false, card: { name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' } },
+        { id: 'forest_2', controller: 'p1', tapped: false, card: { name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' } },
+        { id: 'forest_3', controller: 'p1', tapped: false, card: { name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' } },
+      ],
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'growing_rites',
+              name: 'Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun',
+              layout: 'transform',
+              type_line: 'Legendary Enchantment // Legendary Land',
+              oracle_text: '',
+              card_faces: [
+                {
+                  name: 'Growing Rites of Itlimoc',
+                  type_line: 'Legendary Enchantment',
+                  oracle_text: 'When Growing Rites of Itlimoc enters the battlefield, look at the top four cards of your library.',
+                  mana_cost: '{2}{G}',
+                },
+                {
+                  name: 'Itlimoc, Cradle of the Sun',
+                  type_line: 'Legendary Land',
+                  oracle_text: '(Transforms from Growing Rites of Itlimoc.)',
+                },
+              ],
+            },
+          ],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 1,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 1, p2: 0 },
+      playableCards: [],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('growing_rites');
+  });
+
+  it('broadcasts repaired priority immediately when main-phase priority is null with no pending resolution', () => {
+    const gameId = 'broadcast_repairs_null_priority';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: null,
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [],
+      zones: {
+        p1: { hand: [], graveyard: [], library: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+        p2: { hand: [], graveyard: [], library: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0 },
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(game.state.priority).toBe('p1');
+    expect(stateEvent?.payload?.view?.priority).toBe('p1');
+  });
 });

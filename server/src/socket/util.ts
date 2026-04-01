@@ -18,7 +18,7 @@ import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
-import { canRespond, canAct, getCostAdjustmentInfo, isTransformBackFace } from "../state/modules/can-respond.js";
+import { canRespond, canAct, getCostAdjustmentInfo, getHandCastEvaluationCard, isCardPlayableAsLandFromHand, isTransformBackFace } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
@@ -59,6 +59,18 @@ function clearScheduledHumanAutoPass(gameId: string, playerId?: PlayerID | strin
   pendingHumanAutoPassTimers.delete(gameId);
 }
 
+export function clearScheduledHumanAutoPassForGame(gameId: string): void {
+  clearScheduledHumanAutoPass(gameId);
+}
+
+export function suppressAutomationOnNextBroadcast(game: InMemoryGame): void {
+  try {
+    ((game.state as any)._suppressAutomationOnNextBroadcast) = true;
+  } catch {
+    // best-effort only
+  }
+}
+
 /**
  * Timeout for clearing the priority restoration flag.
  * This prevents recursive broadcasts when restoring stuck priority.
@@ -89,6 +101,53 @@ type ManaColorKey = typeof MANA_COLOR_KEYS[number];
 // ============================================================================
 function ts() {
   return new Date().toISOString();
+}
+
+function repairMissingPriorityIfStuck(
+  game: InMemoryGame,
+  gameId: string,
+  logScope: string,
+  debugCallId?: string,
+): boolean {
+  const stateAny = (game.state as any) || {};
+  if (stateAny.priority) return false;
+
+  const phase = String(stateAny?.phase || '').toLowerCase();
+  const step = String(stateAny?.step || '').toUpperCase();
+  if (phase === 'pre_game' || phase === 'pre-game') return false;
+  if (['UNTAP', 'CLEANUP'].includes(step)) return false;
+
+  const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+  if (pendingSummary.hasPending) return false;
+
+  const turnPlayer = String(stateAny.turnPlayer || '').trim();
+  if (!turnPlayer) return false;
+
+  debugWarn(1, `${ts()} ${logScope} STUCK STATE DETECTED: Priority is null in ${phase}/${step} with no pending resolution steps!`, {
+    bootId: BOOT_ID,
+    gameId,
+    debugCallId,
+    phase,
+    step,
+  });
+  debugWarn(1, `${ts()} ${logScope} Restoring priority to turn player to fix stuck game${debugCallId ? ` (ID: ${debugCallId})` : ''}`, {
+    bootId: BOOT_ID,
+    gameId,
+    debugCallId,
+  });
+
+  stateAny.priority = turnPlayer;
+  stateAny._priorityJustRestored = true;
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+
+  setTimeout(() => {
+    delete stateAny._priorityJustRestored;
+  }, PRIORITY_RESTORE_FLAG_TIMEOUT_MS);
+
+  debug(1, `${ts()} ${logScope} Priority restored to ${turnPlayer}`);
+  return true;
 }
 
 /* ------------------- Event transformation helpers ------------------- */
@@ -320,8 +379,10 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       for (const card of zones.hand) {
         if (!card || typeof card === "string") continue;
 
+        const castCard = getHandCastEvaluationCard(card);
+
         // Chosen-name cast restrictions (e.g., Meddling Mage / Nevermore)
-        if (isSpellCastingProhibitedByChosenName(state, playerId, (card as any).name || '').prohibited) {
+        if (isSpellCastingProhibitedByChosenName(state, playerId, (castCard as any).name || '').prohibited) {
           continue;
         }
         
@@ -354,17 +415,17 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           // The player will be prompted to choose which face to cast
         }
         
-        const typeLine = (card.type_line || "").toLowerCase();
-        const oracleText = (card.oracle_text || "").toLowerCase();
+        const typeLine = (castCard.type_line || "").toLowerCase();
+        const oracleText = (castCard.oracle_text || "").toLowerCase();
         
         // Skip lands - they're checked separately
-        if (typeLine.includes("land")) continue;
+        if (isCardPlayableAsLandFromHand(card)) continue;
         
         // Check for special casting timing restrictions
         // Example: Delirium - "Cast this spell only during an opponent's turn"
         const turnPlayer = state.turnPlayer;
         const timingRestriction = checkSpellTimingRestriction(
-          card.oracle_text || "",
+          castCard.oracle_text || "",
           playerId,
           turnPlayer,
           state as any
@@ -376,7 +437,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         
         // Check for target availability using the same dynamic targeting logic as the target selector.
         // This prevents marking targeted spells as playable when no legal targets exist.
-        const hasTargets = hasValidTargetsForSpell(state as any, playerId, card, { conservative: false });
+        const hasTargets = hasValidTargetsForSpell(state as any, playerId, castCard, { conservative: false });
         if (!hasTargets) {
           continue;
         }
@@ -397,10 +458,10 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
         
         if (canCastNow) {
           // Calculate cost reduction for this spell
-          const reduction = calculateCostReduction(game as any, playerId, card, false);
+          const reduction = calculateCostReduction(game as any, playerId, castCard, false);
           
           // For transform/modal DFC cards, get mana cost from the front face
-          let manaCost = card.mana_cost || "";
+          let manaCost = castCard.mana_cost || "";
           if (!manaCost && cardFaces && cardFaces.length > 0) {
             manaCost = cardFaces[0].mana_cost || "";
           }
@@ -411,7 +472,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const reducedCost = applyCostReduction(parsedCost, reduction);
           const actualCost = { ...reducedCost, hasX: (reducedCost as any).hasX ?? (parsedCost as any).hasX ?? false };
           
-          if (canPayManaCostWithAvailableSources(state, playerId, actualCost) || hasPayableAlternateCost(game as any, playerId, card)) {
+          if (canPayManaCostWithAvailableSources(state, playerId, actualCost) || hasPayableAlternateCost(game as any, playerId, castCard)) {
             playableIds.push(card.id);
           }
         }
@@ -428,9 +489,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       if (landsPlayedThisTurn < maxLandsPerTurn && Array.isArray(zones.hand)) {
         for (const card of zones.hand) {
           if (!card || typeof card === "string") continue;
-          
-          const typeLine = (card.type_line || "").toLowerCase();
-          if (typeLine.includes("land")) {
+
+          if (isCardPlayableAsLandFromHand(card)) {
             playableIds.push(card.id);
           }
         }
@@ -1391,6 +1451,8 @@ export function broadcastGame(
   game: InMemoryGame,
   gameId: string
 ) {
+  repairMissingPriorityIfStuck(game, gameId, '[broadcastGame]');
+
   let participants:
     | Array<{
         socketId: string;
@@ -1490,13 +1552,21 @@ export function broadcastGame(
     }
   }
   
-  // After broadcasting, check if the current priority holder is an AI player
-  // This ensures AI responds to game state changes
-  checkAndTriggerAI(io, game, gameId);
-  
-  // Check if the current priority holder should auto-pass
-  // This ensures human players with auto-pass enabled don't get stuck with priority
-  checkAndTriggerAutoPass(io, game, gameId);
+  const stateAny = (game.state as any) || {};
+  const suppressAutomation = stateAny._suppressAutomationOnNextBroadcast === true;
+  if (suppressAutomation) {
+    delete stateAny._suppressAutomationOnNextBroadcast;
+    clearScheduledHumanAutoPass(gameId);
+    debug(2, `[broadcastGame] Suppressed AI/auto-pass automation once for ${gameId}`);
+  } else {
+    // After broadcasting, check if the current priority holder is an AI player
+    // This ensures AI responds to game state changes
+    checkAndTriggerAI(io, game, gameId);
+    
+    // Check if the current priority holder should auto-pass
+    // This ensures human players with auto-pass enabled don't get stuck with priority
+    checkAndTriggerAutoPass(io, game, gameId);
+  }
   
   // Check for pending Kynaios and Tiro style choices (play land or draw)
   checkAndEmitKynaiosChoicePrompts(io, game, gameId);
@@ -1743,68 +1813,28 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     
     if (!priority) {
       clearScheduledHumanAutoPass(gameId);
-      // CRITICAL FIX: If priority is null, check if we're stuck in resolution mode
-      // Priority should only be null during:
-      // 1. UNTAP step (Rule 502.1)
-      // 2. CLEANUP step (Rule 514.1)
-      // 3. Active resolution of a spell/ability (Rule 608.2)
-      // If priority is null in any other phase/step and there are no pending resolution steps,
-      // the game is stuck and we need to restore priority.
-      
-      const phase = String(stateAny?.phase || '').toLowerCase();
-      const step = String(stateAny?.step || '').toUpperCase();
-      const stepsThatDontGrantPriority = ['UNTAP', 'CLEANUP'];
-      
-      // Check if this is a phase/step that should have priority
-      const shouldHavePriority = !stepsThatDontGrantPriority.includes(step);
-      
-      if (shouldHavePriority) {
-        // Check if there are actually pending resolution steps
+      const repaired = repairMissingPriorityIfStuck(game, gameId, '[checkAndTriggerAutoPass]', debugCallId);
+      if (!repaired) {
+        const phase = String(stateAny?.phase || '').toLowerCase();
+        const step = String(stateAny?.step || '').toUpperCase();
         const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
-        
-        if (!pendingSummary.hasPending) {
-          // STUCK STATE DETECTED: Priority is null but there are no pending steps
-          // and we're in a phase that should have priority
-          debugWarn(1, `${ts()} [checkAndTriggerAutoPass] STUCK STATE DETECTED: Priority is null in ${phase}/${step} with no pending resolution steps!`,
-            { bootId: BOOT_ID, gameId, debugCallId, phase, step }
-          );
-          debugWarn(1, `${ts()} [checkAndTriggerAutoPass] Restoring priority to turn player to fix stuck game (ID: ${debugCallId})`,
-            { bootId: BOOT_ID, gameId, debugCallId }
-          );
-          
-          // Restore priority to turn player
-          const turnPlayer = stateAny.turnPlayer;
-          if (turnPlayer) {
-            stateAny.priority = turnPlayer;
-            debug(1, `${ts()} [checkAndTriggerAutoPass] Priority restored to ${turnPlayer}`);
-            
-            // Mark that we just restored priority to prevent recursive broadcast
-            stateAny._priorityJustRestored = true;
-            
-            // Bump sequence to trigger state update
-            if (typeof (game as any).bumpSeq === "function") {
-              (game as any).bumpSeq();
-            }
-            
-            // Clear the flag after a brief delay (enough for one broadcast cycle)
-            setTimeout(() => {
-              delete stateAny._priorityJustRestored;
-            }, PRIORITY_RESTORE_FLAG_TIMEOUT_MS);
-            
-            // Don't call broadcastGame here to avoid recursion - the caller will handle it
-            // Now continue with normal auto-pass logic (don't return early)
-          } else {
-            debugError(1, `${ts()} [checkAndTriggerAutoPass] Cannot restore priority - no turn player found!`);
-            return;
-          }
-        } else {
-          // Priority is null because we're in resolution mode - this is correct
+
+        if (phase === 'pre_game' || phase === 'pre-game') {
+          debug(2, `${ts()} [checkAndTriggerAutoPass] In pre_game phase, auto-pass disabled (ID: ${debugCallId})`);
+          return;
+        }
+
+        if (pendingSummary.hasPending) {
           debug(2, `${ts()} [checkAndTriggerAutoPass] Priority is null due to active resolution (${pendingSummary.pendingCount} pending steps), returning (ID: ${debugCallId})`);
           return;
         }
-      } else {
-        // Priority is null in UNTAP or CLEANUP - this is correct per MTG rules
-        debug(2, `${ts()} [checkAndTriggerAutoPass] No priority holder (step ${step} doesn't grant priority), returning (ID: ${debugCallId})`);
+
+        if (['UNTAP', 'CLEANUP'].includes(step)) {
+          debug(2, `${ts()} [checkAndTriggerAutoPass] No priority holder (step ${step} doesn't grant priority), returning (ID: ${debugCallId})`);
+          return;
+        }
+
+        debugError(1, `${ts()} [checkAndTriggerAutoPass] Cannot restore priority - no turn player found!`);
         return;
       }
     }

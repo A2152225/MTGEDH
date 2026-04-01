@@ -132,7 +132,7 @@ describe('undo authorization (integration)', () => {
     expect(undoRequest).toBeUndefined();
   });
 
-  it('requestUndoToStep initiates an undo request server-side', async () => {
+  it('requestUndoToStep and smart counts keep the current boundary event intact', async () => {
     const p1 = 'p1';
     const p2 = 'p2';
 
@@ -144,10 +144,16 @@ describe('undo authorization (integration)', () => {
       { id: p1, name: 'P1', spectator: false, life: 40 },
       { id: p2, name: 'P2', spectator: false, life: 40 },
     ];
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
 
-    // Add at least one step-change event so calculateUndoToStep returns > 0.
-    appendEvent(wrapperGameId, 0, 'drawCards', { playerId: p1, n: 1 });
-    appendEvent(wrapperGameId, 1, 'nextStep', { step: 'combat_begin' });
+    // Simulate entering the first live turn from pre-game, then taking one action in MAIN1.
+    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
+    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
+    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
+    appendEvent(wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 });
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(p1, emitted);
@@ -156,6 +162,14 @@ describe('undo authorization (integration)', () => {
     const io = createMockIo(emitted, [socket]);
     registerUndoHandlers(io as any, socket as any);
 
+    await handlers['getSmartUndoCounts']({ gameId: wrapperGameId });
+
+    const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
+    expect(smartUpdate).toBeTruthy();
+    expect(smartUpdate!.payload.stepCount).toBe(1);
+    expect(smartUpdate!.payload.phaseCount).toBe(1);
+    expect(smartUpdate!.payload.turnCount).toBe(1);
+
     await handlers['requestUndoToStep']({ gameId: wrapperGameId });
 
     const req = emitted.find(e => e.room === wrapperGameId && e.event === 'undoRequest');
@@ -163,6 +177,45 @@ describe('undo authorization (integration)', () => {
     expect(req!.payload.gameId).toBe(wrapperGameId);
     expect(typeof req!.payload.undoId).toBe('string');
     expect(req!.payload.actionsToUndo).toBe(1);
+    expect(req!.payload.description).toBe('Undo current step');
+    expect(req!.payload.playerNames).toEqual({ [p1]: 'P1', [p2]: 'P2' });
+  });
+
+  it('requestUndoToTurn undoes only actions taken after the current turn began', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
+    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
+    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
+    appendEvent(wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(wrapperGameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerUndoHandlers(io as any, socket as any);
+
+    await handlers['requestUndoToTurn']({ gameId: wrapperGameId });
+
+    const req = emitted.find(e => e.room === wrapperGameId && e.event === 'undoRequest');
+    expect(req).toBeTruthy();
+    expect(req!.payload.actionsToUndo).toBe(1);
+    expect(req!.payload.description).toBe('Undo current turn');
   });
 
   it('does not allow a non-participant to read undo counts', async () => {

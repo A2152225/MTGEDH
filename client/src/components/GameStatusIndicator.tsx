@@ -37,6 +37,7 @@ interface Props {
   onConcede?: () => void;
   onLeaveGame?: () => void;
   onUndo?: (scope: UndoScope) => void;
+  onOpenUndoMenu?: () => void;
   availableUndoCount?: number;
   smartUndoCounts?: { stepCount: number; phaseCount: number; turnCount: number };
   // Randomness handlers
@@ -81,7 +82,7 @@ const stepConfig: Record<string, { label: string; subColor: string }> = {
 export function GameStatusIndicator({ 
   turn, phase, step, turnPlayer, priority, players, you, combat,
   monarch, initiative, dayNight, cityBlessing,
-  isYouPlayer, gameOver, onConcede, onLeaveGame, onUndo, availableUndoCount = 0,
+  isYouPlayer, gameOver, onConcede, onLeaveGame, onUndo, onOpenUndoMenu, availableUndoCount = 0,
   smartUndoCounts,
   onRollDie, onFlipCoin,
   aiControlEnabled, aiStrategy, onToggleAIControl, availableAIStrategies
@@ -681,6 +682,7 @@ export function GameStatusIndicator({
               <button
                 onClick={() => {
                   if (!isYouPlayer || !hasAnyUndoOption) return;
+                  if (!showUndoMenu) onOpenUndoMenu?.();
                   setShowUndoMenu(!showUndoMenu);
                 }}
                 disabled={!isYouPlayer || !hasAnyUndoOption}

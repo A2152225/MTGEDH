@@ -107,6 +107,8 @@ export interface InMemoryGame {
   leave?: (playerId?: PlayerID) => void;
   disconnect?: (socketId: string) => void;
   participants?: () => Array<{ socketId: string; playerId: PlayerID; spectator: boolean }>;
+  joinedBySocket?: Map<string, { socketId: string; playerId: PlayerID; spectator: boolean }>;
+  participantsList?: Array<{ socketId: string; playerId: PlayerID; spectator: boolean }>;
   
   // RNG
   seedRng?: (seed: number) => void;

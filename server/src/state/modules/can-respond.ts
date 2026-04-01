@@ -1241,6 +1241,47 @@ export function isTransformBackFace(card: any): boolean {
   return /\(transforms from [^)]+\)/i.test(oracleText);
 }
 
+export function getHandCastEvaluationCard(card: any): any {
+  if (!card || typeof card === 'string') return card;
+
+  const layout = String(card?.layout || '').toLowerCase();
+  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+
+  if ((layout === 'transform' || layout === 'double_faced_token') && cardFaces.length >= 1 && !isTransformBackFace(card)) {
+    const frontFace = cardFaces[0] || {};
+    return {
+      ...card,
+      name: frontFace.name || card.name,
+      type_line: frontFace.type_line || card.type_line,
+      oracle_text: frontFace.oracle_text || card.oracle_text,
+      mana_cost: frontFace.mana_cost || card.mana_cost,
+      colors: frontFace.colors || card.colors,
+      power: frontFace.power ?? card.power,
+      toughness: frontFace.toughness ?? card.toughness,
+    };
+  }
+
+  return card;
+}
+
+export function isCardPlayableAsLandFromHand(card: any): boolean {
+  if (!card || typeof card === 'string') return false;
+  if (isTransformBackFace(card)) return false;
+
+  const layout = String(card?.layout || '').toLowerCase();
+  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+
+  if ((layout === 'transform' || layout === 'double_faced_token') && cardFaces.length >= 1) {
+    return /\bland\b/i.test(String(cardFaces[0]?.type_line || ''));
+  }
+
+  if (layout === 'modal_dfc' && cardFaces.length >= 1) {
+    return cardFaces.some((face: any) => /\bland\b/i.test(String(face?.type_line || '')));
+  }
+
+  return /\bland\b/i.test(String(card?.type_line || ''));
+}
+
 /**
  * Check if player can play a land
  * This includes:
@@ -1290,17 +1331,14 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
       
       for (const card of zones.hand as any[]) {
         if (!card || typeof card === "string") continue;
-        
-        const typeLine = (card.type_line || "").toLowerCase();
-        if (typeLine.includes("land")) {
-          // Skip transform back faces - they can't be played from hand
-          if (isTransformBackFace(card)) {
-            debug(2, `[canPlayLand] ${playerId}: Skipping transform back face: ${card.name || 'unknown'}`);
-            continue;
-          }
-          
+
+        if (isCardPlayableAsLandFromHand(card)) {
           debug(2, `[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'} (${card.type_line || 'unknown type'}) - returning TRUE`);
           return true; // Found a land in hand that can be played
+        }
+
+        if (isTransformBackFace(card)) {
+          debug(2, `[canPlayLand] ${playerId}: Skipping transform back face: ${card.name || 'unknown'}`);
         }
       }
       debug(2, `[canPlayLand] ${playerId}: No lands found in hand of ${zones.hand.length} cards - returning FALSE`);
@@ -2019,8 +2057,10 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
           debug(2, `[canCastAnySorcerySpeed] Skipping transform back face: ${card.name || 'unknown'}`);
           continue;
         }
-        
-        const typeLine = (card.type_line || "").toLowerCase();
+
+        const castCard = getHandCastEvaluationCard(card);
+        const typeLine = (castCard.type_line || "").toLowerCase();
+        const oracleText = (castCard.oracle_text || "").toLowerCase();
         
         // Check if it's a sorcery-speed spell (not instant, not land)
         const isSorcerySpeed = 
@@ -2032,35 +2072,35 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
           typeLine.includes("battle");
         
         // Skip if it's instant or has flash (already checked in canCastAnySpell)
-        if (typeLine.includes("instant") || (card.oracle_text || "").toLowerCase().includes("flash")) {
+        if (typeLine.includes("instant") || oracleText.includes("flash")) {
           continue;
         }
         
         // Skip lands (checked separately in canPlayLand)
-        if (typeLine.includes("land")) {
+        if (isCardPlayableAsLandFromHand(card)) {
           continue;
         }
         
         if (!isSorcerySpeed) continue;
         
         // Check if player can pay the cost (either normal or alternate)
-        const manaCost = card.mana_cost || "";
+        const manaCost = castCard.mana_cost || "";
         const parsedCost = parseManaCost(manaCost);
-        const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
+        const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
         const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
         
         // Check normal mana cost
         if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
           // Also check if the spell has valid targets (if it requires targets)
-          if (hasValidTargetsForSpell(state, playerId, card)) {
+          if (hasValidTargetsForSpell(state, playerId, castCard)) {
             return true;
           }
         }
         
         // Check alternate costs
-        if (hasPayableAlternateCost(ctx, playerId, card)) {
+        if (hasPayableAlternateCost(ctx, playerId, castCard)) {
           // Also check if the spell has valid targets (if it requires targets)
-          if (hasValidTargetsForSpell(state, playerId, card)) {
+          if (hasValidTargetsForSpell(state, playerId, castCard)) {
             return true;
           }
         }

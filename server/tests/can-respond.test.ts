@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct } from '../src/state/modules/can-respond';
+import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand } from '../src/state/modules/can-respond';
 import type { GameContext } from '../src/state/context';
 import type { PlayerID } from '../../shared/src';
 
@@ -244,6 +244,52 @@ describe('canCastAnySpell', () => {
     });
     
     expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+});
+
+describe('canPlayLand', () => {
+  it('does not treat transform front-face enchantments as lands in hand', () => {
+    const ctx = createTestContext({
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      landsPlayedThisTurn: { p1: 0 },
+      battlefield: [],
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'growing_rites',
+              name: 'Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun',
+              layout: 'transform',
+              type_line: 'Legendary Enchantment // Legendary Land',
+              oracle_text: '',
+              card_faces: [
+                {
+                  name: 'Growing Rites of Itlimoc',
+                  type_line: 'Legendary Enchantment',
+                  oracle_text: 'When Growing Rites of Itlimoc enters the battlefield, look at the top four cards of your library.',
+                  mana_cost: '{2}{G}',
+                },
+                {
+                  name: 'Itlimoc, Cradle of the Sun',
+                  type_line: 'Legendary Land',
+                  oracle_text: '(Transforms from Growing Rites of Itlimoc.)',
+                },
+              ],
+            },
+          ],
+          handCount: 1,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+          libraryCount: 0,
+        },
+      },
+    });
+
+    expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(false);
   });
 });
 

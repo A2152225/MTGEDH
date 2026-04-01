@@ -2,10 +2,12 @@
 // Socket handlers for the undo system with player approval
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay } from "./util";
+import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay, clearScheduledHumanAutoPassForGame, suppressAutomationOnNextBroadcast } from "./util";
 import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
 import GameManager from "../GameManager.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { createInitialGameState } from "../state/gameState.js";
+import { clearScheduledAIActionsForGame } from "./ai.js";
 
 /**
  * Undo request state
@@ -32,89 +34,83 @@ export function clearUndoRequestsForGame(gameId: string): void {
 // Undo timeout in milliseconds (60 seconds)
 const UNDO_TIMEOUT_MS = 60000;
 
-// Event types that represent step changes
-const STEP_CHANGE_EVENTS = ['nextStep', 'skipToPhase'];
+type PersistedEvent = { type: string; payload?: any };
 
-// Event types that represent phase changes
-// Note: Currently same as STEP_CHANGE_EVENTS because the game doesn't distinguish 
-// between step and phase transitions in the event log. Both 'nextStep' events can 
-// represent moving to a new step within a phase OR moving to a new phase entirely.
-// The calculateUndoToPhase function handles this by looking for multiple step changes.
-const PHASE_CHANGE_EVENTS = ['nextStep', 'skipToPhase'];
-
-// Event types that represent turn changes
-const TURN_CHANGE_EVENTS = ['nextTurn'];
-
-/**
- * Calculate how many events to undo to get back to the previous step.
- * This finds the most recent step/phase transition event and undoes back to just before it.
- */
-function calculateUndoToStep(events: Array<{ type: string; payload?: any }>): number {
-  if (events.length === 0) return 0;
-  
-  // Search backwards for the most recent step change event
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i];
-    if (STEP_CHANGE_EVENTS.includes(event.type)) {
-      // Found a step change - undo back to just before this event
-      return events.length - i;
-    }
-  }
-  
-  // No step change found, return all events
-  return events.length;
+function getPhaseBucket(stateAny: any): string {
+  const phase = String(stateAny?.phase || '').toLowerCase();
+  return phase === 'pre_game' || phase === 'pre-game' || phase === '' ? 'pre_game' : 'live';
 }
 
-/**
- * Calculate how many events to undo to get back to the previous phase.
- * This finds the most recent phase transition and undoes back to the start of that phase.
- */
-function calculateUndoToPhase(events: Array<{ type: string; payload?: any }>): number {
-  if (events.length === 0) return 0;
-  
-  let foundCurrentPhase = false;
-  
-  // Search backwards for the phase boundary
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i];
-    if (PHASE_CHANGE_EVENTS.includes(event.type)) {
-      if (!foundCurrentPhase) {
-        // This is the event that started the current step/phase, skip it
-        foundCurrentPhase = true;
-        continue;
-      }
-      // Found an earlier phase change - undo back to just before this event
-      return events.length - i;
-    }
+function getTurnBoundaryKey(stateAny: any): string {
+  const rawTurn = Number((stateAny as any)?.turn);
+  if (Number.isFinite(rawTurn) && rawTurn > 0) {
+    return `turn:${rawTurn}`;
   }
-  
-  // If we found one phase change but no earlier one, undo to beginning
-  if (foundCurrentPhase) {
+  return `turn:${getPhaseBucket(stateAny)}`;
+}
+
+function getPhaseBoundaryKey(stateAny: any): string {
+  return `${getTurnBoundaryKey(stateAny)}|phase:${String(stateAny?.phase || '').toLowerCase()}`;
+}
+
+function getStepBoundaryKey(stateAny: any): string {
+  return `${getPhaseBoundaryKey(stateAny)}|step:${String(stateAny?.step || '').toUpperCase()}`;
+}
+
+function calculateBoundaryUndoCount(
+  events: PersistedEvent[],
+  game: any,
+  getBoundaryKey: (stateAny: any) => string,
+): number {
+  if (events.length === 0) return 0;
+
+  const currentState = (game?.state || {}) as any;
+  const targetBoundaryKey = getBoundaryKey(currentState);
+  if (!targetBoundaryKey) return 0;
+
+  const replayEvents = transformDbEventsForReplay(events as any);
+  const scratch = createInitialGameState(`undo_probe_${game?.gameId || 'game'}`);
+  let previousBoundaryKey = getBoundaryKey((scratch as any).state || {});
+  let entryIndex = previousBoundaryKey === targetBoundaryKey ? -1 : -2;
+
+  for (let index = 0; index < replayEvents.length; index++) {
+    scratch.applyEvent(replayEvents[index] as any);
+    const nextBoundaryKey = getBoundaryKey((scratch as any).state || {});
+    if (nextBoundaryKey === targetBoundaryKey && previousBoundaryKey !== targetBoundaryKey) {
+      entryIndex = index;
+    }
+    previousBoundaryKey = nextBoundaryKey;
+  }
+
+  if (entryIndex === -2) {
+    debugWarn(1, `[undo] Failed to locate current boundary ${targetBoundaryKey}; falling back to full event count`);
     return events.length;
   }
-  
-  // No phase change found, return all events
-  return events.length;
+
+  return Math.max(0, replayEvents.length - (entryIndex + 1));
 }
 
-/**
- * Calculate how many events to undo to get back to the previous turn.
- * This finds the most recent turn transition and undoes back to just before it.
- */
-function calculateUndoToTurn(events: Array<{ type: string; payload?: any }>): number {
-  if (events.length === 0) return 0;
-  
-  // Search backwards for the most recent turn change event
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i];
-    if (TURN_CHANGE_EVENTS.includes(event.type)) {
-      // Found a turn change - undo back to just before this event
-      return events.length - i;
-    }
+function calculateSmartUndoCounts(game: any, events: PersistedEvent[]): { stepCount: number; phaseCount: number; turnCount: number } {
+  if (!game || events.length === 0) {
+    return { stepCount: 0, phaseCount: 0, turnCount: 0 };
   }
-  
-  // No turn change found, return all events
-  return events.length;
+
+  return {
+    stepCount: calculateBoundaryUndoCount(events, game, getStepBoundaryKey),
+    phaseCount: calculateBoundaryUndoCount(events, game, getPhaseBoundaryKey),
+    turnCount: calculateBoundaryUndoCount(events, game, getTurnBoundaryKey),
+  };
+}
+
+function buildPlayerNameMap(game: any): Record<string, string> {
+  const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+  const playerNames: Record<string, string> = {};
+  for (const player of players) {
+    const playerId = String(player?.id || '').trim();
+    if (!playerId) continue;
+    playerNames[playerId] = String(player?.name || playerId);
+  }
+  return playerNames;
 }
 
 /**
@@ -218,6 +214,9 @@ function checkAnyRejected(request: UndoRequest): boolean {
  */
 function performUndo(gameId: string, actionsToUndo: number): { success: boolean; error?: string } {
   try {
+    clearScheduledHumanAutoPassForGame(gameId);
+    clearScheduledAIActionsForGame(gameId);
+
     // Get current event count
     let eventCount: number;
     try {
@@ -347,6 +346,8 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
       existingGame.bumpSeq();
     }
 
+    suppressAutomationOnNextBroadcast(existingGame as any);
+
     void import('./ai.js').then((aiModule) => {
       if (typeof aiModule.rehydrateAIGameRuntime === 'function') {
         aiModule.rehydrateAIGameRuntime(gameId, { refreshDeckProfiles: true });
@@ -464,7 +465,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
     return actionsToUndo;
   };
 
-  const handleRequestUndo = (gameId: string, rawActionsToUndo: unknown) => {
+  const handleRequestUndo = (gameId: string, rawActionsToUndo: unknown, description?: string) => {
     // Clean up expired requests periodically
     cleanupExpiredRequests();
 
@@ -528,13 +529,14 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       id: generateUndoId(),
       requesterId: playerId,
       requesterName: getPlayerName(game, playerId),
-      description: `Undo ${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}`,
+      description: description || `Undo ${actionsToUndo} action${actionsToUndo > 1 ? 's' : ''}`,
       actionsToUndo,
       createdAt: Date.now(),
       expiresAt: Date.now() + UNDO_TIMEOUT_MS,
       approvals: initialApprovals,
       status: 'pending',
     };
+    const playerNames = buildPlayerNameMap(game);
 
     // If all approvals are already satisfied, perform immediately.
     if (checkAllApproved(request, playerIds)) {
@@ -573,6 +575,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       expiresAt: request.expiresAt,
       approvals: request.approvals,
       playerIds,
+      playerNames,
     });
 
     const aiApprovalMessage = aiPlayerIds.length > 0
@@ -938,9 +941,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         debugWarn(1, `[getSmartUndoCounts] Failed to get events for game ${gameId}:`, e);
       }
 
-      const stepCount = calculateUndoToStep(events);
-      const phaseCount = calculateUndoToPhase(events);
-      const turnCount = calculateUndoToTurn(events);
+      const { stepCount, phaseCount, turnCount } = calculateSmartUndoCounts(game, events);
 
       socket.emit("smartUndoCountsUpdate", {
         gameId,
@@ -973,9 +974,9 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      const actionsToUndo = calculateUndoToStep(events);
+      const { stepCount: actionsToUndo } = calculateSmartUndoCounts(ctx.game, events);
       if (actionsToUndo > 0) {
-        handleRequestUndo(gameId, actionsToUndo);
+        handleRequestUndo(gameId, actionsToUndo, 'Undo current step');
       }
     } catch (err: any) {
       debugError(1, `requestUndoToStep error for game ${gameId}:`, err);
@@ -1001,9 +1002,9 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      const actionsToUndo = calculateUndoToPhase(events);
+      const { phaseCount: actionsToUndo } = calculateSmartUndoCounts(ctx.game, events);
       if (actionsToUndo > 0) {
-        handleRequestUndo(gameId, actionsToUndo);
+        handleRequestUndo(gameId, actionsToUndo, 'Undo current phase');
       }
     } catch (err: any) {
       debugError(1, `requestUndoToPhase error for game ${gameId}:`, err);
@@ -1029,9 +1030,9 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         return;
       }
 
-      const actionsToUndo = calculateUndoToTurn(events);
+      const { turnCount: actionsToUndo } = calculateSmartUndoCounts(ctx.game, events);
       if (actionsToUndo > 0) {
-        handleRequestUndo(gameId, actionsToUndo);
+        handleRequestUndo(gameId, actionsToUndo, 'Undo current turn');
       }
     } catch (err: any) {
       debugError(1, `requestUndoToTurn error for game ${gameId}:`, err);
