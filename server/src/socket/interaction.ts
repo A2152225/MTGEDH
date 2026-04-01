@@ -4462,28 +4462,44 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
     
-    // Handle activated abilities that grant abilities/keywords to target creatures
-    // Pattern: "{cost}: Target creature you control gains/gets {ability} until end of turn"
+    // Handle activated abilities that grant abilities/keywords to target creatures.
+    // Supports both trailing-duration text ("Target creature gains flying until end of turn")
+    // and leading-duration text ("Until end of turn, target creature gains ...").
     // Examples: Fire Nation Palace ("{1}{R}, {T}: Target creature you control gains firebending 4")
-    //           Various lords and pump effects
+    //           Sokrates, Athenian Teacher ("{T}: Until end of turn, target creature gains ...")
     // Note: This also applies to instants/sorceries that grant abilities, but those are handled
     // during spell resolution via the targeting system
-    const grantAbilityMatch = scopedAbilityFullText.match(/\{([^}]+(?:\}\s*,\s*\{[^}]+)*)\}:\s*target\s+creature\s+(you control|an opponent controls)?.*?(gains?|gets?)\s+([^.]+)/i);
+    const scopedGrantResolvedAbilityText = String(scopedAbilityFullText).replace(/^[^:]+:\s*/, '').trim();
+    const scopedGrantActivatedAbilityText = String(scopedAbilityFullText || '').trim();
+    const grantAbilityMatch = scopedGrantResolvedAbilityText.match(/^(?:until end of turn,\s*)?target\s+creature(?:\s+(you control|an opponent controls))?.*?\s+(gains?|gets?)\s+(.+)$/i);
     const hasExplicitGrantAbilityId = /-grant-ability-(\d+)$/i.test(abilityId) || abilityId === 'grant-ability';
 
     if (grantAbilityMatch && (hasExplicitGrantAbilityId || isGenericActivatedAbilityId)) {
-      const costStr = `{${grantAbilityMatch[1]}}`;
-      const targetRestriction = grantAbilityMatch[2]?.toLowerCase() || "you control";
-      const resolvedAbilityText = String(scopedAbilityFullText).replace(/^[^:]+:\s*/, '').trim();
-      let abilityGranted = grantAbilityMatch[4].trim();
+      const targetRestriction = grantAbilityMatch[1]?.toLowerCase() || 'any';
+      let abilityGranted = grantAbilityMatch[3].trim();
       
       // Clean up the ability text
-      abilityGranted = abilityGranted.replace(/\s+until end of turn$/i, '').trim();
+      abilityGranted = abilityGranted.replace(/\s+until end of turn\.?$/i, '').trim();
+      abilityGranted = abilityGranted.replace(/\.$/, '').trim();
+      if (abilityGranted.startsWith('"') && abilityGranted.endsWith('"')) {
+        abilityGranted = abilityGranted.slice(1, -1).trim();
+      }
       
       debug(2, `[activateBattlefieldAbility] Grant ability detected: ${cardName} - "${abilityGranted}" (restriction: ${targetRestriction})`);
       
       // Determine if this targets own or opponent creatures
+      const targetsOwnCreatures = targetRestriction.includes('you control');
       const targetsOpponentCreatures = targetRestriction.includes("opponent");
+      const targetDescription = targetsOpponentCreatures
+        ? 'creature an opponent controls'
+        : targetsOwnCreatures
+          ? 'creature you control'
+          : 'creature';
+      const promptTargetDescription = targetsOpponentCreatures
+        ? 'a target creature an opponent controls'
+        : targetsOwnCreatures
+          ? 'a target creature you control'
+          : 'a target creature';
       
       // Get valid target creatures
       const validTargets = battlefield.filter((p: any) => {
@@ -4492,9 +4508,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         
         if (targetsOpponentCreatures) {
           return p.controller !== pid; // Opponent's creatures
-        } else {
+        }
+
+        if (targetsOwnCreatures) {
           return p.controller === pid; // Own creatures
         }
+
+        return true; // Any creature
       });
       
       if (validTargets.length === 0) {
@@ -4502,7 +4522,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           code: "NO_VALID_TARGETS",
           message: targetsOpponentCreatures 
             ? "No opponent creatures to target"
-            : "You have no creatures to target",
+            : targetsOwnCreatures
+              ? "You have no creatures to target"
+              : "No creatures to target",
         });
         return;
       }
@@ -4519,7 +4541,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           sourceId: permanentId,
           sourceName: cardName,
           sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-          description: `${cardName}: Choose a target creature ${targetsOpponentCreatures ? 'an opponent controls' : 'you control'} to gain ${abilityGranted} until end of turn.`,
+          description: `${cardName}: Choose ${promptTargetDescription} to gain ${abilityGranted} until end of turn.`,
           mandatory: false,
           validTargets: validTargets.map((c: any) => ({
             id: c.id,
@@ -4530,14 +4552,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           targetTypes: ['ability_grant_target'],
           minTargets: 1,
           maxTargets: 1,
-          targetDescription: targetsOpponentCreatures ? "creature an opponent controls" : "creature you control",
+          targetDescription,
 
           battlefieldAbilityTargetSelection: true,
           permanentId,
           abilityId,
           cardName,
-          abilityText: resolvedAbilityText,
-          activatedAbilityText: resolvedAbilityText ? `${costStr}: ${resolvedAbilityText}` : costStr,
+          abilityText: scopedGrantResolvedAbilityText,
+          activatedAbilityText: scopedGrantActivatedAbilityText || undefined,
         } as any);
       }
 

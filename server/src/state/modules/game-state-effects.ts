@@ -1830,6 +1830,8 @@ export interface CombatDamageReplacementEffect {
   preventsDamage: boolean;
   /** Mill effect: all opponents mill cards equal to damage amount */
   millAllOpponents?: boolean;
+  /** Controller and damaged player each draw half that many cards, rounded down */
+  drawHalfForControllerAndDamagedPlayer?: boolean;
   /** Damage to player effect: deal damage to target player instead */
   damageToPlayer?: boolean;
   /** Only applies when damage would be dealt to a player (not creatures) */
@@ -1853,6 +1855,33 @@ const COMBAT_DAMAGE_REPLACEMENT_CARDS: Record<string, CombatDamageReplacementEff
   // Not a true replacement, so not included here
 };
 
+function collectCombatDamageReplacementTexts(attackerCard: any, attackerPermanent: any): string[] {
+  const collected: string[] = [];
+  const printedOracle = String(attackerCard?.oracle_text || '').trim().toLowerCase();
+  if (printedOracle) {
+    collected.push(printedOracle);
+  }
+
+  const abilitySources = [
+    ...(Array.isArray(attackerPermanent?.grantedAbilities) ? attackerPermanent.grantedAbilities : []),
+    ...(Array.isArray(attackerPermanent?.tempAbilities) ? attackerPermanent.tempAbilities : []),
+    ...(Array.isArray(attackerPermanent?.temporaryAbilities) ? attackerPermanent.temporaryAbilities : []),
+  ];
+
+  for (const entry of abilitySources) {
+    if (typeof entry === 'string' && entry.trim()) {
+      collected.push(entry.trim().toLowerCase());
+      continue;
+    }
+
+    if (entry && typeof entry === 'object' && typeof (entry as any).ability === 'string' && (entry as any).ability.trim()) {
+      collected.push(String((entry as any).ability).trim().toLowerCase());
+    }
+  }
+
+  return [...new Set(collected.filter(Boolean))];
+}
+
 /**
  * Check if a creature has a combat damage replacement effect
  * Returns the replacement effect if found, null otherwise
@@ -1863,7 +1892,7 @@ export function detectCombatDamageReplacement(
   attackerPermanent: any
 ): CombatDamageReplacementEffect | null {
   const cardName = (attackerCard?.name || "").toLowerCase();
-  const oracleText = (attackerCard?.oracle_text || "").toLowerCase();
+  const replacementTexts = collectCombatDamageReplacementTexts(attackerCard, attackerPermanent);
   
   // Check known cards first
   for (const [knownName, effect] of Object.entries(COMBAT_DAMAGE_REPLACEMENT_CARDS)) {
@@ -1874,13 +1903,28 @@ export function detectCombatDamageReplacement(
   
   // Dynamic detection via oracle text patterns
   // Pattern: "If ~ would deal combat damage to a player, prevent that damage"
-  // followed by "mill" or "each opponent mills"
-  if (oracleText.includes('would deal combat damage') && 
-      oracleText.includes('prevent that damage')) {
+  // followed by a supported replacement payload like milling or card draw.
+  for (const replacementText of replacementTexts) {
+    if (!replacementText.includes('would deal combat damage') || !replacementText.includes('prevent that damage')) {
+      continue;
+    }
+
+    if (
+      replacementText.includes("this creature's controller and that player each draw half that many cards") ||
+      replacementText.includes('this creature’s controller and that player each draw half that many cards')
+    ) {
+      return {
+        description: 'Prevent combat damage, controller and damaged player each draw half that many cards',
+        preventsDamage: true,
+        drawHalfForControllerAndDamagedPlayer: true,
+        onlyToPlayers: true,
+      };
+    }
+
     // Check for mill effect
-    if (oracleText.includes('mills') || oracleText.includes('mill cards equal')) {
-      const millsAllOpponents = oracleText.includes('each opponent mills') ||
-                                 oracleText.includes('each opponent mills cards');
+    if (replacementText.includes('mills') || replacementText.includes('mill cards equal')) {
+      const millsAllOpponents = replacementText.includes('each opponent mills') ||
+                                 replacementText.includes('each opponent mills cards');
       return {
         description: 'Prevent combat damage, mill effect',
         preventsDamage: true,
@@ -1888,8 +1932,6 @@ export function detectCombatDamageReplacement(
         onlyToPlayers: true,
       };
     }
-    
-    // Other replacement effects could be detected here
   }
   
   return null;
@@ -1965,6 +2007,8 @@ export function applyCombatDamageReplacement(
   effectsApplied: string[];
   millAmount?: number;
   millTargets?: string[];
+  drawAmount?: number;
+  drawTargets?: string[];
 } {
   const result = {
     damageDealt: damageAmount,
@@ -1972,6 +2016,8 @@ export function applyCombatDamageReplacement(
     effectsApplied: [] as string[],
     millAmount: undefined as number | undefined,
     millTargets: undefined as string[] | undefined,
+    drawAmount: undefined as number | undefined,
+    drawTargets: undefined as string[] | undefined,
   };
   
   const replacement = detectCombatDamageReplacement(ctx, attackerCard, attackerPermanent);
@@ -2004,6 +2050,16 @@ export function applyCombatDamageReplacement(
     result.millAmount = damageAmount;
     result.millTargets = opponents;
     result.effectsApplied.push(`Each opponent mills ${damageAmount} cards`);
+  }
+
+  if (replacement.drawHalfForControllerAndDamagedPlayer && damageAmount > 0) {
+    const drawAmount = Math.floor(damageAmount / 2);
+    if (drawAmount > 0) {
+      const drawTargets = [...new Set([attackerController, defendingPlayerId].filter(Boolean))];
+      result.drawAmount = drawAmount;
+      result.drawTargets = drawTargets;
+      result.effectsApplied.push(`Controller and damaged player each draw ${drawAmount} card(s)`);
+    }
   }
   
   return result;

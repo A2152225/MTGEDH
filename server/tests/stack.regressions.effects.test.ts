@@ -118,6 +118,91 @@ describe('Stack / zone regression effects', () => {
     expect((g.state as any).life?.[p2]).toBe(44);
   });
 
+  it("Venser's Journal gains life equal to its controller's hand size on upkeep", () => {
+    const g = createInitialGameState('vensers_journal_upkeep_life');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'Player 1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'Player 2' });
+
+    (g.state as any).zones[p1] = {
+      hand: [
+        { id: 'card_1', name: 'Island', type_line: 'Basic Land - Island' },
+        { id: 'card_2', name: 'Plains', type_line: 'Basic Land - Plains' },
+        { id: 'card_3', name: 'Swamp', type_line: 'Basic Land - Swamp' },
+      ],
+      handCount: 3,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    } as any;
+
+    (g.state as any).stack = [
+      {
+        id: 'journal_trigger_1',
+        type: 'triggered_ability',
+        controller: p1,
+        source: 'journal_1',
+        sourceName: "Venser's Journal",
+        description: 'Gain life equal to cards in hand',
+        triggerType: 'upkeep',
+      },
+    ];
+
+    expect((g.state as any).life?.[p1]).toBe(40);
+    g.resolveTopOfStack();
+    expect((g.state as any).life?.[p1]).toBe(43);
+  });
+
+  it('Ivory Tower gains life for cards above four in hand on upkeep', () => {
+    const g = createInitialGameState('ivory_tower_upkeep_life');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent!({ type: 'join', playerId: p1, name: 'Player 1' });
+    g.applyEvent!({ type: 'join', playerId: p2, name: 'Player 2' });
+
+    (g.state as any).zones[p1] = {
+      hand: [
+        { id: 'card_1', name: 'Island', type_line: 'Basic Land - Island' },
+        { id: 'card_2', name: 'Plains', type_line: 'Basic Land - Plains' },
+        { id: 'card_3', name: 'Swamp', type_line: 'Basic Land - Swamp' },
+        { id: 'card_4', name: 'Mountain', type_line: 'Basic Land - Mountain' },
+        { id: 'card_5', name: 'Forest', type_line: 'Basic Land - Forest' },
+        { id: 'card_6', name: 'Wastes', type_line: 'Basic Land' },
+      ],
+      handCount: 6,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    } as any;
+
+    (g.state as any).stack = [
+      {
+        id: 'tower_trigger_1',
+        type: 'triggered_ability',
+        controller: p1,
+        source: 'tower_1',
+        sourceName: 'Ivory Tower',
+        description: 'Gain 1 life for each card in hand above 4',
+        triggerType: 'upkeep',
+      },
+    ];
+
+    expect((g.state as any).life?.[p1]).toBe(40);
+    g.resolveTopOfStack();
+    expect((g.state as any).life?.[p1]).toBe(42);
+  });
+
   it('Elixir of Immortality shuffle moves graveyard + itself into library', () => {
     const ctx = createContext('elixir_shuffle_regression');
 

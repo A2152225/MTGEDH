@@ -691,9 +691,13 @@ function applySimpleTargetedTemporarySpellEffects(
   const targetBuffMatch = text.match(
     /(?:^|\.\s*)(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains? ([^.]+?))? until end of turn\.?/i
   );
-  const targetAbilityMatch = text.match(
-    /(?:^|\.\s*)(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures? gains? ([^.]+?) until end of turn\.?/i
-  );
+  const targetAbilityMatch =
+    text.match(
+      /(?:^|\.\s*)(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures? gains? (.+?) until end of turn\.?/i
+    ) ||
+    text.match(
+      /(?:^|\.\s*)until end of turn,?\s*(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures? gains? (.+?)\.?$/i
+    );
 
   if (!targetBuffMatch && !targetAbilityMatch) return 0;
 
@@ -702,9 +706,7 @@ function applySimpleTargetedTemporarySpellEffects(
   const powerMod = targetBuffMatch ? parseInt(targetBuffMatch[1], 10) : null;
   const toughnessMod = targetBuffMatch ? parseInt(targetBuffMatch[2], 10) : null;
   const rawAbilityText = (targetBuffMatch?.[3] || targetAbilityMatch?.[1] || '').trim();
-  const gainedAbilities = rawAbilityText
-    ? rawAbilityText.split(/\s*,\s*|\s+and\s+/i).map((ability: string) => ability.trim().toLowerCase()).filter(Boolean)
-    : [];
+  const gainedAbilities = splitGrantedTemporaryAbilities(rawAbilityText);
 
   let applied = 0;
   for (const targetRef of targets) {
@@ -747,6 +749,30 @@ function applySimpleTargetedTemporarySpellEffects(
   }
 
   return applied;
+}
+
+function splitGrantedTemporaryAbilities(rawAbilityText: string): string[] {
+  const text = String(rawAbilityText || '').trim();
+  if (!text) return [];
+
+  const quotedAbilities = [...text.matchAll(/"([^"]+)"/g)]
+    .map((match) => String(match[1] || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (quotedAbilities.length > 0) {
+    return quotedAbilities;
+  }
+
+  const normalized = text.replace(/^"+|"+$/g, '').trim();
+  if (!normalized) return [];
+
+  if (normalized.includes('would deal combat damage') || /^if\b/i.test(normalized)) {
+    return [normalized.toLowerCase()];
+  }
+
+  return normalized
+    .split(/\s*,\s*|\s+and\s+/i)
+    .map((ability) => ability.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function resolveOracleWhoToPlayerIds(who: OraclePlayerSelector, caster: PlayerID, state: any): PlayerID[] {
@@ -4277,6 +4303,37 @@ export function executeTriggerEffect(
     debug(2, `[executeTriggerEffect] ${playerId} ${action} ${amount} life (${currentLife} -> ${state.life[playerId]})`);
   };
 
+  const getHandSize = (playerId: string): number => {
+    const zone = state.zones?.[playerId];
+    if (!zone) return 0;
+    if (Array.isArray(zone.hand)) return zone.hand.length;
+    return Math.max(0, Number(zone.handCount || 0));
+  };
+
+  const applyLifeGain = (playerId: string, amount: number, reason: string) => {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    modifyLife(playerId, amount);
+    try {
+      triggerLifeGainEffects(state, playerId, amount);
+    } catch {
+      // Best-effort follow-up triggers should not block the life gain.
+    }
+    debug(2, `[executeTriggerEffect] ${reason}: ${playerId} gains ${amount} life`);
+  };
+
+  if (sourceNameLower.includes("venser's journal") || desc.includes('gain life equal to cards in hand')) {
+    const cardsInHand = getHandSize(controller);
+    applyLifeGain(controller, cardsInHand, sourceName);
+    return;
+  }
+
+  if (sourceNameLower.includes('ivory tower') || desc.includes('gain 1 life for each card in hand above 4')) {
+    const cardsInHand = getHandSize(controller);
+    const amount = Math.max(0, cardsInHand - 4);
+    applyLifeGain(controller, amount, sourceName);
+    return;
+  }
+
   // Count-based combat-damage effects that depend on tracked players damaged this turn.
   if (desc.includes('draw cards equal to the number of opponents who were dealt combat damage this turn')) {
     const drawCount = countOpponentsDealtCombatDamageThisTurn(state, controller);
@@ -6777,6 +6834,36 @@ export function executeTriggerEffect(
         } else {
           debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} until end of turn`);
         }
+      }
+    }
+    return;
+  }
+
+  const creatureGainsMatch =
+    desc.match(/(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gains? (.+?) until end of turn\.?/i) ||
+    desc.match(/(?:until end of turn,?\s*)(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gains? (.+?)\.?$/i);
+  if (creatureGainsMatch && (triggerItem as any).targets?.length > 0) {
+    const gainedAbilities = splitGrantedTemporaryAbilities(creatureGainsMatch[1]);
+    const targets = (triggerItem as any).targets || [];
+    const battlefield = state.battlefield || [];
+
+    for (const targetRef of targets) {
+      const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+      const targetCreature = battlefield.find((p: any) => p.id === targetId);
+      if (!targetCreature) continue;
+
+      targetCreature.temporaryAbilities = Array.isArray(targetCreature.temporaryAbilities) ? targetCreature.temporaryAbilities : [];
+      for (const ability of gainedAbilities) {
+        targetCreature.temporaryAbilities.push({
+          ability,
+          source: sourceName,
+          expiresAt: 'end_of_turn',
+          turnApplied: state.turnNumber || 0,
+        });
+      }
+
+      if (gainedAbilities.length > 0) {
+        debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gains ${gainedAbilities.join(', ')} until end of turn`);
       }
     }
     return;

@@ -1379,6 +1379,13 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
               debug(1, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} milled ${milledCards.length} cards from ${opponentId}: ${milledCards.map((c: any) => c.name).join(', ')}`);
             }
           }
+
+          if (replacementResult.drawAmount && replacementResult.drawTargets) {
+            for (const playerId of replacementResult.drawTargets) {
+              const drawn = drawCards(ctx, playerId as any, replacementResult.drawAmount);
+              debug(1, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} caused ${playerId} to draw ${drawn.length} card(s)`);
+            }
+          }
           
           // Deal actual damage (may be 0 if prevented)
           if (actualDamage > 0) {

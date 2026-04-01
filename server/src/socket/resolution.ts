@@ -9242,6 +9242,7 @@ async function handleStepResponse(
               targets: castArgs.targets,
               xValue: castArgs.xValue,
               alternateCostId: 'overload',
+              selectedCastMode: 'overload',
               convokeTappedCreatures: castArgs.convokeTappedCreatures,
             });
 
@@ -9278,6 +9279,7 @@ async function handleStepResponse(
             targets: castArgs.targets,
             xValue: castArgs.xValue,
             alternateCostId: castArgs.alternateCostId,
+            selectedCastMode: 'normal',
             convokeTappedCreatures: castArgs.convokeTappedCreatures,
           });
 

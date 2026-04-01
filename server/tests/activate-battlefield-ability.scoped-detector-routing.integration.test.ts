@@ -676,6 +676,114 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     expect(String(stack[0]?.description || '').toLowerCase()).not.toContain('exile target card');
   });
 
+  it('queues target selection for leading-clause grant abilities and keeps unrestricted creature targets', async () => {
+    const sokratesGameId = `${gameId}_sokrates_grant`;
+    ResolutionQueueManager.removeQueue(sokratesGameId);
+    games.delete(sokratesGameId as any);
+
+    createGameIfNotExists(sokratesGameId, 'commander', 40);
+    const game = ensureGame(sokratesGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'sokrates_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'sokrates_card_1',
+          name: 'Sokrates, Athenian Teacher',
+          type_line: 'Legendary Creature — Human Advisor',
+          oracle_text: 'Defender\nSokrates has hexproof as long as it\'s untapped.\nSokratic Dialogue — {T}: Until end of turn, target creature gains "If this creature would deal combat damage to a player, prevent that damage. This creature\'s controller and that player each draw half that many cards, rounded down."',
+        },
+      },
+      {
+        id: 'own_creature_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'own_creature_card_1',
+          name: 'Student',
+          type_line: 'Creature — Human',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'opp_creature_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'opp_creature_card_1',
+          name: 'Opponent Creature',
+          type_line: 'Creature — Beast',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(sokratesGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: sokratesGameId, permanentId: 'sokrates_1', abilityId: 'sokrates_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(sokratesGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(queue.steps[0]).toEqual(
+      expect.objectContaining({
+        type: 'target_selection',
+        battlefieldAbilityTargetSelection: true,
+        targetDescription: 'creature',
+      })
+    );
+
+    const validTargetIds = ((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id));
+    expect(validTargetIds).toEqual(expect.arrayContaining(['own_creature_1', 'opp_creature_1']));
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+  });
+
   it('does not let a later fight ability hijack an earlier generic ability activation', async () => {
     const fightGameId = `${gameId}_fight`;
     ResolutionQueueManager.removeQueue(fightGameId);

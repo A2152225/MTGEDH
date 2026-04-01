@@ -127,6 +127,59 @@ describe('temporary and counter replay semantics', () => {
     );
   });
 
+  it('resolves leading-clause target creature grants with quoted combat replacement text', () => {
+    const game = createInitialGameState('t_sokrates_grant_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).turnNumber = 3;
+    (game.state as any).battlefield = [
+      {
+        id: 'creature_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        temporaryPTMods: [],
+        temporaryAbilities: [],
+        card: {
+          id: 'creature_card_1',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature - Bear',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (game.state as any).stack = [
+      {
+        id: 'ability_stack_1',
+        type: 'ability',
+        controller: p1,
+        source: 'sokrates_1',
+        sourceName: 'Sokrates, Athenian Teacher',
+        description: 'Until end of turn, target creature gains "If this creature would deal combat damage to a player, prevent that damage. This creature\'s controller and that player each draw half that many cards, rounded down."',
+        targets: ['creature_1'],
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    const creature = ((game.state as any).battlefield || []).find((entry: any) => entry.id === 'creature_1');
+    const temporaryAbilities = Array.isArray(creature?.temporaryAbilities) ? creature.temporaryAbilities : [];
+
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+    expect(temporaryAbilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ability: "if this creature would deal combat damage to a player, prevent that damage. this creature's controller and that player each draw half that many cards, rounded down.",
+        }),
+      ])
+    );
+  });
+
   it('replays level up activations by restoring the level counter after the stack resolves', () => {
     const game = createInitialGameState('t_level_up_replay');
     const p1 = 'p1' as PlayerID;

@@ -3570,6 +3570,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       skipPriorityCheck?: unknown;
     xValue?: unknown;
     alternateCostId?: unknown;
+    selectedCastMode?: unknown;
     convokeTappedCreatures?: unknown;
     fromZone?: unknown;
     bypassExilePermissionCheck?: unknown;
@@ -3584,6 +3585,9 @@ export function registerGameActions(io: Server, socket: Socket) {
         const skipPriorityCheck = payload?.skipPriorityCheck === true;
       const xValue = typeof payload?.xValue === 'number' && Number.isFinite(payload.xValue) ? payload.xValue : undefined;
       const alternateCostId = typeof payload?.alternateCostId === 'string' ? payload.alternateCostId : undefined;
+      const selectedCastMode = payload?.selectedCastMode === 'normal' || payload?.selectedCastMode === 'overload'
+        ? payload.selectedCastMode
+        : undefined;
       const convokeTappedCreatures = Array.isArray(payload?.convokeTappedCreatures)
         ? (payload.convokeTappedCreatures.filter((id): id is string => typeof id === 'string'))
         : undefined;
@@ -3612,6 +3616,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (fromZone) debug(2, `[handleCastSpellFromHand] fromZone: ${fromZone}`);
       if (bypassExilePermissionCheck) debug(2, `[handleCastSpellFromHand] bypassExilePermissionCheck: true`);
       if (alternateCostId) debug(2, `[handleCastSpellFromHand] alternateCostId: ${alternateCostId}`);
+      if (selectedCastMode) debug(2, `[handleCastSpellFromHand] selectedCastMode: ${selectedCastMode}`);
       if (convokeTappedCreatures && convokeTappedCreatures.length > 0) {
         debug(2, `[handleCastSpellFromHand] convokeTappedCreatures: ${JSON.stringify(convokeTappedCreatures)}`);
       }
@@ -4152,13 +4157,15 @@ export function registerGameActions(io: Server, socket: Socket) {
       const hasOverload = oracleText.includes('overload');
       const overloadMatch = oracleText.match(/overload\s*\{([^}]+)\}/i);
       const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
+      const overloadModeAlreadySelected = selectedCastMode === 'normal' || selectedCastMode === 'overload';
       
       // Check if overload mode was specified in the cast request
-      const castWithOverload = (payment as any[])?.some((p: any) => p.overload === true) || 
+      const castWithOverload = alternateCostId === 'overload' ||
+                               (payment as any[])?.some((p: any) => p.overload === true) || 
                                (targets as any)?.overload === true ||
                                (cardInHand as any).castWithOverload === true;
       
-      if (hasOverload && overloadCost && !castWithOverload && !((payment as any)?.modeSelected)) {
+      if (!shouldSkipAllPrompts && hasOverload && overloadCost && !castWithOverload && !overloadModeAlreadySelected) {
         const existing = ResolutionQueueManager
           .getStepsForPlayer(gameId, playerId as any)
           .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'overload');

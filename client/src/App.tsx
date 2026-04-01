@@ -2005,6 +2005,7 @@ export function App() {
           effectId: payload.effectId,
           xValue: payload.xValue,
           alternateCostId: payload.alternateCostId,
+          selectedCastMode: payload.selectedCastMode,
           convokeTappedCreatures: payload.convokeTappedCreatures,
         } as any);
       } else {
@@ -2015,6 +2016,7 @@ export function App() {
           targets: payload.targets,
           xValue: payload.xValue,
           alternateCostId: payload.alternateCostId,
+          selectedCastMode: payload.selectedCastMode,
           skipInteractivePrompts: payload.skipInteractivePrompts,
           convokeTappedCreatures: payload.convokeTappedCreatures,
         } as any);
