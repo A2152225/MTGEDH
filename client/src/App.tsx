@@ -67,6 +67,7 @@ import { OpponentMayPayModal, type OpponentMayPayPrompt } from "./components/Opp
 import { MayAbilityModal, type MayAbilityModalData } from "./components/MayAbilityModal";
 import { MutateTargetModal, type MutateTarget } from "./components/MutateTargetModal";
 import { GraveyardSelectionModal, type GraveyardCard } from "./components/GraveyardSelectionModal";
+import { XValueSelectionModal } from "./components/XValueSelectionModal";
 import { IgnoredCardsPanel, type IgnoredCard, type IgnoredCardZone } from "./components/IgnoredCardsPanel";
 import { type ImagePref } from "./components/BattlefieldGrid";
 import GameList from "./components/GameList";
@@ -245,6 +246,7 @@ export function App() {
     targets?: string[];  // Targets selected via requestCastSpell flow
     effectId?: string;   // Effect ID for MTG-compliant flow
     paymentStepId?: string;
+    xValue?: number;
     costReduction?: {
       generic: number;
       colors: Record<string, number>;
@@ -259,6 +261,15 @@ export function App() {
       }>;
       messages: string[];
     };
+  } | null>(null);
+  const [pendingSpellXSelection, setPendingSpellXSelection] = useState<{
+    stepId: string;
+    cardName: string;
+    description?: string;
+    minValue: number;
+    maxValue: number;
+    xCount?: number;
+    affordableXHint?: number;
   } | null>(null);
 
   // Accordion state for Join / Active Games
@@ -2422,6 +2433,18 @@ export function App() {
         }
       }
 
+      else if (step.type === 'x_value_selection') {
+        setPendingSpellXSelection({
+          stepId: String(step.id),
+          cardName: String(step.sourceName || step.cardName || 'Spell'),
+          description: String(step.description || ''),
+          minValue: Math.max(0, Number(step.minValue ?? 0)),
+          maxValue: Math.max(0, Number(step.maxValue ?? 20)),
+          xCount: Number.isFinite(step.xCount) ? Math.max(1, Number(step.xCount)) : undefined,
+          affordableXHint: Number.isFinite(step.affordableXHint) ? Math.max(0, Number(step.affordableXHint)) : undefined,
+        });
+      }
+
       // Phyrexian mana payment choice via Resolution Queue
       else if (step.type === 'mana_payment_choice' && (step.spellPaymentRequired === true || (step as any).wardPayment === true)) {
         const cr = (step as any).costReduction;
@@ -2437,6 +2460,7 @@ export function App() {
           oracleText: isWardPayment ? String(step.description || '') : undefined,
           targets: Array.isArray((step as any).targets) ? (step as any).targets : undefined,
           effectId: isWardPayment ? undefined : String((step as any).effectId || ''),
+          xValue: isWardPayment ? undefined : (Number.isFinite((step as any).xValue) ? Math.max(0, Number((step as any).xValue)) : undefined),
           costReduction: isWardPayment ? undefined : cr,
           convokeOptions: isWardPayment ? undefined : co,
           forcedAlternateCostId: isWardPayment ? undefined : ((step as any).forcedAlternateCostId != null ? String((step as any).forcedAlternateCostId) : undefined),
@@ -5917,10 +5941,45 @@ export function App() {
         title={spellToCast?.title}
         confirmLabel={spellToCast?.confirmLabel}
         manualFloatingManaSelection={spellToCast?.manualFloatingManaSelection === true}
+        initialXValue={spellToCast?.xValue}
         costReduction={spellToCast?.costReduction}
         convokeOptions={spellToCast?.convokeOptions}
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}
+      />
+
+      <XValueSelectionModal
+        isOpen={pendingSpellXSelection !== null}
+        cardName={pendingSpellXSelection?.cardName || ''}
+        abilityText={pendingSpellXSelection?.description}
+        minValue={pendingSpellXSelection?.minValue ?? 0}
+        maxValue={pendingSpellXSelection?.maxValue ?? 20}
+        xCount={pendingSpellXSelection?.xCount}
+        affordableXHint={pendingSpellXSelection?.affordableXHint}
+        onSelect={(xValue) => {
+          if (!safeView || !pendingSpellXSelection) return;
+          socket.emit('submitResolutionResponse', {
+            gameId: safeView.id,
+            stepId: pendingSpellXSelection.stepId,
+            selections: { xValue },
+            cancelled: false,
+          });
+          setPendingSpellXSelection(null);
+        }}
+        onClose={() => {
+          setPendingSpellXSelection(null);
+        }}
+        onCancel={() => {
+          if (!safeView || !pendingSpellXSelection) {
+            setPendingSpellXSelection(null);
+            return;
+          }
+          socket.emit('cancelResolutionStep', {
+            gameId: safeView.id,
+            stepId: pendingSpellXSelection.stepId,
+          });
+          setPendingSpellXSelection(null);
+        }}
       />
 
       {/* Create Game Modal */}

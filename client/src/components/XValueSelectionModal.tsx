@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 interface XValueSelectionModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onCancel?: () => void;
   onSelect: (xValue: number) => void;
   cardName: string;
   abilityText?: string;
@@ -20,6 +21,7 @@ interface XValueSelectionModalProps {
 export function XValueSelectionModal({
   isOpen,
   onClose,
+  onCancel,
   onSelect,
   cardName,
   abilityText,
@@ -57,7 +59,7 @@ export function XValueSelectionModal({
     if (e.key === 'Enter') {
       handleSubmit();
     } else if (e.key === 'Escape') {
-      onClose();
+      (onCancel || onClose)();
     }
   };
 
@@ -75,7 +77,7 @@ export function XValueSelectionModal({
         justifyContent: 'center',
         zIndex: 10000,
       }}
-      onClick={onClose}
+      onClick={() => (onCancel || onClose)()}
     >
       <div
         style={{

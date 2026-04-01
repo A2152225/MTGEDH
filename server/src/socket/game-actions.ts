@@ -1968,13 +1968,45 @@ export function applyCostReduction(
   return result;
 }
 
+function countXManaSymbols(manaCost?: string): number {
+  if (!manaCost) return 0;
+  const matches = String(manaCost).match(/\{X\}/gi);
+  return matches ? matches.length : 0;
+}
+
+function expandManaCostWithChosenX(manaCost: string, xValue?: number): string {
+  if (!manaCost) return '';
+
+  const normalizedX = Number.isFinite(xValue) ? Math.max(0, Math.floor(Number(xValue))) : undefined;
+  if (normalizedX === undefined) return manaCost;
+
+  const xCount = countXManaSymbols(manaCost);
+  const genericFromX = xCount * normalizedX;
+  const withoutX = manaCost.replace(/\{X\}/gi, '');
+
+  if (genericFromX <= 0) {
+    return withoutX || '{0}';
+  }
+
+  return `{${genericFromX}}${withoutX}`;
+}
+
+function resolveTargetCount(baseCount: number | undefined, countIsX: boolean | undefined, xValue?: number): number {
+  if (countIsX) {
+    return Number.isFinite(xValue) ? Math.max(0, Math.floor(Number(xValue))) : 0;
+  }
+  return Math.max(0, Number(baseCount ?? 0));
+}
+
 export function formatManaCostWithReduction(
   manaCost: string,
-  reduction?: { generic?: number; colors?: Record<string, number> }
+  reduction?: { generic?: number; colors?: Record<string, number> },
+  xValue?: number,
 ): string {
   if (!manaCost) return '';
 
-  const parsedCost = parseManaCost(manaCost);
+  const concreteManaCost = expandManaCostWithChosenX(manaCost, xValue);
+  const parsedCost = parseManaCost(concreteManaCost);
   const reducedCost = applyCostReduction(parsedCost, {
     generic: Math.max(0, Number(reduction?.generic || 0)),
     colors: { ...(reduction?.colors || {}) },
@@ -2425,6 +2457,7 @@ export async function requestCastSpellForSocket(
     skipMutateModePrompt?: boolean;
     castWithoutPayingManaCost?: boolean;
     bypassExilePermissionCheck?: boolean;
+    xValue?: number;
   }
 ): Promise<void> {
   try {
@@ -2676,6 +2709,7 @@ export async function requestCastSpellForSocket(
     }
 
     const oracleText = resolveGiftAwareOracleText(oracleTextRaw, giftInfo.hasGift ? giftPromised : undefined).toLowerCase();
+    const chosenXValue = Number.isFinite(options?.xValue) ? Math.max(0, Math.floor(Number(options?.xValue))) : undefined;
 
     // Forced alternate cost (Miracle / Mutate)
     if (options?.forcedAlternateCostId === 'miracle') {
@@ -2761,14 +2795,54 @@ export async function requestCastSpellForSocket(
       }
     }
 
+    const xCount = countXManaSymbols(manaCost);
+
+    if (xCount > 0 && chosenXValue === undefined) {
+      const existingXStep = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find((step: any) => step?.type === ResolutionStepType.X_VALUE_SELECTION && step?.spellCastXSelection === true && String(step?.spellCardId || '') === String(cardId));
+
+      if (!existingXStep) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.X_VALUE_SELECTION,
+          playerId: playerId as any,
+          description: `Choose X for ${cardName}.`,
+          mandatory: true,
+          sourceId: String(cardId),
+          sourceName: cardName,
+          sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          minValue: 0,
+          maxValue: 20,
+          xCount,
+          spellCastXSelection: true,
+          spellCardId: String(cardId),
+          spellFaceIndex: faceIndex,
+          spellFromZone: castSourceZone,
+          spellForcedAlternateCostId: options?.forcedAlternateCostId,
+          spellCastWithoutPayingManaCost: isFreeCast,
+          spellBypassExilePermissionCheck: bypassExilePermissionCheck,
+        } as any);
+      }
+
+      debug(2, `[requestCastSpell] Queued X_VALUE_SELECTION for ${cardName}`);
+      return;
+    }
+
+    const resolvedManaCost = expandManaCostWithChosenX(manaCost, chosenXValue);
+
     // Check if this spell requires targets
     const isAura = effectiveTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
     const spellSpec = (isInstantOrSorcery && !isAura) ? categorizeSpell(cardName, oracleText) : null;
     const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
 
-    const needsTargets = (spellSpec && spellSpec.minTargets > 0) ||
-      (targetReqs && targetReqs.needsTargets) ||
-      isAura;
+    const requiredMinTargets = spellSpec
+      ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, chosenXValue)
+      : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, chosenXValue);
+    const requiredMaxTargets = spellSpec
+      ? resolveTargetCount(spellSpec.maxTargets, (spellSpec as any).maxTargetsIsX === true, chosenXValue)
+      : resolveTargetCount(targetReqs?.maxTargets, (targetReqs as any)?.maxTargetsIsX === true, chosenXValue);
+
+    const needsTargets = isAura || requiredMaxTargets > 0;
 
     const effectId = `cast_${cardId}_${Date.now()}`;
 
@@ -2793,10 +2867,12 @@ export async function requestCastSpellForSocket(
       (game.state as any).pendingSpellCasts[effectId] = {
         cardId,
         cardName,
-        manaCost,
+        manaCost: resolvedManaCost,
+        rawManaCost: manaCost,
         fromZone: castSourceZone,
         playerId,
         faceIndex,
+        xValue: chosenXValue,
         validTargetIds: valid.map((t: any) => String(t.permanentId)),
         card: { ...cardInHand },
         forcedAlternateCostId: 'mutate',
@@ -2885,223 +2961,233 @@ export async function requestCastSpellForSocket(
       }
 
       if (validTargetList.length === 0) {
-        if ((game.state as any).pendingSpellCasts?.[effectId]) {
-          delete (game.state as any).pendingSpellCasts[effectId];
-        }
-
-        socket.emit("error", {
-          code: "NO_VALID_TARGETS",
-          message: `No valid targets for ${cardName}`,
-        });
-        return;
-      }
-
-      (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
-      (game.state as any).pendingSpellCasts[effectId] = {
-        cardId,
-        cardName,
-        manaCost,
-        fromZone: castSourceZone,
-        playerId,
-        faceIndex,
-        validTargetIds: validTargetList.map((t: any) => t.id),
-        card: { ...cardInHand },
-        forcedAlternateCostId: options?.forcedAlternateCostId,
-        castWithoutPayingManaCost: isFreeCast,
-        bypassExilePermissionCheck,
-        ...(giftInfo.hasGift
-          ? {
-              giftPromised,
-              giftRecipient,
-              giftType,
-            }
-          : {}),
-      };
-
-      const additionalCost = detectAdditionalCost(oracleText);
-      if (additionalCost?.type === 'blight') {
-        const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
-        if (!pendingCast) {
-          debugWarn(1, `[requestCastSpell] Missing pendingSpellCasts for effectId ${effectId} (blight additional cost)`);
-        } else {
-          const blightIsX = Boolean((additionalCost as any).blightIsX);
-          const blightN = Number((additionalCost as any).blightN || 0);
-          const blightOrPayCost = String((additionalCost as any).blightOrPayCost || '').trim() || undefined;
-          const blightIsOptional = Boolean((additionalCost as any).blightIsOptional);
-
-          if (blightIsX) {
+        if (requiredMinTargets > 0) {
+          if ((game.state as any).pendingSpellCasts?.[effectId]) {
             delete (game.state as any).pendingSpellCasts[effectId];
-            socket.emit('error', {
-              code: 'UNSUPPORTED_ADDITIONAL_COST',
-              message: `Additional cost "Blight X" is not supported yet for ${cardName}.`,
-            });
-            return;
           }
 
-          const battlefieldNow = game.state?.battlefield || [];
-          const validBlightTargets = battlefieldNow
-            .filter((p: any) => p && String(p.controller || '') === String(playerId))
-            .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
-            .map((p: any) => ({
-              id: p.id,
-              label: p.card?.name || 'Creature',
-              description: p.card?.type_line || 'creature',
-              imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-            }));
+          socket.emit("error", {
+            code: "NO_VALID_TARGETS",
+            message: `No valid targets for ${cardName}`,
+          });
+          return;
+        }
 
-          pendingCast.additionalCostPaid = false;
-          pendingCast.additionalCostMethod = 'none';
+        debug(2, `[requestCastSpell] ${cardName} has only optional targets and none are currently legal; continuing without target selection`);
+      }
 
-          if (blightOrPayCost) {
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.OPTION_CHOICE,
-              playerId: playerId as PlayerID,
-              description: `Additional cost for ${cardName}: Choose how to pay`,
-              mandatory: true,
-              sourceId: effectId,
-              sourceName: cardName,
-              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-              options: [
-                {
-                  id: 'blight_cost',
-                  label: `Blight ${blightN}`,
-                  description: `Put ${blightN} -1/-1 counter${blightN === 1 ? '' : 's'} on a creature you control.`,
-                },
-                {
-                  id: 'pay_mana_cost',
-                  label: `Pay ${blightOrPayCost}`,
-                  description: `Pay ${blightOrPayCost} as the additional cost.`,
-                },
-              ],
-              minSelections: 1,
-              maxSelections: 1,
-              spellAdditionalCostBlightOrPay: true,
-              spellAdditionalCostEffectId: effectId,
-              spellAdditionalCostCardName: cardName,
-              spellAdditionalCostBlightN: blightN,
-              spellAdditionalCostOrPay: blightOrPayCost,
-            } as any);
-          } else {
-            if (validBlightTargets.length === 0) {
-              if (blightIsOptional) {
-                pendingCast.additionalCostPaid = false;
-                pendingCast.additionalCostMethod = 'none';
-              } else {
-                delete (game.state as any).pendingSpellCasts[effectId];
-                socket.emit('error', {
-                  code: 'CANNOT_PAY_COST',
-                  message: `Cannot cast ${cardName}: You must blight ${blightN}, but you control no creatures.`,
-                });
-                return;
+      if (validTargetList.length > 0) {
+        (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+        (game.state as any).pendingSpellCasts[effectId] = {
+          cardId,
+          cardName,
+          manaCost: resolvedManaCost,
+          rawManaCost: manaCost,
+          fromZone: castSourceZone,
+          playerId,
+          faceIndex,
+          xValue: chosenXValue,
+          validTargetIds: validTargetList.map((t: any) => t.id),
+          card: { ...cardInHand },
+          forcedAlternateCostId: options?.forcedAlternateCostId,
+          castWithoutPayingManaCost: isFreeCast,
+          bypassExilePermissionCheck,
+          ...(giftInfo.hasGift
+            ? {
+                giftPromised,
+                giftRecipient,
+                giftType,
               }
-            } else {
+            : {}),
+        };
+
+        const additionalCost = detectAdditionalCost(oracleText);
+        if (additionalCost?.type === 'blight') {
+          const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
+          if (!pendingCast) {
+            debugWarn(1, `[requestCastSpell] Missing pendingSpellCasts for effectId ${effectId} (blight additional cost)`);
+          } else {
+            const blightIsX = Boolean((additionalCost as any).blightIsX);
+            const blightN = Number((additionalCost as any).blightN || 0);
+            const blightOrPayCost = String((additionalCost as any).blightOrPayCost || '').trim() || undefined;
+            const blightIsOptional = Boolean((additionalCost as any).blightIsOptional);
+
+            if (blightIsX) {
+              delete (game.state as any).pendingSpellCasts[effectId];
+              socket.emit('error', {
+                code: 'UNSUPPORTED_ADDITIONAL_COST',
+                message: `Additional cost "Blight X" is not supported yet for ${cardName}.`,
+              });
+              return;
+            }
+
+            const battlefieldNow = game.state?.battlefield || [];
+            const validBlightTargets = battlefieldNow
+              .filter((p: any) => p && String(p.controller || '') === String(playerId))
+              .filter((p: any) => String(p.card?.type_line || '').toLowerCase().includes('creature'))
+              .map((p: any) => ({
+                id: p.id,
+                label: p.card?.name || 'Creature',
+                description: p.card?.type_line || 'creature',
+                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+              }));
+
+            pendingCast.additionalCostPaid = false;
+            pendingCast.additionalCostMethod = 'none';
+
+            if (blightOrPayCost) {
               ResolutionQueueManager.addStep(gameId, {
-                type: ResolutionStepType.TARGET_SELECTION,
+                type: ResolutionStepType.OPTION_CHOICE,
                 playerId: playerId as PlayerID,
-                description: `Additional cost for ${cardName}: Blight ${blightN}${blightIsOptional ? ' (optional)' : ''}`,
-                mandatory: !blightIsOptional,
+                description: `Additional cost for ${cardName}: Choose how to pay`,
+                mandatory: true,
                 sourceId: effectId,
                 sourceName: cardName,
                 sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-                validTargets: validBlightTargets,
-                targetTypes: ['creature'],
-                minTargets: 1,
-                maxTargets: 1,
-                targetDescription: 'creature you control',
-                keywordBlight: true,
-                keywordBlightStage: 'cast_additional_cost',
-                keywordBlightController: playerId,
-                keywordBlightN: blightN,
-                keywordBlightSourceName: `${cardName} — Additional Cost (Blight ${blightN})`,
-                keywordBlightEffectId: effectId,
-                keywordBlightOptional: blightIsOptional,
+                options: [
+                  {
+                    id: 'blight_cost',
+                    label: `Blight ${blightN}`,
+                    description: `Put ${blightN} -1/-1 counter${blightN === 1 ? '' : 's'} on a creature you control.`,
+                  },
+                  {
+                    id: 'pay_mana_cost',
+                    label: `Pay ${blightOrPayCost}`,
+                    description: `Pay ${blightOrPayCost} as the additional cost.`,
+                  },
+                ],
+                minSelections: 1,
+                maxSelections: 1,
+                spellAdditionalCostBlightOrPay: true,
+                spellAdditionalCostEffectId: effectId,
+                spellAdditionalCostCardName: cardName,
+                spellAdditionalCostBlightN: blightN,
+                spellAdditionalCostOrPay: blightOrPayCost,
               } as any);
+            } else {
+              if (validBlightTargets.length === 0) {
+                if (blightIsOptional) {
+                  pendingCast.additionalCostPaid = false;
+                  pendingCast.additionalCostMethod = 'none';
+                } else {
+                  delete (game.state as any).pendingSpellCasts[effectId];
+                  socket.emit('error', {
+                    code: 'CANNOT_PAY_COST',
+                    message: `Cannot cast ${cardName}: You must blight ${blightN}, but you control no creatures.`,
+                  });
+                  return;
+                }
+              } else {
+                ResolutionQueueManager.addStep(gameId, {
+                  type: ResolutionStepType.TARGET_SELECTION,
+                  playerId: playerId as PlayerID,
+                  description: `Additional cost for ${cardName}: Blight ${blightN}${blightIsOptional ? ' (optional)' : ''}`,
+                  mandatory: !blightIsOptional,
+                  sourceId: effectId,
+                  sourceName: cardName,
+                  sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+                  validTargets: validBlightTargets,
+                  targetTypes: ['creature'],
+                  minTargets: 1,
+                  maxTargets: 1,
+                  targetDescription: 'creature you control',
+                  keywordBlight: true,
+                  keywordBlightStage: 'cast_additional_cost',
+                  keywordBlightController: playerId,
+                  keywordBlightN: blightN,
+                  keywordBlightSourceName: `${cardName} — Additional Cost (Blight ${blightN})`,
+                  keywordBlightEffectId: effectId,
+                  keywordBlightOptional: blightIsOptional,
+                } as any);
+              }
             }
           }
         }
-      }
 
-      const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
-      const requiredMinTargets = spellSpec?.minTargets || targetReqs?.minTargets || 1;
-      const requiredMaxTargets = spellSpec?.maxTargets || targetReqs?.maxTargets || 1;
+        const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
 
-      const modal = oracleText ? extractModalModesFromOracleText(oracleText) : undefined;
-      if (modal && modal.allOptionsHaveTargets) {
+        const modal = oracleText ? extractModalModesFromOracleText(oracleText) : undefined;
+        if (modal && modal.allOptionsHaveTargets) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MODE_SELECTION,
+            playerId: playerId as PlayerID,
+            description: `Choose a mode for ${cardName}`,
+            mandatory: true,
+            sourceId: effectId,
+            sourceName: cardName,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            modes: modal.options.map(o => ({ id: o.id, label: o.label, description: o.description })),
+            minModes: modal.minModes,
+            maxModes: modal.maxModes,
+            allowDuplicates: false,
+          });
+        }
+
         ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.MODE_SELECTION,
+          type: ResolutionStepType.TARGET_SELECTION,
           playerId: playerId as PlayerID,
-          description: `Choose a mode for ${cardName}`,
+          description: `Choose ${targetDescription} for ${cardName}`,
           mandatory: true,
           sourceId: effectId,
           sourceName: cardName,
           sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-          modes: modal.options.map(o => ({ id: o.id, label: o.label, description: o.description })),
-          minModes: modal.minModes,
-          maxModes: modal.maxModes,
-          allowDuplicates: false,
+          validTargets: validTargetList.map((t: any) => {
+            const isPlayerTarget = t.kind === 'player';
+            const isStackTarget = t.kind === 'stack';
+            return {
+              id: t.id,
+              label: t.name,
+              description: t.kind,
+              imageUrl: t.imageUrl,
+              type: isPlayerTarget ? 'player' : (isStackTarget ? 'card' : 'permanent'),
+              controller: t.controller,
+              typeLine: t.typeLine,
+              life: t.life,
+              isOpponent: t.isOpponent,
+            };
+          }),
+          targetTypes: [isAura ? 'aura_target' : 'spell_target'],
+          minTargets: requiredMinTargets,
+          maxTargets: requiredMaxTargets,
+          targetDescription,
+          spellCastContext: {
+            cardId,
+            cardName,
+            manaCost: resolvedManaCost,
+            rawManaCost: manaCost,
+            playerId,
+            faceIndex,
+            effectId,
+            oracleText,
+            imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            forcedAlternateCostId: options?.forcedAlternateCostId,
+            castWithoutPayingManaCost: isFreeCast,
+            bypassExilePermissionCheck,
+            xValue: chosenXValue,
+          },
         });
+
+        debug(2, `[requestCastSpell] Added TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
+        debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets via Resolution Queue) ========`);
+        return;
       }
-
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.TARGET_SELECTION,
-        playerId: playerId as PlayerID,
-        description: `Choose ${targetDescription} for ${cardName}`,
-        mandatory: true,
-        sourceId: effectId,
-        sourceName: cardName,
-        sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-        validTargets: validTargetList.map((t: any) => {
-          const isPlayerTarget = t.kind === 'player';
-          const isStackTarget = t.kind === 'stack';
-          return {
-            id: t.id,
-            label: t.name,
-            description: t.kind,
-            imageUrl: t.imageUrl,
-            type: isPlayerTarget ? 'player' : (isStackTarget ? 'card' : 'permanent'),
-            controller: t.controller,
-            typeLine: t.typeLine,
-            life: t.life,
-            isOpponent: t.isOpponent,
-          };
-        }),
-        targetTypes: [isAura ? 'aura_target' : 'spell_target'],
-        minTargets: requiredMinTargets,
-        maxTargets: requiredMaxTargets,
-        targetDescription,
-        spellCastContext: {
-          cardId,
-          cardName,
-          manaCost,
-          playerId,
-          faceIndex,
-          effectId,
-          oracleText,
-          imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-          forcedAlternateCostId: options?.forcedAlternateCostId,
-          castWithoutPayingManaCost: isFreeCast,
-          bypassExilePermissionCheck,
-        },
-      });
-
-      debug(2, `[requestCastSpell] Added TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
-      debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets via Resolution Queue) ========`);
-      return;
     }
 
     // No targets needed — still need to handle additional costs before payment.
     const costReduction = calculateCostReduction(game, playerId, cardInHand);
     const convokeOptions = calculateConvokeOptions(game, playerId, cardInHand);
-    const paymentManaCost = formatManaCostWithReduction(manaCost, costReduction);
+    const paymentManaCost = formatManaCostWithReduction(resolvedManaCost, costReduction, chosenXValue);
 
     (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
     (game.state as any).pendingSpellCasts[effectId] = {
       cardId,
       cardName,
-      manaCost,
+      manaCost: resolvedManaCost,
+      rawManaCost: manaCost,
       fromZone: castSourceZone,
       playerId,
       faceIndex,
+      xValue: chosenXValue,
       validTargetIds: [],
       targets: [],
       card: { ...cardInHand },
@@ -3248,6 +3334,7 @@ export async function requestCastSpellForSocket(
         cardId,
         cardName,
         manaCost: paymentManaCost,
+        xValue: chosenXValue,
         effectId,
         targets: undefined,
         imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
@@ -5212,7 +5299,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       const isFreeCast = alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true;
 
       // Parse the mana cost to validate payment
-      const manaCost = (isForceAltCostPaid || isFreeCast) ? '' : (cardInHand.mana_cost || "");
+      const rawManaCost = (isForceAltCostPaid || isFreeCast) ? '' : (cardInHand.mana_cost || "");
+      const manaCost = expandManaCostWithChosenX(rawManaCost, xValue);
       const parsedCost = parseManaCost(manaCost);
       
       // Calculate cost reduction from battlefield effects
@@ -5224,7 +5312,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Log cost reduction if any
       if (costReduction.messages.length > 0) {
         debug(1, `[castSpellFromHand] Cost reduction for ${cardInHand.name}: ${costReduction.messages.join(", ")}`);
-        debug(2, `[castSpellFromHand] Original cost: ${manaCost}, Reduced generic: ${parsedCost.generic} -> ${reducedCost.generic}`);
+        debug(2, `[castSpellFromHand] Original cost: ${rawManaCost}, Concrete cost: ${manaCost}, Reduced generic: ${parsedCost.generic} -> ${reducedCost.generic}`);
       }
       
       // Calculate total mana cost for spell from hand (using reduced cost)
@@ -7144,6 +7232,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       let pendingFromZone: 'hand' | 'exile' | 'graveyard' | undefined;
       let pendingBypassExilePermissionCheck = false;
+      let pendingXValue: number | undefined;
 
       // DEBUG: Log incoming parameters
       debug(2, `[completeCastSpell] DEBUG START ========================================`);
@@ -7163,6 +7252,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
         pendingFromZone = (pendingCast?.fromZone as any) || undefined;
         pendingBypassExilePermissionCheck = pendingCast?.bypassExilePermissionCheck === true;
+        pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
 
         // Mutate metadata is stored on pendingCast; copy it to the actual card object in hand before casting.
         if (String(pendingCast?.forcedAlternateCostId || '') === 'mutate') {
@@ -7273,7 +7363,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         payment: payment as PaymentItem[] | undefined,
         skipInteractivePrompts: true,
         skipPriorityCheck: true,
-        xValue: xValue as number | undefined,
+        xValue: (xValue as number | undefined) ?? pendingXValue,
         alternateCostId: alternateCostId as string | undefined,
         convokeTappedCreatures: convokeTapped,
         fromZone: pendingFromZone,

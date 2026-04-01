@@ -78,6 +78,8 @@ export type SpellSpec = {
   filter: PermanentFilter;
   minTargets: number;
   maxTargets: number;
+  minTargetsIsX?: boolean;
+  maxTargetsIsX?: boolean;
   amount?: number;
   amountIsX?: boolean; // For X spells: populate amount at cast/resolve time when X is known.
   nonlandOnly?: boolean; // For "nonland permanents" patterns.
@@ -148,6 +150,26 @@ function buildGraveyardCardTargetType(rawTargetType: string | undefined): string
   return normalized ? `graveyard_${normalized}_card` : 'graveyard_card';
 }
 
+function parseTargetTypePhrase(rawTargetType: string | undefined): string[] {
+  const normalized = String(rawTargetType || '')
+    .toLowerCase()
+    .replace(/\band\/or\b/g, 'or')
+    .replace(/[.,]/g, ' ')
+    .replace(/\btarget\b/g, ' ')
+    .replace(/\bthat player controls\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return [];
+
+  const pieces = normalized
+    .split(/\s+or\s+/)
+    .map((piece) => piece.trim())
+    .filter(Boolean);
+
+  return pieces.length > 0 ? pieces : [normalized];
+}
+
 /**
  * Detect if a spell requires targets based on oracle text
  * This is a comprehensive check that looks for ANY "target" pattern in the spell text
@@ -186,6 +208,8 @@ export function parseTargetRequirements(oracleText?: string): {
   targetTypes: string[];
   minTargets: number;
   maxTargets: number;
+  minTargetsIsX?: boolean;
+  maxTargetsIsX?: boolean;
   targetDescription: string;
   perOpponent?: boolean;  // For "for each opponent, up to one target X that player controls"
   targetControllerConstraint?: 'opponent' | 'that_player' | 'you' | 'any';
@@ -299,31 +323,40 @@ export function parseTargetRequirements(oracleText?: string): {
   }
   
   // Check for "up to X target" patterns
-  const upToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+(\w+)/i);
+  const upToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+([^.]+?)(?:\s+that\s+player\s+controls|\.|,|$)/i);
   if (upToMatch) {
-    const numWord = upToMatch[1];
-    const targetType = upToMatch[2];
+    const numWord = String(upToMatch[1] || '').toLowerCase();
+    const rawTargetType = String(upToMatch[2] || '').trim().toLowerCase();
     const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
-    maxTargets = numMap[numWord] || parseInt(numWord, 10) || 1;
+    const isXCount = numWord === 'x';
+    maxTargets = isXCount ? 0 : (numMap[numWord] || parseInt(numWord, 10) || 1);
     minTargets = 0; // "up to" means minimum is 0
-    targetTypes.push(targetType);
-    targetDescription = `up to ${numWord} target ${targetType}`;
-    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+    targetTypes.push(...parseTargetTypePhrase(rawTargetType));
+    targetDescription = `up to ${numWord} target ${rawTargetType}`;
+    return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, ...(isXCount ? { maxTargetsIsX: true } : {}) };
   }
   
   // Check for "X target" patterns (e.g., "two target creatures")
-  const multiTargetMatch = t.match(/(\w+)\s+target\s+(\w+)/i);
+  const multiTargetMatch = t.match(/(\w+)\s+target\s+([^.]+?)(?:\.|,|$)/i);
   if (multiTargetMatch) {
-    const numWord = multiTargetMatch[1];
-    const targetType = multiTargetMatch[2];
+    const numWord = String(multiTargetMatch[1] || '').toLowerCase();
+    const rawTargetType = String(multiTargetMatch[2] || '').trim().toLowerCase();
     const numMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
-    const num = numMap[numWord] || parseInt(numWord, 10);
-    if (num && num > 0) {
-      minTargets = num;
-      maxTargets = num;
-      targetTypes.push(targetType);
-      targetDescription = `${numWord} target ${targetType}`;
-      return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+    const isXCount = numWord === 'x';
+    const num = isXCount ? 0 : (numMap[numWord] || parseInt(numWord, 10));
+    if (isXCount || (num && num > 0)) {
+      minTargets = isXCount ? 0 : num;
+      maxTargets = isXCount ? 0 : num;
+      targetTypes.push(...parseTargetTypePhrase(rawTargetType));
+      targetDescription = `${numWord} target ${rawTargetType}`;
+      return {
+        needsTargets: true,
+        targetTypes,
+        minTargets,
+        maxTargets,
+        targetDescription,
+        ...(isXCount ? { minTargetsIsX: true, maxTargetsIsX: true } : {}),
+      };
     }
   }
   
@@ -1114,7 +1147,7 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
     multiFilter = ['CREATURE', 'PLANESWALKER'];
   }
   // Pattern: "artifact or enchantment" (Nature's Claim, Naturalize, etc.)
-  else if (/artifacts?\s+or\s+enchantments?/.test(t)) {
+  else if (/artifacts?\s+(?:or|and\/or)\s+enchantments?/.test(t)) {
     filter = 'ARTIFACT'; // Primary filter
     multiFilter = ['ARTIFACT', 'ENCHANTMENT'];
   }
@@ -2144,6 +2177,24 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
         ...(controllerOnly ? { controllerOnly: true } : {}),
         ...(opponentOnly ? { opponentOnly: true } : {}),
         targetDescription: `target ${targetType} ${scope}`,
+      };
+    }
+  }
+
+  {
+    const m = t.trim().match(/^(destroy|exile)\s+up\s+to\s+(x|one|two|three|four|five|\d+)\s+target\s+artifacts?\s+and\/or\s+enchantments?\./i);
+    if (m) {
+      const rawCount = String(m[2] || '').toLowerCase();
+      const countIsX = rawCount === 'x';
+      const max = countIsX ? 0 : (parseCountWord(rawCount) ?? 1);
+      return {
+        op: String(m[1]).toLowerCase() === 'destroy' ? 'DESTROY_TARGET' : 'EXILE_TARGET',
+        filter: 'ARTIFACT',
+        minTargets: 0,
+        maxTargets: max,
+        ...(countIsX ? { maxTargetsIsX: true } : {}),
+        multiFilter: ['ARTIFACT', 'ENCHANTMENT'],
+        targetDescription: `up to ${rawCount} target artifacts and/or enchantments`,
       };
     }
   }

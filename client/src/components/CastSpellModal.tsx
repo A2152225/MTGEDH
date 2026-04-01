@@ -433,6 +433,7 @@ interface CastSpellModalProps {
   title?: string;
   confirmLabel?: string;
   manualFloatingManaSelection?: boolean;
+  initialXValue?: number;
   costReduction?: {
     generic: number;
     colors: Record<string, number>;
@@ -464,6 +465,7 @@ export function CastSpellModal({
   title,
   confirmLabel,
   manualFloatingManaSelection = false,
+  initialXValue,
   costReduction,
   convokeOptions,
   onConfirm,
@@ -481,6 +483,11 @@ export function CastSpellModal({
       setSelectedCostId(forcedAlternateCostId);
     }
   }, [open, forcedAlternateCostId]);
+
+  useEffect(() => {
+    if (!open) return;
+    setXValue(Number.isFinite(initialXValue) ? Math.max(0, Math.floor(Number(initialXValue))) : 0);
+  }, [open, initialXValue]);
 
   // Parse alternate costs from oracle text
   const alternateCosts = useMemo(() => {

@@ -10542,6 +10542,50 @@ async function handleXValueSelectionResponse(
   const pid = response.playerId;
   const stepAny = step as any;
 
+  let selectedXValue: number | null = null;
+  const rawSelection: any = response.selections as any;
+  if (typeof rawSelection === 'number') selectedXValue = rawSelection;
+  else if (typeof rawSelection === 'string') selectedXValue = Number(rawSelection);
+  else if (rawSelection && typeof rawSelection === 'object' && rawSelection.xValue != null) selectedXValue = Number(rawSelection.xValue);
+
+  selectedXValue = Number.isFinite(selectedXValue) ? Math.max(0, Math.floor(selectedXValue as number)) : null;
+
+  if (stepAny?.spellCastXSelection === true) {
+    if (response.cancelled) {
+      return;
+    }
+
+    if (selectedXValue == null) {
+      debugWarn(1, `[Resolution] Spell cast X selection: invalid xValue selection: ${JSON.stringify(response.selections)}`);
+      return;
+    }
+
+    await requestCastSpellForSocket(
+      io,
+      {
+        data: { playerId: pid },
+        emit: (_event: string, _payload: any) => {},
+      } as any,
+      {
+        gameId,
+        cardId: stepAny?.spellCardId,
+        faceIndex: stepAny?.spellFaceIndex,
+        fromZone: stepAny?.spellFromZone,
+      },
+      {
+        skipPriorityCheck: true,
+        forcedAlternateCostId: typeof stepAny?.spellForcedAlternateCostId === 'string' ? stepAny.spellForcedAlternateCostId : undefined,
+        castWithoutPayingManaCost: stepAny?.spellCastWithoutPayingManaCost === true,
+        bypassExilePermissionCheck: stepAny?.spellBypassExilePermissionCheck === true,
+        xValue: selectedXValue,
+      },
+    );
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   // Currently only used for deterministic Blight X activation costs.
   if (stepAny?.keywordBlight === true && String(stepAny?.keywordBlightStage || '') === 'ability_activation_cost_choose_x') {
     const controllerId = String(stepAny?.keywordBlightController || pid);
@@ -10572,13 +10616,7 @@ async function handleXValueSelectionResponse(
       return;
     }
 
-    let xValue: number | null = null;
-    const sel: any = response.selections as any;
-    if (typeof sel === 'number') xValue = sel;
-    else if (typeof sel === 'string') xValue = Number(sel);
-    else if (sel && typeof sel === 'object' && sel.xValue != null) xValue = Number(sel.xValue);
-
-    xValue = Number.isFinite(xValue) ? Math.max(0, Math.floor(xValue as number)) : null;
+    const xValue = selectedXValue;
     if (xValue == null) {
       debugWarn(1, `[Resolution] Blight X: invalid xValue selection: ${JSON.stringify(response.selections)}`);
       return;
@@ -11771,6 +11809,7 @@ async function handleTargetSelectionResponse(
     const baseManaCost = formatManaCostWithReduction(
       String(pendingCast.manaCost || ''),
       pendingCast.costReduction,
+      pendingCast.xValue,
     );
     const extraTax = String(pendingCast.additionalCostTax || '');
     const finalManaCost = baseManaCost + extraTax;
@@ -11797,6 +11836,7 @@ async function handleTargetSelectionResponse(
         cardId: pendingCast.cardId,
         cardName: pendingCast.cardName,
         manaCost: finalManaCost,
+        xValue: pendingCast.xValue,
         effectId,
         targets: pendingCast.targets,
         imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
@@ -14966,7 +15006,7 @@ async function handleTargetSelectionResponse(
       pendingCast.targets = selections;
       
       // Calculate final mana cost, accounting for Strive and other target-based modifiers
-      let finalManaCost = formatManaCostWithReduction(String(manaCost || ''), pendingCast.costReduction);
+      let finalManaCost = formatManaCostWithReduction(String(manaCost || ''), pendingCast.costReduction, pendingCast.xValue);
       let striveCostMessage = '';
       
       // Check for Strive additional cost
@@ -15016,6 +15056,7 @@ async function handleTargetSelectionResponse(
           cardId,
           cardName: cardName + striveCostMessage,
           manaCost: finalManaCost,
+          xValue: pendingCast.xValue,
           effectId,
           targets: selections,
           imageUrl,
@@ -21075,6 +21116,7 @@ async function handleOptionChoiceResponse(
       const baseManaCost = formatManaCostWithReduction(
         String(pendingCast.manaCost || ''),
         pendingCast.costReduction,
+        pendingCast.xValue,
       );
       const extraTax = String(pendingCast.additionalCostTax || '');
       const finalManaCost = baseManaCost + extraTax;
@@ -21101,6 +21143,7 @@ async function handleOptionChoiceResponse(
           cardId: pendingCast.cardId,
           cardName: pendingCast.cardName,
           manaCost: finalManaCost,
+          xValue: pendingCast.xValue,
           effectId,
           targets: pendingCast.targets,
           imageUrl: pendingCast.card?.image_uris?.small || pendingCast.card?.image_uris?.normal,
