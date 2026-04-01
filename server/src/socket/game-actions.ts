@@ -2400,7 +2400,7 @@ function checkAndPromptMiracle(
 export async function requestCastSpellForSocket(
   io: Server,
   socket: Socket,
-  payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown },
+  payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fromZone?: unknown },
   options?: {
     skipPriorityCheck?: boolean;
     forcedAlternateCostId?: string;
@@ -2414,6 +2414,9 @@ export async function requestCastSpellForSocket(
     const cardId = payload?.cardId;
     const faceIndex = typeof payload?.faceIndex === 'number' && Number.isFinite(payload.faceIndex)
       ? payload.faceIndex
+      : undefined;
+    const fromZone = payload?.fromZone === 'hand' || payload?.fromZone === 'exile' || payload?.fromZone === 'graveyard'
+      ? payload.fromZone
       : undefined;
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardId || typeof cardId !== 'string') return;
@@ -2471,15 +2474,21 @@ export async function requestCastSpellForSocket(
 
     const hand = Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : ((zones as any).hand = []);
     const exile = Array.isArray((zones as any).exile) ? ((zones as any).exile as any[]) : ((zones as any).exile = []);
+    const graveyard = Array.isArray((zones as any).graveyard) ? ((zones as any).graveyard as any[]) : ((zones as any).graveyard = []);
 
     const isFreeCast = options?.castWithoutPayingManaCost === true || options?.forcedAlternateCostId === 'free';
     const bypassExilePermissionCheck = options?.bypassExilePermissionCheck === true;
 
-    let castSourceZone: 'hand' | 'exile' = 'hand';
-    let cardInHand: any = hand.find((c: any) => c && c.id === cardId);
+    let castSourceZone: 'hand' | 'exile' | 'graveyard' = (fromZone as any) || 'hand';
+    let cardInHand: any =
+      castSourceZone === 'exile'
+        ? exile.find((c: any) => c && c.id === cardId)
+        : castSourceZone === 'graveyard'
+          ? graveyard.find((c: any) => c && c.id === cardId)
+          : hand.find((c: any) => c && c.id === cardId);
 
     // Allow starting the cast pipeline from exile for impulse-style effects.
-    if (!cardInHand) {
+    if (!cardInHand && !fromZone) {
       const exiled = exile.find((c: any) => c && c.id === cardId);
       if (exiled) {
         const stateAny: any = game.state as any;
@@ -2508,8 +2517,19 @@ export async function requestCastSpellForSocket(
       }
     }
 
+    if (!cardInHand && !fromZone) {
+      const graveyardCard = graveyard.find((c: any) => c && c.id === cardId);
+      if (graveyardCard) {
+        cardInHand = graveyardCard;
+        castSourceZone = 'graveyard';
+      }
+    }
+
     if (!cardInHand) {
-      socket.emit("error", { code: "CARD_NOT_FOUND", message: "Card not found" });
+      socket.emit("error", {
+        code: castSourceZone === 'exile' ? 'CARD_NOT_IN_EXILE' : (castSourceZone === 'graveyard' ? 'CARD_NOT_IN_GRAVEYARD' : 'CARD_NOT_FOUND'),
+        message: `Card not found in ${castSourceZone}`,
+      });
       return;
     }
 
@@ -5451,15 +5471,16 @@ export function registerGameActions(io: Server, socket: Socket) {
         return;
       }
 
-      const manaSpentBreakdown = manaConsumption.consumed as Record<string, number>;
-      const manaColorsSpent = Object.entries(manaSpentBreakdown)
-        .filter(([color, amount]) => color !== 'colorless' && amount > 0)
-        .map(([color]) => color);
-      const manaSpentTotal = Object.values(manaSpentBreakdown).reduce((sum, amount) => sum + amount, 0);
+      const manaSpentTotal = Object.values(manaConsumption.consumed as Record<string, number>).reduce(
+        (sum: number, value) => sum + (typeof value === 'number' ? value : 0),
+        0,
+      );
       
       // Calculate converge value (number of different mana colors spent)
       // This is used by cards like Bring to Light, Radiant Flames, etc.
-      const convergeValue = manaColorsSpent.length;
+      const convergeValue = Object.entries(manaConsumption.consumed as Record<string, number>)
+        .filter(([color, amount]) => color !== 'colorless' && Number(amount) > 0)
+        .length;
       
       if (convergeValue > 0) {
         debug(2, `[castSpellFromHand] Converge: ${convergeValue} different color(s) spent for ${cardInHand.name}`);
@@ -5850,7 +5871,9 @@ export function registerGameActions(io: Server, socket: Socket) {
               ...(convergeValue > 0
                 ? {
                     convergeValue,
-                    manaColorsSpent,
+                    manaColorsSpent: Object.entries(manaConsumption.consumed as Record<string, number>)
+                      .filter(([color, amount]) => color !== 'colorless' && Number(amount) > 0)
+                      .map(([color]) => color),
                   }
                 : {}),
               ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0
@@ -5909,9 +5932,11 @@ export function registerGameActions(io: Server, socket: Socket) {
             if (convergeValue > 0 && game.state.stack && game.state.stack.length > 0) {
               const topStackItem = game.state.stack[game.state.stack.length - 1];
               (topStackItem as any).convergeValue = convergeValue;
-              (topStackItem as any).manaColorsSpent = manaColorsSpent;
+              (topStackItem as any).manaColorsSpent = Object.entries(manaConsumption.consumed as Record<string, number>)
+                .filter(([color, amount]) => color !== 'colorless' && Number(amount) > 0)
+                .map(([color]) => color);
               (topStackItem as any).manaSpentTotal = manaSpentTotal;
-              (topStackItem as any).manaSpentBreakdown = { ...manaSpentBreakdown };
+              (topStackItem as any).manaSpentBreakdown = { ...manaConsumption.consumed };
 
               // Plumb chosen alternate-cost id onto the stack item so intervening-if clauses can evaluate.
               if (alternateCostId) {
@@ -6243,9 +6268,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                 : {}),
               // Converge tracking for cards like Bring to Light
               convergeValue: convergeValue > 0 ? convergeValue : undefined,
-              manaColorsSpent: convergeValue > 0 ? manaColorsSpent : undefined,
+              manaColorsSpent: convergeValue > 0 ? Object.entries(manaConsumption.consumed as Record<string, number>)
+                .filter(([color, amount]) => color !== 'colorless' && Number(amount) > 0)
+                .map(([color]) => color) : undefined,
               manaSpentTotal,
-              manaSpentBreakdown: { ...manaSpentBreakdown },
+              manaSpentBreakdown: { ...manaConsumption.consumed },
               // Mark if this is an adventure spell (face index 1 is adventure for adventure cards)
               // For adventure cards: faceIndex 1 = adventure side (instant/sorcery), faceIndex 0 or undefined = creature/enchantment side
               // Note: faceIndex is not available in this fallback path
@@ -6300,7 +6327,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           castFromHand: castSourceZone === 'hand',
           // Persist mana/payment metadata for deterministic replay / intervening-if.
           manaSpentTotal,
-          manaSpentBreakdown: { ...manaSpentBreakdown },
+          manaSpentBreakdown: { ...manaConsumption.consumed },
           ...(bargainResolved === true && typeof wasBargained === 'boolean'
             ? {
                 bargainResolved: true,
@@ -6310,7 +6337,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           ...(convergeValue > 0
             ? {
                 convergeValue,
-                manaColorsSpent,
+                manaColorsSpent: Object.entries(manaConsumption.consumed as Record<string, number>)
+                  .filter(([color, amount]) => color !== 'colorless' && Number(amount) > 0)
+                  .map(([color]) => color),
               }
             : {}),
           ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0

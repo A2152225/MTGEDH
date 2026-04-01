@@ -5790,10 +5790,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const needsTargetSelection = (e as any).needsTargetSelection;
         const targetZone = (e as any).targetZone;
         const targetDestination = (e as any).targetDestination;
+        const targetAction = (e as any).targetAction;
         const targetFilterTypes = (e as any).targetFilterTypes;
         const targetFilterExcludeTypes = (e as any).targetFilterExcludeTypes;
         const targetFilterPermanentOnly = (e as any).targetFilterPermanentOnly;
         const targetFilterMaxManaValue = (e as any).targetFilterMaxManaValue;
+        const targetCastWithoutPayingManaCost = (e as any).targetCastWithoutPayingManaCost;
+        const targetCastIsOptional = (e as any).targetCastIsOptional;
         const minTargets = (e as any).minTargets;
         const maxTargets = (e as any).maxTargets;
         const isModal = (e as any).isModal;
@@ -5834,10 +5837,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(typeof needsTargetSelection === 'boolean' ? { needsTargetSelection } : null),
             ...(targetZone ? { targetZone } : null),
             ...(targetDestination ? { targetDestination } : null),
+            ...(targetAction ? { targetAction } : null),
             ...(Array.isArray(targetFilterTypes) ? { targetFilterTypes } : null),
             ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
             ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
             ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
+            ...(targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+            ...(targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
             ...(typeof minTargets === 'number' ? { minTargets } : null),
             ...(typeof maxTargets === 'number' ? { maxTargets } : null),
             ...(typeof isModal === 'boolean' ? { isModal } : null),

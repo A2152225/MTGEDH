@@ -20998,6 +20998,49 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+    // ===== GENERIC: "You may cast <that card> from your graveyard." =====
+    if (stepData.castFromGraveyardCardId && stepData.castFromGraveyardCard) {
+      const choiceId = extractId(selectedOption) || 'decline';
+      const graveyardCardId = String(stepData.castFromGraveyardCardId);
+      const zones = game.state?.zones?.[playerId];
+      if (!zones || !zones.graveyard) {
+        debugWarn(2, `[Resolution] Cast-from-graveyard: No graveyard found for player ${playerId}`);
+        return;
+      }
+
+      const cardIndex = zones.graveyard.findIndex((c: any) => c?.id === graveyardCardId);
+      if (cardIndex === -1) {
+        debugWarn(2, `[Resolution] Cast-from-graveyard: Card ${graveyardCardId} not found in graveyard`);
+        return;
+      }
+
+      if (choiceId === 'cast') {
+        const castWithoutPayingManaCost = stepData.castFromGraveyardWithoutPayingManaCost === true;
+        const fakeSocket: any = {
+          data: { playerId, spectator: false },
+          emit: (event: string, payload: unknown) => {
+            emitToPlayer(io, playerId as any, event as any, payload);
+          },
+        };
+
+        await requestCastSpellForSocket(
+          io,
+          fakeSocket,
+          { gameId, cardId: graveyardCardId, fromZone: 'graveyard' },
+          {
+            skipPriorityCheck: true,
+            forcedAlternateCostId: castWithoutPayingManaCost ? 'free' : undefined,
+            castWithoutPayingManaCost,
+          }
+        );
+      }
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+      return;
+    }
+
   // ===== GENERIC: "You may cast <that card> from exile without paying its mana cost." =====
   // Used by planeswalker templates and other effects that exile a card then offer a free cast.
   if (stepData.castFromExileCardId && stepData.castFromExileCard) {
@@ -22657,7 +22700,7 @@ async function handleGraveyardSelectionResponse(
   const cardName = String(stepData.cardName || step.sourceName || 'Effect');
   const title = String(stepData.title || cardName || 'Select from Graveyard');
   const targetPlayerId = String(stepData.targetPlayerId || pid || '').trim();
-  const destination = (stepData.destination || 'hand') as 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile';
+  const destination = (stepData.destination || 'hand') as 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile' | 'cast';
 
   const purpose = String(stepData.purpose || '').trim();
   const collectEvidenceMinManaValue = Number(stepData.collectEvidenceMinManaValue ?? 0);
@@ -22922,6 +22965,66 @@ async function handleGraveyardSelectionResponse(
         return;
       }
     }
+  }
+
+  if ((step as any)?.triggeredAbilityGraveyardSelection === true && (step as any)?.triggeredAbilityCastFromGraveyard === true) {
+    const selectedCardId = String(selectedCardIds[0] || '').trim();
+    const selectedCard = selectedCardId
+      ? (srcZones.graveyard as any[]).find((entry: any) => entry && String(entry.id) === selectedCardId)
+      : undefined;
+    if (!selectedCard) {
+      emitToPlayer(io, pid as any, 'error', { code: 'CARD_NOT_IN_GRAVEYARD', message: 'Selected card not found in graveyard' });
+      return;
+    }
+
+    const sourceName = String(step.sourceName || cardName || 'Ability');
+    const castWithoutPayingManaCost = (step as any)?.triggeredAbilityCastWithoutPayingManaCost === true;
+    const mayCast = (step as any)?.triggeredAbilityMayCastFromGraveyard !== false;
+
+    if (mayCast) {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: pid as any,
+        description: castWithoutPayingManaCost
+          ? `${sourceName}: You may cast ${selectedCard?.name || 'that card'} from your graveyard without paying its mana cost.`
+          : `${sourceName}: You may cast ${selectedCard?.name || 'that card'} from your graveyard.`,
+        mandatory: false,
+        sourceName,
+        sourceId: (step as any).sourceId || effectId,
+        sourceImage: (step as any).sourceImage,
+        options: [
+          { id: 'cast', label: `Cast ${selectedCard?.name || 'that card'}` },
+          { id: 'decline', label: 'Decline' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        castFromGraveyardCardId: selectedCardId,
+        castFromGraveyardCard: { ...(selectedCard as any) },
+        castFromGraveyardWithoutPayingManaCost: castWithoutPayingManaCost,
+      } as any);
+    } else {
+      const fakeSocket: any = {
+        data: { playerId: pid, spectator: false },
+        emit: (event: string, payload: unknown) => {
+          emitToPlayer(io, pid as any, event as any, payload);
+        },
+      };
+
+      await requestCastSpellForSocket(
+        io,
+        fakeSocket,
+        { gameId, cardId: selectedCardId, fromZone: 'graveyard' },
+        {
+          skipPriorityCheck: true,
+          forcedAlternateCostId: castWithoutPayingManaCost ? 'free' : undefined,
+          castWithoutPayingManaCost: castWithoutPayingManaCost,
+        }
+      );
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
   }
 
   for (const cardId of selectedCardIds) {

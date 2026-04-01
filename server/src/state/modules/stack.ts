@@ -88,10 +88,13 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
   targetConstraint?: 'opponent' | 'you';
   targetZone?: 'graveyard';
   targetDestination?: 'hand' | 'battlefield';
+  targetAction?: 'cast';
   targetFilterTypes?: string[];
   targetFilterExcludeTypes?: string[];
   targetFilterPermanentOnly?: boolean;
   targetFilterMaxManaValue?: number;
+  targetCastWithoutPayingManaCost?: boolean;
+  targetCastIsOptional?: boolean;
   minTargets?: number;
   maxTargets?: number;
 } {
@@ -100,10 +103,13 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
   let targetType: string | undefined;
   let targetZone: 'graveyard' | undefined;
   let targetDestination: 'hand' | 'battlefield' | undefined;
+  let targetAction: 'cast' | undefined;
   let targetFilterTypes: string[] | undefined;
   let targetFilterExcludeTypes: string[] | undefined;
   let targetFilterPermanentOnly = false;
   let targetFilterMaxManaValue: number | undefined;
+  let targetCastWithoutPayingManaCost = false;
+  let targetCastIsOptional = false;
   let minTargets: number | undefined;
   let maxTargets: number | undefined;
 
@@ -118,7 +124,11 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
 
     if (lower.includes('from your graveyard')) {
       targetZone = 'graveyard';
-      if (lower.includes('to your hand')) {
+      if (lower.includes('cast target')) {
+        targetAction = 'cast';
+        targetCastWithoutPayingManaCost = lower.includes('without paying its mana cost');
+        targetCastIsOptional = lower.includes('you may cast target');
+      } else if (lower.includes('to your hand')) {
         targetDestination = 'hand';
       } else if (lower.includes('to the battlefield')) {
         targetDestination = 'battlefield';
@@ -177,10 +187,13 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
     targetConstraint,
     targetZone,
     targetDestination,
+    targetAction,
     targetFilterTypes,
     targetFilterExcludeTypes,
     targetFilterPermanentOnly,
     targetFilterMaxManaValue,
+    targetCastWithoutPayingManaCost,
+    targetCastIsOptional,
     minTargets,
     maxTargets,
   };
@@ -323,10 +336,13 @@ function queueMutateTriggeredAbilities(
       targetConstraint,
       targetZone,
       targetDestination,
+      targetAction,
       targetFilterTypes,
       targetFilterExcludeTypes,
       targetFilterPermanentOnly,
       targetFilterMaxManaValue,
+      targetCastWithoutPayingManaCost,
+      targetCastIsOptional,
       minTargets,
       maxTargets,
     } = inferTriggeredAbilityTargetMetadata(effectText);
@@ -347,10 +363,13 @@ function queueMutateTriggeredAbilities(
       ...(targetConstraint ? { targetConstraint } : null),
       ...(targetZone ? { targetZone } : null),
       ...(targetDestination ? { targetDestination } : null),
+      ...(targetAction ? { targetAction } : null),
       ...(Array.isArray(targetFilterTypes) ? { targetFilterTypes } : null),
       ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
       ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
       ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
+      ...(targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+      ...(targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
       ...(typeof minTargets === 'number' ? { minTargets } : null),
       ...(typeof maxTargets === 'number' ? { maxTargets } : null),
     } as any);
@@ -372,10 +391,13 @@ function queueMutateTriggeredAbilities(
           ...(targetConstraint ? { targetConstraint } : null),
           ...(targetZone ? { targetZone } : null),
           ...(targetDestination ? { targetDestination } : null),
+          ...(targetAction ? { targetAction } : null),
           ...(Array.isArray(targetFilterTypes) ? { targetFilterTypes } : null),
           ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
           ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
           ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
+          ...(targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
+          ...(targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
           ...(typeof minTargets === 'number' ? { minTargets } : null),
           ...(typeof maxTargets === 'number' ? { maxTargets } : null),
         });
@@ -9348,13 +9370,14 @@ export function resolveTopOfStack(ctx: GameContext) {
       const battlefield = state.battlefield || [];
       const targetZone = String((item as any).targetZone || '').toLowerCase();
       const targetDestination = String((item as any).targetDestination || '').toLowerCase();
+      const targetAction = String((item as any).targetAction || '').toLowerCase();
       const lowerDescription = String(description || '').toLowerCase();
       const constrainedToController =
         String((item as any).targetConstraint || '').toLowerCase().includes('you control') ||
         lowerDescription.includes('target creature you control') ||
         lowerDescription.includes('target permanent you control');
 
-      if (!isReplaying && targetZone === 'graveyard' && (targetDestination === 'hand' || targetDestination === 'battlefield')) {
+      if (!isReplaying && targetZone === 'graveyard' && (targetDestination === 'hand' || targetDestination === 'battlefield' || targetAction === 'cast')) {
         const zones = (state.zones || {}) as Record<string, any>;
         const graveyardOwner = String(triggerController);
         const playerZones = zones[graveyardOwner] || {};
@@ -9391,7 +9414,9 @@ export function resolveTopOfStack(ctx: GameContext) {
             playerId: triggerController as PlayerID,
             sourceId: String(sourceId || (item as any).id || ''),
             sourceName,
-            description: `${sourceName}: Choose target card from your graveyard`,
+            description: targetAction === 'cast'
+              ? `${sourceName}: Choose target card from your graveyard to cast`
+              : `${sourceName}: Choose target card from your graveyard`,
             mandatory: true,
             effectId: String((item as any).id || sourceId || uid('graveyard_trigger')),
             cardName: sourceName,
@@ -9399,9 +9424,12 @@ export function resolveTopOfStack(ctx: GameContext) {
             targetPlayerId: graveyardOwner,
             minTargets: minSelectionCount,
             maxTargets: maxSelectionCount,
-            destination: targetDestination,
+            destination: targetAction === 'cast' ? 'cast' : targetDestination,
             validTargets,
             triggeredAbilityGraveyardSelection: true,
+            triggeredAbilityCastFromGraveyard: targetAction === 'cast',
+            triggeredAbilityCastWithoutPayingManaCost: (item as any).targetCastWithoutPayingManaCost === true,
+            triggeredAbilityMayCastFromGraveyard: (item as any).targetCastIsOptional === true,
           } as any);
 
           debug(2, `[resolveTopOfStack] ${triggerType} requires graveyard target selection for ${sourceName}`);

@@ -283,7 +283,7 @@ export interface GraveyardSelectionStep extends BaseResolutionStep {
   readonly filter?: { types?: string[]; subtypes?: string[]; excludeTypes?: string[] };
   readonly minTargets: number;
   readonly maxTargets: number;
-  readonly destination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile';
+  readonly destination: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile' | 'cast';
 
   /** Optional semantic purpose used for server-side validation/continuation. */
   readonly purpose?: 'collectEvidence' | string;
