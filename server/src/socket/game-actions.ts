@@ -69,6 +69,22 @@ function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | 
   return MANA_COLOR_NAMES[String(mana || '').toUpperCase()] || null;
 }
 
+function getTappedPaymentPermanentIds(payment?: PaymentItem[]): string[] {
+  if (!Array.isArray(payment) || payment.length === 0) return [];
+
+  return Array.from(
+    new Set(
+      payment
+        .map((item) => ({
+          permanentId: String(item?.permanentId || '').trim(),
+          mana: String(item?.mana || '').trim(),
+        }))
+        .filter((item) => item.permanentId.length > 0 && !getFloatingPaymentPoolKey(item.permanentId, item.mana))
+        .map((item) => item.permanentId)
+    )
+  );
+}
+
 export function finalizePlayedLand(
   io: Server,
   game: any,
@@ -5817,6 +5833,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
+      const tappedPaymentPermanents = getTappedPaymentPermanentIds(payment);
+
       // Always use applyEvent to properly route through state management system
       // This ensures ctx.state.zones is updated (which viewFor uses)
       // The RulesBridge above only validates - it does NOT modify the actual game state
@@ -5880,6 +5898,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                 ? {
                     convokeTappedCreatures: convokeTappedCreatures.slice(),
                     manaFromCreaturesSpent: convokeTappedCreatures.length,
+                  }
+                : {}),
+              ...(tappedPaymentPermanents.length > 0
+                ? {
+                    tappedPermanents: tappedPaymentPermanents.slice(),
                   }
                 : {}),
               ...(additionalCost && typeof additionalCostPaid === 'boolean'
@@ -6340,6 +6363,11 @@ export function registerGameActions(io: Server, socket: Socket) {
                 manaColorsSpent: Object.entries(manaConsumption.consumed as Record<string, number>)
                   .filter(([color, amount]) => color !== 'colorless' && Number(amount) > 0)
                   .map(([color]) => color),
+              }
+            : {}),
+          ...(tappedPaymentPermanents.length > 0
+            ? {
+                tappedPermanents: tappedPaymentPermanents.slice(),
               }
             : {}),
           ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0

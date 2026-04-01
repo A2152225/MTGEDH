@@ -1691,6 +1691,23 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // best-effort only
         }
 
+        try {
+          const tappedPermanents = Array.isArray((e as any).tappedPermanents)
+            ? ((e as any).tappedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+            : [];
+          if (tappedPermanents.length > 0) {
+            const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+            for (const permanentId of tappedPermanents) {
+              const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === permanentId);
+              if (permanent) {
+                (permanent as any).tapped = true;
+              }
+            }
+          }
+        } catch {
+          // best-effort only
+        }
+
         const stackLengthBefore = ctx.state.stack?.length || 0;
 
         // Prefer full card object for replay (contains all card data)

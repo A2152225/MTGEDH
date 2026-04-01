@@ -184,4 +184,53 @@ describe('castSpell via applyEvent', () => {
     expect((g.state.stack[0] as any).card.name).toBe('Shock');
     expect((g.state.stack[1] as any).card.name).toBe('Lightning Strike');
   });
+
+  it('should restore tapped mana sources from persisted castSpell payment evidence', () => {
+    const g = createInitialGameState('cast_spell_replay_tapped_sources');
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+
+    (g.state as any).battlefield = [
+      {
+        id: 'forest_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'forest_card_1',
+          name: 'Forest',
+          type_line: 'Basic Land - Forest',
+          oracle_text: '{T}: Add {G}.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    const hand = g.state.zones?.[p1]?.hand as any[];
+    hand.push({
+      id: 'giant_growth_1',
+      name: 'Giant Growth',
+      type_line: 'Instant',
+      oracle_text: 'Target creature gets +3/+3 until end of turn.',
+      mana_cost: '{G}',
+      zone: 'hand',
+    });
+    if (g.state.zones?.[p1]) {
+      g.state.zones[p1].handCount = hand.length;
+    }
+
+    g.applyEvent({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'giant_growth_1',
+      targets: [],
+      tappedPermanents: ['forest_1'],
+    } as any);
+
+    const forest = (g.state.battlefield || []).find((entry: any) => entry?.id === 'forest_1');
+    expect(Boolean((forest as any)?.tapped)).toBe(true);
+    expect(g.state.stack.length).toBe(1);
+  });
 });

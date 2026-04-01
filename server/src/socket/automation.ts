@@ -368,10 +368,11 @@ export function registerAutomationHandlers(
   /**
    * Handle auto-pass toggle
    */
-  socket.on("setAutoPass", (payload?: { gameId?: unknown; enabled?: unknown }) => {
+  socket.on("setAutoPass", (payload?: { gameId?: unknown; enabled?: unknown; syncOnly?: unknown }) => {
     const gameId = payload?.gameId;
     const gameIdValue = typeof gameId === 'string' ? gameId : undefined;
     const enabled = !!payload?.enabled;
+    const syncOnly = payload?.syncOnly === true;
     const ctx = ensureInGameRoomAndSeated(gameIdValue);
       if (!ctx) return;
       const { playerId } = ctx;
@@ -391,7 +392,7 @@ export function registerAutomationHandlers(
         // (i.e., it wasn't already enabled). This allows phase navigator to work
         // even when auto-pass is enabled - the flag persists until they actively
         // toggle auto-pass back on after using the navigator.
-        if (!wasEnabled) {
+        if (!wasEnabled && !syncOnly) {
           const justSkipped = (game.state as any).justSkippedToPhase;
           if (justSkipped && justSkipped.playerId === playerId) {
             delete (game.state as any).justSkippedToPhase;
@@ -421,7 +422,7 @@ export function registerAutomationHandlers(
       
       // CRITICAL FIX: If player enabled auto-pass and has priority, immediately check for auto-pass
       // This fixes the bug where enabling auto-pass didn't immediately pass priority
-      if (enabled && (game.state as any).priority === playerId) {
+      if (enabled && !syncOnly && (game.state as any).priority === playerId) {
         debug(2, `[Automation] Player ${playerId} has priority - triggering auto-pass check`);
         
         // Import broadcastGame dynamically to trigger auto-pass check

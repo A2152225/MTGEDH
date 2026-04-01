@@ -985,7 +985,8 @@ export function App() {
       socket.emit('setAutoPass', {
         gameId: safeView.id,
         enabled: hasAutoPass,
-      });
+        syncOnly: true,
+      } as any);
     }
   }, [safeView?.id, socket.connected]); // Only sync when game changes or socket reconnects
 

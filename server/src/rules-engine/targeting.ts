@@ -2202,14 +2202,15 @@ export function categorizeSpell(_name: string, oracleText?: string): SpellSpec |
   }
   
   // Generic "target permanent" patterns for spells that affect permanents
-  // This catches spells like Chaos Warp that don't use standard destroy/exile wording
+  // These should only provide targeting metadata. The actual spell text still needs
+  // a concrete resolution path elsewhere in the engine.
   if (/target permanent\b/.test(t) && !(/enchant/.test(t)) && !(/\bdamage\b/.test(t))) {
-    return { op: 'DESTROY_TARGET', filter: 'PERMANENT', minTargets: 1, maxTargets: 1 };
+    return { op: 'TARGET_PERMANENT', filter: 'PERMANENT', minTargets: 1, maxTargets: 1, targetDescription: 'target permanent' };
   }
   
   // Target creature/artifact/enchantment patterns without destroy/exile
   if (/target creature\b/.test(t) && !(/enchant/.test(t)) && !(/\bdamage\b/.test(t))) {
-    return { op: 'DESTROY_TARGET', filter: 'CREATURE', minTargets: 1, maxTargets: 1 };
+    return { op: 'TARGET_CREATURE', filter: 'CREATURE', minTargets: 1, maxTargets: 1, targetDescription: 'target creature' };
   }
 
   if (/any target/.test(t) && /\bdamage\b/.test(t)) {

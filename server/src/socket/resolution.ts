@@ -450,6 +450,22 @@ function applyWardManaPaymentSelection(
   return { ok: true };
 }
 
+function getTappedResolutionPaymentPermanentIds(payment?: ResolutionPaymentItem[]): string[] {
+  if (!Array.isArray(payment) || payment.length === 0) return [];
+
+  return Array.from(
+    new Set(
+      payment
+        .map((item) => ({
+          permanentId: String(item?.permanentId || '').trim(),
+          mana: String(item?.mana || '').trim(),
+        }))
+        .filter((item) => item.permanentId.length > 0 && !getFloatingPaymentPoolKey(item.permanentId, item.mana))
+        .map((item) => item.permanentId)
+    )
+  );
+}
+
 function pushTapTriggerOntoStack(
   io: Server,
   game: any,
@@ -8230,6 +8246,18 @@ async function handleStepResponse(
             break;
           }
 
+          const tappedPaymentPermanents = getTappedResolutionPaymentPermanentIds(payment);
+          for (const permanentId of tappedPaymentPermanents) {
+            try {
+              appendEvent(gameId, (game as any).seq ?? 0, 'tapPermanent', {
+                playerId: pid,
+                permanentId,
+              });
+            } catch {
+              // ignore persistence failures for ward payment taps
+            }
+          }
+
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -8261,6 +8289,7 @@ async function handleStepResponse(
 
         const payment = extractResolutionPaymentItems(response.selections as any);
         const manaCost = String(stepData.manaCost || '').trim();
+        const tappedPaymentPermanents = getTappedResolutionPaymentPermanentIds(payment);
         const applied = applyWardManaPaymentSelection(game, pid, manaCost, payment);
         if (!applied.ok) {
           const appliedError = applied as { ok: false; code: string; message: string };
@@ -8288,6 +8317,7 @@ async function handleStepResponse(
           const tappedPermanentsForCost = Array.isArray(stepData?.tappedPermanentsForCost)
             ? stepData.tappedPermanentsForCost.map((id: any) => String(id)).filter(Boolean)
             : [];
+          const allTappedPermanentsForCost = Array.from(new Set([...tappedPermanentsForCost, ...tappedPaymentPermanents]));
 
           const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
           const sourcePerm = battlefield.find((perm: any) => perm && String(perm.id) === permanentId);
@@ -8380,7 +8410,7 @@ async function handleStepResponse(
               cardName,
               abilityText,
               targets: selectedTargetIds,
-              tappedPermanents: tappedPermanentsForCost,
+              tappedPermanents: allTappedPermanentsForCost,
               activatedAbilityText: activatedAbilityText || undefined,
               abilityType: battlefieldAbilityType || undefined,
               ...(battlefieldAbilityType === 'equip'

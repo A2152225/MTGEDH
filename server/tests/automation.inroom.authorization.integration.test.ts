@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { registerAutomationHandlers } from '../src/socket/automation.js';
 import { games } from '../src/socket/socket.js';
 
@@ -123,5 +123,35 @@ describe('automation in-room authorization (integration)', () => {
 
     const invalidPayloadErrors = emitted.filter(e => e.event === 'error' && e.payload?.code === 'INVALID_PAYLOAD');
     expect(invalidPayloadErrors.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('syncs auto-pass without immediately broadcasting when reconnect state is being restored', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: 'p1', spectator: false, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    games.set(gameId as any, {
+      state: {
+        players: [{ id: 'p1', spectator: false, isSpectator: false, seat: 0 }],
+        battlefield: [],
+        stack: [],
+        priority: 'p1',
+        turnPlayer: 'p1',
+        phase: 'precombatMain',
+        step: 'MAIN1',
+      },
+      bumpSeq: () => {},
+      participants: () => [],
+    } as any);
+
+    const io = createMockIo(emitted);
+    registerAutomationHandlers(io as any, socket as any);
+
+    handlers['setAutoPass']({ gameId, enabled: true, syncOnly: true });
+    await Promise.resolve();
+
+    const game = games.get(gameId as any) as any;
+    expect((game.state as any).autoPassPlayers?.has('p1')).toBe(true);
+    expect(emitted.some(entry => entry.room === gameId && entry.event === 'state')).toBe(false);
   });
 });

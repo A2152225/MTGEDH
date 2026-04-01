@@ -584,6 +584,21 @@ export function CastSpellModal({
     return totalUsed > 0 ? usedFromPool : null;
   }, [currentCost, effectiveManaCost, manaCost, xValue, floatingMana]);
 
+  const isForceAltCostSelected = selectedCostId === 'force_of_will';
+
+  const explicitPaymentSelectionRequired = useMemo(() => {
+    if (!manualFloatingManaSelection || isForceAltCostSelected) return false;
+
+    const costToUse = currentCost?.manaCost || effectiveManaCost || manaCost || '{0}';
+    const parsed = parseManaCost(costToUse);
+    const colorCost = Object.values(parsed.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
+    const hybridCost = Object.values(parsed.hybrids || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
+    const xCost = Math.max(0, Number(parsed.xCount || 0) * Number(xValue || 0));
+    const totalCost = Number(parsed.generic || 0) + colorCost + hybridCost + xCost;
+
+    return totalCost > 0;
+  }, [currentCost, effectiveManaCost, isForceAltCostSelected, manaCost, manualFloatingManaSelection, xValue]);
+
   if (!open) return null;
 
   // Helper to get mana count for a source
@@ -600,13 +615,18 @@ export function CastSpellModal({
   const handleConfirm = () => {
     // If no payment was manually selected, use the suggested payment
     let finalPayment = payment;
-    if (payment.length === 0 && suggestedPayment.size > 0) {
+    if (!manualFloatingManaSelection && payment.length === 0 && suggestedPayment.size > 0) {
       finalPayment = Array.from(suggestedPayment.entries()).map(([permanentId, mana]) => ({
         permanentId,
         mana,
         count: getManaCountForSource(permanentId),
       }));
     }
+
+    if (explicitPaymentSelectionRequired && finalPayment.length === 0) {
+      return;
+    }
+
     const effectiveCostId = forcedAlternateCostId && forcedAlternateCostId.length > 0
       ? forcedAlternateCostId
       : selectedCostId;
@@ -636,7 +656,6 @@ export function CastSpellModal({
   
   // Show alternate cost selector if there are options
   const showAlternateCosts = alternateCosts.length > 1 && !(forcedAlternateCostId && forcedAlternateCostId.length > 0);
-  const isForceAltCostSelected = selectedCostId === 'force_of_will';
 
   return (
     <div style={backdrop}>
@@ -851,7 +870,19 @@ export function CastSpellModal({
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button onClick={handleCancel}>Cancel</button>
-          <button onClick={handleConfirm} style={{ background: '#2b6cb0', color: '#fff', border: 'none', padding: '6px 16px', borderRadius: 6, cursor: 'pointer' }}>
+          <button
+            onClick={handleConfirm}
+            disabled={explicitPaymentSelectionRequired && payment.length === 0}
+            style={{
+              background: explicitPaymentSelectionRequired && payment.length === 0 ? '#4b5563' : '#2b6cb0',
+              color: '#fff',
+              border: 'none',
+              padding: '6px 16px',
+              borderRadius: 6,
+              cursor: explicitPaymentSelectionRequired && payment.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: explicitPaymentSelectionRequired && payment.length === 0 ? 0.7 : 1,
+            }}
+          >
             {confirmLabel || (selectedCostId !== 'normal' ? `Cast with ${currentCost?.label}` : 'Cast Spell')}
           </button>
         </div>

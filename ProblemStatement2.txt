@@ -1,5 +1,5 @@
 
-Tuesday, March 31, 2026 5:13:02 PM
+Tuesday, March 31, 2026 10:25:07 PM
 
 > @mtgedh/server@0.1.0 dev:noreload
 > npm run start
@@ -8,1044 +8,208 @@ Tuesday, March 31, 2026 5:13:02 PM
 > @mtgedh/server@0.1.0 start
 > node --enable-source-maps --import tsx/esm src/index.ts
 
-[Server] Boot { bootId: 'db11dce9-64b0-4949-9d38-de50fbb52c58', pid: 53420, node: 'v22.20.0', port: 3001 }
+[Server] Boot { bootId: '937ac27b-d96b-47f8-91b2-cbb4d8394e1e', pid: 396, node: 'v22.20.0', port: 3001 }
 [Server] Warming local card lookup table for deck imports...
 [Server] Local card lookup warmup { phase: 'checking', message: 'Checking local card lookup table' }
 [Server] Local card lookup warmup { phase: 'ready', message: 'Local card lookup table is ready' }
-[Server] Local card lookup table ready { durationMs: 49 }
+[Server] Local card lookup table ready { durationMs: 50 }
 [Resolution] AI handler initialized
 mtgedh> [Resolution] Priority management handler initialized
-[setCommander] Initialized inCommandZone for p_fb7x9qci: [ 'card_b4036bb7-835d-4690-aca1-1ab566776e9a_18865c24a4e09a59' ]
-[setCommander] Initialized inCommandZone for p_kxlikkfo: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_8dd6a8bdf4026fe1' ]
-[setCommander] Initialized inCommandZone for p_kuie30vf: [ 'card_1785cf85-1ac0-4246-9b89-1a8221a8e1b2_2ec8327838e88d5d' ]
-[setCommander] Initialized inCommandZone for p_70yvxxem: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j', 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow' ]
+[setCommander] Initialized inCommandZone for p_m3pujwjv: [ 'card_b4036bb7-835d-4690-aca1-1ab566776e9a_ea1ba3305ca52f20' ]
+[setCommander] Initialized inCommandZone for p_wma6t5jf: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_8d6cf9700eb33cdd' ]
+[setCommander] Initialized inCommandZone for p_qiioh6hb: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnfep3hu_2t_f55ftl', 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnfep3hu_2u_h20tdr' ]
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Plains(Basic Land ΓÇö Plains), Castle Ardenvale(Land), Thalia's Lieutenant(Creature ΓÇö Human Sol)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Plains(Basic Land ΓÇö Plains), Castle Ardenvale(Land), Thalia's Lieutenant(Creature ΓÇö Human Sol)]
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_wma6t5jf: Sample cards in hand: [Island(Basic Land ΓÇö Island), Boros Garrison(Land), Ghostly Prison(Enchantment)]
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canPlayLand] p_wma6t5jf: Sample cards in hand: [Island(Basic Land ΓÇö Island), Boros Garrison(Land), Ghostly Prison(Enchantment)]
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Plains(Basic Land ΓÇö Plains), Castle Ardenvale(Land), Thalia's Lieutenant(Creature ΓÇö Human Sol)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Plains(Basic Land ΓÇö Plains), Castle Ardenvale(Land), Thalia's Lieutenant(Creature ΓÇö Human Sol)]
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] Exiting resolution mode - priority restored to p_fb7x9qci
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=91
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Island(Basic Land ΓÇö Island), Soul Conduit(Artifact), Island(Basic Land ΓÇö Island)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Island(Basic Land ΓÇö Island), Soul Conduit(Artifact), Island(Basic Land ΓÇö Island)]
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canPlayLand] p_qiioh6hb: Sample cards in hand: [Mountain(Basic Land ΓÇö Mountai), Agitator Ant(Creature ΓÇö Insect), Hour of Devastation(Sorcery)]
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Grave Pact(Enchantment), Forest(Basic Land ΓÇö Forest), Beast Whisperer(Creature ΓÇö Elf Druid)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Grave Pact(Enchantment), Forest(Basic Land ΓÇö Forest), Beast Whisperer(Creature ΓÇö Elf Druid)]
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_m3pujwjv: Sample cards in hand: [Furycalm Snarl(Land), Shadowspear(Legendary Artifact ΓÇö), Hanweir Battlements(Land)]
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canPlayLand] p_m3pujwjv: Sample cards in hand: [Furycalm Snarl(Land), Shadowspear(Legendary Artifact ΓÇö), Hanweir Battlements(Land)]
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canPlayLand] p_70yvxxem: Sample cards in hand: [Wall of Souls(Creature ΓÇö Wall), Rakdos Signet(Artifact), Blackblade Reforged(Legendary Artifact ΓÇö)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_wma6t5jf: Sample cards in hand: [Boros Garrison(Land), Ghostly Prison(Enchantment), Island(Basic Land ΓÇö Island)]
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canPlayLand] p_wma6t5jf: Sample cards in hand: [Boros Garrison(Land), Ghostly Prison(Enchantment), Island(Basic Land ΓÇö Island)]
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canPlayLand] p_70yvxxem: Sample cards in hand: [Wall of Souls(Creature ΓÇö Wall), Rakdos Signet(Artifact), Blackblade Reforged(Legendary Artifact ΓÇö)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Castle Ardenvale(Land), Thalia's Lieutenant(Creature ΓÇö Human Sol), Sokenzan, Crucible of Defiance(Legendary Land)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Castle Ardenvale(Land), Thalia's Lieutenant(Creature ΓÇö Human Sol), Sokenzan, Crucible of Defiance(Legendary Land)]
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canPlayLand] p_qiioh6hb: Sample cards in hand: [Mountain(Basic Land ΓÇö Mountai), Agitator Ant(Creature ΓÇö Insect), Hour of Devastation(Sorcery)]
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
 [recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Castle Ardenvale(Land), Thalia's Lieutenant(Creature ΓÇö Human Sol), Sokenzan, Crucible of Defiance(Legendary Land)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Castle Ardenvale(Land), Thalia's Lieutenant(Creature ΓÇö Human Sol), Sokenzan, Crucible of Defiance(Legendary Land)]
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] Exiting resolution mode - priority restored to p_fb7x9qci
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=5 libraryCount=90
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Island(Basic Land ΓÇö Island), Temple Bell(Artifact)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Island(Basic Land ΓÇö Island), Temple Bell(Artifact)]
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Grave Pact(Enchantment), Beast Whisperer(Creature ΓÇö Elf Druid), Old Gnawbone(Legendary Creature ΓÇö)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Grave Pact(Enchantment), Beast Whisperer(Creature ΓÇö Elf Druid), Old Gnawbone(Legendary Creature ΓÇö)]
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canPlayLand] p_70yvxxem: Sample cards in hand: [Wall of Souls(Creature ΓÇö Wall), Blackblade Reforged(Legendary Artifact ΓÇö), Spectacular Showdown(Sorcery)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canPlayLand] p_70yvxxem: Sample cards in hand: [Wall of Souls(Creature ΓÇö Wall), Blackblade Reforged(Legendary Artifact ΓÇö), Spectacular Showdown(Sorcery)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Sokenzan, Crucible of Defiance(Legendary Land), Shared Animosity(Enchantment), Recruiter of the Guard(Creature ΓÇö Human Sol)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Sokenzan, Crucible of Defiance(Legendary Land), Shared Animosity(Enchantment), Recruiter of the Guard(Creature ΓÇö Human Sol)]
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.854Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.854Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.855Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.855Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.856Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.856Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.857Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.857Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.859Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.860Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.860Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.863Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.864Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.864Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.865Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.865Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.867Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.868Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.868Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.870Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.870Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.871Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[applyEvent] Replaying castCommander event: { playerId: 'p_kuie30vf', commanderId: 'card_1785cf85-1ac0-4246-9b89-1a8221a8e1b2_2ec8327838e88d5d' }
-[castCommander] Called with playerId: p_kuie30vf, commanderId: card_1785cf85-1ac0-4246-9b89-1a8221a8e1b2_2ec8327838e88d5d
-[castCommander] Commander info for player p_kuie30vf: { commanderIds: [ 'card_1785cf85-1ac0-4246-9b89-1a8221a8e1b2_2ec8327838e88d5d' ],
-  inCommandZone: [ 'card_1785cf85-1ac0-4246-9b89-1a8221a8e1b2_2ec8327838e88d5d' ],
+[applyEvent] Replaying castCommander event: { playerId: 'p_qiioh6hb', commanderId: 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnfep3hu_2u_h20tdr' }
+[castCommander] Called with playerId: p_qiioh6hb, commanderId: f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnfep3hu_2u_h20tdr
+[castCommander] Commander info for player p_qiioh6hb: { commanderIds: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnfep3hu_2t_f55ftl', 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnfep3hu_2u_h20tdr' ],
+  inCommandZone: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnfep3hu_2t_f55ftl', 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnfep3hu_2u_h20tdr' ],
   tax: 0,
-  taxById: { 'card_1785cf85-1ac0-4246-9b89-1a8221a8e1b2_2ec8327838e88d5d': 0 } }
-[castCommander] Removed commander card_1785cf85-1ac0-4246-9b89-1a8221a8e1b2_2ec8327838e88d5d from command zone. Remaining in CZ:[]
-[castCommander] Updated tax for card_1785cf85-1ac0-4246-9b89-1a8221a8e1b2_2ec8327838e88d5d: 2, total tax: 2
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+  taxById: { 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnfep3hu_2t_f55ftl': 0, 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnfep3hu_2u_h20tdr': 0 } }
+[castCommander] Removed commander f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnfep3hu_2u_h20tdr from command zone. Remaining in CZ: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnfep3hu_2t_f55ftl' ]
+[castCommander] Updated tax for f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnfep3hu_2u_h20tdr: 2, total tax: 2
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canPlayLand] p_70yvxxem: Sample cards in hand: [Spectacular Showdown(Sorcery), The Sound of Drums(Enchantment ΓÇö Aura), Brash Taunter(Creature ΓÇö Goblin)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
 [recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canPlayLand] p_70yvxxem: Sample cards in hand: [Spectacular Showdown(Sorcery), The Sound of Drums(Enchantment ΓÇö Aura), Brash Taunter(Creature ΓÇö Goblin)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Shared Animosity(Enchantment), Recruiter of the Guard(Creature ΓÇö Human Sol), Boros Garrison(Land)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Shared Animosity(Enchantment), Recruiter of the Guard(Creature ΓÇö Human Sol), Boros Garrison(Land)]
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_m3pujwjv: Sample cards in hand: [Shadowspear(Legendary Artifact ΓÇö), Hanweir Battlements(Land), Temple of Triumph(Land)]
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canPlayLand] p_m3pujwjv: Sample cards in hand: [Shadowspear(Legendary Artifact ΓÇö), Hanweir Battlements(Land), Temple of Triumph(Land)]
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[canAct] p_m3pujwjv: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [recalculateHandVisibility] Players with hand reveal effects: none
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_m3pujwjv, turnPlayer: p_m3pujwjv
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Temple Bell(Artifact), Collective Voyage(Sorcery)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Temple Bell(Artifact), Collective Voyage(Sorcery)]
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Temple Bell(Artifact), Collective Voyage(Sorcery)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Temple Bell(Artifact), Collective Voyage(Sorcery)]
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_wma6t5jf: Sample cards in hand: [Ghostly Prison(Enchantment), Island(Basic Land ΓÇö Island), Sphere of Safety(Enchantment)]
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canPlayLand] p_wma6t5jf: Sample cards in hand: [Ghostly Prison(Enchantment), Island(Basic Land ΓÇö Island), Sphere of Safety(Enchantment)]
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[canAct] p_wma6t5jf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
 [recalculateHandVisibility] Players with hand reveal effects: none
 [recalculateHandVisibility] Players with hand reveal effects: none
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_wma6t5jf, turnPlayer: p_wma6t5jf
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Grave Pact(Enchantment), Beast Whisperer(Creature ΓÇö Elf Druid), Old Gnawbone(Legendary Creature ΓÇö)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Grave Pact(Enchantment), Beast Whisperer(Creature ΓÇö Elf Druid), Old Gnawbone(Legendary Creature ΓÇö)]
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canPlayLand] p_qiioh6hb: Sample cards in hand: [Mountain(Basic Land ΓÇö Mountai), Agitator Ant(Creature ΓÇö Insect), Hour of Devastation(Sorcery)]
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
+[canAct] p_qiioh6hb: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_m3pujwjv, p_wma6t5jf, p_qiioh6hb, autoPassEnabled: p_m3pujwjv, p_wma6t5jf, currentPriority: p_qiioh6hb, turnPlayer: p_qiioh6hb
 [recalculateHandVisibility] Players with hand reveal effects: none
 [recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canPlayLand] p_70yvxxem: Sample cards in hand: [Spectacular Showdown(Sorcery), The Sound of Drums(Enchantment ΓÇö Aura), Brash Taunter(Creature ΓÇö Goblin)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.931Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.931Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.932Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.932Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.933Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canAct] p_70yvxxem: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.933Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.935Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.935Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.936Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.937Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-2026-03-31T21:13:03.938Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[applyEvent] Replaying castCommander event: { playerId: 'p_fb7x9qci', commanderId: 'card_b4036bb7-835d-4690-aca1-1ab566776e9a_18865c24a4e09a59' }
-[castCommander] Called with playerId: p_fb7x9qci, commanderId: card_b4036bb7-835d-4690-aca1-1ab566776e9a_18865c24a4e09a59
-[castCommander] Commander info for player p_fb7x9qci: { commanderIds: [ 'card_b4036bb7-835d-4690-aca1-1ab566776e9a_18865c24a4e09a59' ],
-  inCommandZone: [ 'card_b4036bb7-835d-4690-aca1-1ab566776e9a_18865c24a4e09a59' ],
-  tax: 0,
-  taxById: { 'card_b4036bb7-835d-4690-aca1-1ab566776e9a_18865c24a4e09a59': 0 } }
-[castCommander] Removed commander card_b4036bb7-835d-4690-aca1-1ab566776e9a_18865c24a4e09a59 from command zone. Remaining in CZ:[]
-[castCommander] Updated tax for card_b4036bb7-835d-4690-aca1-1ab566776e9a_18865c24a4e09a59: 2, total tax: 2
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[drawTrigger] Psychosis Crawler: A2 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 1 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 3 lost 1 life
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Temple Bell(Artifact), Collective Voyage(Sorcery)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Temple Bell(Artifact), Collective Voyage(Sorcery)]
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canAct] p_kxlikkfo: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[drawTrigger] Psychosis Crawler: A2 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 1 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 3 lost 1 life
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Grave Pact(Enchantment), Old Gnawbone(Legendary Creature ΓÇö), Overgrown Tomb(Land ΓÇö Swamp Forest)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Grave Pact(Enchantment), Old Gnawbone(Legendary Creature ΓÇö), Overgrown Tomb(Land ΓÇö Swamp Forest)]
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canAct] p_kuie30vf: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canPlayLand] p_70yvxxem: Sample cards in hand: [Spectacular Showdown(Sorcery), The Sound of Drums(Enchantment ΓÇö Aura), Pariah's Shield(Artifact ΓÇö Equipment)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[recalculateHandVisibility] Players with hand reveal effects: none
-[applyEvent] Replaying castCommander event: { playerId: 'p_70yvxxem', commanderId: 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j' }
-[castCommander] Called with playerId: p_70yvxxem, commanderId: ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j
-[castCommander] Commander info for player p_70yvxxem: { commanderIds: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j', 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow' ],
-  inCommandZone: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j', 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow' ],
-  tax: 0,
-  taxById: { 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j': 0, 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow': 0 } }
-[castCommander] Removed commander ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j from command zone. Remaining in CZ: [ 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow' ]
-[castCommander] Updated tax for ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j: 2, total tax: 2
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Shared Animosity(Enchantment), Recruiter of the Guard(Creature ΓÇö Human Sol), Glory of Warfare(Enchantment)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Shared Animosity(Enchantment), Recruiter of the Guard(Creature ΓÇö Human Sol), Glory of Warfare(Enchantment)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[resolveTopOfStack] Checking if Path to Exile is a Join Forces spell...
-[resolveTopOfStack] Path to Exile is NOT a Join Forces spell (name: "path to exile", has 'join forces': false)
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[drawTrigger] Psychosis Crawler: A2 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 1 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 3 lost 1 life
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Collective Voyage(Sorcery), Beast Within(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Collective Voyage(Sorcery), Beast Within(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[drawTrigger] Psychosis Crawler: A2 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 1 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 3 lost 1 life
-[recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Collective Voyage(Sorcery), Beast Within(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Collective Voyage(Sorcery), Beast Within(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[recalculateHandVisibility] Players with hand reveal effects: none
-2026-03-31T21:13:04.154Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-2026-03-31T21:13:04.154Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-2026-03-31T21:13:04.155Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[resolveTopOfStack] Checking if Deadly Dispute is a Join Forces spell...
-[resolveTopOfStack] Deadly Dispute is NOT a Join Forces spell (name: "deadly dispute", has 'join forces': false)
-[recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] Exiting resolution mode - priority restored to p_kuie30vf
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=5 libraryCount=84
-[recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[canPlayLand] p_70yvxxem: Sample cards in hand: [Spectacular Showdown(Sorcery), The Sound of Drums(Enchantment ΓÇö Aura), Pariah's Shield(Artifact ΓÇö Equipment)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[recalculateHandVisibility] Players with hand reveal effects: none
-[applyEvent] Replaying castCommander event: { playerId: 'p_70yvxxem', commanderId: 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow' }
-[castCommander] Called with playerId: p_70yvxxem, commanderId: f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow
-[castCommander] Commander info for player p_70yvxxem: { commanderIds: [ 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j', 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow' ],
-  inCommandZone: [ 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow' ],
-  tax: 2,
-  taxById: { 'ec983aac-9eda-4086-ad7e-34da9b2987cc_mnf0hnxd_1_lbr92j': 2, 'f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow': 0 } }
-[castCommander] Removed commander f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow from command zone. Remaining in CZ: []
-[castCommander] Updated tax for f50448e9-afe4-4d4e-b027-bbb855f17aeb_mnf0hnxd_2_u7orow: 2, total tax: 4
-[recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_70yvxxem
-[recalculateHandVisibility] Players with hand reveal effects: none
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canAct] p_fb7x9qci: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Recruiter of the Guard(Creature ΓÇö Human Sol), Shadowspear(Legendary Artifact ΓÇö), Talisman of Conviction(Artifact)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Recruiter of the Guard(Creature ΓÇö Human Sol), Shadowspear(Legendary Artifact ΓÇö), Talisman of Conviction(Artifact)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[recalculateHandVisibility] Players with hand reveal effects: none
-[resolveTopOfStack] Checking if Swords to Plowshares is a Join Forces spell...
-[resolveTopOfStack] Swords to Plowshares is NOT a Join Forces spell (name: "swords to plowshares", has 'join forces': false)
-[recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Flawless Maneuver(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[canPlayLand] p_fb7x9qci: Sample cards in hand: [Flawless Maneuver(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_fb7x9qci, turnPlayer: p_fb7x9qci
-[recalculateHandVisibility] Players with hand reveal effects: none
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[drawTrigger] Psychosis Crawler: A2 lost 3 life
-[drawTrigger] Psychosis Crawler: AI Opponent 1 lost 3 life
-[drawTrigger] Psychosis Crawler: AI Opponent 3 lost 3 life
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Collective Voyage(Sorcery), Beast Within(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[canPlayLand] p_kxlikkfo: Sample cards in hand: [Soul Conduit(Artifact), Collective Voyage(Sorcery), Beast Within(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[recalculateHandVisibility] Players with hand reveal effects: none
-[applyEvent] Replaying castCommander event: { playerId: 'p_kxlikkfo', commanderId: 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_8dd6a8bdf4026fe1' }
-[castCommander] Called with playerId: p_kxlikkfo, commanderId: card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_8dd6a8bdf4026fe1
-[castCommander] Commander info for player p_kxlikkfo: { commanderIds: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_8dd6a8bdf4026fe1' ],
-  inCommandZone: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_8dd6a8bdf4026fe1' ],
-  tax: 0,
-  taxById: { 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_8dd6a8bdf4026fe1': 0 } }
-[castCommander] Removed commander card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_8dd6a8bdf4026fe1 from command zone. Remaining in CZ:[]
-[castCommander] Updated tax for card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_8dd6a8bdf4026fe1: 2, total tax: 2
-[resolveTopOfStack] Checking if Declaration in Stone is a Join Forces spell...
-[resolveTopOfStack] Declaration in Stone is NOT a Join Forces spell (name: "declaration in stone", has 'join forces': false)
-[drawTrigger] Psychosis Crawler: A2 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 1 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 3 lost 1 life
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kxlikkfo
-[priority] Exiting resolution mode - priority restored to p_kxlikkfo
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=7 libraryCount=80
-[recalculateHandVisibility] Players with hand reveal effects: none
-2026-03-31T21:13:04.344Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-2026-03-31T21:13:04.345Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[drawTrigger] Psychosis Crawler: A2 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 1 lost 1 life
-[drawTrigger] Psychosis Crawler: AI Opponent 3 lost 1 life
-[priority] Entering resolution mode - priority will return to p_kuie30vf after resolution completes
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=7 libraryCount=80
-[priority] Exiting resolution mode - priority restored to p_kuie30vf
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Living Death(Sorcery), Forest(Basic Land ΓÇö Forest), Village Rites(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Living Death(Sorcery), Forest(Basic Land ΓÇö Forest), Village Rites(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[GameManager] ensureGame: replayed persisted events { bootId: 'db11dce9-64b0-4949-9d38-de50fbb52c58', gameId: 'game_mnf0h7xx', count: 882 }
-[AI] Added AI player to auto-pass set: { gameId: 'game_mnf0h7xx', playerId: 'p_fb7x9qci' }
-[AI] Registered AI player: { gameId: 'game_mnf0h7xx', playerId: 'p_fb7x9qci', name: 'AI Opponent 1', strategy: 'basic', difficulty: 0.5 }
-[AI] Rehydrated AI runtime from persisted state: { gameId: 'game_mnf0h7xx', playerId: 'p_fb7x9qci', strategy: 'basic', difficulty: 0.5, refreshDeckProfile: true }
-[AI] handleAIGameFlow: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_fb7x9qci',
-  phase: 'COMBAT',
-  step: 'DAMAGE',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 3,
-  isAITurn: false,
-  hasPriority: false }
-[AI] Added AI player to auto-pass set: { gameId: 'game_mnf0h7xx', playerId: 'p_kuie30vf' }
-[AI] Registered AI player: { gameId: 'game_mnf0h7xx', playerId: 'p_kuie30vf', name: 'AI Opponent 3', strategy: 'basic', difficulty: 0.5 }
-[AI] Rehydrated AI runtime from persisted state: { gameId: 'game_mnf0h7xx', playerId: 'p_kuie30vf', strategy: 'basic', difficulty: 0.5, refreshDeckProfile: true }
-[AI] handleAIGameFlow: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kuie30vf',
-  phase: 'COMBAT',
-  step: 'DAMAGE',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 12,
-  isAITurn: true,
-  hasPriority: true }
-[AI] Added AI player to auto-pass set: { gameId: 'game_mnf0h7xx', playerId: 'p_kxlikkfo' }
-[AI] Registered AI player: { gameId: 'game_mnf0h7xx', playerId: 'p_kxlikkfo', name: 'AI Opponent 2', strategy: 'basic', difficulty: 0.5 }
-[AI] Rehydrated AI runtime from persisted state: { gameId: 'game_mnf0h7xx', playerId: 'p_kxlikkfo', strategy: 'basic', difficulty: 0.5, refreshDeckProfile: true }
-[AI] handleAIGameFlow: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kxlikkfo',
-  phase: 'COMBAT',
-  step: 'DAMAGE',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 8,
-  isAITurn: false,
-  hasPriority: false }
-[AI] AI player checking priority: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kuie30vf',
-  phase: 'combat',
-  step: 'damage',
-  isAITurn: true,
-  stackEmpty: true,
-  priority: 'p_kuie30vf',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Combat step damage - passing priority
-[AI] Passing priority: { gameId: 'game_mnf0h7xx', playerId: 'p_kuie30vf' }
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_kuie30vf
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[AI] handleAIGameFlow: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_fb7x9qci',
-  phase: 'COMBAT',
-  step: 'DAMAGE',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 3,
-  isAITurn: false,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_fb7x9qci',
-  phase: 'combat',
-  step: 'damage',
-  isAITurn: false,
-  stackEmpty: true,
-  priority: 'p_fb7x9qci',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_mnf0h7xx', playerId: 'p_fb7x9qci' }
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kuie30vf
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[AI] AI player checking priority: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kxlikkfo',
-  phase: 'combat',
-  step: 'damage',
-  isAITurn: false,
-  stackEmpty: true,
-  priority: 'p_kxlikkfo',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_mnf0h7xx', playerId: 'p_kxlikkfo' }
-[AI] All players passed priority with empty stack, advancing step
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[AI] AI player checking priority: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kuie30vf',
-  phase: 'combat',
-  step: 'end_combat',
-  isAITurn: true,
-  stackEmpty: true,
-  priority: 'p_kuie30vf',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Combat step end_combat - passing priority
-[AI] Passing priority: { gameId: 'game_mnf0h7xx', playerId: 'p_kuie30vf' }
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_kuie30vf
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[AI] handleAIGameFlow: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_fb7x9qci',
-  phase: 'COMBAT',
-  step: 'END_COMBAT',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 3,
-  isAITurn: false,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_fb7x9qci',
-  phase: 'combat',
-  step: 'end_combat',
-  isAITurn: false,
-  stackEmpty: true,
-  priority: 'p_fb7x9qci',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_mnf0h7xx', playerId: 'p_fb7x9qci' }
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kxlikkfo, turnPlayer: p_kuie30vf
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[AI] AI player checking priority: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kxlikkfo',
-  phase: 'combat',
-  step: 'end_combat',
-  isAITurn: false,
-  stackEmpty: true,
-  priority: 'p_kxlikkfo',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Not AI turn, passing priority
-[AI] Passing priority: { gameId: 'game_mnf0h7xx', playerId: 'p_kxlikkfo' }
-[AI] All players passed priority with empty stack, advancing step
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Living Death(Sorcery), Forest(Basic Land ΓÇö Forest), Village Rites(Instant)]
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_kuie30vf, turnPlayer: p_kuie30vf
-[canPlayLand] p_kuie30vf: Sample cards in hand: [Living Death(Sorcery), Forest(Basic Land ΓÇö Forest), Village Rites(Instant)]
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[AI] AI player checking priority: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kuie30vf',
-  phase: 'postcombatmain',
-  step: 'main2',
-  isAITurn: true,
-  stackEmpty: true,
-  priority: 'p_kuie30vf',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Hand size 12 exceeds max 7 - will prioritize casting spells to avoid discarding
-[AI] Playing land: Forest
-[AI] Playing land: { gameId: 'game_mnf0h7xx', playerId: 'p_kuie30vf', cardId: 'card_3b84ec1e-ccce-4b8b-9302-b26f84cfa469_d3e6fb6e09bd63bc' }
-[recalculateHandVisibility] Players with hand reveal effects: none
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[AI] handleAIGameFlow: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kuie30vf',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 11,
-  isAITurn: true,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kuie30vf',
-  phase: 'postcombatmain',
-  step: 'main2',
-  isAITurn: true,
-  stackEmpty: true,
-  priority: 'p_kuie30vf',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Hand size 11 exceeds max 7 - will prioritize casting spells to avoid discarding
-[AI] Cannot play land: { isMainPhase: true, isAITurn: true, landsPlayed: 1, maxLands: 1, reason: 'already played max lands' }
-[AI] findCastableSpells: Checking 11 cards in hand
-[AI] Available mana pool: { total: 12, colors: { white: 2, blue: 2, black: 3, red: 2, green: 7, colorless: 4, anyColor: 2 } }
-[AI] findCastableSpells: Found 7 castable spell(s): [ 'Living Death (CMC 5, priority 87)',
-  'Village Rites (CMC 1, priority 123)',
-  'Deep Forest Hermit (CMC 5, priority 130)',
-  'Acorn Harvest (CMC 4, priority 128)',
-  'Parallel Lives (CMC 4, priority 121)',
-  'Zulaport Cutthroat (CMC 2, priority 163)',
-  "Druid's Call (CMC 2, priority 123)" ]
-[AI] Casting spell to avoid discard: Zulaport Cutthroat (hand: 11/7)
-[AI] Casting spell: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kuie30vf',
-  cardName: 'Zulaport Cutthroat',
-  cost: { colors: { W: 0, U: 0, B: 1, R: 0, G: 0, C: 0 }, generic: 1, hasX: false, hybrid: [] } }
-[priority] Entering resolution mode - priority will return to p_kuie30vf after resolution completes
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[priority] Exiting resolution mode - priority restored to p_kuie30vf
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[completeCastSpell] Using client-sent targets: none
-[completeCastSpell] Final targets to use: none
-node.exe : [castSpellFromHand] RulesBridge rejected post-payment cast of Zulaport Cutthroat
-(card_52ef00c1-613a-4cbd-8972-77c41f649431_1b1760c1d86a5123); continuing with authoritative applyEvent: Need 1 black mana, have
-0
-At line:1 char:1
-+ & "C:\Program Files\nodejs/node.exe" "C:\Users\A2\AppData\Roaming\npm ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: ([castSpellFromH...ck mana, have 0:String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
-
-[castSpellFromHand] Added converge data to stack item: 2 colors (black, green)
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
-[AI] handleAIGameFlow: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kuie30vf',
-  phase: 'POSTCOMBATMAIN',
-  step: 'MAIN2',
-  hasCommander: true,
-  hasHand: true,
-  handCount: 11,
-  isAITurn: true,
-  hasPriority: true }
-[AI] AI player checking priority: { gameId: 'game_mnf0h7xx',
-  playerId: 'p_kuie30vf',
-  phase: 'postcombatmain',
-  step: 'main2',
-  isAITurn: true,
-  stackEmpty: false,
-  priority: 'p_kuie30vf',
-  hasPriority: true }
-[AI] AI has priority, proceeding with action
-[AI] Stack not empty, passing priority to let it resolve
-[AI] Passing priority: { gameId: 'game_mnf0h7xx', playerId: 'p_kuie30vf' }
-2026-03-31T21:13:15.454Z [checkPendingInteractions] Pending: stack_not_empty
-[priority] autoPassLoop starting - active players: p_70yvxxem, p_fb7x9qci, p_kxlikkfo, p_kuie30vf, autoPassEnabled: p_fb7x9qci, p_kxlikkfo, p_kuie30vf, currentPriority: p_70yvxxem, turnPlayer: p_kuie30vf
-[STATE_DEBUG] BROADCAST_STATE gameId=game_mnf0h7xx players=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] zones=[p_70yvxxem,p_fb7x9qci,p_kxlikkfo,p_kuie30vf] handCount=6 libraryCount=80
+[GameManager] ensureGame: replayed persisted events { bootId: '937ac27b-d96b-47f8-91b2-cbb4d8394e1e', gameId: 'game_mnfeojcw', count: 206 }

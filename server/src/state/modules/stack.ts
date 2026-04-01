@@ -679,6 +679,76 @@ function applySupplementalOracleIRForResolvedSpell(
   }
 }
 
+function applySimpleTargetedTemporarySpellEffects(
+  ctx: GameContext,
+  oracleText: string,
+  targets: readonly any[],
+  sourceName: string
+): number {
+  const text = String(oracleText || '').replace(/\u2019/g, "'").trim();
+  if (!text || !Array.isArray(targets) || targets.length === 0) return 0;
+
+  const targetBuffMatch = text.match(
+    /(?:^|\.\s*)(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains? ([^.]+?))? until end of turn\.?/i
+  );
+  const targetAbilityMatch = text.match(
+    /(?:^|\.\s*)(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures? gains? ([^.]+?) until end of turn\.?/i
+  );
+
+  if (!targetBuffMatch && !targetAbilityMatch) return 0;
+
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const powerMod = targetBuffMatch ? parseInt(targetBuffMatch[1], 10) : null;
+  const toughnessMod = targetBuffMatch ? parseInt(targetBuffMatch[2], 10) : null;
+  const rawAbilityText = (targetBuffMatch?.[3] || targetAbilityMatch?.[1] || '').trim();
+  const gainedAbilities = rawAbilityText
+    ? rawAbilityText.split(/\s*,\s*|\s+and\s+/i).map((ability: string) => ability.trim().toLowerCase()).filter(Boolean)
+    : [];
+
+  let applied = 0;
+  for (const targetRef of targets) {
+    const targetId = typeof targetRef === 'string' ? targetRef : targetRef?.id;
+    if (!targetId) continue;
+
+    const targetCreature = battlefield.find((permanent: any) => permanent?.id === targetId);
+    if (!targetCreature) continue;
+
+    let modified = false;
+
+    if (powerMod !== null && toughnessMod !== null) {
+      targetCreature.temporaryPTMods = Array.isArray(targetCreature.temporaryPTMods) ? targetCreature.temporaryPTMods : [];
+      targetCreature.temporaryPTMods.push({
+        power: powerMod,
+        toughness: toughnessMod,
+        source: sourceName,
+        expiresAt: 'end_of_turn',
+        turnApplied: state?.turnNumber || 0,
+      });
+      modified = true;
+    }
+
+    if (gainedAbilities.length > 0) {
+      targetCreature.temporaryAbilities = Array.isArray(targetCreature.temporaryAbilities) ? targetCreature.temporaryAbilities : [];
+      for (const ability of gainedAbilities) {
+        targetCreature.temporaryAbilities.push({
+          ability,
+          source: sourceName,
+          expiresAt: 'end_of_turn',
+          turnApplied: state?.turnNumber || 0,
+        });
+      }
+      modified = true;
+    }
+
+    if (modified) {
+      applied += 1;
+    }
+  }
+
+  return applied;
+}
+
 function resolveOracleWhoToPlayerIds(who: OraclePlayerSelector, caster: PlayerID, state: any): PlayerID[] {
   switch (who.kind) {
     case 'you':
@@ -10759,6 +10829,13 @@ export function resolveTopOfStack(ctx: GameContext) {
         String((item as any).id || (card as any)?.id || '')
       );
     }
+
+    applySimpleTargetedTemporarySpellEffects(
+      ctx,
+      oracleText,
+      targets,
+      effectiveCard.name || 'spell'
+    );
     
     // Handle Dispatch and similar metalcraft spells
     // Dispatch: "Tap target creature. Metalcraft — If you control three or more artifacts, exile that creature instead."
