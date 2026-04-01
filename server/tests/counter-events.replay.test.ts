@@ -74,4 +74,37 @@ describe('counter event replay semantics', () => {
     const target = battlefield.find((perm: any) => perm.id === 'target_perm');
     expect(target?.counters).toEqual({ '+1/+1': 1 });
   });
+
+  it('replays counterPlacementResolve by restoring trigger-added counters and goad state', () => {
+    const game = createInitialGameState('t_counter_placement_resolve_replay');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'target_perm',
+        controller: p2,
+        owner: p2,
+        counters: {},
+        card: { id: 'target_card', name: 'Target', type_line: 'Creature' },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'counterPlacementResolve',
+      sourceName: 'Agitator Ant',
+      sourceController: p1,
+      goadedByPlayerId: p1,
+      effectType: 'goad',
+      playersWhoAccepted: [p2],
+      creaturesWithCounters: [{ permanentId: 'target_perm', playerId: p2 }],
+    } as any);
+
+    const battlefield = (game.state as any).battlefield || [];
+    const target = battlefield.find((perm: any) => perm.id === 'target_perm');
+    expect(target?.counters).toEqual({ '+1/+1': 2 });
+    expect(target?.goaded).toEqual({ [p1]: true });
+  });
 });

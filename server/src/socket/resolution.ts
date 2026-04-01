@@ -60,6 +60,7 @@ import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../ut
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
+import { updateCounters } from "../state/modules/counters_tokens.js";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
@@ -2792,7 +2793,42 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       const purpose = String(stepAny.purpose || '').trim();
       const destination = String(stepAny.destination || '').trim().toLowerCase();
       const collectEvidenceMinManaValue = Number(stepAny.collectEvidenceMinManaValue ?? 0);
+      const totalPowerLimit = Number(stepAny.totalPowerLimit ?? 0);
       const targetPlayerId = String(stepAny.targetPlayerId || pid || '').trim();
+
+      if (Number.isFinite(totalPowerLimit) && totalPowerLimit > 0 && selectedCardIds.length > 0) {
+        const zones = (game.state as any)?.zones;
+        const gy = zones?.[targetPlayerId]?.graveyard;
+        if (!Array.isArray(gy)) {
+          socket.emit('error', { code: 'NO_GRAVEYARD', message: 'Graveyard not found' });
+          return;
+        }
+
+        const chosen = selectedCardIds
+          .map((id) => (gy as any[]).find((c: any) => c && String(c.id) === String(id)))
+          .filter(Boolean);
+
+        if (chosen.length !== selectedCardIds.length) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Selected card not found in graveyard' });
+          return;
+        }
+
+        const selectedTotalPower = chosen.reduce((sum: number, card: any) => {
+          const typeLine = String(card?.type_line || '').toLowerCase();
+          if (!typeLine.includes('creature')) {
+            return sum;
+          }
+          return sum + parsePT(card?.power);
+        }, 0);
+
+        if (selectedTotalPower > totalPowerLimit) {
+          socket.emit('error', {
+            code: 'INVALID_TOTAL_POWER',
+            message: `Selected cards have total power ${selectedTotalPower} (need ${totalPowerLimit} or less).`,
+          });
+          return;
+        }
+      }
 
       if (
         purpose.toLowerCase() === 'collectevidence' &&
@@ -22427,6 +22463,7 @@ async function handleOptionChoiceResponse(
       const conditionalEffect = stepData.conditionalEffect || {};
       const sourceName = stepData.sourceName || 'Counter placement effect';
       const sourceController = stepData.sourceController || state.turnPlayer;
+      const goadedByPlayerId = String(state.turnPlayer || sourceController || '').trim();
       
       // Apply +1/+1 counters ONLY to creatures whose controllers accepted
       for (const [playerId, selection] of Object.entries(selections)) {
@@ -22442,8 +22479,7 @@ async function handleOptionChoiceResponse(
         const creature = battlefield.find((p: any) => p.id === creatureId);
         
         if (creature) {
-          creature.counters = creature.counters || {};
-          creature.counters['+1/+1'] = (creature.counters['+1/+1'] || 0) + 2;
+          updateCounters(game as any, creatureId, { '+1/+1': 2 });
           creaturesWithCounters.push({ id: creatureId, playerId });
           
           debug(2, `[Resolution] Counter placement: Added 2 +1/+1 counters to ${creature.card?.name || creatureId}`);
@@ -22463,12 +22499,11 @@ async function handleOptionChoiceResponse(
       if (playersWhoAccepted.length > 0) {
         if (effectType === 'goad' || conditionalEffect.onAccept === 'goad') {
           // Agitator Ant: Goad all creatures that received counters
-          const turnPlayer = state.turnPlayer;
           for (const { id: creatureId } of creaturesWithCounters) {
             const creature = battlefield.find((p: any) => p.id === creatureId);
             if (creature) {
               creature.goaded = creature.goaded || {};
-              creature.goaded[turnPlayer] = true; // Goaded until controller's next turn
+              creature.goaded[goadedByPlayerId] = true; // Goaded until controller's next turn
               debug(2, `[Resolution] ${sourceName}: Goaded ${creature.card?.name || creatureId}`);
             }
           }
@@ -22505,6 +22540,23 @@ async function handleOptionChoiceResponse(
             ts: Date.now(),
           });
         }
+      }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'counterPlacementResolve', {
+          sourceName,
+          sourceController,
+          goadedByPlayerId: goadedByPlayerId || undefined,
+          effectType,
+          conditionalEffectOnAccept: String(conditionalEffect.onAccept || '').trim() || undefined,
+          playersWhoAccepted,
+          creaturesWithCounters: creaturesWithCounters.map((entry) => ({
+            permanentId: entry.id,
+            playerId: entry.playerId,
+          })),
+        });
+      } catch (e) {
+        debugWarn(1, '[Resolution] appendEvent(counterPlacementResolve) failed:', e);
       }
       
       // Clean up tracking
@@ -22704,6 +22756,7 @@ async function handleGraveyardSelectionResponse(
 
   const purpose = String(stepData.purpose || '').trim();
   const collectEvidenceMinManaValue = Number(stepData.collectEvidenceMinManaValue ?? 0);
+  const totalPowerLimit = Number(stepData.totalPowerLimit ?? 0);
 
   if (!targetPlayerId) {
     emitToPlayer(io, pid, 'error', { code: 'NO_TARGET_PLAYER', message: 'No graveyard specified for selection' });
@@ -22793,6 +22846,27 @@ async function handleGraveyardSelectionResponse(
   const srcZones = zones[targetPlayerId] as any;
   srcZones.graveyard = Array.isArray(srcZones.graveyard) ? srcZones.graveyard : [];
   srcZones.exile = Array.isArray(srcZones.exile) ? srcZones.exile : [];
+
+  if (Number.isFinite(totalPowerLimit) && totalPowerLimit > 0 && selectedCardIds.length > 0) {
+    const selectedCards = selectedCardIds
+      .map((id) => (srcZones.graveyard as any[]).find((card: any) => card && String(card.id) === String(id)))
+      .filter(Boolean);
+    const selectedTotalPower = selectedCards.reduce((sum: number, card: any) => {
+      const typeLine = String(card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('creature')) {
+        return sum;
+      }
+      return sum + parsePT(card?.power);
+    }, 0);
+
+    if (selectedTotalPower > totalPowerLimit) {
+      emitToPlayer(io, pid, 'error', {
+        code: 'INVALID_TOTAL_POWER',
+        message: `Selected cards have total power ${selectedTotalPower} (need ${totalPowerLimit} or less).`,
+      });
+      return;
+    }
+  }
 
   zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 };
   const dstZones = zones[pid] as any;

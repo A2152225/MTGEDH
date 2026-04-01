@@ -323,6 +323,176 @@ describe('Mutate trigger targeting (integration)', () => {
     expect(battlefield.some((permanent: any) => String(permanent?.id || '') === 'opp_creature_1')).toBe(true);
   });
 
+  it('enforces total-power caps for mutate graveyard multi-return targeting', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).battlefield = [
+      {
+        id: 'host_4',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 5,
+        baseToughness: 5,
+        card: {
+          id: 'host_card_4',
+          name: 'Mutation Host',
+          type_line: 'Creature - Cat Nightmare Beast',
+          oracle_text: 'Trample',
+          zone: 'battlefield',
+          power: '5',
+          toughness: '5',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'gy_creature_a',
+            name: 'Grave Titanling',
+            type_line: 'Creature - Zombie Giant',
+            mana_cost: '{4}{B}',
+            zone: 'graveyard',
+            power: '6',
+            toughness: '6',
+          },
+          {
+            id: 'gy_creature_b',
+            name: 'Grave Bear',
+            type_line: 'Creature - Bear',
+            mana_cost: '{2}{G}',
+            zone: 'graveyard',
+            power: '5',
+            toughness: '5',
+          },
+          {
+            id: 'gy_creature_c',
+            name: 'Grave Snake',
+            type_line: 'Creature - Snake',
+            mana_cost: '{1}{G}',
+            zone: 'graveyard',
+            power: '4',
+            toughness: '4',
+          },
+          {
+            id: 'gy_noncreature_c',
+            name: 'Lost Relic',
+            type_line: 'Artifact',
+            mana_cost: '{2}',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 4,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'stack_mutate_return_multi_1',
+        type: 'spell',
+        controller: playerId,
+        alternateCostId: 'mutate',
+        targets: ['host_4'],
+        card: {
+          id: 'mutate_return_multi_1',
+          name: 'Nethroi, Apex of Death',
+          type_line: 'Legendary Creature - Cat Nightmare Beast',
+          oracle_text: 'Mutate {4}{G/W}{B}{B}\nDeathtouch, lifelink\nWhenever this creature mutates, return any number of target creature cards with total power 10 or less from your graveyard to the battlefield.',
+          zone: 'stack',
+          power: '5',
+          toughness: '5',
+          isMutating: true,
+          mutateTarget: 'host_4',
+          mutateOnTop: true,
+          alternateCostId: 'mutate',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    game.resolveTopOfStack();
+
+    const triggerStack = (game.state as any).stack || [];
+    expect(triggerStack).toHaveLength(1);
+    expect(triggerStack[0]).toMatchObject({
+      type: 'triggered_ability',
+      source: 'host_4',
+      sourceName: 'Nethroi, Apex of Death',
+      description: 'return any number of target creature cards with total power 10 or less from your graveyard to the battlefield.',
+      requiresTarget: true,
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      targetFilterTypes: ['creature'],
+      minTargets: 0,
+      maxTargets: 99,
+      targetTotalPowerLimit: 10,
+    });
+
+    game.resolveTopOfStack();
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const step = queue.steps[0] as any;
+    expect(step.type).toBe('graveyard_selection');
+    expect(step.destination).toBe('battlefield');
+    expect(step.minTargets).toBe(0);
+    expect(step.totalPowerLimit).toBe(10);
+    expect(step.validTargets.map((target: any) => String(target.id)).sort()).toEqual([
+      'gy_creature_a',
+      'gy_creature_b',
+      'gy_creature_c',
+    ]);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: step.id,
+      selections: ['gy_creature_a', 'gy_creature_b'],
+    });
+
+    const totalPowerError = emitted.find((event) => event.event === 'error' && event.payload?.code === 'INVALID_TOTAL_POWER');
+    expect(totalPowerError?.payload?.message).toContain('11');
+    expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(1);
+
+    emitted.length = 0;
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: step.id,
+      selections: ['gy_creature_a', 'gy_creature_c'],
+    });
+
+    const graveyardIds = ((((game.state as any).zones?.[playerId]?.graveyard) || []) as any[]).map((card: any) => String(card?.id || ''));
+    expect(graveyardIds).not.toContain('gy_creature_a');
+    expect(graveyardIds).not.toContain('gy_creature_c');
+    expect(graveyardIds).toContain('gy_creature_b');
+
+    const battlefield = (((game.state as any).battlefield) || []) as any[];
+    expect(battlefield.filter((permanent: any) => ['gy_creature_a', 'gy_creature_c'].includes(String(permanent?.card?.id || '')))).toHaveLength(2);
+
+    const persisted = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(persisted?.payload?.selectedCardIds).toEqual(['gy_creature_a', 'gy_creature_c']);
+    expect(String(persisted?.payload?.destination || '')).toBe('battlefield');
+  });
+
   it('routes mutate graveyard-cast triggers through GRAVEYARD_SELECTION and into a free cast from graveyard', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

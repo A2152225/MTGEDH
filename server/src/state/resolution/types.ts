@@ -291,6 +291,9 @@ export interface GraveyardSelectionStep extends BaseResolutionStep {
   /** For collect-evidence prompts: required total mana value to exile. */
   readonly collectEvidenceMinManaValue?: number;
 
+  /** Optional aggregate cap for the power of selected creature cards. */
+  readonly totalPowerLimit?: number;
+
   /** Optional continuation context so the server can resume castSpellFromHand. */
   readonly castSpellFromHandArgs?: {
     cardId: string;

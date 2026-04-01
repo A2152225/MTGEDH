@@ -42,6 +42,34 @@ describe('Conditional Mana Sources', () => {
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{U}{U}'))).toBe(false);
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{U}{R}'))).toBe(true);
     });
+
+    it('does not let a single any-color source satisfy colored plus generic costs', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'waterskin_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: "Bender's Waterskin",
+              type_line: 'Artifact',
+              oracle_text: '{T}: Add one mana of any color.',
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const aggregateMana = getAvailableMana(state, 'player1');
+      expect(canPayManaCost(aggregateMana, parseManaCost('{1}{R}'))).toBe(true);
+
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{R}'))).toBe(true);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{1}{R}'))).toBe(false);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{2}{R}'))).toBe(false);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{2}'))).toBe(false);
+    });
   });
 
   describe('Reflecting Pool', () => {

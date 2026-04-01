@@ -4873,6 +4873,58 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "counterPlacementResolve": {
+        const sourceController = String((e as any).sourceController || '').trim();
+        const goadedByPlayerId = String((e as any).goadedByPlayerId || sourceController || '').trim();
+        const effectType = String((e as any).effectType || '').trim().toLowerCase();
+        const conditionalEffectOnAccept = String((e as any).conditionalEffectOnAccept || '').trim().toLowerCase();
+        const playersWhoAccepted = Array.isArray((e as any).playersWhoAccepted)
+          ? ((e as any).playersWhoAccepted as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+          : [];
+        const creaturesWithCounters = Array.isArray((e as any).creaturesWithCounters)
+          ? ((e as any).creaturesWithCounters as any[])
+              .map((entry: any) => ({
+                permanentId: String(entry?.permanentId || '').trim(),
+                playerId: String(entry?.playerId || '').trim(),
+              }))
+              .filter((entry: any) => entry.permanentId)
+          : [];
+
+        try {
+          for (const entry of creaturesWithCounters) {
+            updateCounters(ctx as any, entry.permanentId, { '+1/+1': 2 });
+          }
+
+          if (effectType === 'goad' || conditionalEffectOnAccept === 'goad') {
+            const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+            for (const entry of creaturesWithCounters) {
+              const creature = battlefield.find((perm: any) => perm && String(perm.id || '') === entry.permanentId) as any;
+              if (!creature || !goadedByPlayerId) continue;
+              creature.goaded = creature.goaded || {};
+              creature.goaded[goadedByPlayerId] = true;
+            }
+          } else if (effectType === 'cant_attack' || conditionalEffectOnAccept === 'cant_attack_controller') {
+            const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+            for (const playerId of playersWhoAccepted) {
+              for (const creature of battlefield) {
+                const battlefieldCreature = creature as any;
+                if (!battlefieldCreature || String(battlefieldCreature.controller || '') !== playerId) continue;
+                battlefieldCreature.cantAttackPlayers = battlefieldCreature.cantAttackPlayers || {};
+                battlefieldCreature.cantAttackPlayers[sourceController] = {
+                  until: 'next_turn',
+                  sourcePlayer: sourceController,
+                };
+              }
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(counterPlacementResolve): failed', err);
+        }
+        break;
+      }
+
       case "moxDiamondChoice": {
         // Mox Diamond replacement effect - discard a land to enter battlefield, or go to graveyard
         const pid = (e as any).playerId;
@@ -5795,6 +5847,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const targetFilterExcludeTypes = (e as any).targetFilterExcludeTypes;
         const targetFilterPermanentOnly = (e as any).targetFilterPermanentOnly;
         const targetFilterMaxManaValue = (e as any).targetFilterMaxManaValue;
+        const targetTotalPowerLimit = (e as any).targetTotalPowerLimit;
         const targetCastWithoutPayingManaCost = (e as any).targetCastWithoutPayingManaCost;
         const targetCastIsOptional = (e as any).targetCastIsOptional;
         const minTargets = (e as any).minTargets;
@@ -5842,6 +5895,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
             ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
             ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
+            ...(typeof targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit } : null),
             ...(targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
             ...(targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
             ...(typeof minTargets === 'number' ? { minTargets } : null),

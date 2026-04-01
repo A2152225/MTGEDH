@@ -93,6 +93,7 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
   targetFilterExcludeTypes?: string[];
   targetFilterPermanentOnly?: boolean;
   targetFilterMaxManaValue?: number;
+  targetTotalPowerLimit?: number;
   targetCastWithoutPayingManaCost?: boolean;
   targetCastIsOptional?: boolean;
   minTargets?: number;
@@ -108,6 +109,7 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
   let targetFilterExcludeTypes: string[] | undefined;
   let targetFilterPermanentOnly = false;
   let targetFilterMaxManaValue: number | undefined;
+  let targetTotalPowerLimit: number | undefined;
   let targetCastWithoutPayingManaCost = false;
   let targetCastIsOptional = false;
   let minTargets: number | undefined;
@@ -119,6 +121,14 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
       const parsedMaxManaValue = Number.parseInt(String(manaValueMatch[1] || ''), 10);
       if (Number.isFinite(parsedMaxManaValue)) {
         targetFilterMaxManaValue = parsedMaxManaValue;
+      }
+    }
+
+    const totalPowerMatch = lower.match(/total power (\d+) or less/);
+    if (totalPowerMatch) {
+      const parsedTotalPowerLimit = Number.parseInt(String(totalPowerMatch[1] || ''), 10);
+      if (Number.isFinite(parsedTotalPowerLimit)) {
+        targetTotalPowerLimit = parsedTotalPowerLimit;
       }
     }
 
@@ -134,7 +144,7 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
         targetDestination = 'battlefield';
       }
 
-      if (lower.includes('any number of target') && !lower.includes('total power')) {
+      if (lower.includes('any number of target')) {
         minTargets = 0;
         maxTargets = 99;
       }
@@ -192,6 +202,7 @@ function inferTriggeredAbilityTargetMetadata(effectText: string): {
     targetFilterExcludeTypes,
     targetFilterPermanentOnly,
     targetFilterMaxManaValue,
+    targetTotalPowerLimit,
     targetCastWithoutPayingManaCost,
     targetCastIsOptional,
     minTargets,
@@ -341,6 +352,7 @@ function queueMutateTriggeredAbilities(
       targetFilterExcludeTypes,
       targetFilterPermanentOnly,
       targetFilterMaxManaValue,
+      targetTotalPowerLimit,
       targetCastWithoutPayingManaCost,
       targetCastIsOptional,
       minTargets,
@@ -368,6 +380,7 @@ function queueMutateTriggeredAbilities(
       ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
       ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
       ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
+      ...(typeof targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit } : null),
       ...(targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
       ...(targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
       ...(typeof minTargets === 'number' ? { minTargets } : null),
@@ -396,6 +409,7 @@ function queueMutateTriggeredAbilities(
           ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
           ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
           ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
+          ...(typeof targetTotalPowerLimit === 'number' ? { targetTotalPowerLimit } : null),
           ...(targetCastWithoutPayingManaCost === true ? { targetCastWithoutPayingManaCost: true } : null),
           ...(targetCastIsOptional === true ? { targetCastIsOptional: true } : null),
           ...(typeof minTargets === 'number' ? { minTargets } : null),
@@ -9388,6 +9402,9 @@ export function resolveTopOfStack(ctx: GameContext) {
         const targetFilterMaxManaValue = typeof (item as any).targetFilterMaxManaValue === 'number'
           ? Number((item as any).targetFilterMaxManaValue)
           : undefined;
+        const targetTotalPowerLimit = typeof (item as any).targetTotalPowerLimit === 'number'
+          ? Number((item as any).targetTotalPowerLimit)
+          : undefined;
         const validTargets = graveyard
           .filter((card: any) => matchesTriggeredGraveyardTarget(card, {
             targetFilterTypes,
@@ -9424,6 +9441,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             targetPlayerId: graveyardOwner,
             minTargets: minSelectionCount,
             maxTargets: maxSelectionCount,
+            totalPowerLimit: targetTotalPowerLimit,
             destination: targetAction === 'cast' ? 'cast' : targetDestination,
             validTargets,
             triggeredAbilityGraveyardSelection: true,

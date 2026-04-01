@@ -1380,8 +1380,9 @@ export function canPayManaCostWithAvailableSources(
   const hasActivationCostSource = sources.some((source) =>
     source.options.some((option) => option.activationCost),
   );
+  const hasBranchingSource = sources.some((source) => source.options.length > 1);
 
-  if (!hasActivationCostSource) {
+  if (!hasActivationCostSource && !hasBranchingSource) {
     return canPayManaCost(getAvailableMana(state, playerId), parsedCost, lifeAvailable);
   }
 

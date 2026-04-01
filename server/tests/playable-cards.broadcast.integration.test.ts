@@ -254,4 +254,137 @@ describe('broadcastGame playable card refresh', () => {
     expect(stateEvent).toBeDefined();
     expect(stateEvent?.payload?.view?.playableCards).not.toContain('baeloth_1');
   });
+
+  it('does not highlight multi-mana hand spells after casting an any-color rock with all lands tapped', () => {
+    const gameId = 'playable_cards_waterskin_after_cast';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [
+        {
+          id: 'mountain_1',
+          controller: 'p1',
+          tapped: true,
+          card: { name: 'Mountain', type_line: 'Basic Land — Mountain', oracle_text: '{T}: Add {R}.' },
+        },
+        {
+          id: 'swamp_1',
+          controller: 'p1',
+          tapped: true,
+          card: { name: 'Swamp', type_line: 'Basic Land — Swamp', oracle_text: '{T}: Add {B}.' },
+        },
+        {
+          id: 'forest_1',
+          controller: 'p1',
+          tapped: true,
+          card: { name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+        },
+        {
+          id: 'waterskin_1',
+          controller: 'p1',
+          tapped: false,
+          card: { name: "Bender's Waterskin", type_line: 'Artifact', oracle_text: '{T}: Add one mana of any color.' },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [
+            {
+              id: 'agitator_ant_1',
+              name: 'Agitator Ant',
+              mana_cost: '{2}{R}',
+              type_line: 'Creature — Insect',
+              oracle_text: 'At the beginning of your end step, each player may put two +1/+1 counters on a creature they control.',
+            },
+            {
+              id: 'backlash_1',
+              name: 'Backlash',
+              mana_cost: '{1}{R}',
+              type_line: 'Instant',
+              oracle_text: 'Tap target untapped creature. That creature deals damage equal to its power to its controller.',
+            },
+            {
+              id: 'plate_1',
+              name: 'Darksteel Plate',
+              mana_cost: '{3}',
+              type_line: 'Artifact — Equipment',
+              oracle_text: 'Indestructible\nEquip {2}',
+            },
+          ],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 3,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0 },
+      playableCards: ['agitator_ant_1', 'backlash_1', 'plate_1'],
+      canAct: true,
+      canRespond: true,
+    });
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: ['agitator_ant_1', 'backlash_1', 'plate_1'],
+        canAct: true,
+        canRespond: true,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('agitator_ant_1');
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('backlash_1');
+    expect(stateEvent?.payload?.view?.playableCards).not.toContain('plate_1');
+  });
 });
