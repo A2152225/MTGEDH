@@ -25,6 +25,7 @@ import {
   copyMutatedPermanent,
   type MutatedPermanent,
 } from '../src/keywordAbilities/mutate';
+import { parseTriggeredAbilitiesFromText, TriggerEvent } from '../src/triggeredAbilities';
 
 describe('Mutate keyword ability', () => {
   describe('mutate()', () => {
@@ -269,6 +270,19 @@ describe('Mutate keyword ability', () => {
       
       expect(abilities).toHaveLength(3);
       expect(abilities).toContain('Reach, trample');
+    });
+
+    it('parses mutate-triggered abilities as mutate events', () => {
+      const triggers = parseTriggeredAbilitiesFromText(
+        'Mutate {1}{G}{G}\nReach, trample\nWhenever this creature mutates, destroy target artifact or enchantment.',
+        'perm-1',
+        'player-1',
+        'Gemrazer'
+      );
+
+      expect(triggers.some((trigger) => trigger.event === TriggerEvent.MUTATES)).toBe(true);
+      const mutateTrigger = triggers.find((trigger) => trigger.event === TriggerEvent.MUTATES);
+      expect(mutateTrigger?.effect).toBe('destroy target artifact or enchantment.');
     });
   });
 

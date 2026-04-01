@@ -58,10 +58,333 @@ import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
 import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser.js";
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../../../../rules-engine/src/oracleIR.js";
+import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from "../../../../rules-engine/src/triggeredAbilities.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
 import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
 import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
+import {
+  createMutatedPermanent,
+  getMutatedPermanentAbilities,
+  getMutatedPermanentCharacteristics,
+} from "../../../../rules-engine/src/keywordAbilities/mutate.js";
+
+const PERMANENT_TRIGGER_TARGET_TYPES = new Set([
+  'creature',
+  'permanent',
+  'artifact',
+  'enchantment',
+  'land',
+  'planeswalker',
+  'creature or planeswalker',
+  'noncreature artifact',
+  'nonland permanent',
+  'noncreature permanent',
+]);
+
+function inferTriggeredAbilityTargetMetadata(effectText: string): {
+  requiresTarget: boolean;
+  targetType?: string;
+  targetConstraint?: 'opponent' | 'you';
+  targetZone?: 'graveyard';
+  targetDestination?: 'hand' | 'battlefield';
+  targetFilterTypes?: string[];
+  targetFilterExcludeTypes?: string[];
+  targetFilterPermanentOnly?: boolean;
+  targetFilterMaxManaValue?: number;
+  minTargets?: number;
+  maxTargets?: number;
+} {
+  const lower = String(effectText || '').toLowerCase();
+  const requiresTarget = lower.includes('target');
+  let targetType: string | undefined;
+  let targetZone: 'graveyard' | undefined;
+  let targetDestination: 'hand' | 'battlefield' | undefined;
+  let targetFilterTypes: string[] | undefined;
+  let targetFilterExcludeTypes: string[] | undefined;
+  let targetFilterPermanentOnly = false;
+  let targetFilterMaxManaValue: number | undefined;
+  let minTargets: number | undefined;
+  let maxTargets: number | undefined;
+
+  if (requiresTarget) {
+    const manaValueMatch = lower.match(/mana value (\d+) or less/);
+    if (manaValueMatch) {
+      const parsedMaxManaValue = Number.parseInt(String(manaValueMatch[1] || ''), 10);
+      if (Number.isFinite(parsedMaxManaValue)) {
+        targetFilterMaxManaValue = parsedMaxManaValue;
+      }
+    }
+
+    if (lower.includes('from your graveyard')) {
+      targetZone = 'graveyard';
+      if (lower.includes('to your hand')) {
+        targetDestination = 'hand';
+      } else if (lower.includes('to the battlefield')) {
+        targetDestination = 'battlefield';
+      }
+
+      if (lower.includes('any number of target') && !lower.includes('total power')) {
+        minTargets = 0;
+        maxTargets = 99;
+      }
+
+      if (lower.includes('target permanent card')) {
+        targetFilterPermanentOnly = true;
+      } else if (lower.includes('target instant or sorcery card')) {
+        targetFilterTypes = ['instant', 'sorcery'];
+      } else if (lower.includes('target creature card')) {
+        targetFilterTypes = ['creature'];
+      } else if (lower.includes('target artifact card')) {
+        targetFilterTypes = ['artifact'];
+      } else if (lower.includes('target enchantment card')) {
+        targetFilterTypes = ['enchantment'];
+      } else if (lower.includes('target land card')) {
+        targetFilterTypes = ['land'];
+      } else if (lower.includes('target planeswalker card')) {
+        targetFilterTypes = ['planeswalker'];
+      } else if (lower.includes('target noncreature card')) {
+        targetFilterExcludeTypes = ['creature'];
+      }
+    }
+
+    if (lower.includes('target creature or planeswalker')) targetType = 'creature or planeswalker';
+    else if (lower.includes('target noncreature artifact')) targetType = 'noncreature artifact';
+    else if (lower.includes('target creature')) targetType = 'creature';
+    else if (lower.includes('target player') || lower.includes('target opponent')) targetType = 'player';
+    else if (lower.includes('target permanent')) targetType = 'permanent';
+    else if (lower.includes('target land')) targetType = 'land';
+    else if (lower.includes('target artifact')) targetType = 'artifact';
+    else if (lower.includes('target enchantment')) targetType = 'enchantment';
+    else if (lower.includes('target planeswalker')) targetType = 'planeswalker';
+    else if (lower.includes('target nonland')) targetType = 'nonland permanent';
+    else if (lower.includes('target noncreature')) targetType = 'noncreature permanent';
+    else if (lower.includes('any target')) targetType = 'any';
+  }
+
+  let targetConstraint: 'opponent' | 'you' | undefined;
+  if (requiresTarget) {
+    if (lower.includes('an opponent controls') || lower.includes('opponent controls')) {
+      targetConstraint = 'opponent';
+    } else if (lower.includes('you control')) {
+      targetConstraint = 'you';
+    }
+  }
+
+  return {
+    requiresTarget,
+    targetType,
+    targetConstraint,
+    targetZone,
+    targetDestination,
+    targetFilterTypes,
+    targetFilterExcludeTypes,
+    targetFilterPermanentOnly,
+    targetFilterMaxManaValue,
+    minTargets,
+    maxTargets,
+  };
+}
+
+function matchesTriggeredBattlefieldTarget(targetType: string, typeLine: string): boolean {
+  switch (targetType) {
+    case 'permanent':
+    case 'any':
+      return true;
+    case 'creature':
+      return typeLine.includes('creature');
+    case 'artifact':
+      return typeLine.includes('artifact');
+    case 'enchantment':
+      return typeLine.includes('enchantment');
+    case 'land':
+      return typeLine.includes('land');
+    case 'planeswalker':
+      return typeLine.includes('planeswalker');
+    case 'creature or planeswalker':
+      return typeLine.includes('creature') || typeLine.includes('planeswalker');
+    case 'noncreature artifact':
+      return typeLine.includes('artifact') && !typeLine.includes('creature');
+    case 'nonland permanent':
+      return !typeLine.includes('land');
+    case 'noncreature permanent':
+      return !typeLine.includes('creature');
+    default:
+      return false;
+  }
+}
+
+function matchesTriggeredGraveyardTarget(card: any, metadata: {
+  targetFilterTypes?: string[];
+  targetFilterExcludeTypes?: string[];
+  targetFilterPermanentOnly?: boolean;
+  targetFilterMaxManaValue?: number;
+}): boolean {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  if (!typeLine) {
+    return false;
+  }
+
+  if (metadata.targetFilterPermanentOnly === true && !isPermanentTypeLine(typeLine)) {
+    return false;
+  }
+
+  if (Array.isArray(metadata.targetFilterTypes) && metadata.targetFilterTypes.length > 0) {
+    const matchesAnyIncludedType = metadata.targetFilterTypes.some((type) => typeLine.includes(String(type || '').toLowerCase()));
+    if (!matchesAnyIncludedType) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(metadata.targetFilterExcludeTypes) && metadata.targetFilterExcludeTypes.length > 0) {
+    const matchesExcludedType = metadata.targetFilterExcludeTypes.some((type) => typeLine.includes(String(type || '').toLowerCase()));
+    if (matchesExcludedType) {
+      return false;
+    }
+  }
+
+  if (typeof metadata.targetFilterMaxManaValue === 'number' && Number.isFinite(metadata.targetFilterMaxManaValue)) {
+    const manaValue = cardManaValue(card);
+    if (manaValue > metadata.targetFilterMaxManaValue) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function buildFullTriggeredAbilityText(trigger: any): string {
+  const keywordRaw = String(trigger?.keyword || 'when').toLowerCase();
+  const keyword = keywordRaw === 'at' ? 'At' : keywordRaw === 'whenever' ? 'Whenever' : 'When';
+  const condition = String(trigger?.triggerFilter || trigger?.condition || 'this creature mutates').trim();
+  const effect = String(trigger?.effect || '').trim();
+  const interveningIf = String(trigger?.interveningIfClause || '').trim();
+
+  if (!condition) {
+    return effect;
+  }
+
+  if (interveningIf) {
+    return `${keyword} ${condition}, if ${interveningIf}, ${effect}`.trim();
+  }
+
+  return `${keyword} ${condition}, ${effect}`.trim();
+}
+
+function queueMutateTriggeredAbilities(
+  ctx: GameContext,
+  permanent: any,
+  controller: PlayerID,
+): void {
+  if ((ctx as any).isReplaying) {
+    return;
+  }
+
+  const permanentId = String(permanent?.id || '').trim();
+  const sourceName = String(permanent?.card?.name || 'Triggered ability').trim();
+  if (!permanentId) {
+    return;
+  }
+
+  const cardsToInspect = Array.isArray((permanent as any)?.mutatedStack) && (permanent as any).mutatedStack.length > 0
+    ? (permanent as any).mutatedStack
+    : [
+        {
+          name: sourceName,
+          oracleText: String(permanent?.card?.oracle_text || '').trim(),
+        },
+      ];
+  const mutateTriggers = cardsToInspect.flatMap((entry: any) => {
+    const oracleText = String(entry?.oracleText || '').trim();
+    if (!oracleText) return [];
+    return parseTriggeredAbilitiesFromText(
+      oracleText,
+      permanentId,
+      controller,
+      String(entry?.name || sourceName).trim() || sourceName,
+    ).filter((trigger) => trigger?.event === ParsedTriggerEvent.MUTATES);
+  });
+  if (mutateTriggers.length === 0) {
+    return;
+  }
+
+  const state: any = (ctx as any).state;
+  state.stack = state.stack || [];
+  const gameId = String((ctx as any).gameId || '').trim();
+
+  for (const trigger of mutateTriggers) {
+    const effectText = String(trigger?.effect || '').trim();
+    if (!effectText) continue;
+
+    const fullText = buildFullTriggeredAbilityText(trigger);
+    const {
+      requiresTarget,
+      targetType,
+      targetConstraint,
+      targetZone,
+      targetDestination,
+      targetFilterTypes,
+      targetFilterExcludeTypes,
+      targetFilterPermanentOnly,
+      targetFilterMaxManaValue,
+      minTargets,
+      maxTargets,
+    } = inferTriggeredAbilityTargetMetadata(effectText);
+    const triggerId = uid('trigger');
+
+    state.stack.push({
+      id: triggerId,
+      type: 'triggered_ability',
+      controller,
+      source: permanentId,
+      sourceName,
+      description: effectText,
+      triggerType: 'triggered_ability',
+      effect: fullText,
+      mandatory: trigger?.optional !== true,
+      ...(requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+      ...(targetType ? { targetType } : null),
+      ...(targetConstraint ? { targetConstraint } : null),
+      ...(targetZone ? { targetZone } : null),
+      ...(targetDestination ? { targetDestination } : null),
+      ...(Array.isArray(targetFilterTypes) ? { targetFilterTypes } : null),
+      ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
+      ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+      ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
+      ...(typeof minTargets === 'number' ? { minTargets } : null),
+      ...(typeof maxTargets === 'number' ? { maxTargets } : null),
+    } as any);
+
+    if (gameId) {
+      try {
+        appendEvent(gameId, (state as any).seq ?? 0, 'pushTriggeredAbility', {
+          triggerId,
+          sourceId: permanentId,
+          permanentId,
+          sourceName,
+          controllerId: controller,
+          description: effectText,
+          triggerType: 'triggered_ability',
+          effect: fullText,
+          mandatory: trigger?.optional !== true,
+          ...(requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+          ...(targetType ? { targetType } : null),
+          ...(targetConstraint ? { targetConstraint } : null),
+          ...(targetZone ? { targetZone } : null),
+          ...(targetDestination ? { targetDestination } : null),
+          ...(Array.isArray(targetFilterTypes) ? { targetFilterTypes } : null),
+          ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
+          ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+          ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
+          ...(typeof minTargets === 'number' ? { minTargets } : null),
+          ...(typeof maxTargets === 'number' ? { maxTargets } : null),
+        });
+      } catch (err) {
+        debugWarn(1, '[resolveTopOfStack] appendEvent(pushTriggeredAbility mutate) failed:', err);
+      }
+    }
+  }
+}
 
 function resolveOracleQuantityToNumber(q: OracleQuantity, xValue?: number): number | null {
   if (!q) return null;
@@ -6713,7 +7036,7 @@ export function executeTriggerEffect(
   }
   
   // Pattern: "destroy target creature" or "destroy it"  
-  const destroyMatch = desc.match(/destroy (?:target (?:creature|permanent|artifact|enchantment)|it|that creature)/i);
+  const destroyMatch = desc.match(/destroy (?:target (?:creature(?: or planeswalker)?|planeswalker|permanent|noncreature permanent|noncreature artifact|artifact|enchantment|land)|it|that creature)/i);
   if (destroyMatch) {
     const targets = triggerItem.targets || [];
     if (targets.length > 0) {
@@ -8155,6 +8478,21 @@ export function resolveTopOfStack(ctx: GameContext) {
       
       // Add equipped badge/marker
       targetCreature.isEquipped = true;
+
+      try {
+        const gameId = String((ctx as any).gameId || '').trim();
+        if (gameId) {
+          appendEvent(gameId, (state as any).seq ?? 0, 'equipPermanent', {
+            playerId: controller,
+            equipmentId,
+            equipmentName: equipmentName || sourceName || 'Equipment',
+            targetCreatureId,
+            targetCreatureName: targetCreatureName || targetCreature?.card?.name || 'Creature',
+          });
+        }
+      } catch (err) {
+        debugWarn(1, '[resolveTopOfStack] appendEvent(equipPermanent) failed:', err);
+      }
       
       debug(2, `[resolveTopOfStack] ${equipmentName || 'Equipment'} equipped to ${targetCreatureName || 'creature'}`);
       bumpSeq();
@@ -8216,6 +8554,21 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
       targetCreature.isEquipped = true;
 
+      try {
+        const gameId = String((ctx as any).gameId || '').trim();
+        if (gameId) {
+          appendEvent(gameId, (state as any).seq ?? 0, 'reconfigurePermanent', {
+            playerId: controller,
+            reconfigureId,
+            reconfigureName: reconfigureName || sourceName || 'Reconfigure permanent',
+            targetCreatureId,
+            targetCreatureName: targetCreatureName || targetCreature?.card?.name || 'Creature',
+          });
+        }
+      } catch (err) {
+        debugWarn(1, '[resolveTopOfStack] appendEvent(reconfigurePermanent) failed:', err);
+      }
+
       debug(2, `[resolveTopOfStack] ${reconfigureName || 'Reconfigure permanent'} attached to ${targetCreatureName || 'creature'}`);
       bumpSeq();
       return;
@@ -8233,6 +8586,9 @@ export function resolveTopOfStack(ctx: GameContext) {
         return;
       }
 
+      const previousTargetId = String((equipment as any).attachedTo || '').trim();
+      const previousTarget = previousTargetId ? battlefield.find((p: any) => p?.id === previousTargetId) : null;
+
       if (equipment.attachedTo) {
         const previousTarget = battlefield.find((p: any) => p?.id === equipment.attachedTo);
         if (previousTarget && previousTarget.attachedEquipment) {
@@ -8243,6 +8599,21 @@ export function resolveTopOfStack(ctx: GameContext) {
             previousTarget.isEquipped = false;
           }
         }
+      }
+
+      try {
+        const gameId = String((ctx as any).gameId || '').trim();
+        if (gameId) {
+          appendEvent(gameId, (state as any).seq ?? 0, 'reconfigureUnattachPermanent', {
+            playerId: controller,
+            reconfigureId: sourcePermanentId,
+            reconfigureName: sourceName || equipment?.card?.name || 'Reconfigure permanent',
+            targetCreatureId: previousTargetId || undefined,
+            targetCreatureName: previousTarget?.card?.name || undefined,
+          });
+        }
+      } catch (err) {
+        debugWarn(1, '[resolveTopOfStack] appendEvent(reconfigureUnattachPermanent) failed:', err);
       }
 
       delete equipment.attachedTo;
@@ -8304,6 +8675,21 @@ export function resolveTopOfStack(ctx: GameContext) {
       }
       if (!targetLand.attachedEquipment.includes(fortificationId)) {
         targetLand.attachedEquipment.push(fortificationId);
+      }
+
+      try {
+        const gameId = String((ctx as any).gameId || '').trim();
+        if (gameId) {
+          appendEvent(gameId, (state as any).seq ?? 0, 'fortifyPermanent', {
+            playerId: controller,
+            fortificationId,
+            fortificationName: fortificationName || sourceName || 'Fortification',
+            targetLandId,
+            targetLandName: targetLandName || targetLand?.card?.name || 'Land',
+          });
+        }
+      } catch (err) {
+        debugWarn(1, '[resolveTopOfStack] appendEvent(fortifyPermanent) failed:', err);
       }
 
       debug(2, `[resolveTopOfStack] ${fortificationName || 'Fortification'} fortified ${targetLandName || 'land'}`);
@@ -8960,19 +9346,80 @@ export function resolveTopOfStack(ctx: GameContext) {
       const gameId = (ctx as any).gameId || 'unknown';
       const isReplaying = !!(ctx as any).isReplaying;
       const battlefield = state.battlefield || [];
+      const targetZone = String((item as any).targetZone || '').toLowerCase();
+      const targetDestination = String((item as any).targetDestination || '').toLowerCase();
       const lowerDescription = String(description || '').toLowerCase();
       const constrainedToController =
         String((item as any).targetConstraint || '').toLowerCase().includes('you control') ||
         lowerDescription.includes('target creature you control') ||
         lowerDescription.includes('target permanent you control');
 
-      if (!isReplaying && (targetType === 'creature' || targetType === 'permanent')) {
+      if (!isReplaying && targetZone === 'graveyard' && (targetDestination === 'hand' || targetDestination === 'battlefield')) {
+        const zones = (state.zones || {}) as Record<string, any>;
+        const graveyardOwner = String(triggerController);
+        const playerZones = zones[graveyardOwner] || {};
+        const graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+        const targetFilterTypes = Array.isArray((item as any).targetFilterTypes) ? (item as any).targetFilterTypes : undefined;
+        const targetFilterExcludeTypes = Array.isArray((item as any).targetFilterExcludeTypes) ? (item as any).targetFilterExcludeTypes : undefined;
+        const targetFilterPermanentOnly = (item as any).targetFilterPermanentOnly === true;
+        const targetFilterMaxManaValue = typeof (item as any).targetFilterMaxManaValue === 'number'
+          ? Number((item as any).targetFilterMaxManaValue)
+          : undefined;
+        const validTargets = graveyard
+          .filter((card: any) => matchesTriggeredGraveyardTarget(card, {
+            targetFilterTypes,
+            targetFilterExcludeTypes,
+            targetFilterPermanentOnly,
+            targetFilterMaxManaValue,
+          }))
+          .map((card: any) => ({
+            id: String(card?.id || ''),
+            name: String(card?.name || card?.id || 'Card'),
+            typeLine: String(card?.type_line || ''),
+            manaCost: String(card?.mana_cost || ''),
+            imageUrl: card?.image_uris?.small || card?.image_uris?.normal,
+          }))
+          .filter((card: any) => Boolean(card.id));
+
+        const minSelectionCount = Math.max(0, Number((item as any).minTargets ?? 1));
+        const requestedMaxSelectionCount = Math.max(minSelectionCount, Number((item as any).maxTargets ?? minSelectionCount));
+        const maxSelectionCount = Math.min(validTargets.length, requestedMaxSelectionCount);
+
+        if (validTargets.length >= minSelectionCount) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.GRAVEYARD_SELECTION,
+            playerId: triggerController as PlayerID,
+            sourceId: String(sourceId || (item as any).id || ''),
+            sourceName,
+            description: `${sourceName}: Choose target card from your graveyard`,
+            mandatory: true,
+            effectId: String((item as any).id || sourceId || uid('graveyard_trigger')),
+            cardName: sourceName,
+            title: `${sourceName} — Select from graveyard`,
+            targetPlayerId: graveyardOwner,
+            minTargets: minSelectionCount,
+            maxTargets: maxSelectionCount,
+            destination: targetDestination,
+            validTargets,
+            triggeredAbilityGraveyardSelection: true,
+          } as any);
+
+          debug(2, `[resolveTopOfStack] ${triggerType} requires graveyard target selection for ${sourceName}`);
+          return;
+        }
+      }
+
+      if (!isReplaying && (PERMANENT_TRIGGER_TARGET_TYPES.has(String(targetType || '').toLowerCase()) || targetType === 'any')) {
         const validTargets = battlefield
           .filter((permanent: any) => {
             if (!permanent) return false;
             const typeLine = String(permanent.card?.type_line || '').toLowerCase();
-            const matchesType = targetType === 'permanent' ? true : typeLine.includes('creature');
+            const normalizedTargetType = String(targetType || '').toLowerCase();
+            const matchesType = matchesTriggeredBattlefieldTarget(normalizedTargetType, typeLine);
             if (!matchesType) return false;
+            if (String((item as any).targetConstraint || '').toLowerCase() === 'opponent') {
+              return String(permanent.controller || '') !== String(triggerController);
+            }
             if (!constrainedToController) return true;
             return String(permanent.controller || '') === String(triggerController);
           })
@@ -9214,16 +9661,153 @@ export function resolveTopOfStack(ctx: GameContext) {
         oracleTextLength: effectiveCard.oracle_text?.length || 0,
       });
     }
+
+    const isMutatingSpell =
+      !wasCastWithMorph &&
+      isCreature &&
+      (
+        (effectiveCard as any)?.isMutating === true ||
+        String((item as any)?.alternateCostId || (effectiveCard as any)?.alternateCostId || '').toLowerCase().trim() === 'mutate'
+      );
+
+    if (isMutatingSpell) {
+      const mutateTargetId = String((effectiveCard as any)?.mutateTarget || targets?.[0] || '').trim();
+      const mutateOnTop = Boolean((effectiveCard as any)?.mutateOnTop);
+      const mutateTarget = mutateTargetId
+        ? (state.battlefield || []).find((perm: any) => perm && String(perm.id || '') === mutateTargetId)
+        : null;
+      const mutateTargetTypeLine = String(mutateTarget?.card?.type_line || '').toLowerCase();
+      const spellOwner = String(controller || '').trim();
+      const targetOwner = String((mutateTarget as any)?.owner || (mutateTarget as any)?.controller || '').trim();
+      const legalMutateTarget = Boolean(
+        mutateTarget &&
+        isCreatureNow(mutateTarget) &&
+        !mutateTargetTypeLine.includes('human') &&
+        targetOwner &&
+        targetOwner === spellOwner
+      );
+
+      if (legalMutateTarget) {
+        const existingMutatedStack = Array.isArray((mutateTarget as any).mutatedStack)
+          ? ((mutateTarget as any).mutatedStack as any[])
+          : [];
+        const mutatingCardId = String((effectiveCard as any)?.id || '').trim();
+        const alreadyMerged = Boolean(mutatingCardId) && existingMutatedStack.some((entry: any) => String(entry?.id || '') === mutatingCardId);
+
+        if (!alreadyMerged) {
+          const existingMutation = existingMutatedStack.length > 0
+            ? {
+                permanentId: String((mutateTarget as any).id || mutateTargetId),
+                controller: String((mutateTarget as any).controller || controller),
+                owner: targetOwner,
+                cardStack: existingMutatedStack.map((entry: any) => ({
+                  id: String(entry?.id || ''),
+                  name: String(entry?.name || ''),
+                  typeLine: String(entry?.typeLine || ''),
+                  oracleText: String(entry?.oracleText || ''),
+                  power: entry?.power,
+                  toughness: entry?.toughness,
+                  manaCost: entry?.manaCost,
+                  isOriginal: entry?.isOriginal === true,
+                  isCommander: entry?.isCommander === true,
+                })),
+                mutationCount: Number((mutateTarget as any).mutationCount || Math.max(1, existingMutatedStack.length - 1)),
+                summoningSicknessInherited: !(mutateTarget as any).summoningSickness,
+              }
+            : undefined;
+
+          const mutatedPermanent = createMutatedPermanent(
+            mutateTarget,
+            {
+              ...(effectiveCard as any),
+              isCommander: (item as any).card?.isCommander || (effectiveCard as any).isCommander || false,
+            },
+            mutateOnTop,
+            existingMutation as any,
+          );
+          const topCharacteristics = getMutatedPermanentCharacteristics(mutatedPermanent);
+          const combinedAbilities = getMutatedPermanentAbilities(mutatedPermanent);
+          const topCardEntry = mutatedPermanent.cardStack[0];
+
+          (mutateTarget as any).mutatedStack = mutatedPermanent.cardStack.map((entry: any) => ({
+            id: entry.id,
+            name: entry.name,
+            typeLine: entry.typeLine,
+            oracleText: entry.oracleText,
+            power: entry.power,
+            toughness: entry.toughness,
+            manaCost: entry.manaCost,
+            isOriginal: entry.isOriginal,
+            isCommander: entry.isCommander,
+            imageUrl: entry.id === mutatingCardId
+              ? ((effectiveCard as any)?.image_uris?.small || (effectiveCard as any)?.image_uris?.normal)
+              : undefined,
+          }));
+          (mutateTarget as any).mutationCount = mutatedPermanent.mutationCount;
+          (mutateTarget as any).timesMutated = mutatedPermanent.mutationCount;
+          (mutateTarget as any).card = {
+            ...((mutateTarget as any).card || {}),
+            ...(mutateOnTop ? { ...(effectiveCard as any) } : {}),
+            id: topCardEntry?.id || (mutateTarget as any).card?.id,
+            name: topCharacteristics.name || (mutateTarget as any).card?.name,
+            type_line: topCharacteristics.typeLine || (mutateTarget as any).card?.type_line,
+            power: topCharacteristics.power ?? (mutateTarget as any).card?.power,
+            toughness: topCharacteristics.toughness ?? (mutateTarget as any).card?.toughness,
+            mana_cost: topCharacteristics.manaCost ?? (mutateTarget as any).card?.mana_cost,
+            oracle_text: combinedAbilities.join('\n') || (mutateTarget as any).card?.oracle_text || '',
+            zone: 'battlefield',
+          };
+
+          const parsedTopPower = parsePT(topCharacteristics.power);
+          const parsedTopToughness = parsePT(topCharacteristics.toughness);
+          if (parsedTopPower !== undefined) {
+            (mutateTarget as any).basePower = parsedTopPower;
+          }
+          if (parsedTopToughness !== undefined) {
+            (mutateTarget as any).baseToughness = parsedTopToughness;
+          }
+          (mutateTarget as any).isCommander = mutatedPermanent.cardStack.some((entry: any) => entry?.isCommander === true);
+
+          try {
+            const replayGameId = String((ctx as any).gameId || '').trim();
+            if (replayGameId && mutatingCardId) {
+              appendEvent(replayGameId, (state as any).seq ?? 0, 'mutatePermanent', {
+                playerId: controller,
+                targetPermanentId: String((mutateTarget as any).id || mutateTargetId),
+                targetPermanentName: String((mutateTarget as any).card?.name || 'Creature'),
+                onTop: mutateOnTop,
+                mutatingCard: {
+                  ...(effectiveCard as any),
+                  zone: 'battlefield',
+                },
+              });
+            }
+          } catch (err) {
+            debugWarn(1, '[resolveTopOfStack] appendEvent(mutatePermanent) failed:', err);
+          }
+
+          queueMutateTriggeredAbilities(ctx, mutateTarget, controller);
+
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'Mutating creature'} merged with ${String((mutateTarget as any).card?.name || mutateTargetId)}`);
+        }
+
+        bumpSeq();
+        return;
+      }
+
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'Mutating creature'} has no legal mutate target on resolution; resolving as a normal creature`);
+    }
     
     state.battlefield.push(newPermanent);
     
-    // Handle aura and equipment attachments
-    // Auras are enchantments with "Aura" subtype that target when cast
-    // When they resolve, attach them to their target
+    // Handle Aura and bestow-style enchantment attachments.
+    // Bestow permanents stay enchantment creatures in this model but still attach
+    // to a target creature while bestowed.
     // IMPORTANT: This must be done AFTER pushing to battlefield so the permanent exists
     const isAura = tl.includes('enchantment') && tl.includes('aura');
+    const isBestowAttachment = tl.includes('enchantment') && tl.includes('creature') && /\bbestow\b/i.test(String(effectiveCard.oracle_text || ''));
     const isEquipment = tl.includes('equipment');
-    if ((isAura || isEquipment) && targets && targets.length > 0) {
+    if ((isAura || isBestowAttachment || isEquipment) && targets && targets.length > 0) {
       const targetId = targets[0];
       const targetPerm = state.battlefield.find((p: any) => p?.id === targetId);
       
@@ -9235,16 +9819,35 @@ export function resolveTopOfStack(ctx: GameContext) {
         // Use attachedEquipment for equipment (existing pattern) and attachments for auras
         if (isEquipment) {
           (targetPerm as any).attachedEquipment = (targetPerm as any).attachedEquipment || [];
-          (targetPerm as any).attachedEquipment.push(newPermId);
+          if (!(targetPerm as any).attachedEquipment.includes(newPermId)) {
+            (targetPerm as any).attachedEquipment.push(newPermId);
+          }
           debug(2, `[resolveTopOfStack] Equipment ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
         } else {
-          // For auras, use the standard attachments field
+          // For Auras and bestowed enchantment creatures, use the standard attachments field.
           (targetPerm as any).attachments = (targetPerm as any).attachments || [];
-          (targetPerm as any).attachments.push(newPermId);
-          debug(2, `[resolveTopOfStack] Aura ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
+          if (!(targetPerm as any).attachments.includes(newPermId)) {
+            (targetPerm as any).attachments.push(newPermId);
+          }
+          debug(2, `[resolveTopOfStack] ${isBestowAttachment ? 'Bestow permanent' : 'Aura'} ${effectiveCard.name} attached to ${targetPerm.card?.name || targetId}`);
+
+          try {
+            const replayGameId = String((ctx as any).gameId || '').trim();
+            if (replayGameId) {
+              appendEvent(replayGameId, (state as any).seq ?? 0, 'attachEnchantmentPermanent', {
+                playerId: controller,
+                enchantmentId: newPermId,
+                enchantmentName: effectiveCard.name || 'Enchantment',
+                targetPermanentId: targetId,
+                targetPermanentName: targetPerm.card?.name || 'Permanent',
+              });
+            }
+          } catch (err) {
+            debugWarn(1, '[resolveTopOfStack] appendEvent(attachEnchantmentPermanent) failed:', err);
+          }
         }
       } else {
-        debugWarn(2, `[resolveTopOfStack] ${isAura ? 'Aura' : 'Equipment'} ${effectiveCard.name} target ${targetId} not found on battlefield`);
+        debugWarn(2, `[resolveTopOfStack] ${isEquipment ? 'Equipment' : (isBestowAttachment ? 'Bestow permanent' : 'Aura')} ${effectiveCard.name} target ${targetId} not found on battlefield`);
       }
     }
     

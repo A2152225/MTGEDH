@@ -33,7 +33,7 @@ import {
   applyExplore,
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
-import { exchangePermanentOracleText } from "../utils";
+import { exchangePermanentOracleText, parsePT } from "../utils";
 import {
   updateCounters,
   applyUpdateCountersBulk,
@@ -50,6 +50,11 @@ import { cleanupCardLeavingExile } from "./playable-from-exile";
 import { pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
+import {
+  createMutatedPermanent,
+  getMutatedPermanentAbilities,
+  getMutatedPermanentCharacteristics,
+} from "../../../../rules-engine/src/keywordAbilities/mutate.js";
 
 function getReplayStartingPlayerId(state: any): string {
   return String(state?.startingPlayerId || state?.startingPlayer || state?.turnPlayer || '').trim();
@@ -5783,6 +5788,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const targetType = (e as any).targetType;
         const targetConstraint = (e as any).targetConstraint;
         const needsTargetSelection = (e as any).needsTargetSelection;
+        const targetZone = (e as any).targetZone;
+        const targetDestination = (e as any).targetDestination;
+        const targetFilterTypes = (e as any).targetFilterTypes;
+        const targetFilterExcludeTypes = (e as any).targetFilterExcludeTypes;
+        const targetFilterPermanentOnly = (e as any).targetFilterPermanentOnly;
+        const targetFilterMaxManaValue = (e as any).targetFilterMaxManaValue;
+        const minTargets = (e as any).minTargets;
+        const maxTargets = (e as any).maxTargets;
         const isModal = (e as any).isModal;
         const modalOptions = (e as any).modalOptions;
         const targetPlayer = (e as any).targetPlayer;
@@ -5819,6 +5832,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(targetType ? { targetType } : null),
             ...(targetConstraint ? { targetConstraint } : null),
             ...(typeof needsTargetSelection === 'boolean' ? { needsTargetSelection } : null),
+            ...(targetZone ? { targetZone } : null),
+            ...(targetDestination ? { targetDestination } : null),
+            ...(Array.isArray(targetFilterTypes) ? { targetFilterTypes } : null),
+            ...(Array.isArray(targetFilterExcludeTypes) ? { targetFilterExcludeTypes } : null),
+            ...(targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+            ...(typeof targetFilterMaxManaValue === 'number' ? { targetFilterMaxManaValue } : null),
+            ...(typeof minTargets === 'number' ? { minTargets } : null),
+            ...(typeof maxTargets === 'number' ? { maxTargets } : null),
             ...(typeof isModal === 'boolean' ? { isModal } : null),
             ...(Array.isArray(modalOptions) ? { modalOptions } : null),
             ...(targetPlayer ? { targetPlayer } : null),
@@ -6189,6 +6210,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const prevCreature = battlefield.find((p: any) => p.id === equipment.attachedTo);
               if (prevCreature) {
                 (prevCreature as any).attachedEquipment = ((prevCreature as any).attachedEquipment || []).filter((id: string) => id !== equipmentId);
+                if (((prevCreature as any).attachedEquipment || []).length === 0) {
+                  (prevCreature as any).isEquipped = false;
+                }
               }
             }
             
@@ -6198,10 +6222,227 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
               (targetCreature as any).attachedEquipment.push(equipmentId);
             }
+            (targetCreature as any).isEquipped = true;
           }
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(equipPermanent): failed", err);
+        }
+        break;
+      }
+
+      case "attachEnchantmentPermanent": {
+        const enchantmentId = (e as any).enchantmentId;
+        const targetPermanentId = (e as any).targetPermanentId;
+
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const enchantment = battlefield.find((p: any) => p?.id === enchantmentId);
+          const targetPermanent = battlefield.find((p: any) => p?.id === targetPermanentId);
+
+          if (enchantment && targetPermanent) {
+            if (enchantment.attachedTo) {
+              const prevTarget = battlefield.find((p: any) => p?.id === enchantment.attachedTo);
+              if (prevTarget) {
+                (prevTarget as any).attachments = ((prevTarget as any).attachments || []).filter((id: string) => id !== enchantmentId);
+              }
+            }
+
+            enchantment.attachedTo = targetPermanentId;
+            (targetPermanent as any).attachments = (targetPermanent as any).attachments || [];
+            if (!(targetPermanent as any).attachments.includes(enchantmentId)) {
+              (targetPermanent as any).attachments.push(enchantmentId);
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(attachEnchantmentPermanent): failed', err);
+        }
+        break;
+      }
+
+      case "mutatePermanent": {
+        const targetPermanentId = String((e as any).targetPermanentId || '').trim();
+        const onTop = (e as any).onTop === true;
+        const mutatingCard = (e as any).mutatingCard;
+
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const targetPermanent = battlefield.find((p: any) => p?.id === targetPermanentId);
+          const mutatingCardId = String(mutatingCard?.id || '').trim();
+
+          if (targetPermanent && mutatingCard && mutatingCardId) {
+            const existingMutatedStack = Array.isArray((targetPermanent as any).mutatedStack)
+              ? ((targetPermanent as any).mutatedStack as any[])
+              : [];
+            const alreadyMerged = existingMutatedStack.some((entry: any) => String(entry?.id || '') === mutatingCardId);
+
+            if (!alreadyMerged) {
+              const targetOwner = String((targetPermanent as any).owner || (targetPermanent as any).controller || '');
+              const existingMutation = existingMutatedStack.length > 0
+                ? {
+                    permanentId: String((targetPermanent as any).id || targetPermanentId),
+                    controller: String((targetPermanent as any).controller || ''),
+                    owner: targetOwner,
+                    cardStack: existingMutatedStack.map((entry: any) => ({
+                      id: String(entry?.id || ''),
+                      name: String(entry?.name || ''),
+                      typeLine: String(entry?.typeLine || ''),
+                      oracleText: String(entry?.oracleText || ''),
+                      power: entry?.power,
+                      toughness: entry?.toughness,
+                      manaCost: entry?.manaCost,
+                      isOriginal: entry?.isOriginal === true,
+                      isCommander: entry?.isCommander === true,
+                    })),
+                    mutationCount: Number((targetPermanent as any).mutationCount || Math.max(1, existingMutatedStack.length - 1)),
+                    summoningSicknessInherited: !(targetPermanent as any).summoningSickness,
+                  }
+                : undefined;
+
+              const mutatedPermanent = createMutatedPermanent(targetPermanent, mutatingCard, onTop, existingMutation as any);
+              const topCharacteristics = getMutatedPermanentCharacteristics(mutatedPermanent);
+              const combinedAbilities = getMutatedPermanentAbilities(mutatedPermanent);
+              const topCardEntry = mutatedPermanent.cardStack[0];
+
+              (targetPermanent as any).mutatedStack = mutatedPermanent.cardStack.map((entry: any) => ({
+                id: entry.id,
+                name: entry.name,
+                typeLine: entry.typeLine,
+                oracleText: entry.oracleText,
+                power: entry.power,
+                toughness: entry.toughness,
+                manaCost: entry.manaCost,
+                isOriginal: entry.isOriginal,
+                isCommander: entry.isCommander,
+                imageUrl: entry.id === mutatingCardId
+                  ? (mutatingCard?.image_uris?.small || mutatingCard?.image_uris?.normal)
+                  : undefined,
+              }));
+              (targetPermanent as any).mutationCount = mutatedPermanent.mutationCount;
+              (targetPermanent as any).timesMutated = mutatedPermanent.mutationCount;
+              (targetPermanent as any).card = {
+                ...((targetPermanent as any).card || {}),
+                ...(onTop ? { ...(mutatingCard as any) } : {}),
+                id: topCardEntry?.id || (targetPermanent as any).card?.id,
+                name: topCharacteristics.name || (targetPermanent as any).card?.name,
+                type_line: topCharacteristics.typeLine || (targetPermanent as any).card?.type_line,
+                power: topCharacteristics.power ?? (targetPermanent as any).card?.power,
+                toughness: topCharacteristics.toughness ?? (targetPermanent as any).card?.toughness,
+                mana_cost: topCharacteristics.manaCost ?? (targetPermanent as any).card?.mana_cost,
+                oracle_text: combinedAbilities.join('\n') || (targetPermanent as any).card?.oracle_text || '',
+                zone: 'battlefield',
+              };
+
+              const parsedTopPower = parsePT(topCharacteristics.power);
+              const parsedTopToughness = parsePT(topCharacteristics.toughness);
+              if (parsedTopPower !== undefined) {
+                (targetPermanent as any).basePower = parsedTopPower;
+              }
+              if (parsedTopToughness !== undefined) {
+                (targetPermanent as any).baseToughness = parsedTopToughness;
+              }
+              (targetPermanent as any).isCommander = mutatedPermanent.cardStack.some((entry: any) => entry?.isCommander === true);
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(mutatePermanent): failed', err);
+        }
+        break;
+      }
+
+      case "fortifyPermanent": {
+        const fortificationId = (e as any).fortificationId;
+        const targetLandId = (e as any).targetLandId;
+
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const fortification = battlefield.find((p: any) => p?.id === fortificationId);
+          const targetLand = battlefield.find((p: any) => p?.id === targetLandId);
+
+          if (fortification && targetLand) {
+            if (fortification.attachedTo) {
+              const prevTarget = battlefield.find((p: any) => p.id === fortification.attachedTo);
+              if (prevTarget) {
+                (prevTarget as any).attachedEquipment = ((prevTarget as any).attachedEquipment || []).filter((id: string) => id !== fortificationId);
+                if (((prevTarget as any).attachedEquipment || []).length === 0) {
+                  (prevTarget as any).isEquipped = false;
+                }
+              }
+            }
+
+            fortification.attachedTo = targetLandId;
+            (targetLand as any).attachedEquipment = (targetLand as any).attachedEquipment || [];
+            if (!(targetLand as any).attachedEquipment.includes(fortificationId)) {
+              (targetLand as any).attachedEquipment.push(fortificationId);
+            }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(fortifyPermanent): failed', err);
+        }
+        break;
+      }
+
+      case "reconfigurePermanent": {
+        const reconfigureId = (e as any).reconfigureId;
+        const targetCreatureId = (e as any).targetCreatureId;
+
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const equipment = battlefield.find((p: any) => p?.id === reconfigureId);
+          const targetCreature = battlefield.find((p: any) => p?.id === targetCreatureId);
+
+          if (equipment && targetCreature) {
+            if (equipment.attachedTo) {
+              const prevTarget = battlefield.find((p: any) => p.id === equipment.attachedTo);
+              if (prevTarget) {
+                (prevTarget as any).attachedEquipment = ((prevTarget as any).attachedEquipment || []).filter((id: string) => id !== reconfigureId);
+                if (((prevTarget as any).attachedEquipment || []).length === 0) {
+                  (prevTarget as any).isEquipped = false;
+                }
+              }
+            }
+
+            equipment.attachedTo = targetCreatureId;
+            (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
+            if (!(targetCreature as any).attachedEquipment.includes(reconfigureId)) {
+              (targetCreature as any).attachedEquipment.push(reconfigureId);
+            }
+            (targetCreature as any).isEquipped = true;
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(reconfigurePermanent): failed', err);
+        }
+        break;
+      }
+
+      case "reconfigureUnattachPermanent": {
+        const reconfigureId = (e as any).reconfigureId;
+        const targetCreatureId = (e as any).targetCreatureId;
+
+        try {
+          const battlefield = ctx.state.battlefield || [];
+          const equipment = battlefield.find((p: any) => p?.id === reconfigureId);
+          if (equipment) {
+            const attachedTargetId = String((equipment as any).attachedTo || targetCreatureId || '').trim();
+            if (attachedTargetId) {
+              const prevTarget = battlefield.find((p: any) => p?.id === attachedTargetId);
+              if (prevTarget) {
+                (prevTarget as any).attachedEquipment = ((prevTarget as any).attachedEquipment || []).filter((id: string) => id !== reconfigureId);
+                if (((prevTarget as any).attachedEquipment || []).length === 0) {
+                  (prevTarget as any).isEquipped = false;
+                }
+              }
+            }
+
+            delete (equipment as any).attachedTo;
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(reconfigureUnattachPermanent): failed', err);
         }
         break;
       }

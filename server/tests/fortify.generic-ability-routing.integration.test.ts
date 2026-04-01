@@ -1,12 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import '../src/state/modules/priority.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
+import { createInitialGameState } from '../src/state/gameState.js';
 
 function createNoopIo() {
   return {
@@ -54,8 +55,12 @@ describe('Fortify generic ability routing (integration)', () => {
   });
 
   it('activates fortify through the parser-emitted id and attaches to a land on resolution', async () => {
-    createGameIfNotExists(gameId, 'commander', 40);
-    const game = ensureGame(gameId);
+    const persistentGameId = `${gameId}_persisted_attach_${Math.random().toString(36).slice(2, 10)}`;
+    ResolutionQueueManager.removeQueue(persistentGameId);
+    games.delete(persistentGameId as any);
+
+    createGameIfNotExists(persistentGameId, 'commander', 40);
+    const game = ensureGame(persistentGameId);
     if (!game) throw new Error('ensureGame returned undefined');
 
     const playerId = 'p1';
@@ -96,15 +101,15 @@ describe('Fortify generic ability routing (integration)', () => {
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket(playerId, emitted);
-    socket.rooms.add(gameId);
+    socket.rooms.add(persistentGameId);
     const io = createMockIo(emitted, [socket]);
 
     registerResolutionHandlers(io as any, socket as any);
     registerInteractionHandlers(io as any, socket as any);
 
-    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'fort_1', abilityId: 'fort_card_1-fortify-0' });
+    await handlers['activateBattlefieldAbility']({ gameId: persistentGameId, permanentId: 'fort_1', abilityId: 'fort_card_1-fortify-0' });
 
-    const queue = ResolutionQueueManager.getQueue(gameId);
+    const queue = ResolutionQueueManager.getQueue(persistentGameId);
     expect(queue.steps).toHaveLength(1);
     const step = queue.steps[0] as any;
     expect(step.type).toBe('target_selection');
@@ -112,7 +117,20 @@ describe('Fortify generic ability routing (integration)', () => {
     expect(step.validTargets).toHaveLength(1);
     expect(step.validTargets[0]?.id).toBe('land_1');
 
-    await handlers['submitResolutionResponse']({ gameId, stepId: step.id, selections: ['land_1'] });
+    await handlers['submitResolutionResponse']({ gameId: persistentGameId, stepId: step.id, selections: ['land_1'] });
+
+    const paymentStep = ResolutionQueueManager.getQueue(persistentGameId).steps[0] as any;
+    expect(paymentStep.type).toBe('mana_payment_choice');
+    expect(paymentStep.activationPaymentChoice).toBe(true);
+    expect(paymentStep.manaCost).toBe('{3}');
+
+    await handlers['submitResolutionResponse']({
+      gameId: persistentGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [{ permanentId: '__pool__:colorless', mana: 'C', count: 3 }],
+      },
+    });
 
     const stack = (game.state as any).stack || [];
     expect(stack).toHaveLength(1);
@@ -126,5 +144,50 @@ describe('Fortify generic ability routing (integration)', () => {
     expect(fortification?.attachedTo).toBe('land_1');
     expect(land?.attachedEquipment).toContain('fort_1');
     expect((game.state as any).manaPool?.[playerId]?.colorless).toBe(0);
+
+    const persisted = [...getEvents(persistentGameId)].reverse().find((event: any) => event.type === 'fortifyPermanent') as any;
+    expect(persisted?.payload?.fortificationId).toBe('fort_1');
+    expect(persisted?.payload?.targetLandId).toBe('land_1');
+
+    const replayGame = createInitialGameState(`${persistentGameId}_replay`);
+    replayGame.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    (replayGame.state as any).battlefield = [
+      {
+        id: 'fort_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'fort_card_1',
+          name: 'Darksteel Garrison',
+          type_line: 'Artifact - Fortification',
+          oracle_text: 'Fortified land has indestructible.\nFortify {3}',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'land_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        attachedEquipment: [],
+        card: {
+          id: 'land_card_1',
+          name: 'Plains',
+          type_line: 'Basic Land - Plains',
+          oracle_text: '{T}: Add {W}.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    replayGame.applyEvent({ type: 'fortifyPermanent', ...(persisted.payload || {}) } as any);
+
+    const replayFortification = ((replayGame.state as any).battlefield || []).find((entry: any) => entry.id === 'fort_1');
+    const replayLand = ((replayGame.state as any).battlefield || []).find((entry: any) => entry.id === 'land_1');
+    expect(replayFortification?.attachedTo).toBe('land_1');
+    expect(replayLand?.attachedEquipment || []).toContain('fort_1');
   });
 });

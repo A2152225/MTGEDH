@@ -622,6 +622,16 @@ function getEventSummary(event: any): string {
       return `Permanents phased out`;
     case "equipPermanent":
       return `Equipped ${event.equipmentName || 'equipment'} to ${event.targetCreatureName || 'creature'}`;
+    case "attachEnchantmentPermanent":
+      return `Attached ${event.enchantmentName || 'enchantment'} to ${event.targetPermanentName || 'permanent'}`;
+    case "mutatePermanent":
+      return `Merged ${event.mutatingCard?.name || 'mutating creature'} onto ${event.targetPermanentName || 'creature'}`;
+    case "fortifyPermanent":
+      return `Fortified ${event.targetLandName || 'land'} with ${event.fortificationName || 'fortification'}`;
+    case "reconfigurePermanent":
+      return `Attached ${event.reconfigureName || 'reconfigure permanent'} to ${event.targetCreatureName || 'creature'}`;
+    case "reconfigureUnattachPermanent":
+      return `Unattached ${event.reconfigureName || 'reconfigure permanent'}`;
     case "tapPermanent":
       return `Tapped permanent`;
     case "untapPermanent":

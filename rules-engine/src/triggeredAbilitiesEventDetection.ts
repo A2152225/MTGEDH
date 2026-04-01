@@ -65,6 +65,10 @@ export function detectTriggeredAbilityEvent<T extends string>(
     return { event: triggerEventValues.BECOMES_BLOCKED };
   }
 
+  if (text.includes('mutates')) {
+    return { event: triggerEventValues.MUTATES, filter: text };
+  }
+
   if (text.includes('becomes monstrous')) {
     return { event: triggerEventValues.BECAME_MONSTROUS, filter: text };
   }

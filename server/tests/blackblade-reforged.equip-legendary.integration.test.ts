@@ -1,12 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import '../src/state/modules/priority.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
+import { createInitialGameState } from '../src/state/gameState.js';
 
 function createNoopIo() {
   return {
@@ -154,5 +155,145 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     expect(stack).toHaveLength(1);
     expect(stack[0]?.abilityType).toBe('equip');
     expect(stack[0]?.equipParams?.targetCreatureId).toBe('commander_1');
+  });
+
+  it('persists resolved equip attachments so restore rebuilds attached and equipped state', async () => {
+    const persistentGameId = `${gameId}_persisted_attach_${Math.random().toString(36).slice(2, 10)}`;
+    ResolutionQueueManager.removeQueue(persistentGameId);
+    games.delete(persistentGameId as any);
+
+    createGameIfNotExists(persistentGameId, 'commander', 40);
+    const game = ensureGame(persistentGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'equipment_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'equipment_card_1',
+          name: 'Test Sword',
+          type_line: 'Artifact - Equipment',
+          oracle_text: 'Equip {2}',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'creature_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        attachedEquipment: [],
+        isEquipped: false,
+        card: {
+          id: 'creature_card_1',
+          name: 'Silvercoat Lion',
+          type_line: 'Creature - Cat',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(persistentGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId: persistentGameId,
+      permanentId: 'equipment_1',
+      abilityId: 'equipment_card_1-equip-0',
+    });
+
+    const targetStep = ResolutionQueueManager.getQueue(persistentGameId).steps[0] as any;
+    await handlers['submitResolutionResponse']({
+      gameId: persistentGameId,
+      stepId: String(targetStep.id),
+      selections: ['creature_1'],
+    });
+
+    const paymentStep = ResolutionQueueManager.getQueue(persistentGameId).steps[0] as any;
+    await handlers['submitResolutionResponse']({
+      gameId: persistentGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [{ permanentId: '__pool__:colorless', mana: 'C', count: 2 }],
+      },
+    });
+
+    expect(Array.isArray((game.state as any).stack)).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+
+    game.resolveTopOfStack();
+
+    const equipment = (game.state as any).battlefield.find((entry: any) => entry.id === 'equipment_1');
+    const creature = (game.state as any).battlefield.find((entry: any) => entry.id === 'creature_1');
+    expect(equipment?.attachedTo).toBe('creature_1');
+    expect(creature?.attachedEquipment || []).toContain('equipment_1');
+    expect(Boolean(creature?.isEquipped)).toBe(true);
+
+    const persisted = [...getEvents(persistentGameId)].reverse().find((event: any) => event.type === 'equipPermanent') as any;
+    expect(persisted?.payload?.equipmentId).toBe('equipment_1');
+    expect(persisted?.payload?.targetCreatureId).toBe('creature_1');
+
+    const replayGame = createInitialGameState(`${persistentGameId}_replay`);
+    replayGame.applyEvent({ type: 'join', playerId, name: 'P1' } as any);
+    (replayGame.state as any).battlefield = [
+      {
+        id: 'equipment_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'equipment_card_1',
+          name: 'Test Sword',
+          type_line: 'Artifact - Equipment',
+          oracle_text: 'Equip {2}',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'creature_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        attachedEquipment: [],
+        isEquipped: false,
+        card: {
+          id: 'creature_card_1',
+          name: 'Silvercoat Lion',
+          type_line: 'Creature - Cat',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    replayGame.applyEvent({ type: 'equipPermanent', ...(persisted.payload || {}) } as any);
+
+    const replayEquipment = (replayGame.state as any).battlefield.find((entry: any) => entry.id === 'equipment_1');
+    const replayCreature = (replayGame.state as any).battlefield.find((entry: any) => entry.id === 'creature_1');
+    expect(replayEquipment?.attachedTo).toBe('creature_1');
+    expect(replayCreature?.attachedEquipment || []).toContain('equipment_1');
+    expect(Boolean(replayCreature?.isEquipped)).toBe(true);
   });
 });

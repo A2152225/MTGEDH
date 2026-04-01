@@ -65,6 +65,7 @@ export enum TriggerEvent {
   LIFE_PAID = 'life_paid',
   TOKEN_CREATED = 'token_created',
   TRANSFORMED = 'transformed',
+  MUTATES = 'mutates',
   BECAME_MONSTROUS = 'became_monstrous',
   BECAME_RENOWNED = 'became_renowned',
   EQUIPPED = 'equipped',

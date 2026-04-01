@@ -222,6 +222,55 @@ describe('AI resolution-step integration', () => {
     }
   });
 
+  it('auto-resolves AI trigger-order steps from the shared resolution queue handler', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'beginning';
+      (game.state as any).step = 'upkeep';
+      (game.state as any).stack = [
+        { id: 'trigger_1', type: 'triggered_ability', controller: playerId },
+        { id: 'trigger_2', type: 'triggered_ability', controller: playerId },
+      ];
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TRIGGER_ORDER,
+        playerId: playerId as any,
+        description: 'Order triggers',
+        mandatory: true,
+        triggers: [
+          { id: 'trigger_1', sourceName: 'First Trigger', effect: 'a' },
+          { id: 'trigger_2', sourceName: 'Second Trigger', effect: 'b' },
+        ],
+        requireAll: true,
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toEqual(['trigger_1', 'trigger_2']);
+
+        const stackIds = ((game.state as any).stack || []).map((entry: any) => String(entry?.id || ''));
+        expect(stackIds).toEqual(['trigger_2', 'trigger_1']);
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
   it('advances out of untap instead of passing priority repeatedly', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

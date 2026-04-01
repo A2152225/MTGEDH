@@ -2069,6 +2069,24 @@ async function handleAIResolutionStep(
         break;
       }
 
+      case ResolutionStepType.TRIGGER_ORDER: {
+        const triggerStep = step as any;
+        const triggers = Array.isArray(triggerStep.triggers) ? triggerStep.triggers : [];
+        const orderedTriggerIds = triggers
+          .map((trigger: any) => String(trigger?.id || ''))
+          .filter((id: string) => id.length > 0);
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: orderedTriggerIds,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI trigger order: ${orderedTriggerIds.join(', ') || 'none'}`);
+        break;
+      }
+
       case ResolutionStepType.MANA_PAYMENT_CHOICE: {
         const stepData = step as any;
 
