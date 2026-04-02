@@ -16,20 +16,20 @@ function createNoopIo() {
   } as any;
 }
 
-describe('Casal ETB library search', () => {
+describe('generic ETB battlefield tutor search', () => {
   const gameId = 'casal_etb_library_search';
 
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(gameId);
   });
 
-  it('builds the ETB search from the live library snapshot using Forest subtype filtering', () => {
+  it('builds the ETB search from the live library snapshot using subtype filtering without relying on a specific card name', () => {
     const playerId = 'p1';
-    const casalCard = {
-      id: 'casal_card',
-      name: 'Casal, Lurkwood Pathfinder',
-      type_line: 'Legendary Creature — Human Scout',
-      oracle_text: 'When Casal enters, search your library for a Forest card, put it onto the battlefield tapped, then shuffle.',
+    const verdantGuideCard = {
+      id: 'verdant_guide_card',
+      name: 'Verdant Guide',
+      type_line: 'Creature — Elf Scout',
+      oracle_text: 'When Verdant Guide enters, search your library for a Forest card, put it onto the battlefield tapped, then shuffle.',
     };
 
     const game: any = {
@@ -50,7 +50,7 @@ describe('Casal ETB library search', () => {
             controller: playerId,
             owner: playerId,
             tapped: false,
-            card: casalCard,
+            card: verdantGuideCard,
           },
         ],
       },
@@ -78,13 +78,13 @@ describe('Casal ETB library search', () => {
       },
     };
 
-    finalizePlayedLand(createNoopIo(), game, gameId, playerId, 'casal_card', casalCard, 'hand');
+    finalizePlayedLand(createNoopIo(), game, gameId, playerId, 'verdant_guide_card', verdantGuideCard, 'hand');
 
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any);
-    const searchStep = steps.find((step: any) => step?.sourceName === 'Casal, Lurkwood Pathfinder') as any;
+    const searchStep = steps.find((step: any) => step?.sourceName === 'Verdant Guide') as any;
 
     expect(searchStep).toBeDefined();
-    expect(searchStep.filter).toEqual({ subtypes: ['Forest'] });
+    expect(searchStep.filter).toEqual({ subtypes: ['forest'] });
     expect(Array.isArray(searchStep.availableCards)).toBe(true);
     expect(searchStep.availableCards).toHaveLength(1);
     expect(searchStep.availableCards[0]?.id).toBe('forest_dual');

@@ -36,6 +36,7 @@ import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./u
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
 import { runSBA, createToken } from "./counters_tokens.js";
+import { applyDamageToPermanentWithCounterEffects } from "./counter-common-effects.js";
 import { calculateAllPTBonuses, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
@@ -1528,8 +1529,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           const damageToBlocker = Math.min(lethalDamage, remainingDamage);
           
           if (damageToBlocker > 0) {
-            // Mark damage on blocker
-            blocker.markedDamage = (blocker.markedDamage || 0) + damageToBlocker;
+            const damageResult = applyDamageToPermanentWithCounterEffects(blocker, damageToBlocker, 'markedDamage');
+            if (damageResult.prevented) {
+              continue;
+            }
             // Track damage dealt to this permanent this turn (for intervening-if clauses).
             blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageToBlocker;
             blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageToBlocker;
@@ -1720,7 +1723,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             } catch {}
 
             // Deal damage to attacker
-            attacker.markedDamage = (attacker.markedDamage || 0) + blockerPower;
+            const damageResult = applyDamageToPermanentWithCounterEffects(attacker, blockerPower, 'markedDamage');
+            if (damageResult.prevented) {
+              continue;
+            }
             // Track damage dealt to this permanent this turn (for intervening-if clauses).
             attacker.damageThisTurn = (attacker.damageThisTurn || 0) + blockerPower;
             attacker.combatDamageThisTurn = (attacker.combatDamageThisTurn || 0) + blockerPower;

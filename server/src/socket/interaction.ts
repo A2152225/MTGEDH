@@ -253,6 +253,32 @@ const SPECIAL_LAND_ABILITIES: Record<string, LandAbilityConfig> = {
   },
 };
 
+function snapshotInteractionManaPool(pool: any): Record<string, number> {
+  return {
+    white: Number(pool?.white || 0),
+    blue: Number(pool?.blue || 0),
+    black: Number(pool?.black || 0),
+    red: Number(pool?.red || 0),
+    green: Number(pool?.green || 0),
+    colorless: Number(pool?.colorless || 0),
+  };
+}
+
+function calculateInteractionManaPoolDelta(before: any, after: any): Record<string, number> | undefined {
+  const baseline = snapshotInteractionManaPool(before);
+  const current = snapshotInteractionManaPool(after);
+  const delta: Record<string, number> = {};
+
+  for (const key of ['white', 'blue', 'black', 'red', 'green', 'colorless']) {
+    const amount = Number(current[key] || 0) - Number(baseline[key] || 0);
+    if (amount !== 0) {
+      delta[key] = amount;
+    }
+  }
+
+  return Object.keys(delta).length > 0 ? delta : undefined;
+}
+
 // ============================================================================
 // Tap/Untap Ability Text Parsing
 // ============================================================================
@@ -3591,6 +3617,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           return;
         }
         
+        const manaPoolBeforePayment = snapshotInteractionManaPool(manaPool);
+
         // Consume 1 generic mana
         consumeManaFromPool(manaPool, {}, 1);
         
@@ -3613,6 +3641,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (typeof game.bumpSeq === "function") {
           game.bumpSeq();
         }
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: pid,
+            permanentId,
+            abilityId,
+            cardName,
+            tappedPermanents: [String(permanentId)],
+            paymentManaDelta: calculateInteractionManaPoolDelta(manaPoolBeforePayment, manaPool),
+            counterUpdates: [{
+              permanentId: String(permanentId),
+              deltas: { [specialLandConfig.counterType!]: 1 },
+            }],
+          });
+        } catch (e) {
+          debugWarn(1, 'appendEvent(activateBattlefieldAbility:storage-add) failed:', e);
+        }
+
         broadcastGame(io, game, gameId);
         return;
       } else if (hasLegacyStorageRemoveCountersAbilityId || isGenericStorageRemoveCountersAbility) {
@@ -3689,6 +3735,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
+      const manaPoolBeforePayment = snapshotInteractionManaPool(manaPool);
+
       // Consume 1 generic mana
       consumeManaFromPool(manaPool, {}, 1);
       
@@ -3735,6 +3783,29 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          playerId: pid,
+          permanentId,
+          abilityId,
+          cardName,
+          paymentManaDelta: calculateInteractionManaPoolDelta(manaPoolBeforePayment, manaPool),
+          specialAnimation: {
+            animatedUntilEOT: true,
+            basePower: specialLandConfig.power,
+            baseToughness: specialLandConfig.toughness,
+            effectivePower: specialLandConfig.power,
+            effectiveToughness: specialLandConfig.toughness,
+            typeAdditions: Array.from(new Set(Array.isArray((permanent as any).typeAdditions) ? (permanent as any).typeAdditions : [])),
+            hasAllCreatureTypes: (permanent as any).hasAllCreatureTypes === true,
+            untilEndOfTurn: { ...(permanent as any).untilEndOfTurn },
+          },
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(activateBattlefieldAbility:animate-land) failed:', e);
+      }
+
       broadcastGame(io, game, gameId);
       return;
     }
@@ -4042,9 +4113,24 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const isSacrificeDrawAbility = (hasLegacyAbilityToken("sacrifice-draw") || abilityId.includes("-ability-")) && hasSacrificeDrawPattern;
     if (isSacrificeDrawAbility) {
       // Parse optional mana/tap costs from oracle text.
-      const sacrificeCostMatch = scopedAbilityFullText.match(/^(?:(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*)?(?:(\{T\})\s*,\s*)?sacrifice[^:]*:\s*draw a card\.?$/i);
+      const sacrificeCostMatch = scopedAbilityFullText.match(/^(?:(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*,\s*)?(?:(\{T\})\s*,\s*)?sacrifice\s+([^:]+):\s*draw a card\.?$/i);
       
       if (sacrificeCostMatch) {
+        const sacrificeSubject = String(sacrificeCostMatch[3] || '').trim().toLowerCase();
+        const selfSacrificeSubjects = new Set([
+          '~',
+          'this',
+          'this artifact',
+          'this creature',
+          'this enchantment',
+          'this land',
+          'this permanent',
+          String(cardName || '').trim().toLowerCase(),
+        ]);
+
+        if (!selfSacrificeSubjects.has(sacrificeSubject)) {
+          // Costs like "Sacrifice a creature: Draw a card" need the generic activation-cost flow.
+        } else {
         const manaCostStr = sacrificeCostMatch[1];
         const requiresTap = Boolean(sacrificeCostMatch[2]);
         const manaPool = getOrInitManaPool(game.state, pid);
@@ -4148,6 +4234,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         
         broadcastGame(io, game, gameId);
         return;
+        }
       }
     }
     
@@ -7600,21 +7687,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             const parsedCost = parseManaCost(manaOnly);
             const manaPool = getOrInitManaPool(game.state, pid);
             const playerLife = game.state.life?.[pid] || 40;
-            const costForCheck = {
-              colors: parsedCost.colors,
-              generic: parsedCost.generic,
-              hasX: parsedCost.hasX,
-              hybrid: parsedCost.hybrids,
-            };
-            const availableForCheck = getAvailableMana(game.state, pid as any);
-            if (!canPayManaCost(availableForCheck as unknown as Record<string, number>, costForCheck, playerLife)) {
-              socket.emit('error', {
-                code: 'INSUFFICIENT_MANA',
-                message: `Cannot pay ${manaOnly} - insufficient mana or life`,
-              });
-              return;
-            }
-
             const phyrexianCosts = (parsedCost.hybrids || []).filter((options: string[]) =>
               options.some(option => option.startsWith('LIFE:'))
             );
@@ -8696,6 +8768,29 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       selectedXValue
     );
 
+    const shouldPromptForActivationPaymentChoice = (resolvedManaCost: string): boolean => {
+      const parsed = parseManaCost(String(resolvedManaCost || ''));
+      const hasColoredRequirement = Object.values(parsed.colors || {}).some((amount) => Number(amount || 0) > 0);
+      const genericRequirement = Number(parsed.generic || 0);
+
+      if (!hasColoredRequirement && genericRequirement <= 0) {
+        return false;
+      }
+
+      const manaPool = getOrInitManaPool(game.state, pid);
+      const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
+      const validationError = validateManaPayment(totalAvailable, parsed.colors, genericRequirement);
+      if (validationError) {
+        return true;
+      }
+
+      const nonZeroPoolKeys = ['white', 'blue', 'black', 'red', 'green', 'colorless'].filter(
+        (poolKey) => Number((manaPool as any)?.[poolKey] || 0) > 0,
+      );
+
+      return nonZeroPoolKeys.length > 1;
+    };
+
     const maybeAutoTapForSimpleNonHybridCost = (required: { colors: Record<string, number>; generic: number }): void => {
       const manaPool = getOrInitManaPool(game.state, pid);
       const requiredColors: Record<string, number> = required?.colors || {};
@@ -8885,15 +8980,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           
           // Check if we can pay the cost, including mana that could be produced by untapped sources.
           // (Activated abilities allow activating mana abilities during cost payment.)
-          const availableForCheck = getAvailableMana(game.state, pid as any);
-          if (!canPayManaCost(availableForCheck as unknown as Record<string, number>, costForCheck, playerLife)) {
-            socket.emit("error", {
-              code: "INSUFFICIENT_MANA",
-              message: `Cannot pay ${resolvedManaOnly} - insufficient mana or life`,
-            });
-            return;
-          }
-          
           // Check if there are Phyrexian mana costs that require a player choice
           // Phyrexian mana can ALWAYS be paid with life (2 life per {X/P}), even if the player has the color
           const phyrexianCosts = (parsedCost.hybrids || []).filter((options: string[]) => 
@@ -8964,7 +9050,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             return; // Wait for player's choice
           }
 
-          if (wouldBeManaAbility && (!parsedCost.hybrids || parsedCost.hybrids.length === 0) && !sacrificeType) {
+          if (
+            wouldBeManaAbility &&
+            (!parsedCost.hybrids || parsedCost.hybrids.length === 0) &&
+            !sacrificeType &&
+            shouldPromptForActivationPaymentChoice(resolvedManaOnly)
+          ) {
             const activatedAbilityText = (() => {
               const scopedAbilityText = String(abilityConditionText || '').trim();
               if (scopedAbilityText.includes(':')) return scopedAbilityText;
@@ -8998,7 +9089,13 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             return;
           }
 
-          if (!wouldBeManaAbility && (!parsedCost.hybrids || parsedCost.hybrids.length === 0) && !sacrificeType && /each player draws?/i.test(String(abilityText || ''))) {
+          if (
+            !wouldBeManaAbility &&
+            (!parsedCost.hybrids || parsedCost.hybrids.length === 0) &&
+            !sacrificeType &&
+            /each player draws?/i.test(String(abilityText || '')) &&
+            shouldPromptForActivationPaymentChoice(resolvedManaOnly)
+          ) {
             const activatedAbilityText = (() => {
               const scopedAbilityText = String(abilityConditionText || '').trim();
               if (scopedAbilityText.includes(':')) return scopedAbilityText;

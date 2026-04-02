@@ -13,6 +13,8 @@
 
 import type { Server, Socket } from "socket.io";
 import { ensureGame, broadcastGame, getPlayerName, broadcastManaPoolUpdate } from "./util.js";
+import { appendEvent } from "../db/index.js";
+import { debugWarn } from "../utils/debug.js";
 
 /**
  * Register all mana-related socket handlers
@@ -106,6 +108,17 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       (game as any).bumpSeq();
     }
 
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'addManaToPool', {
+        playerId: pid,
+        color: manaColor,
+        amount: manaAmount,
+        ...(restriction ? { restriction, restrictedTo, sourceId, sourceName } : null),
+      });
+    } catch (err) {
+      debugWarn(1, '[mana-handlers] appendEvent(addManaToPool) failed:', err);
+    }
+
     // Log the mana addition
     const restrictionText = restriction ? ` (${restriction})` : '';
     io.to(gameId).emit("chat", {
@@ -187,6 +200,8 @@ export function registerManaHandlers(io: Server, socket: Socket) {
       return;
     }
 
+    let removedRestrictedMana: Record<string, unknown> | undefined;
+
     if (restrictedIndexValue !== undefined) {
       // Remove from restricted mana
       if (!pool.restricted || restrictedIndexValue >= pool.restricted.length) {
@@ -198,6 +213,14 @@ export function registerManaHandlers(io: Server, socket: Socket) {
         socket.emit("error", { code: "INVALID_ACTION", message: "Not enough restricted mana" });
         return;
       }
+      removedRestrictedMana = {
+        type: entry.type,
+        amount: manaAmount,
+        restriction: entry.restriction,
+        restrictedTo: entry.restrictedTo,
+        sourceId: entry.sourceId,
+        sourceName: entry.sourceName,
+      };
       if (entry.amount === manaAmount) {
         pool.restricted.splice(restrictedIndexValue, 1);
         if (pool.restricted.length === 0) {
@@ -217,6 +240,17 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     // Bump game sequence
     if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'removeManaFromPool', {
+        playerId: pid,
+        color: manaColor,
+        amount: manaAmount,
+        ...(removedRestrictedMana ? { removedRestrictedMana } : null),
+      });
+    } catch (err) {
+      debugWarn(1, '[mana-handlers] appendEvent(removeManaFromPool) failed:', err);
+    }
 
     // Log the mana removal
     io.to(gameId).emit("chat", {
@@ -326,6 +360,18 @@ export function registerManaHandlers(io: Server, socket: Socket) {
     // Bump game sequence
     if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
 
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'setManaPoolDoesNotEmpty', {
+        playerId: pid,
+        sourceId: sourceIdValue,
+        sourceName: sourceNameValue,
+        ...(convertsToValue ? { convertsTo: convertsToValue } : null),
+        ...(convertsToColorlessValue ? { convertsToColorless: true } : null),
+      });
+    } catch (err) {
+      debugWarn(1, '[mana-handlers] appendEvent(setManaPoolDoesNotEmpty) failed:', err);
+    }
+
     // Log the effect
     const targetColor = convertsToValue || (convertsToColorlessValue ? 'colorless' : null);
     const effectText = targetColor 
@@ -388,12 +434,22 @@ export function registerManaHandlers(io: Server, socket: Socket) {
 
     if (pool.noEmptySourceIds.length === 0) {
       delete pool.doesNotEmpty;
+      delete pool.convertsTo;
       delete pool.convertsToColorless;
       delete pool.noEmptySourceIds;
     }
 
     // Bump game sequence
     if (typeof (game as any).bumpSeq === "function") { (game as any).bumpSeq(); }
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'removeManaPoolDoesNotEmpty', {
+        playerId: pid,
+        sourceId: sourceIdValue,
+      });
+    } catch (err) {
+      debugWarn(1, '[mana-handlers] appendEvent(removeManaPoolDoesNotEmpty) failed:', err);
+    }
 
     broadcastGame(io, game, gameId);
     },

@@ -23,6 +23,7 @@ import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { processLifeChange } from "../game-state-effects.js";
 import { triggerLifeGainEffects } from "../../utils.js";
+import { applyDamageToPermanentWithCounterEffects } from "../counter-common-effects.js";
 
 function escapeRegex(text: string): string {
   return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -526,7 +527,10 @@ export function resolveDamageTrigger(
   const targetPerm = state.battlefield?.find((p: any) => p.id === targetId);
   if (targetPerm) {
     // Mark damage on the permanent
-    targetPerm.damageMarked = (targetPerm.damageMarked || 0) + dmg;
+    const damageResult = applyDamageToPermanentWithCounterEffects(targetPerm, dmg, 'damageMarked');
+    if (damageResult.prevented) {
+      return `${triggerInfo.sourceName} damage to ${targetPerm.card?.name || 'target'} was prevented.`;
+    }
     
     const targetName = targetPerm.card?.name || "target";
     return `${triggerInfo.sourceName} dealt ${dmg} damage to ${targetName}.`;

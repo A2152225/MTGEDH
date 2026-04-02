@@ -3,7 +3,7 @@ import type { PlayerID } from "../../../../../shared/src/types.js";
 import { debug } from "../../../utils/debug.js";
 import { getActualPowerToughness, uid } from "../../utils.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand, movePermanentToLibrary } from "../../modules/zones.js";
-import { createToken, movePermanentToExile, movePermanentToGraveyard, updateCounters } from "../../modules/counters_tokens.js";
+import { createToken, destroyPermanent, movePermanentToExile, movePermanentToGraveyard, updateCounters } from "../../modules/counters_tokens.js";
 import { cleanupCardLeavingExile } from "../../modules/playable-from-exile.js";
 import { recordCardLeftGraveyardThisTurn } from "../../modules/turn-tracking.js";
 import { applyTemporaryLandBonus } from "../../modules/game-state-effects.js";
@@ -11,6 +11,7 @@ import { addExtraTurn, nextTurn } from "../../modules/turn.js";
 import { ResolutionQueueManager } from "../../resolution/index.js";
 import { ResolutionStepType } from "../../resolution/types.js";
 import { permanentHasCreatureTypeNow } from "../../creatureTypeNow.js";
+import { applyDamageToPermanentWithCounterEffects } from "../../modules/counter-common-effects.js";
 import { getPlaneswalkerTemplateMatch } from "./registry.js";
 import { getBattlefield, getGameId, getPlaneswalkerX, getTargets, modifyLifeLikeStack, normalizeOracleEffectText, parseCountTokenWord, parseCreateTokenDescriptor } from "./utils.js";
 
@@ -416,7 +417,7 @@ function millCards(ctx: GameContext, playerId: PlayerID, count: number): any[] {
 
 function destroyPermanents(ctx: GameContext, permanentIds: string[]) {
   for (const id of permanentIds) {
-    movePermanentToGraveyard(ctx, id, true);
+    destroyPermanent(ctx, id, true);
   }
 }
 
@@ -512,7 +513,8 @@ function applyDamageToPermanent(ctx: GameContext, permanentId: string, amount: n
       }
     }
   } catch {}
-  (perm as any).damageMarked = ((perm as any).damageMarked || 0) + dmg;
+  const damageResult = applyDamageToPermanentWithCounterEffects(perm, dmg, 'damageMarked');
+  if (damageResult.prevented) return;
   (perm as any).damageThisTurn = ((perm as any).damageThisTurn || 0) + dmg;
   (perm as any).tookDamageThisTurn = true;
 }
@@ -5369,7 +5371,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const typeLine = String(perm?.card?.type_line || "").toLowerCase();
       if (!perm || (!typeLine.includes("artifact") && !typeLine.includes("enchantment"))) return false;
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
       return true;
     }
@@ -5388,7 +5390,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const typeLine = String(perm?.card?.type_line || "").toLowerCase();
       if (!perm || (!typeLine.includes('artifact') && !typeLine.includes('creature') && !typeLine.includes('enchantment'))) return false;
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
 
       const spec = (predefinedArtifactTokens as any).treasure;
       if (spec) {
@@ -5413,7 +5415,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const typeLine = String(perm?.card?.type_line || "").toLowerCase();
       if (!perm || !typeLine.includes("creature")) return false;
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
       drawCardsFromZone(ctx, controller, 1);
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
       return true;
@@ -5441,7 +5443,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const sourceTypeLine = String(sourcePerm?.card?.type_line || "").toLowerCase();
       if (!sourceTypeLine.includes('planeswalker')) return false;
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
 
       if (toughness > 0) {
         (sourcePerm as any).counters = (sourcePerm as any).counters || {};
@@ -5469,7 +5471,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const hasMinusCounter = (counters['-1/-1'] || counters['minus1minus1'] || counters['m1m1'] || 0) > 0;
       if (!hasMinusCounter) return false;
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
       return true;
     }
@@ -5487,7 +5489,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       if (!perm || !typeLine.includes('creature')) return false;
 
       const toughness = Math.max(0, (getActualPowerToughness(perm, (ctx as any).state) as any).toughness | 0);
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
       if (toughness > 0) modifyLifeLikeStack(ctx, controller, toughness);
 
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (+${toughness})`);
@@ -5519,7 +5521,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
       if (!isArtifact && !isEnchantment && !(isCreature && hasFlying)) return false;
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
       return true;
     }
@@ -5538,7 +5540,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
 
       const destroyedController = String((perm as any).controller || "");
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
       if (destroyedController) {
         modifyLifeLikeStack(ctx, destroyedController as any, -2);
       }
@@ -5564,7 +5566,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const drawCount = parseCountTokenWord(m[1]);
       const destroyedController = String((perm as any).controller || "");
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
       if (drawCount > 0 && destroyedController) {
         drawCardsFromZone(ctx, destroyedController as any, drawCount);
       }
@@ -8484,7 +8486,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
       const mv = getManaValueConstraint(lower);
       if (!satisfiesManaValueConstraint(perm, mv)) return false;
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
       return true;
@@ -8508,7 +8510,7 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
         return true;
       }
 
-      movePermanentToGraveyard(ctx, targetId, true);
+      destroyPermanent(ctx, targetId, true);
       (ctx as any).bumpSeq?.();
       debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id}`);
       return true;

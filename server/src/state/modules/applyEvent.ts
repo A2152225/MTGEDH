@@ -38,6 +38,7 @@ import {
   updateCounters,
   applyUpdateCountersBulk,
   createToken,
+  destroyPermanent,
   removePermanent,
   movePermanentToGraveyard,
   trackCountersPlacedThisTurn,
@@ -48,6 +49,7 @@ import {
 } from "./counters_tokens";
 import { cleanupCardLeavingExile } from "./playable-from-exile";
 import { pushStack, resolveTopOfStack, playLand, castSpell, triggerETBEffectsForToken } from "./stack";
+import { exileEntireStack } from "./stack";
 import { permanentHasKeyword } from "./keyword-handlers";
 import { nextTurn, nextStep, passPriority } from "./turn";
 import {
@@ -145,6 +147,8 @@ import { detectTutorEffect, getActivatedAbilityScopeText, parseSearchCriteria } 
 import { getOpponentMayPayDrawCount, getOpponentMayPayTreasureCount } from "./opponent-may-pay-utils.js";
 import { moveKynaiosLandFromHandToBattlefield } from "../resolution/handlers/kynaiosChoice.js";
 import { applyTriggerOrderToStack } from "../resolution/handlers/triggerOrder.js";
+import { executeTriggeredAbilityEffectWithOracleIR } from "../../../../rules-engine/src/triggeredAbilities.js";
+import { applyDamageToPermanentWithCounterEffects } from "./counter-common-effects.js";
 
 /* -------- Helpers ---------- */
 
@@ -1109,6 +1113,51 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "concededPlayerCleanup": {
+        const playerId = String((e as any).playerId || '').trim();
+        if (!playerId) break;
+
+        try {
+          const stateAny = ctx.state as any;
+          const zones = stateAny.zones = stateAny.zones || {};
+          const playerZones = zones[playerId] = zones[playerId] || {
+            hand: [],
+            handCount: 0,
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          };
+          playerZones.exile = Array.isArray(playerZones.exile) ? playerZones.exile : [];
+
+          const permanentIds = Array.isArray((e as any).permanentIds)
+            ? ((e as any).permanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+          const battlefield = Array.isArray(ctx.state?.battlefield) ? (ctx.state.battlefield as any[]) : [];
+
+          for (const permanentId of permanentIds) {
+            const exists = battlefield.some((entry: any) => entry && String(entry.id || '') === permanentId);
+            if (exists) {
+              movePermanentToExile(ctx as any, permanentId);
+            }
+          }
+
+          const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+          const player = players.find((entry: any) => entry && String(entry.id || '') === playerId);
+          if (player) {
+            (player as any).hasLost = true;
+            (player as any).eliminated = true;
+            (player as any).lossReason = String((e as any).lossReason || 'Conceded');
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(concededPlayerCleanup): failed', err);
+        }
+        break;
+      }
+
       case "leave": {
         try {
           leaveModule(ctx as any, (e as any).playerId);
@@ -1441,7 +1490,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             for (const eff of effects) {
               switch (eff.kind) {
                 case 'DestroyPermanent':
-                  removePermanent(ctx as any, eff.id);
+                  destroyPermanent(ctx as any, eff.id);
                   break;
                 case 'MoveToExile':
                   movePermanentToExile(ctx as any, eff.id);
@@ -1479,7 +1528,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   // Apply damage to permanent (may kill it via SBA)
                   const perm = ctx.state.battlefield.find((p: any) => p.id === eff.id);
                   if (perm) {
-                    (perm as any).damage = ((perm as any).damage || 0) + eff.amount;
+                    applyDamageToPermanentWithCounterEffects(perm, eff.amount, 'damage');
                   }
                   break;
                 }
@@ -1713,6 +1762,35 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "resolveTopOfStack": {
         resolveTopOfStack(ctx as any);
+        break;
+      }
+
+      case "sundialActivated": {
+        try {
+          const playerId = String((e as any).by || (e as any).playerId || '').trim();
+          const paid = String((e as any).paid || '').trim();
+          const battlefield = Array.isArray(ctx.state?.battlefield) ? (ctx.state.battlefield as any[]) : [];
+          const sundial = battlefield.find((perm: any) =>
+            perm &&
+            String(perm.controller || '') === playerId &&
+            String(perm.card?.name || '').toLowerCase().includes('sundial of the infinite')
+          );
+
+          if (playerId && paid) {
+            const pool = getOrInitManaPool(ctx.state as any, playerId as any);
+            consumeRecordedManaCostFromPool(pool as any, paid);
+          }
+
+          if (sundial) {
+            (sundial as any).tapped = Boolean((e as any).tapped);
+          }
+
+          exileEntireStack(ctx as any, playerId as any);
+          nextTurn(ctx as any);
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(sundialActivated): failed', err);
+        }
         break;
       }
 
@@ -3307,6 +3385,178 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "addManaToPool": {
+        const playerId = String((e as any).playerId || '').trim();
+        const color = String((e as any).color || '').trim();
+        const amount = Number((e as any).amount || 0);
+        if (!playerId || !color || !Number.isFinite(amount) || amount <= 0) break;
+
+        try {
+          const pool = getOrInitManaPool(ctx.state as any, playerId as any) as any;
+          const restriction = (e as any).restriction;
+
+          if (restriction) {
+            pool.restricted = Array.isArray(pool.restricted) ? pool.restricted : [];
+            pool.restricted.push({
+              type: color,
+              amount,
+              restriction,
+              restrictedTo: (e as any).restrictedTo,
+              sourceId: (e as any).sourceId,
+              sourceName: (e as any).sourceName,
+            });
+          } else {
+            pool[color] = Number(pool[color] || 0) + amount;
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(addManaToPool): failed', err);
+        }
+        break;
+      }
+
+      case "removeManaFromPool": {
+        const playerId = String((e as any).playerId || '').trim();
+        const color = String((e as any).color || '').trim();
+        const amount = Number((e as any).amount || 0);
+        if (!playerId || !color || !Number.isFinite(amount) || amount <= 0) break;
+
+        try {
+          const pool = getOrInitManaPool(ctx.state as any, playerId as any) as any;
+          const removedRestrictedMana = (e as any).removedRestrictedMana;
+
+          if (removedRestrictedMana && typeof removedRestrictedMana === 'object') {
+            const restricted = Array.isArray(pool.restricted) ? pool.restricted : [];
+            const matchIndex = restricted.findIndex((entry: any) =>
+              entry &&
+              String(entry.type || '') === String((removedRestrictedMana as any).type || color) &&
+              String(entry.restriction || '') === String((removedRestrictedMana as any).restriction || '') &&
+              String(entry.restrictedTo || '') === String((removedRestrictedMana as any).restrictedTo || '') &&
+              String(entry.sourceId || '') === String((removedRestrictedMana as any).sourceId || '') &&
+              String(entry.sourceName || '') === String((removedRestrictedMana as any).sourceName || '') &&
+              Number(entry.amount || 0) >= amount
+            );
+
+            if (matchIndex !== -1) {
+              const entry = restricted[matchIndex];
+              entry.amount = Number(entry.amount || 0) - amount;
+              if (entry.amount <= 0) {
+                restricted.splice(matchIndex, 1);
+              }
+              if (restricted.length > 0) pool.restricted = restricted;
+              else delete pool.restricted;
+            }
+          } else {
+            pool[color] = Math.max(0, Number(pool[color] || 0) - amount);
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(removeManaFromPool): failed', err);
+        }
+        break;
+      }
+
+      case "setManaPoolDoesNotEmpty": {
+        const playerId = String((e as any).playerId || '').trim();
+        const sourceId = String((e as any).sourceId || '').trim();
+        if (!playerId || !sourceId) break;
+
+        try {
+          const pool = getOrInitManaPool(ctx.state as any, playerId as any) as any;
+          pool.doesNotEmpty = true;
+
+          const convertsTo = String((e as any).convertsTo || '').trim();
+          if (convertsTo) {
+            pool.convertsTo = convertsTo;
+          } else if ((e as any).convertsToColorless === true) {
+            pool.convertsTo = 'colorless';
+            pool.convertsToColorless = true;
+          }
+
+          pool.noEmptySourceIds = Array.isArray(pool.noEmptySourceIds) ? pool.noEmptySourceIds : [];
+          if (!pool.noEmptySourceIds.includes(sourceId)) {
+            pool.noEmptySourceIds.push(sourceId);
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(setManaPoolDoesNotEmpty): failed', err);
+        }
+        break;
+      }
+
+      case "removeManaPoolDoesNotEmpty": {
+        const playerId = String((e as any).playerId || '').trim();
+        const sourceId = String((e as any).sourceId || '').trim();
+        if (!playerId || !sourceId) break;
+
+        try {
+          const pool = getOrInitManaPool(ctx.state as any, playerId as any) as any;
+          pool.noEmptySourceIds = Array.isArray(pool.noEmptySourceIds)
+            ? pool.noEmptySourceIds.filter((id: any) => String(id || '') !== sourceId)
+            : [];
+
+          if (pool.noEmptySourceIds.length === 0) {
+            delete pool.doesNotEmpty;
+            delete pool.convertsTo;
+            delete pool.convertsToColorless;
+            delete pool.noEmptySourceIds;
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(removeManaPoolDoesNotEmpty): failed', err);
+        }
+        break;
+      }
+
+      case "changePermanentControl": {
+        const permanentId = String((e as any).permanentId || '').trim();
+        const newController = String((e as any).newController || '').trim();
+        const oldController = String((e as any).oldController || '').trim();
+        const duration = String((e as any).duration || '').trim();
+        const appliedAt = Number((e as any).appliedAt || 0);
+        if (!permanentId || !newController) break;
+
+        try {
+          const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+          const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === permanentId) as any;
+          if (permanent) {
+            permanent.controller = newController;
+          }
+
+          if (duration === 'eot' || duration === 'turn') {
+            const stateAny = ctx.state as any;
+            stateAny.controlChangeEffects = Array.isArray(stateAny.controlChangeEffects) ? stateAny.controlChangeEffects : [];
+            const alreadyTracked = stateAny.controlChangeEffects.some((entry: any) =>
+              entry &&
+              String(entry.permanentId || '') === permanentId &&
+              String(entry.originalController || '') === oldController &&
+              String(entry.newController || '') === newController &&
+              String(entry.duration || '') === duration &&
+              Number(entry.appliedAt || 0) === appliedAt
+            );
+
+            if (!alreadyTracked) {
+              stateAny.controlChangeEffects.push({
+                permanentId,
+                originalController: oldController,
+                newController,
+                duration,
+                appliedAt,
+              });
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(changePermanentControl): failed', err);
+        }
+        break;
+      }
+
       case "activateManaAbility": {
         // Mana ability activation: tap permanent, add mana
         const permId = (e as any).permanentId;
@@ -3572,6 +3822,73 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // best-effort only
           }
 
+          // If the server persisted the net mana-pool change caused by paying activation costs,
+          // apply it during replay so exact floating-mana restoration survives undo/restart.
+          try {
+            const manaDelta = (e as any).paymentManaDelta;
+            const pid = playerId != null ? String(playerId) : '';
+            if (pid && manaDelta && typeof manaDelta === 'object' && !Array.isArray(manaDelta)) {
+              const pool = getOrInitManaPool(ctx.state as any, pid as any) as any;
+              for (const [poolKey, rawAmount] of Object.entries(manaDelta as Record<string, unknown>)) {
+                const amount = Number(rawAmount || 0);
+                if (!Number.isFinite(amount) || amount === 0) continue;
+                pool[poolKey] = Number(pool[poolKey] || 0) + amount;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted counter updates performed by shortcut activations,
+          // apply them during replay so counter state survives undo/restart.
+          try {
+            const counterUpdates = Array.isArray((e as any).counterUpdates) ? (e as any).counterUpdates : [];
+            for (const entry of counterUpdates) {
+              const permanentId = String(entry?.permanentId || '').trim();
+              const deltas = entry?.deltas;
+              if (!permanentId || !deltas || typeof deltas !== 'object' || Array.isArray(deltas)) continue;
+              updateCounters(ctx as any, permanentId, deltas as Record<string, number>);
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted an immediate until-end-of-turn animation shortcut,
+          // apply it during replay so the permanent's temporary state is deterministic.
+          try {
+            const animation = (e as any).specialAnimation;
+            if (permId && animation && typeof animation === 'object' && !Array.isArray(animation)) {
+              const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+              const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(permId)) as any;
+              if (permanent) {
+                if ((animation as any).animatedUntilEOT === true) permanent.animatedUntilEOT = true;
+                if (Number.isFinite(Number((animation as any).basePower))) permanent.basePower = Number((animation as any).basePower);
+                if (Number.isFinite(Number((animation as any).baseToughness))) permanent.baseToughness = Number((animation as any).baseToughness);
+                if (Number.isFinite(Number((animation as any).effectivePower))) permanent.effectivePower = Number((animation as any).effectivePower);
+                if (Number.isFinite(Number((animation as any).effectiveToughness))) permanent.effectiveToughness = Number((animation as any).effectiveToughness);
+                if (Array.isArray((animation as any).typeAdditions)) {
+                  permanent.typeAdditions = Array.from(
+                    new Set(
+                      [
+                        ...(Array.isArray(permanent.typeAdditions) ? permanent.typeAdditions : []),
+                        ...((animation as any).typeAdditions as any[]),
+                      ].map((value: any) => String(value || '').trim()).filter(Boolean)
+                    )
+                  );
+                }
+                if ((animation as any).hasAllCreatureTypes === true) permanent.hasAllCreatureTypes = true;
+                if ((animation as any).untilEndOfTurn && typeof (animation as any).untilEndOfTurn === 'object') {
+                  permanent.untilEndOfTurn = {
+                    ...(permanent.untilEndOfTurn && typeof permanent.untilEndOfTurn === 'object' ? permanent.untilEndOfTurn : {}),
+                    ...((animation as any).untilEndOfTurn || {}),
+                  };
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
           // If the server persisted which counters were removed to pay activation costs,
           // apply those counter removals during replay so battlefield state is deterministic.
           try {
@@ -3734,7 +4051,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   .filter((symbol: string) => !/^\{[tq]\}$/i.test(symbol))
                   .join('');
                 const manaPool = stateAny.manaPool?.[String(playerId)];
-                if (manaPool && manaCost) {
+                const hasPaymentManaDelta = Boolean(
+                  (e as any).paymentManaDelta &&
+                  typeof (e as any).paymentManaDelta === 'object' &&
+                  !Array.isArray((e as any).paymentManaDelta) &&
+                  Object.keys((e as any).paymentManaDelta).length > 0
+                );
+                if (manaPool && manaCost && !hasPaymentManaDelta) {
                   consumeRecordedManaCostFromPool(manaPool, manaCost);
                 }
 
@@ -6898,6 +7221,35 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           applyOpponentMayPayResolve(ctx as any, e as any);
         } catch (err) {
           debugWarn(1, 'applyEvent(opponentMayPayResolve): failed', err);
+        }
+        break;
+      }
+
+      case "rulesChoiceResolved": {
+        try {
+          const controllerId = String((e as any).controllerId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || 'Ability').trim() || 'Ability';
+          const effectText = String((e as any).effectText || '').trim();
+          const eventData = ((e as any).eventData || {}) as any;
+          if (!controllerId || !sourceId || !effectText) break;
+
+          const executeResult = executeTriggeredAbilityEffectWithOracleIR(
+            ctx.state as any,
+            {
+              controllerId: controllerId as any,
+              sourceId,
+              sourceName,
+              effect: effectText,
+            },
+            eventData,
+            { allowOptional: true }
+          );
+
+          ctx.state = executeResult.state as any;
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(rulesChoiceResolved): failed', err);
         }
         break;
       }

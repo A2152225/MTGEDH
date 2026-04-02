@@ -6293,6 +6293,11 @@ async function executeDeclareAttackers(
       state.attackedDefendingPlayersThisCombatByPlayer = state.attackedDefendingPlayersThisCombatByPlayer || {};
       state.attackedDefendingPlayersThisCombatByPlayer[String(playerId)] = [];
 
+      await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', {
+        playerId,
+        attackers: [],
+      });
+
       if (typeof (game as any).nextStep === 'function') {
         await (game as any).nextStep();
         flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
@@ -6302,11 +6307,6 @@ async function executeDeclareAttackers(
           reason: 'declareNoAttackers',
         });
       }
-
-      await appendEvent(gameId, (game as any).seq || 0, 'declareAttackers', {
-        playerId,
-        attackers: [],
-      });
 
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,

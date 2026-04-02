@@ -2762,16 +2762,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         return;
       }
 
-      // Advance to next step
-      if (typeof (game as any).nextStep === "function") {
-        await (game as any).nextStep();
-        flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
-        await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
-          playerId,
-          reason: 'skipDeclareAttackers',
-        });
-      }
-
       // Record authoritative evidence for last-turn attack templates.
       // Also persist a declareAttackers event with zero attackers so replay can reconstruct.
       try {
@@ -2787,6 +2777,16 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         });
       } catch (e) {
         debugWarn(2, '[combat] Failed to persist skipDeclareAttackers declareAttackers event:', e);
+      }
+
+      // Advance to next step after the empty declaration is recorded.
+      if (typeof (game as any).nextStep === "function") {
+        await (game as any).nextStep();
+        flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
+        await appendEvent(gameId, (game as any).seq || 0, 'nextStep', {
+          playerId,
+          reason: 'skipDeclareAttackers',
+        });
       }
 
       io.to(gameId).emit("chat", {

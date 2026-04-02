@@ -38,13 +38,14 @@ import {
   checkGraveyardTrigger,
 } from "./triggered-abilities.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./triggers/damage-received.js";
+import { applyDamageToPermanentWithCounterEffects } from "./counter-common-effects.js";
 import { detectCombatDamageTriggers } from "./triggers/index.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { isCreatureNow } from "../creatureTypeNow.js";
 import { handleElixirShuffle, handleEldraziShuffle } from "./zone-manipulation.js";
 import { addExtraTurn, addExtraCombat } from "./turn.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand } from "./zones.js";
-import { createToken, runSBA, applyCounterModifications, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
+import { createToken, runSBA, applyCounterModifications, destroyPermanent, movePermanentToGraveyard, movePermanentToExile } from "./counters_tokens.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { applyGoadToCreature } from "./goad-effects.js";
@@ -2119,7 +2120,7 @@ function applyOracleIRFallbackForUncategorizedSpell(
 
           for (const perm of toDestroy) {
             if (!perm?.id) continue;
-            movePermanentToGraveyard(ctx, String(perm.id), true);
+            destroyPermanent(ctx, String(perm.id), true);
             applied++;
           }
           break;
@@ -4247,7 +4248,7 @@ export function executeTriggerEffect(
           // best-effort only
         }
 
-        movePermanentToGraveyard(ctx, permanentId, true);
+        destroyPermanent(ctx, permanentId, true);
       }
 
       return;
@@ -6973,7 +6974,10 @@ export function executeTriggerEffect(
         // Target is a permanent - deal damage
         const targetPerm = (state.battlefield || []).find((p: any) => p?.id === targetId);
         if (targetPerm) {
-          targetPerm.damageMarked = (targetPerm.damageMarked || 0) + damage;
+          const damageResult = applyDamageToPermanentWithCounterEffects(targetPerm, damage, 'damageMarked');
+          if (damageResult.prevented) {
+            return;
+          }
           // Track total damage dealt to this permanent this turn (for intervening-if clauses).
           targetPerm.damageThisTurn = (targetPerm.damageThisTurn || 0) + damage;
           targetPerm.tookDamageThisTurn = true;
@@ -8392,24 +8396,23 @@ export function resolveTopOfStack(ctx: GameContext) {
       const sourcePower = getEffectivePower(sourceCreature as any);
       const targetPower = getEffectivePower(targetCreature as any);
 
-      (sourceCreature as any).damageMarked = ((sourceCreature as any).damageMarked || 0) + targetPower;
-      (targetCreature as any).damageMarked = ((targetCreature as any).damageMarked || 0) + sourcePower;
+      const sourceDamageResult = applyDamageToPermanentWithCounterEffects(sourceCreature, targetPower, 'damageMarked');
+      const targetDamageResult = applyDamageToPermanentWithCounterEffects(targetCreature, sourcePower, 'damageMarked');
 
       try {
         const stateAny = state as any;
         stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};
-        stateAny.creaturesDamagedByThisCreatureThisTurn[sourceCreatureId] = stateAny.creaturesDamagedByThisCreatureThisTurn[sourceCreatureId] || {};
-        stateAny.creaturesDamagedByThisCreatureThisTurn[sourceCreatureId][targetCreatureId] = true;
-        stateAny.creaturesDamagedByThisCreatureThisTurn[targetCreatureId] = stateAny.creaturesDamagedByThisCreatureThisTurn[targetCreatureId] || {};
-        stateAny.creaturesDamagedByThisCreatureThisTurn[targetCreatureId][sourceCreatureId] = true;
-
-        if (targetPower > 0) {
-          (sourceCreature as any).damageThisTurn = ((sourceCreature as any).damageThisTurn || 0) + targetPower;
-          (sourceCreature as any).tookDamageThisTurn = true;
-        }
-        if (sourcePower > 0) {
-          (targetCreature as any).damageThisTurn = ((targetCreature as any).damageThisTurn || 0) + sourcePower;
+        if (sourceDamageResult.appliedAmount > 0) {
+          stateAny.creaturesDamagedByThisCreatureThisTurn[sourceCreatureId] = stateAny.creaturesDamagedByThisCreatureThisTurn[sourceCreatureId] || {};
+          stateAny.creaturesDamagedByThisCreatureThisTurn[sourceCreatureId][targetCreatureId] = true;
+          (targetCreature as any).damageThisTurn = ((targetCreature as any).damageThisTurn || 0) + sourceDamageResult.appliedAmount;
           (targetCreature as any).tookDamageThisTurn = true;
+        }
+        if (targetDamageResult.appliedAmount > 0) {
+          stateAny.creaturesDamagedByThisCreatureThisTurn[targetCreatureId] = stateAny.creaturesDamagedByThisCreatureThisTurn[targetCreatureId] || {};
+          stateAny.creaturesDamagedByThisCreatureThisTurn[targetCreatureId][sourceCreatureId] = true;
+          (sourceCreature as any).damageThisTurn = ((sourceCreature as any).damageThisTurn || 0) + targetDamageResult.appliedAmount;
+          (sourceCreature as any).tookDamageThisTurn = true;
         }
       } catch {
         // best-effort only
@@ -8437,8 +8440,12 @@ export function resolveTopOfStack(ctx: GameContext) {
         });
       };
 
-      queueDamageTrigger(sourceCreature, targetPower);
-      queueDamageTrigger(targetCreature, sourcePower);
+      if (sourceDamageResult.appliedAmount > 0) {
+        queueDamageTrigger(targetCreature, sourceDamageResult.appliedAmount);
+      }
+      if (targetDamageResult.appliedAmount > 0) {
+        queueDamageTrigger(sourceCreature, targetDamageResult.appliedAmount);
+      }
 
       try {
         const gameId = String((ctx as any).gameId || '').trim();
@@ -11028,7 +11035,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           }
           
           // Destroy the creature
-          movePermanentToGraveyard(ctx, creature.id);
+          destroyPermanent(ctx, creature.id);
           debug(2, `[resolveTopOfStack] ${effectiveCard.name}: Destroyed ${creature.card?.name || creature.id}`);
         }
       } else {
@@ -12522,26 +12529,16 @@ function executeSpellEffect(
   switch (effect.kind) {
     case 'DestroyPermanent': {
       const battlefield = state.battlefield || [];
-      const idx = battlefield.findIndex((p: any) => p.id === effect.id);
-      if (idx !== -1) {
-        const destroyedPermanentId = (battlefield[idx] as any).id;
-        const destroyed = battlefield.splice(idx, 1)[0];
-        const owner = (destroyed as any).owner || (destroyed as any).controller;
-        const zones = ctx.state.zones || {};
-        const z = zones[owner];
-        if (z) {
-          z.graveyard = z.graveyard || [];
-          const card = (destroyed as any).card;
-          if (card) {
-            (z.graveyard as any[]).push({ ...card, zone: "graveyard" });
-            z.graveyardCount = (z.graveyard as any[]).length;
-          }
+      const target = battlefield.find((p: any) => p && p.id === effect.id);
+      if (target) {
+        const destroyedPermanentId = String((target as any).id || effect.id);
+        const destroyedName = String((target as any).card?.name || effect.id);
+        destroyPermanent(ctx, destroyedPermanentId, true);
+        debug(2, `[resolveSpell] ${spellName} destroyed ${destroyedName}`);
+
+        if (!(ctx.state.battlefield || []).some((p: any) => p && p.id === destroyedPermanentId)) {
+          processLinkedExileReturns(ctx, destroyedPermanentId);
         }
-        debug(2, `[resolveSpell] ${spellName} destroyed ${(destroyed as any).card?.name || effect.id}`);
-        
-        // Process linked exile returns - if this was an Oblivion Ring-style card,
-        // return any cards it had exiled
-        processLinkedExileReturns(ctx, destroyedPermanentId);
       }
       break;
     }

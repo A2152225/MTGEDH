@@ -22,7 +22,7 @@ import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
-import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid } from "../state/utils";
+import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
@@ -1033,56 +1033,117 @@ function checkEnchantmentETBTriggers(
       }
     }
     
-    // Check for creatures with ETB triggers
-    if (typeLine.includes('creature')) {
-      // Casal, Lurkwood Pathfinder: "When Casal enters, search your library for a Forest card..."
-      if (cardName.includes('casal') && cardName.includes('pathfinder')) {
-        const controller = permanent.controller;
-        permanent.etbProcessed = true;
-        
-        const library = Array.isArray((game as any).libraries?.get(controller))
-          ? ((game as any).libraries.get(controller) as any[])
-          : [];
-
-        const availableCards = library
-          .filter((candidate: any) => String(candidate?.type_line || '').toLowerCase().includes('forest'))
-          .map((candidate: any) => ({
-            id: candidate.id,
-            name: candidate.name,
-            type_line: candidate.type_line,
-            oracle_text: candidate.oracle_text,
-            image_uris: candidate.image_uris,
-            imageUrl: candidate.image_uris?.normal,
-            mana_cost: candidate.mana_cost,
-            cmc: candidate.cmc,
-            colors: candidate.colors,
-            power: candidate.power,
-            toughness: candidate.toughness,
-            loyalty: candidate.loyalty,
-          }));
-        
-        // Queue library tutor via Resolution Queue
-        ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.LIBRARY_SEARCH,
-          playerId: controller as PlayerID,
-          sourceName: 'Casal, Lurkwood Pathfinder',
-          description: 'Search your library for a Forest card, put it onto the battlefield tapped, then shuffle.',
-          searchCriteria: 'Forest card',
-          minSelections: 0,
-          maxSelections: 1,
-          mandatory: false,
-          destination: 'battlefield',
-          reveal: false,
-          shuffleAfter: true,
-          availableCards,
-          filter: { subtypes: ['Forest'] },
-          entersTapped: true,
-        } as any);
-        
-        debug(2, `[game-actions] Casal, Lurkwood Pathfinder ETB trigger for ${controller}`);
-      }
+    if (!permanent.etbProcessed) {
+      queueSelfEtbBattlefieldTutorSearch(game, gameId, permanent);
     }
   }
+}
+
+function filterLibraryCardsForTutor(library: any[], filter: any): any[] {
+  if (!Array.isArray(library) || library.length === 0) return [];
+  const searchCriteria = filter || {};
+
+  return library
+    .filter((card: any) => {
+      if (!card) return false;
+      const typeLine = String(card.type_line || '').toLowerCase();
+
+      if (Array.isArray(searchCriteria.types) && searchCriteria.types.length > 0) {
+        if (!searchCriteria.types.some((type: string) => typeLine.includes(String(type).toLowerCase()))) return false;
+      }
+
+      if (Array.isArray(searchCriteria.subtypes) && searchCriteria.subtypes.length > 0) {
+        if (!searchCriteria.subtypes.some((subtype: string) => typeLine.includes(String(subtype).toLowerCase()))) return false;
+      }
+
+      if (Array.isArray(searchCriteria.supertypes) && searchCriteria.supertypes.length > 0) {
+        if (!searchCriteria.supertypes.some((supertype: string) => typeLine.includes(String(supertype).toLowerCase()))) return false;
+      }
+
+      const manaValue = Number(card.cmc || 0);
+      if (typeof searchCriteria.minCmc === 'number' && manaValue < searchCriteria.minCmc) return false;
+      if (typeof searchCriteria.maxCmc === 'number' && manaValue > searchCriteria.maxCmc) return false;
+
+      const power = Number.parseInt(String(card.power ?? ''), 10);
+      if (typeof searchCriteria.minPower === 'number' && Number.isFinite(power) && power < searchCriteria.minPower) return false;
+      if (typeof searchCriteria.maxPower === 'number' && Number.isFinite(power) && power > searchCriteria.maxPower) return false;
+
+      const toughness = Number.parseInt(String(card.toughness ?? ''), 10);
+      if (typeof searchCriteria.minToughness === 'number' && Number.isFinite(toughness) && toughness < searchCriteria.minToughness) return false;
+      if (typeof searchCriteria.maxToughness === 'number' && Number.isFinite(toughness) && toughness > searchCriteria.maxToughness) return false;
+
+      return true;
+    })
+    .map((candidate: any) => ({
+      id: candidate.id,
+      name: candidate.name,
+      type_line: candidate.type_line,
+      oracle_text: candidate.oracle_text,
+      image_uris: candidate.image_uris,
+      imageUrl: candidate.image_uris?.normal,
+      mana_cost: candidate.mana_cost,
+      cmc: candidate.cmc,
+      colors: candidate.colors,
+      power: candidate.power,
+      toughness: candidate.toughness,
+      loyalty: candidate.loyalty,
+    }));
+}
+
+function queueSelfEtbBattlefieldTutorSearch(game: any, gameId: string, permanent: any): boolean {
+  const card = permanent?.card;
+  const controller = permanent?.controller;
+  const cardName = String(card?.name || '').trim();
+  const oracleText = String(card?.oracle_text || '');
+  if (!controller || !cardName || !oracleText) return false;
+
+  const etbTutorLine = oracleText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .find((line) => {
+      const lowerLine = line.toLowerCase();
+      return /^when\s+/i.test(line) &&
+        lowerLine.includes('search your library') &&
+        lowerLine.includes('enters') &&
+        oracleTextReferencesCard(line, cardName);
+    });
+
+  if (!etbTutorLine) return false;
+
+  const tutorInfo = detectTutorEffect(etbTutorLine);
+  if (!tutorInfo.isTutor || tutorInfo.splitDestination === true || tutorInfo.destination !== 'battlefield') {
+    return false;
+  }
+
+  const library = Array.isArray((game as any).libraries?.get(controller))
+    ? ((game as any).libraries.get(controller) as any[])
+    : (Array.isArray((game as any)?.state?.zones?.[controller]?.library)
+      ? ((game as any).state.zones[controller].library as any[])
+      : []);
+  const filter = parseSearchCriteria(tutorInfo.searchCriteria || '');
+  const availableCards = filterLibraryCardsForTutor(library, filter);
+
+  permanent.etbProcessed = true;
+  ResolutionQueueManager.addStep(gameId, {
+    type: ResolutionStepType.LIBRARY_SEARCH,
+    playerId: controller as PlayerID,
+    sourceName: cardName,
+    description: etbTutorLine,
+    searchCriteria: tutorInfo.searchCriteria || 'any card',
+    minSelections: 0,
+    maxSelections: tutorInfo.maxSelections || 1,
+    mandatory: false,
+    destination: 'battlefield',
+    reveal: false,
+    shuffleAfter: true,
+    availableCards,
+    filter,
+    entersTapped: tutorInfo.entersTapped === true,
+  } as any);
+
+  debug(2, `[game-actions] Generic ETB battlefield tutor trigger for ${cardName} (${controller})`);
+  return true;
 }
 
 /**
@@ -11665,6 +11726,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       const oldController = permanent.controller;
+      const appliedAt = Date.now();
       
       // Change control
       permanent.controller = newController;
@@ -11677,8 +11739,24 @@ export function registerGameActions(io: Server, socket: Socket) {
           originalController: oldController,
           newController,
           duration,
-          appliedAt: Date.now(),
+          appliedAt,
         });
+      }
+
+      if (typeof (game as any).bumpSeq === 'function') {
+        (game as any).bumpSeq();
+      }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'changePermanentControl', {
+          permanentId,
+          oldController,
+          newController,
+          ...(duration ? { duration } : null),
+          ...(duration === 'eot' || duration === 'turn' ? { appliedAt } : null),
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(changePermanentControl) failed:', e);
       }
 
       const cardName = permanent.card?.name || 'a permanent';

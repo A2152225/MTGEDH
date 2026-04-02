@@ -9,6 +9,8 @@
 
 import type { GameContext } from '../context';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { applyDamageToPermanentWithCounterEffects } from './counter-common-effects.js';
+import { destroyPermanent } from './counters_tokens.js';
 
 /**
  * Pattern types for X-cost activated abilities
@@ -212,11 +214,11 @@ function executeDestroyManaValueX(
     }
     
     // Destroy the permanents
-    destroyPermanents(state, toDestroy);
+    const destroyedCount = destroyPermanents(ctx, toDestroy);
     
-    debug(2, `[X Ability] Destroyed ${toDestroy.length} permanent(s) with mana value ${xValue}`);
+    debug(2, `[X Ability] Destroyed ${destroyedCount} permanent(s) with mana value ${xValue}`);
     
-    return { success: true, destroyedCount: toDestroy.length };
+    return { success: true, destroyedCount };
   }
   
   // Generic destroy pattern (no combat damage requirement)
@@ -246,8 +248,7 @@ function executeDealXDamage(
     for (const perm of battlefield) {
       const typeLine = ((perm as any).card?.type_line || '').toLowerCase();
       if (typeLine.includes('creature')) {
-        // Mark damage (simplified - would need full damage tracking)
-        (perm as any).damageMarked = ((perm as any).damageMarked || 0) + xValue;
+        applyDamageToPermanentWithCounterEffects(perm, xValue, 'damageMarked');
         creaturesHit++;
       }
     }
@@ -391,52 +392,20 @@ function calculateManaValue(card: any): number {
 /**
  * Helper: Destroy permanents and move to graveyard
  */
-function destroyPermanents(state: any, permanents: any[]): void {
+function destroyPermanents(ctx: GameContext, permanents: any[]): number {
+  const state = ctx.state;
   const battlefield = state.battlefield || [];
+  let destroyedCount = 0;
   
   for (const perm of permanents) {
-    const idx = battlefield.indexOf(perm);
-    if (idx >= 0) {
-      battlefield.splice(idx, 1);
-      
-      // Move to graveyard
-      const controller = (perm as any).controller;
-      const zones = state.zones?.[controller];
-      if (zones) {
-        const graveyard = (zones as any).graveyard || [];
-        graveyard.push({ ...(perm as any).card, zone: 'graveyard' });
-        (zones as any).graveyard = graveyard;
-        (zones as any).graveyardCount = graveyard.length;
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (!permanentId || !battlefield.includes(perm)) continue;
 
-        // Per-turn tracking for intervening-if graveyard-put templates.
-        try {
-          state.permanentLeftBattlefieldThisTurn = state.permanentLeftBattlefieldThisTurn || {};
-          if (controller) state.permanentLeftBattlefieldThisTurn[String(controller)] = true;
-
-          const typeLine = String((perm as any).card?.type_line || '').toLowerCase();
-          if (
-            typeLine.includes('artifact') ||
-            typeLine.includes('creature') ||
-            typeLine.includes('enchantment') ||
-            typeLine.includes('land') ||
-            typeLine.includes('planeswalker') ||
-            typeLine.includes('battle')
-          ) {
-            state.descendedThisTurn = state.descendedThisTurn || {};
-            if (controller) state.descendedThisTurn[String(controller)] = true;
-          }
-
-          state.cardsPutIntoYourGraveyardThisTurn = state.cardsPutIntoYourGraveyardThisTurn || {};
-          state.cardsPutIntoYourGraveyardThisTurn[String(controller)] =
-            (state.cardsPutIntoYourGraveyardThisTurn[String(controller)] || 0) + 1;
-          if (typeLine.includes('creature')) {
-            state.creatureCardPutIntoYourGraveyardThisTurn = state.creatureCardPutIntoYourGraveyardThisTurn || {};
-            state.creatureCardPutIntoYourGraveyardThisTurn[String(controller)] = true;
-          }
-        } catch {
-          // best-effort only
-        }
-      }
+    destroyPermanent(ctx, permanentId, true);
+    if (!(ctx.state.battlefield || []).some((entry: any) => entry && String(entry.id || '') === permanentId)) {
+      destroyedCount += 1;
     }
   }
+
+  return destroyedCount;
 }

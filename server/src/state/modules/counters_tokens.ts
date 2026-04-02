@@ -14,6 +14,7 @@ import { ResolutionStepType } from "../resolution/types.js";
 import { ensureInitialDayNightDesignationFromBattlefield } from "./day-night.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
+import { applyShieldCounterDamagePrevention, getCounterLeaveBattlefieldReplacement } from "./counter-common-effects.js";
 
 /**
  * Counter modification effects that double or halve counters
@@ -701,6 +702,41 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   try {
     (state as any).permanentLeftBattlefieldThisTurn = (state as any).permanentLeftBattlefieldThisTurn || {};
     (state as any).permanentLeftBattlefieldThisTurn[String(controller)] = true;
+  } catch {
+    // best-effort tracking only
+  }
+
+  const leaveReplacementDestination = getCounterLeaveBattlefieldReplacement(perm, 'graveyard');
+  if (leaveReplacementDestination === 'exile') {
+    if (owner) {
+      const ownerZone = zones[owner] = zones[owner] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] } as any;
+      (ownerZone as any).exile = (ownerZone as any).exile || [];
+      if (!isToken && card) {
+        const exiledCard = {
+          id: card.id,
+          name: card.name,
+          type_line: card.type_line,
+          oracle_text: card.oracle_text,
+          image_uris: card.image_uris,
+          mana_cost: card.mana_cost,
+          power: card.power,
+          toughness: card.toughness,
+          ...buildZoneObjectWithRetainedCounters(card, perm, 'exile'),
+        };
+        (ownerZone as any).exile.push(exiledCard);
+      }
+    }
+
+    bumpSeq();
+    try {
+      recalculatePlayerEffects(ctx);
+    } catch (err) {
+      debugWarn(1, '[movePermanentToGraveyard] Failed to recalculate player effects after exile replacement:', err);
+    }
+    return true;
+  }
+
+  try {
     if (isCreature) {
       (state as any).creatureDiedThisTurn = true;
 
@@ -1036,6 +1072,24 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   return true;
 }
 
+export function destroyPermanent(ctx: GameContext, permanentId: string, triggerDeathEffects = true): boolean {
+  const { state, bumpSeq } = ctx;
+  const normalizedId = String(permanentId || '').trim();
+  if (!normalizedId) return false;
+
+  const perm = Array.isArray(state.battlefield)
+    ? state.battlefield.find((entry: any) => entry && String(entry.id || '') === normalizedId)
+    : null;
+  if (!perm) return false;
+
+  if (applyShieldCounterDamagePrevention(perm)) {
+    bumpSeq();
+    return true;
+  }
+
+  return movePermanentToGraveyard(ctx, normalizedId, triggerDeathEffects);
+}
+
 export function removePermanent(ctx: GameContext, permanentId: string) {
   const { state, bumpSeq } = ctx;
   const idx = state.battlefield.findIndex(p => p.id === permanentId);
@@ -1286,6 +1340,15 @@ export function runSBA(ctx: GameContext) {
     const same = Object.keys(before).length === Object.keys(after).length &&
       Object.keys(after).every(k => (before as any)[k] === (after as any)[k]);
     if (!same) { perm.counters = Object.keys(after).length ? { ...after } : undefined; changed = true; }
+    if ((upd as any).clearDamage) {
+      (perm as any).damage = 0;
+      (perm as any).markedDamage = 0;
+      (perm as any).damageMarked = 0;
+      if (perm.counters && typeof perm.counters === 'object' && !Array.isArray(perm.counters) && 'damage' in perm.counters) {
+        delete (perm.counters as any).damage;
+      }
+      changed = true;
+    }
   }
   if (res.destroys.length) {
     const zones = state.zones = state.zones || {};
@@ -1296,6 +1359,32 @@ export function runSBA(ctx: GameContext) {
         const isToken = (destroyed as any).isToken === true;
         const isCreature = ((destroyed as any).card?.type_line || '').toLowerCase().includes('creature');
         const controller = (destroyed as any).controller || (destroyed as any).owner;
+        const leaveReplacementDestination = getCounterLeaveBattlefieldReplacement(destroyed, 'graveyard');
+
+        if (leaveReplacementDestination === 'exile') {
+          const owner = (destroyed as any).owner || (destroyed as any).controller;
+          if (!isToken && owner) {
+            const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0, libraryCount: 0 } as any;
+            (ownerZone as any).exile = (ownerZone as any).exile || [];
+            const card = (destroyed as any).card;
+            if (card) {
+              (ownerZone as any).exile.push({
+                id: card.id,
+                name: card.name,
+                type_line: card.type_line,
+                oracle_text: card.oracle_text,
+                image_uris: card.image_uris,
+                mana_cost: card.mana_cost,
+                power: card.power,
+                toughness: card.toughness,
+                ...buildZoneObjectWithRetainedCounters(card, destroyed, 'exile'),
+              });
+              (ownerZone as any).exileCount = ((ownerZone as any).exile || []).length;
+            }
+          }
+          changed = true;
+          continue;
+        }
         
         // Fire death triggers for ALL creatures (including tokens) BEFORE they leave/cease to exist
         // Rule 700.4: The term "dies" means "is put into a graveyard from the battlefield"
@@ -1596,7 +1685,7 @@ export function applyEngineEffects(ctx: GameContext, effects: readonly any[]) {
   for (const eff of effects) {
     switch (eff.kind) {
       case "AddCounters": updateCounters(ctx, eff.permanentId, { [eff.counter]: eff.amount }); break;
-      case "DestroyPermanent": removePermanent(ctx, eff.permanentId); break;
+      case "DestroyPermanent": destroyPermanent(ctx, eff.permanentId); break;
     }
   }
 }

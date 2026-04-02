@@ -491,6 +491,32 @@ function getTappedResolutionPaymentPermanentIds(payment?: ResolutionPaymentItem[
   );
 }
 
+function snapshotResolutionManaPool(pool: any): Record<string, number> {
+  return {
+    white: Number(pool?.white || 0),
+    blue: Number(pool?.blue || 0),
+    black: Number(pool?.black || 0),
+    red: Number(pool?.red || 0),
+    green: Number(pool?.green || 0),
+    colorless: Number(pool?.colorless || 0),
+  };
+}
+
+function calculateResolutionManaPoolDelta(before: any, after: any): Record<string, number> | undefined {
+  const baseline = snapshotResolutionManaPool(before);
+  const current = snapshotResolutionManaPool(after);
+  const delta: Record<string, number> = {};
+
+  for (const key of ['white', 'blue', 'black', 'red', 'green', 'colorless']) {
+    const amount = Number(current[key] || 0) - Number(baseline[key] || 0);
+    if (amount !== 0) {
+      delta[key] = amount;
+    }
+  }
+
+  return Object.keys(delta).length > 0 ? delta : undefined;
+}
+
 function appendCastSpellContinuationEvent(
   gameId: string,
   game: any,
@@ -6132,6 +6158,19 @@ async function handleRulesChoiceGroupResponse(
     (game as any).bumpSeq();
   }
 
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'rulesChoiceResolved', {
+      controllerId,
+      sourceId,
+      sourceName,
+      effectText,
+      eventData: executionEventData,
+      rulesChoiceGroupId: groupId,
+    });
+  } catch (err) {
+    debugWarn(1, `[Resolution] appendEvent(rulesChoiceResolved) failed:`, err);
+  }
+
   debug(2, `[Resolution] Executed grouped rules choice ${groupId} for ${sourceName}: ${(executeResult.log || []).join(' | ')}`);
 }
 
@@ -8379,6 +8418,7 @@ async function handleStepResponse(
         const payment = extractResolutionPaymentItems(response.selections as any);
         const manaCost = String(stepData.manaCost || '').trim();
         const tappedPaymentPermanents = getTappedResolutionPaymentPermanentIds(payment);
+        const manaPoolBeforePayment = snapshotResolutionManaPool((game.state as any)?.manaPool?.[pid]);
         const applied = applyWardManaPaymentSelection(game, pid, manaCost, payment);
         if (!applied.ok) {
           const appliedError = applied as { ok: false; code: string; message: string };
@@ -8388,6 +8428,10 @@ async function handleStepResponse(
           });
           break;
         }
+        const paymentManaDelta = calculateResolutionManaPoolDelta(
+          manaPoolBeforePayment,
+          (game.state as any)?.manaPool?.[pid],
+        );
 
         if (stepData.activationPaymentContext === 'battlefield_targeted') {
           const controllerId = String(step.playerId || pid);
@@ -8502,6 +8546,7 @@ async function handleStepResponse(
               tappedPermanents: allTappedPermanentsForCost,
               activatedAbilityText: activatedAbilityText || undefined,
               abilityType: battlefieldAbilityType || undefined,
+              paymentManaDelta,
               ...(battlefieldAbilityType === 'equip'
                 ? { equipParams: stackItem.equipParams }
                 : battlefieldAbilityType === 'fortify'
@@ -8557,6 +8602,13 @@ async function handleStepResponse(
             G: 'green',
             C: 'colorless',
           };
+          const recordedAddedMana: Record<string, number> = {};
+          const recordAddedMana = (poolKey: string, amount: number) => {
+            if (!poolKey) return;
+            const numericAmount = Number(amount || 0);
+            if (!Number.isFinite(numericAmount) || numericAmount === 0) return;
+            recordedAddedMana[poolKey] = Number(recordedAddedMana[poolKey] || 0) + numericAmount;
+          };
 
           const typeLine = String(permanent.card?.type_line || '').toLowerCase();
           const isLand = typeLine.includes('land');
@@ -8583,6 +8635,7 @@ async function handleStepResponse(
             const totalAmount = devotionMana.amount * effectiveMultiplier;
             const poolKey = colorToPoolKey[devotionMana.color] || 'green';
             (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+            recordAddedMana(poolKey, totalAmount);
             broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
           } else if (creatureCountMana && (creatureCountMana.amount > 0 || (creatureCountMana as any).requiresColorChoice === true)) {
             const totalAmount = creatureCountMana.amount * effectiveMultiplier;
@@ -8612,6 +8665,7 @@ async function handleStepResponse(
 
             const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
             (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+            recordAddedMana(poolKey, totalAmount);
             broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
           } else {
             const manaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
@@ -8622,6 +8676,7 @@ async function handleStepResponse(
               for (const manaColor of produces) {
                 const poolKey = colorToPoolKey[manaColor] || 'colorless';
                 (game.state.manaPool[pid] as any)[poolKey] += effectiveMultiplier;
+                recordAddedMana(poolKey, effectiveMultiplier);
               }
               broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
             } else if (manaAbility && produces.length > 1) {
@@ -8653,8 +8708,10 @@ async function handleStepResponse(
               for (const extra of extraMana) {
                 const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
                 (game.state.manaPool[pid] as any)[extraPoolKey] += extra.amount;
+                recordAddedMana(extraPoolKey, extra.amount);
               }
               (game.state.manaPool[pid] as any)[poolKey] += baseAmount * effectiveMultiplier;
+              recordAddedMana(poolKey, baseAmount * effectiveMultiplier);
               broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
             }
           }
@@ -8676,8 +8733,35 @@ async function handleStepResponse(
               cardName,
               abilityText,
               activatedAbilityText: activatedAbilityText || undefined,
-              tappedPermanents: requiresTap ? [permanentId] : [],
+              tappedPermanents: Array.from(new Set([...tappedPaymentPermanents, ...(requiresTap ? [permanentId] : [])])),
+              paymentManaDelta,
             });
+          } catch {
+            // ignore persistence failures
+          }
+
+          try {
+            const manaColorEntries = Object.entries(recordedAddedMana).filter(([, amount]) => Number(amount || 0) > 0);
+            if (manaColorEntries.length > 0) {
+              const poolKeyToManaColor: Record<string, string> = {
+                white: 'W',
+                blue: 'U',
+                black: 'B',
+                red: 'R',
+                green: 'G',
+                colorless: 'C',
+              };
+              const manaColor = manaColorEntries.length === 1
+                ? (poolKeyToManaColor[String(manaColorEntries[0][0])] || String(manaColorEntries[0][0]).toUpperCase())
+                : 'MULTI';
+              appendEvent(gameId, (game as any).seq ?? 0, 'activateManaAbility', {
+                playerId: pid,
+                permanentId,
+                abilityId: abilityId || undefined,
+                manaColor,
+                addedMana: { ...recordedAddedMana },
+              });
+            }
           } catch {
             // ignore persistence failures
           }
@@ -8757,6 +8841,7 @@ async function handleStepResponse(
               activatedAbilityText: activatedAbilityText || undefined,
               xValue,
               tappedPermanents: Array.from(new Set([...tappedPaymentPermanents, ...(requiresTap ? [permanentId] : [])])),
+              paymentManaDelta,
             });
           } catch {
             // ignore persistence failures
@@ -13057,7 +13142,15 @@ async function handleTargetSelectionResponse(
         : battlefieldAbilityType === 'fortify'
           ? String(stepAny?.fortifyCost || '').trim()
           : String(stepAny?.reconfigureCost || '').trim();
-      if (targetingCost) {
+      const parsedTargetingCost = targetingCost ? parseManaCost(targetingCost) : undefined;
+      const hasTargetingManaCost = Boolean(
+        parsedTargetingCost && (
+          Number(parsedTargetingCost.generic || 0) > 0 ||
+          Object.values(parsedTargetingCost.colors || {}).some((amount) => Number(amount || 0) > 0) ||
+          (Array.isArray(parsedTargetingCost.hybrids) && parsedTargetingCost.hybrids.length > 0)
+        )
+      );
+      if (hasTargetingManaCost) {
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: controllerId as PlayerID,

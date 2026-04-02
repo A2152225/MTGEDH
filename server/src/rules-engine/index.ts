@@ -1,5 +1,10 @@
 import type { GameState, BattlefieldPermanent } from '../../../shared/src';
 
+import {
+  getCounterValue,
+  permanentHasCounterGrantedAbility,
+} from '../state/modules/counter-common-effects.js';
+
 /**
  * Parse power/toughness value from string or number
  * Handles: "2", "3", "*", "1+*", etc.
@@ -18,6 +23,7 @@ function parsePT(raw?: string | number): number | undefined {
 export type EngineCounterUpdate = {
   readonly permanentId: string;
   readonly counters: Readonly<Record<string, number>>;
+  readonly clearDamage?: boolean;
 };
 
 export type EngineSBAResult = {
@@ -99,7 +105,7 @@ function derivedToughness(perm: BattlefieldPermanent): number | undefined {
  * Check if a permanent has the indestructible ability
  * Rule 702.12: A permanent with indestructible can't be destroyed.
  */
-function hasIndestructible(perm: BattlefieldPermanent): boolean {
+function hasIndestructible(state: Readonly<GameState>, perm: BattlefieldPermanent): boolean {
   const oracleText = ((perm.card as any)?.oracle_text || '').toLowerCase();
   const grantedAbilities = (perm as any).grantedAbilities || [];
   const keywords = (perm.card as any)?.keywords || [];
@@ -128,6 +134,10 @@ function hasIndestructible(perm: BattlefieldPermanent): boolean {
     if (String(counterName).toLowerCase() === 'indestructible' && Number(counterValue || 0) > 0) {
       return true;
     }
+  }
+
+  if (permanentHasCounterGrantedAbility(state, perm, 'indestructible')) {
+    return true;
   }
   
   // Check for equipment that grants indestructible (e.g., Darksteel Plate)
@@ -260,7 +270,17 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     // CR 704.5g: Lethal damage - IS destruction, respects indestructible
     if (damage >= totalToughness) {
       // Check for indestructible
-      const isIndestructible = hasIndestructible(perm) || attachmentGrantsIndestructible(state, perm);
+      const shieldCounters = getCounterValue(perm, 'shield');
+      if (shieldCounters > 0) {
+        const nextCounters = normalizeCounters({
+          ...((perm.counters || {}) as Record<string, number>),
+          shield: shieldCounters - 1,
+        });
+        updates.push({ permanentId: perm.id, counters: nextCounters, clearDamage: true });
+        continue;
+      }
+
+      const isIndestructible = hasIndestructible(state, perm) || attachmentGrantsIndestructible(state, perm);
       if (!isIndestructible) {
         destroys.push(perm.id);
       }

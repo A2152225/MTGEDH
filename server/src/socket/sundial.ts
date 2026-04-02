@@ -1,11 +1,11 @@
 import type { Server, Socket } from "socket.io";
 import {
   ensureGame,
-  appendGameEvent,
   broadcastGame,
   getOrInitManaPool,
   validateAndConsumeManaCostFromPool,
 } from "./util";
+import { appendEvent } from "../db/index.js";
 import { GameStep } from "../../../shared/src";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
@@ -145,7 +145,7 @@ export default function registerSundialHandlers(io: Server, socket: Socket) {
 
       // Persist the activation
       try {
-        appendGameEvent(game, gameId, "sundialActivated", {
+        appendEvent(gameId, (game as any).seq ?? 0, "sundialActivated", {
           by: playerId,
           exiled: exiledCount,
           action: (action ?? "endTurn"),
