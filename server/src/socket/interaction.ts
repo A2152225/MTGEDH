@@ -97,6 +97,28 @@ function parseStationThreshold(oracleText: string): number {
   return 0;
 }
 
+function parseThresholdRestrictedActivatedAbility(rawText: string): {
+  threshold: number;
+  cost: string;
+  effect: string;
+} | null {
+  const match = String(rawText || '').trim().match(/^(\d+)\+\s*\|\s*([^:]+):\s*(.+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const threshold = parseInt(match[1], 10);
+  if (!Number.isFinite(threshold)) {
+    return null;
+  }
+
+  return {
+    threshold,
+    cost: match[2].trim(),
+    effect: match[3].trim(),
+  };
+}
+
 // ============================================================================
 // Special Land Activated Abilities Configuration
 // ============================================================================
@@ -5316,7 +5338,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         sourceName: cardName,
         sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
         description: `Tap another untapped creature you control. Put charge counters on ${cardName} equal to that creature's power.`,
-        mandatory: true,
+        mandatory: false,
         station: {
           id: permanentId,
           name: cardName,
@@ -6534,6 +6556,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let sacrificeSubtype: string | undefined = undefined; // For creature subtypes like Soldier, Goblin, etc.
     let sacrificeCount = 1;
     let mustBeOther = false;
+    let requiredChargeCounters: number | null = null;
     const abilityOracleText = String(scopedAbilityFullText || oracleText || '').trim();
     
     // Parse activated abilities: look for "cost: effect" patterns
@@ -6561,14 +6584,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     if (abilityIndex < abilities.length) {
       const ability = abilities[abilityIndex];
-      abilityText = ability.effect;
+      const thresholdRestrictedAbility = parseThresholdRestrictedActivatedAbility(`${ability.cost}: ${ability.effect}`);
+      const normalizedCost = thresholdRestrictedAbility?.cost || ability.cost;
+      abilityText = thresholdRestrictedAbility?.effect || ability.effect;
       // Only treat the ability as requiring the SOURCE to tap when the cost includes an explicit tap symbol
       // (or the old-style "Tap:" shorthand). Do NOT match "Tap an untapped creature you control" etc.
-      requiresTap = /\{t\}/i.test(ability.cost) || /^\s*tap\s*:/i.test(ability.cost);
-      manaCost = ability.cost;
+      requiresTap = /\{t\}/i.test(normalizedCost) || /^\s*tap\s*:/i.test(normalizedCost);
+      manaCost = normalizedCost;
+      requiredChargeCounters = thresholdRestrictedAbility?.threshold ?? null;
       
       // Detect sacrifice type from cost using shared utility
-      const sacrificeInfo = parseSacrificeCost(ability.cost);
+      const sacrificeInfo = parseSacrificeCost(normalizedCost);
       if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
         sacrificeType = sacrificeInfo.sacrificeType;
         sacrificeSubtype = sacrificeInfo.creatureSubtype;
@@ -6597,11 +6623,14 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // If there's only one ability parsed, use it
       if (abilities.length === 1) {
         const ability = abilities[0];
-        abilityText = ability.effect;
-        requiresTap = /\{t\}/i.test(ability.cost) || /^\s*tap\s*:/i.test(ability.cost);
-        manaCost = ability.cost;
+        const thresholdRestrictedAbility = parseThresholdRestrictedActivatedAbility(`${ability.cost}: ${ability.effect}`);
+        const normalizedCost = thresholdRestrictedAbility?.cost || ability.cost;
+        abilityText = thresholdRestrictedAbility?.effect || ability.effect;
+        requiresTap = /\{t\}/i.test(normalizedCost) || /^\s*tap\s*:/i.test(normalizedCost);
+        manaCost = normalizedCost;
+        requiredChargeCounters = thresholdRestrictedAbility?.threshold ?? null;
         
-        const sacrificeInfo = parseSacrificeCost(ability.cost);
+        const sacrificeInfo = parseSacrificeCost(normalizedCost);
         if (sacrificeInfo.requiresSacrifice && sacrificeInfo.sacrificeType) {
           sacrificeType = sacrificeInfo.sacrificeType;
           sacrificeSubtype = sacrificeInfo.creatureSubtype;
@@ -6613,6 +6642,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // This handles simple cases like basic lands: "{T}: Add {G}"
         abilityText = abilityOracleText;
         requiresTap = abilityOracleText.includes('{T}:') || abilityOracleText.toLowerCase().includes('tap:');
+      }
+    }
+
+    if (requiredChargeCounters !== null) {
+      const currentChargeCounters = Number((permanent as any)?.counters?.charge || 0);
+      if (currentChargeCounters < requiredChargeCounters) {
+        socket.emit('error', {
+          code: 'ACTIVATION_CONDITION_NOT_MET',
+          message: `${cardName}'s selected ability requires ${requiredChargeCounters}+ charge counters.`,
+        });
+        return;
       }
     }
     

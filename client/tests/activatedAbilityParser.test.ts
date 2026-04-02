@@ -95,6 +95,28 @@ describe('parseActivatedAbilities station parsing', () => {
     expect(abilities[1]?.isFetchAbility).toBe(true);
   });
 
+  it('parses Evendo threshold mana ability alongside Station', () => {
+    const card: KnownCardRef = {
+      id: 'evendo-card-1',
+      name: 'Evendo, Waking Haven',
+      type_line: 'Land',
+      oracle_text: 'Evendo, Waking Haven enters tapped.\n{T}: Add {G}.\nStation\n12+ | {G}, {T}: Add {G} for each creature you control.',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(3);
+    expect(abilities[0]?.id).toBe('evendo-card-1-ability-0');
+    expect(abilities[0]?.isManaAbility).toBe(true);
+    expect(abilities[1]?.id).toBe('evendo-card-1-ability-1');
+    expect(abilities[1]?.cost).toBe('{G}, {T}');
+    expect(abilities[1]?.effect).toBe('Add {G} for each creature you control.');
+    expect(abilities[1]?.isManaAbility).toBe(true);
+    expect(abilities[1]?.stationThreshold).toBe(12);
+    expect(abilities[2]?.id).toBe('evendo-card-1-station-2');
+    expect(abilities[2]?.isStationAbility).toBe(true);
+  });
+
   it('parses pay-life activations as generic abilities with a life cost', () => {
     const card: KnownCardRef = {
       id: 'greed-card-1',

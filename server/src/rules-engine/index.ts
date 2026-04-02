@@ -4,6 +4,7 @@ import {
   getCounterValue,
   permanentHasCounterGrantedAbility,
 } from '../state/modules/counter-common-effects.js';
+import { calculateAllPTBonuses, calculateVariablePT } from '../state/utils.js';
 
 /**
  * Parse power/toughness value from string or number
@@ -65,40 +66,63 @@ function isNumber(x: unknown): x is number {
   return typeof x === 'number' && Number.isFinite(x);
 }
 
-function derivedToughness(perm: BattlefieldPermanent): number | undefined {
-  // First check if it's a creature by type line
+function getEffectiveStatsForSBA(
+  state: Readonly<GameState>,
+  perm: BattlefieldPermanent
+): { power?: number; toughness?: number } {
   const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
-  if (!typeLine.includes('creature')) return undefined;
-  
-  // Get base toughness - first try baseToughness property, then parse from card data
-  let baseToughness: number | undefined;
-  if (isNumber(perm.baseToughness)) {
-    baseToughness = perm.baseToughness;
-  } else {
-    // Parse from card toughness (e.g., "2" or "1+*" or "*")
-    const cardToughness = (perm.card as any)?.toughness;
-    if (cardToughness !== undefined && cardToughness !== null) {
-      const parsed = parseInt(String(cardToughness), 10);
-      if (isNumber(parsed)) {
-        baseToughness = parsed;
-      }
+  if (!typeLine.includes('creature')) return {};
+
+  if (isNumber((perm as any).effectivePower) && isNumber((perm as any).effectiveToughness)) {
+    return {
+      power: Number((perm as any).effectivePower),
+      toughness: Number((perm as any).effectiveToughness),
+    };
+  }
+
+  let basePower = parsePT(perm.basePower);
+  let baseToughness = parsePT(perm.baseToughness);
+
+  if (!isNumber(basePower)) {
+    basePower = parsePT((perm.card as any)?.power);
+  }
+  if (!isNumber(baseToughness)) {
+    baseToughness = parsePT((perm.card as any)?.toughness);
+  }
+
+  if (!isNumber(basePower) || !isNumber(baseToughness)) {
+    const variablePT = calculateVariablePT({ ...((perm.card as any) || {}), controller: (perm as any).controller }, state);
+    if (variablePT) {
+      basePower = isNumber(basePower) ? basePower : variablePT.power;
+      baseToughness = isNumber(baseToughness) ? baseToughness : variablePT.toughness;
     }
   }
-  
-  // If we still don't have a valid toughness, return undefined (non-creature or invalid data)
-  if (!isNumber(baseToughness)) return undefined;
-  
+
+  if (!isNumber(basePower) || !isNumber(baseToughness)) {
+    return {};
+  }
+
   const plus = perm.counters?.['+1/+1'] ?? 0;
   const minus = perm.counters?.['-1/-1'] ?? 0;
-  const net = plus - minus;
-  const totalToughness = baseToughness + net;
-  // Damage reduces effective toughness for SBA purposes
-  // Check 'damage', 'markedDamage', and 'damageMarked' for all damage tracking patterns
-  // - 'damage' is used by spell effects (Lightning Bolt, etc.)
-  // - 'markedDamage' is used by combat damage
-  // - 'damageMarked' is used by triggered ability damage
-  const damage = (perm as any).damage ?? (perm as any).markedDamage ?? (perm as any).damageMarked ?? 0;
-  return totalToughness - damage;
+  const counterDelta = plus - minus;
+
+  let otherCounterPower = 0;
+  let otherCounterToughness = 0;
+  if (perm.counters) {
+    for (const [counterType, count] of Object.entries(perm.counters)) {
+      if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+      const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
+      if (!counterMatch) continue;
+      otherCounterPower += parseInt(counterMatch[1], 10) * (count as number);
+      otherCounterToughness += parseInt(counterMatch[2], 10) * (count as number);
+    }
+  }
+
+  const allBonuses = calculateAllPTBonuses(perm, state);
+  return {
+    power: Math.max(0, basePower + counterDelta + otherCounterPower + allBonuses.power),
+    toughness: baseToughness + counterDelta + otherCounterToughness + allBonuses.toughness,
+  };
 }
 
 /**
@@ -235,28 +259,8 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
   for (const perm of state.battlefield as readonly BattlefieldPermanent[]) {
     const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
     if (!typeLine.includes('creature')) continue;
-    
-    // Get base toughness
-    let baseToughness: number | undefined;
-    if (isNumber(perm.baseToughness)) {
-      baseToughness = perm.baseToughness;
-    } else {
-      const cardToughness = (perm.card as any)?.toughness;
-      if (cardToughness !== undefined && cardToughness !== null) {
-        const parsed = parseInt(String(cardToughness), 10);
-        if (isNumber(parsed)) {
-          baseToughness = parsed;
-        }
-      }
-    }
-    
-    if (!isNumber(baseToughness)) continue;
-    
-    // Apply counters
-    const plus = perm.counters?.['+1/+1'] ?? 0;
-    const minus = perm.counters?.['-1/-1'] ?? 0;
-    const net = plus - minus;
-    const totalToughness = baseToughness + net;
+    const totalToughness = getEffectiveStatsForSBA(state, perm).toughness;
+    if (!isNumber(totalToughness)) continue;
     
     // Get damage
     const damage = (perm as any).damage ?? (perm as any).markedDamage ?? (perm as any).damageMarked ?? 0;

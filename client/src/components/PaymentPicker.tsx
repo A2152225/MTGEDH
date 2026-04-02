@@ -10,6 +10,7 @@ import {
   calculateSuggestedPayment,
   calculateRemainingCostAfterFloatingMana,
   getTotalManaProduction,
+  type SuggestedPaymentSelection,
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
@@ -196,7 +197,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
   
   // Calculate suggested payment when no sources have been chosen yet (considers floating mana)
   const suggestedPayment = useMemo(() => {
-    if (chosen.length > 0) return new Map<string, Color>();
+    if (chosen.length > 0) return new Map<string, SuggestedPaymentSelection>();
     return calculateSuggestedPayment(cost, effectiveSources, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
   }, [cost, effectiveSources, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection]);
 
@@ -236,16 +237,14 @@ export function PaymentPicker(props: PaymentPickerProps) {
       // Recalculate if already chosen some
       const newSuggested = calculateSuggestedPayment(cost, effectiveSources, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
       const newPayment: PaymentItem[] = [];
-      for (const [permanentId, mana] of newSuggested.entries()) {
-        const count = getManaCountForSource(permanentId);
-        newPayment.push({ permanentId, mana, count });
+      for (const [permanentId, selection] of newSuggested.entries()) {
+        newPayment.push({ permanentId, mana: selection.color, count: selection.count });
       }
       onChange(newPayment);
     } else {
       const newPayment: PaymentItem[] = [];
-      for (const [permanentId, mana] of suggestedPayment.entries()) {
-        const count = getManaCountForSource(permanentId);
-        newPayment.push({ permanentId, mana, count });
+      for (const [permanentId, selection] of suggestedPayment.entries()) {
+        newPayment.push({ permanentId, mana: selection.color, count: selection.count });
       }
       onChange(newPayment);
     }
@@ -366,7 +365,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                   </span>
                 )}
                 {s.options.map(opt => {
-                  const isSuggestedColor = suggested === opt;
+                  const isSuggestedColor = suggested?.color === opt;
                   const displayText = hasAmount && s.options.length === 1 ? `{${opt}}` : opt;
                   return (
                     <button
@@ -381,7 +380,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                         background: isSuggestedColor ? 'rgba(76, 175, 80, 0.15)' : 'transparent',
                         fontWeight: isSuggestedColor ? 600 : 400
                       }}
-                      title={used ? 'Already used' : isSuggestedColor ? `Suggested: Add ${hasAmount ? `${s.amount}×` : ''}${opt}` : `Add ${hasAmount ? `${s.amount}×` : ''}${opt}`}
+                      title={used ? 'Already used' : isSuggestedColor ? `Suggested: Add ${suggested?.count || 1} ${opt}` : `Add ${hasAmount ? `${s.amount}×` : ''}${opt}`}
                     >
                       {displayText}
                     </button>

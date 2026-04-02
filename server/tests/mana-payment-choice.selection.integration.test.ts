@@ -75,6 +75,7 @@ function buildSignetBaseline(playerId: string) {
 describe('mana payment choice selection flow', () => {
   const signetGameId = 'test_mana_payment_choice_signet';
   const spellGameId = 'test_mana_payment_choice_spell';
+  const reflectedSpellGameId = 'test_mana_payment_choice_spell_reflection';
   const mikokoroGameId = 'test_mana_payment_choice_mikokoro';
   const playerId = 'p1';
 
@@ -87,9 +88,11 @@ describe('mana payment choice selection flow', () => {
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(signetGameId);
     ResolutionQueueManager.removeQueue(spellGameId);
+    ResolutionQueueManager.removeQueue(reflectedSpellGameId);
     ResolutionQueueManager.removeQueue(mikokoroGameId);
     games.delete(signetGameId as any);
     games.delete(spellGameId as any);
+    games.delete(reflectedSpellGameId as any);
     games.delete(mikokoroGameId as any);
   });
 
@@ -248,6 +251,131 @@ describe('mana payment choice selection flow', () => {
 
     const stackNames = ((game.state as any).stack || []).map((entry: any) => entry.card?.name || entry.sourceName || entry.id);
     expect(stackNames).toContain("Wayfarer's Bauble");
+  });
+
+  it('lets exact spell payment spend only part of reflected land mana and keep the excess floating', async () => {
+    createGameIfNotExists(reflectedSpellGameId, 'commander', 40);
+    const game = ensureGame(reflectedSpellGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'forest_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'forest_card_1',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '({T}: Add {G}.)',
+        },
+      },
+      {
+        id: 'forest_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'forest_card_2',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '({T}: Add {G}.)',
+        },
+      },
+      {
+        id: 'reflection_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'reflection_card_1',
+          name: 'Mana Reflection',
+          type_line: 'Enchantment',
+          oracle_text: 'If you tap a permanent for mana, it produces twice as much of that mana instead.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'visionary_1',
+            name: 'Llanowar Visionary',
+            mana_cost: '{2}{G}',
+            manaCost: '{2}{G}',
+            type_line: 'Creature — Elf Druid',
+            oracle_text: 'When Llanowar Visionary enters, draw a card.\n{T}: Add {G}.',
+            image_uris: { small: 'https://example.com/visionary.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, reflectedSpellGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: reflectedSpellGameId, cardId: 'visionary_1' });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(reflectedSpellGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.manaCost).toBe('{2}{G}');
+
+    await handlers['submitResolutionResponse']({
+      gameId: reflectedSpellGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: 'forest_1', mana: 'G', count: 2 },
+          { permanentId: 'forest_2', mana: 'G', count: 1 },
+        ],
+      },
+    });
+
+    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
+    expect(continueEvent?.payload?.cardId).toBe('visionary_1');
+
+    emitted.length = 0;
+    await handlers['completeCastSpell'](continueEvent?.payload);
+
+    const castError = emitted.find((event) => event.event === 'error');
+    expect(castError).toBeUndefined();
+    expect((game.state as any).manaPool[playerId]).toEqual({
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 0,
+      green: 1,
+      colorless: 0,
+    });
+
+    const handIds = (((game.state as any).zones?.[playerId]?.hand) || []).map((card: any) => card.id);
+    expect(handIds).not.toContain('visionary_1');
+
+    const stackNames = ((game.state as any).stack || []).map((entry: any) => entry.card?.name || entry.sourceName || entry.id);
+    expect(stackNames).toContain('Llanowar Visionary');
   });
 
   it('lets Mikokoro exact-payment pick a single land that produces extra mana from Dictates', async () => {

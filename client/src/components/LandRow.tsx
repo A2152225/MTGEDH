@@ -4,7 +4,7 @@ import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { CardContextMenu } from './CardContextMenu';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
-import { parseActivatedAbilities, canActivateTapAbility, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
+import { parseActivatedAbilities, canActivateTapAbility, getThresholdActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 
 function canonicalLandKey(typeLine?: string, name?: string) {
   const tl = (typeLine || '').toLowerCase();
@@ -175,8 +175,9 @@ export function LandRow(props: {
     // Annotate abilities with activation status
     const annotatedAbilities = abilities.map(ability => {
       const tapCheck = canActivateTapAbility(ability.requiresTap, context, ability.isManaAbility);
-      let canActivateAbility = tapCheck.canActivate;
-      let reason = tapCheck.reason;
+      const thresholdCheck = getThresholdActivationStatus(ability, perm);
+      let canActivateAbility = tapCheck.canActivate && thresholdCheck.canActivate;
+      let reason = thresholdCheck.reason || tapCheck.reason;
 
       // Check sorcery timing restriction
       if (ability.timingRestriction === 'sorcery') {

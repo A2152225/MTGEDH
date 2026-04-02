@@ -5708,8 +5708,9 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     // Some mandatory steps represent an in-progress player-initiated action (e.g. spell cast target selection)
     // and must be cancellable to avoid leaving the game in resolution mode.
     const isCancellableMandatoryStep =
-      step.type === ResolutionStepType.TARGET_SELECTION &&
-      Boolean((step as any)?.spellCastContext?.effectId);
+      (step.type === ResolutionStepType.TARGET_SELECTION &&
+        Boolean((step as any)?.spellCastContext?.effectId)) ||
+      step.type === ResolutionStepType.STATION_CREATURE_SELECTION;
 
     if (step.mandatory && !isCancellableMandatoryStep) {
       socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });

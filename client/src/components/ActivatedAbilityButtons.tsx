@@ -8,6 +8,7 @@ import {
   canActivateTapAbility,
   getAbilityIcon,
   formatAbilityCost,
+  getThresholdActivationStatus,
   type ParsedActivatedAbility,
   type ActivationContext,
 } from '../utils/activatedAbilityParser';
@@ -489,9 +490,10 @@ export function ActivatedAbilityButtons({
         context,
         ability.isManaAbility
       );
+      const thresholdCheck = getThresholdActivationStatus(ability, perm);
       
-      let canActivate = tapCheck.canActivate;
-      let reason = tapCheck.reason;
+      let canActivate = tapCheck.canActivate && thresholdCheck.canActivate;
+      let reason = thresholdCheck.reason || tapCheck.reason;
       
       // Check loyalty ability restrictions
       if (ability.isLoyaltyAbility) {

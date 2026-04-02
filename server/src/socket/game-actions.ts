@@ -5755,55 +5755,49 @@ export function registerGameActions(io: Server, socket: Socket) {
           // - Dynamic mana (Gaea's Cradle, Wirewood Channeler)
           // - Land enchantments (Wild Growth, Overgrowth)
           // - Global effects (Caged Sun, Mana Reflection, Mirari's Wake)
-          let manaAmount: number;
-          
-          if (count !== undefined && count !== null) {
-            // Client provided explicit count - use it
-            manaAmount = count;
-          } else {
-            // Calculate dynamically based on game state
-            const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
-            manaAmount = manaInfo.totalAmount;
-            
-            // If there are bonus mana of different colors, add those too
-            for (const bonus of manaInfo.bonusMana) {
-              if (bonus.color !== mana && bonus.amount > 0) {
-                const bonusPoolKey = manaColorMap[bonus.color];
-                if (bonusPoolKey) {
-                  (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
-                  // Snow-vs-non-snow tracking: treat bonus mana as produced by this source.
-                  if (isSnowSource) {
-                    producedSnowByColor[bonusPoolKey] = (producedSnowByColor[bonusPoolKey] || 0) + bonus.amount;
-                  } else {
-                    producedNonSnowByColor[bonusPoolKey] = (producedNonSnowByColor[bonusPoolKey] || 0) + bonus.amount;
-                  }
-                  // Treasure-vs-non-treasure tracking (for replay-stable "mana from a Treasure" checks).
-                  if (isTreasureSource) {
-                    producedTreasureByColor[bonusPoolKey] = (producedTreasureByColor[bonusPoolKey] || 0) + bonus.amount;
-                  } else {
-                    producedNonTreasureByColor[bonusPoolKey] = (producedNonTreasureByColor[bonusPoolKey] || 0) + bonus.amount;
-                  }
-                  debug(2, `[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
-                }
-              }
-            }
-          }
+          const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+          const producedAmount = count !== undefined && count !== null
+            ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0))
+            : Number(manaInfo.totalAmount || 0);
+          const spentAmount = count !== undefined && count !== null
+            ? Math.max(Number(count) || 0, 0)
+            : producedAmount;
           
           const poolKey = manaColorMap[mana];
-          if (poolKey && manaAmount > 0) {
-            (game.state.manaPool[playerId] as any)[poolKey] += manaAmount;
-            selectedPaymentTotals[poolKey] = (selectedPaymentTotals[poolKey] || 0) + manaAmount;
+          if (poolKey && producedAmount > 0) {
+            (game.state.manaPool[playerId] as any)[poolKey] += producedAmount;
+            selectedPaymentTotals[poolKey] = (selectedPaymentTotals[poolKey] || 0) + spentAmount;
             if (isSnowSource) {
-              producedSnowByColor[poolKey] = (producedSnowByColor[poolKey] || 0) + manaAmount;
+              producedSnowByColor[poolKey] = (producedSnowByColor[poolKey] || 0) + producedAmount;
             } else {
-              producedNonSnowByColor[poolKey] = (producedNonSnowByColor[poolKey] || 0) + manaAmount;
+              producedNonSnowByColor[poolKey] = (producedNonSnowByColor[poolKey] || 0) + producedAmount;
             }
             if (isTreasureSource) {
-              producedTreasureByColor[poolKey] = (producedTreasureByColor[poolKey] || 0) + manaAmount;
+              producedTreasureByColor[poolKey] = (producedTreasureByColor[poolKey] || 0) + producedAmount;
             } else {
-              producedNonTreasureByColor[poolKey] = (producedNonTreasureByColor[poolKey] || 0) + manaAmount;
+              producedNonTreasureByColor[poolKey] = (producedNonTreasureByColor[poolKey] || 0) + producedAmount;
             }
-            debug(2, `[castSpellFromHand] Added ${manaAmount} ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
+            debug(2, `[castSpellFromHand] Added ${producedAmount} ${mana} mana to ${playerId}'s pool from ${(permanent as any).card?.name || permanentId}`);
+          }
+
+          for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
+            const bonusPoolKey = manaColorMap[bonus.color];
+            if (!bonusPoolKey || bonus.amount <= 0 || ((count !== undefined && count !== null) && bonusPoolKey === poolKey)) {
+              continue;
+            }
+
+            (game.state.manaPool[playerId] as any)[bonusPoolKey] += bonus.amount;
+            if (isSnowSource) {
+              producedSnowByColor[bonusPoolKey] = (producedSnowByColor[bonusPoolKey] || 0) + bonus.amount;
+            } else {
+              producedNonSnowByColor[bonusPoolKey] = (producedNonSnowByColor[bonusPoolKey] || 0) + bonus.amount;
+            }
+            if (isTreasureSource) {
+              producedTreasureByColor[bonusPoolKey] = (producedTreasureByColor[bonusPoolKey] || 0) + bonus.amount;
+            } else {
+              producedNonTreasureByColor[bonusPoolKey] = (producedNonTreasureByColor[bonusPoolKey] || 0) + bonus.amount;
+            }
+            debug(2, `[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
           }
         }
       }

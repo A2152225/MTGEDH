@@ -158,6 +158,44 @@ describe('cancelResolutionStep authorization (integration)', () => {
     expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
   });
 
+  it('allows a legacy mandatory station selection step to be cancelled by its owner', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.STATION_CREATURE_SELECTION,
+      playerId: p1 as any,
+      description: 'Tap another creature for station',
+      mandatory: true,
+      sourceId: 'station_1',
+      sourceName: 'Test Station',
+      creatures: [{ id: 'cre_1', name: 'Test Creature', power: 2, toughness: 2 }],
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === ResolutionStepType.STATION_CREATURE_SELECTION);
+    expect(step).toBeDefined();
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['cancelResolutionStep']({ gameId, stepId: String((step as any).id) });
+
+    expect(emitted.some(e => e.event === 'resolutionStepCancelled')).toBe(true);
+    const queueAfter = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfter.steps).toHaveLength(0);
+  });
+
   it('does not throw when payload is missing (crash-safety)', async () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket('p1', emitted);

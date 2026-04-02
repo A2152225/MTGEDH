@@ -93,6 +93,7 @@ import { TriggerShortcutsPanel } from "./components/TriggerShortcutsPanel";
 import { DraggableSettingsPanel } from "./components/DraggableSettingsPanel";
 import { LoopShortcutPanel } from "./components/LoopShortcutPanel";
 import { debug, debugWarn, debugError } from "./utils/debug";
+import { getTotalManaProduction } from "./utils/manaUtils";
 import {
   buildResolutionResponsePayload,
   clearLoopShortcutDraft,
@@ -3794,20 +3795,56 @@ export function App() {
     if (!safeView) return [];
     
     const sources: Array<{ id: string; name: string; options: ManaColor[]; amount?: number }> = [];
+    const globalBattlefield = safeView.battlefield || [];
+
+    const getSourceManaAmount = (perm: BattlefieldPermanent, options: ManaColor[], baseAmount?: number): number => {
+      const printedAmount = typeof baseAmount === 'number' && baseAmount > 0
+        ? baseAmount
+        : getTotalManaProduction(options as any);
+      const typeLine = String((perm.card?.type_line || '')).toLowerCase();
+      const isLand = typeLine.includes('land');
+      let multiplier = 1;
+      let additiveBonus = 0;
+
+      for (const effectPerm of globalBattlefield) {
+        const effectName = String((effectPerm as any)?.card?.name || '').toLowerCase();
+        const effectController = String((effectPerm as any)?.controller || '');
+
+        if (isLand) {
+          if (
+            effectName.includes('mana flare') ||
+            effectName.includes('heartbeat of spring') ||
+            effectName.includes('dictate of karametra')
+          ) {
+            additiveBonus += 1;
+          }
+
+          if (
+            effectController === playerId && (
+              effectName.includes('mirari\'s wake') ||
+              effectName.includes('zendikar resurgent') ||
+              effectName.includes('vorinclex, voice of hunger')
+            )
+          ) {
+            additiveBonus += 1;
+          }
+        }
+
+        if (effectController === playerId) {
+          if (effectName.includes('mana reflection')) {
+            multiplier *= 2;
+          }
+          if (effectName.includes('nyxbloom ancient')) {
+            multiplier *= 3;
+          }
+        }
+      }
+
+      return (printedAmount * multiplier) + additiveBonus;
+    };
     
     // Get player's battlefield permanents (filter global battlefield by controller)
-    const battlefield = (safeView.battlefield || []).filter(perm => perm.controller === playerId);
-    const globalLandExtraCount = (safeView.battlefield || []).reduce((count, perm) => {
-      const permName = String((perm as any)?.card?.name || '').toLowerCase();
-      if (
-        permName.includes('mana flare') ||
-        permName.includes('heartbeat of spring') ||
-        permName.includes('dictate of karametra')
-      ) {
-        return count + 1;
-      }
-      return count;
-    }, 0);
+    const battlefield = globalBattlefield.filter(perm => perm.controller === playerId);
     
     for (const perm of battlefield) {
       if (!perm || perm.tapped) continue; // Skip tapped permanents
@@ -3839,11 +3876,12 @@ export function App() {
       
       if (basicColors.length > 0) {
         // Land has basic land types - use those colors
+        const amount = getSourceManaAmount(perm, basicColors);
         sources.push({
           id: perm.id,
           name,
           options: basicColors,
-          ...(globalLandExtraCount > 0 ? { amount: 1 + globalLandExtraCount } : {}),
+          ...(amount > 1 ? { amount } : {}),
         });
       } else if (typeLine.includes('land')) {
         // Non-basic land without basic land types - parse oracle text
@@ -3851,19 +3889,21 @@ export function App() {
         if (landProducesMana(oracleText)) {
           const oracleColors = parseManaColorsFromOracleText(oracleText);
           if (oracleColors.length > 0) {
+            const amount = getSourceManaAmount(perm, oracleColors);
             sources.push({
               id: perm.id,
               name,
               options: oracleColors,
-              ...(globalLandExtraCount > 0 ? { amount: 1 + globalLandExtraCount } : {}),
+              ...(amount > 1 ? { amount } : {}),
             });
           } else {
             // Default to colorless if we can't determine the colors but it does produce mana
+            const amount = getSourceManaAmount(perm, ['C']);
             sources.push({
               id: perm.id,
               name,
               options: ['C'],
-              ...(globalLandExtraCount > 0 ? { amount: 1 + globalLandExtraCount } : {}),
+              ...(amount > 1 ? { amount } : {}),
             });
           }
         }
@@ -3908,14 +3948,17 @@ export function App() {
           // If this permanent has a special mana amount, use that specific color
           if (manaAmount && manaAmount > 0 && manaColor) {
             const mappedColor = MANA_COLOR_MAP[manaColor.toUpperCase()] || 'C';
-            sources.push({ id: perm.id, name, options: [mappedColor], amount: manaAmount });
+            const amount = getSourceManaAmount(perm, [mappedColor], manaAmount);
+            sources.push({ id: perm.id, name, options: [mappedColor], ...(amount > 1 ? { amount } : {}) });
           } else {
             const artifactColors = parseManaColorsFromOracleText(oracleText);
             if (artifactColors.length > 0) {
-              sources.push({ id: perm.id, name, options: artifactColors });
+              const amount = getSourceManaAmount(perm, artifactColors);
+              sources.push({ id: perm.id, name, options: artifactColors, ...(amount > 1 ? { amount } : {}) });
             } else {
               // Default to colorless for mana artifacts without specific colors
-              sources.push({ id: perm.id, name, options: ['C'] });
+              const amount = getSourceManaAmount(perm, ['C']);
+              sources.push({ id: perm.id, name, options: ['C'], ...(amount > 1 ? { amount } : {}) });
             }
           }
         }

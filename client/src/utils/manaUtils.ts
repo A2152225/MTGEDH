@@ -337,6 +337,16 @@ export function getTotalManaProduction(options: Color[]): number {
   return 1;
 }
 
+function getSourceManaCapacity(source: { options: Color[]; amount?: number }): number {
+  if (typeof source.amount === 'number' && source.amount > 0) return source.amount;
+  return getTotalManaProduction(source.options);
+}
+
+export interface SuggestedPaymentSelection {
+  color: Color;
+  count: number;
+}
+
 /**
  * Calculate suggested payment: sources and colors to use
  * Returns a map of permanentId -> { color, count }, plus info about floating mana used
@@ -353,11 +363,11 @@ export function getTotalManaProduction(options: Color[]): number {
  */
 export function calculateSuggestedPayment(
   cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
-  sources: Array<{ id: string; name: string; options: Color[] }>,
+  sources: Array<{ id: string; name: string; options: Color[]; amount?: number }>,
   colorsToPreserve: Set<Color>,
   floatingMana?: ManaPool
-): Map<string, Color> {
-  const suggestions = new Map<string, Color>();
+): Map<string, SuggestedPaymentSelection> {
+  const suggestions = new Map<string, SuggestedPaymentSelection>();
   
   // First, calculate what's left after using floating mana
   const { colors: costRemaining, generic: genericRemaining, hybrids: hybridsRemaining } = 
@@ -367,6 +377,10 @@ export function calculateSuggestedPayment(
   
   // Track which sources we've used
   const usedSources = new Set<string>();
+  const remainingSourceCapacity = new Map<string, number>();
+  for (const source of sources) {
+    remainingSourceCapacity.set(source.id, getSourceManaCapacity(source));
+  }
   
   // Helper: get unique colors (for choice sources like Command Tower)
   const getUniqueColors = (options: Color[]) => [...new Set(options)];
@@ -387,7 +401,29 @@ export function calculateSuggestedPayment(
   
   // Helper: get total mana this source produces
   // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources
-  const getManaAmount = (source: { options: Color[] }) => getTotalManaProduction(source.options);
+  const getManaAmount = (source: { options: Color[]; amount?: number }) => getSourceManaCapacity(source);
+
+  const assignFromSource = (
+    source: { id: string; name: string; options: Color[]; amount?: number },
+    color: Color,
+    requestedAmount: number,
+  ): number => {
+    const available = remainingSourceCapacity.get(source.id) || 0;
+    if (available <= 0 || requestedAmount <= 0) return 0;
+
+    const assigned = Math.min(available, requestedAmount);
+    const existing = suggestions.get(source.id);
+    if (existing) {
+      if (existing.color !== color) return 0;
+      suggestions.set(source.id, { color, count: existing.count + assigned });
+    } else {
+      suggestions.set(source.id, { color, count: assigned });
+      usedSources.add(source.id);
+    }
+
+    remainingSourceCapacity.set(source.id, available - assigned);
+    return assigned;
+  };
   
   // First pass: assign sources for specific color requirements (after floating mana)
   // For colored mana, prefer single-color sources first, then multi-color
@@ -402,10 +438,9 @@ export function calculateSuggestedPayment(
     
     for (const source of colorSources) {
       if (costRemaining[c] <= 0) break;
-      
-      suggestions.set(source.id, c);
-      usedSources.add(source.id);
-      costRemaining[c]--;
+
+      const assigned = assignFromSource(source, c, costRemaining[c]);
+      costRemaining[c] = Math.max(0, costRemaining[c] - assigned);
     }
   }
   
@@ -422,24 +457,26 @@ export function calculateSuggestedPayment(
     
     for (const source of colorlessSources) {
       if (costRemaining['C'] <= 0) break;
-      
-      suggestions.set(source.id, 'C');
-      usedSources.add(source.id);
-      costRemaining['C']--;
+
+      const assigned = assignFromSource(source, 'C', costRemaining['C']);
+      costRemaining['C'] = Math.max(0, costRemaining['C'] - assigned);
     }
   }
   
   // Second pass: handle remaining hybrid costs (after floating mana was used)
   for (const hybrid of hybridsRemaining) {
     let bestColor: Color | null = null;
-    let bestSource: { id: string; name: string; options: Color[] } | null = null;
+    let bestSource: { id: string; name: string; options: Color[]; amount?: number } | null = null;
     let bestScore = Infinity;
     
     for (const source of sources) {
-      if (usedSources.has(source.id)) continue;
+      const remainingCapacity = remainingSourceCapacity.get(source.id) || 0;
+      if (remainingCapacity <= 0) continue;
+      const existing = suggestions.get(source.id);
       
       for (const c of hybrid) {
         if (!source.options.includes(c)) continue;
+        if (existing && existing.color !== c) continue;
         
         // Score: prefer colors NOT needed by other cards, and fewer options
         const preservePenalty = colorsToPreserve.has(c) ? 100 : 0;
@@ -455,8 +492,22 @@ export function calculateSuggestedPayment(
     }
     
     if (bestSource && bestColor) {
-      suggestions.set(bestSource.id, bestColor);
-      usedSources.add(bestSource.id);
+      assignFromSource(bestSource, bestColor, 1);
+    }
+  }
+
+  if (genericLeft > 0) {
+    const existingSuggestedSources = sources.filter((source) => {
+      const existing = suggestions.get(source.id);
+      return Boolean(existing) && (remainingSourceCapacity.get(source.id) || 0) > 0;
+    });
+
+    for (const source of existingSuggestedSources) {
+      if (genericLeft <= 0) break;
+      const existing = suggestions.get(source.id);
+      if (!existing) continue;
+      const assigned = assignFromSource(source, existing.color, genericLeft);
+      genericLeft = Math.max(0, genericLeft - assigned);
     }
   }
   
@@ -526,10 +577,8 @@ export function calculateSuggestedPayment(
         }
       }
       
-      suggestions.set(source.id, bestColor);
-      usedSources.add(source.id);
-      // Decrement by the actual mana produced (e.g., 2 for Sol Ring)
-      genericLeft -= manaAmount;
+      const assigned = assignFromSource(source, bestColor, genericLeft);
+      genericLeft = Math.max(0, genericLeft - assigned);
     }
   }
   

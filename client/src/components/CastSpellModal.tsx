@@ -656,10 +656,10 @@ export function CastSpellModal({
   };
 
   const suggestedPaymentItems = useMemo(() => {
-    return Array.from(suggestedPayment.entries()).map(([permanentId, mana]) => ({
+    return Array.from(suggestedPayment.entries()).map(([permanentId, selection]) => ({
       permanentId,
-      mana,
-      count: getManaCountForSource(permanentId),
+      mana: selection.color,
+      count: selection.count,
     }));
   }, [suggestedPayment]);
 

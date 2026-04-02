@@ -103,6 +103,62 @@ function parseStationThreshold(oracleText: string): number | undefined {
   return undefined;
 }
 
+function parseThresholdGatedAbilityLine(
+  line: string,
+  activatedAbilityPattern: RegExp,
+  textOnlyActivatedAbilityPattern: RegExp
+): { threshold: number; cost: string; effect: string } | null {
+  const gatedMatch = line.match(/^(\d+)\+\s*\|\s*(.+)$/);
+  if (!gatedMatch) {
+    return null;
+  }
+
+  const threshold = parseInt(gatedMatch[1], 10);
+  if (!Number.isFinite(threshold)) {
+    return null;
+  }
+
+  const abilityText = gatedMatch[2].trim();
+  const activatedMatch = abilityText.match(activatedAbilityPattern);
+  if (activatedMatch) {
+    return {
+      threshold,
+      cost: activatedMatch[1].trim(),
+      effect: activatedMatch[2].trim(),
+    };
+  }
+
+  const textOnlyMatch = abilityText.match(textOnlyActivatedAbilityPattern);
+  if (textOnlyMatch) {
+    return {
+      threshold,
+      cost: textOnlyMatch[1].trim(),
+      effect: textOnlyMatch[2].trim(),
+    };
+  }
+
+  return null;
+}
+
+export function getThresholdActivationStatus(
+  ability: Pick<ParsedActivatedAbility, 'isStationAbility' | 'stationThreshold'>,
+  permanent?: { counters?: Record<string, number> | undefined }
+): { canActivate: boolean; reason?: string } {
+  if (ability.isStationAbility || typeof ability.stationThreshold !== 'number') {
+    return { canActivate: true };
+  }
+
+  const currentChargeCounters = Number(permanent?.counters?.charge || 0);
+  if (currentChargeCounters >= ability.stationThreshold) {
+    return { canActivate: true };
+  }
+
+  return {
+    canActivate: false,
+    reason: `Needs ${ability.stationThreshold}+ charge counters`,
+  };
+}
+
 /**
  * Check if a creature can activate tap abilities considering summoning sickness and haste effects
  */
@@ -522,11 +578,108 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   
   // Pre-compile regex patterns for performance
   const activatedAbilityPattern = /^(\{[^}]+\}(?:,?\s*\{[^}]+\})*(?:,?\s*(?:Sacrifice[^:]*|Pay[^:]*|Discard[^:]*|Exile[^:]*|Remove[^:]*|Tap[^:]*|Untap[^:]*))?)\s*:\s*(.+)$/i;
+  const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
   const triggeredAbilityPattern = /^(when|whenever|at)\b/i;
   
   // Split oracle text by newlines and process each line/sentence
   const sentences = oracleText.split(/\n/);
   for (const sentence of sentences) {
+    const thresholdAbility = parseThresholdGatedAbilityLine(
+      sentence.trim(),
+      activatedAbilityPattern,
+      textOnlyActivatedAbilityPattern
+    );
+    if (thresholdAbility) {
+      const costPart = thresholdAbility.cost;
+      const effectPart = thresholdAbility.effect;
+      const costComponents = parseCostComponents(costPart);
+      const manaProduced = parseManaProduction(effectPart);
+      const isManaAbility = !!manaProduced && !effectPart.toLowerCase().includes('target');
+      const lowerEffectPart = effectPart.toLowerCase();
+      const isFetchAbility =
+        typeLine.includes('land') &&
+        costComponents.requiresSacrifice === true &&
+        lowerEffectPart.includes('search your library') &&
+        (lowerEffectPart.includes('land card') ||
+          /\bforest\b|\bplains\b|\bisland\b|\bswamp\b|\bmountain\b/i.test(effectPart));
+
+      const requiresTarget = /\btarget\b/i.test(effectPart);
+      let targetDescription: string | undefined;
+      if (requiresTarget) {
+        const targetMatch = effectPart.match(/target\s+([^.]+)/i);
+        if (targetMatch) {
+          targetDescription = targetMatch[1].trim();
+        }
+      }
+
+      let timingRestriction: 'sorcery' | 'instant' | undefined;
+      if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(oracleText)) {
+        timingRestriction = 'sorcery';
+      }
+
+      const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(oracleText);
+      const millEffect = parseMillEffect(effectPart);
+      const isMillAbility = millEffect?.isMillAbility || false;
+      const millCount = millEffect?.millCount;
+      const millTargetType = millEffect?.millTargetType;
+
+      let label: string;
+      if (isManaAbility) {
+        label = `Add ${manaProduced}`;
+      } else if (isFetchAbility) {
+        label = /up to\s+two/i.test(effectPart) ? 'Fetch Lands' : 'Fetch Land';
+      } else if (isMillAbility && millCount) {
+        const targetStr = millTargetType === 'self' ? '' :
+          millTargetType === 'opponent' ? 'opponent ' :
+          millTargetType === 'player' ? 'target player ' : '';
+        label = `Mill ${millCount} (${targetStr || 'self'})`;
+      } else if (costComponents.requiresSacrifice) {
+        const shortEffect = effectPart.split('.')[0];
+        if (shortEffect.length <= 30) {
+          label = shortEffect;
+        } else {
+          label = 'Sacrifice: ' + shortEffect.split(' ').slice(0, 2).join(' ') + '...';
+        }
+      } else if (requiresTarget) {
+        const shortEffect = effectPart.split('.')[0];
+        if (shortEffect.length <= 30) {
+          label = shortEffect;
+        } else {
+          label = targetDescription
+            ? `Target ${targetDescription.split(' ').slice(0, 2).join(' ')}...`
+            : 'Target';
+        }
+      } else {
+        const shortEffect = effectPart.split('.')[0];
+        if (shortEffect.length <= 30) {
+          label = shortEffect;
+        } else {
+          label = effectPart.split(' ').slice(0, 4).join(' ') + '...';
+        }
+      }
+
+      abilities.push({
+        id: `${card.id}-ability-${abilityIndex++}`,
+        label,
+        description: `${effectPart.length > 100 ? effectPart.slice(0, 97) + '...' : effectPart} Available at ${thresholdAbility.threshold}+ charge counters.`,
+        cost: costPart,
+        effect: effectPart,
+        ...costComponents,
+        isManaAbility,
+        isLoyaltyAbility: false,
+        isFetchAbility,
+        isMillAbility,
+        millCount,
+        millTargetType,
+        timingRestriction,
+        oncePerTurn,
+        requiresTarget,
+        targetDescription,
+        stationThreshold: thresholdAbility.threshold,
+      });
+      continue;
+    }
+
     // Match pattern: starts with mana/tap costs, followed by colon, then effect
     // This pattern captures: {cost}{cost}... or {cost}, {cost}, ... : effect
     const abilityMatch = sentence.match(activatedAbilityPattern);
@@ -656,7 +809,6 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
 
   // Parse activated abilities with non-braced text-only costs such as
   // "Sacrifice Commander's Sphere: Draw a card."
-  const textOnlyActivatedAbilityPattern = /^((?:Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)[^:]*?)\s*:\s*(.+)$/i;
   for (const sentence of sentences) {
     const abilityMatch = sentence.match(textOnlyActivatedAbilityPattern);
     if (!abilityMatch) continue;

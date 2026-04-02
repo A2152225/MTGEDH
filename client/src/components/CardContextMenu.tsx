@@ -12,7 +12,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
-import { parseActivatedAbilities as parseAbilitiesFull, type ParsedActivatedAbility } from '../utils/activatedAbilityParser';
+import { getThresholdActivationStatus, parseActivatedAbilities as parseAbilitiesFull, type ParsedActivatedAbility } from '../utils/activatedAbilityParser';
 
 export interface ActivatedAbilityOption {
   id: string;
@@ -278,7 +278,9 @@ export function CardContextMenu({
             Abilities
           </div>
           {abilities.map((ability) => {
-            const canUse = canActivate && (!ability.requiresTap || !isTapped);
+            const thresholdCheck = getThresholdActivationStatus(ability as ParsedActivatedAbility, permanent);
+            const canUse = canActivate && (!ability.requiresTap || !isTapped) && thresholdCheck.canActivate;
+            const title = thresholdCheck.reason ? `${ability.description} ${thresholdCheck.reason}` : ability.description;
             
             return (
               <div
@@ -297,7 +299,7 @@ export function CardContextMenu({
                 onMouseLeave={(e) => {
                   (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
                 }}
-                title={ability.description}
+                title={title}
               >
                 <span style={{ width: 20, textAlign: 'center' }}>
                   {getAbilityIcon(ability)}
