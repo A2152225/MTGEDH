@@ -181,6 +181,45 @@ describe('undo authorization (integration)', () => {
     expect(req!.payload.playerNames).toEqual({ [p1]: 'P1', [p2]: 'P2' });
   });
 
+  it('smart undo counts use the replayed boundary when restored live state drifts ahead', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turn = 13;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_BLOCKERS';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
+    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
+    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
+    appendEvent(wrapperGameId, 3, 'setLife', { playerId: p1, life: 39 });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(wrapperGameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerUndoHandlers(io as any, socket as any);
+
+    await handlers['getSmartUndoCounts']({ gameId: wrapperGameId });
+
+    const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
+    expect(smartUpdate).toBeTruthy();
+    expect(smartUpdate!.payload.stepCount).toBe(1);
+    expect(smartUpdate!.payload.phaseCount).toBe(1);
+    expect(smartUpdate!.payload.turnCount).toBe(1);
+  });
+
   it('requestUndoToTurn undoes only actions taken after the current turn began', async () => {
     const p1 = 'p1';
     const p2 = 'p2';

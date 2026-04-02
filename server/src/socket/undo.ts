@@ -65,26 +65,31 @@ function calculateBoundaryUndoCount(
   if (events.length === 0) return 0;
 
   const currentState = (game?.state || {}) as any;
-  const targetBoundaryKey = getBoundaryKey(currentState);
-  if (!targetBoundaryKey) return 0;
+  const liveBoundaryKey = getBoundaryKey(currentState);
+  if (!liveBoundaryKey) return 0;
 
   const replayEvents = transformDbEventsForReplay(events as any);
   const scratch = createInitialGameState(`undo_probe_${game?.gameId || 'game'}`);
+  const boundaryEntryIndices = new Map<string, number>();
   let previousBoundaryKey = getBoundaryKey((scratch as any).state || {});
-  let entryIndex = previousBoundaryKey === targetBoundaryKey ? -1 : -2;
+  boundaryEntryIndices.set(previousBoundaryKey, -1);
 
   for (let index = 0; index < replayEvents.length; index++) {
     scratch.applyEvent(replayEvents[index] as any);
     const nextBoundaryKey = getBoundaryKey((scratch as any).state || {});
-    if (nextBoundaryKey === targetBoundaryKey && previousBoundaryKey !== targetBoundaryKey) {
-      entryIndex = index;
+    if (nextBoundaryKey !== previousBoundaryKey) {
+      boundaryEntryIndices.set(nextBoundaryKey, index);
     }
     previousBoundaryKey = nextBoundaryKey;
   }
 
-  if (entryIndex === -2) {
-    debugWarn(1, `[undo] Failed to locate current boundary ${targetBoundaryKey}; falling back to full event count`);
-    return events.length;
+  let targetBoundaryKey = liveBoundaryKey;
+  let entryIndex = boundaryEntryIndices.get(targetBoundaryKey);
+
+  if (entryIndex === undefined) {
+    targetBoundaryKey = previousBoundaryKey;
+    entryIndex = boundaryEntryIndices.get(targetBoundaryKey) ?? -1;
+    debugWarn(1, `[undo] Failed to locate live boundary ${liveBoundaryKey}; using replay boundary ${targetBoundaryKey}`);
   }
 
   return Math.max(0, replayEvents.length - (entryIndex + 1));

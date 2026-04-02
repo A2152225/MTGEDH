@@ -71,6 +71,47 @@ import {
   getMutatedPermanentCharacteristics,
 } from "../../../../rules-engine/src/keywordAbilities/mutate.js";
 
+function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
+  if (!Array.isArray(cards) || !cardId) return 0;
+
+  let removed = 0;
+  for (let index = cards.length - 1; index >= 0; index--) {
+    if (cards[index] && String(cards[index].id || '') === cardId) {
+      cards.splice(index, 1);
+      removed++;
+    }
+  }
+
+  return removed;
+}
+
+function repairReplayCardSourceZones(state: any, playerId: PlayerID, cardId: string): number {
+  if (!state || !cardId) return 0;
+
+  const zones = state.zones || {};
+  const zone = zones[playerId];
+  if (!zone || typeof zone !== 'object') return 0;
+
+  let removed = 0;
+
+  removed += removeReplayDuplicateCardEntries(zone.hand, cardId);
+  if (Array.isArray(zone.hand)) {
+    zone.handCount = zone.hand.length;
+  }
+
+  removed += removeReplayDuplicateCardEntries((zone as any).exile, cardId);
+  if (Array.isArray((zone as any).exile)) {
+    (zone as any).exileCount = (zone as any).exile.length;
+  }
+
+  removed += removeReplayDuplicateCardEntries((zone as any).graveyard, cardId);
+  if (Array.isArray((zone as any).graveyard)) {
+    (zone as any).graveyardCount = (zone as any).graveyard.length;
+  }
+
+  return removed;
+}
+
 const PERMANENT_TRIGGER_TARGET_TYPES = new Set([
   'creature',
   'permanent',
@@ -13907,6 +13948,12 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
       (p: any) => p?.card?.id === cardId && p?.controller === playerId
     );
     if (alreadyOnBattlefield) {
+      if ((ctx as any).isReplaying) {
+        const repaired = repairReplayCardSourceZones(state, playerId, cardId);
+        if (repaired > 0) {
+          debug(1, `playLand: repaired ${repaired} stale source-zone entr${repaired === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
+        }
+      }
       debug(1, `playLand: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
       return;
     }
@@ -14327,6 +14374,12 @@ export function castSpell(
         (s: any) => s?.card?.id === cardId && s?.controller === playerId
       );
       if (alreadyOnStack) {
+        if ((ctx as any).isReplaying) {
+          const repaired = repairReplayCardSourceZones(state, playerId, cardId);
+          if (repaired > 0) {
+            debug(1, `castSpell: repaired ${repaired} stale source-zone entr${repaired === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
+          }
+        }
         debug(1, `castSpell: card ${cardId} already on stack for ${playerId}, skipping (replay idempotency)`);
         return;
       }
@@ -14336,6 +14389,12 @@ export function castSpell(
         (p: any) => p?.card?.id === cardId && p?.controller === playerId
       );
       if (alreadyOnBattlefield) {
+        if ((ctx as any).isReplaying) {
+          const repaired = repairReplayCardSourceZones(state, playerId, cardId);
+          if (repaired > 0) {
+            debug(1, `castSpell: repaired ${repaired} stale source-zone entr${repaired === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
+          }
+        }
         debug(1, `castSpell: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
         return;
       }

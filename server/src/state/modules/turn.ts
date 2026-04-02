@@ -17,7 +17,7 @@
 import type { GameContext } from "../context.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { drawCards } from "./zones.js";
-import { recalculatePlayerEffects, applyCombatDamageReplacement, clearTemporaryLandBonuses, processLifeChange } from "./game-state-effects.js";
+import { recalculatePlayerEffects, applyCombatDamageReplacement, canDamageBePrevented, clearTemporaryLandBonuses, processLifeChange } from "./game-state-effects.js";
 import { detectEntersWithCounters, triggerETBEffectsForPermanent } from "./stack.js";
 import { 
   getBeginningOfCombatTriggers, 
@@ -35,9 +35,9 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "./
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "./upkeep-triggers.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { parseCreatureKeywords } from "./combat-mechanics.js";
-import { runSBA, createToken } from "./counters_tokens.js";
+import { runSBA, createToken, updateCounters } from "./counters_tokens.js";
 import { applyDamageToPermanentWithCounterEffects } from "./counter-common-effects.js";
-import { calculateAllPTBonuses, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
+import { calculateAllPTBonuses, calculateVariablePT, parsePT, uid, triggerLifeGainEffects } from "../utils.js";
 import { canAct, canRespond } from "./can-respond.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
@@ -50,6 +50,86 @@ import { setDayNightState } from "./day-night.js";
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
   return new Date().toISOString();
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function getCombatCreatureStats(ctx: GameContext, permanent: any): { power: number; toughness: number } {
+  const card = permanent?.card || {};
+
+  if (isFiniteNumber((permanent as any)?.effectivePower) && isFiniteNumber((permanent as any)?.effectiveToughness)) {
+    return {
+      power: Math.max(0, Number((permanent as any).effectivePower)),
+      toughness: Number((permanent as any).effectiveToughness),
+    };
+  }
+
+  let basePower = parsePT((permanent as any)?.basePower);
+  let baseToughness = parsePT((permanent as any)?.baseToughness);
+
+  if (!isFiniteNumber(basePower)) {
+    basePower = parsePT(card?.power);
+  }
+  if (!isFiniteNumber(baseToughness)) {
+    baseToughness = parsePT(card?.toughness);
+  }
+
+  if (!isFiniteNumber(basePower) || !isFiniteNumber(baseToughness)) {
+    const variablePT = calculateVariablePT({ ...(card || {}), controller: (permanent as any)?.controller }, (ctx as any).state);
+    if (variablePT) {
+      basePower = isFiniteNumber(basePower) ? basePower : variablePT.power;
+      baseToughness = isFiniteNumber(baseToughness) ? baseToughness : variablePT.toughness;
+    }
+  }
+
+  const plusCounters = Number((permanent as any)?.counters?.['+1/+1'] || 0);
+  const minusCounters = Number((permanent as any)?.counters?.['-1/-1'] || 0);
+  const counterDelta = plusCounters - minusCounters;
+
+  let otherCounterPower = 0;
+  let otherCounterToughness = 0;
+  if ((permanent as any)?.counters && typeof (permanent as any).counters === 'object') {
+    for (const [counterType, amountRaw] of Object.entries((permanent as any).counters)) {
+      if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+      const counterMatch = String(counterType).match(/^([+-]?\d+)\/([+-]?\d+)$/);
+      if (!counterMatch) continue;
+      const amount = Number(amountRaw || 0);
+      otherCounterPower += parseInt(counterMatch[1], 10) * amount;
+      otherCounterToughness += parseInt(counterMatch[2], 10) * amount;
+    }
+  }
+
+  const allBonuses = calculateAllPTBonuses(permanent, (ctx as any).state);
+  return {
+    power: Math.max(0, Number(basePower || 0) + counterDelta + otherCounterPower + allBonuses.power),
+    toughness: Number(baseToughness || 0) + counterDelta + otherCounterToughness + allBonuses.toughness,
+  };
+}
+
+function applyVigorDamageReplacement(ctx: GameContext, damagedPermanent: any, damageAmount: number, sourceCard: any): boolean {
+  const normalizedAmount = Math.max(0, Number(damageAmount || 0));
+  if (!damagedPermanent || normalizedAmount <= 0) return false;
+
+  const damagedTypeLine = String(damagedPermanent?.card?.type_line || '').toLowerCase();
+  if (!damagedTypeLine.includes('creature')) return false;
+
+  const controllerId = String(damagedPermanent?.controller || '').trim();
+  if (!controllerId) return false;
+
+  const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+  const vigor = battlefield.find((perm: any) => {
+    const permName = String(perm?.card?.name || '').toLowerCase();
+    return perm && perm.id !== damagedPermanent.id && perm.controller === controllerId && permName.includes('vigor');
+  });
+
+  if (!vigor) return false;
+  if (!canDamageBePrevented(ctx, sourceCard, controllerId)) return false;
+
+  updateCounters(ctx, String(damagedPermanent.id || ''), { '+1/+1': normalizedAmount });
+  debug(1, `${ts()} [dealCombatDamage] Vigor prevented ${normalizedAmount} damage to ${damagedPermanent.card?.name || damagedPermanent.id}`);
+  return true;
 }
 
 const TEMPORARY_RETAINED_MANA_COLORS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
@@ -1362,27 +1442,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
       
       // Calculate effective power including +1/+1 counters, modifiers, and static effects
       // This includes anthems, lords, equipment, auras, and enchantments like Leyline of Hope
-      let attackerPower: number;
-      if (typeof attacker.effectivePower === 'number') {
-        attackerPower = attacker.effectivePower;
-      } else {
-        // Calculate base power
-        let basePower = typeof attacker.basePower === 'number' 
-          ? attacker.basePower 
-          : parsePT(card?.power) ?? 0;
-        
-        // Add counter bonuses
-        const plusCounters = attacker.counters?.['+1/+1'] || 0;
-        const minusCounters = attacker.counters?.['-1/-1'] || 0;
-        const counterDelta = plusCounters - minusCounters;
-        
-        // Calculate ALL other bonuses (equipment, auras, anthems, lords, Leyline of Hope, etc.)
-        const state = (ctx as any).state;
-        const allBonuses = calculateAllPTBonuses(attacker, state);
-        
-        attackerPower = Math.max(0, basePower + counterDelta + allBonuses.power);
-        debug(2, `${ts()} [dealCombatDamage] ${card?.name || attacker.id} power calculation: base=${basePower}, counters=${counterDelta}, bonuses=${allBonuses.power}, total=${attackerPower}`);
-      }
+      const attackerStats = getCombatCreatureStats(ctx, attacker);
+      const attackerPower = attackerStats.power;
+      debug(2, `${ts()} [dealCombatDamage] ${card?.name || attacker.id} combat stats: power=${attackerStats.power}, toughness=${attackerStats.toughness}`);
       
       const attackerController = attacker.controller;
       const defendingTarget = attacker.attacking; // Player ID or planeswalker ID
@@ -1584,7 +1646,8 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           if (!blocker) continue;
           
           const blockerCard = blocker.card || {};
-          const blockerToughness = parseInt(String(blocker.baseToughness ?? blockerCard.toughness ?? '0'), 10) || 0;
+          const blockerStats = getCombatCreatureStats(ctx, blocker);
+          const blockerToughness = blockerStats.toughness;
           const blockerDamage = blocker.markedDamage || 0;
           const remainingToughness = Math.max(0, blockerToughness - blockerDamage);
           
@@ -1616,6 +1679,10 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           const damageToBlocker = Math.min(lethalDamage, remainingDamage);
           
           if (damageToBlocker > 0) {
+            if (applyVigorDamageReplacement(ctx, blocker, damageToBlocker, card)) {
+              remainingDamage -= damageToBlocker;
+              continue;
+            }
             const damageResult = applyDamageToPermanentWithCounterEffects(blocker, damageToBlocker, 'markedDamage');
             if (damageResult.prevented) {
               continue;
@@ -1751,26 +1818,8 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
           }
           
           // Calculate effective blocker power including +1/+1 counters, modifiers, and static effects
-          let blockerPower: number;
-          if (typeof blocker.effectivePower === 'number') {
-            blockerPower = blocker.effectivePower;
-          } else {
-            // Calculate base power
-            let basePower = typeof blocker.basePower === 'number' 
-              ? blocker.basePower 
-              : parsePT(blockerCard?.power) ?? 0;
-            
-            // Add counter bonuses
-            const plusCounters = blocker.counters?.['+1/+1'] || 0;
-            const minusCounters = blocker.counters?.['-1/-1'] || 0;
-            const counterDelta = plusCounters - minusCounters;
-            
-            // Calculate ALL other bonuses (equipment, auras, anthems, lords, Leyline of Hope, etc.)
-            const state = (ctx as any).state;
-            const allBonuses = calculateAllPTBonuses(blocker, state);
-            
-            blockerPower = Math.max(0, basePower + counterDelta + allBonuses.power);
-          }
+          const blockerStats = getCombatCreatureStats(ctx, blocker);
+          const blockerPower = blockerStats.power;
           debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} has power ${blockerPower}`);
           
           // Check if this blocker should deal damage in this phase based on first strike rules
@@ -1810,6 +1859,9 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             } catch {}
 
             // Deal damage to attacker
+            if (applyVigorDamageReplacement(ctx, attacker, blockerPower, blockerCard)) {
+              continue;
+            }
             const damageResult = applyDamageToPermanentWithCounterEffects(attacker, blockerPower, 'markedDamage');
             if (damageResult.prevented) {
               continue;
@@ -1839,7 +1891,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
             queueDamageReceivedTrigger(ctx, attacker, blockerPower);
             
             // Check if attacker dies
-            const attackerToughness = parseInt(String(attacker.baseToughness ?? card.toughness ?? '0'), 10) || 0;
+            const attackerToughness = attackerStats.toughness;
             const totalDamageOnAttacker = attacker.markedDamage || 0;
             const isDead = totalDamageOnAttacker >= attackerToughness || (blockerKeywords.deathtouch && totalDamageOnAttacker > 0);
             
