@@ -20,7 +20,7 @@ import {
   type KeywordTriggerContext
 } from "./keyword-handlers.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, resolveSpell, type EngineEffect, type TargetRef } from "../../rules-engine/targeting.js";
-import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { debug, debugWarn, debugError, debugEnv } from "../../utils/debug.js";
 import { appendEvent } from '../../db/index.js';
 import { 
   getETBTriggersForPermanent, 
@@ -85,31 +85,46 @@ function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
   return removed;
 }
 
-function repairReplayCardSourceZones(state: any, playerId: PlayerID, cardId: string): number {
-  if (!state || !cardId) return 0;
+type ReplayZoneRepairSummary = {
+  total: number;
+  hand: number;
+  exile: number;
+  graveyard: number;
+};
+
+function repairReplayCardSourceZones(state: any, playerId: PlayerID, cardId: string): ReplayZoneRepairSummary {
+  if (!state || !cardId) {
+    return { total: 0, hand: 0, exile: 0, graveyard: 0 };
+  }
 
   const zones = state.zones || {};
   const zone = zones[playerId];
-  if (!zone || typeof zone !== 'object') return 0;
+  if (!zone || typeof zone !== 'object') {
+    return { total: 0, hand: 0, exile: 0, graveyard: 0 };
+  }
 
-  let removed = 0;
+  const hand = removeReplayDuplicateCardEntries(zone.hand, cardId);
 
-  removed += removeReplayDuplicateCardEntries(zone.hand, cardId);
   if (Array.isArray(zone.hand)) {
     zone.handCount = zone.hand.length;
   }
 
-  removed += removeReplayDuplicateCardEntries((zone as any).exile, cardId);
+  const exile = removeReplayDuplicateCardEntries((zone as any).exile, cardId);
   if (Array.isArray((zone as any).exile)) {
     (zone as any).exileCount = (zone as any).exile.length;
   }
 
-  removed += removeReplayDuplicateCardEntries((zone as any).graveyard, cardId);
+  const graveyard = removeReplayDuplicateCardEntries((zone as any).graveyard, cardId);
   if (Array.isArray((zone as any).graveyard)) {
     (zone as any).graveyardCount = (zone as any).graveyard.length;
   }
 
-  return removed;
+  return {
+    total: hand + exile + graveyard,
+    hand,
+    exile,
+    graveyard,
+  };
 }
 
 const PERMANENT_TRIGGER_TARGET_TYPES = new Set([
@@ -13950,9 +13965,15 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
     if (alreadyOnBattlefield) {
       if ((ctx as any).isReplaying) {
         const repaired = repairReplayCardSourceZones(state, playerId, cardId);
-        if (repaired > 0) {
-          debug(1, `playLand: repaired ${repaired} stale source-zone entr${repaired === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
+        if (repaired.total > 0) {
+          debug(1, `playLand: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
         }
+        debugEnv('DEBUG_REPLAY_RESTORE', '[replay-restore] playLand replay idempotency hit', {
+          playerId,
+          cardId,
+          reason: 'already_on_battlefield',
+          repaired,
+        });
       }
       debug(1, `playLand: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
       return;
@@ -14376,9 +14397,15 @@ export function castSpell(
       if (alreadyOnStack) {
         if ((ctx as any).isReplaying) {
           const repaired = repairReplayCardSourceZones(state, playerId, cardId);
-          if (repaired > 0) {
-            debug(1, `castSpell: repaired ${repaired} stale source-zone entr${repaired === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
+          if (repaired.total > 0) {
+            debug(1, `castSpell: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
           }
+          debugEnv('DEBUG_REPLAY_RESTORE', '[replay-restore] castSpell replay idempotency hit', {
+            playerId,
+            cardId,
+            reason: 'already_on_stack',
+            repaired,
+          });
         }
         debug(1, `castSpell: card ${cardId} already on stack for ${playerId}, skipping (replay idempotency)`);
         return;
@@ -14391,9 +14418,15 @@ export function castSpell(
       if (alreadyOnBattlefield) {
         if ((ctx as any).isReplaying) {
           const repaired = repairReplayCardSourceZones(state, playerId, cardId);
-          if (repaired > 0) {
-            debug(1, `castSpell: repaired ${repaired} stale source-zone entr${repaired === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
+          if (repaired.total > 0) {
+            debug(1, `castSpell: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
           }
+          debugEnv('DEBUG_REPLAY_RESTORE', '[replay-restore] castSpell replay idempotency hit', {
+            playerId,
+            cardId,
+            reason: 'already_on_battlefield',
+            repaired,
+          });
         }
         debug(1, `castSpell: card ${cardId} already on battlefield for ${playerId}, skipping (replay idempotency)`);
         return;

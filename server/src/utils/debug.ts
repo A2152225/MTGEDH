@@ -19,6 +19,7 @@
  * Defaults to 0 (no debug output)
  */
 let cachedDebugLevel: number | null = null;
+const cachedDebugFlags = new Map<string, boolean>();
 
 import { inspect } from 'node:util';
 
@@ -45,6 +46,17 @@ function getDebugLevel(): number {
   // Cap at level 2 (verbose)
   cachedDebugLevel = Math.min(parsed, 2);
   return cachedDebugLevel;
+}
+
+function readBooleanDebugFlag(flagName: string): boolean {
+  if (cachedDebugFlags.has(flagName)) {
+    return cachedDebugFlags.get(flagName) === true;
+  }
+
+  const raw = String(process.env[flagName] || '').trim().toLowerCase();
+  const enabled = raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  cachedDebugFlags.set(flagName, enabled);
+  return enabled;
 }
 
 /**
@@ -108,6 +120,22 @@ export function debugError(requiredLevel: number, ...args: any[]): void {
   }
 }
 
+export function debugEnv(flagName: string, ...args: any[]): void {
+  if (!readBooleanDebugFlag(flagName)) {
+    return;
+  }
+
+  try {
+    console.log(...args.map(formatDebugArg));
+  } catch {
+    try {
+      console.log(`[${flagName}] (log failed)`);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function formatDebugArg(arg: any): any {
   if (arg === null || arg === undefined) return arg;
   const t = typeof arg;
@@ -147,4 +175,8 @@ function formatDebugArg(arg: any): any {
  */
 export function isDebugEnabled(requiredLevel: number): boolean {
   return getDebugLevel() >= requiredLevel;
+}
+
+export function isDebugFlagEnabled(flagName: string): boolean {
+  return readBooleanDebugFlag(flagName);
 }
