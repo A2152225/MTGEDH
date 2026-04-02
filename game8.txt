@@ -1,0 +1,1820 @@
+
+Wednesday, April 1, 2026 11:16:24 PM
+
+> @mtgedh/server@0.1.0 dev:noreload
+> npm run start
+
+
+> @mtgedh/server@0.1.0 start
+> node --enable-source-maps --import tsx/esm src/index.ts
+
+[Server] Boot { bootId: '0d09e3d0-2fff-43de-9e32-bbc9673b0f2e', pid: 27128, node: 'v22.20.0', port: 3001 }
+[Server] Warming local card lookup table for deck imports...
+[Server] Local card lookup warmup { phase: 'checking', message: 'Checking local card lookup table' }
+[Server] Local card lookup warmup { phase: 'ready', message: 'Local card lookup table is ready' }
+[Server] Local card lookup table ready { durationMs: 51 }
+[Resolution] AI handler initialized
+mtgedh> [Resolution] Priority management handler initialized
+[setCommander] Initialized inCommandZone for p_hymjd2d3: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_bc3b791c0a846b44' ]
+[setCommander] Initialized inCommandZone for p_9edieh9h: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ]
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Entrapment Maneuver(Instant), Summary Dismissal(Instant), Plains(Basic Land ΓÇöPlains)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Entrapment Maneuver(Instant), Summary Dismissal(Instant), Plains(Basic Land ΓÇöPlains)]
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Entrapment Maneuver(Instant), Summary Dismissal(Instant), Plains(Basic Land ΓÇöPlains)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Entrapment Maneuver(Instant), Summary Dismissal(Instant), Plains(Basic Land ΓÇöPlains)]
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] Exiting resolution mode - priority restored to p_hymjd2d3
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngtv0di players=[p_9edieh9h,p_hymjd2d3] zones=[p_9edieh9h,p_hymjd2d3] handCount=6 libraryCount=92
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canPlayLand] p_9edieh9h: Sample cards in hand: [Genesis Wave(Sorcery), Tyvar's Stand(Instant), Vigor(Creature ΓÇö Elemental)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canPlayLand] p_9edieh9h: Sample cards in hand: [Genesis Wave(Sorcery), Tyvar's Stand(Instant), Vigor(Creature ΓÇö Elemental)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Summary Dismissal(Instant), Sidar Kondo of Jamuraa(Legendary Creature ΓÇö), Plains(Basic Land ΓÇö Plains)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Summary Dismissal(Instant), Sidar Kondo of Jamuraa(Legendary Creature ΓÇö), Plains(Basic Land ΓÇö Plains)]
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Summary Dismissal(Instant), Sidar Kondo of Jamuraa(Legendary Creature ΓÇö), Plains(Basic Land ΓÇö Plains)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Summary Dismissal(Instant), Sidar Kondo of Jamuraa(Legendary Creature ΓÇö), Plains(Basic Land ΓÇö Plains)]
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canPlayLand] p_9edieh9h: Sample cards in hand: [Genesis Wave(Sorcery), Tyvar's Stand(Instant), Vigor(Creature ΓÇö Elemental)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canPlayLand] p_9edieh9h: Sample cards in hand: [Genesis Wave(Sorcery), Tyvar's Stand(Instant), Vigor(Creature ΓÇö Elemental)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[canAct] p_9edieh9h: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_9edieh9h, turnPlayer: p_9edieh9h
+[recalculateHandVisibility] Players with hand reveal effects: none
+[applyEvent] Replaying castCommander event: { playerId: 'p_9edieh9h', commanderId: 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' }
+[castCommander] Called with playerId: p_9edieh9h, commanderId: acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98
+[castCommander] Commander info for player p_9edieh9h: { commanderIds: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ],
+  inCommandZone: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ],
+  tax: 0,
+  taxById: { 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98': 0 } }
+[castCommander] Removed commander acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98 from command zone. Remaining in CZ: []
+[castCommander] Updated tax for acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98: 2, total tax: 2
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+playLand: card card_d85d0f25-a24a-4de0-9b8b-93fb5017bce9_f6d154063711df94 already on battlefield for p_hymjd2d3, skipping (replay idempotency)
+[priority] Entering resolution mode - priority will return to p_9edieh9h after resolution completes
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngtv0di players=[p_9edieh9h,p_hymjd2d3] zones=[p_9edieh9h,p_hymjd2d3] handCount=5 libraryCount=90
+[resolveTopOfStack] Checking if Sylvan Reclamation is a Join Forces spell...
+[resolveTopOfStack] Sylvan Reclamation is NOT a Join Forces spell (name: "sylvan reclamation", has 'join forces': false)
+[GameManager] ensureGame: replayed persisted events { bootId: '0d09e3d0-2fff-43de-9e32-bbc9673b0f2e', gameId: 'game_mngtv0di', count: 318 }
+[AI] Added AI player to auto-pass set: { gameId: 'game_mngtv0di', playerId: 'p_hymjd2d3' }
+[AI] Registered AI player: { gameId: 'game_mngtv0di', playerId: 'p_hymjd2d3', name: 'AI Opponent 1', strategy: 'control', difficulty: 0.5 }
+[AI] Rehydrated AI runtime from persisted state: { gameId: 'game_mngtv0di', playerId: 'p_hymjd2d3', strategy: 'control', difficulty: 0.5, refreshDeckProfile: true }
+[AI] handleAIGameFlow: { gameId: 'game_mngtv0di',
+  playerId: 'p_hymjd2d3',
+  phase: 'ENDING',
+  step: 'CLEANUP',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 5,
+  isAITurn: false,
+  hasPriority: false }
+Socket disconnected: uyBllL09l1GcFdhqAAAD. Reason: transport close
+[setCommander] Initialized inCommandZone for p_hymjd2d3: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_bc3b791c0a846b44' ]
+[setCommander] Initialized inCommandZone for p_9edieh9h: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ]
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Entrapment Maneuver(Instant), Summary Dismissal(Instant), Plains(Basic Land ΓÇöPlains)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Entrapment Maneuver(Instant), Summary Dismissal(Instant), Plains(Basic Land ΓÇöPlains)]
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Entrapment Maneuver(Instant), Summary Dismissal(Instant), Plains(Basic Land ΓÇöPlains)]
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canPlayLand] p_hymjd2d3: Sample cards in hand: [Entrapment Maneuver(Instant), Summary Dismissal(Instant), Plains(Basic Land ΓÇöPlains)]
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_9edieh9h, p_hymjd2d3, autoPassEnabled: p_hymjd2d3, currentPriority: p_hymjd2d3, turnPlayer: p_hymjd2d3
+[canAct] p_hymjd2d3: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+2026-04-02T03:16:32.186Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.186Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.186Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.186Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.186Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.186Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.186Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.186Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.187Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.187Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.187Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.187Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.187Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.187Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.187Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.187Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.187Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.187Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.188Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.188Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.188Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.188Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.188Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.188Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.188Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.188Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.188Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.188Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.189Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.189Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.189Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.189Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.189Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.189Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.189Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.189Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.190Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.190Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.190Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.190Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.190Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.190Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.190Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.190Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.191Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.191Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.191Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.191Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.191Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.191Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.191Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.191Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.192Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.192Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.192Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.192Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.192Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.192Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.192Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.192Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.193Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.193Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.193Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.193Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.193Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.193Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.193Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.193Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.194Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.194Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.194Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.194Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+[applyEvent] Replaying castCommander event: { playerId: 'p_9edieh9h', commanderId: 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' }
+[castCommander] Called with playerId: p_9edieh9h, commanderId: acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98
+[castCommander] Commander info for player p_9edieh9h: { commanderIds: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ],
+  inCommandZone: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ],
+  tax: 0,
+  taxById: { 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98': 0 } }
+[castCommander] Removed commander acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98 from command zone. Remaining in CZ: []
+[castCommander] Updated tax for acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98: 2, total tax: 2
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.195Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.195Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.196Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.196Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.196Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.196Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.196Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.196Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.196Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.196Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.196Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.196Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.197Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.197Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.197Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.197Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.197Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.197Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.197Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.197Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.197Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.197Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.198Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.198Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.198Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.198Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.198Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.198Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.198Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.198Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.199Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.199Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.199Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.199Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.199Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.199Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.199Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.199Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.199Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.199Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.200Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.200Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.200Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.200Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.203Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.203Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.203Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.203Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.203Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.204Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.204Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.204Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.204Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.204Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.204Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.204Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.204Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.204Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.204Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.204Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.205Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.205Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.205Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.205Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:16:32.205Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:16:32.205Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+2026-04-02T03:16:32.206Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.206Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.207Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.208Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.210Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.210Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.210Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.210Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.210Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.210Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.211Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.211Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.211Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.211Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.211Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.211Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.212Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.212Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.212Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.212Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.212Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.212Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.213Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.213Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.213Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.213Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+playLand: card card_d85d0f25-a24a-4de0-9b8b-93fb5017bce9_f6d154063711df94 already on battlefield for p_hymjd2d3, skipping (replay idempotency)
+2026-04-02T03:16:32.213Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice
+2026-04-02T03:16:32.213Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[resolveTopOfStack] Checking if Sylvan Reclamation is a Join Forces spell...
+[resolveTopOfStack] Sylvan Reclamation is NOT a Join Forces spell (name: "sylvan reclamation", has 'join forces': false)
+2026-04-02T03:16:32.231Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.231Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.231Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.231Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.231Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.231Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.232Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.233Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.234Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.234Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.234Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.234Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+node.exe : [undo] Failed to locate current boundary turn:4|phase:ending|step:CLEANUP; falling back to full event count
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\A2\AppData\Roaming\npm ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([undo] Failed t...ull event count:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+[setCommander] Initialized inCommandZone for p_hymjd2d3: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_bc3b791c0a846b44' ]
+[setCommander] Initialized inCommandZone for p_9edieh9h: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ]
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.236Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.236Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.236Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.236Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.236Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.236Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.237Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.237Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.238Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.238Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.239Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.240Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.240Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.241Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.242Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.242Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.242Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.242Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.242Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.242Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.242Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.242Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.242Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.243Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+[applyEvent] Replaying castCommander event: { playerId: 'p_9edieh9h', commanderId: 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' }
+[castCommander] Called with playerId: p_9edieh9h, commanderId: acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98
+[castCommander] Commander info for player p_9edieh9h: { commanderIds: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ],
+  inCommandZone: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ],
+  tax: 0,
+  taxById: { 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98': 0 } }
+[castCommander] Removed commander acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98 from command zone. Remaining in CZ: []
+[castCommander] Updated tax for acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98: 2, total tax: 2
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.245Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.245Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.245Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.245Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.245Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.245Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.245Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.245Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.246Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.247Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.247Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.247Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.247Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.247Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.247Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.247Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.247Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.247Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.247Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.248Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.249Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.250Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.250Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.251Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+2026-04-02T03:16:32.252Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.252Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.252Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.252Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.252Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.252Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.252Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.252Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.253Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.254Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.254Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.254Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.255Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.255Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.255Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.255Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.255Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.255Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.255Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.255Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.256Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.256Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.256Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.256Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.257Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.257Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.257Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.257Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.257Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.257Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.257Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.257Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.257Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.257Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+playLand: card card_d85d0f25-a24a-4de0-9b8b-93fb5017bce9_f6d154063711df94 already on battlefield for p_hymjd2d3, skipping (replay idempotency)
+2026-04-02T03:16:32.258Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.258Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[resolveTopOfStack] Checking if Sylvan Reclamation is a Join Forces spell...
+[resolveTopOfStack] Sylvan Reclamation is NOT a Join Forces spell (name: "sylvan reclamation", has 'join forces': false)
+2026-04-02T03:16:32.264Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.264Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.264Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.264Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.264Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.264Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.264Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.264Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.265Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.266Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.267Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.267Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.267Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.267Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[undo] Failed to locate current boundary turn:4|phase:ending; falling back to full event count
+[setCommander] Initialized inCommandZone for p_hymjd2d3: [ 'card_97fa8615-2b6c-445a-bcaf-44a7e847bf65_bc3b791c0a846b44' ]
+[setCommander] Initialized inCommandZone for p_9edieh9h: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ]
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.268Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.268Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.268Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.268Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.268Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.268Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.268Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.268Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.269Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.270Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.270Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.271Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.272Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.272Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.272Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.272Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.272Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.272Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.272Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.272Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.272Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.272Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.273Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.274Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.274Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.274Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.274Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.274Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.274Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.274Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.274Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.274Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.274Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.275Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.276Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.276Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.276Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.276Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+[applyEvent] Replaying castCommander event: { playerId: 'p_9edieh9h', commanderId: 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' }
+[castCommander] Called with playerId: p_9edieh9h, commanderId: acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98
+[castCommander] Commander info for player p_9edieh9h: { commanderIds: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ],
+  inCommandZone: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98' ],
+  tax: 0,
+  taxById: { 'acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98': 0 } }
+[castCommander] Removed commander acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98 from command zone. Remaining in CZ: []
+[castCommander] Updated tax for acf0cab3-da50-4561-8797-cd179af39216_mngtvm74_1_d0cd7c98: 2, total tax: 2
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.277Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.277Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.277Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.277Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.277Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.277Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.277Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.277Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.277Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.277Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.278Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.279Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.279Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.279Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.279Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.279Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.279Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.279Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.279Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.279Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.280Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.281Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.282Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.283Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+2026-04-02T03:16:32.284Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.284Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.284Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.284Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.284Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.284Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.285Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.286Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.286Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.286Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.286Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.286Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.286Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.287Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.287Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.287Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.287Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.287Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.287Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.288Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.288Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.288Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.288Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.288Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.288Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:16:32.289Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.289Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.289Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.289Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.289Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.289Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.289Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.289Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.289Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.289Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+playLand: card card_d85d0f25-a24a-4de0-9b8b-93fb5017bce9_f6d154063711df94 already on battlefield for p_hymjd2d3, skipping (replay idempotency)
+2026-04-02T03:16:32.290Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.290Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngtv0di does not exist in database, not recreating (may have been deleted)
+[resolveTopOfStack] Checking if Sylvan Reclamation is a Join Forces spell...
+[resolveTopOfStack] Sylvan Reclamation is NOT a Join Forces spell (name: "sylvan reclamation", has 'join forces': false)
+2026-04-02T03:16:32.295Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.295Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.296Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.296Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.296Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.296Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.296Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.296Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.296Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.296Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.296Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [checkPendingInteractions] Pending: discard_selection, return_controlled_permanent_choice, library_search
+2026-04-02T03:16:32.297Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection, return_controlled_permanent_choice, library_search
+[undo] Failed to locate current boundary turn:4; falling back to full event count
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngtv0di players=[p_hymjd2d3] zones=[p_hymjd2d3] handCount=5 libraryCount=90
+DELETE /admin/games/game_mngtv0di: GameManager.deleteGame removed in-memory game
+[AI] Creating game with multiple AI opponents: { gameId: 'game_mngwps84', playerName: 'A2', seed: undefined, aiCount: 1, aiNames: [ 'AI Opponent 1' ], aiDifficulties: [ 0.5 ] }
+[AI] Created new game via GameManager: game_mngwps84
+[AI] AI player joined game via game.join(): { aiPlayerId: 'p_c2xxynbp', aiName: 'AI Opponent 1' }
+[AI] Loading deck for AI Opponent 1: { deckId: 'deck_1775014223529_aa490d', deckName: 'Sephiroth-sac' }
+[join] Set game creator for game_mngwps84 to player p_l82m55hi
+[AI] Deck imported for AI Opponent 1: { aiPlayerId: 'p_c2xxynbp', deckName: 'Sephiroth-sac', resolvedCount: 100 }
+[AI] Persisted deckImportResolved event for AI Opponent 1: { aiPlayerId: 'p_c2xxynbp', cardCount: 100 }
+[AI] Added AI player to auto-pass set: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[AI] Registered AI player: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp', name: 'AI Opponent 1', strategy: 'basic', difficulty: 0.5 }
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=0 libraryCount=100
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=0 libraryCount=100
+[AI] Triggering auto-commander selection for: { gameId: 'game_mngwps84', aiPlayerId: 'p_c2xxynbp' }
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRE_GAME',
+  step: '',
+  hasCommander: false,
+  hasHand: false,
+  handCount: 0,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI needs to select commander
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRE_GAME',
+  step: '',
+  hasCommander: false,
+  hasHand: false,
+  handCount: 0,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI needs to select commander
+[AI] Deck color identity: B
+[AI] First commander identity [] does not match deck identity [B] - searching for better options
+[AI] Selected single commander with exact identity match [B]: Mai, Scornful Striker
+[AI] Auto-selecting commander for AI: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  commanderNames: [ 'Mai, Scornful Striker' ],
+  commanderIds: [ 'card_74dd4c0e-27b8-4c47-b7a6-a281413cd6b4_e19191418dda9da8' ],
+  colorIdentity: [ 'B' ] }
+[setCommander] Initialized inCommandZone for p_c2xxynbp: [ 'card_74dd4c0e-27b8-4c47-b7a6-a281413cd6b4_e19191418dda9da8' ]
+[AI] After setCommander - hand count: 7
+[AI] Persisted opening draw events (shuffle + draw) for player p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[AI] Commander set for AI player: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp', commanderNames: [ 'Mai, Scornful Striker' ], finalHandCount: 7 }
+[AI] Commander selection complete, continuing game flow
+[AI] autoSelectAICommander: player already has commander, skipping { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp', commanderIds: [ 'card_74dd4c0e-27b8-4c47-b7a6-a281413cd6b4_e19191418dda9da8' ] }
+[AI] Commander selection complete, continuing game flow
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRE_GAME',
+  step: '',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI evaluating hand for mulligan decision
+[AI] AI making mulligan decision: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[AI] Mulligan analysis: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  handSize: 7,
+  currentMulligans: 0,
+  effectiveHandSizeAfterMulligan: 7,
+  landCount: 3,
+  manaSourceCount: 1,
+  totalManaProduction: 4,
+  lowCostSpellCount: 4,
+  midCostSpellCount: 0,
+  highCostSpellCount: 0,
+  primaryArchetypes: [ 'aristocrats', 'graveyard', 'artifacts' ],
+  themedCards: 3,
+  synergyPairs: 3,
+  strongestPair: 8,
+  comboPieces: 0 }
+[AI] Hand has good land count (3-5 lands), keeping
+[AI] AI keeping hand
+[AI] AI is ready to start game (hand kept)
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRE_GAME',
+  step: '',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI is active player in pre_game, checking if ready to advance
+[AI] Waiting for other players to keep their hands
+Socket disconnected: YfWjYMywztr7wLtlAAAF. Reason: transport close
+[setCommander] Initialized inCommandZone for p_c2xxynbp: [ 'card_74dd4c0e-27b8-4c47-b7a6-a281413cd6b4_e19191418dda9da8' ]
+[setCommander] Initialized inCommandZone for p_c2xxynbp: [ 'card_74dd4c0e-27b8-4c47-b7a6-a281413cd6b4_e19191418dda9da8' ]
+[setCommander] Initialized inCommandZone for p_c2xxynbp: [ 'card_74dd4c0e-27b8-4c47-b7a6-a281413cd6b4_e19191418dda9da8' ]
+[deck] listSavedDecks called { gameId: 'game_mngwps84', folder: undefined, playerId: 'p_l82m55hi' }
+[deck] canImportWithoutWipe { gameId: 'game_mngwps84', phaseStr: 'PRE_GAME', seqVal: 12, isPreGame: true }
+[deck] useSavedDeck called { gameId: 'game_mngwps84', deckId: 'deck_1764741502340_p33d20', playerId: 'p_l82m55hi' }
+[deck] useSavedDeck using cached cards { gameId: 'game_mngwps84', deckId: 'deck_1764741502340_p33d20', cachedCount: 100 }
+[deck] useSavedDeck resolved cards { gameId: 'game_mngwps84',
+  deckId: 'deck_1764741502340_p33d20',
+  playerId: 'p_l82m55hi',
+  usedCache: true,
+  resolvedCount: 100,
+  missingCount: 0,
+  firstCard:
+   { name: 'Omnath, Locus of Mana', id: 'acf0cab3-da50-4561-8797-cd179af39216_mngwqwir_1_e64fdcf3', type_line: 'Legendary Creature ΓÇö Elemental' },
+  lastCard: { name: 'March of the World Ooze', id: 'b1964ec5-0dd1-4b54-917c-cbeab05aba79_mngwqwis_2s_93bc0957', type_line: 'Enchantment' } }
+[deck] useSavedDeck pregame-check { gameId: 'game_mngwps84', deckId: 'deck_1764741502340_p33d20', playerId: 'p_l82m55hi', phaseStr: 'PRE_GAME', seqVal: 12, isPreGame: true }
+[deck] clearPlayerTransientZonesForImport { gameId: 'game_mngwps84', playerId: 'p_l82m55hi' }
+[deck] addPendingInitialDrawFlag { gameId: 'game_mngwps84', playerId: 'p_l82m55hi', pendingInitialDrawSize: 1 }
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[deck] getImportedDeckCandidates { gameId: 'game_mngwps84', playerId: 'p_l82m55hi', candidatesCount: 100 }
+[import] applyConfirmedImport start { gameId: 'game_mngwps84', initiator: 'p_l82m55hi', cards: 100, importerOnly: true, confirmId: 'imp_game_mngwps84_1775100065572_6u7fgu' }
+[import] importer-only apply: skipping full reset { gameId: 'game_mngwps84' }
+[import] importDeckResolved attempted { gameId: 'game_mngwps84', playerId: 'p_l82m55hi' }
+[import] state.zones libraryCount update (no library array duplication) { gameId: 'game_mngwps84', playerId: 'p_l82m55hi', libraryCount: 0 }
+[deck] addPendingInitialDrawFlag { gameId: 'game_mngwps84', playerId: 'p_l82m55hi', pendingInitialDrawSize: 1 }
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[commander] emitImportedDeckCandidatesToPlayer { gameId: 'game_mngwps84', playerId: 'p_l82m55hi', candidatesCount: 100 }
+[commander] emitSuggestCommandersToPlayer { gameId: 'game_mngwps84', playerId: 'p_l82m55hi', names: [ 'Omnath, Locus of Mana', 'Jaheira, Friend of the Forest' ] }
+[import] suggestCommanders emitted (importerSocket) { gameId: 'game_mngwps84', playerId: 'p_l82m55hi', names: [ 'Omnath, Locus of Mana', 'Jaheira, Friend of the Forest' ] }
+[import] importApplied sent to player sockets { gameId: 'game_mngwps84', playerId: 'p_l82m55hi' }
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[import] applyConfirmedImport complete { gameId: 'game_mngwps84', initiator: 'p_l82m55hi', confirmId: 'imp_game_mngwps84_1775100065572_6u7fgu' }
+[deck] getImportedDeckCandidates { gameId: 'game_mngwps84', playerId: 'p_l82m55hi', candidatesCount: 100 }
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRE_GAME',
+  step: '',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI is active player in pre_game, checking if ready to advance
+[AI] Waiting for other players to keep their hands
+[commander] setCommander incoming { gameId: 'game_mngwps84',
+  from: 'p_l82m55hi',
+  commanderNames: [ 'Omnath, Locus of Mana' ],
+  commanderIds: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngwqwir_1_e64fdcf3' ] }
+[commander] setCommander idsToApply { gameId: 'game_mngwps84',
+  playerId: 'p_l82m55hi',
+  names: [ 'Omnath, Locus of Mana' ],
+  idsToApply: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngwqwir_1_e64fdcf3' ] }
+[setCommander] Initialized inCommandZone for p_l82m55hi: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngwqwir_1_e64fdcf3' ]
+[commander] Persisted opening draw events (shuffle + draw 7) for player p_l82m55hi
+[DEBUG_CMD] after setCommander { gameId: 'game_mngwps84',
+  playerId: 'p_l82m55hi',
+  commanderIds: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngwqwir_1_e64fdcf3' ],
+  commanderNames: [ 'Omnath, Locus of Mana' ],
+  libraryCount: 92,
+  libraryTop: null }
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRE_GAME',
+  step: '',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI is active player in pre_game, checking if ready to advance
+[AI] Waiting for other players to keep their hands
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRE_GAME',
+  step: '',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI is active player in pre_game, checking if ready to advance
+[AI] All players ready, AI advancing from pre_game to beginning phase
+[recalculateHandVisibility] Players with hand reveal effects: none
+[AI] Advanced game from pre_game to beginning phase via nextTurn
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canPlayLand] p_l82m55hi: Sample cards in hand: [Heroic Intervention(Instant), Mana Reflection(Enchantment), Forest(Basic Land ΓÇö Forest)]
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canPlayLand] p_l82m55hi: Sample cards in hand: [Heroic Intervention(Instant), Mana Reflection(Enchantment), Forest(Basic Land ΓÇö Forest)]
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canPlayLand] p_l82m55hi: Sample cards in hand: [Heroic Intervention(Instant), Mana Reflection(Enchantment), Forest(Basic Land ΓÇö Forest)]
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canPlayLand] p_l82m55hi: Sample cards in hand: [Heroic Intervention(Instant), Mana Reflection(Enchantment), Forest(Basic Land ΓÇö Forest)]
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRECOMBATMAIN',
+  step: 'MAIN1',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: false,
+  hasPriority: false }
+[recalculateHandVisibility] Players with hand reveal effects: none
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canPlayLand] p_c2xxynbp: Sample cards in hand: [Attrition(Enchantment), Plague Wind(Sorcery), Swamp(Basic Land ΓÇö Swamp)]
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRECOMBATMAIN',
+  step: 'MAIN1',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: false,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: false,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Not AI turn, passing priority
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'BEGINNING',
+  step: 'UNTAP',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'beginning',
+  step: 'untap',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Beginning phase, step: untap - advancing out of untap
+[AI] Advancing step: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp', currentPhase: 'beginning', currentStep: 'UNTAP' }
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[AI] Step advanced: { newPhase: 'beginning', newStep: 'UPKEEP' }
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=92
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'BEGINNING',
+  step: 'UPKEEP',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'beginning',
+  step: 'upkeep',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Beginning phase, step: upkeep - passing priority
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_c2xxynbp
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=8 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=8 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'beginning',
+  step: 'draw',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Beginning phase, step: draw - passing priority
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_c2xxynbp
+[AI] All players passed priority with empty stack, advancing step
+[canPlayLand] p_c2xxynbp: Sample cards in hand: [Attrition(Enchantment), Plague Wind(Sorcery), Swamp(Basic Land ΓÇö Swamp)]
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canPlayLand] p_c2xxynbp: Sample cards in hand: [Attrition(Enchantment), Plague Wind(Sorcery), Swamp(Basic Land ΓÇö Swamp)]
+[canPlayLand] p_c2xxynbp: Sample cards in hand: [Attrition(Enchantment), Plague Wind(Sorcery), Swamp(Basic Land ΓÇö Swamp)]
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=8 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=8 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Hand size 8 exceeds max 7 - will prioritize casting spells to avoid discarding
+[AI] Playing land: Swamp
+[AI] Playing land: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp', cardId: 'card_51fe930f-2b5a-4b1e-9007-6ee74fb44715_88c0e36907a36886' }
+[recalculateHandVisibility] Players with hand reveal effects: none
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'PRECOMBATMAIN',
+  step: 'MAIN1',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'precombatmain',
+  step: 'main1',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Cannot play land: { isMainPhase: true, isAITurn: true, landsPlayed: 1, maxLands: 1, reason: 'already played max lands' }
+[AI] findCastableSpells: Checking 7 cards in hand
+[AI] Available mana pool: { total: 1, colors: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 } }
+[AI] findCastableSpells: No castable spells. Reasons: [ 'Attrition: no valid targets (needs 1, found 0)',
+  'Plague Wind: need 9 mana (have 1), colors: {"W":0,"U":0,"B":2,"R":0,"G":0,"C":0}',
+  `Commander's Sphere: need 3 mana (have 1), colors: {"W":0,"U":0,"B":0,"R":0,"G":0,"C":0}`,
+  'Butcher of Malakir: need 7 mana (have 1), colors: {"W":0,"U":0,"B":2,"R":0,"G":0,"C":0}',
+  'Deadly Embrace: no valid targets (needs 1, found 0)' ]
+[AI] Main phase, no more actions, passing priority
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_c2xxynbp
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'combat',
+  step: 'begin_combat',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Combat step begin_combat - passing priority
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_c2xxynbp
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'combat',
+  step: 'declare_attackers',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] No attackers to declare, skipping attackers step
+[AI] Declaring attackers: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp', attackers: [] }
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[AI] handleAIGameFlow: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'COMBAT',
+  step: 'DECLARE_BLOCKERS',
+  hasCommander: true,
+  hasHand: true,
+  handCount: 7,
+  isAITurn: true,
+  hasPriority: true }
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'combat',
+  step: 'declare_blockers',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Attacking player does not declare blockers, passing priority for defender declarations/responses
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_c2xxynbp
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'combat',
+  step: 'damage',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Combat step damage - passing priority
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_c2xxynbp
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'combat',
+  step: 'end_combat',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Combat step end_combat - passing priority
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_c2xxynbp
+[AI] All players passed priority with empty stack, advancing step
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'postcombatmain',
+  step: 'main2',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Cannot play land: { isMainPhase: true, isAITurn: true, landsPlayed: 1, maxLands: 1, reason: 'already played max lands' }
+[AI] findCastableSpells: Checking 7 cards in hand
+[AI] Available mana pool: { total: 1, colors: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 } }
+[AI] findCastableSpells: No castable spells. Reasons: [ 'Attrition: no valid targets (needs 1, found 0)',
+  'Plague Wind: need 9 mana (have 1), colors: {"W":0,"U":0,"B":2,"R":0,"G":0,"C":0}',
+  `Commander's Sphere: need 3 mana (have 1), colors: {"W":0,"U":0,"B":0,"R":0,"G":0,"C":0}`,
+  'Butcher of Malakir: need 7 mana (have 1), colors: {"W":0,"U":0,"B":2,"R":0,"G":0,"C":0}',
+  'Deadly Embrace: no valid targets (needs 1, found 0)' ]
+[AI] Main phase, no more actions, passing priority
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_c2xxynbp
+[AI] All players passed priority with empty stack, advancing step
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[AI] AI player checking priority: { gameId: 'game_mngwps84',
+  playerId: 'p_c2xxynbp',
+  phase: 'ending',
+  step: 'end',
+  isAITurn: true,
+  stackEmpty: true,
+  priority: 'p_c2xxynbp',
+  hasPriority: true }
+[AI] AI has priority, proceeding with action
+[AI] Ending phase, step: end - passing priority
+[AI] Passing priority: { gameId: 'game_mngwps84', playerId: 'p_c2xxynbp' }
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_c2xxynbp
+[AI] All players passed priority with empty stack, advancing step
+[recalculateHandVisibility] Players with hand reveal effects: none
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_l82m55hi: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_l82m55hi
+[canPlayLand] p_l82m55hi: Sample cards in hand: [Heroic Intervention(Instant), Mana Reflection(Enchantment), Forest(Basic Land ΓÇö Forest)]
+[priority] autoPassLoop starting - active players: p_c2xxynbp, p_l82m55hi, autoPassEnabled: p_l82m55hi, p_c2xxynbp, currentPriority: p_l82m55hi, turnPlayer: p_l82m55hi
+[canPlayLand] p_l82m55hi: Sample cards in hand: [Heroic Intervention(Instant), Mana Reflection(Enchantment), Forest(Basic Land ΓÇö Forest)]
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[canPlayLand] p_l82m55hi: Sample cards in hand: [Heroic Intervention(Instant), Mana Reflection(Enchantment), Forest(Basic Land ΓÇö Forest)]
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[canPlayLand] p_l82m55hi: Sample cards in hand: [Heroic Intervention(Instant), Mana Reflection(Enchantment), Forest(Basic Land ΓÇö Forest)]
+[recalculateHandVisibility] Players with hand reveal effects: none
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[priority] Entering resolution mode - priority will return to p_l82m55hi after resolution completes
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+[STATE_DEBUG] BROADCAST_STATE gameId=game_mngwps84 players=[p_c2xxynbp,p_l82m55hi] zones=[p_c2xxynbp,p_l82m55hi] handCount=7 libraryCount=91
+Socket disconnected: QFeLLz5NHBcEvIIIAAAH. Reason: transport close
+[setCommander] Initialized inCommandZone for p_c2xxynbp: [ 'card_74dd4c0e-27b8-4c47-b7a6-a281413cd6b4_e19191418dda9da8' ]
+[setCommander] Initialized inCommandZone for p_l82m55hi: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngwqwir_1_e64fdcf3' ]
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_c2xxynbp: Sample cards in hand: [Attrition(Enchantment), Plague Wind(Sorcery), Swamp(Basic Land ΓÇö Swamp)]
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canPlayLand] p_c2xxynbp: Sample cards in hand: [Attrition(Enchantment), Plague Wind(Sorcery), Swamp(Basic Land ΓÇö Swamp)]
+[recalculateHandVisibility] Players with hand reveal effects: none
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[canPlayLand] p_c2xxynbp: Sample cards in hand: [Attrition(Enchantment), Plague Wind(Sorcery), Swamp(Basic Land ΓÇö Swamp)]
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canPlayLand] p_c2xxynbp: Sample cards in hand: [Attrition(Enchantment), Plague Wind(Sorcery), Swamp(Basic Land ΓÇö Swamp)]
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[priority] autoPassLoop starting - active players: p_l82m55hi, p_c2xxynbp, autoPassEnabled: p_c2xxynbp, currentPriority: p_c2xxynbp, turnPlayer: p_c2xxynbp
+[canAct] p_c2xxynbp: Not in main phase with empty stack (phase check failed or stack not empty) - returning FALSE
+[GameManager] ensureGame: game undo_probe_game_mngwps84 does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngwps84 does not exist in database, not recreating (may have been deleted)
+[GameManager] ensureGame: game undo_probe_game_mngwps84 does not exist in database, not recreating (may have been deleted)
+2026-04-02T03:21:59.816Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.816Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.817Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.817Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.817Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.817Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:21:59.817Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.817Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.817Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.817Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.818Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.818Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.818Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.818Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.819Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.819Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.819Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.819Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.819Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.819Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.819Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.819Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.819Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.820Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.820Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.820Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.820Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.820Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+[undo] Failed to locate current boundary turn:3|phase:precombatmain|step:MAIN1; falling back to full event count
+[setCommander] Initialized inCommandZone for p_c2xxynbp: [ 'card_74dd4c0e-27b8-4c47-b7a6-a281413cd6b4_e19191418dda9da8' ]
+[setCommander] Initialized inCommandZone for p_l82m55hi: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngwqwir_1_e64fdcf3' ]
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:21:59.821Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.821Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.821Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.821Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.821Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.821Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:21:59.822Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.822Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.822Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.822Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.822Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.822Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.822Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.822Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.823Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.823Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.823Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.823Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.823Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.823Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.823Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.823Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.823Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.823Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.824Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.824Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.824Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.824Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:21:59.824Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.824Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.825Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.825Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.825Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.825Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.825Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.825Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.825Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.825Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.825Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.825Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.826Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.826Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.826Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.826Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.826Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.826Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.827Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.827Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.827Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.827Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+[undo] Failed to locate current boundary turn:3|phase:precombatmain; falling back to full event count
+[setCommander] Initialized inCommandZone for p_c2xxynbp: [ 'card_74dd4c0e-27b8-4c47-b7a6-a281413cd6b4_e19191418dda9da8' ]
+[setCommander] Initialized inCommandZone for p_l82m55hi: [ 'acf0cab3-da50-4561-8797-cd179af39216_mngwqwir_1_e64fdcf3' ]
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:21:59.828Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.828Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.828Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.828Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.828Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.828Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:21:59.829Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.829Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.829Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.829Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.829Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.829Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.829Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.829Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.829Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.830Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.830Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.830Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.830Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.830Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.830Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.830Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.830Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.830Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.831Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.831Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.831Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.831Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+2026-04-02T03:21:59.831Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.831Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.831Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.831Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.832Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.832Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.832Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.832Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.832Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.832Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.832Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.832Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.832Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.833Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.833Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.833Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.833Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.833Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.833Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.833Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+2026-04-02T03:21:59.833Z [checkPendingInteractions] Pending: discard_selection
+2026-04-02T03:21:59.833Z [nextStep] BLOCKED: Cannot advance step - pending interactions: discard_selection
+[recalculateHandVisibility] Players with hand reveal effects: none
+[undo] Failed to locate current boundary turn:3; falling back to full event count

@@ -644,8 +644,6 @@ export function CastSpellModal({
     return totalCost > 0;
   }, [currentCost, effectiveManaCost, isForceAltCostSelected, manaCost, manualFloatingManaSelection, xValue]);
 
-  if (!open) return null;
-
   // Helper to get mana count for a source
   // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources:
   // - Sol Ring ['C','C'] = 2 mana (duplicates = multi-mana)
@@ -669,6 +667,8 @@ export function CastSpellModal({
     if (!open) return;
     setPayment(suggestedPaymentItems);
   }, [open, suggestedPaymentItems, selectedCostId, xValue]);
+
+  if (!open) return null;
 
   const handleConfirm = () => {
     // If no payment was manually selected, use the suggested payment
