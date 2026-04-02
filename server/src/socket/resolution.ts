@@ -40,6 +40,7 @@ import {
   handleBounceLandETB,
   chooseAILibrarySearchCards,
   chooseAIGraveyardSelectionIds,
+  chooseAIXValueSelection,
   chooseAISpellPaymentSelections,
   chooseAITargetSelectionsForChoiceStep,
 } from "./ai.js";
@@ -821,6 +822,19 @@ async function handleAIResolutionStep(
     let response: ResolutionStepResponse | null = null;
     
     switch (step.type) {
+      case ResolutionStepType.X_VALUE_SELECTION: {
+        const xValue = chooseAIXValueSelection(game, step.playerId as any, step as any);
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: xValue,
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI X_VALUE_SELECTION: chose X=${xValue}`);
+        break;
+      }
+
       case ResolutionStepType.HAND_TO_BOTTOM: {
         const stepData = step as any;
         const cardsToBottom = Number(stepData.cardsToBottom || 0);

@@ -69,6 +69,63 @@ const AI_PAIN_LANDS = new Set([
 
 const AI_MANA_ABILITY_PATTERN = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
 
+function applyChosenXToManaCost(manaCost: string, xValue: number): string {
+  const safeXValue = Math.max(0, Math.floor(Number(xValue) || 0));
+  return String(manaCost || '')
+    .replace(/\{X\}/gi, `{${safeXValue}}`)
+    .replace(/\bX\b/g, `{${safeXValue}}`);
+}
+
+function findSpellCardForXSelection(game: any, playerId: PlayerID, step: any): any | null {
+  const cardId = String(step?.spellCardId || step?.sourceId || '').trim();
+  if (!cardId) return null;
+
+  const requestedZone = String(step?.spellFromZone || '').trim();
+  const zonesToSearch = [requestedZone, 'hand', 'exile', 'graveyard'].filter(
+    (zoneName, index, entries) => zoneName && entries.indexOf(zoneName) === index,
+  );
+
+  for (const zoneName of zonesToSearch) {
+    const zoneCards = (game?.state as any)?.zones?.[playerId]?.[zoneName];
+    if (!Array.isArray(zoneCards)) continue;
+
+    const found = zoneCards.find((card: any) => String(card?.id || '') === cardId);
+    if (found) return found;
+  }
+
+  return null;
+}
+
+export function chooseAIXValueSelection(game: any, playerId: PlayerID, step: any): number {
+  const minValue = Number.isFinite(Number(step?.minValue))
+    ? Math.max(0, Math.floor(Number(step.minValue)))
+    : 0;
+  const maxValue = Number.isFinite(Number(step?.maxValue))
+    ? Math.max(minValue, Math.floor(Number(step.maxValue)))
+    : minValue;
+
+  if (step?.spellCastWithoutPayingManaCost === true) {
+    return minValue;
+  }
+
+  if (step?.spellCastXSelection === true) {
+    const spellCard = findSpellCardForXSelection(game, playerId, step);
+    const manaCost = String(spellCard?.manaCost || spellCard?.mana_cost || '').trim();
+
+    if (manaCost.includes('X')) {
+      for (let candidate = maxValue; candidate >= minValue; candidate -= 1) {
+        const expandedManaCost = applyChosenXToManaCost(manaCost, candidate);
+        const parsedCost = parseManaCost(expandedManaCost);
+        if (canPayManaCostWithAvailableSources(game.state, playerId, parsedCost)) {
+          return candidate;
+        }
+      }
+    }
+  }
+
+  return minValue;
+}
+
 function normalizeRequestedGameSeed(rawSeed: unknown): number | undefined {
   if (rawSeed == null) return undefined;
   if (typeof rawSeed === 'string' && rawSeed.trim() === '') return undefined;
@@ -4323,19 +4380,21 @@ export async function handleAIPriority(
       // If we need to discard, we should cast ANY spell we can afford, not just optimal ones
       const castableSpells = findCastableSpells(game, playerId);
       if (castableSpells.length > 0) {
-        const bestSpell = castableSpells[0]; // Already sorted by priority
-        
-        // If we will need to discard, log the urgency
-        if (willNeedToDiscard) {
-          debug(1, `[AI] Casting spell to avoid discard: ${bestSpell.card.name} (hand: ${handSize}/${maxHandSize})`);
-        } else {
-          debug(1, '[AI] Casting spell:', bestSpell.card.name, 'with priority', bestSpell.priority);
+        for (const candidateSpell of castableSpells) {
+          if (willNeedToDiscard) {
+            debug(1, `[AI] Casting spell to avoid discard: ${candidateSpell.card.name} (hand: ${handSize}/${maxHandSize})`);
+          } else {
+            debug(1, '[AI] Casting spell:', candidateSpell.card.name, 'with priority', candidateSpell.priority);
+          }
+
+          const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell.card, candidateSpell.cost);
+          if (castProgressed) {
+            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            return;
+          }
         }
-        
-        await executeAICastSpell(io, gameId, playerId, bestSpell.card, bestSpell.cost);
-        // After casting, continue with more actions
-        scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
-        return;
+
+        debugWarn(1, `[AI] No castable spell produced progress for ${playerId}; continuing to fallback actions`);
       }
       
       // If we still need to discard and couldn't cast anything, try activated abilities now
@@ -5200,13 +5259,16 @@ async function executeAICastSpell(
   playerId: PlayerID,
   card: any,
   cost: { colors: Record<string, number>; generic: number; cmc: number }
-): Promise<void> {
+): Promise<boolean> {
   const game = ensureGame(gameId);
-  if (!game) return;
+  if (!game) return false;
   
   debug(1, '[AI] Casting spell:', { gameId, playerId, cardName: card.name, cost });
   
   try {
+    const cardId = String(card?.id || '');
+    const stackLengthBefore = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+
     const aiSocket = {
       data: { playerId },
       emit: (event: string, payload: any) => {
@@ -5214,7 +5276,7 @@ async function executeAICastSpell(
           debugWarn(1, '[AI] requestCastSpellForSocket rejected cast:', {
             gameId,
             playerId,
-            cardId: card?.id,
+            cardId,
             payload,
           });
         }
@@ -5223,10 +5285,43 @@ async function executeAICastSpell(
 
     await requestCastSpellForSocket(io, aiSocket, {
       gameId,
-      cardId: String(card?.id || ''),
+      cardId,
     });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const stackLengthAfter = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+    const hand = Array.isArray((game.state as any)?.zones?.[playerId]?.hand)
+      ? (game.state as any).zones[playerId].hand
+      : [];
+    const cardStillInHand = hand.some((entry: any) => String(entry?.id || '') === cardId);
+    const pendingSpellCasts = Object.values(((game.state as any)?.pendingSpellCasts || {})) as any[];
+    const hasPendingCast = pendingSpellCasts.some((entry: any) => String(entry?.cardId || '') === cardId);
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const hasPendingStep = queue.steps.some((step: any) =>
+      String(step?.sourceId || '') === cardId ||
+      String(step?.cardId || '') === cardId ||
+      String(step?.spellCardId || '') === cardId ||
+      String(step?.spellCastContext?.cardId || '') === cardId
+    );
+
+    const progressed = stackLengthAfter > stackLengthBefore || !cardStillInHand || hasPendingCast || hasPendingStep;
+    if (!progressed) {
+      debugWarn(1, '[AI] Spell cast attempt produced no state change:', {
+        gameId,
+        playerId,
+        cardId,
+        cardName: card?.name,
+        stackLengthBefore,
+        stackLengthAfter,
+      });
+    }
+
+    return progressed;
   } catch (error) {
     debugError(1, '[AI] Error casting spell:', error);
+    return false;
   }
 }
 
@@ -6127,6 +6222,13 @@ async function handleAIResolutionStep(
         };
         ResolutionQueueManager.completeStep(gameId, step.id, response);
         debug(1, `[AI] mode_selection: Selected ${modeDecision.selections.join(', ') || 'none'}`);
+        break;
+      }
+
+      case 'x_value_selection': {
+        const xValue = chooseAIXValueSelection(game, playerId, step);
+        ResolutionQueueManager.completeStep(gameId, step.id, createResponse(xValue));
+        debug(1, `[AI] x_value_selection: chose X=${xValue}`);
         break;
       }
 

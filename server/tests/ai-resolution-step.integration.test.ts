@@ -222,6 +222,111 @@ describe('AI resolution-step integration', () => {
     }
   });
 
+  it('auto-resolves AI spell-cast X selections and continues the cast', async () => {
+    const io = createNoopIo();
+    const aiHandler = initializeAIResolutionHandler(io as any);
+
+    try {
+      createGameIfNotExists(gameId, 'commander', 40);
+      const game = ensureGame(gameId);
+      if (!game) throw new Error('ensureGame returned undefined');
+
+      (game.state as any).players = [
+        { id: playerId, name: 'AI', spectator: false, life: 40, isAI: true },
+        { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+      ];
+      (game.state as any).turnPlayer = playerId;
+      (game.state as any).priority = playerId;
+      (game.state as any).phase = 'precombatMain';
+      (game.state as any).step = 'MAIN1';
+      (game.state as any).stack = [];
+      (game.state as any).manaPool = {
+        [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      };
+      (game.state as any).battlefield = [
+        {
+          id: 'plains_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'plains_card_1',
+            name: 'Plains',
+            type_line: 'Basic Land — Plains',
+            oracle_text: '{T}: Add {W}.',
+          },
+        },
+        {
+          id: 'plains_2',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          summoningSickness: false,
+          counters: {},
+          card: {
+            id: 'plains_card_2',
+            name: 'Plains',
+            type_line: 'Basic Land — Plains',
+            oracle_text: '{T}: Add {W}.',
+          },
+        },
+      ];
+      (game.state as any).zones = {
+        [playerId]: {
+          hand: [
+            {
+              id: 'martial_coup_1',
+              name: 'Martial Coup',
+              mana_cost: '{X}{W}{W}',
+              manaCost: '{X}{W}{W}',
+              type_line: 'Sorcery',
+              oracle_text: 'Create X 1/1 white Soldier creature tokens. If X is 5 or more, destroy all other creatures.',
+            },
+          ],
+          handCount: 1,
+          library: [],
+          graveyard: [],
+          exile: [],
+        },
+        opp1: { hand: [], handCount: 0, library: [], graveyard: [], exile: [] },
+      };
+
+      const step = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.X_VALUE_SELECTION,
+        playerId: playerId as any,
+        description: 'Choose X for Martial Coup.',
+        mandatory: true,
+        sourceId: 'martial_coup_1',
+        sourceName: 'Martial Coup',
+        minValue: 0,
+        maxValue: 20,
+        xCount: 1,
+        spellCastXSelection: true,
+        spellCardId: 'martial_coup_1',
+        spellFromZone: 'hand',
+      } as any);
+
+      await vi.waitFor(() => {
+        const queue = ResolutionQueueManager.getQueue(gameId);
+        expect(queue.steps.some((entry: any) => String(entry.id) === String(step.id))).toBe(false);
+
+        const completed = queue.completedSteps.find((entry: any) => String(entry.id) === String(step.id));
+        expect(completed?.response?.selections).toBe(0);
+
+        const hand = (((game.state as any).zones?.[playerId]?.hand) || []).map((card: any) => String(card?.id || ''));
+        expect(hand).not.toContain('martial_coup_1');
+
+        const stackNames = (((game.state as any).stack) || []).map((entry: any) => String(entry?.card?.name || entry?.sourceName || ''));
+        expect(stackNames).toContain('Martial Coup');
+      });
+    } finally {
+      ResolutionQueueManager.off(aiHandler);
+    }
+  });
+
   it('auto-resolves AI trigger-order steps from the shared resolution queue handler', async () => {
     const io = createNoopIo();
     const aiHandler = initializeAIResolutionHandler(io as any);
