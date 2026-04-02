@@ -946,7 +946,7 @@ export function detectAttackTriggers(card: any, permanent: any): TriggeredAbilit
   }
   
   // Generic "whenever ~ attacks"
-  const attacksMatch = oracleText.match(/whenever\s+(?:~|this creature)\s+attacks,?\s*([^\n]+)/i);
+  const attacksMatch = oracleText.match(/whenever\s+(?:~|this creature(?:\s+or\s+equipped creature)?)\s+attacks,?\s*([^\n]+)/i);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
     
@@ -1585,7 +1585,8 @@ export interface AttachmentAttackTrigger {
  */
 export function detectAttachmentAttackTriggers(card: any, permanent: any): AttachmentAttackTrigger[] {
   const triggers: AttachmentAttackTrigger[] = [];
-  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const oracleText = card?.oracle_text || "";
+  const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();
   const permanentId = permanent?.id || "";
@@ -1596,9 +1597,11 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
   if (!attachedToId) return triggers;
   
   // Pattern: "Whenever equipped creature attacks, ..."
-  const equipAttackMatch = oracleText.match(/whenever equipped creature attacks,?\s*([^.]+)/i);
+  // Also supports "Whenever this creature or equipped creature attacks, ..."
+  const equipAttackMatch = oracleText.match(/whenever (?:this creature or )?equipped creature attacks,?\s*([^\n]+)/i);
   if (equipAttackMatch) {
     const effectText = equipAttackMatch[1].trim();
+    const lowerEffect = effectText.toLowerCase();
     triggers.push({
       permanentId,
       cardName,
@@ -1606,11 +1609,11 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
       attachedToId,
       triggerType: 'attack',
       effect: effectText,
-      mandatory: !effectText.includes('you may'),
-      searchesLibrary: effectText.includes('search') && effectText.includes('library'),
-      searchType: effectText.includes('basic land') ? 'basic_land' : 
-                  effectText.includes('land') ? 'land' : undefined,
-      createsToken: effectText.includes('create') && effectText.includes('token'),
+      mandatory: !lowerEffect.includes('you may'),
+      searchesLibrary: lowerEffect.includes('search') && lowerEffect.includes('library'),
+      searchType: lowerEffect.includes('basic land') ? 'basic_land' : 
+                  lowerEffect.includes('land') ? 'land' : undefined,
+      createsToken: /\bcreate\b.*\btoken\b/i.test(effectText),
     });
   }
   
@@ -1667,7 +1670,7 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
       drawsCards: effectText.includes('draw'),
       exilesCards: effectText.includes('exile'),
       // Track if this is specifically combat damage or any damage
-      anyDamage: !oracleText.toLowerCase().includes('combat damage'),
+      anyDamage: !lowerOracle.includes('combat damage'),
     });
   }
   

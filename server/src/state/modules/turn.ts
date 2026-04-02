@@ -52,6 +52,93 @@ function ts() {
   return new Date().toISOString();
 }
 
+const TEMPORARY_RETAINED_MANA_COLORS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
+
+type TemporaryRetainedManaDuration = 'untilEndCombat' | 'untilEndTurn';
+
+function getTemporaryRetainedManaBuckets(state: any, playerId: string): {
+  untilEndCombat?: Record<string, number>;
+  untilEndTurn?: Record<string, number>;
+} {
+  state.temporaryRetainedMana = state.temporaryRetainedMana || {};
+  state.temporaryRetainedMana[playerId] = state.temporaryRetainedMana[playerId] || {
+    untilEndCombat: {},
+    untilEndTurn: {},
+  };
+  return state.temporaryRetainedMana[playerId];
+}
+
+function getTemporaryRetainedManaForPlayer(state: any, playerId: string): Record<string, number> {
+  const buckets = state?.temporaryRetainedMana?.[playerId];
+  const totals: Record<string, number> = {
+    white: 0,
+    blue: 0,
+    black: 0,
+    red: 0,
+    green: 0,
+    colorless: 0,
+  };
+
+  if (!buckets) return totals;
+
+  for (const duration of ['untilEndCombat', 'untilEndTurn'] as const) {
+    const bucket = buckets[duration] || {};
+    for (const color of TEMPORARY_RETAINED_MANA_COLORS) {
+      totals[color] += Math.max(0, Number(bucket[color] || 0));
+    }
+  }
+
+  return totals;
+}
+
+function syncTemporaryRetainedManaToPool(state: any, playerId: string): void {
+  const buckets = state?.temporaryRetainedMana?.[playerId];
+  if (!buckets) return;
+
+  const pool = state?.manaPool?.[playerId] || {};
+
+  for (const color of TEMPORARY_RETAINED_MANA_COLORS) {
+    let remaining = Math.max(0, Number(pool[color] || 0));
+
+    const untilEndTurnAmount = Math.min(remaining, Math.max(0, Number(buckets.untilEndTurn?.[color] || 0)));
+    if (untilEndTurnAmount > 0) (buckets.untilEndTurn || (buckets.untilEndTurn = {}))[color] = untilEndTurnAmount;
+    else if (buckets.untilEndTurn) delete buckets.untilEndTurn[color];
+    remaining -= untilEndTurnAmount;
+
+    const untilEndCombatAmount = Math.min(remaining, Math.max(0, Number(buckets.untilEndCombat?.[color] || 0)));
+    if (untilEndCombatAmount > 0) (buckets.untilEndCombat || (buckets.untilEndCombat = {}))[color] = untilEndCombatAmount;
+    else if (buckets.untilEndCombat) delete buckets.untilEndCombat[color];
+  }
+
+  if (buckets.untilEndCombat && Object.keys(buckets.untilEndCombat).length === 0) delete buckets.untilEndCombat;
+  if (buckets.untilEndTurn && Object.keys(buckets.untilEndTurn).length === 0) delete buckets.untilEndTurn;
+
+  if (!buckets.untilEndCombat && !buckets.untilEndTurn) {
+    delete state.temporaryRetainedMana[playerId];
+  }
+  if (state.temporaryRetainedMana && Object.keys(state.temporaryRetainedMana).length === 0) {
+    delete state.temporaryRetainedMana;
+  }
+}
+
+function clearTemporaryRetainedManaDuration(state: any, duration: TemporaryRetainedManaDuration): void {
+  const allBuckets = state?.temporaryRetainedMana;
+  if (!allBuckets || typeof allBuckets !== 'object') return;
+
+  for (const playerId of Object.keys(allBuckets)) {
+    const buckets = allBuckets[playerId];
+    if (!buckets || typeof buckets !== 'object') continue;
+    delete buckets[duration];
+    if (!buckets.untilEndCombat && !buckets.untilEndTurn) {
+      delete allBuckets[playerId];
+    }
+  }
+
+  if (Object.keys(allBuckets).length === 0) {
+    delete state.temporaryRetainedMana;
+  }
+}
+
 function applyLifeGainViaProcessLifeChange(
   ctx: GameContext,
   playerId: PlayerID,
@@ -2539,6 +2626,9 @@ export function nextTurn(ctx: GameContext) {
     }
     
     const current = (ctx as any).state.turnPlayer;
+
+    clearTemporaryRetainedManaDuration((ctx as any).state, 'untilEndTurn');
+    clearManaPool(ctx);
     
     // Increment turn number
     (ctx as any).state.turnNumber = ((ctx as any).state.turnNumber || 0) + 1;
@@ -3501,26 +3591,26 @@ export function nextTurn(ctx: GameContext) {
 function clearManaPool(ctx: GameContext) {
   try {
     if (!(ctx as any).state) return;
-    
+
     const players = Array.isArray((ctx as any).state.players)
       ? (ctx as any).state.players.map((p: any) => p.id)
       : [];
-    
+
     if (!players.length) return;
-    
+
     (ctx as any).state.manaPool = (ctx as any).state.manaPool || {};
-    
+
     // Detect mana retention effects inline (to avoid circular dependencies)
     const detectManaRetentionEffectsLocal = (gameState: any, playerId: string) => {
       const effects: { permanentId: string; cardName: string; type: string; colors?: string[]; color?: string }[] = [];
       const battlefield = gameState?.battlefield || [];
-      
+
       for (const permanent of battlefield) {
         if (!permanent || permanent.controller !== playerId) continue;
-        
+
         const cardName = (permanent.card?.name || "").toLowerCase();
         const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
-        
+
         // Omnath, Locus of Mana - Green mana doesn't empty
         if (cardName.includes("omnath, locus of mana") || 
             (oracleText.includes("green mana") && oracleText.includes("doesn't empty"))) {
@@ -3581,22 +3671,24 @@ function clearManaPool(ctx: GameContext) {
           });
         }
       }
-      
+
       return effects;
     };
-    
+
     for (const pid of players) {
       const currentPool = (ctx as any).state.manaPool[pid] || {};
-      
+      const temporaryRetained = getTemporaryRetainedManaForPlayer((ctx as any).state, pid);
+      const hasTemporaryRetention = TEMPORARY_RETAINED_MANA_COLORS.some((color) => (temporaryRetained[color] || 0) > 0);
+
       // Detect mana retention effects from battlefield permanents
       const retentionEffects = detectManaRetentionEffectsLocal((ctx as any).state, pid);
-      
+
       // Collect colors that should be retained
       const colorsToRetain = new Set<string>();
       let convertToColorless = false;
       let convertToColor: string | null = null;
       let retainAllMana = false;
-      
+
       for (const effect of retentionEffects) {
         if (effect.type === 'all_doesnt_empty') {
           retainAllMana = true;
@@ -3611,7 +3703,7 @@ function clearManaPool(ctx: GameContext) {
           convertToColor = effect.color;
         }
       }
-      
+
       // Also check legacy doesNotEmpty flag on the pool itself
       if (currentPool.doesNotEmpty) {
         const targetColor = currentPool.convertsTo || (currentPool.convertsToColorless ? 'colorless' : null);
@@ -3625,138 +3717,85 @@ function clearManaPool(ctx: GameContext) {
           retainAllMana = true;
         }
       }
-      
+
       if (retainAllMana) {
         // Mana doesn't empty at all (e.g., Upwelling, or legacy doesNotEmpty without convertsTo)
+        syncTemporaryRetainedManaToPool((ctx as any).state, pid);
         debug(2, `${ts()} [clearManaPool] Player ${pid}: Mana pool preserved (all mana doesn't empty)`);
         continue;
       }
-      
-      // Handle "mana becomes [color] instead" (Ozai -> red)
+
+      const newPool: any = {
+        white: 0,
+        blue: 0,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 0,
+      };
+      let totalConvertedToColor = 0;
+      let totalConvertedToColorless = 0;
+
+      for (const color of TEMPORARY_RETAINED_MANA_COLORS) {
+        const currentAmount = Math.max(0, Number((currentPool as any)[color] || 0));
+        if (currentAmount <= 0) continue;
+
+        const temporarilyRetainedAmount = Math.min(currentAmount, Math.max(0, Number(temporaryRetained[color] || 0)));
+        const remainingAmount = Math.max(0, currentAmount - temporarilyRetainedAmount);
+
+        newPool[color] += temporarilyRetainedAmount;
+
+        if (convertToColor && convertToColor !== 'colorless') {
+          if (color === convertToColor || colorsToRetain.has(color)) newPool[color] += remainingAmount;
+          else totalConvertedToColor += remainingAmount;
+        } else if (convertToColorless) {
+          if (color === 'colorless' || colorsToRetain.has(color)) newPool[color] += remainingAmount;
+          else totalConvertedToColorless += remainingAmount;
+        } else if (colorsToRetain.has(color)) {
+          newPool[color] += remainingAmount;
+        }
+      }
+
       if (convertToColor && convertToColor !== 'colorless') {
-        const allColors = ['white', 'blue', 'black', 'red', 'green', 'colorless'];
-        let totalConverted = 0;
-        
-        // Sum up all mana that will be converted (excluding the target color and any retained colors)
-        for (const color of allColors) {
-          if (color !== convertToColor && !colorsToRetain.has(color)) {
-            totalConverted += (currentPool[color] || 0);
-          }
-        }
-        
-        const newPool: any = {
-          white: 0,
-          blue: 0,
-          black: 0,
-          red: 0,
-          green: 0,
-          colorless: 0,
-          doesNotEmpty: currentPool.doesNotEmpty,
-          convertsTo: currentPool.convertsTo,
-          noEmptySourceIds: currentPool.noEmptySourceIds,
-        };
-        
-        // Add all converted mana to the target color
-        newPool[convertToColor] = (currentPool[convertToColor] || 0) + totalConverted;
-        
-        // Keep any colors that should be retained separately
-        for (const color of colorsToRetain) {
-          if (color !== convertToColor) {
-            newPool[color] = currentPool[color] || 0;
-          }
-        }
-        
-        // Keep restricted mana (but convert color)
-        if (currentPool.restricted) {
+        newPool[convertToColor] = (newPool[convertToColor] || 0) + totalConvertedToColor;
+      }
+      if (convertToColorless) {
+        newPool.colorless = (newPool.colorless || 0) + totalConvertedToColorless;
+      }
+
+      if (currentPool.restricted) {
+        if (convertToColor && convertToColor !== 'colorless') {
           newPool.restricted = currentPool.restricted.map((entry: any) => ({
             ...entry,
             type: colorsToRetain.has(entry.type) ? entry.type : convertToColor,
           }));
-        }
-        
-        (ctx as any).state.manaPool[pid] = newPool;
-        debug(1, `${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to ${convertToColor}, retained: ${Array.from(colorsToRetain).join(', ') || 'none'}`);
-        continue;
-      }
-      
-      if (convertToColorless) {
-        // Convert all mana to colorless instead of emptying (Kruphix, Horizon Stone)
-        const allColors = ['white', 'blue', 'black', 'red', 'green'];
-        let totalConverted = 0;
-        
-        // Sum up all colored mana (except colorless)
-        for (const color of allColors) {
-          if (!colorsToRetain.has(color)) {
-            totalConverted += (currentPool[color] || 0);
-          }
-        }
-        
-        const newPool: any = {
-          white: 0,
-          blue: 0,
-          black: 0,
-          red: 0,
-          green: 0,
-          colorless: (currentPool.colorless || 0) + totalConverted,
-          doesNotEmpty: currentPool.doesNotEmpty,
-          convertsTo: currentPool.convertsTo,
-          convertsToColorless: currentPool.convertsToColorless,
-          noEmptySourceIds: currentPool.noEmptySourceIds,
-        };
-        
-        // Keep any colors that should be retained (e.g., if both Kruphix and Omnath are out)
-        for (const color of colorsToRetain) {
-          newPool[color] = currentPool[color] || 0;
-        }
-        
-        // Keep restricted mana (but convert color)
-        if (currentPool.restricted) {
+        } else if (convertToColorless) {
           newPool.restricted = currentPool.restricted.map((entry: any) => ({
             ...entry,
             type: colorsToRetain.has(entry.type) ? entry.type : 'colorless',
           }));
-        }
-        
-        (ctx as any).state.manaPool[pid] = newPool;
-        debug(1, `${ts()} [clearManaPool] Player ${pid}: Converted ${totalConverted} mana to colorless, retained: ${Array.from(colorsToRetain).join(', ') || 'none'}`);
-        
-      } else if (colorsToRetain.size > 0) {
-        // Some colors are retained (e.g., Omnath for green, Leyline Tyrant for red)
-        const newPool: any = {
-          white: colorsToRetain.has('white') ? (currentPool.white || 0) : 0,
-          blue: colorsToRetain.has('blue') ? (currentPool.blue || 0) : 0,
-          black: colorsToRetain.has('black') ? (currentPool.black || 0) : 0,
-          red: colorsToRetain.has('red') ? (currentPool.red || 0) : 0,
-          green: colorsToRetain.has('green') ? (currentPool.green || 0) : 0,
-          colorless: colorsToRetain.has('colorless') ? (currentPool.colorless || 0) : 0,
-        };
-        
-        // Keep restricted mana of retained colors
-        if (currentPool.restricted) {
-          newPool.restricted = currentPool.restricted.filter((entry: any) => 
-            colorsToRetain.has(entry.type)
-          );
+        } else if (colorsToRetain.size > 0) {
+          newPool.restricted = currentPool.restricted.filter((entry: any) => colorsToRetain.has(entry.type));
           if (newPool.restricted.length === 0) delete newPool.restricted;
         }
-        
-        (ctx as any).state.manaPool[pid] = newPool;
-        
-        const retainedInfo = Array.from(colorsToRetain).map(c => `${c}: ${newPool[c] || 0}`).join(', ');
-        debug(2, `${ts()} [clearManaPool] Player ${pid}: Retained mana for colors: ${retainedInfo}`);
-        
-      } else {
-        // Normal case: empty the pool completely
-        (ctx as any).state.manaPool[pid] = {
-          white: 0,
-          blue: 0,
-          black: 0,
-          red: 0,
-          green: 0,
-          colorless: 0,
-        };
+      }
+
+      (ctx as any).state.manaPool[pid] = newPool;
+      syncTemporaryRetainedManaToPool((ctx as any).state, pid);
+
+      if (convertToColor && convertToColor !== 'colorless') {
+        debug(1, `${ts()} [clearManaPool] Player ${pid}: Converted ${totalConvertedToColor} mana to ${convertToColor}, retained colors: ${Array.from(colorsToRetain).join(', ') || 'none'}, temporary retention: ${hasTemporaryRetention}`);
+      } else if (convertToColorless) {
+        debug(1, `${ts()} [clearManaPool] Player ${pid}: Converted ${totalConvertedToColorless} mana to colorless, retained colors: ${Array.from(colorsToRetain).join(', ') || 'none'}, temporary retention: ${hasTemporaryRetention}`);
+      } else if (colorsToRetain.size > 0 || hasTemporaryRetention) {
+        const retainedInfo = TEMPORARY_RETAINED_MANA_COLORS
+          .map((color) => `${color}: ${newPool[color] || 0}`)
+          .filter((entry) => !entry.endsWith(': 0'))
+          .join(', ');
+        debug(2, `${ts()} [clearManaPool] Player ${pid}: Retained mana ${retainedInfo || 'none'}`);
       }
     }
-    
+
     debug(2, `${ts()} [clearManaPool] Processed mana pools for all players`);
   } catch (err) {
     debugWarn(1, `${ts()} clearManaPool failed:`, err);
@@ -4194,6 +4233,9 @@ export function nextStep(ctx: GameContext) {
     // Clear mana pool when phase changes (Rule 106.4)
     // Mana empties from mana pools at the end of each step and phase
     if (nextPhase !== currentPhase) {
+      if (currentPhase === 'combat' && nextPhase !== 'combat') {
+        clearTemporaryRetainedManaDuration((ctx as any).state, 'untilEndCombat');
+      }
       clearManaPool(ctx);
     }
 

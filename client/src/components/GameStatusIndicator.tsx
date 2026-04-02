@@ -131,6 +131,8 @@ export function GameStatusIndicator({
     { scope: 'turn', label: 'Current Turn', count: Number(smartUndoCounts?.turnCount || 0) },
   ];
   const hasAnyUndoOption = undoOptions.some((option) => option.count > 0);
+  const canOpenUndoMenu = Boolean(isYouPlayer && availableUndoCount > 0);
+  const undoOptionsLoading = canOpenUndoMenu && !hasAnyUndoOption;
   
   const phaseInfo = phaseConfig[phase || ''] || phaseConfig[phaseKey] || { label: phase || '-', color: '#6b7280', icon: '🎮' };
   const stepInfo = stepConfig[step || ''] || stepConfig[stepKey] || { label: step || '', subColor: '#9ca3af' };
@@ -681,11 +683,11 @@ export function GameStatusIndicator({
             <div ref={undoMenuRef} style={{ position: 'relative' }}>
               <button
                 onClick={() => {
-                  if (!isYouPlayer || !hasAnyUndoOption) return;
+                  if (!canOpenUndoMenu) return;
                   if (!showUndoMenu) onOpenUndoMenu?.();
                   setShowUndoMenu(!showUndoMenu);
                 }}
-                disabled={!isYouPlayer || !hasAnyUndoOption}
+                disabled={!canOpenUndoMenu}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -695,9 +697,9 @@ export function GameStatusIndicator({
                   border: 'none',
                   borderRadius: 4,
                   padding: '4px 8px',
-                  cursor: isYouPlayer && hasAnyUndoOption ? 'pointer' : 'not-allowed',
+                  cursor: canOpenUndoMenu ? 'pointer' : 'not-allowed',
                   fontSize: 11,
-                  opacity: isYouPlayer && hasAnyUndoOption ? 1 : 0.6,
+                  opacity: canOpenUndoMenu ? 1 : 0.6,
                 }}
                 title={`Undo (${availableUndoCount} available)`}
               >
@@ -733,6 +735,20 @@ export function GameStatusIndicator({
                   }}>
                     ⏪ Undo Scope
                   </div>
+                  {undoOptionsLoading && (
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        fontSize: 11,
+                        color: '#9ca3af',
+                        background: 'rgba(75, 85, 99, 0.18)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: 4,
+                      }}
+                    >
+                      Loading undo options...
+                    </div>
+                  )}
                   {undoOptions.map((option) => {
                     const enabled = option.count > 0;
                     return (

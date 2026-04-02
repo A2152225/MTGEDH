@@ -2253,6 +2253,15 @@ export function App() {
     socket.emit("getUndoCount", { gameId: safeView.id });
   }, [safeView?.id, safeView?.turn, safeView?.step, safeView?.priority]);
 
+  React.useEffect(() => {
+    if (!safeView?.id) return;
+    if (availableUndoCount <= 0) return;
+    if ((smartUndoCounts.stepCount || 0) > 0 || (smartUndoCounts.phaseCount || 0) > 0 || (smartUndoCounts.turnCount || 0) > 0) {
+      return;
+    }
+    socket.emit("getSmartUndoCounts", { gameId: safeView.id });
+  }, [availableUndoCount, safeView?.id, smartUndoCounts.phaseCount, smartUndoCounts.stepCount, smartUndoCounts.turnCount]);
+
   const handleOpenUndoMenu = React.useCallback(() => {
     if (!safeView?.id) return;
     socket.emit("getSmartUndoCounts", { gameId: safeView.id });

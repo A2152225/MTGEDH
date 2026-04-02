@@ -7469,23 +7469,86 @@ export function executeTriggerEffect(
   }
   
   // Pattern: add mana (Cryptolith Rite, etc.)
+  const colorKeyBySymbol: Record<string, 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless'> = {
+    w: 'white',
+    u: 'blue',
+    b: 'black',
+    r: 'red',
+    g: 'green',
+    c: 'colorless',
+  };
+  const detectTemporaryManaRetentionDuration = (text: string): 'untilEndCombat' | 'untilEndTurn' | null => {
+    const normalized = String(text || '').toLowerCase().replace(/[’]/g, "'");
+    const hasRetentionClause = normalized.includes("don't lose this mana as steps and phases end")
+      || normalized.includes("doesn't empty from your mana pool")
+      || normalized.includes('this mana lasts until end of combat')
+      || normalized.includes('this mana lasts until end of turn');
+    if (!hasRetentionClause) return null;
+    if (normalized.includes('until end of combat')) return 'untilEndCombat';
+    if (normalized.includes('until end of turn')) return 'untilEndTurn';
+    return null;
+  };
+  const trackTemporaryRetainedMana = (
+    playerId: string,
+    colorKey: 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless',
+    amount: number,
+    duration: 'untilEndCombat' | 'untilEndTurn' | null,
+  ) => {
+    if (!duration || amount <= 0) return;
+    state.temporaryRetainedMana = state.temporaryRetainedMana || {};
+    state.temporaryRetainedMana[playerId] = state.temporaryRetainedMana[playerId] || {};
+    state.temporaryRetainedMana[playerId][duration] = state.temporaryRetainedMana[playerId][duration] || {};
+    state.temporaryRetainedMana[playerId][duration][colorKey] =
+      (state.temporaryRetainedMana[playerId][duration][colorKey] || 0) + amount;
+  };
+  const addParsedManaToPool = (
+    playerId: string,
+    manaString: string,
+    duration: 'untilEndCombat' | 'untilEndTurn' | null,
+  ) => {
+    const pool = getOrInitManaPool(state as any, playerId as PlayerID);
+    const manaRegex = /\{([WUBRGC])\}/gi;
+    let manaMatch;
+    while ((manaMatch = manaRegex.exec(manaString)) !== null) {
+      const colorKey = colorKeyBySymbol[String(manaMatch[1] || '').toLowerCase()];
+      if (!colorKey) continue;
+      (pool as any)[colorKey] = (((pool as any)[colorKey] as number | undefined) || 0) + 1;
+      trackTemporaryRetainedMana(playerId, colorKey, 1, duration);
+    }
+  };
+  const temporaryManaRetentionDuration = detectTemporaryManaRetentionDuration(desc);
+
+  const dynamicPowerManaMatch = desc.match(/add an amount of \{([wubrgc])\} equal to (?:its|this creature's|equipped creature's) power/i);
+  if (dynamicPowerManaMatch) {
+    const effectData = (triggerItem as any)?.effectData;
+    const referencedPermanentId = String(
+      effectData?.attachedToId ||
+      (triggerItem as any)?.attachedToId ||
+      (triggerItem as any)?.source ||
+      (triggerItem as any)?.permanentId ||
+      ''
+    ).trim();
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const referencedPermanent = battlefield.find((perm: any) => String(perm?.id || '') === referencedPermanentId);
+    const manaAmount = referencedPermanent ? Math.max(0, getEffectivePower(referencedPermanent)) : 0;
+    const colorKey = colorKeyBySymbol[String(dynamicPowerManaMatch[1] || '').toLowerCase()];
+
+    if (colorKey && manaAmount > 0) {
+      const pool = getOrInitManaPool(state as any, controller);
+      (pool as any)[colorKey] = (((pool as any)[colorKey] as number | undefined) || 0) + manaAmount;
+      trackTemporaryRetainedMana(controller, colorKey, manaAmount, temporaryManaRetentionDuration);
+      debug(2, `[executeTriggerEffect] ${sourceName}: ${controller} adds ${manaAmount} ${colorKey} mana based on ${referencedPermanent?.card?.name || referencedPermanentId}'s power`);
+    } else {
+      debug(2, `[executeTriggerEffect] ${sourceName}: dynamic mana trigger resolved for ${controller} with amount ${manaAmount}`);
+    }
+    return;
+  }
+
   const addManaMatch = desc.match(/add (\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (addManaMatch) {
     const manaString = addManaMatch[1];
     debug(2, `[executeTriggerEffect] ${controller} adds ${manaString} to mana pool`);
-    
-    // Parse mana and add to pool
-    state.manaPool = state.manaPool || {};
-    state.manaPool[controller] = state.manaPool[controller] || { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
-    
-    const manaRegex = /\{([WUBRGC])\}/gi;
-    let match;
-    while ((match = manaRegex.exec(manaString)) !== null) {
-      const color = match[1].toUpperCase();
-      if (state.manaPool[controller][color] !== undefined) {
-        state.manaPool[controller][color]++;
-      }
-    }
+    addParsedManaToPool(controller, manaString, temporaryManaRetentionDuration);
     return;
   }
   
@@ -7527,18 +7590,7 @@ export function executeTriggerEffect(
     const manaString = thatPlayerAddsManaMatch[1];
     const targetPlayer = triggerItem?.triggeringPlayer || controller;
     debug(2, `[executeTriggerEffect] ${targetPlayer} adds ${manaString} to mana pool`);
-    
-    state.manaPool = state.manaPool || {};
-    state.manaPool[targetPlayer] = state.manaPool[targetPlayer] || { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
-    
-    const manaRegex2 = /\{([WUBRGC])\}/gi;
-    let manaMatch;
-    while ((manaMatch = manaRegex2.exec(manaString)) !== null) {
-      const color = manaMatch[1].toUpperCase();
-      if (state.manaPool[targetPlayer][color] !== undefined) {
-        state.manaPool[targetPlayer][color]++;
-      }
-    }
+    addParsedManaToPool(targetPlayer, manaString, temporaryManaRetentionDuration);
     return;
   }
 

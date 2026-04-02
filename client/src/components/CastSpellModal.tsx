@@ -564,6 +564,39 @@ export function CastSpellModal({
     return alternateCosts.find(c => c.id === selectedCostId) || alternateCosts[0];
   }, [alternateCosts, selectedCostId]);
 
+  const floatingPaymentSources = useMemo(() => {
+    if (!manualFloatingManaSelection || !floatingMana) return [] as Array<{ id: string; name: string; options: Color[]; amount?: number }>;
+
+    const entries: Array<{ id: string; name: string; options: Color[]; amount?: number }> = [];
+    const poolEntries: Array<[keyof ManaPool, Color]> = [
+      ['white', 'W'],
+      ['blue', 'U'],
+      ['black', 'B'],
+      ['red', 'R'],
+      ['green', 'G'],
+      ['colorless', 'C'],
+    ];
+
+    for (const [poolKey, symbol] of poolEntries) {
+      const amount = Number(floatingMana[poolKey] || 0);
+      for (let index = 0; index < amount; index++) {
+        entries.push({
+          id: `__pool__:${String(poolKey)}:${index}`,
+          name: `Floating {${symbol}}`,
+          options: [symbol],
+          amount: 1,
+        });
+      }
+    }
+
+    return entries;
+  }, [floatingMana, manualFloatingManaSelection]);
+
+  const effectiveSuggestedSources = useMemo(
+    () => (manualFloatingManaSelection ? [...floatingPaymentSources, ...availableSources] : availableSources),
+    [availableSources, floatingPaymentSources, manualFloatingManaSelection]
+  );
+
   // Calculate suggested payment for auto-fill (considers floating mana)
   // IMPORTANT: Use the reduced cost (effectiveManaCost) when calculating suggestions
   const suggestedPayment = useMemo(() => {
@@ -574,8 +607,13 @@ export function CastSpellModal({
     const xMultiplier = parsed.xCount || 1;
     const cost = { colors: parsed.colors, generic: parsed.generic + Math.max(0, xValue * xMultiplier), hybrids: parsed.hybrids };
     const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);
-    return calculateSuggestedPayment(cost, availableSources, colorsToPreserve, floatingMana);
-  }, [currentCost, effectiveManaCost, manaCost, xValue, availableSources, otherCardsInHand, floatingMana]);
+    return calculateSuggestedPayment(
+      cost,
+      effectiveSuggestedSources,
+      colorsToPreserve,
+      manualFloatingManaSelection ? undefined : floatingMana
+    );
+  }, [currentCost, effectiveManaCost, manaCost, xValue, effectiveSuggestedSources, otherCardsInHand, floatingMana, manualFloatingManaSelection]);
 
   // Calculate how much floating mana will be used
   const floatingManaUsage = useMemo(() => {
@@ -613,21 +651,30 @@ export function CastSpellModal({
   // - Sol Ring ['C','C'] = 2 mana (duplicates = multi-mana)
   // - Command Tower ['W','U','B','R','G'] = 1 mana (all unique = choice)
   const getManaCountForSource = (permanentId: string): number => {
-    const source = availableSources.find(s => s.id === permanentId);
+    const source = effectiveSuggestedSources.find(s => s.id === permanentId);
     if (!source) return 1;
     if (source.amount && source.amount > 0) return source.amount;
     return getTotalManaProduction(source.options);
   };
 
+  const suggestedPaymentItems = useMemo(() => {
+    return Array.from(suggestedPayment.entries()).map(([permanentId, mana]) => ({
+      permanentId,
+      mana,
+      count: getManaCountForSource(permanentId),
+    }));
+  }, [suggestedPayment]);
+
+  useEffect(() => {
+    if (!open) return;
+    setPayment(suggestedPaymentItems);
+  }, [open, suggestedPaymentItems, selectedCostId, xValue]);
+
   const handleConfirm = () => {
     // If no payment was manually selected, use the suggested payment
     let finalPayment = payment;
-    if (!manualFloatingManaSelection && payment.length === 0 && suggestedPayment.size > 0) {
-      finalPayment = Array.from(suggestedPayment.entries()).map(([permanentId, mana]) => ({
-        permanentId,
-        mana,
-        count: getManaCountForSource(permanentId),
-      }));
+    if (payment.length === 0 && suggestedPaymentItems.length > 0) {
+      finalPayment = suggestedPaymentItems;
     }
 
     if (explicitPaymentSelectionRequired && finalPayment.length === 0) {
@@ -879,15 +926,15 @@ export function CastSpellModal({
           <button onClick={handleCancel}>Cancel</button>
           <button
             onClick={handleConfirm}
-            disabled={explicitPaymentSelectionRequired && payment.length === 0}
+            disabled={explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0}
             style={{
-              background: explicitPaymentSelectionRequired && payment.length === 0 ? '#4b5563' : '#2b6cb0',
+              background: explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0 ? '#4b5563' : '#2b6cb0',
               color: '#fff',
               border: 'none',
               padding: '6px 16px',
               borderRadius: 6,
-              cursor: explicitPaymentSelectionRequired && payment.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: explicitPaymentSelectionRequired && payment.length === 0 ? 0.7 : 1,
+              cursor: explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: explicitPaymentSelectionRequired && payment.length === 0 && suggestedPaymentItems.length === 0 ? 0.7 : 1,
             }}
           >
             {confirmLabel || (selectedCostId !== 'normal' ? `Cast with ${currentCost?.label}` : 'Cast Spell')}

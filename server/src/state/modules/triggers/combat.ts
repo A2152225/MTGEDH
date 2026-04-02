@@ -217,6 +217,7 @@ export interface AttachmentAttackTrigger {
   cardName: string;
   controllerId: string;
   attachedToId: string;
+  triggerType?: 'attack' | 'combat_damage' | 'damage_to_player';
   effect: string;
   mandatory: boolean;
   searchesLibrary?: boolean;
@@ -481,12 +482,13 @@ export function detectAttackTriggers(card: any, permanent: any): CombatTriggered
     });
   }
   
-  // Generic "whenever ~ attacks" - match ~, this creature, or the actual card name
+  // Generic "whenever ~ attacks" - match ~, this creature, Tanuki-style
+  // "this creature or equipped creature", or the actual card name
   // Use consistent regex escaping approach
   const cardNamePatternEscaped = escapeCardNameForRegex(cardName);
   // Capture the full ability line (including periods) so patterns like
   // "you may pay {1}{G}. If you do, ..." can be recognized.
-  const attacksPattern = new RegExp(`whenever\\s+(?:~|this creature|${cardNamePatternEscaped})\\s+attacks,?\\s*([^\\n]+)`, 'i');
+  const attacksPattern = new RegExp(`whenever\\s+(?:~|this creature(?:\\s+or\\s+equipped creature)?|${cardNamePatternEscaped})\\s+attacks,?\\s*([^\\n]+)`, 'i');
   const attacksMatch = oracleText.match(attacksPattern);
   if (attacksMatch && !triggers.some(t => t.triggerType === 'attacks')) {
     const effectText = attacksMatch[1].trim();
@@ -780,16 +782,35 @@ export function getAttackTriggersForCreatures(
  */
 export function detectAttachmentAttackTriggers(card: any, permanent: any): AttachmentAttackTrigger[] {
   const triggers: AttachmentAttackTrigger[] = [];
-  const oracleText = (card?.oracle_text || "").toLowerCase();
+  const oracleText = card?.oracle_text || "";
+  const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
   const attachedToId = permanent?.attachedTo || "";
   
   if (!attachedToId) return triggers;
+
+  const equipAttackMatch = oracleText.match(/whenever (?:this creature or )?equipped creature attacks,?\s*([^\n]+)/i);
+  if (equipAttackMatch) {
+    const effectText = equipAttackMatch[1].trim();
+    const lowerEffect = effectText.toLowerCase();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      attachedToId,
+      triggerType: 'attack',
+      effect: effectText,
+      mandatory: !lowerEffect.includes('you may'),
+      searchesLibrary: lowerEffect.includes('search') && lowerEffect.includes('library'),
+      searchType: lowerEffect.includes('basic land') ? 'basic land' : lowerEffect.includes('land') ? 'land' : undefined,
+      createsToken: /\bcreate\b.*\btoken\b/i.test(effectText),
+    });
+  }
   
   // Sword of X and Y style - "Whenever equipped creature deals combat damage to a player"
-  if (oracleText.includes('whenever equipped creature deals combat damage to a player')) {
+  if (lowerOracle.includes('whenever equipped creature deals combat damage to a player')) {
     const effectMatch = oracleText.match(/whenever equipped creature deals combat damage to a player,?\s*([^.]+)/i);
     if (effectMatch) {
       triggers.push({
@@ -799,14 +820,14 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
         attachedToId,
         effect: effectMatch[1].trim(),
         mandatory: true,
-        searchesLibrary: oracleText.includes('search'),
-        searchType: oracleText.includes('basic land') ? 'basic land' : undefined,
+        searchesLibrary: lowerOracle.includes('search'),
+        searchType: lowerOracle.includes('basic land') ? 'basic land' : undefined,
       });
     }
   }
   
   // "Whenever enchanted creature attacks"
-  if (oracleText.includes('whenever enchanted creature attacks')) {
+  if (lowerOracle.includes('whenever enchanted creature attacks')) {
     const effectMatch = oracleText.match(/whenever enchanted creature attacks,?\s*([^.]+)/i);
     if (effectMatch) {
       triggers.push({
