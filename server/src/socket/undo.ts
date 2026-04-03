@@ -7,6 +7,8 @@ import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
 import GameManager from "../GameManager.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { createInitialGameState } from "../state/gameState.js";
+import { createContext } from "../state/context.js";
+import { replay as replayOnContext } from "../state/modules/applyEvent.js";
 import { clearScheduledAIActionsForGame } from "./ai.js";
 
 /**
@@ -36,6 +38,8 @@ const UNDO_TIMEOUT_MS = 60000;
 
 type PersistedEvent = { type: string; payload?: any };
 
+type BoundaryKind = 'step' | 'phase' | 'turn';
+
 function getPhaseBucket(stateAny: any): string {
   const phase = String(stateAny?.phase || '').toLowerCase();
   return phase === 'pre_game' || phase === 'pre-game' || phase === '' ? 'pre_game' : 'live';
@@ -46,7 +50,37 @@ function getTurnBoundaryKey(stateAny: any): string {
   if (Number.isFinite(rawTurn) && rawTurn > 0) {
     return `turn:${rawTurn}`;
   }
+  const rawTurnNumber = Number((stateAny as any)?.turnNumber);
+  if (Number.isFinite(rawTurnNumber) && rawTurnNumber > 0) {
+    return `turn:${rawTurnNumber}`;
+  }
   return `turn:${getPhaseBucket(stateAny)}`;
+}
+
+function getBoundaryKeys(stateAny: any, kind: BoundaryKind): string[] {
+  const phase = String(stateAny?.phase || '').toLowerCase();
+  const step = String(stateAny?.step || '').toUpperCase();
+  const prefixes: string[] = [];
+
+  const rawTurn = Number((stateAny as any)?.turn);
+  if (Number.isFinite(rawTurn) && rawTurn > 0) {
+    prefixes.push(`turn:${rawTurn}`);
+  }
+
+  const rawTurnNumber = Number((stateAny as any)?.turnNumber);
+  if (Number.isFinite(rawTurnNumber) && rawTurnNumber > 0) {
+    prefixes.push(`turn:${rawTurnNumber}`);
+  }
+
+  prefixes.push(`turn:${getPhaseBucket(stateAny)}`);
+
+  const uniquePrefixes = [...new Set(prefixes.filter(Boolean))];
+  if (kind === 'turn') return uniquePrefixes;
+
+  const phaseKeys = uniquePrefixes.map((prefix) => `${prefix}|phase:${phase}`);
+  if (kind === 'phase') return phaseKeys;
+
+  return phaseKeys.map((prefix) => `${prefix}|step:${step}`);
 }
 
 function getPhaseBoundaryKey(stateAny: any): string {
@@ -60,30 +94,37 @@ function getStepBoundaryKey(stateAny: any): string {
 function calculateBoundaryUndoCount(
   events: PersistedEvent[],
   game: any,
-  getBoundaryKey: (stateAny: any) => string,
+  boundaryKind: BoundaryKind,
 ): number {
   if (events.length === 0) return 0;
 
   const currentState = (game?.state || {}) as any;
-  const liveBoundaryKey = getBoundaryKey(currentState);
+  const liveBoundaryKeys = getBoundaryKeys(currentState, boundaryKind);
+  const liveBoundaryKey = liveBoundaryKeys[0];
   if (!liveBoundaryKey) return 0;
 
   const replayEvents = transformDbEventsForReplay(events as any);
-  const scratch = createInitialGameState(`undo_probe_${game?.gameId || 'game'}`);
+  const scratch = createContext(`undo_probe_${game?.gameId || 'game'}` as any);
   const boundaryEntryIndices = new Map<string, number>();
-  let previousBoundaryKey = getBoundaryKey((scratch as any).state || {});
-  boundaryEntryIndices.set(previousBoundaryKey, -1);
-
-  for (let index = 0; index < replayEvents.length; index++) {
-    scratch.applyEvent(replayEvents[index] as any);
-    const nextBoundaryKey = getBoundaryKey((scratch as any).state || {});
-    if (nextBoundaryKey !== previousBoundaryKey) {
-      boundaryEntryIndices.set(nextBoundaryKey, index);
-    }
-    previousBoundaryKey = nextBoundaryKey;
+  let previousBoundaryKeys = getBoundaryKeys((scratch as any).state || {}, boundaryKind);
+  let previousBoundaryKey = previousBoundaryKeys[0];
+  for (const boundaryKey of previousBoundaryKeys) {
+    boundaryEntryIndices.set(boundaryKey, -1);
   }
 
-  let targetBoundaryKey = liveBoundaryKey;
+  replayOnContext(scratch as any, replayEvents as any, (replayCtx, _event, index) => {
+    const nextBoundaryKeys = getBoundaryKeys((replayCtx as any).state || {}, boundaryKind);
+    const nextBoundaryKey = nextBoundaryKeys[0];
+    if (nextBoundaryKey !== previousBoundaryKey) {
+      for (const boundaryKey of nextBoundaryKeys) {
+        boundaryEntryIndices.set(boundaryKey, index);
+      }
+    }
+    previousBoundaryKey = nextBoundaryKey;
+    previousBoundaryKeys = nextBoundaryKeys;
+  });
+
+  let targetBoundaryKey = liveBoundaryKeys.find((boundaryKey) => boundaryEntryIndices.has(boundaryKey)) || liveBoundaryKey;
   let entryIndex = boundaryEntryIndices.get(targetBoundaryKey);
 
   if (entryIndex === undefined) {
@@ -101,9 +142,9 @@ function calculateSmartUndoCounts(game: any, events: PersistedEvent[]): { stepCo
   }
 
   return {
-    stepCount: calculateBoundaryUndoCount(events, game, getStepBoundaryKey),
-    phaseCount: calculateBoundaryUndoCount(events, game, getPhaseBoundaryKey),
-    turnCount: calculateBoundaryUndoCount(events, game, getTurnBoundaryKey),
+    stepCount: calculateBoundaryUndoCount(events, game, 'step'),
+    phaseCount: calculateBoundaryUndoCount(events, game, 'phase'),
+    turnCount: calculateBoundaryUndoCount(events, game, 'turn'),
   };
 }
 

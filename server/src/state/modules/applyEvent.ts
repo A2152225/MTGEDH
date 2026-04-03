@@ -7522,7 +7522,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
  * Also handles backward compatibility for old games that don't have explicit
  * shuffleLibrary/drawCards events after setCommander.
  */
-export function replay(ctx: GameContext, events: GameEvent[]) {
+export function replay(
+  ctx: GameContext,
+  events: GameEvent[],
+  afterEachEvent?: (ctx: GameContext, event: GameEvent, index: number) => void,
+) {
   if (!Array.isArray(events)) return;
   
   // Set replay mode flag to prevent side effects in functions like nextStep
@@ -7619,6 +7623,14 @@ export function replay(ctx: GameContext, events: GameEvent[]) {
               debugWarn(1, "[replay] Backward compat: opening draw failed for", pid, err);
             }
           }
+        }
+      }
+
+      if (typeof afterEachEvent === 'function') {
+        try {
+          afterEachEvent(ctx, e, i);
+        } catch {
+          // ignore probe callback failures
         }
       }
     }

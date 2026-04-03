@@ -220,6 +220,74 @@ describe('undo authorization (integration)', () => {
     expect(smartUpdate!.payload.turnCount).toBe(1);
   });
 
+  it('smart undo counts stay bounded when replayed nextStep coexists with a pending library search', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turn = 1;
+    (game.state as any).turnNumber = 1;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'BEGIN_COMBAT';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      [p2]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'atlas_1',
+        controller: p1,
+        owner: p1,
+        tapped: true,
+        counters: {},
+        card: {
+          id: 'atlas_card_1',
+          name: 'Atlas Relay',
+          type_line: 'Artifact',
+          oracle_text: '{T}: Add {G}.\n{2}, {T}: Search your library for a Forest card, put that card onto the battlefield tapped, then shuffle.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
+    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
+    appendEvent(wrapperGameId, 2, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
+    appendEvent(wrapperGameId, 3, 'activateTutorAbility', {
+      playerId: p1,
+      permanentId: 'atlas_1',
+      abilityId: 'atlas_1-ability-1',
+      cardName: 'Atlas Relay',
+      stackId: 'tutor_stack_1',
+    });
+    appendEvent(wrapperGameId, 4, 'nextStep', { reason: 'allPlayersPassed' });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(wrapperGameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerUndoHandlers(io as any, socket as any);
+
+    await handlers['getSmartUndoCounts']({ gameId: wrapperGameId });
+
+    const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
+    expect(smartUpdate).toBeTruthy();
+    expect(smartUpdate!.payload.totalCount).toBe(5);
+    expect(smartUpdate!.payload.stepCount).toBe(0);
+    expect(smartUpdate!.payload.phaseCount).toBe(0);
+    expect(smartUpdate!.payload.turnCount).toBe(2);
+  });
+
   it('requestUndoToTurn undoes only actions taken after the current turn began', async () => {
     const p1 = 'p1';
     const p2 = 'p2';

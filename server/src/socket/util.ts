@@ -26,7 +26,7 @@ import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRe
 import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
 import { calculateMaxLandsPerTurn } from "../state/modules/game-state-effects.js";
-import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { debug, debugWarn, debugError, debugEnv } from "../utils/debug.js";
 import { BOOT_ID } from "../utils/bootId.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { isSpellCastingProhibitedByChosenName } from "../state/modules/chosen-name-restrictions.js";
@@ -1189,9 +1189,18 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
     const enabled = process.env.DEBUG_STATE === "1";
     if (!enabled) return;
 
-    const playerIds = Array.isArray(view?.players)
-      ? view.players.map((p: any) => p?.id ?? p?.playerId)
-      : [];
+    const players = Array.isArray(view?.players) ? view.players : [];
+    const playerIds = players
+      .map((p: any) => p?.id ?? p?.playerId)
+      .filter(Boolean);
+    const playerLabels = players
+      .map((p: any) => {
+        const playerId = String(p?.id ?? p?.playerId ?? '').trim();
+        if (!playerId) return '';
+        const playerName = String(p?.name || '').trim();
+        return playerName ? `${playerName}:${playerId}` : playerId;
+      })
+      .filter(Boolean);
     const zoneKeys = view?.zones ? Object.keys(view.zones) : [];
 
     // Pick the first player (if any) and derive a compact summary
@@ -1203,12 +1212,23 @@ function logStateDebug(prefix: string, gameId: string, view: any) {
       lib.length > 1 ? lib[lib.length - 1] : lib.length === 1 ? lib[0] : null;
 
     debug(1,
-      `[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerIds.join(
+      `[STATE_DEBUG] ${prefix} gameId=${gameId} players=[${playerLabels.join(
         ","
       )}] zones=[${zoneKeys.join(
         ","
       )}] handCount=${z?.handCount ?? 0} libraryCount=${z?.libraryCount ?? 0}`
     );
+
+    debugEnv('DEBUG_REPLAY_RESTORE', `[replay-restore] ${prefix} gameId=${gameId}`, {
+      phase: String(view?.phase || ''),
+      step: String(view?.step || ''),
+      turn: Number(view?.turn ?? 0) || undefined,
+      turnNumber: Number(view?.turnNumber ?? 0) || undefined,
+      priority: String(view?.priority || ''),
+      turnPlayer: String(view?.turnPlayer || ''),
+      players: playerLabels,
+      zoneKeys,
+    });
 
     // Compact library sample instead of full JSON dump
     debug(2, `[STATE_DEBUG] ${prefix} librarySample gameId=${gameId}`, {
