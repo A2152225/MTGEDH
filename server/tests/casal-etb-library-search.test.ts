@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { initDb } from '../src/db/index.js';
 import { finalizePlayedLand } from '../src/socket/game-actions.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 
@@ -18,6 +19,10 @@ function createNoopIo() {
 
 describe('generic ETB battlefield tutor search', () => {
   const gameId = 'casal_etb_library_search';
+
+  beforeAll(async () => {
+    await initDb();
+  });
 
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(gameId);
@@ -88,5 +93,162 @@ describe('generic ETB battlefield tutor search', () => {
     expect(Array.isArray(searchStep.availableCards)).toBe(true);
     expect(searchStep.availableCards).toHaveLength(1);
     expect(searchStep.availableCards[0]?.id).toBe('forest_dual');
+  });
+
+  it('reads the front face ETB text for transform cards when top-level oracle text is absent', () => {
+    const playerId = 'p1';
+    const casalCard = {
+      id: 'casal_card',
+      name: 'Casal, Lurkwood Pathfinder // Casal, Pathbreaker Owlbear',
+      type_line: 'Legendary Creature — Tiefling Druid // Legendary Creature — Bird Bear',
+      layout: 'transform',
+      card_faces: [
+        {
+          name: 'Casal, Lurkwood Pathfinder',
+          type_line: 'Legendary Creature — Tiefling Druid',
+          oracle_text: 'Vigilance\nWhen Casal enters, search your library for a Forest card, put it onto the battlefield tapped, then shuffle.',
+        },
+        {
+          name: 'Casal, Pathbreaker Owlbear',
+          type_line: 'Legendary Creature — Bird Bear',
+          oracle_text: 'Vigilance, trample',
+        },
+      ],
+    };
+
+    const game: any = {
+      state: {
+        zones: {
+          [playerId]: {
+            hand: [],
+            handCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            library: [],
+            libraryCount: 0,
+          },
+        },
+        battlefield: [
+          {
+            id: 'casal_perm',
+            controller: playerId,
+            owner: playerId,
+            tapped: false,
+            transformed: false,
+            card: casalCard,
+          },
+        ],
+      },
+      libraries: new Map([
+        [playerId, [
+          {
+            id: 'forest_dual',
+            name: 'Temple Garden',
+            type_line: 'Land — Forest Plains',
+            oracle_text: '',
+            image_uris: { normal: 'forest.png' },
+          },
+          {
+            id: 'plains_only',
+            name: 'Plains',
+            type_line: 'Basic Land — Plains',
+            oracle_text: '',
+            image_uris: { normal: 'plains.png' },
+          },
+        ]],
+      ]),
+      seq: 0,
+      bumpSeq: () => {
+        game.seq += 1;
+      },
+    };
+
+    finalizePlayedLand(createNoopIo(), game, gameId, playerId, 'casal_card', casalCard, 'hand');
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any);
+    const searchStep = steps.find((step: any) => step?.sourceName === 'Casal, Lurkwood Pathfinder') as any;
+
+    expect(searchStep).toBeDefined();
+    expect(searchStep.availableCards).toHaveLength(1);
+    expect(searchStep.availableCards[0]?.id).toBe('forest_dual');
+  });
+
+  it('matches Forest subtypes case-insensitively when building the ETB tutor options', () => {
+    const playerId = 'p1';
+    const casalCard = {
+      id: 'casal_card_case_test',
+      name: 'Casal, Lurkwood Pathfinder // Casal, Pathbreaker Owlbear',
+      type_line: 'Legendary Creature — Tiefling Druid // Legendary Creature — Bird Bear',
+      layout: 'transform',
+      card_faces: [
+        {
+          name: 'Casal, Lurkwood Pathfinder',
+          type_line: 'Legendary Creature — Tiefling Druid',
+          oracle_text: 'Vigilance\nWhen Casal enters, search your library for a Forest card, put it onto the battlefield tapped, then shuffle.',
+        },
+        {
+          name: 'Casal, Pathbreaker Owlbear',
+          type_line: 'Legendary Creature — Bird Bear',
+          oracle_text: 'Vigilance, trample',
+        },
+      ],
+    };
+
+    const game: any = {
+      state: {
+        zones: {
+          [playerId]: {
+            hand: [],
+            handCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            library: [],
+            libraryCount: 0,
+          },
+        },
+        battlefield: [
+          {
+            id: 'casal_perm_case_test',
+            controller: playerId,
+            owner: playerId,
+            tapped: false,
+            transformed: false,
+            card: casalCard,
+          },
+        ],
+      },
+      libraries: new Map([
+        [playerId, [
+          {
+            id: 'forest_mixed_case',
+            name: 'Temple Garden',
+            type_line: 'Land — fOrEsT Plains',
+            oracle_text: '',
+            image_uris: { normal: 'forest.png' },
+          },
+          {
+            id: 'plains_only_case_test',
+            name: 'Plains',
+            type_line: 'Basic Land — Plains',
+            oracle_text: '',
+            image_uris: { normal: 'plains.png' },
+          },
+        ]],
+      ]),
+      seq: 0,
+      bumpSeq: () => {
+        game.seq += 1;
+      },
+    };
+
+    finalizePlayedLand(createNoopIo(), game, gameId, playerId, 'casal_card_case_test', casalCard, 'hand');
+
+    const steps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any);
+    const searchStep = steps.find((step: any) => step?.sourceName === 'Casal, Lurkwood Pathfinder') as any;
+
+    expect(searchStep).toBeDefined();
+    expect(searchStep.filter).toEqual({ subtypes: ['forest'] });
+    expect(searchStep.availableCards).toHaveLength(1);
+    expect(searchStep.availableCards[0]?.id).toBe('forest_mixed_case');
   });
 });

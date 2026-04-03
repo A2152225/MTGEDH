@@ -1090,11 +1090,25 @@ function filterLibraryCardsForTutor(library: any[], filter: any): any[] {
     }));
 }
 
+function getActivePermanentCardFace(permanent: any): { name: string; oracleText: string } {
+  const card = permanent?.card;
+  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+  const isTransformCard =
+    (card?.layout === 'transform' || card?.layout === 'double_faced_token') &&
+    cardFaces.length >= 2;
+  const activeFaceIndex = permanent?.transformed ? 1 : 0;
+  const activeFace = isTransformCard ? cardFaces[activeFaceIndex] || cardFaces[0] : undefined;
+
+  return {
+    name: String(isTransformCard ? activeFace?.name || card?.name || '' : card?.name || '').trim(),
+    oracleText: String(isTransformCard ? activeFace?.oracle_text || card?.oracle_text || '' : card?.oracle_text || ''),
+  };
+}
+
 function queueSelfEtbBattlefieldTutorSearch(game: any, gameId: string, permanent: any): boolean {
   const card = permanent?.card;
   const controller = permanent?.controller;
-  const cardName = String(card?.name || '').trim();
-  const oracleText = String(card?.oracle_text || '');
+  const { name: cardName, oracleText } = getActivePermanentCardFace(permanent);
   if (!controller || !cardName || !oracleText) return false;
 
   const etbTutorLine = oracleText
@@ -4312,7 +4326,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const abundantHarvestMatch = oracleText.match(/choose\s+land\s+or\s+nonland/i);
       const abundantChoiceSelected = (cardInHand as any).abundantChoice || (targets as any)?.abundantChoice;
       
-      if (!shouldSkipAllPrompts && abundantHarvestMatch && !abundantChoiceSelected) {
+      if (abundantHarvestMatch && !abundantChoiceSelected) {
         const existing = ResolutionQueueManager
           .getStepsForPlayer(gameId, playerId as any)
           .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'abundantChoice');
@@ -4370,7 +4384,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const isSpreeCard = oracleText.includes('spree');
       const spreeModesSelected = (cardInHand as any).selectedSpreeModes || (targets as any)?.selectedSpreeModes;
       
-      if (!shouldSkipAllPrompts && isSpreeCard && !spreeModesSelected) {
+      if (isSpreeCard && !spreeModesSelected) {
         // Parse spree costs and effects
         // Pattern: "+ {cost} ΓÇö Effect text"
         const spreePattern = /\+\s*(\{[^}]+\})\s*[ΓÇö-]\s*([^+]+?)(?=\+\s*\{|$)/gi;
@@ -4430,7 +4444,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
-      if (!shouldSkipAllPrompts && modalSpellMatch && !modesAlreadySelected) {
+      if (modalSpellMatch && !modesAlreadySelected) {
         const modeCount = modalSpellMatch[1].toLowerCase();
         const modeCountMap: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'any number': -1 };
         const numModes = modeCountMap[modeCount] ?? -1;
@@ -4510,7 +4524,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                                (targets as any)?.overload === true ||
                                (cardInHand as any).castWithOverload === true;
       
-      if (!shouldSkipAllPrompts && hasOverload && overloadCost && !castWithOverload && !overloadModeAlreadySelected) {
+      if (hasOverload && overloadCost && !castWithOverload && !overloadModeAlreadySelected) {
         const existing = ResolutionQueueManager
           .getStepsForPlayer(gameId, playerId as any)
           .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'overload');

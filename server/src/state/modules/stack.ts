@@ -2793,6 +2793,8 @@ function enqueueLibrarySearchStep(
     toHand?: number;
     entersTapped?: boolean;
     lifeLoss?: number;
+    persistLibrarySearchResolve?: boolean;
+    persistLibrarySearchResolveReason?: string;
   }
 ): void {
   const gameId = (ctx as any).gameId || 'unknown';
@@ -2820,6 +2822,8 @@ function enqueueLibrarySearchStep(
     toHand = 0,
     entersTapped = tapped,
     lifeLoss,
+    persistLibrarySearchResolve = true,
+    persistLibrarySearchResolveReason = 'stack_resolution',
   } = options;
 
   // Map all library cards with full data
@@ -2944,6 +2948,8 @@ function enqueueLibrarySearchStep(
     toHand,
     filter,
     lifeLoss,
+    persistLibrarySearchResolve,
+    persistLibrarySearchResolveReason,
   });
 }
 
@@ -6041,6 +6047,101 @@ export function executeTriggerEffect(
     debug(2, `[executeTriggerEffect] Each opponent draws ${count} card(s)`);
     return;
   }
+
+  if (desc.includes('untap all lands you control')) {
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    let untappedCount = 0;
+
+    for (const permanent of battlefield) {
+      if (!permanent || permanent.controller !== controller || !permanent.tapped) continue;
+      const typeLine = String(permanent.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('land')) continue;
+      permanent.tapped = false;
+      untappedCount++;
+    }
+
+    debug(2, `[executeTriggerEffect] ${sourceName}: untapped ${untappedCount} land(s) for ${controller}`);
+    return;
+  }
+
+  const lootStyleTopLibraryMatch = desc.match(
+    /look at the top (one|two|three|four|five|six|seven|eight|nine|ten|\d+) cards? of your library\..*creature card with mana value less than or equal to the number of lands you control.*put it onto the battlefield.*put the rest on the bottom(?: of your library)? in a random order/i
+  );
+  if (lootStyleTopLibraryMatch) {
+    const wordToNumber: Record<string, number> = {
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6,
+      seven: 7,
+      eight: 8,
+      nine: 9,
+      ten: 10,
+    };
+    const rawCount = String(lootStyleTopLibraryMatch[1] || '').toLowerCase();
+    const revealCount = wordToNumber[rawCount] || Number.parseInt(rawCount, 10) || 0;
+    const lib = ((ctx as any).libraries as Map<string, any[]>)?.get(controller) || [];
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const landCount = battlefield.filter((permanent: any) => {
+      if (!permanent || permanent.controller !== controller) return false;
+      return String(permanent.card?.type_line || '').toLowerCase().includes('land');
+    }).length;
+    const topCards = lib.slice(0, revealCount);
+    const availableCards: any[] = [];
+    const nonSelectableCards: any[] = [];
+
+    for (const card of topCards) {
+      const summary = {
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris,
+        imageUrl: card.image_uris?.normal || card.image_uris?.small,
+        mana_cost: card.mana_cost,
+        cmc: card.cmc,
+        colors: card.colors,
+        power: card.power,
+        toughness: card.toughness,
+        loyalty: card.loyalty,
+      };
+      const typeLine = String(card.type_line || '').toLowerCase();
+      const manaValue = Number(card.cmc || 0);
+      const isEligibleCreature = typeLine.includes('creature') && manaValue <= landCount;
+      if (isEligibleCreature) {
+        availableCards.push(summary);
+      } else {
+        nonSelectableCards.push(summary);
+      }
+    }
+
+    const gameId = (ctx as any).gameId || 'unknown';
+    if (!(ctx as any).isReplaying) {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.LIBRARY_SEARCH,
+        playerId: controller,
+        description: `${sourceName}: Look at the top ${revealCount} cards of your library. You may put a creature card with mana value ${landCount} or less from among them onto the battlefield. Put the rest on the bottom in a random order.`,
+        mandatory: false,
+        sourceName,
+        searchCriteria: `Top ${revealCount} cards - creature card with mana value ${landCount} or less`,
+        minSelections: 0,
+        maxSelections: 1,
+        destination: 'battlefield',
+        reveal: true,
+        shuffleAfter: false,
+        availableCards,
+        nonSelectableCards,
+        remainderDestination: 'bottom',
+        remainderRandomOrder: true,
+        contextValue: landCount,
+      });
+    }
+
+    debug(2, `[executeTriggerEffect] ${sourceName}: queued Loot-style top-library selection with ${availableCards.length} eligible card(s) out of ${topCards.length}`);
+    return;
+  }
   
   // ============================================================================
   // DYNAMIC PATTERN RECOGNITION: Search library effects
@@ -6188,6 +6289,32 @@ export function executeTriggerEffect(
       // Check mana value
       if (matches && typeof filterAny.maxManaValue === 'number') {
         matches = (card.cmc || 0) <= filterAny.maxManaValue;
+      }
+
+      if (matches && typeof filterAny.minCmc === 'number') {
+        matches = (card.cmc || 0) >= filterAny.minCmc;
+      }
+
+      if (matches && typeof filterAny.maxCmc === 'number') {
+        matches = (card.cmc || 0) <= filterAny.maxCmc;
+      }
+
+      const power = Number.parseInt(String(card.power ?? ''), 10);
+      if (matches && typeof filterAny.minPower === 'number' && Number.isFinite(power)) {
+        matches = power >= filterAny.minPower;
+      }
+
+      if (matches && typeof filterAny.maxPower === 'number' && Number.isFinite(power)) {
+        matches = power <= filterAny.maxPower;
+      }
+
+      const toughness = Number.parseInt(String(card.toughness ?? ''), 10);
+      if (matches && typeof filterAny.minToughness === 'number' && Number.isFinite(toughness)) {
+        matches = toughness >= filterAny.minToughness;
+      }
+
+      if (matches && typeof filterAny.maxToughness === 'number' && Number.isFinite(toughness)) {
+        matches = toughness <= filterAny.maxToughness;
       }
       
       if (matches) {
