@@ -192,4 +192,40 @@ describe('Lord Effects', () => {
     expect(bonuses.power).toBe(0);
     expect(bonuses.toughness).toBe(0);
   });
+
+  it('Morophon should buff other creatures of the chosen type', () => {
+    const morophon = {
+      id: 'morophon-1',
+      controller: 'player1',
+      chosenCreatureType: 'Merfolk',
+      card: {
+        name: 'Morophon, the Boundless',
+        type_line: 'Legendary Creature — Shapeshifter',
+        power: '6',
+        toughness: '6',
+        oracle_text: 'Changeling As Morophon, the Boundless enters, choose a creature type. Spells you cast of the chosen type cost {W}{U}{B}{R}{G} less to cast. This effect reduces only the amount of colored mana you pay. Other creatures you control of the chosen type get +1/+1.'
+      }
+    };
+
+    const merfolk = {
+      id: 'merfolk-1',
+      controller: 'player1',
+      card: {
+        name: 'Drowner of Secrets',
+        type_line: 'Creature — Merfolk Wizard',
+        power: '1',
+        toughness: '3',
+        oracle_text: 'Tap an untapped Merfolk you control: Target player mills a card.'
+      }
+    };
+
+    const gameState = {
+      battlefield: [morophon, merfolk]
+    };
+
+    const bonuses = calculateAllPTBonuses(merfolk, gameState);
+
+    expect(bonuses.power).toBe(1);
+    expect(bonuses.toughness).toBe(1);
+  });
 });

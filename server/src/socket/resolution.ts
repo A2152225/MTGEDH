@@ -101,6 +101,12 @@ const MANA_POOL_KEY_BY_SYMBOL: Record<string, string> = {
 
 const FLOATING_MANA_PAYMENT_PREFIX = '__pool__:';
 const PANGLACIAL_WURM_NAME = 'panglacial wurm';
+const DEFAULT_RESOLUTION_STEP_TIMEOUT_MS = Number(process.env.RESOLUTION_STEP_TIMEOUT_MS ?? 30_000);
+
+const resolutionStepTimeouts = new Map<string, NodeJS.Timeout>();
+
+let priorityResolutionHandlerInitialized = false;
+let priorityResolutionHandlerIo: Server | null = null;
 
 function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | null {
   const rawId = String(permanentId || '').trim();
@@ -195,6 +201,221 @@ function restoreLibrarySearchStep(gameId: string, step: any): void {
   if ((queue as any).activeStep && String((queue as any).activeStep.id || '') === String(step.id)) {
     (queue as any).activeStep = undefined;
   }
+}
+
+function clearResolutionStepTimeout(gameId: string): void {
+  const existingTimeout = resolutionStepTimeouts.get(gameId);
+  if (!existingTimeout) return;
+  clearTimeout(existingTimeout);
+  resolutionStepTimeouts.delete(gameId);
+}
+
+function getResolutionStepTimeoutMs(step: ResolutionStep | undefined): number {
+  const configuredTimeout = Number((step as any)?.timeoutMs);
+  if (Number.isFinite(configuredTimeout) && configuredTimeout > 0) {
+    return configuredTimeout;
+  }
+  return DEFAULT_RESOLUTION_STEP_TIMEOUT_MS;
+}
+
+function emitNextPendingResolutionStep(io: Server, gameId: string, playerId: string): void {
+  const remainingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as PlayerID);
+  if (remainingSteps.length === 0) return;
+
+  emitToPlayer(io, playerId, 'resolutionStepPrompt', {
+    gameId,
+    step: sanitizeStepForClient(gameId, remainingSteps[0]),
+  });
+}
+
+function restorePriorityAfterResolutionRecovery(game: any, gameId: string): void {
+  const summary = ResolutionQueueManager.getPendingSummary(gameId);
+  if (summary.hasPending) return;
+  if ((game.state as any)?.priority !== null) return;
+
+  const turnPlayer = String((game.state as any)?.turnPlayer || '').trim();
+  if (!turnPlayer) return;
+
+  (game.state as any).priority = turnPlayer;
+  (game.state as any).priorityPassedBy = new Set<string>();
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+}
+
+function applyCancelledResolutionStepSideEffects(
+  io: Server,
+  game: any,
+  gameId: string,
+  cancelledStep: ResolutionStep,
+  playerId: string,
+): string[] {
+  const additionallyCancelledStepIds: string[] = [];
+
+  const cancelledGroupId = String((cancelledStep as any)?.rulesChoiceGroupId || '').trim();
+  if (cancelledGroupId) {
+    const remainingGroupSteps = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps
+      .filter((queuedStep: any) => queuedStep?.rulesChoiceGroupId === cancelledGroupId);
+    for (const remainingStep of remainingGroupSteps) {
+      const cancelledGroupStep = ResolutionQueueManager.cancelStep(gameId, remainingStep.id);
+      if (cancelledGroupStep) {
+        additionallyCancelledStepIds.push(String(cancelledGroupStep.id || ''));
+      }
+    }
+  }
+
+  if (cancelledStep.type === ResolutionStepType.PLAYER_CHOICE) {
+    const effectData = (cancelledStep as any)?.effectData;
+    if (effectData) {
+      const cardName = (cancelledStep as any)?.sourceName || 'Choose Player';
+      handleDeclinedPlayerSelection(io, gameId, playerId as PlayerID, cardName, effectData);
+    }
+  }
+
+  if (cancelledStep.type === ResolutionStepType.TARGET_SELECTION) {
+    const effectId =
+      (cancelledStep as any)?.spellCastContext?.effectId ||
+      (cancelledStep as any)?.sourceId;
+    const pending = (game.state as any)?.pendingSpellCasts;
+    if (effectId && pending?.[effectId]) {
+      delete pending[effectId];
+    }
+
+    const cardId = (cancelledStep as any)?.spellCastContext?.cardId;
+    const pendingForetell = cardId ? (game.state as any)?.pendingForetellCasts?.[cardId] : undefined;
+    if (cardId && pendingForetell && pendingForetell.playerId === playerId) {
+      const zones = game.state.zones?.[playerId];
+      if (zones) {
+        if (Array.isArray((zones as any).hand)) {
+          const handIdx = (zones.hand as any[]).findIndex((c: any) => c?.id === cardId);
+          if (handIdx !== -1) {
+            (zones.hand as any[]).splice(handIdx, 1);
+            (zones as any).handCount = (zones.hand as any[]).length;
+          }
+        }
+
+        (zones as any).exile = Array.isArray((zones as any).exile) ? (zones as any).exile : [];
+        ((zones as any).exile as any[]).push({ ...(pendingForetell.originalCard as any), zone: 'exile', faceDown: true, foretold: true });
+        (zones as any).exileCount = ((zones as any).exile as any[]).length;
+      }
+
+      delete (game.state as any).pendingForetellCasts[cardId];
+    }
+
+    if ((cancelledStep as any)?.opponentSelection === true) {
+      const opponentSelectionEffectId = String((cancelledStep as any)?.effectId || (cancelledStep as any)?.sourceId || '').trim();
+      if (opponentSelectionEffectId) {
+        (game.state as any).pendingOpponentSelections = (game.state as any).pendingOpponentSelections || {};
+        (game.state as any).pendingOpponentSelections[opponentSelectionEffectId] = {
+          selectedOpponentIds: [],
+          playerId,
+          timestamp: Date.now(),
+        };
+      }
+    }
+  }
+
+  if ((cancelledStep as any)?.keywordBlight === true && String((cancelledStep as any)?.keywordBlightStage || '') === 'ward_payment') {
+    const stackId = String((cancelledStep as any)?.keywordBlightTriggeredBy || (cancelledStep as any)?.sourceId || '');
+    if (stackId) {
+      const ctx = {
+        state: game.state,
+        bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+        zones: game.state?.zones,
+        gameId,
+      } as unknown as GameContext;
+
+      counterStackItem(ctx, stackId, String((cancelledStep as any)?.keywordBlightWardController || 'system'));
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `Ward — Blight: ${getPlayerName(game, playerId)} didn't pay ward; the spell/ability was countered.`,
+        ts: Date.now(),
+      });
+    }
+  }
+
+  restorePriorityAfterResolutionRecovery(game, gameId);
+  broadcastGame(io, game, gameId);
+  emitNextPendingResolutionStep(io, gameId, playerId);
+
+  return additionallyCancelledStepIds;
+}
+
+function handleTimedOutResolutionStep(io: Server, gameId: string, stepId: string, timeoutMs: number): void {
+  clearResolutionStepTimeout(gameId);
+
+  const game = ensureGame(gameId);
+  if (!game) return;
+
+  const nextStep = ResolutionQueueManager.getNextStep(gameId);
+  if (!nextStep || String(nextStep.id || '') !== stepId) {
+    return;
+  }
+
+  const cancelledStep = ResolutionQueueManager.cancelStep(gameId, stepId);
+  if (!cancelledStep) return;
+
+  const playerId = String(cancelledStep.playerId || '').trim();
+  const sourceName = String((cancelledStep as any)?.sourceName || (cancelledStep as any)?.sourceId || cancelledStep.description || 'Unknown source').trim();
+
+  emitToPlayer(io, playerId, 'resolutionStepCancelled', {
+    gameId,
+    stepId,
+    success: true,
+    reason: 'timeout',
+  });
+
+  const additionalCancelledStepIds = applyCancelledResolutionStepSideEffects(io, game, gameId, cancelledStep, playerId);
+  const cancelledStepIds = [stepId, ...additionalCancelledStepIds].filter(Boolean);
+
+  appendGameEvent(game, gameId, 'resolutionStepTimeoutRecovery', {
+    stepId,
+    cancelledStepIds,
+    playerId,
+    stepType: cancelledStep.type,
+    sourceId: cancelledStep.sourceId,
+    sourceName: cancelledStep.sourceName,
+    description: cancelledStep.description,
+    timeoutMs,
+  });
+
+  debugWarn(
+    1,
+    `[ResolutionTimeout] Timed out resolution step ${stepId} (${cancelledStep.type}) from ${sourceName} in game ${gameId}; cancelled prompt and restored priority.`,
+  );
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${sourceName} timed out during resolution, was marked as broken for this game, and priority was restored.`,
+    ts: Date.now(),
+  });
+}
+
+function scheduleResolutionStepTimeoutForGame(gameId: string): void {
+  clearResolutionStepTimeout(gameId);
+
+  const io = priorityResolutionHandlerIo;
+  if (!io) return;
+
+  const game = ensureGame(gameId);
+  if (!game || !(game.state as any)?.active) return;
+
+  const nextStep = ResolutionQueueManager.getNextStep(gameId);
+  if (!nextStep) return;
+
+  const timeoutMs = getResolutionStepTimeoutMs(nextStep);
+  resolutionStepTimeouts.set(
+    gameId,
+    setTimeout(() => {
+      handleTimedOutResolutionStep(io, gameId, String(nextStep.id || ''), timeoutMs);
+    }, timeoutMs)
+  );
 }
 
 async function handlePanglacialWurmSearchCast(
@@ -5885,95 +6106,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       
       const game = ensureGame(gameId);
       if (game) {
-        const cancelledGroupId = String((cancelledStep as any)?.rulesChoiceGroupId || '').trim();
-        if (cancelledGroupId) {
-          const remainingGroupSteps = ResolutionQueueManager
-            .getQueue(gameId)
-            .steps
-            .filter((queuedStep: any) => queuedStep?.rulesChoiceGroupId === cancelledGroupId);
-          for (const remainingStep of remainingGroupSteps) {
-            ResolutionQueueManager.cancelStep(gameId, remainingStep.id);
-          }
-        }
-
-        // Optional PLAYER_CHOICE: cancelling means "declined".
-        if (cancelledStep.type === ResolutionStepType.PLAYER_CHOICE) {
-          const effectData = (cancelledStep as any)?.effectData;
-          if (effectData) {
-            const cardName = (cancelledStep as any)?.sourceName || 'Choose Player';
-            handleDeclinedPlayerSelection(io, gameId, pid as PlayerID, cardName, effectData);
-          }
-        }
-
-        // If this cancelled step was part of an in-progress spell cast, clean up pending state
-        if (cancelledStep.type === ResolutionStepType.TARGET_SELECTION) {
-          const effectId =
-            (cancelledStep as any)?.spellCastContext?.effectId ||
-            (cancelledStep as any)?.sourceId;
-          const pending = (game.state as any)?.pendingSpellCasts;
-          if (effectId && pending?.[effectId]) {
-            delete pending[effectId];
-          }
-
-          // Foretell casts temporarily move a card from exile into hand to reuse the normal cast pipeline.
-          // If the player cancels the target selection step, restore the card back to exile (face-down).
-          const cardId = (cancelledStep as any)?.spellCastContext?.cardId;
-          const pendingForetell = cardId ? (game.state as any)?.pendingForetellCasts?.[cardId] : undefined;
-          if (cardId && pendingForetell && pendingForetell.playerId === pid) {
-            const zones = game.state.zones?.[pid];
-            if (zones) {
-              if (Array.isArray((zones as any).hand)) {
-                const handIdx = (zones.hand as any[]).findIndex((c: any) => c?.id === cardId);
-                if (handIdx !== -1) {
-                  (zones.hand as any[]).splice(handIdx, 1);
-                  (zones as any).handCount = (zones.hand as any[]).length;
-                }
-              }
-
-              (zones as any).exile = Array.isArray((zones as any).exile) ? (zones as any).exile : [];
-              ((zones as any).exile as any[]).push({ ...(pendingForetell.originalCard as any), zone: 'exile', faceDown: true, foretold: true });
-              (zones as any).exileCount = ((zones as any).exile as any[]).length;
-            }
-
-            delete (game.state as any).pendingForetellCasts[cardId];
-          }
-
-          // Optional opponent selection: cancelling means "choose none".
-          if ((cancelledStep as any)?.opponentSelection === true) {
-            const oppEffectId = String((cancelledStep as any)?.effectId || (cancelledStep as any)?.sourceId || '').trim();
-            if (oppEffectId) {
-              (game.state as any).pendingOpponentSelections = (game.state as any).pendingOpponentSelections || {};
-              (game.state as any).pendingOpponentSelections[oppEffectId] = {
-                selectedOpponentIds: [],
-                playerId: pid,
-                timestamp: Date.now(),
-              };
-            }
-          }
-        }
-
-        // Ward—Blight N: cancelling means "didn't pay", so counter the spell/ability.
-        if ((cancelledStep as any)?.keywordBlight === true && String((cancelledStep as any)?.keywordBlightStage || '') === 'ward_payment') {
-          const stackId = String((cancelledStep as any)?.keywordBlightTriggeredBy || (cancelledStep as any)?.sourceId || '');
-          if (stackId) {
-            const ctx = {
-              state: game.state,
-              bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-              zones: game.state?.zones,
-              gameId,
-            } as unknown as GameContext;
-
-            counterStackItem(ctx, stackId, String((cancelledStep as any)?.keywordBlightWardController || 'system'));
-            io.to(gameId).emit('chat', {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: 'system',
-              message: `Ward — Blight: ${getPlayerName(game, pid)} didn't pay ward; the spell/ability was countered.`,
-              ts: Date.now(),
-            });
-          }
-        }
-        broadcastGame(io, game, gameId);
+        applyCancelledResolutionStepSideEffects(io, game, gameId, cancelledStep, pid);
       }
     }
     }
@@ -6380,6 +6513,10 @@ export function initializeAIResolutionHandler(io: Server) {
  * Should be called once when server starts
  */
 export function initializePriorityResolutionHandler(io: Server): void {
+  priorityResolutionHandlerIo = io;
+  if (priorityResolutionHandlerInitialized) return;
+  priorityResolutionHandlerInitialized = true;
+
   // Import priority management functions
   import("../state/modules/priority.js").then(({ enterResolutionMode, exitResolutionMode }) => {
     const priorityHandler = (
@@ -6399,7 +6536,7 @@ export function initializePriorityResolutionHandler(io: Server): void {
         // If this is the first step (count = 1), enter resolution mode
         if (summary.pendingCount === 1 && ctx.state.priority !== null) {
           enterResolutionMode(ctx);
-          broadcastGame(io, game, gameId);
+          broadcastGame(priorityResolutionHandlerIo || io, game, gameId);
         }
       }
       
@@ -6409,7 +6546,7 @@ export function initializePriorityResolutionHandler(io: Server): void {
         // If no more pending steps, exit resolution mode
         if (!summary.hasPending && ctx.state.priority === null) {
           exitResolutionMode(ctx);
-          broadcastGame(io, game, gameId);
+          broadcastGame(priorityResolutionHandlerIo || io, game, gameId);
         }
       }
 
@@ -6419,8 +6556,17 @@ export function initializePriorityResolutionHandler(io: Server): void {
         const summary = ResolutionQueueManager.getPendingSummary(gameId);
         if (!summary.hasPending && ctx.state.priority === null) {
           exitResolutionMode(ctx);
-          broadcastGame(io, game, gameId);
+          broadcastGame(priorityResolutionHandlerIo || io, game, gameId);
         }
+      }
+
+      if (
+        event === ResolutionQueueEvent.STEP_ADDED ||
+        event === ResolutionQueueEvent.STEP_COMPLETED ||
+        event === ResolutionQueueEvent.STEP_CANCELLED ||
+        event === ResolutionQueueEvent.QUEUE_CHANGED
+      ) {
+        scheduleResolutionStepTimeoutForGame(gameId);
       }
     };
     
@@ -7006,6 +7152,44 @@ async function handleStepResponse(
         message: resultMessage,
         ts: Date.now(),
       });
+
+      const remainingPermanentIds = Array.isArray((step as any)?.remainingPermanentIds)
+        ? ((step as any).remainingPermanentIds as any[])
+            .map((id: any) => String(id || '').trim())
+            .filter((id: string) => id.length > 0)
+        : [];
+
+      if (remainingPermanentIds.length > 0) {
+        const updatedBattlefield = (game.state as any)?.battlefield || [];
+
+        for (let index = 0; index < remainingPermanentIds.length; index++) {
+          const nextPermanentId = remainingPermanentIds[index];
+          const nextPerm = updatedBattlefield.find((p: any) => p?.id === nextPermanentId && p?.controller === pid);
+          if (!nextPerm) continue;
+
+          const nextCards = typeof game.peekTopN === 'function' ? game.peekTopN(pid, 1) : [];
+          if (!nextCards || nextCards.length === 0) break;
+
+          const nextRevealedCard = nextCards[0];
+          const nextTypeLine = String(nextRevealedCard?.type_line || '').toLowerCase();
+          const nextRemaining = remainingPermanentIds.slice(index + 1);
+
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.EXPLORE_DECISION,
+            playerId: pid as any,
+            mandatory: true,
+            sourceId: nextPermanentId,
+            sourceName: nextPerm?.card?.name || 'Creature',
+            description: `${nextPerm?.card?.name || 'Creature'} explores`,
+            permanentId: nextPermanentId,
+            permanentName: nextPerm?.card?.name || 'Creature',
+            revealedCard: nextRevealedCard,
+            isLand: nextTypeLine.includes('land'),
+            remainingPermanentIds: nextRemaining,
+          } as any);
+          break;
+        }
+      }
 
       break;
     }

@@ -20,7 +20,7 @@ import { ScrySurveilModal } from "./components/ScrySurveilModal";
 import { FatesealModal } from "./components/FatesealModal";
 import { ClashModal } from "./components/ClashModal";
 import { VoteModal } from "./components/VoteModal";
-import { CastSpellModal } from "./components/CastSpellModal";
+import { CastSpellModal, type AlternateCost } from "./components/CastSpellModal";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "./components/CombatSelectionModal";
 import { CombatControlModal, type CombatControlDeclarations } from "./components/CombatControlModal";
 import { ReturnControlledPermanentChoiceModal } from "./components/ReturnControlledPermanentChoiceModal";
@@ -262,7 +262,39 @@ export function App() {
       }>;
       messages: string[];
     };
+    extraAlternateCosts?: AlternateCost[];
   } | null>(null);
+    const battlefieldAlternateCosts = useMemo(() => {
+      if (!safeView || !you || !spellToCast) return [] as AlternateCost[];
+
+      const battlefield = Array.isArray(safeView.battlefield) ? safeView.battlefield : [];
+      const extraCosts: AlternateCost[] = [];
+
+      for (const permanent of battlefield) {
+        if (!permanent || permanent.controller !== you) continue;
+
+        const sourceName = String((permanent as any).card?.name || '').trim();
+        const oracleText = String((permanent as any).card?.oracle_text || '').toLowerCase();
+        if (!sourceName || !oracleText) continue;
+
+        const isExternalWubrgSource =
+          oracleText.includes('{w}{u}{b}{r}{g}') &&
+          oracleText.includes('rather than pay') &&
+          !oracleText.includes('this spell');
+
+        if (isExternalWubrgSource) {
+          extraCosts.push({
+            id: 'wubrg_external',
+            label: `WUBRG Alternative (${sourceName})`,
+            description: `Pay {W}{U}{B}{R}{G} via ${sourceName}`,
+            manaCost: '{W}{U}{B}{R}{G}',
+          });
+        }
+      }
+
+      return extraCosts;
+    }, [safeView, spellToCast, you]);
+
   const [pendingSpellXSelection, setPendingSpellXSelection] = useState<{
     stepId: string;
     cardName: string;
@@ -2268,6 +2300,52 @@ export function App() {
     if (!safeView?.id) return;
     socket.emit("getSmartUndoCounts", { gameId: safeView.id });
   }, [safeView?.id]);
+
+  const dismissResolutionStepUi = React.useCallback(() => {
+    setReturnControlledPermanentModalOpen(false);
+    setProliferateModalOpen(false);
+    setFatesealModalOpen(false);
+    setClashModalOpen(false);
+    setVoteModalOpen(false);
+    setTriggerModalOpen(false);
+    setPendingTriggers([]);
+    setTriggerOrderStepId(null);
+    setMulliganBottomModalOpen(false);
+    setMulliganBottomStepId(null);
+    setDiscardModalOpen(false);
+    setDiscardResolutionStepId(null);
+    setOpeningHandActionsModalOpen(false);
+    setOpeningHandActionsStepId(null);
+    setLibrarySearchModalOpen(false);
+    setTargetModalOpen(false);
+    setCreatureTypeModalOpen(false);
+    setJoinForcesModalOpen(false);
+    setTemptingOfferModalOpen(false);
+    setKynaiosChoiceModalOpen(false);
+    setOptionChoiceModalOpen(false);
+    setTwoPileSplitModalOpen(false);
+    setPonderModalOpen(false);
+    setCascadeModalOpen(false);
+    setTapUntapTargetModalOpen(false);
+    setFightTargetModalOpen(false);
+    setCounterMovementModalOpen(false);
+    setStationCreatureSelectionOpen(false);
+    setResolutionPlayerChoiceModalOpen(false);
+    setManaDistributionModalOpen(false);
+    setAdditionalCostModalOpen(false);
+    setSquadCostModalOpen(false);
+    setCastingModeModalOpen(false);
+    setMayAbilityModalOpen(false);
+    setLifePaymentModalOpen(false);
+    setColorChoiceModalOpen(false);
+    setCardNameChoiceModalOpen(false);
+    setAnyColorManaModalOpen(false);
+    setPhyrexianManaModalOpen(false);
+    setModalSpellModalOpen(false);
+    setReplacementEffectModalOpen(false);
+    setMutateModalOpen(false);
+    setGraveyardSelectionModalOpen(false);
+  }, []);
   
   // Resolution Queue system handler for Kynaios, Join Forces, Tempting Offer, and Bounce Land
   // Listens for resolution step prompts and opens the appropriate modals
@@ -3188,13 +3266,21 @@ export function App() {
         setTriggerModalOpen(true);
       }
     };
+
+    const handleResolutionStepCancelled = (payload: { gameId: string; stepId?: string }) => {
+      if (payload.gameId !== safeView?.id) return;
+      lastResolutionStepsRef.current.delete(String(payload.stepId || ''));
+      dismissResolutionStepUi();
+    };
     
     socket.on("resolutionStepPrompt", handleResolutionStepPrompt);
+    socket.on("resolutionStepCancelled", handleResolutionStepCancelled);
     
     return () => {
       socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
+      socket.off("resolutionStepCancelled", handleResolutionStepCancelled);
     };
-  }, [safeView?.id, openConfirmFromResolutionStep, you, mulliganBottomLastSubmittedStepId]);
+  }, [safeView?.id, openConfirmFromResolutionStep, you, mulliganBottomLastSubmittedStepId, dismissResolutionStepUi]);
 
   // Explore prompt handler
   // Legacy explorePrompt / batchExplorePrompt listeners removed - now handled via Resolution Queue.
@@ -6000,6 +6086,7 @@ export function App() {
         manaCost={spellToCast?.manaCost}
         oracleText={spellToCast?.oracleText}
         forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
+        extraAlternateCosts={spellToCast?.extraAlternateCosts || battlefieldAlternateCosts}
         availableSources={you ? getAvailableManaSourcesForPlayer(you) : []}
         otherCardsInHand={useMemo(() => {
           if (!safeView || !you || !spellToCast) return [];

@@ -491,6 +491,14 @@ export function getManaAbilitiesForPermanent(
     oracleText = (face.oracle_text || "").toLowerCase();
     debug(2, `[getManaAbilitiesForPermanent] Using MDFC face ${selectedFace} for ${card.name}: ${face.name}`);
   }
+
+  // Ignore quoted grant text like Cryptolith Rite's
+  // `Creatures you control have "{T}: Add one mana of any color."`
+  // when determining whether THIS permanent has its own native mana ability.
+  const nativeOracleText = oracleText
+    .replace(/(?:other\s+)?(?:nontoken\s+)?creatures you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
+    .replace(/(?:other\s+)?lands you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
+    .replace(/(?:other\s+)?permanents you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '');
   
   const isLand = typeLine.includes("land");
   const isCreature = typeLine.includes("creature");
@@ -860,7 +868,7 @@ export function getManaAbilitiesForPermanent(
   
   // Some mana abilities have additional costs before the ':' (e.g. "{T}, Sacrifice this: Add ...").
   // Treat those as valid tap-for-mana abilities too.
-  if (!isLand && (oracleText.includes('{t}:') || oracleText.includes('{t},')) && hasManaProducingTapAbility(oracleText)) {
+  if (!isLand && (nativeOracleText.includes('{t}:') || nativeOracleText.includes('{t},')) && hasManaProducingTapAbility(nativeOracleText)) {
     // IMPORTANT: Skip cards with "add an amount of", "add X mana in any combination"
     // or other variable/scaling patterns - those are handled by getDevotionManaAmount 
     // or getCreatureCountManaAmount functions
@@ -879,7 +887,7 @@ export function getManaAbilitiesForPermanent(
       // This handles artifacts that produce 2+ fixed mana of specified types.
       // Note: Variable mana (devotion, creature count) is handled by hasScalingManaAbility check above.
       // ========================================================================
-      const nonLandMultiManaMatch = oracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
+      const nonLandMultiManaMatch = nativeOracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
       let handledAsMultiMana = false;
       if (nonLandMultiManaMatch) {
         const manaSymbols = nonLandMultiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
@@ -914,32 +922,32 @@ export function getManaAbilitiesForPermanent(
       // Only check single-color patterns if we didn't already handle as multi-mana
       if (!handledAsMultiMana) {
         // Check for each colored mana - simple fixed-amount abilities only
-        if (oracleText.match(/\{t\}:\s*add\s+\{w\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{w\}/i)) {
           abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
         }
-        if (oracleText.match(/\{t\}:\s*add\s+\{u\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{u\}/i)) {
           abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
         }
-        if (oracleText.match(/\{t\}:\s*add\s+\{b\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{b\}/i)) {
           abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
         }
-        if (oracleText.match(/\{t\}:\s*add\s+\{r\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{r\}/i)) {
           abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
         }
-        if (oracleText.match(/\{t\}:\s*add\s+\{g\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s+\{g\}/i)) {
           abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
         }
         // Check for colorless mana
-        if (oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
+        if (nativeOracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
           abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
         }
       }
       // Check for "any color" mana (Birds of Paradise, Arcane Signet, etc.) - but not variable amounts.
       // Support additional costs in the activation cost, e.g. "{T}, Pay 2 life, Sacrifice this: Add one mana of any color."
-      if (oracleText.match(/\{t\}[^:]*:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
+      if (nativeOracleText.match(/\{t\}[^:]*:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
         // Check if this is restricted to commander's color identity
         // Pattern: "add one mana of any color in your commander's color identity"
-        const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(oracleText);
+        const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(nativeOracleText);
         
         if (isCommanderRestricted) {
           // Get commander color identity for this player

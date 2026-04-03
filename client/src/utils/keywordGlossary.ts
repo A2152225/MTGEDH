@@ -337,6 +337,18 @@ export const KEYWORD_GLOSSARY: Record<string, KeywordInfo> = {
     rulesReference: 'Rule 702.14',
     icon: '🌾',
   },
+  tap_for_any_color: {
+    term: 'Mana Grant',
+    short: 'Tap',
+    color: '#38bdf8',
+    reminderText: '{T}: Add one mana of any color.',
+  },
+  tap_for_green: {
+    term: 'Mana Grant',
+    short: 'Tap',
+    color: '#22c55e',
+    reminderText: '{T}: Add {G}.',
+  },
 };
 
 /**

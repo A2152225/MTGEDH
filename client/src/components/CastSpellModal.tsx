@@ -426,6 +426,7 @@ interface CastSpellModalProps {
   manaCost?: string;
   oracleText?: string;
   forcedAlternateCostId?: string;
+  extraAlternateCosts?: AlternateCost[];
   availableSources: Array<{ id: string; name: string; options: Color[]; amount?: number }>;
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
@@ -458,6 +459,7 @@ export function CastSpellModal({
   manaCost,
   oracleText,
   forcedAlternateCostId,
+  extraAlternateCosts,
   availableSources,
   otherCardsInHand = [],
   floatingMana,
@@ -492,6 +494,15 @@ export function CastSpellModal({
   // Parse alternate costs from oracle text
   const alternateCosts = useMemo(() => {
     let costs = parseAlternateCosts(oracleText || '', manaCost || '', cardName);
+
+    if (Array.isArray(extraAlternateCosts) && extraAlternateCosts.length > 0) {
+      const existingIds = new Set(costs.map(cost => cost.id));
+      for (const extraCost of extraAlternateCosts) {
+        if (!extraCost || existingIds.has(extraCost.id)) continue;
+        costs.push(extraCost);
+        existingIds.add(extraCost.id);
+      }
+    }
     
     // If casting from graveyard, filter to only graveyard-castable costs
     if (castFromZone === 'graveyard') {
@@ -508,14 +519,20 @@ export function CastSpellModal({
     }
     
     return costs;
-  }, [oracleText, manaCost, cardName, castFromZone]);
+  }, [oracleText, manaCost, cardName, castFromZone, extraAlternateCosts]);
 
-  // Calculate the reduced mana cost if applicable
+  // Get the currently selected cost
+  const currentCost = useMemo(() => {
+    return alternateCosts.find(c => c.id === selectedCostId) || alternateCosts[0];
+  }, [alternateCosts, selectedCostId]);
+
+  // Calculate the reduced mana cost for the currently selected casting cost.
   const effectiveManaCost = useMemo(() => {
-    if (!costReduction || !manaCost) return manaCost;
+    const selectedManaCost = currentCost?.manaCost || manaCost;
+    if (!costReduction || !selectedManaCost) return selectedManaCost;
     
-    // Parse the original cost
-    const parsed = parseManaCost(manaCost);
+    // Parse the selected cost
+    const parsed = parseManaCost(selectedManaCost);
     
     // Apply reductions
     let newGeneric = Math.max(0, parsed.generic - costReduction.generic);
@@ -534,15 +551,7 @@ export function CastSpellModal({
       
       if (newColors[color]) {
         const reduction = costReduction.colors[colorKey];
-        const currentColorCost = newColors[color];
-        if (reduction >= currentColorCost) {
-          // If reduction exceeds colored cost, reduce colored to 0 and apply excess to generic
-          const excess = reduction - currentColorCost;
-          newColors[color] = 0;
-          newGeneric = Math.max(0, newGeneric - excess);
-        } else {
-          newColors[color] = currentColorCost - reduction;
-        }
+        newColors[color] = Math.max(0, newColors[color] - reduction);
       }
     }
     
@@ -557,12 +566,7 @@ export function CastSpellModal({
     if (newColors.C) parts.push('{C}'.repeat(newColors.C));
     
     return parts.length > 0 ? parts.join('') : '{0}';
-  }, [manaCost, costReduction]);
-
-  // Get the currently selected cost
-  const currentCost = useMemo(() => {
-    return alternateCosts.find(c => c.id === selectedCostId) || alternateCosts[0];
-  }, [alternateCosts, selectedCostId]);
+  }, [currentCost, manaCost, costReduction]);
 
   const floatingPaymentSources = useMemo(() => {
     if (!manualFloatingManaSelection || !floatingMana) return [] as Array<{ id: string; name: string; options: Color[]; amount?: number }>;
@@ -600,8 +604,7 @@ export function CastSpellModal({
   // Calculate suggested payment for auto-fill (considers floating mana)
   // IMPORTANT: Use the reduced cost (effectiveManaCost) when calculating suggestions
   const suggestedPayment = useMemo(() => {
-    // Use the effective (reduced) cost, falling back to alternate cost or original
-    const costToUse = currentCost?.manaCost || effectiveManaCost || manaCost;
+    const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost;
     const parsed = parseManaCost(costToUse);
     // For XX costs, multiply xValue by the number of X's (xCount)
     const xMultiplier = parsed.xCount || 1;
@@ -618,8 +621,7 @@ export function CastSpellModal({
   // Calculate how much floating mana will be used
   const floatingManaUsage = useMemo(() => {
     if (!floatingMana) return null;
-    // Use the effective (reduced) cost for floating mana calculation too
-    const costToUse = currentCost?.manaCost || effectiveManaCost || manaCost;
+    const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost;
     const parsed = parseManaCost(costToUse);
     // For XX costs, multiply xValue by the number of X's (xCount)
     const xMultiplier = parsed.xCount || 1;
@@ -634,7 +636,7 @@ export function CastSpellModal({
   const explicitPaymentSelectionRequired = useMemo(() => {
     if (!manualFloatingManaSelection || isForceAltCostSelected) return false;
 
-    const costToUse = currentCost?.manaCost || effectiveManaCost || manaCost || '{0}';
+    const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost || '{0}';
     const parsed = parseManaCost(costToUse);
     const colorCost = Object.values(parsed.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
     const hybridCost = Object.values(parsed.hybrids || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
@@ -796,9 +798,12 @@ export function CastSpellModal({
             <div style={{ fontSize: 12, fontWeight: 600, color: '#10b981', marginBottom: 4 }}>
               💰 Cost Reductions:
             </div>
-            {manaCost && effectiveManaCost !== manaCost && (
+            {(() => {
+              const selectedManaCost = currentCost?.manaCost || manaCost;
+              return selectedManaCost && effectiveManaCost !== selectedManaCost;
+            })() && (
               <div style={{ fontSize: 13, marginBottom: 6 }}>
-                <span style={{ textDecoration: 'line-through', opacity: 0.5 }}>{manaCost}</span>
+                <span style={{ textDecoration: 'line-through', opacity: 0.5 }}>{currentCost?.manaCost || manaCost}</span>
                 {' → '}
                 <span style={{ fontWeight: 600, color: '#10b981' }}>{effectiveManaCost}</span>
               </div>
@@ -909,8 +914,8 @@ export function CastSpellModal({
           </div>
         ) : (
           <PaymentPicker
-            manaCost={currentCost?.manaCost || effectiveManaCost || manaCost}
-            manaCostDisplay={currentCost?.manaCost || effectiveManaCost || manaCost}
+            manaCost={effectiveManaCost || currentCost?.manaCost || manaCost}
+            manaCostDisplay={effectiveManaCost || currentCost?.manaCost || manaCost}
             sources={availableSources}
             chosen={payment}
             xValue={xValue}

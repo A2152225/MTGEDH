@@ -146,7 +146,14 @@ function parseAbilities(text: string): string[] {
 function resolveGrantedAbilities(source: BattlefieldPermanent, text: string): string[] {
   const lowerText = String(text || '').toLowerCase();
   if (!lowerText.includes('abilities of your choice among')) {
-    return parseAbilities(text);
+    const granted = parseAbilities(text);
+    if (/\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i.test(lowerText)) {
+      granted.push('tap_for_any_color');
+    }
+    if (/\{t\}:\s*add\s+\{g\}/i.test(lowerText)) {
+      granted.push('tap_for_green');
+    }
+    return [...new Set(granted)];
   }
 
   const chosenValues = Array.isArray((source as any)?.chosenOptions)

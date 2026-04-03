@@ -720,7 +720,7 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
   createsToken?: boolean; 
   tokenCopy?: boolean 
 }> = {
-  "hakbal of the surging soul": { effect: "Reveal the top card of your library. If it's a land, put it onto the battlefield tapped. Otherwise, put a +1/+1 counter on Hakbal." },
+  "hakbal of the surging soul": { effect: "Each Merfolk you control explores." },
   "etali, primal storm": { effect: "Exile cards from each opponent's library and cast them without paying mana costs" },
   "marisi, breaker of the coil": { effect: "Goaded creatures can't block" },
   "aurelia, the warleader": { effect: "Untap all creatures, additional combat phase (first combat each turn)" },

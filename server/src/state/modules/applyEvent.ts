@@ -5600,6 +5600,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "librarySearchResolve": {
         const pid = String((e as any).playerId || '').trim();
         const destination = String((e as any).destination || 'hand');
+        const sourceId = String((e as any).sourceId || '').trim();
+        const sourceName = String((e as any).sourceName || '').trim();
+        const abilityId = String((e as any).abilityId || '').trim();
         const entersTapped = (e as any).entersTapped === true;
         const splitAssignments = (e as any).splitAssignments as { toBattlefield?: string[]; toHand?: string[] } | undefined;
         const destinationFaceDown = (e as any).destinationFaceDown === true;
@@ -5630,6 +5633,33 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             exileCount: 0,
           };
           zones[pid] = z;
+
+          if (Array.isArray(ctx.state.stack) && ctx.state.stack.length > 0) {
+            ctx.state.stack = ctx.state.stack.filter((item: any) => {
+              if (!item || String(item.abilityType || '') !== 'fetch-land') {
+                return true;
+              }
+
+              const sameController = String(item.controller || '') === pid;
+              const sameSource = sourceId.length > 0 && String(item.source || '') === sourceId;
+              const sameName = sourceName.length > 0 && String(item.sourceName || '') === sourceName;
+              const sameAbilityId = abilityId.length > 0 && String(item.abilityId || '') === abilityId;
+
+              if (!sameController) {
+                return true;
+              }
+
+              if (sameSource || sameAbilityId) {
+                return false;
+              }
+
+              if (sameName && sourceId.length === 0 && abilityId.length === 0) {
+                return false;
+              }
+
+              return true;
+            });
+          }
 
           (z as any).library = libraryAfter;
           z.libraryCount = libraryAfter.length;
@@ -6523,6 +6553,36 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(sacrificeWhenYouDoResolve): failed', err);
+        }
+        break;
+      }
+
+      case "resolutionStepTimeoutRecovery": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const cancelledStepIds = Array.isArray((e as any).cancelledStepIds)
+            ? ((e as any).cancelledStepIds as any[]).map((stepId: any) => String(stepId || '').trim()).filter(Boolean)
+            : [];
+          const fallbackStepId = String((e as any).stepId || '').trim();
+          const stepIds = cancelledStepIds.length > 0
+            ? cancelledStepIds
+            : (fallbackStepId ? [fallbackStepId] : []);
+
+          if (gameId) {
+            for (const stepId of stepIds) {
+              ResolutionQueueManager.cancelStep(gameId, stepId);
+            }
+
+            const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+            if (!pendingSummary.hasPending && (ctx.state as any)?.priority === null && (ctx.state as any)?.turnPlayer) {
+              (ctx.state as any).priority = (ctx.state as any).turnPlayer;
+              (ctx.state as any).priorityPassedBy = new Set<string>();
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(resolutionStepTimeoutRecovery): failed', err);
         }
         break;
       }

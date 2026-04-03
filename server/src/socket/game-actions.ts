@@ -2097,15 +2097,32 @@ export function applyCostReduction(
   parsedCost: { generic: number; colors: Record<string, number> },
   reduction: { generic: number; colors: Record<string, number>; messages?: string[] }
 ): { generic: number; colors: Record<string, number> } {
+  const colorNameToSymbol: Record<string, string> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+    colorless: 'C',
+    W: 'W',
+    U: 'U',
+    B: 'B',
+    R: 'R',
+    G: 'G',
+    C: 'C',
+  };
+
   const result = {
     generic: Math.max(0, parsedCost.generic - reduction.generic),
     colors: { ...parsedCost.colors },
   };
   
   // Apply color reductions (can reduce to 0 but not below)
-  for (const color of Object.keys(result.colors)) {
-    if (reduction.colors[color]) {
-      result.colors[color] = Math.max(0, result.colors[color] - reduction.colors[color]);
+  for (const [reductionColor, amount] of Object.entries(reduction.colors || {})) {
+    const symbol = colorNameToSymbol[reductionColor];
+    if (!symbol || !result.colors[symbol]) continue;
+    if (amount) {
+      result.colors[symbol] = Math.max(0, result.colors[symbol] - amount);
     }
   }
   
@@ -5555,9 +5572,14 @@ export function registerGameActions(io: Server, socket: Socket) {
       // We must not tap mana or consume floating mana.
       const isForceAltCostPaid = isForceAltCostRequested && (cardInHand as any).forceAltCostPaid === true;
       const isFreeCast = alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true;
+      const usesWubrgAlternateCost = alternateCostId === 'wubrg_self' || alternateCostId === 'wubrg_external';
 
       // Parse the mana cost to validate payment
-      const rawManaCost = (isForceAltCostPaid || isFreeCast) ? '' : (cardInHand.mana_cost || "");
+      const rawManaCost = (isForceAltCostPaid || isFreeCast)
+        ? ''
+        : usesWubrgAlternateCost
+          ? '{W}{U}{B}{R}{G}'
+          : (cardInHand.mana_cost || "");
       const manaCost = expandManaCostWithChosenX(rawManaCost, xValue);
       const parsedCost = parseManaCost(manaCost);
       

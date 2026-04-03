@@ -1,5 +1,6 @@
 import type { BattlefieldPermanent } from "../../../shared/src/types.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { permanentHasCreatureTypeNow } from './creatureTypeNow.js';
 
 export function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -1729,6 +1730,14 @@ export function calculateAllPTBonuses(
     
     // Parse generic "other [type] creatures you control get +X/+Y" from oracle text
     const oracleText = perm.card.oracle_text || '';
+
+    const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
+    const chosenTypeBuffMatch = oracleText.match(/other creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
+    if (chosenType && chosenTypeBuffMatch && permanentHasCreatureTypeNow(creaturePerm, chosenType)) {
+      powerBonus += parseInt(chosenTypeBuffMatch[1], 10);
+      toughnessBonus += parseInt(chosenTypeBuffMatch[2], 10);
+    }
+
     const lordMatch = oracleText.match(/other (\w+) creatures you control get \+(\d+)\/\+(\d+)/i);
     if (lordMatch && !lordBonus) { // Don't double count known lords
       const targetType = lordMatch[1].toLowerCase();
@@ -2130,6 +2139,22 @@ export function calculateAllPTBonusesWithSources(
     
     // Parse generic lord patterns
     const oracleText = perm.card.oracle_text || '';
+
+    const chosenType = String((perm as any).chosenCreatureType || '').trim().toLowerCase();
+    const chosenTypeBuffMatch = oracleText.match(/other creatures you control of the chosen type get ([+-]?\d+)\/([+-]?\d+)/i);
+    if (chosenType && chosenTypeBuffMatch && permanentHasCreatureTypeNow(creaturePerm, chosenType)) {
+      const p = parseInt(chosenTypeBuffMatch[1], 10);
+      const t = parseInt(chosenTypeBuffMatch[2], 10);
+      if (p !== 0 || t !== 0) {
+        sources.push({
+          name: perm.card.name || 'Creature',
+          power: p,
+          toughness: t,
+          type: 'creature',
+        });
+      }
+    }
+
     if (!lordBonus) {
       // Pattern 1: "Other [TYPE] creatures you control get +X/+Y" (excludes self)
       const lordMatch = oracleText.match(/other (\w+) creatures you control get \+(\d+)\/\+(\d+)/i);

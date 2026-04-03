@@ -165,6 +165,26 @@ describe('Creature Mana Abilities', () => {
       expect(abilities.some(a => a.produces.includes('G'))).toBe(true);
       expect(abilities.filter(a => a.isGranted && a.grantedBy === 'cryptolith-rite-1').length).toBe(0);
     });
+
+    it('should not treat Cryptolith Rite itself as a native mana source', () => {
+      const cryptolithRite = {
+        id: 'cryptolith-rite-1',
+        controller: 'player1',
+        card: {
+          name: 'Cryptolith Rite',
+          type_line: 'Enchantment',
+          oracle_text: 'Creatures you control have "{T}: Add one mana of any color."',
+        },
+      };
+
+      const gameState = {
+        battlefield: [cryptolithRite],
+      };
+
+      const abilities = getManaAbilitiesForPermanent(gameState, cryptolithRite, 'player1');
+
+      expect(abilities).toHaveLength(0);
+    });
   });
   
   describe('detectManaModifiers', () => {

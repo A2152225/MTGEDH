@@ -154,4 +154,90 @@ describe('activateFetchland replay semantics', () => {
     expect(Boolean(stack[0]?.searchParams?.entersTapped || false)).toBe(true);
     expect(String(stack[0]?.description || '')).toContain('up to 2');
   });
+
+  it('drops the resolved fetch-land stack item when the search result is replayed', () => {
+    const game = createInitialGameState('t_activate_fetchland_resolved_replay_cleanup');
+    const p1 = 'p1' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [
+          {
+            id: 'watery_grave_card',
+            name: 'Watery Grave',
+            type_line: 'Land — Island Swamp',
+            oracle_text: '({T}: Add {U} or {B}.) As Watery Grave enters, you may pay 2 life. If you don\'t, it enters tapped.',
+          },
+        ],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'delta_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'delta_card',
+          name: 'Polluted Delta',
+          type_line: 'Land',
+          oracle_text: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateFetchland',
+      playerId: p1,
+      permanentId: 'delta_1',
+      abilityId: 'delta_1-ability-0',
+      cardName: 'Polluted Delta',
+      stackId: 'stack_fetch_delta_1',
+      activatedAbilityText: '{T}, Pay 1 life, Sacrifice Polluted Delta: Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle.',
+      lifePaidForCost: 1,
+      searchParams: {
+        filter: { types: ['land'], subtypes: ['Island', 'Swamp'] },
+        searchDescription: 'Search for a Island or Swamp card',
+        isTrueFetch: true,
+        maxSelections: 1,
+        entersTapped: false,
+      },
+    } as any);
+
+    game.applyEvent({
+      type: 'librarySearchResolve',
+      playerId: p1,
+      sourceId: 'delta_1',
+      sourceName: 'Polluted Delta',
+      abilityId: 'delta_1-ability-0',
+      selectedCardIds: ['watery_grave_card'],
+      selectedCards: [
+        {
+          id: 'watery_grave_card',
+          name: 'Watery Grave',
+          type_line: 'Land — Island Swamp',
+          oracle_text: '({T}: Add {U} or {B}.) As Watery Grave enters, you may pay 2 life. If you don\'t, it enters tapped.',
+        },
+      ],
+      createdPermanentIds: ['watery_grave_perm'],
+      destination: 'battlefield',
+      entersTapped: false,
+      libraryAfter: [],
+    } as any);
+
+    expect((game.state as any).stack || []).toHaveLength(0);
+    expect((game.state as any).battlefield || []).toHaveLength(1);
+    expect(((game.state as any).battlefield || [])[0]?.card?.name).toBe('Watery Grave');
+  });
 });

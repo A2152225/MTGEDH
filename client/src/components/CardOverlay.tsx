@@ -57,6 +57,8 @@ const abilityLabelMap: Record<string, { short: string; color: string; descriptio
   // Special
   landwalk: { short: 'Lwk', color: '#a3e635', description: 'Landwalk - Unblockable if defender controls land type' },
   protection: { short: 'Pro', color: '#fcd34d', description: 'Protection - Can\'t be blocked/targeted/damaged by type' },
+  tap_for_any_color: { short: 'Tap', color: '#38bdf8', description: 'Mana Grant - {T}: Add one mana of any color.' },
+  tap_for_green: { short: 'Tap', color: '#22c55e', description: 'Mana Grant - {T}: Add {G}.' },
 };
 
 // Calculate power/toughness colors

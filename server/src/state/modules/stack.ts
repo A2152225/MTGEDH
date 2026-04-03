@@ -136,6 +136,47 @@ function repairReplayCardSourceZones(ctxOrState: any, playerId: PlayerID, cardId
   };
 }
 
+
+  function queueExploreDecisionStep(
+    ctx: GameContext,
+    controller: PlayerID,
+    permanentId: string,
+    remainingPermanentIds: string[] = []
+  ): boolean {
+    const gameId = String((ctx as any)?.gameId || '').trim();
+    if (!gameId || !permanentId) return false;
+
+    const library = ctx.libraries.get(controller) || [];
+    if (library.length === 0) return false;
+
+    const revealedCard = library[0];
+    if (!revealedCard) return false;
+
+    const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+    const exploringPerm = battlefield.find(
+      (p: any) => p?.id === permanentId && String(p?.controller || '') === String(controller)
+    );
+    if (!exploringPerm) return false;
+
+    const typeLine = String(revealedCard.type_line || '').toLowerCase();
+    const exploringName = exploringPerm?.card?.name || 'Creature';
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.EXPLORE_DECISION,
+      playerId: controller as any,
+      mandatory: true,
+      sourceId: permanentId,
+      sourceName: exploringName,
+      description: `${exploringName} explores`,
+      permanentId,
+      permanentName: exploringName,
+      revealedCard,
+      isLand: typeLine.includes('land'),
+      remainingPermanentIds,
+    } as any);
+
+    return true;
+  }
 const PERMANENT_TRIGGER_TARGET_TYPES = new Set([
   'creature',
   'permanent',
@@ -4390,6 +4431,37 @@ export function executeTriggerEffect(
   // Get all players for "each opponent" effects
   const players = state.players || [];
   const opponents = players.filter((p: any) => p.id !== controller && !p.hasLost);
+
+  if (/\beach merfolk you control explores\b/.test(desc)) {
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const merfolkIds = battlefield
+      .filter((perm: any) => {
+        if (!perm || String(perm.controller || '') !== String(controller)) return false;
+
+        const typeBlob = [
+          String(perm.card?.type_line || ''),
+          Array.isArray((perm as any).effectiveTypes) ? (perm as any).effectiveTypes.join(' ') : '',
+          Array.isArray((perm as any).grantedTypes) ? (perm as any).grantedTypes.join(' ') : '',
+        ].join(' ').toLowerCase();
+
+        return (isCreatureNow(perm) || typeBlob.includes('creature')) && typeBlob.includes('merfolk');
+      })
+      .map((perm: any) => String(perm.id || ''))
+      .filter((id: string) => id.length > 0);
+
+    if (merfolkIds.length === 0) {
+      debug(2, `[executeTriggerEffect] ${sourceName}: no Merfolk controlled by ${controller} to explore`);
+      return;
+    }
+
+    const [firstPermanentId, ...remainingPermanentIds] = merfolkIds;
+    const queued = queueExploreDecisionStep(ctx, controller, firstPermanentId, remainingPermanentIds);
+    debug(
+      2,
+      `[executeTriggerEffect] ${sourceName}: ${queued ? 'queued' : 'skipped'} explore sequence for ${merfolkIds.length} Merfolk`
+    );
+    return;
+  }
   
   // Helper to modify life and sync to player object
   const modifyLife = (playerId: string, delta: number) => {
