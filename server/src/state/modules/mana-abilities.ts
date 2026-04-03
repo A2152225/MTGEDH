@@ -28,6 +28,7 @@
 
 
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { getActualPowerToughness } from "../../state/utils.js";
 
 /**
  * Get commander color identity for a player
@@ -70,32 +71,28 @@ function getCommanderColorIdentity(gameState: any, playerId: string): Set<string
  * Calculate effective power for a permanent (including counters, modifiers, etc.)
  * This is a simplified version for use in mana ability calculations
  */
-function getEffectivePowerForMana(permanent: any): number {
+function getEffectivePowerForMana(permanent: any, gameState?: any): number {
   // Use pre-calculated effectivePower if available
   if (typeof permanent.effectivePower === 'number') {
     return permanent.effectivePower;
   }
-  
-  const card = permanent.card;
-  let basePower = permanent.basePower ?? (parseInt(String(card?.power ?? '0'), 10) || 0);
-  
-  // Handle star (*) power - use basePower if set (should be calculated by game state)
-  if (typeof card?.power === 'string' && card.power.includes('*')) {
-    if (typeof permanent.basePower === 'number') {
-      basePower = permanent.basePower;
-    }
-  }
-  
-  // Add +1/+1 counters
-  const plusCounters = permanent.counters?.['+1/+1'] || 0;
-  const minusCounters = permanent.counters?.['-1/-1'] || 0;
-  const counterDelta = plusCounters - minusCounters;
+
+  const basePower = getActualPowerToughness(permanent, gameState).power;
   
   // Check for other counter types that affect power (+1/+0, +2/+2, etc.)
   let otherCounterPower = 0;
   if (permanent.counters) {
     for (const [counterType, count] of Object.entries(permanent.counters)) {
-      if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+      if (
+        counterType === '+1/+1' ||
+        counterType === '-1/-1' ||
+        counterType === 'plus_one' ||
+        counterType === 'plusOne' ||
+        counterType === 'p1p1' ||
+        counterType === 'minus_one' ||
+        counterType === 'minusOne' ||
+        counterType === 'm1m1'
+      ) continue;
       const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
       if (counterMatch) {
         const pMod = parseInt(counterMatch[1], 10);
@@ -114,7 +111,7 @@ function getEffectivePowerForMana(permanent: any): number {
     }
   }
   
-  return Math.max(0, basePower + counterDelta + otherCounterPower + modifierPower);
+  return Math.max(0, basePower + otherCounterPower + modifierPower);
 }
 
 
@@ -1420,7 +1417,7 @@ export function getCreatureCountManaAmount(
         // If "entered this turn" check for that flag
         if (condition.includes('entered this turn') && !p.enteredThisTurn) continue;
         
-        const power = getEffectivePowerForMana(p);
+        const power = getEffectivePowerForMana(p, gameState);
         if (power > amount) {
           amount = power;
         }
@@ -1429,11 +1426,11 @@ export function getCreatureCountManaAmount(
     // "this creature's power" or "its power" (Viridian Joiner, Cradle Clearcutter, Rainveil)
     else if (condition.includes("this creature's power") || 
              condition.includes('its power')) {
-      amount = getEffectivePowerForMana(permanent);
+      amount = getEffectivePowerForMana(permanent, gameState);
     }
     // "Marwyn's power" or "[CardName]'s power" pattern
     else if (condition.match(/\w+'s\s+power/)) {
-      amount = getEffectivePowerForMana(permanent);
+      amount = getEffectivePowerForMana(permanent, gameState);
     }
     // "the sacrificed creature's power" (Fire Lord Ozai, Furgul)
     else if (condition.includes('sacrificed creature') && condition.includes('power')) {
@@ -1617,10 +1614,10 @@ export function getCreatureCountManaAmount(
   
   // Pattern 1: "Add X mana in any combination of colors, where X is..."
   const anyCombinationMatch = oracleText.match(
-    /add\s+(?:x|an amount of)?\s*mana\s+in\s+any\s+combination\s+of\s+colors[^.]*(?:where\s+x\s+is\s+)?(.+?)(?:\.|$)/i
+    /add\s+(?:x|an amount of)?\s*mana\s+in\s+any\s+combination\s+of\s+colors(?:,\s*where\s+x\s+is\s+(.+?))?(?:\.|$)/i
   );
   
-  if (anyCombinationMatch) {
+  if (anyCombinationMatch?.[1]) {
     const condition = anyCombinationMatch[1].toLowerCase().trim();
     const battlefield = gameState?.battlefield || [];
     let amount = 0;
@@ -1632,7 +1629,7 @@ export function getCreatureCountManaAmount(
         const typeLine = (p.card?.type_line || "").toLowerCase();
         if (!typeLine.includes("creature")) continue;
         
-        const power = getEffectivePowerForMana(p);
+        const power = getEffectivePowerForMana(p, gameState);
         if (power > amount) {
           amount = power;
         }

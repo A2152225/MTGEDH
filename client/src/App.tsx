@@ -402,6 +402,7 @@ export function App() {
   const [librarySearchModalOpen, setLibrarySearchModalOpen] = useState(false);
   const [librarySearchData, setLibrarySearchData] = useState<{
     cards: KnownCardRef[];
+    castableWhileSearchingCards?: KnownCardRef[];
     title: string;
     description?: string;
     filter?: { types?: string[]; subtypes?: string[]; maxCmc?: number };
@@ -2911,6 +2912,7 @@ export function App() {
 
         setLibrarySearchData({
           cards: step.availableCards || [],
+          castableWhileSearchingCards: step.castableWhileSearchingCards || [],
           title: step.sourceName || 'Search Library',
           description: step.description || step.searchCriteria || 'Search your library',
           filter: step.filter || {},
@@ -4339,6 +4341,22 @@ export function App() {
       stepId: (librarySearchData as any).stepId,
       selections: [],
       cancelled: true,
+    });
+    setLibrarySearchModalOpen(false);
+    setLibrarySearchData(null);
+  };
+
+  const handleLibrarySearchCastWhileSearching = (cardId: string) => {
+    if (!safeView || !librarySearchData) return;
+
+    socket.emit("submitResolutionResponse", {
+      gameId: safeView.id,
+      stepId: (librarySearchData as any).stepId,
+      selections: {
+        action: 'cast_panglacial_wurm',
+        cardId,
+      },
+      cancelled: false,
     });
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
@@ -6361,6 +6379,7 @@ export function App() {
       <LibrarySearchModal
         open={librarySearchModalOpen}
         cards={librarySearchData?.cards || []}
+        castableWhileSearchingCards={librarySearchData?.castableWhileSearchingCards || []}
         playerId={librarySearchData?.targetPlayerId || you || ''}
         title={librarySearchData?.title || 'Search Library'}
         description={librarySearchData?.description}
@@ -6373,6 +6392,7 @@ export function App() {
         toHand={librarySearchData?.toHand}
         entersTapped={librarySearchData?.entersTapped}
         onConfirm={handleLibrarySearchConfirm}
+        onCastWhileSearching={handleLibrarySearchCastWhileSearching}
         onCancel={handleLibrarySearchCancel}
       />
 

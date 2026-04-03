@@ -1528,7 +1528,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   }
   
   // Generic detection: "Whenever enchanted creature attacks, untap all lands you control"
-  const attackUntapLandsMatch = oracleText.match(/whenever (?:enchanted creature|equipped creature|~) attacks,?\s*(?:[^.]*)?untap all lands you control/i);
+    const attackUntapLandsMatch = oracleText.match(/whenever (?:this creature|enchanted creature|equipped creature|~) attacks,?\s*(?:[^.]*)?untap all lands you control/i);
   if (attackUntapLandsMatch && !triggers.some(t => t.triggerOn === 'attack' && t.untapType === 'lands')) {
     triggers.push({
       permanentId,
@@ -1541,7 +1541,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   }
   
   // Generic detection: "Whenever ~ deals combat damage to a player, untap all lands you control"
-  const combatDamageUntapMatch = oracleText.match(/whenever (?:~|enchanted creature|equipped creature) deals combat damage to (?:a player|an opponent),?\s*(?:[^.]*)?untap all lands you control/i);
+    const combatDamageUntapMatch = oracleText.match(/whenever (?:this creature|~|enchanted creature|equipped creature) deals combat damage to (?:a player|an opponent),?\s*(?:[^.]*)?untap all lands you control/i);
   if (combatDamageUntapMatch && !triggers.some(t => t.triggerOn === 'combat_damage' && t.untapType === 'lands')) {
     triggers.push({
       permanentId,
@@ -1618,7 +1618,8 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
   }
   
   // Pattern: "Whenever enchanted creature attacks, ..."
-  const auraAttackMatch = oracleText.match(/whenever enchanted creature attacks,?\s*([^.]+)/i);
+  // Also supports granted quoted text on attached auras: "Whenever this creature attacks, ..."
+  const auraAttackMatch = oracleText.match(/whenever (?:enchanted creature|this creature) attacks,?\s*([^.]+)/i);
   if (auraAttackMatch) {
     const effectText = auraAttackMatch[1].trim();
     triggers.push({

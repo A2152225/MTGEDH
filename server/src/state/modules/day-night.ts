@@ -6,7 +6,7 @@ function isDayNight(value: unknown): value is DayNight {
   return value === 'day' || value === 'night';
 }
 
-function transformPermanentToFace(permanent: any, faceIndex: 0 | 1): void {
+export function transformPermanentToFace(permanent: any, faceIndex: 0 | 1): void {
   if (!permanent?.card) return;
   const card: any = permanent.card;
   const faces: any[] = Array.isArray(card.card_faces) ? card.card_faces : [];

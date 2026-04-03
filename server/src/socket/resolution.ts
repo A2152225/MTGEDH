@@ -100,6 +100,7 @@ const MANA_POOL_KEY_BY_SYMBOL: Record<string, string> = {
 };
 
 const FLOATING_MANA_PAYMENT_PREFIX = '__pool__:';
+const PANGLACIAL_WURM_NAME = 'panglacial wurm';
 
 function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | null {
   const rawId = String(permanentId || '').trim();
@@ -123,6 +124,150 @@ function getFightAbilityDescription(step: any): string {
   const parts = activatedAbilityText.split(/:(.+)/);
   const effectText = String(parts[1] || activatedAbilityText).trim();
   return effectText || activatedAbilityText;
+}
+
+function buildKnownCardRefForSearch(card: any): any {
+  return {
+    id: card.id,
+    name: card.name,
+    type_line: card.type_line,
+    oracle_text: card.oracle_text,
+    image_uris: card.image_uris,
+    imageUrl: card.image_uris?.normal,
+    mana_cost: card.mana_cost,
+    cmc: card.cmc,
+    colors: card.colors,
+    power: card.power,
+    toughness: card.toughness,
+    loyalty: card.loyalty,
+  };
+}
+
+function getPanglacialCastCardId(selections: unknown): string | undefined {
+  if (!selections || typeof selections !== 'object' || Array.isArray(selections)) return undefined;
+  const raw = selections as Record<string, any>;
+  if (String(raw.action || '').trim().toLowerCase() !== 'cast_panglacial_wurm') return undefined;
+  const cardId = String(raw.cardId || '').trim();
+  return cardId || undefined;
+}
+
+function isTrueLibrarySearchStep(step: any): boolean {
+  const searchZone = String(step?.searchZone || 'library').toLowerCase();
+  const searchZones = Array.isArray(step?.searchZones)
+    ? step.searchZones.map((zone: any) => String(zone || '').toLowerCase())
+    : [];
+  const includesLibrary = searchZone === 'library' || searchZones.includes('library') || searchZones.length === 0;
+  if (!includesLibrary) return false;
+
+  const text = `${String(step?.description || '')} ${String(step?.searchCriteria || '')}`.toLowerCase();
+  if (text.includes('look at the top') || text.includes('reveal the top')) return false;
+  if (/\btop\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b/.test(text)) return false;
+  return text.includes('search your library') || text.includes('search library');
+}
+
+function getPanglacialCastableCards(gameId: string, step: ResolutionStep): any[] {
+  if (step.type !== ResolutionStepType.LIBRARY_SEARCH) return [];
+  if (!isTrueLibrarySearchStep(step as any)) return [];
+
+  const game = ensureGame(gameId);
+  if (!game) return [];
+
+  const playerId = String(step.playerId || '').trim();
+  if (!playerId) return [];
+
+  const library = Array.isArray((game as any).libraries?.get(playerId))
+    ? ((game as any).libraries.get(playerId) as any[])
+    : (Array.isArray((game as any)?.state?.zones?.[playerId]?.library)
+      ? ((game as any).state.zones[playerId].library as any[])
+      : []);
+
+  return library
+    .filter((card: any) => String(card?.name || '').trim().toLowerCase() === PANGLACIAL_WURM_NAME)
+    .map(buildKnownCardRefForSearch);
+}
+
+function restoreLibrarySearchStep(gameId: string, step: any): void {
+  if (!step?.id) return;
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  const exists = queue.steps.some((entry: any) => String(entry?.id || '') === String(step.id));
+  if (exists) return;
+  queue.steps.unshift(step);
+  if ((queue as any).activeStep && String((queue as any).activeStep.id || '') === String(step.id)) {
+    (queue as any).activeStep = undefined;
+  }
+}
+
+async function handlePanglacialWurmSearchCast(
+  io: Server,
+  socket: Socket,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  playerId: string,
+  cardId: string,
+): Promise<void> {
+  const searchStep = step as any;
+  if (!isTrueLibrarySearchStep(searchStep)) {
+    socket.emit('error', { code: 'INVALID_SELECTION', message: 'This search does not allow casting Panglacial Wurm.' });
+    return;
+  }
+
+  const library = Array.isArray((game as any).libraries?.get(playerId))
+    ? ((game as any).libraries.get(playerId) as any[])
+    : (Array.isArray((game as any)?.state?.zones?.[playerId]?.library)
+      ? ((game as any).state.zones[playerId].library as any[])
+      : []);
+
+  const panglacialCard = library.find((card: any) =>
+    String(card?.id || '') === String(cardId) && String(card?.name || '').trim().toLowerCase() === PANGLACIAL_WURM_NAME
+  );
+
+  if (!panglacialCard) {
+    socket.emit('error', { code: 'INVALID_SELECTION', message: 'Panglacial Wurm is not in your library.' });
+    return;
+  }
+
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  const existingIndex = queue.steps.findIndex((entry: any) => String(entry?.id || '') === String(step.id));
+  if (existingIndex < 0) {
+    socket.emit('error', { code: 'STEP_NOT_FOUND', message: 'Resolution step not found' });
+    return;
+  }
+
+  const [suspendedStep] = queue.steps.splice(existingIndex, 1);
+  if ((queue as any).activeStep && String((queue as any).activeStep.id || '') === String(step.id)) {
+    (queue as any).activeStep = undefined;
+  }
+
+  await requestCastSpellForSocket(
+    io,
+    socket,
+    {
+      gameId,
+      cardId,
+      fromZone: 'library',
+    },
+    {
+      skipPriorityCheck: true,
+      librarySearchStepToResume: suspendedStep,
+    },
+  );
+
+  const nextPendingStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any)[0] as any;
+  if (!nextPendingStep) {
+    restoreLibrarySearchStep(gameId, suspendedStep);
+    socket.emit('resolutionStepPrompt', {
+      gameId,
+      step: sanitizeStepForClient(gameId, suspendedStep),
+    });
+    return;
+  }
+
+  socket.emit('resolutionStepPrompt', {
+    gameId,
+    step: sanitizeStepForClient(gameId, nextPendingStep),
+  });
+  broadcastGame(io, game, gameId);
 }
 
 function invalidateAutomationAfterHiddenDraw(game: any, affectedPlayerIds: string[], reason: string): void {
@@ -2489,6 +2634,15 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     // alongside selections from the client and must be preserved for the step handler.
     (response as any).splitAssignments = splitAssignments;
     (response as any).moveTo = moveTo;
+
+    const panglacialCardId =
+      step.type === ResolutionStepType.LIBRARY_SEARCH && !cancelled
+        ? getPanglacialCastCardId(response.selections)
+        : undefined;
+    if (panglacialCardId) {
+      await handlePanglacialWurmSearchCast(io, socket, game, gameId, step, pid, panglacialCardId);
+      return;
+    }
 
     // Validate before completing the step (prevents permanently completing on invalid input)
     if (step.type === ResolutionStepType.TARGET_SELECTION && !cancelled) {
@@ -5932,7 +6086,7 @@ export function emitResolutionStepPrompt(socket: Socket, gameId: string, step: R
   });
 }
 
-function sanitizeStepForClient(gameId: string, step: ResolutionStep): any {
+export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any {
   const oracleText = getOracleTextFromResolutionStep(step);
   const oracleContext = oracleText ? buildOraclePromptContext(oracleText) : undefined;
 
@@ -5945,6 +6099,12 @@ function sanitizeStepForClient(gameId: string, step: ResolutionStep): any {
     }
   }
 
+  if (step.type === ResolutionStepType.LIBRARY_SEARCH) {
+    const castableWhileSearchingCards = getPanglacialCastableCards(gameId, step);
+    if (castableWhileSearchingCards.length > 0) {
+      (typeSpecificFields as any).castableWhileSearchingCards = castableWhileSearchingCards;
+    }
+  }
   return {
     id: step.id,
     type: step.type,
@@ -8655,7 +8815,11 @@ async function handleStepResponse(
           } else if (creatureCountMana && (creatureCountMana.amount > 0 || (creatureCountMana as any).requiresColorChoice === true)) {
             const totalAmount = creatureCountMana.amount * effectiveMultiplier;
 
-            if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
+            if (
+              creatureCountMana.color === 'any_combination' ||
+              creatureCountMana.color === 'any_one_color' ||
+              creatureCountMana.color.startsWith('combination:')
+            ) {
               ResolutionQueueManager.addStep(gameId, {
                 type: ResolutionStepType.MANA_COLOR_SELECTION,
                 playerId: pid as PlayerID,
@@ -8876,11 +9040,15 @@ async function handleStepResponse(
         const forcedAlternateCostId = stepData.forcedAlternateCostId != null ? String(stepData.forcedAlternateCostId) : undefined;
 
         if (response.cancelled) {
+          const suspendedLibrarySearchStep = effectId && (game.state as any)?.pendingSpellCasts?.[effectId]?.librarySearchStepToResume;
           if (effectId && (game.state as any)?.pendingSpellCasts?.[effectId]) {
             delete (game.state as any).pendingSpellCasts[effectId];
           }
           if (effectId && (game.state as any)?.pendingTargets?.[effectId]) {
             delete (game.state as any).pendingTargets[effectId];
+          }
+          if (suspendedLibrarySearchStep) {
+            restoreLibrarySearchStep(gameId, suspendedLibrarySearchStep);
           }
 
           // If this was a Miracle-initiated cast, clear the first-drawn flags so it can't be re-offered.
@@ -19289,6 +19457,27 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
 function filterLibraryCards(library: any[], filter: any, gameState?: any, controllerId?: string): any[] {
   const availableCards: any[] = [];
   const searchCriteria = filter || {};
+  const matchesTypeFilter = (typeLine: string, types: string[]): boolean => {
+    return types.some((rawType: string) => {
+      const type = String(rawType || '').toLowerCase();
+      if (!type) return false;
+      if (type === 'historic') {
+        return typeLine.includes('artifact') || typeLine.includes('legendary') || typeLine.includes('saga');
+      }
+      if (type === 'permanent') {
+        return typeLine.includes('creature') ||
+          typeLine.includes('artifact') ||
+          typeLine.includes('enchantment') ||
+          typeLine.includes('land') ||
+          typeLine.includes('planeswalker') ||
+          typeLine.includes('battle');
+      }
+      if (type === 'noncreature') return !typeLine.includes('creature');
+      if (type === 'nonland') return !typeLine.includes('land');
+      if (type === 'nonartifact') return !typeLine.includes('artifact');
+      return typeLine.includes(type);
+    });
+  };
   
   // Build game state context for CDA calculations
   const gameStateForCDA = gameState ? {
@@ -19305,7 +19494,7 @@ function filterLibraryCards(library: any[], filter: any, gameState?: any, contro
     // Check types
     if (searchCriteria.types && searchCriteria.types.length > 0) {
       const typeLine = (card.type_line || '').toLowerCase();
-      matches = searchCriteria.types.some((type: string) => typeLine.includes(type.toLowerCase()));
+      matches = matchesTypeFilter(typeLine, searchCriteria.types);
     }
     
     // Check subtypes
@@ -19327,8 +19516,9 @@ function filterLibraryCards(library: any[], filter: any, gameState?: any, contro
     }
     
     // Check mana value
-    if (matches && typeof searchCriteria.maxManaValue === 'number') {
-      matches = (card.cmc || 0) <= searchCriteria.maxManaValue;
+    if (matches && (typeof searchCriteria.maxCmc === 'number' || typeof searchCriteria.maxManaValue === 'number')) {
+      const maxCmc = typeof searchCriteria.maxCmc === 'number' ? searchCriteria.maxCmc : searchCriteria.maxManaValue;
+      matches = (card.cmc || 0) <= maxCmc;
     }
     
     // Check power (e.g., "creature with power 2 or less" - Imperial Recruiter)
@@ -19353,6 +19543,22 @@ function filterLibraryCards(library: any[], filter: any, gameState?: any, contro
       }
       // If power is undefined (non-creature), don't filter based on power
     }
+
+    if (matches && typeof searchCriteria.minPower === 'number') {
+      if (card.power !== undefined && card.power !== null) {
+        const powerStr = String(card.power);
+        const powerNum = parseInt(powerStr, 10);
+        if (!isNaN(powerNum)) {
+          matches = powerNum >= searchCriteria.minPower;
+        } else if (powerStr.includes('*') && gameStateForCDA) {
+          const cardWithOwner = { ...card, owner: controllerId, controller: controllerId };
+          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
+          if (calculatedPT) {
+            matches = calculatedPT.power >= searchCriteria.minPower;
+          }
+        }
+      }
+    }
     
     // Check toughness (e.g., "creature with toughness 2 or less" - Recruiter of the Guard)
     // Handle both numeric and variable (*) toughness via CDA calculation
@@ -19375,6 +19581,22 @@ function filterLibraryCards(library: any[], filter: any, gameState?: any, contro
         // Other non-numeric formats without game state: allow the card
       }
       // If toughness is undefined (non-creature), don't filter based on toughness
+    }
+
+    if (matches && typeof searchCriteria.minToughness === 'number') {
+      if (card.toughness !== undefined && card.toughness !== null) {
+        const toughnessStr = String(card.toughness);
+        const toughnessNum = parseInt(toughnessStr, 10);
+        if (!isNaN(toughnessNum)) {
+          matches = toughnessNum >= searchCriteria.minToughness;
+        } else if (toughnessStr.includes('*') && gameStateForCDA) {
+          const cardWithOwner = { ...card, owner: controllerId, controller: controllerId };
+          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
+          if (calculatedPT) {
+            matches = calculatedPT.toughness >= searchCriteria.minToughness;
+          }
+        }
+      }
     }
     
     // Check minimum CMC (e.g., "mana value 6 or greater" - Fierce Empath)

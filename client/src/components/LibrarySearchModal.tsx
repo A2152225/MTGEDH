@@ -12,6 +12,7 @@ import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 export interface LibrarySearchModalProps {
   open: boolean;
   cards: KnownCardRef[];
+  castableWhileSearchingCards?: KnownCardRef[];
   playerId: string;
   title?: string;
   description?: string;
@@ -36,6 +37,7 @@ export interface LibrarySearchModalProps {
   toHand?: number;         // Number of cards to put in hand
   entersTapped?: boolean;  // Whether battlefield cards enter tapped
   onConfirm: (selectedCardIds: string[], moveTo: string, splitAssignments?: { toBattlefield: string[]; toHand: string[] }) => void;
+  onCastWhileSearching?: (cardId: string) => void;
   onCancel: () => void;
 }
 
@@ -143,6 +145,7 @@ function matchesFilter(card: KnownCardRef, filter: LibrarySearchModalProps['filt
 export function LibrarySearchModal({
   open,
   cards,
+  castableWhileSearchingCards = [],
   playerId,
   title = 'Search Library',
   description,
@@ -155,6 +158,7 @@ export function LibrarySearchModal({
   toHand = 0,
   entersTapped = false,
   onConfirm,
+  onCastWhileSearching,
   onCancel,
 }: LibrarySearchModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -185,6 +189,7 @@ export function LibrarySearchModal({
   
   // Check if there are any valid targets at all
   const hasValidTargets = validTargetCards.length > 0;
+  const hasCastWhileSearchingOptions = castableWhileSearchingCards.length > 0;
   
   // Filter and search cards (apply text search on top of filter)
   const filteredCards = useMemo(() => {
@@ -304,7 +309,7 @@ export function LibrarySearchModal({
     if (e.target !== e.currentTarget) return;
     
     // If there are valid targets, don't allow closing by clicking outside
-    if (hasValidTargets) {
+    if (hasValidTargets || hasCastWhileSearchingOptions) {
       return;
     }
     
@@ -315,7 +320,7 @@ export function LibrarySearchModal({
   if (!open) return null;
   
   // If no valid targets exist, show a special "no targets" state
-  if (!hasValidTargets) {
+  if (!hasValidTargets && !hasCastWhileSearchingOptions) {
     return (
       <div
         onClick={handleBackdropClick}
@@ -448,6 +453,55 @@ export function LibrarySearchModal({
             autoFocus
           />
         </div>
+
+        {hasCastWhileSearchingOptions && (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: 12,
+              borderRadius: 8,
+              border: '1px solid rgba(245, 158, 11, 0.35)',
+              backgroundColor: 'rgba(245, 158, 11, 0.1)',
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#fbbf24', marginBottom: 8 }}>
+              Cast While Searching
+            </div>
+            <div style={{ fontSize: 12, color: '#d1d5db', marginBottom: 10 }}>
+              Panglacial Wurm can be cast from your library while you are searching it.
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {castableWhileSearchingCards.map((card) => (
+                <button
+                  key={card.id}
+                  onClick={() => onCastWhileSearching?.(card.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 10px',
+                    borderRadius: 6,
+                    border: '1px solid rgba(251, 191, 36, 0.45)',
+                    backgroundColor: 'rgba(17, 24, 39, 0.55)',
+                    color: '#fff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {card.image_uris?.small && (
+                    <img
+                      src={card.image_uris.small}
+                      alt={card.name}
+                      style={{ width: 24, height: 34, borderRadius: 4, objectFit: 'cover' }}
+                    />
+                  )}
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>
+                    Cast {card.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         
         {/* Card Grid */}
         <div

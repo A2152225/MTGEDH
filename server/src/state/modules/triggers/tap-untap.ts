@@ -137,7 +137,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   // ===== DYNAMIC DETECTION (Primary) =====
   
   // "Whenever [creature] attacks, untap all lands you control"
-  const attackUntapLandsPattern = new RegExp(`whenever (?:enchanted creature|equipped creature|~|${cardNameEscaped}) attacks,?\\s*(?:[^.]*)?untap all lands you control`, 'i');
+  const attackUntapLandsPattern = new RegExp(`whenever (?:this creature|enchanted creature|equipped creature|~|${cardNameEscaped}) attacks,?\\s*(?:[^.]*)?untap all lands you control`, 'i');
   const attackUntapLandsMatch = oracleText.match(attackUntapLandsPattern);
   if (attackUntapLandsMatch) {
     triggers.push({
@@ -151,7 +151,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   }
   
   // "Whenever [creature] attacks, untap all creatures you control"
-  const attackUntapCreaturesPattern = new RegExp(`whenever (?:enchanted creature|equipped creature|~|${cardNameEscaped}) attacks,?\\s*(?:[^.]*)?untap all creatures you control`, 'i');
+  const attackUntapCreaturesPattern = new RegExp(`whenever (?:this creature|enchanted creature|equipped creature|~|${cardNameEscaped}) attacks,?\\s*(?:[^.]*)?untap all creatures you control`, 'i');
   const attackUntapCreaturesMatch = oracleText.match(attackUntapCreaturesPattern);
   if (attackUntapCreaturesMatch && !triggers.some(t => t.triggerOn === 'attack' && t.untapType === 'creatures')) {
     triggers.push({
@@ -165,7 +165,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   }
   
   // "Whenever [creature] deals combat damage to a player, untap all lands you control"
-  const combatDamageUntapLandsPattern = new RegExp(`whenever (?:~|enchanted creature|equipped creature|${cardNameEscaped}) deals combat damage to (?:a player|an opponent),?\\s*(?:[^.]*)?untap all lands you control`, 'i');
+  const combatDamageUntapLandsPattern = new RegExp(`whenever (?:this creature|~|enchanted creature|equipped creature|${cardNameEscaped}) deals combat damage to (?:a player|an opponent),?\\s*(?:[^.]*)?untap all lands you control`, 'i');
   const combatDamageUntapLandsMatch = oracleText.match(combatDamageUntapLandsPattern);
   if (combatDamageUntapLandsMatch && !triggers.some(t => t.triggerOn === 'combat_damage' && t.untapType === 'lands')) {
     triggers.push({
@@ -193,7 +193,7 @@ export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
   }
   
   // "Whenever [creature] deals damage to a player, untap all lands you control" (any damage, not just combat)
-  const damageUntapLandsPattern = new RegExp(`whenever (?:~|enchanted creature|equipped creature|${cardNameEscaped}) deals damage to (?:a player|an opponent),?\\s*(?:[^.]*)?untap all lands you control`, 'i');
+  const damageUntapLandsPattern = new RegExp(`whenever (?:this creature|~|enchanted creature|equipped creature|${cardNameEscaped}) deals damage to (?:a player|an opponent),?\\s*(?:[^.]*)?untap all lands you control`, 'i');
   const damageUntapLandsMatch = oracleText.match(damageUntapLandsPattern);
   if (damageUntapLandsMatch && !triggers.some(t => t.triggerOn === 'damage_to_player' && t.untapType === 'lands')) {
     triggers.push({

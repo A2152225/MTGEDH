@@ -44,12 +44,20 @@ import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
  */
 const AUTO_PASS_DELAY_MS = 150;
 
+const LAND_PLAY_AUTOMATION_SUPPRESSION_MS = 1500;
+
 type PendingHumanAutoPass = {
   playerId: PlayerID;
   timeout: ReturnType<typeof setTimeout>;
 };
 
+type PendingAutomationResume = {
+  suppressUntil: number;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
 const pendingHumanAutoPassTimers = new Map<string, PendingHumanAutoPass>();
+const pendingAutomationResumeTimers = new Map<string, PendingAutomationResume>();
 
 function clearScheduledHumanAutoPass(gameId: string, playerId?: PlayerID | string | null) {
   const pending = pendingHumanAutoPassTimers.get(gameId);
@@ -63,13 +71,82 @@ export function clearScheduledHumanAutoPassForGame(gameId: string): void {
   clearScheduledHumanAutoPass(gameId);
 }
 
-export function suppressAutomationOnNextBroadcast(game: InMemoryGame): void {
+function clearScheduledAutomationResume(gameId: string): void {
+  const pending = pendingAutomationResumeTimers.get(gameId);
+  if (!pending) return;
+  clearTimeout(pending.timeout);
+  pendingAutomationResumeTimers.delete(gameId);
+}
+
+function scheduleAutomationResume(
+  io: Server,
+  game: InMemoryGame,
+  gameId: string,
+  suppressUntil: number,
+): void {
+  const remainingMs = suppressUntil - Date.now();
+  if (remainingMs <= 0) {
+    const stateAny = (game.state as any) || {};
+    if (Number(stateAny._suppressAutomationUntil || 0) === suppressUntil) {
+      delete stateAny._suppressAutomationUntil;
+    }
+    clearScheduledAutomationResume(gameId);
+    checkAndTriggerAI(io, game, gameId);
+    checkAndTriggerAutoPass(io, game, gameId);
+    return;
+  }
+
+  const existing = pendingAutomationResumeTimers.get(gameId);
+  if (existing?.suppressUntil === suppressUntil) {
+    return;
+  }
+
+  clearScheduledAutomationResume(gameId);
+  const timeout = setTimeout(() => {
+    const pending = pendingAutomationResumeTimers.get(gameId);
+    if (!pending || pending.suppressUntil !== suppressUntil) {
+      return;
+    }
+    pendingAutomationResumeTimers.delete(gameId);
+
+    const stateAny = (game.state as any) || {};
+    const currentSuppressUntil = Number(stateAny._suppressAutomationUntil || 0);
+    if (currentSuppressUntil !== suppressUntil) {
+      return;
+    }
+
+    if (Date.now() < suppressUntil) {
+      scheduleAutomationResume(io, game, gameId, suppressUntil);
+      return;
+    }
+
+    delete stateAny._suppressAutomationUntil;
+    debug(2, `${ts()} [broadcastGame] Resuming deferred automation for ${gameId} after ${suppressUntil}`);
+    checkAndTriggerAI(io, game, gameId);
+    checkAndTriggerAutoPass(io, game, gameId);
+  }, remainingMs);
+
+  pendingAutomationResumeTimers.set(gameId, {
+    suppressUntil,
+    timeout,
+  });
+}
+
+export function suppressAutomationOnNextBroadcast(game: InMemoryGame, delayMs = 0): void {
   try {
-    ((game.state as any)._suppressAutomationOnNextBroadcast) = true;
+    const stateAny = (game.state as any) || {};
+    stateAny._suppressAutomationOnNextBroadcast = true;
+    if (delayMs > 0) {
+      stateAny._suppressAutomationUntil = Date.now() + delayMs;
+    } else {
+      delete stateAny._suppressAutomationUntil;
+    }
   } catch {
     // best-effort only
   }
 }
+
+export { LAND_PLAY_AUTOMATION_SUPPRESSION_MS };
 
 /**
  * Timeout for clearing the priority restoration flag.
@@ -1564,11 +1641,22 @@ export function broadcastGame(
   
   const stateAny = (game.state as any) || {};
   const suppressAutomation = stateAny._suppressAutomationOnNextBroadcast === true;
-  if (suppressAutomation) {
+  const suppressUntil = Number(stateAny._suppressAutomationUntil || 0);
+  const deferAutomation = suppressUntil > Date.now();
+  if (suppressAutomation || deferAutomation) {
     delete stateAny._suppressAutomationOnNextBroadcast;
     clearScheduledHumanAutoPass(gameId);
-    debug(2, `[broadcastGame] Suppressed AI/auto-pass automation once for ${gameId}`);
+
+    if (deferAutomation) {
+      scheduleAutomationResume(io, game, gameId, suppressUntil);
+      debug(2, `${ts()} [broadcastGame] Suppressed AI/auto-pass automation until ${suppressUntil} for ${gameId}`);
+    } else {
+      delete stateAny._suppressAutomationUntil;
+      clearScheduledAutomationResume(gameId);
+      debug(2, `[broadcastGame] Suppressed AI/auto-pass automation once for ${gameId}`);
+    }
   } else {
+    clearScheduledAutomationResume(gameId);
     // After broadcasting, check if the current priority holder is an AI player
     // This ensures AI responds to game state changes
     checkAndTriggerAI(io, game, gameId);
@@ -1868,11 +1956,13 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
       return;
     }
     
-    // Check if auto-pass is enabled for this player
+    // Check if auto-pass is enabled for this player, or if a top-stack trigger
+    // shortcut should auto-pass this priority holder.
     const autoPassPlayers = stateAny.autoPassPlayers || new Set();
     const autoPassForTurn = stateAny.autoPassForTurn?.[priority] || false;
+    let triggerAutoPassReason = autoPassForTurn ? undefined : getTopTriggeredAbilityAutoPassReason(game.state, priority);
     
-    if (!autoPassPlayers.has(priority) && !autoPassForTurn) {
+    if (!autoPassPlayers.has(priority) && !autoPassForTurn && !triggerAutoPassReason) {
       clearScheduledHumanAutoPass(gameId, priorityPlayerId);
       // Auto-pass not enabled for this player
       debug(2, `${ts()} [checkAndTriggerAutoPass] Auto-pass not enabled for ${priority}, returning (ID: ${debugCallId})`);
@@ -1902,7 +1992,6 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     
     // CRITICAL: If autoPassForTurn is enabled, skip the canAct check and auto-pass immediately
     // This fixes the bug where "Auto-Pass Rest of Turn" didn't work properly
-    let triggerAutoPassReason = autoPassForTurn ? undefined : getTopTriggeredAbilityAutoPassReason(game.state, priority);
     if (!autoPassForTurn && !triggerAutoPassReason) {
       // Only check if player can act when autoPassForTurn is NOT enabled
       // Use the imported canAct and canRespond functions

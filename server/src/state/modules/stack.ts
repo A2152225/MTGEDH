@@ -61,7 +61,7 @@ import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../../../../rules-engine/src/oracleIR.js";
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from "../../../../rules-engine/src/triggeredAbilities.js";
 import { updateLandPlayPermissions, updateAllLandPlayPermissions } from "./land-permissions.js";
-import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "./day-night.js";
+import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefield, setDayNightState, transformPermanentToFace } from "./day-night.js";
 import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
 import { resolveGiftAwareOracleText } from "../../utils/gift.js";
@@ -90,17 +90,20 @@ type ReplayZoneRepairSummary = {
   hand: number;
   exile: number;
   graveyard: number;
+  library: number;
 };
 
-function repairReplayCardSourceZones(state: any, playerId: PlayerID, cardId: string): ReplayZoneRepairSummary {
+function repairReplayCardSourceZones(ctxOrState: any, playerId: PlayerID, cardId: string): ReplayZoneRepairSummary {
+  const state = ctxOrState?.state || ctxOrState;
+  const libraries = ctxOrState?.libraries || state?.libraries;
   if (!state || !cardId) {
-    return { total: 0, hand: 0, exile: 0, graveyard: 0 };
+    return { total: 0, hand: 0, exile: 0, graveyard: 0, library: 0 };
   }
 
   const zones = state.zones || {};
   const zone = zones[playerId];
   if (!zone || typeof zone !== 'object') {
-    return { total: 0, hand: 0, exile: 0, graveyard: 0 };
+    return { total: 0, hand: 0, exile: 0, graveyard: 0, library: 0 };
   }
 
   const hand = removeReplayDuplicateCardEntries(zone.hand, cardId);
@@ -119,11 +122,17 @@ function repairReplayCardSourceZones(state: any, playerId: PlayerID, cardId: str
     (zone as any).graveyardCount = (zone as any).graveyard.length;
   }
 
+  const libraryCards = Array.isArray((libraries as any)?.get?.(playerId))
+    ? (libraries as any).get(playerId)
+    : (Array.isArray((libraries as any)?.[playerId]) ? (libraries as any)[playerId] : undefined);
+  const library = removeReplayDuplicateCardEntries(libraryCards, cardId);
+
   return {
-    total: hand + exile + graveyard,
+    total: hand + exile + graveyard + library,
     hand,
     exile,
     graveyard,
+    library,
   };
 }
 
@@ -4340,6 +4349,37 @@ export function executeTriggerEffect(
     (state as any).winner = controller;
     (state as any).gameOver = true;
     (state as any).winCondition = `${sourceName}: you win the game`;
+  }
+
+  if (desc.includes('transform')) {
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    const triggerPermanentId = String((triggerItem as any)?.permanentId || (triggerItem as any)?.sourceId || '').trim();
+    const sourceNameCandidates = new Set(
+      [
+        String(sourceName || '').trim().toLowerCase(),
+        String((triggerItem as any)?.sourceName || '').trim().toLowerCase(),
+      ].filter(Boolean)
+    );
+
+    const permanent = battlefield.find((perm: any) => {
+      if (!perm?.card) return false;
+      if (String(perm.controller || '') !== String(controller)) return false;
+      if (triggerPermanentId && String(perm.id || '') === triggerPermanentId) return true;
+
+      const activeName = String(perm.card.name || '').trim().toLowerCase();
+      if (activeName && sourceNameCandidates.has(activeName)) return true;
+
+      const faces = Array.isArray((perm.card as any)?.card_faces) ? (perm.card as any).card_faces : [];
+      return faces.some((face: any) => sourceNameCandidates.has(String(face?.name || '').trim().toLowerCase()));
+    });
+
+    const faces = Array.isArray((permanent?.card as any)?.card_faces) ? (permanent.card as any).card_faces : [];
+    const layout = (permanent?.card as any)?.layout;
+    if (permanent && (layout === 'transform' || layout === 'double_faced_token') && faces.length >= 2) {
+      const nextFaceIndex = (permanent as any).transformed ? 0 : 1;
+      transformPermanentToFace(permanent, nextFaceIndex);
+      return;
+    }
   }
   
   // Ensure life dictionary exists
@@ -14510,6 +14550,10 @@ export function castSpell(
   const zones = state.zones = state.zones || {};
   let castFromExile = false;
   let castFromGraveyard = false;
+  let castFromLibrary = false;
+  const explicitSourceZone = typeof cardOrId === 'object' && cardOrId
+    ? String(cardOrId?.fromZone || cardOrId?.castSourceZone || cardOrId?.source || '').toLowerCase().trim()
+    : '';
   
   // Handle both card object and cardId string
   let card: any;
@@ -14523,7 +14567,7 @@ export function castSpell(
       );
       if (alreadyOnStack) {
         if ((ctx as any).isReplaying) {
-          const repaired = repairReplayCardSourceZones(state, playerId, cardId);
+          const repaired = repairReplayCardSourceZones(ctx, playerId, cardId);
           if (repaired.total > 0) {
             debug(1, `castSpell: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
           }
@@ -14544,7 +14588,7 @@ export function castSpell(
       );
       if (alreadyOnBattlefield) {
         if ((ctx as any).isReplaying) {
-          const repaired = repairReplayCardSourceZones(state, playerId, cardId);
+          const repaired = repairReplayCardSourceZones(ctx, playerId, cardId);
           if (repaired.total > 0) {
             debug(1, `castSpell: repaired ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for replayed card ${cardId}`);
           }
@@ -14573,6 +14617,9 @@ export function castSpell(
       return;
     }
     const handCards = z.hand as any[];
+    const libraryCards = Array.isArray((ctx as any).libraries?.get?.(playerId))
+      ? (((ctx as any).libraries.get(playerId)) as any[])
+      : (Array.isArray((ctx as any).libraries?.[playerId]) ? (((ctx as any).libraries[playerId]) as any[]) : null);
     const idx = handCards.findIndex((c: any) => c && c.id === cardOrId);
     if (idx !== -1) {
       // Remove card from hand
@@ -14594,9 +14641,18 @@ export function castSpell(
           card = gyCards.splice(gyIdx, 1)[0];
           (z as any).graveyardCount = gyCards.length;
           castFromGraveyard = true;
+        } else if (libraryCards) {
+          const libraryIdx = libraryCards.findIndex((c: any) => c && c.id === cardOrId);
+          if (libraryIdx !== -1) {
+            card = libraryCards.splice(libraryIdx, 1)[0];
+            castFromLibrary = true;
+          } else {
+            debug(1, `castSpell: card ${cardOrId} not found in hand, exile, graveyard, or library for player ${playerId} (may be replay)`);
+            return;
+          }
         } else {
           // During replay, card might not be in its expected zone anymore - this is okay
-          debug(1, `castSpell: card ${cardOrId} not found in hand, exile, or graveyard for player ${playerId} (may be replay)`);
+          debug(1, `castSpell: card ${cardOrId} not found in hand, exile, graveyard, or library for player ${playerId} (may be replay)`);
           return;
         }
       }
@@ -14639,6 +14695,21 @@ export function castSpell(
         (z as any).graveyardCount = gyCards.length;
         castFromGraveyard = true;
       }
+    }
+
+    const libraryCards = Array.isArray((ctx as any).libraries?.get?.(playerId))
+      ? (((ctx as any).libraries.get(playerId)) as any[])
+      : (Array.isArray((ctx as any).libraries?.[playerId]) ? (((ctx as any).libraries[playerId]) as any[]) : undefined);
+    if (libraryCards) {
+      const libraryIdx = libraryCards.findIndex((c: any) => c && c.id === card.id);
+      if (libraryIdx !== -1) {
+        libraryCards.splice(libraryIdx, 1);
+        castFromLibrary = true;
+      }
+    }
+
+    if (!castFromLibrary && explicitSourceZone === 'library') {
+      castFromLibrary = true;
     }
   }
 
@@ -14710,7 +14781,13 @@ export function castSpell(
 
   // Provenance metadata for intervening-if templates.
   // This is authoritative when we actually removed the card from a zone above.
-  const castSourceZone = castFromGraveyard ? 'graveyard' : castFromExile ? 'exile' : 'hand';
+  const castSourceZone = castFromGraveyard
+    ? 'graveyard'
+    : castFromExile
+      ? 'exile'
+      : castFromLibrary || explicitSourceZone === 'library'
+        ? 'library'
+        : 'hand';
   
   // Add to stack
   const stackItem: any = {
@@ -14727,6 +14804,7 @@ export function castSpell(
     castFromHand: castSourceZone === 'hand',
     castFromExile: castSourceZone === 'exile',
     castFromGraveyard: castSourceZone === 'graveyard',
+    castFromLibrary: castSourceZone === 'library',
   };
 
   try {
@@ -14737,6 +14815,7 @@ export function castSpell(
       stackItem.card.castFromHand = castSourceZone === 'hand';
       stackItem.card.castFromExile = castSourceZone === 'exile';
       stackItem.card.castFromGraveyard = castSourceZone === 'graveyard';
+      stackItem.card.castFromLibrary = castSourceZone === 'library';
     }
   } catch {
     // best-effort only

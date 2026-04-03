@@ -6558,6 +6558,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let mustBeOther = false;
     let requiredChargeCounters: number | null = null;
     const abilityOracleText = String(scopedAbilityFullText || oracleText || '').trim();
+    const selectedAbilityIndex = scopedAbilityFullText && scopedAbilityFullText.trim() && scopedAbilityFullText.trim() !== String(oracleText || '').trim()
+      ? 0
+      : abilityIndex;
     
     // Parse activated abilities: look for "cost: effect" patterns
     const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
@@ -6582,8 +6585,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
     }
     
-    if (abilityIndex < abilities.length) {
-      const ability = abilities[abilityIndex];
+    if (selectedAbilityIndex < abilities.length) {
+      const ability = abilities[selectedAbilityIndex];
       const thresholdRestrictedAbility = parseThresholdRestrictedActivatedAbility(`${ability.cost}: ${ability.effect}`);
       const normalizedCost = thresholdRestrictedAbility?.cost || ability.cost;
       abilityText = thresholdRestrictedAbility?.effect || ability.effect;
@@ -6618,7 +6621,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // For cards with a single activated ability or when the client sends an unrecognized abilityId,
       // use the full oracle text to detect if it's a mana ability
       // This fixes double-clicking lands and creatures with mana abilities
-      debug(1, `[activateBattlefieldAbility] Ability parsing failed or index out of range (${abilityIndex}/${abilities.length}), using oracle text as fallback`);
+      debug(1, `[activateBattlefieldAbility] Ability parsing failed or index out of range (${selectedAbilityIndex}/${abilities.length}), using oracle text as fallback`);
       
       // If there's only one ability parsed, use it
       if (abilities.length === 1) {
@@ -6691,10 +6694,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     let abilityConditionText = '';
     
     // First, check if we're activating a specific ability that has the condition
-    if (abilityIndex >= 0 && abilities.length > abilityIndex) {
+    if (selectedAbilityIndex >= 0 && abilities.length > selectedAbilityIndex) {
       // Get the full ability text including any conditions following it in oracle text
       // Since the parsing might not capture the full line, look for the ability cost pattern in oracle text
-      const costRegex = new RegExp(`${abilities[abilityIndex].cost.replace(/[{}]/g, '\\$&').replace(/[[\]\\^$.|?*+()]/g, '\\$&')}[^\\n]+`, 'i');
+      const costRegex = new RegExp(`${abilities[selectedAbilityIndex].cost.replace(/[{}]/g, '\\$&').replace(/[[\]\\^$.|?*+()]/g, '\\$&')}[^\\n]+`, 'i');
       const fullAbilityMatch = oracleText.match(costRegex);
       abilityConditionText = fullAbilityMatch ? fullAbilityMatch[0] : abilityText;
     } else {
@@ -9703,7 +9706,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       else if (creatureCountMana && (creatureCountMana.amount > 0 || (creatureCountMana as any).requiresColorChoice === true)) {
         const totalAmount = creatureCountMana.amount * effectiveMultiplier;
         
-        if (creatureCountMana.color === 'any_combination' || creatureCountMana.color.startsWith('combination:')) {
+            if (
+              creatureCountMana.color === 'any_combination' ||
+              creatureCountMana.color === 'any_one_color' ||
+              creatureCountMana.color.startsWith('combination:')
+            ) {
           // Resolution Queue: request a color choice from player
           ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MANA_COLOR_SELECTION,

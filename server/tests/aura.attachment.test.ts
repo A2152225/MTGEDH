@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, KnownCardRef } from '../../shared/src';
+import { getAttackTriggersForCreatures } from '../src/state/modules/triggers/combat';
 
 describe('Aura Attachment System', () => {
   describe('Aura attachment when resolving from stack', () => {
@@ -367,6 +368,85 @@ describe('Aura Attachment System', () => {
       const graveyard = g.state.zones?.[p1]?.graveyard || [];
       expect(graveyard.length).toBe(1);
       expect(graveyard[0].name).toBe('Grizzly Bears');
+    });
+  });
+
+  describe('Aura attack triggers', () => {
+    it('detects and resolves Bear Umbra granted attack text on the enchanted creature', () => {
+      const g = createInitialGameState('bear_umbra_attack_trigger');
+
+      const p1 = 'p1' as PlayerID;
+      const p2 = 'p2' as PlayerID;
+
+      g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+      g.applyEvent({ type: 'join', playerId: p2, name: 'Player 2' });
+
+      g.state.battlefield.push(
+        {
+          id: 'forest_1',
+          controller: p1,
+          owner: p1,
+          tapped: true,
+          card: { id: 'forest_1', name: 'Forest', type_line: 'Basic Land — Forest' } as any,
+        },
+        {
+          id: 'creature_1',
+          controller: p1,
+          owner: p1,
+          tapped: false,
+          attachments: ['bear_umbra_perm'],
+          card: {
+            id: 'creature_1',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            power: '2',
+            toughness: '2',
+          } as any,
+        },
+        {
+          id: 'bear_umbra_perm',
+          controller: p1,
+          owner: p1,
+          tapped: false,
+          attachedTo: 'creature_1',
+          card: {
+            id: 'bear_umbra_card',
+            name: 'Bear Umbra',
+            type_line: 'Enchantment — Aura',
+            oracle_text: 'Enchant creature\nEnchanted creature gets +2/+2 and has "Whenever this creature attacks, untap all lands you control."',
+          } as any,
+        },
+      );
+
+      const attacker = g.state.battlefield.find((perm: any) => perm.id === 'creature_1');
+      const triggers = getAttackTriggersForCreatures(
+        { state: g.state, bumpSeq: () => undefined } as any,
+        [attacker],
+        p1,
+        p2,
+      );
+
+      const bearUmbraTrigger = triggers.find((trigger: any) => trigger.cardName === 'Bear Umbra');
+      expect(bearUmbraTrigger).toBeTruthy();
+      expect(String(bearUmbraTrigger?.description || '').toLowerCase()).toContain('untap all lands you control');
+
+      g.state.stack = [
+        {
+          id: 'bear_umbra_trigger_1',
+          type: 'triggered_ability',
+          controller: p1,
+          source: 'bear_umbra_perm',
+          permanentId: 'bear_umbra_perm',
+          sourceName: 'Bear Umbra',
+          description: bearUmbraTrigger?.description,
+          triggerType: bearUmbraTrigger?.triggerType,
+          mandatory: true,
+        },
+      ] as any;
+
+      g.resolveTopOfStack();
+
+      expect(g.state.battlefield.find((perm: any) => perm.id === 'forest_1')?.tapped).toBe(false);
     });
   });
 });

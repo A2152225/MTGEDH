@@ -228,6 +228,14 @@ export function createInitialGameState(gameId: string): InMemoryGame {
     enumerable: false,
     configurable: true,
   });
+  Object.defineProperty(game, "libraries", {
+    get: () => (ctx as any).libraries,
+    set: (value) => {
+      (ctx as any).libraries = value;
+    },
+    enumerable: false,
+    configurable: true,
+  });
 
   return game;
 }

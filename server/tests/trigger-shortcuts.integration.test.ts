@@ -124,7 +124,9 @@ describe('trigger shortcut integration', () => {
 
   it('yieldToTriggerSource immediately re-evaluates current priority through the automation socket handler', async () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const { ctx, game, resolveTopOfStack } = createTriggerShortcutHarness('trigger_shortcut_handler');
+    const { ctx, game, resolveTopOfStack } = createTriggerShortcutHarness('trigger_shortcut_handler', {
+      autoPassPlayers: new Set(),
+    });
     games.set(game.gameId, game);
 
     const io = createMockIo(emitted);
@@ -151,6 +153,7 @@ describe('trigger shortcut integration', () => {
   it('broadcastGame auto-passes the current priority holder for saved always_resolve triggers', async () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { ctx, game, resolveTopOfStack } = createTriggerShortcutHarness('trigger_shortcut_broadcast', {
+      autoPassPlayers: new Set(),
       triggerShortcuts: {
         p2: [
           {

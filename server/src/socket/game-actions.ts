@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, suppressAutomationOnNextBroadcast } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS } from "./util";
 import { emitResolutionStepPrompt, processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -486,6 +486,32 @@ function findPendingSpellCastStep(gameId: string, playerId: string, cardId: stri
         (step.type === ResolutionStepType.OPTION_CHOICE && (step.mutateCastModeChoice === true || step.giftCastChoice === true))
       );
     });
+}
+
+async function restoreSuspendedLibrarySearchStep(
+  io: Server,
+  socket: Socket,
+  gameId: string,
+  suspendedStep: any,
+): Promise<void> {
+  if (!suspendedStep) {
+    return;
+  }
+
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  const alreadyQueued = queue.steps.some((entry: any) => String(entry?.id || '') === String(suspendedStep?.id || ''));
+  if (!alreadyQueued) {
+    queue.steps.unshift(suspendedStep);
+    if ((queue as any).activeStep && String((queue as any).activeStep.id || '') === String(suspendedStep?.id || '')) {
+      (queue as any).activeStep = undefined;
+    }
+  }
+
+  const { sanitizeStepForClient } = await import('./resolution.js');
+  socket.emit('resolutionStepPrompt', {
+    gameId,
+    step: sanitizeStepForClient(gameId, suspendedStep),
+  });
 }
 
 /**
@@ -993,9 +1019,9 @@ function checkEnchantmentETBTriggers(
     // Skip if already processed ETB
     if (permanent.etbProcessed) continue;
     
-    const typeLine = (permanent.card.type_line || '').toLowerCase();
-    const cardName = (permanent.card.name || '').toLowerCase();
-    const oracleText = (permanent.card.oracle_text || '').toLowerCase();
+    const activeCardFace = getActivePermanentCardFace(permanent);
+    const typeLine = String(activeCardFace.typeLine || permanent.card.type_line || '').toLowerCase();
+    const cardName = activeCardFace.name.toLowerCase();
     
     // Check for enchantments
     if (typeLine.includes('enchantment')) {
@@ -1004,11 +1030,14 @@ function checkEnchantmentETBTriggers(
         const controller = permanent.controller;
         permanent.etbProcessed = true;
         
-        // Get top 4 cards from library
-        const zones = game.state.zones?.[controller];
-        if (!zones || !Array.isArray(zones.library)) continue;
-        
-        const topCards = zones.library.slice(0, 4);
+        const library = Array.isArray((game as any).libraries?.get(controller))
+          ? ((game as any).libraries.get(controller) as any[])
+          : (Array.isArray((game as any)?.state?.zones?.[controller]?.library)
+            ? ((game as any).state.zones[controller].library as any[])
+            : []);
+        if (library.length === 0) continue;
+
+        const topCards = library.slice(0, 4);
         
         // Queue top-of-library look + optional take + bottom ordering via Resolution Queue
         ResolutionQueueManager.addStep(gameId, {
@@ -1016,7 +1045,7 @@ function checkEnchantmentETBTriggers(
           playerId: controller as PlayerID,
           sourceName: 'Growing Rites of Itlimoc',
           description: 'Look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in any order.',
-          searchCriteria: 'Top 4 cards ΓÇö choose a creature',
+          searchCriteria: 'Top 4 cards - choose a creature',
           minSelections: 0,
           maxSelections: 1,
           mandatory: false,
@@ -1024,7 +1053,7 @@ function checkEnchantmentETBTriggers(
           reveal: true,
           shuffleAfter: false,
           availableCards: topCards,
-          filter: { type: 'creature' },
+          filter: { types: ['creature'] },
           remainderDestination: 'bottom',
           remainderPlayerChoosesOrder: true,
         } as any);
@@ -1043,13 +1072,35 @@ function filterLibraryCardsForTutor(library: any[], filter: any): any[] {
   if (!Array.isArray(library) || library.length === 0) return [];
   const searchCriteria = filter || {};
 
+  const matchesTypeFilter = (typeLine: string, types: string[]): boolean => {
+    return types.some((rawType: string) => {
+      const type = String(rawType || '').toLowerCase();
+      if (!type) return false;
+      if (type === 'historic') {
+        return typeLine.includes('artifact') || typeLine.includes('legendary') || typeLine.includes('saga');
+      }
+      if (type === 'permanent') {
+        return typeLine.includes('creature') ||
+          typeLine.includes('artifact') ||
+          typeLine.includes('enchantment') ||
+          typeLine.includes('land') ||
+          typeLine.includes('planeswalker') ||
+          typeLine.includes('battle');
+      }
+      if (type === 'noncreature') return !typeLine.includes('creature');
+      if (type === 'nonland') return !typeLine.includes('land');
+      if (type === 'nonartifact') return !typeLine.includes('artifact');
+      return typeLine.includes(type);
+    });
+  };
+
   return library
     .filter((card: any) => {
       if (!card) return false;
       const typeLine = String(card.type_line || '').toLowerCase();
 
       if (Array.isArray(searchCriteria.types) && searchCriteria.types.length > 0) {
-        if (!searchCriteria.types.some((type: string) => typeLine.includes(String(type).toLowerCase()))) return false;
+        if (!matchesTypeFilter(typeLine, searchCriteria.types)) return false;
       }
 
       if (Array.isArray(searchCriteria.subtypes) && searchCriteria.subtypes.length > 0) {
@@ -1090,7 +1141,7 @@ function filterLibraryCardsForTutor(library: any[], filter: any): any[] {
     }));
 }
 
-function getActivePermanentCardFace(permanent: any): { name: string; oracleText: string } {
+function getActivePermanentCardFace(permanent: any): { name: string; oracleText: string; typeLine: string } {
   const card = permanent?.card;
   const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
   const isTransformCard =
@@ -1102,6 +1153,7 @@ function getActivePermanentCardFace(permanent: any): { name: string; oracleText:
   return {
     name: String(isTransformCard ? activeFace?.name || card?.name || '' : card?.name || '').trim(),
     oracleText: String(isTransformCard ? activeFace?.oracle_text || card?.oracle_text || '' : card?.oracle_text || ''),
+    typeLine: String(isTransformCard ? activeFace?.type_line || card?.type_line || '' : card?.type_line || ''),
   };
 }
 
@@ -2632,6 +2684,7 @@ export async function requestCastSpellForSocket(
     castWithoutPayingManaCost?: boolean;
     bypassExilePermissionCheck?: boolean;
     xValue?: number;
+    librarySearchStepToResume?: any;
   }
 ): Promise<void> {
   try {
@@ -2640,7 +2693,7 @@ export async function requestCastSpellForSocket(
     const faceIndex = typeof payload?.faceIndex === 'number' && Number.isFinite(payload.faceIndex)
       ? payload.faceIndex
       : undefined;
-    const fromZone = payload?.fromZone === 'hand' || payload?.fromZone === 'exile' || payload?.fromZone === 'graveyard'
+    const fromZone = payload?.fromZone === 'hand' || payload?.fromZone === 'exile' || payload?.fromZone === 'graveyard' || payload?.fromZone === 'library'
       ? payload.fromZone
       : undefined;
     if (!gameId || typeof gameId !== 'string') return;
@@ -2700,16 +2753,21 @@ export async function requestCastSpellForSocket(
     const hand = Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : ((zones as any).hand = []);
     const exile = Array.isArray((zones as any).exile) ? ((zones as any).exile as any[]) : ((zones as any).exile = []);
     const graveyard = Array.isArray((zones as any).graveyard) ? ((zones as any).graveyard as any[]) : ((zones as any).graveyard = []);
+    const library = Array.isArray((game.libraries as any)?.get?.(playerId))
+      ? ((game.libraries as any).get(playerId) as any[])
+      : (Array.isArray((game.libraries as any)?.[playerId]) ? ((game.libraries as any)[playerId] as any[]) : []);
 
     const isFreeCast = options?.castWithoutPayingManaCost === true || options?.forcedAlternateCostId === 'free';
     const bypassExilePermissionCheck = options?.bypassExilePermissionCheck === true;
 
-    let castSourceZone: 'hand' | 'exile' | 'graveyard' = (fromZone as any) || 'hand';
+    let castSourceZone: 'hand' | 'exile' | 'graveyard' | 'library' = (fromZone as any) || 'hand';
     let cardInHand: any =
       castSourceZone === 'exile'
         ? exile.find((c: any) => c && c.id === cardId)
         : castSourceZone === 'graveyard'
           ? graveyard.find((c: any) => c && c.id === cardId)
+          : castSourceZone === 'library'
+            ? library.find((c: any) => c && c.id === cardId)
           : hand.find((c: any) => c && c.id === cardId);
 
     // Allow starting the cast pipeline from exile for impulse-style effects.
@@ -2752,7 +2810,11 @@ export async function requestCastSpellForSocket(
 
     if (!cardInHand) {
       socket.emit("error", {
-        code: castSourceZone === 'exile' ? 'CARD_NOT_IN_EXILE' : (castSourceZone === 'graveyard' ? 'CARD_NOT_IN_GRAVEYARD' : 'CARD_NOT_FOUND'),
+        code: castSourceZone === 'exile'
+          ? 'CARD_NOT_IN_EXILE'
+          : (castSourceZone === 'graveyard'
+              ? 'CARD_NOT_IN_GRAVEYARD'
+              : (castSourceZone === 'library' ? 'CARD_NOT_IN_LIBRARY' : 'CARD_NOT_FOUND')),
         message: `Card not found in ${castSourceZone}`,
       });
       return;
@@ -3048,6 +3110,7 @@ export async function requestCastSpellForSocket(
               giftType,
             }
           : {}),
+        ...(options?.librarySearchStepToResume ? { librarySearchStepToResume: options.librarySearchStepToResume } : {}),
       };
 
       ResolutionQueueManager.addStep(gameId, {
@@ -3161,6 +3224,7 @@ export async function requestCastSpellForSocket(
                 giftType,
               }
             : {}),
+          ...(options?.librarySearchStepToResume ? { librarySearchStepToResume: options.librarySearchStepToResume } : {}),
         };
 
         const additionalCost = detectAdditionalCost(oracleText);
@@ -3367,6 +3431,7 @@ export async function requestCastSpellForSocket(
             giftType,
           }
         : {}),
+      ...(options?.librarySearchStepToResume ? { librarySearchStepToResume: options.librarySearchStepToResume } : {}),
     };
 
     const additionalCost = detectAdditionalCost(oracleText);
@@ -3819,7 +3884,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         debugWarn(1, 'Legacy playLand failed:', e);
       }
       
-      suppressAutomationOnNextBroadcast(game as any);
+      suppressAutomationOnNextBroadcast(game as any, LAND_PLAY_AUTOMATION_SUPPRESSION_MS);
       finalizePlayedLand(io, game, gameId, String(playerId), cardId, cardInZone, sourceZone);
     } catch (err: any) {
       debugError(1, `playLand error for game ${gameId}:`, err);
@@ -3934,7 +3999,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const convokeTappedCreatures = Array.isArray(payload?.convokeTappedCreatures)
         ? (payload.convokeTappedCreatures.filter((id): id is string => typeof id === 'string'))
         : undefined;
-      const fromZone = payload?.fromZone === 'hand' || payload?.fromZone === 'exile' || payload?.fromZone === 'graveyard'
+      const fromZone = payload?.fromZone === 'hand' || payload?.fromZone === 'exile' || payload?.fromZone === 'graveyard' || payload?.fromZone === 'library'
         ? payload.fromZone
         : undefined;
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
@@ -4012,9 +4077,16 @@ export function registerGameActions(io: Server, socket: Socket) {
       const hand: any[] = Array.isArray((zones as any).hand) ? (zones as any).hand : ((zones as any).hand = []);
       const exile: any[] = Array.isArray((zones as any).exile) ? (zones as any).exile : ((zones as any).exile = []);
       const graveyard: any[] = Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : ((zones as any).graveyard = []);
+      const library: any[] = Array.isArray((game.libraries as any)?.get?.(playerId))
+        ? (game.libraries as any).get(playerId)
+        : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
 
-      let castSourceZone: 'hand' | 'exile' | 'graveyard' = (fromZone as any) || 'hand';
-      let sourceArr: any[] = castSourceZone === 'exile' ? exile : (castSourceZone === 'graveyard' ? graveyard : hand);
+      let castSourceZone: 'hand' | 'exile' | 'graveyard' | 'library' = (fromZone as any) || 'hand';
+      let sourceArr: any[] = castSourceZone === 'exile'
+        ? exile
+        : (castSourceZone === 'graveyard'
+        ? graveyard
+        : (castSourceZone === 'library' ? library : hand));
 
       let cardInHand: any = sourceArr.find((c: any) => c && c.id === cardId);
 
@@ -4044,7 +4116,11 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       if (!cardInHand) {
         socket.emit("error", {
-          code: castSourceZone === 'exile' ? "CARD_NOT_IN_EXILE" : (castSourceZone === 'graveyard' ? "CARD_NOT_IN_GRAVEYARD" : "CARD_NOT_IN_HAND"),
+          code: castSourceZone === 'exile'
+            ? "CARD_NOT_IN_EXILE"
+            : (castSourceZone === 'graveyard'
+                ? "CARD_NOT_IN_GRAVEYARD"
+                : (castSourceZone === 'library' ? "CARD_NOT_IN_LIBRARY" : "CARD_NOT_IN_HAND")),
           message: `Card not found in ${castSourceZone}`,
         });
         return;
@@ -7417,6 +7493,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       let pendingBypassExilePermissionCheck = false;
       let pendingXValue: number | undefined;
       let pendingFaceIndex: number | undefined;
+      let suspendedLibrarySearchStep: any;
 
       // DEBUG: Log incoming parameters
       debug(2, `[completeCastSpell] DEBUG START ========================================`);
@@ -7438,6 +7515,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         pendingBypassExilePermissionCheck = pendingCast?.bypassExilePermissionCheck === true;
         pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
         pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
+        suspendedLibrarySearchStep = pendingCast?.librarySearchStepToResume;
 
         // Mutate metadata is stored on pendingCast; copy it to the actual card object in hand before casting.
         if (String(pendingCast?.forcedAlternateCostId || '') === 'mutate') {
@@ -7447,7 +7525,10 @@ export function registerGameActions(io: Server, socket: Socket) {
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
             const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
             const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
-            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : hand;
+            const library: any[] = Array.isArray((game.libraries as any)?.get?.(playerId))
+              ? (game.libraries as any).get(playerId)
+              : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
+            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : fromZone === 'library' ? library : hand;
             const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
             if (cardObj) {
               (cardObj as any).isMutating = true;
@@ -7467,7 +7548,10 @@ export function registerGameActions(io: Server, socket: Socket) {
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
             const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
             const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
-            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : hand;
+            const library: any[] = Array.isArray((game.libraries as any)?.get?.(playerId))
+              ? (game.libraries as any).get(playerId)
+              : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
+            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : fromZone === 'library' ? library : hand;
             const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
             if (cardObj) {
               (cardObj as any).giftPromised = pendingCast?.giftPromised === true;
@@ -7555,6 +7639,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         fromZone: pendingFromZone,
         bypassExilePermissionCheck: pendingBypassExilePermissionCheck,
       });
+
+      if (suspendedLibrarySearchStep) {
+        await restoreSuspendedLibrarySearchStep(io, socket, gameId, suspendedLibrarySearchStep);
+      }
       
     } catch (err: any) {
       debugError(1, `[completeCastSpell] Error:`, err);
@@ -11205,7 +11293,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   // Payment/targeting cancel from client casting UI.
   // Used as a best-effort cleanup hook, especially for foretell casts (which temporarily move a card into hand).
-  socket.on('targetSelectionCancel', (payload?: { gameId?: unknown; cardId?: unknown; effectId?: unknown }) => {
+  socket.on('targetSelectionCancel', async (payload?: { gameId?: unknown; cardId?: unknown; effectId?: unknown }) => {
     const gameId = payload?.gameId;
     const cardId = payload?.cardId;
     const effectId = payload?.effectId;
@@ -11222,6 +11310,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (!ensureInGameRoom(gameId)) return;
 
       const effectIdStr = effectId as string | undefined;
+      const suspendedLibrarySearchStep = effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]?.librarySearchStepToResume;
 
       // Clean pending spell-cast state when present.
       if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
@@ -11249,6 +11338,10 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
 
         delete (game.state as any).pendingForetellCasts[cardId];
+      }
+
+      if (suspendedLibrarySearchStep) {
+        await restoreSuspendedLibrarySearchStep(io, socket, gameId, suspendedLibrarySearchStep);
       }
 
       broadcastGame(io, game, gameId);

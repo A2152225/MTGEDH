@@ -1865,6 +1865,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             stateAny.castFromExileThisTurn = stateAny.castFromExileThisTurn || {};
             stateAny.castFromExileThisTurn[pid] = true;
           }
+          if (pid && fromZone === 'library') {
+            const stateAny = (ctx.state as any) as any;
+            stateAny.castFromLibraryThisTurn = stateAny.castFromLibraryThisTurn || {};
+            stateAny.castFromLibraryThisTurn[pid] = true;
+          }
         } catch {
           // best-effort only
         }
@@ -1890,13 +1895,40 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
         // Prefer full card object for replay (contains all card data)
         // Fall back to cardId for backward compatibility with old events
-        const spellCardData = (e as any).card || (e as any).cardId;
+        const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
+        let spellCardData = (e as any).card || (e as any).cardId;
+        if (fromZone === 'library' && typeof spellCardData === 'string') {
+          const library = Array.isArray((ctx as any).libraries?.get?.((e as any).playerId))
+            ? (ctx as any).libraries.get((e as any).playerId)
+            : (Array.isArray((ctx as any).libraries?.[(e as any).playerId])
+                ? (ctx as any).libraries[(e as any).playerId]
+                : []);
+          const libraryCard = library.find((card: any) => String(card?.id || '') === String(spellCardData));
+          if (libraryCard) {
+            spellCardData = libraryCard;
+          }
+        }
+
+        if (fromZone === 'library') {
+          const library = Array.isArray((ctx as any).libraries?.get?.((e as any).playerId))
+            ? (ctx as any).libraries.get((e as any).playerId)
+            : (Array.isArray((ctx as any).libraries?.[(e as any).playerId])
+                ? (ctx as any).libraries[(e as any).playerId]
+                : []);
+          const spellCardId = String((spellCardData as any)?.id || (e as any).cardId || '').trim();
+          const libraryIdx = library.findIndex((card: any) => String(card?.id || '') === spellCardId);
+          if (libraryIdx !== -1) {
+            const [removedCard] = library.splice(libraryIdx, 1);
+            if (typeof spellCardData === 'string') {
+              spellCardData = removedCard;
+            }
+          }
+        }
 
         // Defensive replay hardening: if the persisted event indicates the spell
         // was cast from true exile, ensure any impulse-style tags/permissions are
         // cleaned up even if castSpell can't infer the source from current zones.
         try {
-          const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
           if (fromZone === 'exile') {
             const cardObj = typeof spellCardData === 'string' ? { id: spellCardData } : spellCardData;
             cleanupCardLeavingExile((ctx.state as any) as any, cardObj);
@@ -1907,7 +1939,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         castSpell(
           ctx as any,
           (e as any).playerId,
-          spellCardData,
+          typeof spellCardData === 'object' && spellCardData
+            ? { ...spellCardData, ...(fromZone ? { fromZone } : {}) }
+            : spellCardData,
           (e as any).targets,
           (e as any).xValue
         );

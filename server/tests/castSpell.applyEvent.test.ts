@@ -123,6 +123,51 @@ describe('castSpell via applyEvent', () => {
     expect(g.state.zones?.[p1]?.handCount).toBe(0);
   });
 
+  it('should remove a library card and preserve library provenance when replaying a library-origin cast', () => {
+    const g = createInitialGameState('cast_from_library_apply');
+
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+
+    (g as any).libraries = new Map<string, any[]>();
+    (g as any).libraries.set(p1, [
+      {
+        id: 'pang_1',
+        name: 'Panglacial Wurm',
+        type_line: 'Creature — Wurm',
+        oracle_text: 'While you\'re searching your library, you may cast Panglacial Wurm from your library.',
+        mana_cost: '{5}{G}{G}',
+        image_uris: undefined,
+      },
+    ]);
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    g.applyEvent({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'pang_1',
+      card: {
+        id: 'pang_1',
+        name: 'Panglacial Wurm',
+        type_line: 'Creature — Wurm',
+        oracle_text: 'While you\'re searching your library, you may cast Panglacial Wurm from your library.',
+        mana_cost: '{5}{G}{G}',
+      },
+      fromZone: 'library',
+      targets: [],
+    } as any);
+
+    expect(((g as any).libraries.get(p1) as any[]).length).toBe(0);
+    expect(g.state.stack.length).toBe(1);
+    expect((g.state.stack[0] as any).card.id).toBe('pang_1');
+    expect((g.state.stack[0] as any).castFromLibrary).toBe(true);
+    expect((g.state.stack[0] as any).fromZone).toBe('library');
+  });
+
   it('should handle multiple spells being cast sequentially', () => {
     const g = createInitialGameState('cast_multiple_spells');
     

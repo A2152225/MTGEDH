@@ -827,8 +827,8 @@ export function detectAttachmentAttackTriggers(card: any, permanent: any): Attac
   }
   
   // "Whenever enchanted creature attacks"
-  if (lowerOracle.includes('whenever enchanted creature attacks')) {
-    const effectMatch = oracleText.match(/whenever enchanted creature attacks,?\s*([^.]+)/i);
+    if (lowerOracle.includes('whenever enchanted creature attacks') || lowerOracle.includes('whenever this creature attacks')) {
+      const effectMatch = oracleText.match(/whenever (?:enchanted creature|this creature) attacks,?\s*([^.]+)/i);
     if (effectMatch) {
       triggers.push({
         permanentId,

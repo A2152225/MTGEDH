@@ -69,15 +69,26 @@ export interface DoesntUntapEffect {
   description: string;
 }
 
+function getActivePermanentCardFace(card: any, permanent: any): { cardName: string; oracleText: string } {
+  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+  const isTransformCard = (card?.layout === 'transform' || card?.layout === 'double_faced_token') && cardFaces.length >= 2;
+  const activeFaceIndex = (permanent as any)?.transformed ? 1 : 0;
+  const activeFace = isTransformCard ? cardFaces[activeFaceIndex] || cardFaces[0] : undefined;
+
+  return {
+    cardName: String(isTransformCard ? activeFace?.name || card?.name || 'Unknown' : card?.name || 'Unknown'),
+    oracleText: String(isTransformCard ? activeFace?.oracle_text || card?.oracle_text || '' : card?.oracle_text || ''),
+  };
+}
+
 /**
  * Detect end step triggers from a card's oracle text
  * Uses dynamic regex-based detection to work with any card
  */
 export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger[] {
   const triggers: EndStepTrigger[] = [];
-  const oracleText = (card?.oracle_text || "");
+  const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
   const lowerOracle = oracleText.toLowerCase();
-  const cardName = card?.name || "Unknown";
   const permanentId = permanent?.id || "";
   const controllerId = permanent?.controller || "";
   
@@ -173,13 +184,14 @@ export function getEndStepTriggers(
     if (!permanent || !permanent.card) continue;
     
     const permTriggers = detectEndStepTriggers(permanent.card, permanent);
+    const { oracleText } = getActivePermanentCardFace(permanent.card, permanent);
     
     for (const trigger of permTriggers) {
       // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
       // would trigger, the ability does not trigger and should not be put on the stack.
       // If the condition is unrecognized, keep the trigger (conservative fallback).
       const interveningText = String(trigger.effect || trigger.description || '').trim();
-      const lowerOracle = (permanent.card.oracle_text || '').toLowerCase();
+      const lowerOracle = oracleText.toLowerCase();
 
       // Many trigger detectors store only the post-comma fragment (effect text). Wrap it
       // in a synthetic trigger header so intervening-if extraction can run.
