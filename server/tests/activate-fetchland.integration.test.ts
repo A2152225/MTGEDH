@@ -1,11 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
-import { ensureGame } from '../src/socket/util.js';
+import { appendEvent, createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
+import { createInitialGameState } from '../src/state/gameState.js';
+import { resolveTopOfStack } from '../src/state/modules/stack.js';
+import { ensureGame, transformDbEventsForReplay } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
-import { initializePriorityResolutionHandler } from '../src/socket/resolution.js';
-import { ResolutionQueueManager } from '../src/state/resolution/index.js';
+import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 
 function createNoopIo() {
@@ -193,5 +195,102 @@ describe('activateFetchland persistence (integration)', () => {
     expect(persisted?.payload?.searchParams?.filter?.supertypes).toContain('basic');
     expect(persisted?.payload?.searchParams?.maxSelections).toBe(2);
     expect(persisted?.payload?.searchParams?.entersTapped).toBe(true);
+  });
+
+  it('does not recreate a Misty Rainforest prompt after restart once the search resolved event was persisted', async () => {
+    const persistentGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
+    ResolutionQueueManager.removeQueue(persistentGameId);
+    games.delete(persistentGameId as any);
+
+    createGameIfNotExists(persistentGameId, 'commander', 40, undefined, 'p1');
+    const game = ensureGame(persistentGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+    (game as any).gameId = persistentGameId;
+
+    const p1 = 'p1';
+    const mistyRainforest = {
+      id: 'misty_rainforest_1',
+      name: 'Misty Rainforest',
+      type_line: 'Land',
+      oracle_text: '{T}, Pay 1 life, Sacrifice Misty Rainforest: Search your library for a Forest or Island card, put it onto the battlefield, then shuffle.',
+      zone: 'hand',
+    };
+    const breedingPool = {
+      id: 'breeding_pool_1',
+      name: 'Breeding Pool',
+      type_line: 'Land — Forest Island',
+      oracle_text: '({T}: Add {G} or {U})\nAs Breeding Pool enters, you may pay 2 life. If you don\'t, it enters tapped.',
+      zone: 'library',
+    };
+
+    const seedEvents = [
+      { type: 'join', payload: { playerId: p1, name: 'P1' } },
+      { type: 'deckImportResolved', payload: { playerId: p1, cards: [breedingPool] } },
+    ];
+
+    let seq = 0;
+    for (const event of seedEvents) {
+      appendEvent(persistentGameId, seq++, event.type, event.payload);
+      game.applyEvent({ type: event.type, ...(event.payload || {}) } as any);
+    }
+
+    game.applyEvent({ type: 'playLand', playerId: p1, cardId: mistyRainforest.id, card: mistyRainforest, fromZone: 'hand' } as any);
+
+    const mistyPermanentId = String((((game.state as any).battlefield || [])[0] || {}).id || '');
+    expect(mistyPermanentId).not.toBe('');
+    appendEvent(persistentGameId, seq++, 'playLand', {
+      playerId: p1,
+      cardId: mistyRainforest.id,
+      card: mistyRainforest,
+      fromZone: 'hand',
+      permanentId: mistyPermanentId,
+    });
+
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    if (Array.isArray((game.state as any).players) && (game.state as any).players[0]) {
+      (game.state as any).players[0].life = 40;
+    }
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(persistentGameId);
+    socket.data.gameId = persistentGameId;
+    const io = createMockIo(emitted, [socket]);
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: persistentGameId, permanentId: mistyPermanentId, abilityId: 'fetch-land' });
+    resolveTopOfStack(game as any);
+
+    const searchStep = ResolutionQueueManager.getStepsForPlayer(persistentGameId, p1).find((step: any) => step.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(searchStep.persistLibrarySearchResolve).toBe(true);
+
+    await handlers['submitResolutionResponse']({
+      gameId: persistentGameId,
+      stepId: String(searchStep.id),
+      selections: ['breeding_pool_1'],
+    });
+
+    const persistedEvents = getEvents(persistentGameId);
+    expect(persistedEvents.some((event: any) => event?.type === 'activateFetchland')).toBe(true);
+    expect(persistedEvents.some((event: any) => event?.type === 'librarySearchResolve')).toBe(true);
+
+    const liveBattlefield = ((game.state as any).battlefield || []) as any[];
+    const liveGraveyard = (((game.state as any).zones || {})[p1]?.graveyard || []) as any[];
+    expect(liveBattlefield.some((permanent: any) => permanent?.card?.id === 'breeding_pool_1')).toBe(true);
+    expect(liveGraveyard.some((card: any) => card?.id === 'misty_rainforest_1')).toBe(true);
+
+    const replayGame = createInitialGameState(`${persistentGameId}_replay`);
+    replayGame.replay!(transformDbEventsForReplay(persistedEvents as any));
+
+    const replayBattlefield = ((replayGame.state as any).battlefield || []) as any[];
+    const replayGraveyard = (((replayGame.state as any).zones || {})[p1]?.graveyard || []) as any[];
+    expect((replayGame.state as any).stack || []).toHaveLength(0);
+    expect(replayBattlefield.some((permanent: any) => permanent?.card?.id === 'breeding_pool_1')).toBe(true);
+    expect(replayGraveyard.some((card: any) => card?.name === 'Misty Rainforest')).toBe(true);
   });
 });

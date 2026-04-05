@@ -490,8 +490,9 @@ export function App() {
   const [smartUndoCounts, setSmartUndoCounts] = useState<{
     stepCount: number;
     phaseCount: number;
+    previousPhaseCount: number;
     turnCount: number;
-  }>({ stepCount: 0, phaseCount: 0, turnCount: 0 });
+  }>({ stepCount: 0, phaseCount: 0, previousPhaseCount: 0, turnCount: 0 });
   
   // AI control state (for autopilot mode)
   const [aiControlEnabled, setAiControlEnabled] = useState(false);
@@ -2223,12 +2224,14 @@ export function App() {
       gameId: string; 
       stepCount: number; 
       phaseCount: number; 
+      previousPhaseCount: number;
       turnCount: number;
     }) => {
       if (payload.gameId === safeView?.id) {
         setSmartUndoCounts({
           stepCount: payload.stepCount,
           phaseCount: payload.phaseCount,
+          previousPhaseCount: payload.previousPhaseCount,
           turnCount: payload.turnCount,
         });
       }
@@ -2290,11 +2293,11 @@ export function App() {
   React.useEffect(() => {
     if (!safeView?.id) return;
     if (availableUndoCount <= 0) return;
-    if ((smartUndoCounts.stepCount || 0) > 0 || (smartUndoCounts.phaseCount || 0) > 0 || (smartUndoCounts.turnCount || 0) > 0) {
+    if ((smartUndoCounts.stepCount || 0) > 0 || (smartUndoCounts.phaseCount || 0) > 0 || (smartUndoCounts.previousPhaseCount || 0) > 0 || (smartUndoCounts.turnCount || 0) > 0) {
       return;
     }
     socket.emit("getSmartUndoCounts", { gameId: safeView.id });
-  }, [availableUndoCount, safeView?.id, smartUndoCounts.phaseCount, smartUndoCounts.stepCount, smartUndoCounts.turnCount]);
+  }, [availableUndoCount, safeView?.id, smartUndoCounts.phaseCount, smartUndoCounts.previousPhaseCount, smartUndoCounts.stepCount, smartUndoCounts.turnCount]);
 
   const handleOpenUndoMenu = React.useCallback(() => {
     if (!safeView?.id) return;
@@ -4537,7 +4540,7 @@ export function App() {
     setUndoRequestData(null);
   };
 
-  const handleRequestUndo = (scope: 'step' | 'phase' | 'turn') => {
+  const handleRequestUndo = (scope: 'step' | 'phase' | 'previousPhase' | 'turn') => {
     if (!safeView) return;
 
     switch (scope) {
@@ -4546,6 +4549,9 @@ export function App() {
         break;
       case 'phase':
         socket.emit('requestUndoToPhase', { gameId: safeView.id });
+        break;
+      case 'previousPhase':
+        socket.emit('requestUndoToPreviousPhase', { gameId: safeView.id });
         break;
       case 'turn':
         socket.emit('requestUndoToTurn', { gameId: safeView.id });

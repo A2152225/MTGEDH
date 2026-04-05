@@ -96,6 +96,7 @@ function calculateBoundaryUndoCount(
   events: PersistedEvent[],
   game: any,
   boundaryKind: BoundaryKind,
+  boundaryOffset = 0,
 ): number {
   if (events.length === 0) return 0;
 
@@ -107,10 +108,14 @@ function calculateBoundaryUndoCount(
   const replayEvents = transformDbEventsForReplay(events as any);
   const scratch = createContext(`undo_probe_${game?.gameId || 'game'}` as any);
   const boundaryEntryIndices = new Map<string, number>();
+  const boundaryHistory: string[] = [];
   let previousBoundaryKeys = getBoundaryKeys((scratch as any).state || {}, boundaryKind);
   let previousBoundaryKey = previousBoundaryKeys[0];
   for (const boundaryKey of previousBoundaryKeys) {
     boundaryEntryIndices.set(boundaryKey, -1);
+  }
+  if (previousBoundaryKey) {
+    boundaryHistory.push(previousBoundaryKey);
   }
 
   replayOnContext(scratch as any, replayEvents as any, (replayCtx, _event, index) => {
@@ -119,6 +124,9 @@ function calculateBoundaryUndoCount(
     if (nextBoundaryKey !== previousBoundaryKey) {
       for (const boundaryKey of nextBoundaryKeys) {
         boundaryEntryIndices.set(boundaryKey, index);
+      }
+      if (nextBoundaryKey) {
+        boundaryHistory.push(nextBoundaryKey);
       }
     }
     previousBoundaryKey = nextBoundaryKey;
@@ -134,17 +142,30 @@ function calculateBoundaryUndoCount(
     debugWarn(1, `[undo] Failed to locate live boundary ${liveBoundaryKey}; using replay boundary ${targetBoundaryKey}`);
   }
 
-  return Math.max(0, replayEvents.length - (entryIndex + 1));
+  const targetHistoryIndex = boundaryHistory.lastIndexOf(targetBoundaryKey);
+  const desiredHistoryIndex = targetHistoryIndex - boundaryOffset;
+  if (desiredHistoryIndex < 0) {
+    return 0;
+  }
+
+  const desiredBoundaryKey = boundaryHistory[desiredHistoryIndex];
+  const desiredEntryIndex = boundaryEntryIndices.get(desiredBoundaryKey);
+  if (desiredEntryIndex === undefined) {
+    return 0;
+  }
+
+  return Math.max(0, replayEvents.length - (desiredEntryIndex + 1));
 }
 
-function calculateSmartUndoCounts(game: any, events: PersistedEvent[]): { stepCount: number; phaseCount: number; turnCount: number } {
+function calculateSmartUndoCounts(game: any, events: PersistedEvent[]): { stepCount: number; phaseCount: number; previousPhaseCount: number; turnCount: number } {
   if (!game || events.length === 0) {
-    return { stepCount: 0, phaseCount: 0, turnCount: 0 };
+    return { stepCount: 0, phaseCount: 0, previousPhaseCount: 0, turnCount: 0 };
   }
 
   return {
     stepCount: calculateBoundaryUndoCount(events, game, 'step'),
     phaseCount: calculateBoundaryUndoCount(events, game, 'phase'),
+    previousPhaseCount: calculateBoundaryUndoCount(events, game, 'phase', 1),
     turnCount: calculateBoundaryUndoCount(events, game, 'turn'),
   };
 }
@@ -996,7 +1017,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
     }
   });
 
-  // Get smart undo counts (step, phase, turn)
+  // Get smart undo counts (step, phase, previous phase, turn)
   socket.on("getSmartUndoCounts", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     try {
@@ -1012,12 +1033,13 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         debugWarn(1, `[getSmartUndoCounts] Failed to get events for game ${gameId}:`, e);
       }
 
-      const { stepCount, phaseCount, turnCount } = calculateSmartUndoCounts(game, events);
+      const { stepCount, phaseCount, previousPhaseCount, turnCount } = calculateSmartUndoCounts(game, events);
 
       socket.emit("smartUndoCountsUpdate", {
         gameId,
         stepCount,
         phaseCount,
+        previousPhaseCount,
         turnCount,
         totalCount: events.length,
       });
@@ -1079,6 +1101,34 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
       }
     } catch (err: any) {
       debugError(1, `requestUndoToPhase error for game ${gameId}:`, err);
+    }
+  });
+
+  // Request undo to previous phase (convenience wrapper)
+  socket.on("requestUndoToPreviousPhase", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
+    try {
+      if (!gameId || typeof gameId !== 'string') {
+        socket.emit?.('error', { code: 'INVALID_PAYLOAD', message: 'Missing gameId.' });
+        return;
+      }
+      const ctx = getUndoRequesterContext(gameId);
+      if (!ctx) return;
+
+      let events: Array<{ type: string; payload?: any }> = [];
+      try {
+        events = getEvents(gameId);
+      } catch (e) {
+        debugWarn(1, `[requestUndoToPreviousPhase] Failed to get events:`, e);
+        return;
+      }
+
+      const { previousPhaseCount: actionsToUndo } = calculateSmartUndoCounts(ctx.game, events);
+      if (actionsToUndo > 0) {
+        handleRequestUndo(gameId, actionsToUndo, 'Undo to previous phase');
+      }
+    } catch (err: any) {
+      debugError(1, `requestUndoToPreviousPhase error for game ${gameId}:`, err);
     }
   });
 

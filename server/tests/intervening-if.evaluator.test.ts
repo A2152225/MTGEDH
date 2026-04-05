@@ -2207,6 +2207,42 @@ describe('Intervening-if evaluator (expanded templates)', () => {
     expect(isInterveningIfSatisfied(g as any, String(p1), 'If you control lands of each basic land type, draw a card.')).toBe(true);
   });
 
+  it('does not treat Reality Twist as changing basic land type checks', () => {
+    const g = createInitialGameState('t_intervening_if_reality_twist');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(g, p1, 'P1');
+
+    (g.state as any).battlefield = [
+      {
+        id: 'reality_twist',
+        controller: p1,
+        owner: p1,
+        card: {
+          name: 'Reality Twist',
+          type_line: 'World Enchantment',
+          oracle_text: 'If tapped for mana, Plains produce {R}, Swamps produce {G}, Mountains produce {W}, and Forests produce {B} instead of any other type.',
+        },
+      },
+      {
+        id: 'sw',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Swamp', type_line: 'Basic Land — Swamp' },
+      },
+      {
+        id: 'fo',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Forest', type_line: 'Basic Land — Forest' },
+      },
+    ];
+
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you control a Mountain, draw a card.')).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you control an Island, draw a card.')).toBe(false);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you control a Swamp, draw a card.')).toBe(true);
+    expect(isInterveningIfSatisfied(g as any, String(p1), 'If you control a Forest, draw a card.')).toBe(true);
+  });
+
   it('supports battalion, blocking checks, party, legendary/named, poison, mana value, and source-dealt-damage-to-opponent', () => {
     const g = createInitialGameState('t_intervening_if_eval_misc_common');
     const p1 = 'p1' as PlayerID;

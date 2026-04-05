@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getManaAbilitiesForPermanent, detectManaModifiers } from '../src/state/modules/mana-abilities';
+import { getManaAbilitiesForPermanent, detectManaModifiers, getEffectiveBasicLandTypes } from '../src/state/modules/mana-abilities';
 
 describe('Creature Mana Abilities', () => {
   describe('getManaAbilitiesForPermanent', () => {
@@ -184,6 +184,179 @@ describe('Creature Mana Abilities', () => {
       const abilities = getManaAbilitiesForPermanent(gameState, cryptolithRite, 'player1');
 
       expect(abilities).toHaveLength(0);
+    });
+
+    it('should remap basic land mana under Reality Twist without changing land types', () => {
+      const realityTwist = {
+        id: 'reality-twist-1',
+        controller: 'player1',
+        card: {
+          name: 'Reality Twist',
+          type_line: 'World Enchantment',
+          oracle_text: 'If tapped for mana, Plains produce {R}, Swamps produce {G}, Mountains produce {W}, and Forests produce {B} instead of any other type.',
+        },
+      };
+
+      const plains = {
+        id: 'plains-1',
+        controller: 'player1',
+        card: {
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '',
+        },
+      };
+
+      const swamp = {
+        id: 'swamp-1',
+        controller: 'player1',
+        card: {
+          name: 'Swamp',
+          type_line: 'Basic Land — Swamp',
+          oracle_text: '',
+        },
+      };
+
+      const forest = {
+        id: 'forest-1',
+        controller: 'player1',
+        card: {
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '',
+        },
+      };
+
+      const gameState = {
+        battlefield: [realityTwist, plains, swamp, forest],
+      };
+
+      expect(getEffectiveBasicLandTypes(gameState, plains)).toEqual(['plains']);
+      expect(getEffectiveBasicLandTypes(gameState, swamp)).toEqual(['swamp']);
+      expect(getEffectiveBasicLandTypes(gameState, forest)).toEqual(['forest']);
+
+      const plainsAbilities = getManaAbilitiesForPermanent(gameState, plains, 'player1');
+      const swampAbilities = getManaAbilitiesForPermanent(gameState, swamp, 'player1');
+      const forestAbilities = getManaAbilitiesForPermanent(gameState, forest, 'player1');
+
+      expect(plainsAbilities.some(a => a.produces.includes('R'))).toBe(true);
+      expect(plainsAbilities.some(a => a.produces.includes('W'))).toBe(false);
+      expect(swampAbilities.some(a => a.produces.includes('G'))).toBe(true);
+      expect(swampAbilities.some(a => a.produces.includes('B'))).toBe(false);
+      expect(forestAbilities.some(a => a.produces.includes('B'))).toBe(true);
+      expect(forestAbilities.some(a => a.produces.includes('G'))).toBe(false);
+    });
+
+    it('should combine Urborg with Reality Twist through effective land types', () => {
+      const urborg = {
+        id: 'urborg-1',
+        controller: 'player1',
+        card: {
+          name: 'Urborg, Tomb of Yawgmoth',
+          type_line: 'Legendary Land',
+          oracle_text: 'Each land is a Swamp in addition to its other land types.',
+        },
+      };
+
+      const realityTwist = {
+        id: 'reality-twist-1',
+        controller: 'player1',
+        card: {
+          name: 'Reality Twist',
+          type_line: 'World Enchantment',
+          oracle_text: 'If tapped for mana, Plains produce {R}, Swamps produce {G}, Mountains produce {W}, and Forests produce {B} instead of any other type.',
+        },
+      };
+
+      const plains = {
+        id: 'plains-1',
+        controller: 'player1',
+        card: {
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '',
+        },
+      };
+
+      const gameState = {
+        battlefield: [urborg, realityTwist, plains],
+      };
+
+      expect(getEffectiveBasicLandTypes(gameState, plains)).toEqual(['plains', 'swamp']);
+
+      const plainsAbilities = getManaAbilitiesForPermanent(gameState, plains, 'player1');
+
+      expect(plainsAbilities.some(a => a.produces.includes('R'))).toBe(true);
+      expect(plainsAbilities.some(a => a.produces.includes('G'))).toBe(true);
+      expect(plainsAbilities.some(a => a.produces.includes('W'))).toBe(false);
+      expect(plainsAbilities.some(a => a.produces.includes('B'))).toBe(false);
+    });
+
+    it('should suppress Urborg under Blood Moon and remap Mountain mana with Reality Twist', () => {
+      const bloodMoon = {
+        id: 'blood-moon-1',
+        controller: 'player2',
+        card: {
+          name: 'Blood Moon',
+          type_line: 'Enchantment',
+          oracle_text: 'Nonbasic lands are Mountains.',
+        },
+      };
+
+      const urborg = {
+        id: 'urborg-1',
+        controller: 'player1',
+        card: {
+          name: 'Urborg, Tomb of Yawgmoth',
+          type_line: 'Legendary Land',
+          oracle_text: 'Each land is a Swamp in addition to its other land types.',
+        },
+      };
+
+      const realityTwist = {
+        id: 'reality-twist-1',
+        controller: 'player1',
+        card: {
+          name: 'Reality Twist',
+          type_line: 'World Enchantment',
+          oracle_text: 'If tapped for mana, Plains produce {R}, Swamps produce {G}, Mountains produce {W}, and Forests produce {B} instead of any other type.',
+        },
+      };
+
+      const commandTower = {
+        id: 'command-tower-1',
+        controller: 'player1',
+        card: {
+          name: 'Command Tower',
+          type_line: 'Land',
+          oracle_text: '{T}: Add one mana of any color in your commander\'s color identity.',
+        },
+      };
+
+      const plains = {
+        id: 'plains-1',
+        controller: 'player1',
+        card: {
+          name: 'Plains',
+          type_line: 'Basic Land — Plains',
+          oracle_text: '',
+        },
+      };
+
+      const gameState = {
+        battlefield: [bloodMoon, urborg, realityTwist, commandTower, plains],
+      };
+
+      expect(getEffectiveBasicLandTypes(gameState, commandTower)).toEqual(['mountain']);
+      expect(getEffectiveBasicLandTypes(gameState, plains)).toEqual(['plains']);
+
+      const towerAbilities = getManaAbilitiesForPermanent(gameState, commandTower, 'player1');
+      const plainsAbilities = getManaAbilitiesForPermanent(gameState, plains, 'player1');
+
+      expect(towerAbilities).toHaveLength(1);
+      expect(towerAbilities[0].produces).toEqual(['W']);
+      expect(plainsAbilities.some(a => a.produces.includes('R'))).toBe(true);
+      expect(plainsAbilities.some(a => a.produces.includes('G'))).toBe(false);
     });
   });
   

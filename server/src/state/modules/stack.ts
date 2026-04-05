@@ -49,6 +49,7 @@ import { createToken, runSBA, applyCounterModifications, destroyPermanent, moveP
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { applyGoadToCreature } from "./goad-effects.js";
+import { getEffectiveBasicLandTypes } from "./mana-abilities.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
@@ -14361,8 +14362,9 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           basicLandCount++;
         }
         
-        const subtypes = getLandSubtypes(typeLine);
-        controlledLandTypes.push(...subtypes);
+        const staticSubtypes = getLandSubtypes(typeLine).filter(subtype => !['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'].includes(subtype));
+        const effectiveBasicTypes = getEffectiveBasicLandTypes(state, p).map(subtype => subtype.charAt(0).toUpperCase() + subtype.slice(1));
+        controlledLandTypes.push(...staticSubtypes, ...effectiveBasicTypes);
       }
       
       // Check oracle text for the specific conditional pattern

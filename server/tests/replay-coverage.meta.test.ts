@@ -6,13 +6,14 @@ import { describe, expect, it } from 'vitest';
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(TEST_DIR, '..');
 
-const INTERACTION_EVENT_SOURCE_FILES = [
+const INTERACTION_EVENT_SOURCE_PATHS = [
   path.join(SERVER_DIR, 'src', 'socket', 'game-actions.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'interaction.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'mana-handlers.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'opponent-may-pay.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'player-selection.ts'),
   path.join(SERVER_DIR, 'src', 'socket', 'resolution.ts'),
+  path.join(SERVER_DIR, 'src', 'state', 'resolution', 'handlers'),
 ];
 
 const REPLAY_GUARDED_EVENT_TYPES = new Set([
@@ -32,6 +33,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'castSpellContinuation',
   'changePermanentControl',
   'clashResolve',
+  'cleanupDiscard',
   'colorChoice',
   'confirmForbiddenOrchardTarget',
   'concededPlayerCleanup',
@@ -40,12 +42,15 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'counter_moved',
   'counterTargetChosen',
   'crewVehicle',
+  'discardEffect',
   'enlist',
   'fatesealResolve',
   'fight',
   'joinForcesComplete',
   'joinForcesContribution',
   'keepHand',
+  'kynaiosChoiceComplete',
+  'kynaiosChoiceResponse',
   'librarySearchResolve',
   'moxDiamondChoice',
   'mulliganPutToBottom',
@@ -120,12 +125,18 @@ function collectPersistedInteractionEventTypes(): string[] {
   const eventTypeRegex = /appendEvent\([^\r\n]*["']([A-Za-z0-9_]+)["']/g;
   const eventTypes = new Set<string>();
 
-  for (const filePath of INTERACTION_EVENT_SOURCE_FILES) {
-    const content = readFile(filePath);
-    for (const match of content.matchAll(eventTypeRegex)) {
-      const eventType = String(match[1] || '').trim();
-      if (eventType) {
-        eventTypes.add(eventType);
+  for (const sourcePath of INTERACTION_EVENT_SOURCE_PATHS) {
+    const sourceFiles = fs.statSync(sourcePath).isDirectory()
+      ? walkFiles(sourcePath).filter(filePath => filePath.endsWith('.ts'))
+      : [sourcePath];
+
+    for (const filePath of sourceFiles) {
+      const content = readFile(filePath);
+      for (const match of content.matchAll(eventTypeRegex)) {
+        const eventType = String(match[1] || '').trim();
+        if (eventType) {
+          eventTypes.add(eventType);
+        }
       }
     }
   }

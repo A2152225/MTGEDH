@@ -33,6 +33,7 @@ import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
+import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleIRExecutor.js';
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
@@ -100,6 +101,10 @@ export function finalizePlayedLand(
   const cardImageUrl = (cardInZone as any)?.image_uris?.small || (cardInZone as any)?.image_uris?.normal;
   const cardOracleText = (cardInZone as any)?.oracle_text || '';
   const zones = game.state?.zones?.[playerId];
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const createdPermanent = [...battlefield].reverse().find((entry: any) =>
+    entry && entry.controller === playerId && entry.card?.id === cardId
+  );
 
   try {
     appendEvent(gameId, (game as any).seq ?? 0, "playLand", {
@@ -107,6 +112,7 @@ export function finalizePlayedLand(
       cardId,
       fromZone: sourceZone,
       card: cardInZone,
+      ...(createdPermanent?.id ? { permanentId: String(createdPermanent.id) } : {}),
       ...(eventExtras || {}),
     });
   } catch (e) {
@@ -115,7 +121,6 @@ export function finalizePlayedLand(
 
   const isShockLandCard = isShockLand(cardName, cardOracleText);
   if (isShockLandCard) {
-    const battlefield = game.state?.battlefield || [];
     const permanent = battlefield.find((p: any) =>
       p.card?.id === cardId &&
       p.controller === playerId
@@ -135,7 +140,6 @@ export function finalizePlayedLand(
     const oracleText = (cardInZone as any)?.oracle_text || '';
     const etbPattern = detectETBTappedPattern(oracleText);
 
-    const battlefield = game.state?.battlefield || [];
     const permanent = battlefield.find((p: any) =>
       p.card?.id === cardId &&
       p.controller === playerId
@@ -163,8 +167,9 @@ export function finalizePlayedLand(
           basicLandCount++;
         }
 
-        const subtypes = getLandSubtypes(typeLine);
-        controlledLandTypes.push(...subtypes);
+        const staticSubtypes = getLandSubtypes(typeLine).filter(subtype => !['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'].includes(subtype));
+        const effectiveBasicTypes = getEffectiveBasicLandTypes(game.state, p).map(subtype => subtype.charAt(0).toUpperCase() + subtype.slice(1));
+        controlledLandTypes.push(...staticSubtypes, ...effectiveBasicTypes);
       }
 
       const hasBattleLandPattern = oracleText.toLowerCase().includes('two or more basic lands');

@@ -18,6 +18,9 @@
  * - Prismatic Omen: Lands are all basic types (add any color)
  * - Blood Moon: Nonbasic lands are Mountains (only add {R})
  * - Magus of the Moon: Same as Blood Moon
+ *
+ * MANA REMAPPING:
+ * - Reality Twist: remaps mana produced by Plains/Swamps/Mountains/Forests
  * 
  * MANA DOUBLING:
  * - Mana Reflection: Tapping for mana adds double
@@ -149,6 +152,181 @@ export interface ManaModifier {
   requiresImprintedLandType?: boolean; // For Extraplanar Lens
   affectsAllPlayers?: boolean; // For symmetric effects like Mana Flare
   untilEndOfTurn?: boolean; // For effects that only last until end of turn
+}
+
+const BASIC_LAND_TYPES = ['plains', 'island', 'swamp', 'mountain', 'forest'] as const;
+type BasicLandType = typeof BASIC_LAND_TYPES[number];
+
+type OrderedLandTypeModifier = {
+  modifier: ManaModifier;
+  sourcePermanent: any;
+  sourceIndex: number;
+};
+
+const DEFAULT_BASIC_LAND_MANA_MAP: Record<BasicLandType, string> = {
+  plains: 'W',
+  island: 'U',
+  swamp: 'B',
+  mountain: 'R',
+  forest: 'G',
+};
+
+const REALITY_TWIST_BASIC_LAND_MANA_MAP: Record<BasicLandType, string> = {
+  plains: 'R',
+  island: 'U',
+  swamp: 'G',
+  mountain: 'W',
+  forest: 'B',
+};
+
+function getPrintedBasicLandTypes(typeLine: string): Set<BasicLandType> {
+  const normalizedTypeLine = String(typeLine || '').toLowerCase();
+  const printedTypes = new Set<BasicLandType>();
+  for (const basicType of BASIC_LAND_TYPES) {
+    if (normalizedTypeLine.includes(basicType)) {
+      printedTypes.add(basicType);
+    }
+  }
+  return printedTypes;
+}
+
+function getModifierBasicLandTypes(modifier: ManaModifier): Set<BasicLandType> {
+  const landTypes = new Set<BasicLandType>();
+  for (const landType of modifier.landTypes || []) {
+    const normalizedLandType = String(landType || '').toLowerCase();
+    if (BASIC_LAND_TYPES.includes(normalizedLandType as BasicLandType)) {
+      landTypes.add(normalizedLandType as BasicLandType);
+    }
+  }
+  return landTypes;
+}
+
+function isRealityTwistActive(gameState: any): boolean {
+  return Array.isArray(gameState?.battlefield) && gameState.battlefield.some((entry: any) =>
+    String(entry?.card?.name || '').trim().toLowerCase() === 'reality twist'
+  );
+}
+
+function modifierAppliesToLand(
+  modifier: ManaModifier,
+  permanent: any,
+  playerId: string,
+  isBasic: boolean,
+): boolean {
+  if (modifier.type !== 'land_type') return false;
+  if (modifier.affects === 'all_lands') return true;
+  if (modifier.affects === 'nonbasic_lands') return !isBasic;
+  if (modifier.affects === 'basic_lands') return isBasic;
+  if (modifier.affects === 'lands') return String(permanent?.controller || '') === playerId;
+  return false;
+}
+
+function getOrderedLandTypeModifiers(gameState: any, playerId: string): OrderedLandTypeModifier[] {
+  const battlefield = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
+  const battlefieldIndexById = new Map<string, number>();
+
+  battlefield.forEach((permanent: any, index: number) => {
+    const permanentId = String(permanent?.id || '').trim();
+    if (permanentId) {
+      battlefieldIndexById.set(permanentId, index);
+    }
+  });
+
+  return detectManaModifiers(gameState, playerId)
+    .filter((modifier): modifier is ManaModifier => modifier.type === 'land_type')
+    .map(modifier => {
+      const sourcePermanent = battlefield.find((permanent: any) => permanent?.id === modifier.permanentId);
+      return {
+        modifier,
+        sourcePermanent,
+        sourceIndex: battlefieldIndexById.get(String(modifier.permanentId || '')) ?? Number.MAX_SAFE_INTEGER,
+      };
+    })
+    .filter(effect => Boolean(effect.sourcePermanent))
+    .sort((left, right) => left.sourceIndex - right.sourceIndex);
+}
+
+function isLandTypeModifierSourceActive(
+  effect: OrderedLandTypeModifier,
+  allEffects: OrderedLandTypeModifier[],
+): boolean {
+  const sourcePermanent = effect.sourcePermanent;
+  const sourceTypeLine = String(sourcePermanent?.card?.type_line || '').toLowerCase();
+  if (!sourceTypeLine.includes('land')) {
+    return true;
+  }
+
+  const sourceController = String(sourcePermanent?.controller || '').trim();
+  const sourceIsBasic = sourceTypeLine.includes('basic');
+
+  return !allEffects.some(otherEffect => {
+    if (otherEffect.modifier.permanentId === effect.modifier.permanentId) {
+      return false;
+    }
+    if (!otherEffect.modifier.overridesExisting) {
+      return false;
+    }
+    return modifierAppliesToLand(otherEffect.modifier, sourcePermanent, sourceController, sourceIsBasic);
+  });
+}
+
+function getActiveLandTypeModifiers(gameState: any, playerId: string): OrderedLandTypeModifier[] {
+  const orderedModifiers = getOrderedLandTypeModifiers(gameState, playerId);
+  return orderedModifiers.filter(effect => isLandTypeModifierSourceActive(effect, orderedModifiers));
+}
+
+function getOverridingLandTypeModifier(gameState: any, permanent: any): OrderedLandTypeModifier | undefined {
+  const playerId = String(permanent?.controller || '').trim();
+  if (!playerId) {
+    return undefined;
+  }
+
+  const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+  const isBasic = typeLine.includes('basic');
+  const activeModifiers = getActiveLandTypeModifiers(gameState, playerId);
+
+  for (let index = activeModifiers.length - 1; index >= 0; index -= 1) {
+    const effect = activeModifiers[index];
+    if (!effect.modifier.overridesExisting) {
+      continue;
+    }
+    if (modifierAppliesToLand(effect.modifier, permanent, playerId, isBasic)) {
+      return effect;
+    }
+  }
+
+  return undefined;
+}
+
+export function getEffectiveBasicLandTypes(gameState: any, permanent: any): BasicLandType[] {
+  const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+  if (!typeLine.includes('land')) {
+    return [];
+  }
+
+  const playerId = String(permanent?.controller || '').trim();
+  const isBasic = typeLine.includes('basic');
+  const modifiers = playerId ? getActiveLandTypeModifiers(gameState, playerId) : [];
+
+  let effectiveTypes = getPrintedBasicLandTypes(typeLine);
+
+  for (const effect of modifiers) {
+    if (!modifierAppliesToLand(effect.modifier, permanent, playerId, isBasic)) {
+      continue;
+    }
+
+    const modifierLandTypes = getModifierBasicLandTypes(effect.modifier);
+    if (effect.modifier.overridesExisting) {
+      effectiveTypes = modifierLandTypes;
+      continue;
+    }
+
+    for (const landType of modifierLandTypes) {
+      effectiveTypes.add(landType);
+    }
+  }
+
+  return BASIC_LAND_TYPES.filter(landType => effectiveTypes.has(landType));
 }
 
 /**
@@ -504,6 +682,10 @@ export function getManaAbilitiesForPermanent(
   const isCreature = typeLine.includes("creature");
   const isBasic = typeLine.includes("basic");
   const isPlaneswalker = typeLine.includes("planeswalker");
+  const effectiveBasicLandTypes = new Set<BasicLandType>(getEffectiveBasicLandTypes(gameState, permanent));
+  const landTypeOverride = isLand ? getOverridingLandTypeModifier(gameState, permanent) : undefined;
+  const landOracleText = landTypeOverride ? '' : oracleText;
+  const realityTwistActive = isRealityTwistActive(gameState);
   
   // IMPORTANT: Planeswalkers should NEVER have tap abilities for mana
   // Even if their text mentions "{T}: Add {G}" (e.g., when creating tokens with that ability)
@@ -532,22 +714,6 @@ export function getManaAbilitiesForPermanent(
   // Get modifiers affecting this player
   const modifiers = detectManaModifiers(gameState, playerId);
   
-  // Check for Blood Moon / Magus of the Moon first (overrides everything for nonbasics)
-  const bloodMoonEffect = modifiers.find(m => 
-    m.overridesExisting && 
-    m.affects === 'nonbasic_lands' && 
-    isLand && !isBasic
-  );
-  
-  if (bloodMoonEffect && bloodMoonEffect.grantedAbility) {
-    // Nonbasic lands become Mountains and lose other abilities
-    return [{
-      ...bloodMoonEffect.grantedAbility,
-      isGranted: true,
-      grantedBy: bloodMoonEffect.permanentId,
-    }];
-  }
-  
   // Parse native mana abilities from oracle text
   // ========================================================================
   // CRITICAL: Check for explicit mana choice patterns FIRST
@@ -557,13 +723,13 @@ export function getManaAbilitiesForPermanent(
   
   let hasExplicitChoicePattern = false;
   
-  if (isLand) {
+  if (isLand && landOracleText) {
     // ========================================================================
     // Check for multi-mana producers (bounce lands like Rakdos Carnarium)
     // Pattern: "{T}: Add {X}{Y}..." where X, Y are mana symbols (same or different)
     // These lands produce BOTH colors at once (not a choice)
     // ========================================================================
-    const multiManaMatch = oracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
+    const multiManaMatch = landOracleText.match(/\{t\}:\s*add\s+((?:\{[wubrgc]\}){2,})/i);
     if (multiManaMatch) {
       const manaSymbols = multiManaMatch[1].match(/\{([wubrgc])\}/gi) || [];
       const colors: string[] = [];
@@ -604,7 +770,7 @@ export function getManaAbilitiesForPermanent(
     // ========================================================================
     
     // Tri-land pattern: "{t}: add {X}, {Y}, or {Z}" (e.g., Jungle Shrine)
-    const triLandMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\},\s*\{([wubrgc])\},\s*or\s+\{([wubrgc])\}/i);
+    const triLandMatch = landOracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\},\s*\{([wubrgc])\},\s*or\s+\{([wubrgc])\}/i);
     if (triLandMatch) {
       const colors = [
         triLandMatch[1].toUpperCase(),
@@ -623,7 +789,7 @@ export function getManaAbilitiesForPermanent(
     
     // Dual land "or" pattern: "{t}: add {X} or {Y}" (filter/pain lands)
     // This handles: Underground Sea, Boros Guildgate, pain lands, etc.
-    const dualOrMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
+    const dualOrMatch = landOracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
     if (dualOrMatch) {
       const colors = [
         dualOrMatch[1].toUpperCase(),
@@ -652,31 +818,23 @@ export function getManaAbilitiesForPermanent(
   // ONLY parse individual abilities if no explicit choice pattern was found
   // This prevents Underground Sea from getting U + B + (U or B choice)
   // ========================================================================
-  if (!hasExplicitChoicePattern && (isBasic || typeLine.includes("plains") || typeLine.includes("island") || 
-      typeLine.includes("swamp") || typeLine.includes("mountain") || typeLine.includes("forest"))) {
-    if (typeLine.includes("plains") || oracleText.includes("add {w}")) {
-      abilities.push({ id: 'native_w', cost: '{T}', produces: ['W'] });
-    }
-    if (typeLine.includes("island") || oracleText.includes("add {u}")) {
-      abilities.push({ id: 'native_u', cost: '{T}', produces: ['U'] });
-    }
-    if (typeLine.includes("swamp") || oracleText.includes("add {b}")) {
-      abilities.push({ id: 'native_b', cost: '{T}', produces: ['B'] });
-    }
-    if (typeLine.includes("mountain") || oracleText.includes("add {r}")) {
-      abilities.push({ id: 'native_r', cost: '{T}', produces: ['R'] });
-    }
-    if (typeLine.includes("forest") || oracleText.includes("add {g}")) {
-      abilities.push({ id: 'native_g', cost: '{T}', produces: ['G'] });
+  if (!hasExplicitChoicePattern && isLand && (isBasic || effectiveBasicLandTypes.size > 0)) {
+    const manaMap = realityTwistActive ? REALITY_TWIST_BASIC_LAND_MANA_MAP : DEFAULT_BASIC_LAND_MANA_MAP;
+    for (const landType of BASIC_LAND_TYPES) {
+      if (!effectiveBasicLandTypes.has(landType)) {
+        continue;
+      }
+      const producedColor = manaMap[landType];
+      abilities.push({ id: `native_${producedColor.toLowerCase()}`, cost: '{T}', produces: [producedColor] });
     }
   }
   
   // "Add one mana of any color" (like City of Brass, Mana Confluence, Command Tower)
   // Only match if this is a tap ability for lands or it's explicitly a mana ability
-  if (isLand && oracleText.includes("{t}:") && oracleText.includes("add one mana of any color")) {
+  if (isLand && landOracleText.includes("{t}:") && landOracleText.includes("add one mana of any color")) {
     // Check if this is restricted to commander's color identity
     // Pattern: "add one mana of any color in your commander's color identity"
-    const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(oracleText);
+    const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(landOracleText);
     
     if (isCommanderRestricted) {
       // Get commander color identity for this player
@@ -707,7 +865,7 @@ export function getManaAbilitiesForPermanent(
   }
   
   // Colorless mana producers (lands with explicit colorless production)
-  if (isLand && oracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
+  if (isLand && landOracleText.match(/\{t\}:\s*add\s*\{c\}/i)) {
     abilities.push({ id: 'native_c', cost: '{T}', produces: ['C'] });
   }
   
@@ -718,10 +876,10 @@ export function getManaAbilitiesForPermanent(
   // 1. {T}: Add {C} (already detected above)
   // 2. {T}: Add {X} or {Y} + deal 1 damage
   // ========================================================================
-  if (isLand) {
+  if (isLand && landOracleText) {
     // Look for pain land pattern: "{t}: add {X} or {Y}. ~ deals N damage to you"
     // OR: "{t}: add {X} or {Y}. this land deals N damage to you"
-    const painLandMatch = oracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}\.\s*(?:~|this land)\s+deals\s+(\d+)\s+damage\s+to\s+you/i);
+    const painLandMatch = landOracleText.match(/\{t\}:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}\.\s*(?:~|this land)\s+deals\s+(\d+)\s+damage\s+to\s+you/i);
     if (painLandMatch) {
       const colors = [
         painLandMatch[1].toUpperCase(),
@@ -756,8 +914,8 @@ export function getManaAbilitiesForPermanent(
   // Lands with "Pay life" costs (Sunbaked Canyon, Horizon Canopy, etc.)
   // Pattern: "{T}, Pay N life: Add {X} or {Y}"
   // ========================================================================
-  if (isLand) {
-    const payLifeMatch = oracleText.match(/\{t\},\s*pay\s+(\d+)\s+life:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
+  if (isLand && landOracleText) {
+    const payLifeMatch = landOracleText.match(/\{t\},\s*pay\s+(\d+)\s+life:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);
     if (payLifeMatch) {
       const lifeAmount = parseInt(payLifeMatch[1], 10);
       const colors = [
@@ -783,7 +941,7 @@ export function getManaAbilitiesForPermanent(
   // Pattern: "{T}: Add {X}." where X is a single colored mana symbol
   // This catches lands that don't have basic types and weren't caught by choice patterns
   // ========================================================================
-  if (isLand && !hasExplicitChoicePattern) {
+  if (isLand && !hasExplicitChoicePattern && landOracleText) {
     // Check for each colored mana - only add if not already present
     const singleColorPatterns = [
       { pattern: /\{t\}:\s*add\s+\{w\}\.?/i, color: 'W', id: 'native_w' },
@@ -794,7 +952,7 @@ export function getManaAbilitiesForPermanent(
     ];
     
     for (const { pattern, color, id } of singleColorPatterns) {
-      if (pattern.test(oracleText)) {
+      if (pattern.test(landOracleText)) {
         // Only add if we don't already have this color
         const alreadyHasColor = abilities.some(a => 
           a.produces.length === 1 && a.produces[0] === color && !a.additionalCosts
@@ -996,21 +1154,6 @@ export function getManaAbilitiesForPermanent(
       }
     }
     
-    if (modifier.type === 'land_type' && isLand && modifier.grantedAbility) {
-      const isNonbasic = !isBasic;
-      const shouldApply = 
-        modifier.affects === 'all_lands' ||
-        (modifier.affects === 'nonbasic_lands' && isNonbasic) ||
-        (modifier.affects === 'lands' && permanent.controller === playerId);
-      
-      if (shouldApply) {
-        abilities.push({
-          ...modifier.grantedAbility,
-          isGranted: true,
-          grantedBy: modifier.permanentId,
-        });
-      }
-    }
   }
   
   // Deduplicate abilities by produced colors
@@ -1067,21 +1210,7 @@ export function getExtraManaProduction(
   
   const typeLine = (permanent?.card?.type_line || "").toLowerCase();
   const isLand = typeLine.includes("land");
-  
-  // Check if land has specific land types (for Nissa, Crypt Ghast, etc.)
-  const hasForest = typeLine.includes("forest");
-  const hasSwamp = typeLine.includes("swamp");
-  const hasIsland = typeLine.includes("island");
-  const hasMountain = typeLine.includes("mountain");
-  const hasPlains = typeLine.includes("plains");
-  
-  // Build a map of land types for the permanent
-  const landTypes = new Set<string>();
-  if (hasForest) landTypes.add('forest');
-  if (hasSwamp) landTypes.add('swamp');
-  if (hasIsland) landTypes.add('island');
-  if (hasMountain) landTypes.add('mountain');
-  if (hasPlains) landTypes.add('plains');
+  const landTypes = new Set<string>(getEffectiveBasicLandTypes(gameState, permanent));
   
   for (const modifier of modifiers) {
     if (modifier.type === 'extra_mana' && modifier.extraMana) {

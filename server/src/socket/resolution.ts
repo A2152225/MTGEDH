@@ -63,9 +63,10 @@ import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
 import { trackCountersPlacedThisTurn } from "../state/modules/counters_tokens.js";
 import { updateCounters } from "../state/modules/counters_tokens.js";
-import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
+import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "../state/modules/turn-tracking.js";
 import { canPermanentBeTargetedByPlayer, categorizeSpell, evaluateTargeting, parseTargetRequirements, type SpellSpec } from "../rules-engine/targeting";
 import { getWardCost, counterStackItem } from "../state/modules/stack-mechanics.js";
+import { checkGraveyardTrigger } from "../state/modules/triggered-abilities.js";
 import { applyPlayerSelectionEffect, handleDeclinedPlayerSelection } from "./player-selection.js";
 import { handleImportWipeConfirmVote } from "./deck.js";
 import { handleJudgeConfirmVote } from "./judge.js";
@@ -11236,6 +11237,7 @@ async function handleDiscardResponse(
   const isDiscardCostActivation = (step as any)?.discardAbilityAsCost === true;
   const isExileFromHandCostActivation = (step as any)?.exileFromHandAbilityAsCost === true;
   const isGraveyardCastDiscardActivation = (step as any)?.graveyardCastDiscardAsCost === true;
+  const isCleanupDiscard = (step as any)?.reason === 'cleanup';
   if (isDiscardCostActivation || isExileFromHandCostActivation || isGraveyardCastDiscardActivation) {
     const stepAny = step as any;
     const controllerId = String(pid);
@@ -11378,6 +11380,26 @@ async function handleDiscardResponse(
   if (zones.exileCount !== undefined) {
     zones.exileCount = zones.exile.length;
   }
+
+  if (destination === 'graveyard' && movedCards.length > 0) {
+    const discardTrackingCtx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as any;
+
+    for (const card of movedCards) {
+      recordCardPutIntoGraveyardThisTurn(discardTrackingCtx, String(pid), card, { fromBattlefield: false });
+      checkGraveyardTrigger(discardTrackingCtx, card, String(pid));
+    }
+
+    const stateAny = game.state as any;
+    stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+    stateAny.discardedCardThisTurn[String(pid)] = true;
+    stateAny.anyPlayerDiscardedCardThisTurn = true;
+  }
   
   // Clear legacy pending state if present
   if (game.state.pendingDiscardSelection?.[pid]) {
@@ -11395,6 +11417,19 @@ async function handleDiscardResponse(
         : `${getPlayerName(game, pid)} discarded ${selections.length} card(s).`,
     ts: Date.now(),
   });
+
+  if (!isDiscardCostActivation && !isExileFromHandCostActivation && !isGraveyardCastDiscardActivation && !isCleanupDiscard) {
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'discardEffect', {
+        playerId: pid,
+        cardIds: selections.map((cardId: any) => String(cardId)).filter(Boolean),
+        destination,
+        ...(exileTag ? { exileTag } : {}),
+      });
+    } catch {
+      // ignore persistence failures
+    }
+  }
 
   if ((step as any)?.graveyardCastDiscardAsCost === true) {
     try {
@@ -11947,6 +11982,7 @@ async function handleDiscardResponse(
 
   // Planeswalker helper: "You may discard a card. If you do, draw a card."
   const afterDiscardDrawCount = (step as any)?.afterDiscardDrawCount;
+  let followupDrawCount = 0;
   if (afterDiscardDrawCount && typeof afterDiscardDrawCount === 'number' && afterDiscardDrawCount > 0) {
     if (typeof (game as any).drawCards === 'function') {
       (game as any).drawCards(pid, afterDiscardDrawCount);
@@ -11963,6 +11999,7 @@ async function handleDiscardResponse(
         (game as any).libraries.set(pid, lib);
       }
     }
+    followupDrawCount += afterDiscardDrawCount;
 
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -11996,6 +12033,7 @@ async function handleDiscardResponse(
           (game as any).libraries.set(pid, lib);
         }
       }
+      followupDrawCount += afterDiscardDrawCountIfDiscardedLand;
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -12007,10 +12045,25 @@ async function handleDiscardResponse(
     }
   }
 
+  if (followupDrawCount > 0) {
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'drawCards', {
+        playerId: pid,
+        count: followupDrawCount,
+      });
+    } catch {
+      // ignore persistence failures
+    }
+  }
+
   // Cleanup-step integration: after the discard is applied, advance through the
   // normal cleanup/turn transition logic (clears damage, ends EOT effects, Sundial pause).
-  if ((step as any)?.reason === 'cleanup') {
+  if (isCleanupDiscard) {
     try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'cleanupDiscard', {
+        playerId: pid,
+        cardIds: selections.map((cardId: any) => String(cardId)).filter(Boolean),
+      });
       if (typeof (game as any).nextStep === 'function') {
         (game as any).nextStep();
         flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);

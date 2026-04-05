@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { PlayerRef, PlayerID } from '../../../shared/src';
 
-type UndoScope = 'step' | 'phase' | 'turn';
+type UndoScope = 'step' | 'phase' | 'previousPhase' | 'turn';
 
 interface AIStrategy {
   id: string;
@@ -39,7 +39,7 @@ interface Props {
   onUndo?: (scope: UndoScope) => void;
   onOpenUndoMenu?: () => void;
   availableUndoCount?: number;
-  smartUndoCounts?: { stepCount: number; phaseCount: number; turnCount: number };
+  smartUndoCounts?: { stepCount: number; phaseCount: number; previousPhaseCount: number; turnCount: number };
   // Randomness handlers
   onRollDie?: (sides: number) => void;
   onFlipCoin?: () => void;
@@ -128,6 +128,7 @@ export function GameStatusIndicator({
   const undoOptions: Array<{ scope: UndoScope; label: string; count: number }> = [
     { scope: 'step', label: 'Current Step', count: Number(smartUndoCounts?.stepCount || 0) },
     { scope: 'phase', label: 'Current Phase', count: Number(smartUndoCounts?.phaseCount || 0) },
+    { scope: 'previousPhase', label: 'Previous Phase', count: Number(smartUndoCounts?.previousPhaseCount || 0) },
     { scope: 'turn', label: 'Current Turn', count: Number(smartUndoCounts?.turnCount || 0) },
   ];
   const hasAnyUndoOption = undoOptions.some((option) => option.count > 0);

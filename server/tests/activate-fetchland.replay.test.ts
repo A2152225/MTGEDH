@@ -240,4 +240,93 @@ describe('activateFetchland replay semantics', () => {
     expect((game.state as any).battlefield || []).toHaveLength(1);
     expect(((game.state as any).battlefield || [])[0]?.card?.name).toBe('Watery Grave');
   });
+
+  it('does not recreate a Misty Rainforest choice after the search result was already persisted', () => {
+    const game = createInitialGameState('t_activate_fetchland_misty_resolved_replay');
+    const p1 = 'p1' as PlayerID;
+
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [
+          {
+            id: 'breeding_pool_card',
+            name: 'Breeding Pool',
+            type_line: 'Land — Forest Island',
+            oracle_text: '({T}: Add {G} or {U}.) As Breeding Pool enters, you may pay 2 life. If you don\'t, it enters tapped.',
+          },
+        ],
+        libraryCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'misty_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'misty_card',
+          name: 'Misty Rainforest',
+          type_line: 'Land',
+          oracle_text: '{T}, Pay 1 life, Sacrifice Misty Rainforest: Search your library for a Forest or Island card, put it onto the battlefield, then shuffle.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateFetchland',
+      playerId: p1,
+      permanentId: 'misty_1',
+      abilityId: 'misty_1-ability-0',
+      cardName: 'Misty Rainforest',
+      stackId: 'stack_fetch_misty_1',
+      activatedAbilityText: '{T}, Pay 1 life, Sacrifice Misty Rainforest: Search your library for a Forest or Island card, put it onto the battlefield, then shuffle.',
+      lifePaidForCost: 1,
+      searchParams: {
+        filter: { types: ['land'], subtypes: ['Forest', 'Island'] },
+        searchDescription: 'Search for a Forest or Island card',
+        isTrueFetch: true,
+        maxSelections: 1,
+        entersTapped: false,
+      },
+    } as any);
+
+    game.applyEvent({
+      type: 'librarySearchResolve',
+      playerId: p1,
+      sourceId: 'misty_1',
+      sourceName: 'Misty Rainforest',
+      abilityId: 'misty_1-ability-0',
+      selectedCardIds: ['breeding_pool_card'],
+      selectedCards: [
+        {
+          id: 'breeding_pool_card',
+          name: 'Breeding Pool',
+          type_line: 'Land — Forest Island',
+          oracle_text: '({T}: Add {G} or {U}.) As Breeding Pool enters, you may pay 2 life. If you don\'t, it enters tapped.',
+        },
+      ],
+      createdPermanentIds: ['breeding_pool_perm'],
+      destination: 'battlefield',
+      entersTapped: false,
+      libraryAfter: [],
+    } as any);
+
+    expect((game.state as any).stack || []).toHaveLength(0);
+    expect((game.state as any).battlefield || []).toHaveLength(1);
+    expect(((game.state as any).battlefield || [])[0]?.card?.name).toBe('Breeding Pool');
+    expect((game.state as any).zones?.[p1]?.graveyard || []).toHaveLength(1);
+    expect(((game.state as any).zones?.[p1]?.graveyard || [])[0]?.name).toBe('Misty Rainforest');
+  });
 });

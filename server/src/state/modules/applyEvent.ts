@@ -419,6 +419,11 @@ function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
   );
   if (!permanent) return;
 
+  const persistedPermanentId = String(event?.permanentId || '').trim();
+  if (persistedPermanentId) {
+    permanent.id = persistedPermanentId;
+  }
+
   if (typeof event?.entersTapped === 'boolean') {
     permanent.tapped = event.entersTapped;
   }
@@ -2703,6 +2708,73 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(cleanupDiscard): failed", err);
+        }
+        break;
+      }
+
+      case "discardEffect": {
+        const pid = String((e as any).playerId || '').trim();
+        const cardIds = Array.isArray((e as any).cardIds)
+          ? ((e as any).cardIds as any[]).map((id: any) => String(id || '').trim()).filter(Boolean)
+          : [];
+        const destination = String((e as any).destination || 'graveyard').toLowerCase() === 'exile' ? 'exile' : 'graveyard';
+        const exileTag = (e as any).exileTag as
+          | {
+              exiledWithSourceId?: string;
+              exiledWithOracleId?: string;
+              exiledWithSourceName?: string;
+            }
+          | undefined;
+        if (!pid || cardIds.length === 0) break;
+
+        try {
+          const zones = ctx.state.zones || {};
+          const z = zones[pid];
+          if (!z || !Array.isArray(z.hand)) break;
+
+          const hand = z.hand as any[];
+          z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+          z.exile = Array.isArray(z.exile) ? z.exile : [];
+          const graveyard = z.graveyard as any[];
+          const exile = z.exile as any[];
+          let discardedCount = 0;
+
+          for (const cardId of cardIds) {
+            const idx = hand.findIndex((c: any) => c && String(c.id || '') === cardId);
+            if (idx === -1) continue;
+
+            const [card] = hand.splice(idx, 1);
+            if (destination === 'exile') {
+              exile.push({
+                ...card,
+                ...(exileTag ? { ...exileTag } : null),
+                zone: 'exile',
+              });
+              continue;
+            }
+
+            graveyard.push({ ...card, zone: 'graveyard' });
+            recordCardPutIntoGraveyardThisTurn(ctx as any, pid, card, { fromBattlefield: false });
+            discardedCount++;
+            if (checkGraveyardTrigger(ctx, card, pid)) {
+              debug(2, `[applyEvent:discardEffect] ${card.name} triggered graveyard shuffle for ${pid}`);
+            }
+          }
+
+          z.handCount = hand.length;
+          z.graveyardCount = graveyard.length;
+          z.exileCount = exile.length;
+
+          if (destination === 'graveyard' && discardedCount > 0) {
+            const stateAny = ctx.state as any;
+            stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};
+            stateAny.discardedCardThisTurn[pid] = true;
+            stateAny.anyPlayerDiscardedCardThisTurn = true;
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(discardEffect): failed', err);
         }
         break;
       }

@@ -1,6 +1,7 @@
 import type { GameContext } from "../context.js";
 import { detectLinkedExileEffect } from "./linked-exile.js";
 import { calculateAllPTBonuses } from "../../utils.js";
+import { getEffectiveBasicLandTypes } from "../mana-abilities.js";
 
 function normalizeText(text: string): string {
   return String(text || "")
@@ -72,6 +73,20 @@ function countBasicLands(ctx: GameContext, controllerId: string): number {
 }
 
 function countLandsWithSubtype(ctx: GameContext, controllerId: string, subtypeLower: string): number {
+  const normalizedSubtype = String(subtypeLower || '').toLowerCase();
+  if (['plains', 'island', 'swamp', 'mountain', 'forest'].includes(normalizedSubtype)) {
+    const battlefield = (ctx as any).state?.battlefield || [];
+    let count = 0;
+    for (const perm of battlefield) {
+      if (!perm || perm.controller !== controllerId) continue;
+      const tl = String(perm.card?.type_line || '').toLowerCase();
+      if (!tl.includes('land')) continue;
+      if (getEffectiveBasicLandTypes((ctx as any).state, perm).includes(normalizedSubtype as any)) {
+        count++;
+      }
+    }
+    return count;
+  }
   return countControlledPermanents(ctx, controllerId, (tl) => tl.includes("land") && tl.includes(subtypeLower));
 }
 
@@ -5750,7 +5765,7 @@ function evaluateInterveningIfClauseInternal(
 
   // "if you control a Plains/Island/Swamp/Mountain/Forest"
   {
-    const m = clause.match(/^if\s+you\s+control\s+a\s+(plains|island|swamp|mountain|forest)$/i);
+    const m = clause.match(/^if\s+you\s+control\s+(?:a|an)\s+(plains|island|swamp|mountain|forest)$/i);
     if (m) {
       return countLandsWithSubtype(ctx, controllerId, m[1].toLowerCase()) >= 1;
     }
@@ -12191,8 +12206,8 @@ function evaluateInterveningIfClauseInternal(
       if (!tl) return null;
       if (!tl.includes('land')) continue;
       sawLand = true;
-      for (const t of ['plains', 'island', 'swamp', 'mountain', 'forest']) {
-        if (typeLineHasWord(tl, t)) set.add(t);
+      for (const t of getEffectiveBasicLandTypes((ctx as any).state, p)) {
+        set.add(t);
       }
       if (set.size >= 4) return true;
     }
