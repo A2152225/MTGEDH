@@ -1,6 +1,6 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
-import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS } from "./util";
+import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction } from "./util";
 import { emitResolutionStepPrompt, processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
@@ -3892,6 +3892,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
+      clearHumanAutoPassPauseOnAction(game as any, playerId, 'playLand');
+
       // Also update legacy game state (for backward compatibility during migration)
       try {
         if (typeof game.playLand === 'function') {
@@ -3962,6 +3964,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         cardId,
         faceIndex: castFaceIndex,
       });
+
+      clearHumanAutoPassPauseOnAction(game as any, playerId, 'requestCastSpell');
 
       const queuedCastStep = findPendingSpellCastStep(gameId, String(playerId), String(cardId));
       if (queuedCastStep) {
@@ -7707,6 +7711,10 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       const { changed, resolvedNow, advanceStep } = (game as any).passPriority(playerId, isAutoPass === true);
       if (!changed) return;
+
+      if (isAutoPass !== true) {
+        clearHumanAutoPassPauseOnAction(game as any, playerId, 'passPriority');
+      }
 
       appendGameEvent(game, gameId, "passPriority", { by: playerId });
 

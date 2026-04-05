@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
-import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, validateAndConsumeManaCostFromPool } from "./util";
+import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction } from "./util";
 import { appendEvent } from "../db";
 import { games } from "./socket.js";
 import { 
@@ -3452,6 +3452,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     const cardName = card?.name || "Unknown";
     const oracleText = (card?.oracle_text || "").toLowerCase();
     const typeLine = (card?.type_line || "").toLowerCase();
+    clearHumanAutoPassPauseOnAction(game as any, pid, 'activateBattlefieldAbility');
     const scopedActivatedAbility = getActivatedAbilityScopeText(oracleText, abilityId);
     const scopedAbilityText = String(scopedActivatedAbility.abilityText || '').trim();
     const scopedAbilityFullText = String(scopedActivatedAbility.fullAbilityText || scopedAbilityText || oracleText || '').trim();

@@ -146,6 +146,52 @@ export function suppressAutomationOnNextBroadcast(game: InMemoryGame, delayMs = 
   }
 }
 
+export function pauseHumanAutoPassUntilAction(
+  game: InMemoryGame,
+  playerId?: PlayerID | string | null,
+): void {
+  try {
+    const stateAny = (game.state as any) || {};
+    const pausedPlayerId = String(playerId || stateAny.turnPlayer || '').trim();
+    if (!pausedPlayerId) return;
+    stateAny._pauseHumanAutoPassUntilActionFor = pausedPlayerId;
+
+    const gameId = String((game as any)?.gameId || '').trim();
+    if (gameId) {
+      clearScheduledHumanAutoPass(gameId, pausedPlayerId);
+    }
+  } catch {
+    // best-effort only
+  }
+}
+
+export function clearHumanAutoPassPauseOnAction(
+  game: InMemoryGame,
+  playerId?: PlayerID | string | null,
+  reason = 'action',
+): boolean {
+  try {
+    const stateAny = (game.state as any) || {};
+    const pausedPlayerId = String(stateAny._pauseHumanAutoPassUntilActionFor || '').trim();
+    const actingPlayerId = String(playerId || '').trim();
+    if (!pausedPlayerId || !actingPlayerId || pausedPlayerId !== actingPlayerId) {
+      return false;
+    }
+
+    delete stateAny._pauseHumanAutoPassUntilActionFor;
+
+    const gameId = String((game as any)?.gameId || '').trim();
+    if (gameId) {
+      clearScheduledHumanAutoPass(gameId, actingPlayerId);
+    }
+
+    debug(2, `${ts()} [auto-pass] Cleared undo auto-pass pause for ${actingPlayerId} after ${reason}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export { LAND_PLAY_AUTOMATION_SUPPRESSION_MS };
 
 /**
@@ -1961,6 +2007,13 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
     const autoPassPlayers = stateAny.autoPassPlayers || new Set();
     const autoPassForTurn = stateAny.autoPassForTurn?.[priority] || false;
     let triggerAutoPassReason = autoPassForTurn ? undefined : getTopTriggeredAbilityAutoPassReason(game.state, priority);
+    const pausedForUndoPlayer = String(stateAny._pauseHumanAutoPassUntilActionFor || '').trim();
+
+    if (pausedForUndoPlayer && pausedForUndoPlayer === String(priority)) {
+      clearScheduledHumanAutoPass(gameId, priorityPlayerId);
+      debug(2, `${ts()} [checkAndTriggerAutoPass] Auto-pass paused for ${priority} until a manual action is taken (ID: ${debugCallId})`);
+      return;
+    }
     
     if (!autoPassPlayers.has(priority) && !autoPassForTurn && !triggerAutoPassReason) {
       clearScheduledHumanAutoPass(gameId, priorityPlayerId);

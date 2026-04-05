@@ -2,13 +2,14 @@
 // Socket handlers for the undo system with player approval
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay, clearScheduledHumanAutoPassForGame, suppressAutomationOnNextBroadcast } from "./util";
+import { ensureGame, broadcastGame, getPlayerName, transformDbEventsForReplay, clearScheduledHumanAutoPassForGame, suppressAutomationOnNextBroadcast, pauseHumanAutoPassUntilAction } from "./util";
 import { getEvents, truncateEventsForUndo, getEventCount } from "../db";
 import GameManager from "../GameManager.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { createInitialGameState } from "../state/gameState.js";
 import { createContext } from "../state/context.js";
 import { replay as replayOnContext } from "../state/modules/applyEvent.js";
+import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { clearScheduledAIActionsForGame } from "./ai.js";
 
 /**
@@ -46,13 +47,13 @@ function getPhaseBucket(stateAny: any): string {
 }
 
 function getTurnBoundaryKey(stateAny: any): string {
-  const rawTurn = Number((stateAny as any)?.turn);
-  if (Number.isFinite(rawTurn) && rawTurn > 0) {
-    return `turn:${rawTurn}`;
-  }
   const rawTurnNumber = Number((stateAny as any)?.turnNumber);
   if (Number.isFinite(rawTurnNumber) && rawTurnNumber > 0) {
     return `turn:${rawTurnNumber}`;
+  }
+  const rawTurn = Number((stateAny as any)?.turn);
+  if (Number.isFinite(rawTurn) && rawTurn > 0) {
+    return `turn:${rawTurn}`;
   }
   return `turn:${getPhaseBucket(stateAny)}`;
 }
@@ -62,14 +63,14 @@ function getBoundaryKeys(stateAny: any, kind: BoundaryKind): string[] {
   const step = String(stateAny?.step || '').toUpperCase();
   const prefixes: string[] = [];
 
-  const rawTurn = Number((stateAny as any)?.turn);
-  if (Number.isFinite(rawTurn) && rawTurn > 0) {
-    prefixes.push(`turn:${rawTurn}`);
-  }
-
   const rawTurnNumber = Number((stateAny as any)?.turnNumber);
   if (Number.isFinite(rawTurnNumber) && rawTurnNumber > 0) {
     prefixes.push(`turn:${rawTurnNumber}`);
+  }
+
+  const rawTurn = Number((stateAny as any)?.turn);
+  if (Number.isFinite(rawTurn) && rawTurn > 0 && rawTurn !== rawTurnNumber) {
+    prefixes.push(`turn:${rawTurn}`);
   }
 
   prefixes.push(`turn:${getPhaseBucket(stateAny)}`);
@@ -390,6 +391,30 @@ function performUndo(gameId: string, actionsToUndo: number): { success: boolean;
     // Bump seq to trigger UI updates
     if (typeof existingGame.bumpSeq === 'function') {
       existingGame.bumpSeq();
+    }
+
+    try {
+      const stateAny = (existingGame.state as any) || {};
+      const turnPlayer = String(stateAny.turnPlayer || '').trim();
+      const phase = String(stateAny.phase || '').toLowerCase();
+      const step = String(stateAny.step || '').toUpperCase();
+      const pendingSummary = ResolutionQueueManager.getPendingSummary(gameId);
+
+      if (turnPlayer) {
+        pauseHumanAutoPassUntilAction(existingGame as any, turnPlayer);
+      }
+
+      if (
+        turnPlayer &&
+        !pendingSummary.hasPending &&
+        phase !== 'pre_game' &&
+        phase !== 'pre-game' &&
+        !['UNTAP', 'CLEANUP'].includes(step)
+      ) {
+        stateAny.priority = turnPlayer;
+      }
+    } catch (priorityErr) {
+      debugWarn(1, `[undo] Failed to restore priority/autopass pause for game ${gameId}:`, priorityErr);
     }
 
     suppressAutomationOnNextBroadcast(existingGame as any);

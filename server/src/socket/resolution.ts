@@ -31,6 +31,7 @@ import {
   validateAndConsumeManaCostFromPool,
   broadcastManaPoolUpdate,
   calculateManaProduction,
+  clearHumanAutoPassPauseOnAction,
 } from "./util.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
@@ -2850,6 +2851,8 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       cancelled,
       timestamp: Date.now(),
     };
+
+    clearHumanAutoPassPauseOnAction(game as any, pid, 'submitResolutionResponse');
 
     // Library search supports split destination (Cultivate/Kodama's Reach). These extra fields are passed
     // alongside selections from the client and must be preserved for the step handler.
