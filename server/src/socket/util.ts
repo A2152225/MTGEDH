@@ -21,7 +21,7 @@ import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modu
 import { canRespond, canAct, getCostAdjustmentInfo, getHandCastEvaluationCards, isCardPlayableAsLandFromHand, isTransformBackFace } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
-import { calculateCostReduction, applyCostReduction } from "./game-actions.js";
+import { calculateCostReduction, applyCostReduction, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRestrictions.js";
 import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
@@ -2220,6 +2220,7 @@ function checkAndTriggerAutoPass(io: Server, game: InMemoryGame, gameId: string)
               debug(2, `[checkAndTriggerAutoPass] Stack resolved after auto-pass for ${priority}`);
               if (typeof (game as any).resolveTopOfStack === 'function') {
                 (game as any).resolveTopOfStack();
+                runPostResolutionPermanentPromptChecks(io, game, gameId);
               }
               appendGameEvent(game, gameId, "resolveTopOfStack", { auto: true });
             }
@@ -2535,6 +2536,7 @@ function doAutoPass(
       // Directly call resolveTopOfStack to ensure the spell resolves
       if (typeof (game as any).resolveTopOfStack === "function") {
         (game as any).resolveTopOfStack();
+        runPostResolutionPermanentPromptChecks(io, game, gameId);
         debug(2, `[doAutoPass] Stack resolved for game ${gameId}`);
       }
       appendGameEvent(game, gameId, "resolveTopOfStack");
@@ -2938,6 +2940,156 @@ export function consumeManaFromPool(
   
   return { consumed, remaining };
 }
+
+  type GenericManaPaymentOptions = {
+    excludedPermanentIds?: string[];
+  };
+
+  type GenericManaPaymentResult = {
+    ok: boolean;
+    error?: string;
+    tappedPermanents: string[];
+    paymentManaDelta: Record<string, number>;
+    consumed: Record<string, number>;
+  };
+
+  function getGenericAutoPaymentCandidates(
+    gameState: any,
+    playerId: string,
+    excludedPermanentIds?: string[],
+  ): Array<{ permanent: any; amount: number }> {
+    const battlefield = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
+    const excluded = new Set((excludedPermanentIds || []).map((id) => String(id)));
+
+    return battlefield
+      .filter((permanent: any) => {
+        if (!permanent) return false;
+        if (String(permanent.controller || '') !== String(playerId)) return false;
+        if (permanent.tapped) return false;
+        if (excluded.has(String(permanent.id || ''))) return false;
+
+        const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
+        const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+        const hasExplicitManaAbility =
+          /\{t\}(?:[,\s]*[^:]*)?:\s*add/i.test(oracleText) ||
+          oracleText.includes('mana of any color') ||
+          oracleText.includes('any color') ||
+          typeLine.includes('plains') ||
+          typeLine.includes('island') ||
+          typeLine.includes('swamp') ||
+          typeLine.includes('mountain') ||
+          typeLine.includes('forest');
+        if (!hasExplicitManaAbility) return false;
+
+        const production = calculateManaProduction(gameState, permanent, playerId);
+        const amount = Number(production?.totalAmount || production?.baseAmount || 0);
+        if (!Number.isFinite(amount) || amount <= 0) return false;
+        if (Number(production?.activationCost || 0) > 0) return false;
+        if (!Array.isArray(production?.colors) || production.colors.length === 0) return false;
+
+        return true;
+      })
+      .map((permanent: any) => {
+        const production = calculateManaProduction(gameState, permanent, playerId);
+        return {
+          permanent,
+          amount: Math.max(1, Number(production?.totalAmount || production?.baseAmount || 0)),
+        };
+      })
+      .sort((left, right) => {
+        const leftType = String(left.permanent?.card?.type_line || '').toLowerCase();
+        const rightType = String(right.permanent?.card?.type_line || '').toLowerCase();
+        const leftIsLand = leftType.includes('land') ? 0 : 1;
+        const rightIsLand = rightType.includes('land') ? 0 : 1;
+        if (leftIsLand !== rightIsLand) return leftIsLand - rightIsLand;
+        return left.amount - right.amount;
+      });
+  }
+
+  export function getMaxGenericManaAvailable(
+    gameState: any,
+    playerId: string,
+    options?: GenericManaPaymentOptions,
+  ): number {
+    const pool = getOrInitManaPool(gameState, playerId) as any;
+    const floating =
+      Number(pool?.white || 0) +
+      Number(pool?.blue || 0) +
+      Number(pool?.black || 0) +
+      Number(pool?.red || 0) +
+      Number(pool?.green || 0) +
+      Number(pool?.colorless || 0);
+
+    const sourceTotal = getGenericAutoPaymentCandidates(gameState, playerId, options?.excludedPermanentIds)
+      .reduce((sum, entry) => sum + entry.amount, 0);
+
+    return floating + sourceTotal;
+  }
+
+  export function payGenericManaWithAvailableSources(
+    gameState: any,
+    playerId: string,
+    amount: number,
+    options?: GenericManaPaymentOptions,
+  ): GenericManaPaymentResult {
+    const needed = Math.max(0, Math.floor(Number(amount) || 0));
+    const emptyConsumed = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+    if (needed <= 0) {
+      return { ok: true, tappedPermanents: [], paymentManaDelta: {}, consumed: emptyConsumed };
+    }
+
+    const maxAvailable = getMaxGenericManaAvailable(gameState, playerId, options);
+    if (maxAvailable < needed) {
+      return {
+        ok: false,
+        error: `Insufficient mana. Missing ${needed - maxAvailable} generic mana.`,
+        tappedPermanents: [],
+        paymentManaDelta: {},
+        consumed: emptyConsumed,
+      };
+    }
+
+    const pool = getOrInitManaPool(gameState, playerId) as any;
+    const beforePool = {
+      white: Number(pool.white || 0),
+      blue: Number(pool.blue || 0),
+      black: Number(pool.black || 0),
+      red: Number(pool.red || 0),
+      green: Number(pool.green || 0),
+      colorless: Number(pool.colorless || 0),
+    };
+    const tappedPermanents: string[] = [];
+    const floating = Object.values(beforePool).reduce((sum, value) => sum + Number(value || 0), 0);
+    let manaNeeded = Math.max(0, needed - floating);
+
+    if (manaNeeded > 0) {
+      for (const entry of getGenericAutoPaymentCandidates(gameState, playerId, options?.excludedPermanentIds)) {
+        if (manaNeeded <= 0) break;
+
+        const permanent = entry.permanent;
+        if (!permanent || permanent.tapped) continue;
+
+        permanent.tapped = true;
+        pool.colorless = Number(pool.colorless || 0) + entry.amount;
+        tappedPermanents.push(String(permanent.id || ''));
+        manaNeeded -= entry.amount;
+      }
+    }
+
+    const { consumed } = consumeManaFromPool(pool, {}, needed, `[genericPayment:${playerId}]`);
+    const paymentManaDelta: Record<string, number> = {};
+    for (const key of ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const) {
+      const delta = Number(pool[key] || 0) - beforePool[key];
+      if (delta !== 0) paymentManaDelta[key] = delta;
+    }
+
+    return {
+      ok: true,
+      tappedPermanents,
+      paymentManaDelta,
+      consumed,
+    };
+  }
 
 type ManaPoolColorKey = 'white' | 'blue' | 'black' | 'red' | 'green' | 'colorless';
 

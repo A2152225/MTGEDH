@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { games } from '../socket/socket.js';
 
 type DB = Database.Database;
 
@@ -55,6 +56,9 @@ export async function initDb(): Promise<void> {
       seq INTEGER NOT NULL,
       type TEXT NOT NULL,
       payload TEXT,        -- JSON string of the event payload
+      turn_number INTEGER,
+      phase TEXT,
+      step TEXT,
       ts INTEGER NOT NULL, -- epoch ms
       FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
     );
@@ -92,6 +96,48 @@ export async function initDb(): Promise<void> {
       const errMsg = String(e?.message || '');
       if (!errMsg.toLowerCase().includes('duplicate column')) {
         debugWarn(1, '[DB] Migration warning for created_by_player_id:', errMsg);
+      }
+    }
+  }
+
+  try {
+    db.prepare('SELECT turn_number FROM events LIMIT 1').get();
+  } catch {
+    try {
+      db.exec('ALTER TABLE events ADD COLUMN turn_number INTEGER');
+      debug(2, '[DB] Added events.turn_number column');
+    } catch (e: any) {
+      const errMsg = String(e?.message || '');
+      if (!errMsg.toLowerCase().includes('duplicate column')) {
+        debugWarn(1, '[DB] Migration warning for events.turn_number:', errMsg);
+      }
+    }
+  }
+
+  try {
+    db.prepare('SELECT phase FROM events LIMIT 1').get();
+  } catch {
+    try {
+      db.exec('ALTER TABLE events ADD COLUMN phase TEXT');
+      debug(2, '[DB] Added events.phase column');
+    } catch (e: any) {
+      const errMsg = String(e?.message || '');
+      if (!errMsg.toLowerCase().includes('duplicate column')) {
+        debugWarn(1, '[DB] Migration warning for events.phase:', errMsg);
+      }
+    }
+  }
+
+  try {
+    db.prepare('SELECT step FROM events LIMIT 1').get();
+  } catch {
+    try {
+      db.exec('ALTER TABLE events ADD COLUMN step TEXT');
+      debug(2, '[DB] Added events.step column');
+    } catch (e: any) {
+      const errMsg = String(e?.message || '');
+      if (!errMsg.toLowerCase().includes('duplicate column')) {
+        debugWarn(1, '[DB] Migration warning for events.step:', errMsg);
       }
     }
   }
@@ -161,7 +207,39 @@ export function createGameIfNotExists(
 export type PersistedEvent = {
   type: string;
   payload?: unknown;
+  turnNumber?: number;
+  phase?: string;
+  step?: string;
 };
+
+type EventBoundaryMetadata = {
+  turnNumber?: number;
+  phase?: string;
+  step?: string;
+};
+
+function getLiveEventBoundaryMetadata(gameId: string, seq: number): EventBoundaryMetadata {
+  const liveGame = games.get(gameId);
+  if (!liveGame) return {};
+
+  const liveSeq = Number((liveGame as any)?.seq);
+  const eventSeq = Number(seq);
+  if (!Number.isFinite(liveSeq) || !Number.isFinite(eventSeq) || liveSeq !== eventSeq) {
+    return {};
+  }
+
+  const stateAny = ((liveGame as any)?.state || {}) as any;
+  const rawTurnNumber = Number(stateAny?.turnNumber ?? stateAny?.turn);
+  const turnNumber = Number.isFinite(rawTurnNumber) && rawTurnNumber > 0 ? rawTurnNumber : undefined;
+  const phase = typeof stateAny?.phase === 'undefined' ? undefined : String(stateAny.phase);
+  const step = typeof stateAny?.step === 'undefined' ? undefined : String(stateAny.step);
+
+  if (typeof turnNumber === 'undefined' && typeof phase === 'undefined' && typeof step === 'undefined') {
+    return {};
+  }
+
+  return { turnNumber, phase, step };
+}
 
 /**
  * Return all persisted events for a game in insertion order.
@@ -170,12 +248,21 @@ export type PersistedEvent = {
 export function getEvents(gameId: string): PersistedEvent[] {
   ensureDB();
   const stmt = db!.prepare(
-    `SELECT type, payload FROM events WHERE game_id = ? ORDER BY id ASC`
+    `SELECT type, payload, turn_number, phase, step FROM events WHERE game_id = ? ORDER BY id ASC`
   );
-  const rows = stmt.all(gameId) as Array<{ type: string; payload: string | null }>;
+  const rows = stmt.all(gameId) as Array<{
+    type: string;
+    payload: string | null;
+    turn_number: number | null;
+    phase: string | null;
+    step: string | null;
+  }>;
   return rows.map((r) => ({
     type: r.type,
     payload: safeParseJSON(r.payload),
+    turnNumber: typeof r.turn_number === 'number' ? r.turn_number : undefined,
+    phase: r.phase ?? undefined,
+    step: r.step ?? undefined,
   }));
 }
 
@@ -189,14 +276,25 @@ export function getEvents(gameId: string): PersistedEvent[] {
 export function appendEvent(gameId: string, seq: number, type: string, payload: unknown): number {
   ensureDB();
 
+  const boundary = getLiveEventBoundaryMetadata(gameId, seq);
+
   const stmt = db!.prepare(
-    `INSERT INTO events (game_id, seq, type, payload, ts) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO events (game_id, seq, type, payload, turn_number, phase, step, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const payloadJson = payload == null ? null : JSON.stringify(payload);
 
   // attempt and on FK error try to create games row then retry
   try {
-    const info = stmt.run(gameId, seq | 0, type, payloadJson, Date.now());
+    const info = stmt.run(
+      gameId,
+      seq | 0,
+      type,
+      payloadJson,
+      boundary.turnNumber ?? null,
+      boundary.phase ?? null,
+      boundary.step ?? null,
+      Date.now(),
+    );
     return Number(info.lastInsertRowid);
   } catch (err: any) {
     const msg = String(err?.message || err || "");
@@ -231,7 +329,16 @@ export function appendEvent(gameId: string, seq: number, type: string, payload: 
       }
 
       // retry insert
-      const info2 = stmt.run(gameId, seq | 0, type, payloadJson, Date.now());
+      const info2 = stmt.run(
+        gameId,
+        seq | 0,
+        type,
+        payloadJson,
+        boundary.turnNumber ?? null,
+        boundary.phase ?? null,
+        boundary.step ?? null,
+        Date.now(),
+      );
       return Number(info2.lastInsertRowid);
     } catch (retryErr) {
       debugError(1, "appendEvent: retry after creating games row failed:", retryErr);

@@ -169,6 +169,7 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     expect(searchStep).toBeDefined();
     expect(searchStep.sourceId).toBe('grave_tutor_1');
     expect(searchStep.persistLibrarySearchResolve).toBe(true);
+    expect((searchStep.availableCards || []).map((card: any) => card.id).sort()).toEqual(['forest_lib_1', 'mountain_lib_1']);
 
     await handlers['submitResolutionResponse']({
       gameId,
@@ -234,7 +235,7 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     expect(searchStep).toBeDefined();
     expect(searchStep.sourceId).toBe('grave_tutor_1');
     expect(searchStep.searchCriteria).toBe('basic land card');
-    expect((searchStep.availableCards || []).some((card: any) => card.id === 'forest_lib_1')).toBe(true);
+    expect((searchStep.availableCards || []).map((card: any) => card.id).sort()).toEqual(['forest_lib_1', 'mountain_lib_1']);
   });
 
   it('exiles the source and spends mana for graveyard tutor activations with exile-in-cost text', async () => {

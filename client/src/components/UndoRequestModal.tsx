@@ -11,12 +11,21 @@ import React, { useState, useEffect } from 'react';
 // Undo timeout in milliseconds - should match server's UNDO_TIMEOUT_MS
 const UNDO_TIMEOUT_MS = 60000;
 
+export interface UndoBoundaryPreview {
+  turnNumber?: number;
+  phase?: string;
+  step?: string;
+  summary: string;
+}
+
 export interface UndoRequestData {
   undoId: string;
   requesterId: string;
   requesterName: string;
   description: string;
+  undoScope?: 'step' | 'phase' | 'previousPhase' | 'turn';
   actionsToUndo: number;
+  boundaryPreview?: UndoBoundaryPreview;
   expiresAt: number;
   approvals: Record<string, boolean>;
   playerIds: string[];
@@ -111,6 +120,21 @@ export function UndoRequestModal({
           >
             {request.description}
           </div>
+          {request.boundaryPreview?.summary && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: '10px 12px',
+                borderRadius: 6,
+                background: 'rgba(99, 102, 241, 0.14)',
+                border: '1px solid rgba(99, 102, 241, 0.28)',
+                fontSize: 12,
+                color: '#c7d2fe',
+              }}
+            >
+              Boundary: {request.boundaryPreview.summary}
+            </div>
+          )}
         </div>
 
         {/* Approval status */}

@@ -42,6 +42,7 @@ type DeathTriggerStackMetadata = {
   battlefieldTapped?: true;
   battlefieldCounters?: Record<string, number>;
   battlefieldFaceDown?: true;
+  battlefieldTurnFaceUp?: true;
   battlefieldSuspected?: true;
   targetFilterTypes?: string[];
   targetFilterPermanentOnly?: true;
@@ -66,10 +67,23 @@ function getSubtypeWordsFromTypeLine(typeLineValue: string): string[] {
     .filter(Boolean);
 }
 
+function isPermanentTypeLine(typeLineValue: string): boolean {
+  const typeLine = String(typeLineValue || '').toLowerCase();
+  return ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'].some((type) => typeLine.includes(type));
+}
+
 function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any): DeathTriggerStackMetadata {
   const lower = String(effectText || '').toLowerCase();
   const metadata: DeathTriggerStackMetadata = {};
-  const dyingSubtypeWords = getSubtypeWordsFromTypeLine(String(dyingPermanent?.card?.type_line || ''));
+  const underlyingCard = (dyingPermanent as any)?.faceUpCard || dyingPermanent?.card;
+  const underlyingTypeLine = String(underlyingCard?.type_line || '');
+  const dyingSubtypeWords = getSubtypeWordsFromTypeLine(underlyingTypeLine);
+
+  if (lower.includes("if it's a permanent card") || lower.includes("if it is a permanent card")) {
+    if (!isPermanentTypeLine(underlyingTypeLine)) {
+      return metadata;
+    }
+  }
 
   const subtypeCardConditionMatch = lower.match(/if\s+it'?s\s+an?\s+([a-z0-9' -]+?)\s+card/);
   if (subtypeCardConditionMatch) {
@@ -77,7 +91,9 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any)
       .split(/[^a-z0-9']+/i)
       .map((part) => part.trim())
       .filter(Boolean);
-    if (requiredSubtypeWords.length > 0 && !requiredSubtypeWords.every((word) => dyingSubtypeWords.includes(word))) {
+    const nonSubtypeTypeWords = new Set(['artifact', 'battle', 'creature', 'enchantment', 'instant', 'land', 'permanent', 'planeswalker', 'sorcery']);
+    const appliesSubtypeGate = requiredSubtypeWords.length > 0 && !requiredSubtypeWords.every((word) => nonSubtypeTypeWords.has(word));
+    if (appliesSubtypeGate && !requiredSubtypeWords.every((word) => dyingSubtypeWords.includes(word))) {
       return metadata;
     }
   }
@@ -99,6 +115,9 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any)
   }
   if (lower.includes('face down')) {
     metadata.battlefieldFaceDown = true;
+  }
+  if (lower.includes('turn it face up')) {
+    metadata.battlefieldTurnFaceUp = true;
   }
   if (lower.includes('suspect it')) {
     metadata.battlefieldSuspected = true;
@@ -165,7 +184,7 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any)
     return metadata;
   }
 
-  const boundCardId = String(dyingPermanent?.card?.id || '').trim();
+  const boundCardId = String(underlyingCard?.id || '').trim();
   const boundOwnerId = String(dyingPermanent?.owner || dyingPermanent?.controller || '').trim();
   if (!boundCardId) {
     return metadata;
@@ -301,6 +320,7 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     ...(metadata.battlefieldTapped === true ? { battlefieldTapped: true } : null),
     ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
     ...(metadata.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
+    ...(metadata.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
     ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
     ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
     ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
@@ -336,6 +356,7 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       ...(metadata.battlefieldTapped === true ? { battlefieldTapped: true } : null),
       ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
       ...(metadata.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
+      ...(metadata.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
       ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
       ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
       ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
@@ -1013,6 +1034,9 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const owner = (perm as any).owner || (perm as any).controller;
   const controller = (perm as any).controller || owner;
   const card = (perm as any).card;
+  const zoneCard = ((perm as any).isFaceDown === true && (perm as any).faceUpCard)
+    ? (perm as any).faceUpCard
+    : card;
   const isToken = (perm as any).isToken === true;
   const isCreature = (card?.type_line || '').toLowerCase().includes('creature');
 
@@ -1029,17 +1053,17 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     if (owner) {
       const ownerZone = zones[owner] = zones[owner] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0, exile: [] } as any;
       (ownerZone as any).exile = (ownerZone as any).exile || [];
-      if (!isToken && card) {
+      if (!isToken && zoneCard) {
         const exiledCard = {
-          id: card.id,
-          name: card.name,
-          type_line: card.type_line,
-          oracle_text: card.oracle_text,
-          image_uris: card.image_uris,
-          mana_cost: card.mana_cost,
-          power: card.power,
-          toughness: card.toughness,
-          ...buildZoneObjectWithRetainedCounters(card, perm, 'exile'),
+          id: zoneCard.id,
+          name: zoneCard.name,
+          type_line: zoneCard.type_line,
+          oracle_text: zoneCard.oracle_text,
+          image_uris: zoneCard.image_uris,
+          mana_cost: zoneCard.mana_cost,
+          power: zoneCard.power,
+          toughness: zoneCard.toughness,
+          ...buildZoneObjectWithRetainedCounters(zoneCard, perm, 'exile'),
         };
         (ownerZone as any).exile.push(exiledCard);
       }
@@ -1272,9 +1296,9 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const commanderInfo = commandZone?.[owner];
   const commanderIds = commanderInfo?.commanderIds || [];
   // Check if this is a commander - check both the card ID and the permanent's isCommander flag
-  const isCommander = (card?.id && commanderIds.includes(card.id)) || (perm as any).isCommander === true;
+  const isCommander = (zoneCard?.id && commanderIds.includes(zoneCard.id)) || (perm as any).isCommander === true;
   
-  if (isCommander && card) {
+  if (isCommander && zoneCard) {
     // During replay we cannot prompt; choose a deterministic default.
     // We default to moving the commander to the command zone (matches AI behavior).
     const isReplaying = Boolean((ctx as any).isReplaying);
@@ -1285,8 +1309,8 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
           commandZone[owner] = commandZone[owner] || { commanderIds: [], inCommandZone: [] };
           const info: any = commandZone[owner];
           info.inCommandZone = Array.isArray(info.inCommandZone) ? info.inCommandZone : [];
-          if (card.id && !info.inCommandZone.includes(card.id)) {
-            info.inCommandZone.push(card.id);
+          if (zoneCard.id && !info.inCommandZone.includes(zoneCard.id)) {
+            info.inCommandZone.push(zoneCard.id);
           }
         }
 
@@ -1294,7 +1318,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         if (owner) {
           const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
           (ownerZone as any).commandZone = Array.isArray((ownerZone as any).commandZone) ? (ownerZone as any).commandZone : [];
-          (ownerZone as any).commandZone.push(buildZoneObjectWithRetainedCounters(card, perm, 'command'));
+          (ownerZone as any).commandZone.push(buildZoneObjectWithRetainedCounters(zoneCard, perm, 'command'));
           (ownerZone as any).commandZoneCount = (ownerZone as any).commandZone.length;
         }
       } catch {
@@ -1314,9 +1338,9 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: owner,
       sourceId: perm.id,
-      sourceName: card.name,
-      sourceImage: card.image_uris?.small || card.image_uris?.normal,
-      description: `Your commander ${card.name} would be put into your graveyard. Move it to the command zone instead?`,
+      sourceName: zoneCard.name,
+      sourceImage: zoneCard.image_uris?.small || zoneCard.image_uris?.normal,
+      description: `Your commander ${zoneCard.name} would be put into your graveyard. Move it to the command zone instead?`,
       mandatory: true,
       minSelections: 1,
       maxSelections: 1,
@@ -1325,24 +1349,24 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
         { id: 'command', label: 'Move to Command Zone' },
         { id: 'stay', label: 'Let it go to graveyard' },
       ],
-      commanderId: card.id,
-      commanderName: card.name,
+      commanderId: zoneCard.id,
+      commanderName: zoneCard.name,
       fromZone: 'graveyard',
       card: {
-        id: card.id,
-        name: card.name,
-        type_line: card.type_line,
-        oracle_text: card.oracle_text,
-        image_uris: card.image_uris,
-        mana_cost: card.mana_cost,
-        power: card.power,
-        toughness: card.toughness,
-        ...(buildZoneObjectWithRetainedCounters(card, perm, 'command')?.counters
-          ? { counters: buildZoneObjectWithRetainedCounters(card, perm, 'command').counters }
+        id: zoneCard.id,
+        name: zoneCard.name,
+        type_line: zoneCard.type_line,
+        oracle_text: zoneCard.oracle_text,
+        image_uris: zoneCard.image_uris,
+        mana_cost: zoneCard.mana_cost,
+        power: zoneCard.power,
+        toughness: zoneCard.toughness,
+        ...(buildZoneObjectWithRetainedCounters(zoneCard, perm, 'command')?.counters
+          ? { counters: buildZoneObjectWithRetainedCounters(zoneCard, perm, 'command').counters }
           : {}),
       } as any,
     } as any);
-    debug(2, `[movePermanentToGraveyard] Commander ${card.name} would go to graveyard - queued commander zone choice step`);
+    debug(2, `[movePermanentToGraveyard] Commander ${zoneCard.name} would go to graveyard - queued commander zone choice step`);
     
     // Remove from battlefield but DON'T add to graveyard yet - wait for player choice
     bumpSeq();
@@ -1361,9 +1385,9 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   if (owner) {
     const ownerZone = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 };
     (ownerZone as any).graveyard = (ownerZone as any).graveyard || [];
-    if (card) {
-      (ownerZone as any).graveyard.push(buildZoneObjectWithRetainedCounters(card, perm, 'graveyard'));
-      recordCardPutIntoGraveyardThisTurn(ctx, String(owner), card, { fromBattlefield: true, controllerId: String(controller) });
+    if (zoneCard) {
+      (ownerZone as any).graveyard.push(buildZoneObjectWithRetainedCounters(zoneCard, perm, 'graveyard'));
+      recordCardPutIntoGraveyardThisTurn(ctx, String(owner), zoneCard, { fromBattlefield: true, controllerId: String(controller) });
       (ownerZone as any).graveyardCount = (ownerZone as any).graveyard.length;
     }
   }

@@ -12,6 +12,8 @@ import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 export interface LibrarySearchModalProps {
   open: boolean;
   cards: KnownCardRef[];
+  nonSelectableCards?: KnownCardRef[];
+  revealedCards?: KnownCardRef[];
   castableWhileSearchingCards?: KnownCardRef[];
   playerId: string;
   title?: string;
@@ -39,6 +41,35 @@ export interface LibrarySearchModalProps {
   onConfirm: (selectedCardIds: string[], moveTo: string, splitAssignments?: { toBattlefield: string[]; toHand: string[] }) => void;
   onCastWhileSearching?: (cardId: string) => void;
   onCancel: () => void;
+}
+
+function getDestinationSummary(
+  moveTo: LibrarySearchModalProps['moveTo'],
+  entersTapped: boolean
+): string {
+  if (moveTo === 'battlefield') {
+    return entersTapped ? 'Selected cards will go onto the battlefield tapped.' : 'Selected cards will go onto the battlefield.';
+  }
+  if (moveTo === 'graveyard') return 'Selected cards will go to your graveyard.';
+  if (moveTo === 'top') return 'Selected cards will go on top of your library.';
+  return 'Selected cards will go to your hand.';
+}
+
+function getConfirmLabel(
+  moveTo: LibrarySearchModalProps['moveTo'],
+  selectionCount: number,
+  entersTapped: boolean,
+  splitDestination: boolean
+): string {
+  if (splitDestination) return 'Confirm Selection';
+
+  const noun = selectionCount === 1 ? 'card' : 'cards';
+  if (moveTo === 'battlefield') {
+    return entersTapped ? `Put ${selectionCount} ${noun} onto Battlefield Tapped` : `Put ${selectionCount} ${noun} onto Battlefield`;
+  }
+  if (moveTo === 'graveyard') return `Put ${selectionCount} ${noun} into Graveyard`;
+  if (moveTo === 'top') return `Put ${selectionCount} ${noun} on Top`;
+  return `Put ${selectionCount} ${noun} into Hand`;
 }
 
 function matchesFilter(card: KnownCardRef, filter: LibrarySearchModalProps['filter']): boolean {
@@ -145,6 +176,8 @@ function matchesFilter(card: KnownCardRef, filter: LibrarySearchModalProps['filt
 export function LibrarySearchModal({
   open,
   cards,
+  nonSelectableCards = [],
+  revealedCards = [],
   castableWhileSearchingCards = [],
   playerId,
   title = 'Search Library',
@@ -163,11 +196,23 @@ export function LibrarySearchModal({
 }: LibrarySearchModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [destination, setDestination] = useState<'battlefield' | 'hand' | 'graveyard' | 'top'>(moveTo === 'split' ? 'hand' : moveTo);
   
   // For split destination: track which cards go where
   const [battlefieldAssignments, setBattlefieldAssignments] = useState<Set<string>>(new Set());
   const [handAssignments, setHandAssignments] = useState<Set<string>>(new Set());
+  const selectableCardIds = useMemo(() => new Set(cards.map((card) => card.id)), [cards]);
+  const displayCards = useMemo(() => {
+    if (revealedCards.length > 0) return revealedCards;
+
+    const merged: KnownCardRef[] = [];
+    const seen = new Set<string>();
+    for (const card of [...cards, ...nonSelectableCards]) {
+      if (!card || seen.has(card.id)) continue;
+      seen.add(card.id);
+      merged.push(card);
+    }
+    return merged;
+  }, [cards, nonSelectableCards, revealedCards]);
   
   // Reset selection state when modal opens or cards change
   useEffect(() => {
@@ -176,16 +221,16 @@ export function LibrarySearchModal({
       setSearchQuery('');
       setBattlefieldAssignments(new Set());
       setHandAssignments(new Set());
-      setDestination(moveTo === 'split' ? 'hand' : moveTo);
     }
-  }, [open, cards, moveTo]);
+  }, [open, cards]);
   
   // Get cards that match the type/attribute filter (before text search)
   // This represents all valid targets for the tutor
   const validTargetCards = useMemo(() => {
+    if (nonSelectableCards.length > 0 || revealedCards.length > 0) return cards;
     if (!filter) return cards;
     return cards.filter(card => matchesFilter(card, filter));
-  }, [cards, filter]);
+  }, [cards, filter, nonSelectableCards, revealedCards]);
   
   // Check if there are any valid targets at all
   const hasValidTargets = validTargetCards.length > 0;
@@ -193,7 +238,7 @@ export function LibrarySearchModal({
   
   // Filter and search cards (apply text search on top of filter)
   const filteredCards = useMemo(() => {
-    let result = validTargetCards;
+    let result = displayCards;
     
     // Apply text search
     if (searchQuery.trim()) {
@@ -206,8 +251,8 @@ export function LibrarySearchModal({
     }
     
     // Sort by name
-    return result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [validTargetCards, searchQuery]);
+    return result;
+  }, [displayCards, searchQuery]);
   
   const toggleSelect = useCallback((cardId: string) => {
     setSelectedIds(prev => {
@@ -299,9 +344,12 @@ export function LibrarySearchModal({
         }
       );
     } else {
-      onConfirm(Array.from(selectedIds), destination);
+      onConfirm(Array.from(selectedIds), moveTo);
     }
   };
+
+  const destinationSummary = getDestinationSummary(moveTo, entersTapped);
+  const confirmLabel = getConfirmLabel(moveTo, selectedIds.size, entersTapped, splitDestination);
   
   // Handle backdrop click - only allow closing if no valid targets
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -320,7 +368,7 @@ export function LibrarySearchModal({
   if (!open) return null;
   
   // If no valid targets exist, show a special "no targets" state
-  if (!hasValidTargets && !hasCastWhileSearchingOptions) {
+  if (!hasValidTargets && !hasCastWhileSearchingOptions && displayCards.length === 0) {
     return (
       <div
         onClick={handleBackdropClick}
@@ -424,7 +472,9 @@ export function LibrarySearchModal({
             <div style={{ marginTop: 6, fontSize: 13, color: '#888' }}>{description}</div>
           )}
           <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-            {validTargetCards.length} valid targets available
+            {revealedCards.length > 0 || nonSelectableCards.length > 0
+              ? `${displayCards.length} revealed card${displayCards.length === 1 ? '' : 's'} • ${validTargetCards.length} selectable`
+              : `${validTargetCards.length} valid targets available`}
             {maxSelections > 1 ? ` • Select up to ${maxSelections}` : ' • Select 1 card'}
             {selectedIds.size > 0 && ` • ${selectedIds.size} selected`}
           </div>
@@ -528,19 +578,32 @@ export function LibrarySearchModal({
             >
               {filteredCards.map(card => {
                 const isSelected = selectedIds.has(card.id);
+                const isSelectable = selectableCardIds.has(card.id);
                 return (
                   <div
                     key={card.id}
-                    onClick={() => toggleSelect(card.id)}
+                    onClick={() => {
+                      if (!isSelectable) return;
+                      toggleSelect(card.id);
+                    }}
                     onMouseEnter={(e) => showCardPreview(e.currentTarget as HTMLElement, card, { prefer: 'right' })}
                     onMouseLeave={(e) => hideCardPreview(e.currentTarget as HTMLElement)}
                     style={{
                       position: 'relative',
                       borderRadius: 6,
                       overflow: 'hidden',
-                      border: isSelected ? '3px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
-                      backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-                      cursor: 'pointer',
+                      border: isSelected
+                        ? '3px solid #3b82f6'
+                        : isSelectable
+                          ? '1px solid rgba(255,255,255,0.1)'
+                          : '1px solid rgba(239,68,68,0.35)',
+                      backgroundColor: isSelected
+                        ? 'rgba(59, 130, 246, 0.2)'
+                        : isSelectable
+                          ? 'transparent'
+                          : 'rgba(127, 29, 29, 0.28)',
+                      cursor: isSelectable ? 'pointer' : 'default',
+                      opacity: isSelectable ? 1 : 0.82,
                       transition: 'all 0.15s',
                     }}
                   >
@@ -570,6 +633,26 @@ export function LibrarySearchModal({
                     >
                       {card.name}
                     </div>
+                    {!isSelectable && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 6,
+                          right: 6,
+                          bottom: 28,
+                          padding: '4px 6px',
+                          borderRadius: 4,
+                          backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                          color: '#fca5a5',
+                          fontSize: 10,
+                          fontWeight: 600,
+                          textAlign: 'center',
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        Revealed only
+                      </div>
+                    )}
                     {isSelected && (
                       <div
                         style={{
@@ -599,30 +682,23 @@ export function LibrarySearchModal({
           )}
         </div>
         
-        {/* Destination selector - only shown for non-split modes */}
+        {/* Fixed destination summary for non-split modes */}
         {!splitDestination && (
-          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 13, color: '#888' }}>Move to:</span>
-            <select
-              value={destination}
-              onChange={(e) => setDestination(e.target.value as 'battlefield' | 'hand' | 'graveyard' | 'top')}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 6,
-                border: '1px solid #4a4a6a',
-                backgroundColor: '#252540',
-                color: '#fff',
-                fontSize: 13,
-              }}
-            >
-              <option value="hand">Hand</option>
-              <option value="battlefield">Battlefield</option>
-              <option value="top">Top of Library</option>
-              <option value="graveyard">Graveyard</option>
-            </select>
+          <div
+            style={{
+              marginTop: 12,
+              padding: '10px 12px',
+              borderRadius: 6,
+              border: '1px solid rgba(59, 130, 246, 0.3)',
+              backgroundColor: 'rgba(59, 130, 246, 0.08)',
+              fontSize: 13,
+              color: '#cbd5e1',
+            }}
+          >
+            {destinationSummary}
             {shuffleAfter && (
-              <span style={{ fontSize: 11, color: '#666' }}>
-                (Library will be shuffled after)
+              <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>
+                Library will be shuffled after.
               </span>
             )}
           </div>
@@ -756,7 +832,7 @@ export function LibrarySearchModal({
             <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>Selected:</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {Array.from(selectedIds).map(id => {
-                const card = cards.find(c => c.id === id);
+                const card = displayCards.find(c => c.id === id);
                 return card ? (
                   <div
                     key={id}
@@ -822,7 +898,7 @@ export function LibrarySearchModal({
               fontWeight: 500,
             }}
           >
-            Confirm Selection
+            {confirmLabel}
           </button>
         </div>
       </div>

@@ -29,6 +29,7 @@ import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
 import { creatureHasHaste } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { filterLibraryCardsForSearch } from "./library-search.js";
 import { registerManaHandlers } from "./mana-handlers.js";
 import { parseTargetRequirements } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
@@ -970,7 +971,8 @@ function createEncoreToken(state: any, controllerId: string, card: any, tokenId:
 export function detectTutorEffect(oracleText: string): TutorInfo {
   if (!oracleText) return { isTutor: false };
   
-  const text = oracleText.toLowerCase();
+  // Ignore reminder text so keywords like landcycling do not masquerade as spell tutors.
+  const text = oracleText.replace(/\([^)]*\)/g, ' ').toLowerCase();
   
   // Common tutor patterns
   if (text.includes('search your library')) {
@@ -1322,6 +1324,140 @@ export function parseSearchCriteria(criteria: string): {
   if (subtypes.length > 0) result.subtypes = subtypes;
   
   return result;
+}
+
+type CyclingActivationDefinition = {
+  kind: 'cycling' | 'typecycling';
+  keywordLabel: string;
+  cost: string;
+  stackDescription: string;
+  searchCriteria?: string;
+  searchFilter?: any;
+};
+
+function titleCaseCyclingText(value: string): string {
+  return String(value || '').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function buildTypecyclingDefinition(rawSelector: string, cost: string): CyclingActivationDefinition {
+  const normalizedSelector = String(rawSelector || '').trim().toLowerCase();
+  const prettySelector = titleCaseCyclingText(rawSelector);
+  const article = /^[aeiou]/i.test(prettySelector) ? 'an' : 'a';
+  const landSelectors = new Set([
+    'basic land',
+    'artifact land',
+    'land',
+    'plains',
+    'island',
+    'swamp',
+    'mountain',
+    'forest',
+    'desert',
+    'gate',
+    'cave',
+    'locus',
+    'lair',
+    'sphere',
+    'mine',
+    'tower',
+    'power-plant',
+  ]);
+
+  if (normalizedSelector === 'basic land') {
+    return {
+      kind: 'typecycling',
+      keywordLabel: `${prettySelector}cycling`,
+      cost,
+      stackDescription: 'Search your library for a basic land card',
+      searchCriteria: 'a basic land card',
+      searchFilter: { types: ['land'], supertypes: ['basic'] },
+    };
+  }
+
+  if (normalizedSelector === 'artifact land') {
+    return {
+      kind: 'typecycling',
+      keywordLabel: `${prettySelector}cycling`,
+      cost,
+      stackDescription: 'Search your library for an artifact land card',
+      searchCriteria: 'an artifact land card',
+      searchFilter: { allTypes: ['artifact', 'land'] },
+    };
+  }
+
+  if (landSelectors.has(normalizedSelector) || normalizedSelector.endsWith(' land')) {
+    return {
+      kind: 'typecycling',
+      keywordLabel: `${prettySelector}cycling`,
+      cost,
+      stackDescription: `Search your library for ${article} ${prettySelector} card`,
+      searchCriteria: `${article} ${prettySelector} card`,
+      searchFilter: normalizedSelector === 'land'
+        ? { types: ['land'] }
+        : { types: ['land'], subtypes: [normalizedSelector] },
+    };
+  }
+
+  return {
+    kind: 'typecycling',
+    keywordLabel: `${prettySelector}cycling`,
+    cost,
+    stackDescription: `Search your library for ${article} ${prettySelector} creature card`,
+    searchCriteria: `${article} ${prettySelector} creature card`,
+    searchFilter: { types: ['creature'], subtypes: [normalizedSelector] },
+  };
+}
+
+function getCyclingDefinitions(oracleTextRaw: string): CyclingActivationDefinition[] {
+  const definitions: CyclingActivationDefinition[] = [];
+  const lines = String(oracleTextRaw || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const plainCyclingMatch = line.match(/^cycling\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    if (plainCyclingMatch) {
+      definitions.push({
+        kind: 'cycling',
+        keywordLabel: 'Cycling',
+        cost: plainCyclingMatch[1],
+        stackDescription: 'Draw a card',
+      });
+      continue;
+    }
+
+    const typeCyclingMatch = line.match(/^(.+?)cycling\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    if (!typeCyclingMatch) {
+      continue;
+    }
+
+    const rawSelector = String(typeCyclingMatch[1] || '').trim();
+    const cost = String(typeCyclingMatch[2] || '').trim();
+    if (!rawSelector || !cost) {
+      continue;
+    }
+
+    definitions.push(buildTypecyclingDefinition(rawSelector, cost));
+  }
+
+  return definitions;
+}
+
+function getCyclingDefinitionForActivation(oracleTextRaw: string, normalizedAbilityId: string, cardId: string): CyclingActivationDefinition | undefined {
+  const definitions = getCyclingDefinitions(oracleTextRaw);
+  const escapedCardId = String(cardId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parserAbilityMatch = normalizedAbilityId.match(new RegExp(`^${escapedCardId}-cycling-(\\d+)$`, 'i'));
+  if (parserAbilityMatch) {
+    const abilityIndex = Number.parseInt(parserAbilityMatch[1] || '', 10);
+    return Number.isFinite(abilityIndex) ? definitions[abilityIndex] : undefined;
+  }
+
+  if (normalizedAbilityId === 'cycling') {
+    return definitions.find((definition) => definition.kind === 'cycling');
+  }
+
+  return undefined;
 }
 
 export function registerInteractionHandlers(io: Server, socket: Socket) {
@@ -2148,7 +2284,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           destination,
           reveal: false,
           shuffleAfter: true,
-          availableCards: library,
+          availableCards: filterLibraryCardsForSearch(library, filter, game.state, pid),
           filter,
           splitDestination: isSplit,
           toBattlefield: tutorInfo.toBattlefield || 1,
@@ -2556,7 +2692,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           destination,
           reveal: false,
           shuffleAfter: true,
-          availableCards: library,
+          availableCards: filterLibraryCardsForSearch(library, filter, game.state, pid),
           filter,
           splitDestination: isSplit,
           toBattlefield: tutorInfo.toBattlefield || 1,
@@ -3400,7 +3536,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         destination: 'battlefield',
         reveal: false,
         shuffleAfter: true,
-        availableCards: library,
+        availableCards: filterLibraryCardsForSearch(library, filter, game.state, pid),
         filter,
         entersTapped: false,
       } as any);
@@ -9589,7 +9725,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           destination,
           reveal: false,
           shuffleAfter: true,
-          availableCards: library,
+          availableCards: filterLibraryCardsForSearch(library, filter, game.state, pid),
           filter,
           splitDestination: isSplit,
           toBattlefield: tutorInfo.toBattlefield || 1,
@@ -10346,8 +10482,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Legacy confirmManaDistribution handler removed - now using resolution queue system
   // See resolution.ts MANA_COLOR_SELECTION handling
 
-  // Cycling - discard a card from hand, pay cost, and draw a card
-  // Properly uses the stack per MTG rules (Rule 702.29)
+  // Cycling and typecycling - discard a card from hand, pay cost, then draw or search.
   socket.on(
     "activateCycling",
     (payload?: { gameId?: unknown; cardId?: unknown; abilityId?: unknown }) => {
@@ -10410,7 +10545,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const card = zones.hand[handIndex];
     const cardName = card.name || "Unknown";
-    const oracleText = (card.oracle_text || "").toLowerCase();
+    const oracleText = String(card.oracle_text || '');
     const normalizedAbilityId = typeof abilityId === 'string' && abilityId.trim().length > 0 ? abilityId.trim() : 'cycling';
     const isParserCyclingAbilityId = new RegExp(`^${String(cardId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-cycling-\\d+$`, 'i').test(normalizedAbilityId);
     if (normalizedAbilityId !== 'cycling' && !isParserCyclingAbilityId) {
@@ -10421,9 +10556,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
-    // Parse cycling cost
-    const cyclingMatch = oracleText.match(/cycling\s*(\{[^}]+\})/i);
-    if (!cyclingMatch) {
+    const cyclingDefinition = getCyclingDefinitionForActivation(oracleText, normalizedAbilityId, cardId);
+    if (!cyclingDefinition) {
       socket.emit("error", {
         code: "NO_CYCLING",
         message: `${cardName} does not have cycling`,
@@ -10431,7 +10565,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
-    const cyclingCostStr = cyclingMatch[1];
+    const cyclingCostStr = cyclingDefinition.cost;
     const parsedCost = parseManaCost(cyclingCostStr);
     const manaPool = getOrInitManaPool(game.state, pid);
 
@@ -10458,7 +10592,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${getPlayerName(game, pid)} paid ${cyclingCostStr} to cycle ${cardName}.`,
+      message: `${getPlayerName(game, pid)} paid ${cyclingCostStr} to activate ${cyclingDefinition.keywordLabel} on ${cardName}.`,
       ts: Date.now(),
     });
 
@@ -10469,29 +10603,28 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     zones.handCount = zones.hand.length;
     zones.graveyardCount = zones.graveyard.length;
 
-    // Put cycling ability on the stack (per MTG rules - Rule 702.29a)
-    // "Cycling is an activated ability that functions only while the card with cycling is in a player's hand"
-    // "Cycling {cost} means {cost}, Discard this card: Draw a card"
     game.state.stack = game.state.stack || [];
     const abilityStackId = `ability_cycling_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     game.state.stack.push({
       id: abilityStackId,
       type: 'ability',
       controller: pid,
-      source: cardId, // The card that was cycled
+      source: cardId,
       sourceName: cardName,
-      description: `Draw a card`,
-      abilityType: 'cycling',
+      description: cyclingDefinition.stackDescription,
+      abilityType: cyclingDefinition.kind,
       abilityId: normalizedAbilityId,
       cardId: cardId,
       cardName: cardName,
+      searchCriteria: cyclingDefinition.searchCriteria,
+      searchFilter: cyclingDefinition.searchFilter,
     } as any);
 
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
       gameId,
       from: "system",
-      message: `${getPlayerName(game, pid)} activated cycling on ${cardName} (on the stack).`,
+      message: `${getPlayerName(game, pid)} activated ${cyclingDefinition.keywordLabel} on ${cardName} (on the stack).`,
       ts: Date.now(),
     });
 
@@ -10506,6 +10639,10 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       abilityId: normalizedAbilityId,
       cyclingCost: cyclingCostStr,
       stackId: abilityStackId,
+      stackAbilityType: cyclingDefinition.kind,
+      stackDescription: cyclingDefinition.stackDescription,
+      searchCriteria: cyclingDefinition.searchCriteria,
+      searchFilter: cyclingDefinition.searchFilter,
     });
 
     broadcastGame(io, game, gameId);

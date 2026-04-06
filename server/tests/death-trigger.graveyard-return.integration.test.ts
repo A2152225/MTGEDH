@@ -943,6 +943,113 @@ describe('Death trigger graveyard returns (integration)', () => {
     });
   });
 
+  it('returns face-down permanents for Yarus and turns them face up using the underlying card identity', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'yarus_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'yarus_card_1',
+          name: 'Yarus, Roar of the Old Gods',
+          type_line: 'Legendary Creature - Centaur Druid',
+          oracle_text: 'Whenever a face-down creature you control dies, return it to the battlefield face down under its owner\'s control if it\'s a permanent card, then turn it face up.',
+          zone: 'battlefield',
+          power: '4',
+          toughness: '4',
+        },
+      },
+      {
+        id: 'manifested_land_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'face_down_placeholder_1',
+          name: 'Face-down Creature',
+          type_line: 'Creature',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+        isFaceDown: true,
+        faceDownType: 'manifest',
+        faceUpCard: {
+          id: 'manifested_land_card_1',
+          name: 'Hidden Meadow',
+          type_line: 'Land',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+        canTurnFaceUp: true,
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'manifested_land_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      battlefieldControllerMode: 'owner',
+      battlefieldFaceDown: true,
+      battlefieldTurnFaceUp: true,
+      boundGraveyardCardId: 'manifested_land_card_1',
+    });
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'manifested_land_card_1')).toBe(true);
+
+    game.resolveTopOfStack();
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'manifested_land_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: playerId,
+      owner: playerId,
+      card: {
+        id: 'manifested_land_card_1',
+        name: 'Hidden Meadow',
+        type_line: 'Land',
+      },
+    });
+    expect(returnedPermanent?.isFaceDown).not.toBe(true);
+    expect(returnedPermanent?.faceUpCard).toBeUndefined();
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent?.payload).toMatchObject({
+      selectedCardIds: ['manifested_land_card_1'],
+      destination: 'battlefield',
+      battlefieldFaceDown: true,
+      battlefieldTurnFaceUp: true,
+      battlefieldControllerMode: 'owner',
+    });
+  });
+
   it('schedules Phytotitan for its owner\'s next upkeep and returns it tapped then', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

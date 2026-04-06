@@ -32,7 +32,7 @@ import { OpeningHandActionsModal } from "./components/OpeningHandActionsModal";
 import { LibrarySearchModal } from "./components/LibrarySearchModal";
 import { TargetSelectionModal, type TargetOption } from "./components/TargetSelectionModal";
 import { ProliferateModal, type ProliferateTarget } from "./components/ProliferateModal";
-import { UndoRequestModal, type UndoRequestData } from "./components/UndoRequestModal";
+import { UndoRequestModal, type UndoBoundaryPreview, type UndoRequestData } from "./components/UndoRequestModal";
 import { SplitCardChoiceModal, type CardFaceOption } from "./components/SplitCardChoiceModal";
 import { CreatureTypeSelectModal } from "./components/CreatureTypeSelectModal";
 import { AppearanceSettingsModal } from "./components/AppearanceSettingsModal";
@@ -434,6 +434,8 @@ export function App() {
   const [librarySearchModalOpen, setLibrarySearchModalOpen] = useState(false);
   const [librarySearchData, setLibrarySearchData] = useState<{
     cards: KnownCardRef[];
+    nonSelectableCards?: KnownCardRef[];
+    revealedCards?: KnownCardRef[];
     castableWhileSearchingCards?: KnownCardRef[];
     title: string;
     description?: string;
@@ -492,7 +494,13 @@ export function App() {
     phaseCount: number;
     previousPhaseCount: number;
     turnCount: number;
-  }>({ stepCount: 0, phaseCount: 0, previousPhaseCount: 0, turnCount: 0 });
+    previews?: {
+      step?: UndoBoundaryPreview;
+      phase?: UndoBoundaryPreview;
+      previousPhase?: UndoBoundaryPreview;
+      turn?: UndoBoundaryPreview;
+    };
+  }>({ stepCount: 0, phaseCount: 0, previousPhaseCount: 0, turnCount: 0, previews: {} });
   
   // AI control state (for autopilot mode)
   const [aiControlEnabled, setAiControlEnabled] = useState(false);
@@ -2175,7 +2183,9 @@ export function App() {
           requesterId: payload.requesterId,
           requesterName: payload.requesterName,
           description: payload.description,
+          undoScope: payload.undoScope,
           actionsToUndo: payload.actionsToUndo,
+          boundaryPreview: payload.boundaryPreview,
           expiresAt: payload.expiresAt,
           approvals: payload.approvals || {},
           playerIds: payload.playerIds || [],
@@ -2238,6 +2248,12 @@ export function App() {
       phaseCount: number; 
       previousPhaseCount: number;
       turnCount: number;
+      previews?: {
+        step?: UndoBoundaryPreview;
+        phase?: UndoBoundaryPreview;
+        previousPhase?: UndoBoundaryPreview;
+        turn?: UndoBoundaryPreview;
+      };
     }) => {
       if (payload.gameId === safeView?.id) {
         setSmartUndoCounts({
@@ -2245,6 +2261,7 @@ export function App() {
           phaseCount: payload.phaseCount,
           previousPhaseCount: payload.previousPhaseCount,
           turnCount: payload.turnCount,
+          previews: payload.previews || {},
         });
       }
     };
@@ -3005,6 +3022,8 @@ export function App() {
 
         setLibrarySearchData({
           cards: step.availableCards || [],
+          nonSelectableCards: (step as any).nonSelectableCards || [],
+          revealedCards: (step as any).revealedCards || [],
           castableWhileSearchingCards: step.castableWhileSearchingCards || [],
           title: step.sourceName || 'Search Library',
           description: step.description || step.searchCriteria || 'Search your library',
@@ -4446,6 +4465,7 @@ export function App() {
     splitAssignments?: { toBattlefield: string[]; toHand: string[] }
   ) => {
     if (!safeView || !librarySearchData) return;
+    const resolvedMoveTo = librarySearchData.splitDestination ? moveTo : librarySearchData.moveTo;
     
     socket.emit("submitResolutionResponse", {
       gameId: safeView.id,
@@ -4454,7 +4474,7 @@ export function App() {
       cancelled: false,
       // Include split assignments for Cultivate/Kodama's Reach effects
       splitAssignments,
-      moveTo,
+      moveTo: resolvedMoveTo,
     });
     setLibrarySearchModalOpen(false);
     setLibrarySearchData(null);
@@ -6911,6 +6931,8 @@ export function App() {
       <LibrarySearchModal
         open={librarySearchModalOpen}
         cards={librarySearchData?.cards || []}
+        nonSelectableCards={librarySearchData?.nonSelectableCards || []}
+        revealedCards={librarySearchData?.revealedCards || []}
         castableWhileSearchingCards={librarySearchData?.castableWhileSearchingCards || []}
         playerId={librarySearchData?.targetPlayerId || you || ''}
         title={librarySearchData?.title || 'Search Library'}

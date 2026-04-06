@@ -165,6 +165,7 @@ function scheduleDelayedGraveyardReturn(ctx: GameContext, options: {
     battlefieldTapped?: boolean;
     battlefieldCounters?: Record<string, number>;
     battlefieldFaceDown?: boolean;
+    battlefieldTurnFaceUp?: boolean;
     battlefieldSuspected?: boolean;
   }>;
 }): void {
@@ -206,6 +207,7 @@ function scheduleDelayedGraveyardReturn(ctx: GameContext, options: {
           ? { ...entry.battlefieldCounters }
           : undefined,
         ...(entry.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
+        ...(entry.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
         ...(entry.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
       };
       stateAny.pendingDelayedGraveyardReturns.push(pendingEntry);
@@ -231,6 +233,31 @@ function scheduleDelayedGraveyardReturn(ctx: GameContext, options: {
   } catch (err) {
     debugWarn(1, '[scheduleDelayedGraveyardReturn] appendEvent failed:', err);
   }
+}
+
+function turnReturnedPermanentFaceUp(permanent: any): void {
+  if (!permanent || (permanent as any).isFaceDown !== true || !(permanent as any).faceUpCard) {
+    return;
+  }
+
+  const actualCard = { ...((permanent as any).faceUpCard || {}), zone: 'battlefield' };
+  const typeLine = String(actualCard?.type_line || '').toLowerCase();
+  const isCreature = typeLine.includes('creature');
+
+  (permanent as any).isFaceDown = false;
+  (permanent as any).card = actualCard;
+  if (isCreature) {
+    (permanent as any).basePower = parsePT(actualCard?.power);
+    (permanent as any).baseToughness = parsePT(actualCard?.toughness);
+    (permanent as any).summoningSickness = true;
+  } else {
+    delete (permanent as any).basePower;
+    delete (permanent as any).baseToughness;
+    delete (permanent as any).summoningSickness;
+  }
+  delete (permanent as any).faceDownType;
+  delete (permanent as any).faceUpCard;
+  delete (permanent as any).canTurnFaceUp;
 }
 
 function resolveBoundGraveyardReturnEffect(
@@ -282,6 +309,7 @@ function resolveBoundGraveyardReturnEffect(
             ? { ...((triggerItem as any).battlefieldCounters as Record<string, number>) }
             : undefined,
           battlefieldFaceDown: (triggerItem as any).battlefieldFaceDown === true,
+          battlefieldTurnFaceUp: (triggerItem as any).battlefieldTurnFaceUp === true,
           battlefieldSuspected: (triggerItem as any).battlefieldSuspected === true,
         }],
       });
@@ -375,6 +403,9 @@ function resolveBoundGraveyardReturnEffect(
       permanent.isSuspected = true;
       permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
     }
+    if ((triggerItem as any).battlefieldTurnFaceUp === true) {
+      turnReturnedPermanentFaceUp(permanent);
+    }
     battlefield.push(permanent as any);
     createdPermanentIds.push(permanentId);
   }
@@ -396,6 +427,7 @@ function resolveBoundGraveyardReturnEffect(
           ? { ...((triggerItem as any).battlefieldCounters as Record<string, number>) }
           : undefined,
         battlefieldFaceDown: (triggerItem as any).battlefieldFaceDown === true ? true : undefined,
+        battlefieldTurnFaceUp: (triggerItem as any).battlefieldTurnFaceUp === true ? true : undefined,
         battlefieldSuspected: (triggerItem as any).battlefieldSuspected === true ? true : undefined,
       });
     }
@@ -2952,7 +2984,8 @@ function detectTutorSpell(oracleText: string): {
 } {
   if (!oracleText) return { isTutor: false };
   
-  const text = oracleText.toLowerCase();
+  // Ignore reminder text so keyword lines like landcycling do not create bogus spell tutors.
+  const text = oracleText.replace(/\([^)]*\)/g, ' ').toLowerCase();
   
   // Must have "search your library" pattern
   if (!text.includes('search your library')) {
@@ -2963,6 +2996,7 @@ function detectTutorSpell(oracleText: string): {
   let destination: 'hand' | 'top' | 'battlefield' | 'graveyard' | 'split' = 'hand';
   let optional = false;
   let maxSelections = 1;
+  let entersTapped = false;
   
   // Detect what type of card to search for and how many
   const forMatch = text.match(/search your library for (?:a|an|up to (\w+)) ([^,.]+)/i);
@@ -3008,28 +3042,197 @@ function detectTutorSpell(oracleText: string): {
   // Top of library patterns (Vampiric Tutor, Mystical Tutor, Worldly Tutor, Enlightened Tutor)
   if (text.includes('put it on top of your library') || 
       text.includes('put that card on top of your library') ||
+      text.includes('put them on top of your library') ||
+      text.includes('put those cards on top of your library') ||
       text.includes('put it on top') ||
-      text.includes('put that card on top')) {
+      text.includes('put that card on top') ||
+      text.includes('put them on top') ||
+      text.includes('put those cards on top')) {
     destination = 'top';
   }
   // Battlefield patterns (Green Sun's Zenith, Chord of Calling, Natural Order)
   else if (text.includes('put it onto the battlefield') || 
            text.includes('put that card onto the battlefield') ||
+           text.includes('put them onto the battlefield') ||
+           text.includes('put those cards onto the battlefield') ||
            text.includes('put onto the battlefield') ||
            text.includes('enters the battlefield') ||
            text.includes('enters tapped')) {
     destination = 'battlefield';
+    entersTapped = text.includes('battlefield tapped') || text.includes('enters tapped');
   }
   // Graveyard patterns (Entomb, Buried Alive)
   else if (text.includes('put it into your graveyard') || 
            text.includes('put that card into your graveyard') ||
+           text.includes('put them into your graveyard') ||
+           text.includes('put those cards into your graveyard') ||
            text.includes('put into your graveyard')) {
     destination = 'graveyard';
+  }
+  else if (text.includes('put it into your hand') ||
+           text.includes('put that card into your hand') ||
+           text.includes('put them into your hand') ||
+           text.includes('put those cards into your hand') ||
+           text.includes('add it to your hand') ||
+           text.includes('add them to your hand')) {
+    destination = 'hand';
   }
   // Hand patterns (Demonic Tutor, Diabolic Tutor, Grim Tutor)
   // Default is hand
   
-  return { isTutor: true, searchCriteria, destination, optional, maxSelections };
+  return { isTutor: true, searchCriteria, destination, optional, maxSelections, entersTapped };
+}
+
+function parseLibrarySearchFilter(criteria: string): {
+  supertypes?: string[];
+  types?: string[];
+  subtypes?: string[];
+  minCmc?: number;
+  maxCmc?: number;
+  minPower?: number;
+  maxPower?: number;
+  minToughness?: number;
+  maxToughness?: number;
+} {
+  if (!criteria) return {};
+
+  const result: {
+    supertypes?: string[];
+    types?: string[];
+    subtypes?: string[];
+    minCmc?: number;
+    maxCmc?: number;
+    minPower?: number;
+    maxPower?: number;
+    minToughness?: number;
+    maxToughness?: number;
+  } = {};
+  const text = criteria.toLowerCase();
+
+  const manaValueGreaterMatch = text.match(/(?:with\s+)?(?:mana (?:value|cost)|converted mana cost|cmc)\s+(\d+)\s+or\s+(?:greater|more)/);
+  if (manaValueGreaterMatch) {
+    result.minCmc = parseInt(manaValueGreaterMatch[1], 10);
+  }
+
+  const manaValueLessMatch = text.match(/(?:with\s+)?(?:mana (?:value|cost)|converted mana cost|cmc)\s+(\d+)\s+or\s+(?:less|fewer)/);
+  if (manaValueLessMatch) {
+    result.maxCmc = parseInt(manaValueLessMatch[1], 10);
+  }
+
+  const powerGreaterMatch = text.match(/power\s+(\d+)\s+or\s+(?:greater|more)/);
+  if (powerGreaterMatch) {
+    result.minPower = parseInt(powerGreaterMatch[1], 10);
+  }
+
+  const powerLessMatch = text.match(/power\s+(\d+)\s+or\s+(?:less|fewer)/);
+  if (powerLessMatch) {
+    result.maxPower = parseInt(powerLessMatch[1], 10);
+  }
+
+  const toughnessGreaterMatch = text.match(/toughness\s+(\d+)\s+or\s+(?:greater|more)/);
+  if (toughnessGreaterMatch) {
+    result.minToughness = parseInt(toughnessGreaterMatch[1], 10);
+  }
+
+  const toughnessLessMatch = text.match(/toughness\s+(\d+)\s+or\s+(?:less|fewer)/);
+  if (toughnessLessMatch) {
+    result.maxToughness = parseInt(toughnessLessMatch[1], 10);
+  }
+
+  const supertypes: string[] = [];
+  if (text.includes('basic')) supertypes.push('basic');
+  if (text.includes('legendary')) supertypes.push('legendary');
+  if (text.includes('snow')) supertypes.push('snow');
+  if (text.includes('world')) supertypes.push('world');
+  if (text.includes('ongoing')) supertypes.push('ongoing');
+  if (text.includes('host')) supertypes.push('host');
+  if (supertypes.length > 0) {
+    result.supertypes = supertypes;
+  }
+
+  const types: string[] = [];
+  if (text.includes('creature')) types.push('creature');
+  if (text.includes('instant')) types.push('instant');
+  if (text.includes('sorcery')) types.push('sorcery');
+  if (text.includes('artifact')) types.push('artifact');
+  if (text.includes('enchantment')) types.push('enchantment');
+  if (text.includes('planeswalker')) types.push('planeswalker');
+  if (text.includes('land')) types.push('land');
+  if (text.includes('tribal') || text.includes('kindred')) types.push('tribal');
+  if (text.includes('battle')) types.push('battle');
+  if (types.length > 0) {
+    result.types = types;
+  }
+
+  const subtypes: string[] = [];
+  if (text.includes('forest')) subtypes.push('forest');
+  if (text.includes('plains')) subtypes.push('plains');
+  if (text.includes('island')) subtypes.push('island');
+  if (text.includes('swamp')) subtypes.push('swamp');
+  if (text.includes('mountain')) subtypes.push('mountain');
+  if (text.includes('equipment')) subtypes.push('equipment');
+  if (text.includes('aura')) subtypes.push('aura');
+  if (text.includes('vehicle')) subtypes.push('vehicle');
+  if (subtypes.length > 0) {
+    result.subtypes = subtypes;
+  }
+
+  return result;
+}
+
+function detectRevealUntilHandSpell(
+  oracleText: string,
+  chosenKind?: string,
+): { revealKind: 'artifact' | 'creature' | 'land' | 'nonland' } | null {
+  if (!oracleText) return null;
+
+  const text = oracleText.toLowerCase();
+
+  if (
+    text.includes('choose land or nonland') &&
+    text.includes('reveal cards from the top of your library until you reveal a card of the chosen kind')
+  ) {
+    const normalizedChoice = String(chosenKind || '').toLowerCase().trim();
+    if (normalizedChoice === 'land' || normalizedChoice === 'nonland') {
+      return { revealKind: normalizedChoice };
+    }
+    return null;
+  }
+
+  const fixedKindMatch = text.match(/reveal cards from the top of your library until you reveal an? (artifact|creature|land|nonland) card/);
+  if (!fixedKindMatch) return null;
+
+  const revealKind = String(fixedKindMatch[1] || '').toLowerCase();
+  if (revealKind === 'artifact' || revealKind === 'creature' || revealKind === 'land' || revealKind === 'nonland') {
+    return { revealKind };
+  }
+
+  return null;
+}
+
+function cardMatchesRevealKind(card: any, revealKind: 'artifact' | 'creature' | 'land' | 'nonland'): boolean {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  if (revealKind === 'nonland') {
+    return !typeLine.includes('land');
+  }
+  return typeLine.includes(revealKind);
+}
+
+function summarizeLibraryCard(card: any): any {
+  return {
+    id: card.id,
+    name: card.name,
+    type_line: card.type_line,
+    oracle_text: card.oracle_text,
+    image_uris: card.image_uris,
+    imageUrl: card.image_uris?.normal || card.image_uris?.small,
+    mana_cost: card.mana_cost,
+    cmc: card.cmc,
+    colors: card.colors,
+    power: card.power,
+    toughness: card.toughness,
+    loyalty: card.loyalty,
+  };
 }
 
 /**
@@ -3210,6 +3413,11 @@ function enqueueLibrarySearchStep(
     if (filter.types && filter.types.length > 0) {
       const typeLine = (card.type_line || '').toLowerCase();
       matches = filter.types.some((type: string) => typeLine.includes(type.toLowerCase()));
+    }
+
+    if (matches && filter.allTypes && filter.allTypes.length > 0) {
+      const typeLine = (card.type_line || '').toLowerCase();
+      matches = filter.allTypes.every((requiredType: string) => typeLine.includes(String(requiredType || '').toLowerCase()));
     }
     
     // Check subtypes
@@ -4701,6 +4909,9 @@ export function executeTriggerEffect(
           permanent.suspected = true;
           permanent.isSuspected = true;
           permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
+        }
+        if (rawEntry?.battlefieldTurnFaceUp === true) {
+          turnReturnedPermanentFaceUp(permanent);
         }
         battlefield.push(permanent);
       }
@@ -9002,11 +9213,9 @@ export function resolveTopOfStack(ctx: GameContext) {
       return;
     }
     
-    // Handle cycling ability resolution
-    // Rule 702.29: Cycling is an activated ability that functions only while the card is in hand
-    // Effect: Draw a card
-    if (abilityType === 'cycling') {
-      debug(2, `[resolveTopOfStack] Resolving cycling ability from ${sourceName} for ${controller}`);
+    // Handle cycling and typecycling ability resolution.
+    if (abilityType === 'cycling' || abilityType === 'typecycling') {
+      debug(2, `[resolveTopOfStack] Resolving ${abilityType} ability from ${sourceName} for ${controller}`);
 
       // Turn-tracking for intervening-if templates like "if you cycled two or more cards this turn".
       // Only record positive evidence to avoid false negatives.
@@ -9034,6 +9243,39 @@ export function resolveTopOfStack(ctx: GameContext) {
       const players = state.players || [];
       const player = players.find((p: any) => p.id === controller);
       const playerName = player?.name || controller;
+
+      if (abilityType === 'typecycling') {
+        const searchCriteria = String((item as any).searchCriteria || 'a card');
+        const searchFilter = ((item as any).searchFilter && typeof (item as any).searchFilter === 'object')
+          ? { ...((item as any).searchFilter as any) }
+          : {};
+
+        enqueueLibrarySearchStep(ctx, controller as PlayerID, {
+          searchFor: searchCriteria,
+          description: `${sourceName}: Search your library for ${searchCriteria}`,
+          destination: 'hand',
+          optional: false,
+          source: sourceName || 'Typecycling',
+          shuffleAfter: true,
+          maxSelections: 1,
+          minSelections: 1,
+          reveal: true,
+          filter: searchFilter,
+          persistLibrarySearchResolve: true,
+          persistLibrarySearchResolveReason: 'stack_resolution',
+        });
+
+        (ctx as any).io?.to((ctx as any).gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId: (ctx as any).gameId,
+          from: "system",
+          message: `${playerName} is searching their library from ${sourceName}.`,
+          ts: Date.now(),
+        });
+
+        bumpSeq();
+        return;
+      }
       
       // Draw a card from library
       const lib = zones.library || [];
@@ -12300,14 +12542,16 @@ export function resolveTopOfStack(ctx: GameContext) {
     const tutorInfo = detectTutorSpell(oracleText);
     if (tutorInfo.isTutor) {
       const isVampiric = (effectiveCard.name || '').toLowerCase().trim() === 'vampiric tutor';
+      const tutorFilter = parseLibrarySearchFilter(tutorInfo.searchCriteria || '');
       enqueueLibrarySearchStep(ctx, controller as PlayerID, {
         searchFor: tutorInfo.searchCriteria || 'a card',
         description: `${effectiveCard.name}: Search your library for ${tutorInfo.searchCriteria || 'a card'}`,
         destination: tutorInfo.destination || 'hand',
-        entersTapped: tutorInfo.entersTapped ?? (tutorInfo.destination === 'battlefield'),
+        entersTapped: tutorInfo.entersTapped === true,
         optional: tutorInfo.optional || false,
         source: effectiveCard.name || 'Tutor',
         shuffleAfter: true,
+        filter: tutorFilter,
         maxSelections: tutorInfo.maxSelections || 1,
         minSelections: tutorInfo.optional ? 0 : 1,
         splitDestination: tutorInfo.splitDestination || false,
@@ -12316,6 +12560,47 @@ export function resolveTopOfStack(ctx: GameContext) {
         lifeLoss: isVampiric ? 2 : undefined,
       });
       debug(2, `[resolveTopOfStack] Tutor spell ${effectiveCard.name}: ${controller} may search for ${tutorInfo.searchCriteria || 'a card'} (destination: ${tutorInfo.destination}, split: ${tutorInfo.splitDestination || false})`);
+    }
+
+    const revealUntilHandInfo = detectRevealUntilHandSpell(
+      oracleText,
+      String((effectiveCard as any).abundantChoice || (item as any)?.targets?.abundantChoice || (item as any)?.abundantChoice || ''),
+    );
+    if (revealUntilHandInfo) {
+      const lib = ((ctx as any).libraries as Map<string, any[]>)?.get(controller) || [];
+      const availableCards: any[] = [];
+      const nonSelectableCards: any[] = [];
+
+      for (const card of lib) {
+        const summary = summarizeLibraryCard(card);
+        if (availableCards.length === 0 && cardMatchesRevealKind(card, revealUntilHandInfo.revealKind)) {
+          availableCards.push(summary);
+          break;
+        }
+        nonSelectableCards.push(summary);
+      }
+
+      ResolutionQueueManager.addStep((ctx as any).gameId || 'unknown', {
+        type: ResolutionStepType.LIBRARY_SEARCH,
+        playerId: controller,
+        description: `${effectiveCard.name}: Reveal cards from the top of your library until you reveal a ${revealUntilHandInfo.revealKind} card. Put that card into your hand and the rest on the bottom of your library in a random order.`,
+        mandatory: availableCards.length > 0,
+        sourceName: effectiveCard.name || 'Reveal Until',
+        searchCriteria: `${revealUntilHandInfo.revealKind} card`,
+        minSelections: availableCards.length > 0 ? 1 : 0,
+        maxSelections: availableCards.length > 0 ? 1 : 0,
+        destination: 'hand',
+        reveal: true,
+        shuffleAfter: false,
+        availableCards,
+        nonSelectableCards,
+        revealedCards: [...nonSelectableCards, ...availableCards],
+        remainderDestination: 'bottom',
+        remainderRandomOrder: true,
+        persistLibrarySearchResolve: true,
+        persistLibrarySearchResolveReason: 'stack_resolution',
+      } as any);
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name}: queued reveal-until-${revealUntilHandInfo.revealKind} selection with ${availableCards.length} matching card(s)`);
     }
     
     // Handle Gamble - special tutor with random discard

@@ -34,6 +34,7 @@ import {
 } from "./zones";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander";
 import { exchangePermanentOracleText, parsePT } from "../utils";
+import { filterLibraryCardsForSearch } from "../../socket/library-search.js";
 import {
   updateCounters,
   applyUpdateCountersBulk,
@@ -3073,11 +3074,41 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const attackers = ((e as any).attackers as any[]) || [];
         try {
           const battlefield = ctx.state.battlefield || [];
+          const playerId = String((e as any).playerId || "").trim();
+
+          try {
+            const tapped = Array.isArray((e as any).tappedPermanents)
+              ? ((e as any).tappedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+              : [];
+            if (tapped.length > 0) {
+              const tappedSet = new Set(tapped);
+              for (const permanent of battlefield as any[]) {
+                if (permanent && tappedSet.has(String(permanent.id || ''))) {
+                  (permanent as any).tapped = true;
+                }
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          try {
+            const manaDelta = (e as any).paymentManaDelta;
+            if (playerId && manaDelta && typeof manaDelta === 'object' && !Array.isArray(manaDelta)) {
+              const pool = getOrInitManaPool(ctx.state as any, playerId as any) as any;
+              for (const [poolKey, rawAmount] of Object.entries(manaDelta as Record<string, unknown>)) {
+                const amount = Number(rawAmount || 0);
+                if (!Number.isFinite(amount) || amount === 0) continue;
+                pool[poolKey] = Number(pool[poolKey] || 0) + amount;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
 
           // Best-effort combat trackers consumed by intervening-if.
           try {
             const stateAny = ctx.state as any;
-            const playerId = String((e as any).playerId || "").trim();
             if (playerId) {
               stateAny.attackedPlayersThisTurnByPlayer = stateAny.attackedPlayersThisTurnByPlayer || {};
               stateAny.attackedPlayersThisTurnByPlayer[playerId] = Array.isArray(stateAny.attackedPlayersThisTurnByPlayer[playerId])
@@ -4763,7 +4794,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               destination,
               reveal: false,
               shuffleAfter: true,
-              availableCards: snapshotLibraryForReplay(ctx, playerId),
+              availableCards: filterLibraryCardsForSearch(snapshotLibraryForReplay(ctx, playerId), filter, (ctx as any).state, playerId),
               filter,
               splitDestination: isSplit,
               toBattlefield: tutorInfo.toBattlefield || 1,
@@ -5234,22 +5265,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const maxSelectionsRaw = Number((e as any).maxSelections);
                 const maxSelections = Number.isFinite(maxSelectionsRaw) ? maxSelectionsRaw : 1;
                 const filter = ((e as any).filter && typeof (e as any).filter === 'object') ? { ...((e as any).filter as any) } : {};
-                const availableCards = (ctx.libraries.get(pid) || []).map((libraryCard: any) => ({
-                  id: libraryCard.id,
-                  name: libraryCard.name,
-                  type_line: libraryCard.type_line,
-                  oracle_text: libraryCard.oracle_text,
-                  image_uris: libraryCard.image_uris,
-                  card_faces: libraryCard.card_faces,
-                  layout: libraryCard.layout,
-                  mana_cost: libraryCard.mana_cost,
-                  cmc: libraryCard.cmc,
-                  colors: libraryCard.colors,
-                  power: libraryCard.power,
-                  toughness: libraryCard.toughness,
-                  loyalty: libraryCard.loyalty,
-                  color_identity: libraryCard.color_identity,
-                }));
+                const availableCards = filterLibraryCardsForSearch(
+                  ctx.libraries.get(pid) || [],
+                  filter,
+                  ctx.state as any,
+                  pid,
+                );
 
                 ResolutionQueueManager.addStep(gameId, {
                   type: 'library_search' as any,
@@ -5355,6 +5376,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const cyclingCost = String((e as any).cyclingCost || '');
         const stackId = String((e as any).stackId || generateDeterministicId(ctx, 'ability_cycling', String(cardId || cardName || 'card')));
         const abilityId = String((e as any).abilityId || 'cycling');
+        const stackAbilityType = String((e as any).stackAbilityType || ((e as any).searchCriteria ? 'typecycling' : 'cycling'));
+        const stackDescription = String((e as any).stackDescription || (stackAbilityType === 'typecycling' ? 'Search your library' : 'Draw a card'));
+        const searchCriteria = typeof (e as any).searchCriteria === 'string' ? String((e as any).searchCriteria) : undefined;
+        const searchFilter = ((e as any).searchFilter && typeof (e as any).searchFilter === 'object')
+          ? { ...((e as any).searchFilter as any) }
+          : undefined;
         try {
           const zones = (ctx.state as any)?.zones?.[pid];
           if (zones && Array.isArray(zones.hand) && cardId) {
@@ -5385,11 +5412,13 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               controller: pid,
               source: cardId,
               sourceName: cardName,
-              description: 'Draw a card',
-              abilityType: 'cycling',
+              description: stackDescription,
+              abilityType: stackAbilityType,
               abilityId,
               cardId,
               cardName,
+              searchCriteria,
+              searchFilter,
             });
           }
 
@@ -5413,9 +5442,60 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const permIndex = battlefield.findIndex((perm: any) => perm && String(perm.id || '') === permId);
 
           if (payMana) {
+            try {
+              const tapped = Array.isArray((e as any).tappedPermanents)
+                ? ((e as any).tappedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+                : [];
+              if (tapped.length > 0) {
+                const tappedSet = new Set(tapped);
+                for (const permanent of battlefield as any[]) {
+                  if (permanent && tappedSet.has(String(permanent.id || ''))) {
+                    (permanent as any).tapped = true;
+                  }
+                }
+              }
+            } catch {
+              // best-effort only
+            }
+
             const manaPool = (ctx.state as any).manaPool?.[pid];
-            if (manaPool && manaCost) {
+            const manaDelta = (e as any).paymentManaDelta;
+            if (manaPool && manaDelta && typeof manaDelta === 'object' && !Array.isArray(manaDelta)) {
+              for (const [poolKey, rawAmount] of Object.entries(manaDelta as Record<string, unknown>)) {
+                const amount = Number(rawAmount || 0);
+                if (!Number.isFinite(amount) || amount === 0) continue;
+                manaPool[poolKey] = Number(manaPool[poolKey] || 0) + amount;
+              }
+            } else if (manaPool && manaCost) {
               consumeRecordedManaCostFromPool(manaPool, manaCost);
+            }
+
+            const sacrificedPaymentPermanents = Array.isArray((e as any).sacrificedPaymentPermanents)
+              ? ((e as any).sacrificedPaymentPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+              : [];
+            if (sacrificedPaymentPermanents.length > 0) {
+              const sacrificedSet = new Set(sacrificedPaymentPermanents);
+              const zones = ((ctx.state as any).zones = (ctx.state as any).zones || {});
+              const playerZones = (zones[pid] = zones[pid] || {
+                hand: [],
+                handCount: 0,
+                libraryCount: 0,
+                graveyard: [],
+                graveyardCount: 0,
+                exile: [],
+                exileCount: 0,
+              });
+              playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
+
+              for (let index = battlefield.length - 1; index >= 0; index -= 1) {
+                const permanent = battlefield[index];
+                if (!permanent || !sacrificedSet.has(String((permanent as any).id || ''))) continue;
+                const [removedPermanent] = battlefield.splice(index, 1);
+                if (removedPermanent?.card) {
+                  playerZones.graveyard.push({ ...(removedPermanent.card || {}), zone: 'graveyard' });
+                  playerZones.graveyardCount = playerZones.graveyard.length;
+                }
+              }
             }
           } else if (permIndex !== -1) {
             const [perm] = battlefield.splice(permIndex, 1);
@@ -6550,6 +6630,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const battlefieldTapped = (e as any).battlefieldTapped;
         const battlefieldCounters = (e as any).battlefieldCounters;
         const battlefieldFaceDown = (e as any).battlefieldFaceDown;
+        const battlefieldTurnFaceUp = (e as any).battlefieldTurnFaceUp;
         const battlefieldSuspected = (e as any).battlefieldSuspected;
         const isModal = (e as any).isModal;
         const modalOptions = (e as any).modalOptions;
@@ -6608,6 +6689,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             ...(battlefieldTapped === true ? { battlefieldTapped: true } : null),
             ...(battlefieldCounters && typeof battlefieldCounters === 'object' ? { battlefieldCounters } : null),
             ...(battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
+            ...(battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
             ...(battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
             ...(typeof isModal === 'boolean' ? { isModal } : null),
             ...(Array.isArray(modalOptions) ? { modalOptions } : null),
@@ -6662,6 +6744,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 ? { ...(rawEntry.battlefieldCounters as Record<string, number>) }
                 : undefined,
               ...(rawEntry?.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
+              ...(rawEntry?.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
               ...(rawEntry?.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
             });
           }
@@ -7398,6 +7481,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ? { ...((e as any).battlefieldCounters as Record<string, number>) }
           : {};
         const battlefieldFaceDown = (e as any).battlefieldFaceDown === true;
+        const battlefieldTurnFaceUp = (e as any).battlefieldTurnFaceUp === true;
         const battlefieldSuspected = (e as any).battlefieldSuspected === true;
         
         try {
@@ -7498,6 +7582,25 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     permanent.suspected = true;
                     permanent.isSuspected = true;
                     permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
+                  }
+                  if (battlefieldTurnFaceUp && permanent.isFaceDown === true && permanent.faceUpCard) {
+                    const actualCard = { ...(permanent.faceUpCard as any), zone: 'battlefield' };
+                    const actualTypeLine = String(actualCard?.type_line || '').toLowerCase();
+                    const actualIsCreature = actualTypeLine.includes('creature');
+                    permanent.isFaceDown = false;
+                    permanent.card = actualCard;
+                    if (actualIsCreature) {
+                      permanent.basePower = parseInt(actualCard.power || '0', 10);
+                      permanent.baseToughness = parseInt(actualCard.toughness || '0', 10);
+                      permanent.summoningSickness = true;
+                    } else {
+                      delete permanent.basePower;
+                      delete permanent.baseToughness;
+                      delete permanent.summoningSickness;
+                    }
+                    delete permanent.faceDownType;
+                    delete permanent.faceUpCard;
+                    delete permanent.canTurnFaceUp;
                   }
                   ctx.state.battlefield.push(permanent as any);
                 }

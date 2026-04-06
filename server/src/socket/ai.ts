@@ -28,7 +28,7 @@ import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { runSBA } from "../state/modules/counters_tokens.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
-import { finalizePlayedLand, requestCastSpellForSocket } from "./game-actions.js";
+import { finalizePlayedLand, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 
 /** AI timing delays for more natural behavior */
@@ -6318,6 +6318,7 @@ async function executePassPriority(
       debug(1, '[AI] All players passed priority, resolving top of stack');
       if (typeof (game as any).resolveTopOfStack === 'function') {
         (game as any).resolveTopOfStack();
+        runPostResolutionPermanentPromptChecks(io, game, gameId);
         debug(2, `[AI] Stack resolved for game ${gameId}`);
       }
       

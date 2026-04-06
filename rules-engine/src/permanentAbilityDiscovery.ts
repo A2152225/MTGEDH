@@ -354,6 +354,23 @@ function convertParsedAbility(
       parsedAbility.type !== AbilityType.KEYWORD) {
     return null;
   }
+
+  if (parsedAbility.type === AbilityType.KEYWORD) {
+    const normalizedText = String(parsedAbility.text || '').trim().toLowerCase();
+    const handOnlyKeyword =
+      normalizedText === 'cycling' ||
+      /^cycling\b/.test(normalizedText) ||
+      /^basic landcycling\b/.test(normalizedText) ||
+      (/^[a-z]+cycling\b/.test(normalizedText) && !/^cycling\b/.test(normalizedText)) ||
+      /^transmute\b/.test(normalizedText);
+    if (handOnlyKeyword && sourceZone !== 'hand') {
+      return null;
+    }
+
+    if (/^transfigure\b/.test(normalizedText) && sourceZone !== 'battlefield') {
+      return null;
+    }
+  }
   
   const cost = parsedAbility.cost || '';
   const effect = parsedAbility.effect || '';

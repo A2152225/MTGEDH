@@ -199,6 +199,38 @@ describe('parseActivatedAbilities station parsing', () => {
     expect(abilities[0]?.effect).toBe('Discard this card, then draw a card');
   });
 
+  it('parses basic landcycling as a cycling-routed library search ability', () => {
+    const card: KnownCardRef = {
+      id: 'landcycler-card-1',
+      name: 'Test Landcycler',
+      type_line: 'Creature - Wurm',
+      oracle_text: 'Basic landcycling {2}',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.id).toBe('landcycler-card-1-cycling-0');
+    expect(abilities[0]?.label).toBe('Basic Landcycling {2}');
+    expect(abilities[0]?.effect).toBe('Discard this card, then search your library for a Basic Land card');
+  });
+
+  it('parses wizardcycling as a creature-type library search ability', () => {
+    const card: KnownCardRef = {
+      id: 'wizardcycler-card-1',
+      name: 'Test Wizardcycler',
+      type_line: 'Creature - Horror',
+      oracle_text: 'Wizardcycling {3}',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.id).toBe('wizardcycler-card-1-cycling-0');
+    expect(abilities[0]?.label).toBe('Wizardcycling {3}');
+    expect(abilities[0]?.effect).toBe('Discard this card, then search your library for a Wizard creature card');
+  });
+
   it('keeps ordinary braced battlefield activations on generic -ability- ids', () => {
     const cards: KnownCardRef[] = [
       {

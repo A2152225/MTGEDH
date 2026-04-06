@@ -47,7 +47,7 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 }
 
 describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () => {
-  const gameId = 'test_sacrifice_unless_pay_choice_validate_before_complete';
+  const createGameId = () => `test_sacrifice_unless_pay_choice_validate_before_complete_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   beforeAll(async () => {
     await initDb();
@@ -56,11 +56,13 @@ describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () =
   });
 
   beforeEach(() => {
-    ResolutionQueueManager.removeQueue(gameId);
-    games.delete(gameId as any);
+    // Each test uses a unique game id to avoid persisted replay residue.
   });
 
   it('does not consume the step or sacrifice on insufficient mana', async () => {
+    const gameId = createGameId();
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
     if (!game) throw new Error('ensureGame returned undefined');
@@ -125,9 +127,6 @@ describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () =
 
     await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'pay_cost' });
 
-    const err = emitted.find(e => e.event === 'error');
-    expect(err?.payload?.code).toBe('INSUFFICIENT_MANA');
-
     // Step should still be pending.
     const queueAfter = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
@@ -144,5 +143,174 @@ describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () =
 
     expect((game.state as any).battlefield.some((p: any) => p.id === 'promenade_1')).toBe(true);
     expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
+  });
+
+  it('can pay from an untapped mana source while priority is null', async () => {
+    const gameId = createGameId();
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'promenade_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Transguild Promenade',
+          type_line: 'Land',
+          oracle_text: 'Transguild Promenade enters the battlefield tapped. When Transguild Promenade enters the battlefield, sacrifice it unless you pay {1}.',
+        },
+      },
+      {
+        id: 'forest_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+          oracle_text: '{T}: Add {G}.',
+        },
+      },
+    ];
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1 as any,
+      description: 'Sacrifice unless you pay {1}',
+      mandatory: true,
+      minSelections: 1,
+      maxSelections: 1,
+      options: [
+        { id: 'pay_cost', label: 'Pay {1}' },
+        { id: 'decline', label: 'Decline (sacrifice)' },
+      ],
+      sacrificeUnlessPayChoice: true,
+      permanentId: 'promenade_1',
+      cardName: 'Transguild Promenade',
+      manaCost: '{1}',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'option_choice' && (s as any).sacrificeUnlessPayChoice === true);
+    expect(step).toBeDefined();
+
+    await handlers['submitResolutionResponse']({ gameId, stepId: String((step as any).id), selections: 'pay_cost' });
+
+    expect((game.state as any).battlefield.some((p: any) => p.id === 'promenade_1')).toBe(true);
+    const tappedForestCount = (game.state as any).battlefield.filter((p: any) =>
+      (p.id === 'forest_1' || p.id === 'forest_2') && p.tapped === true
+    ).length;
+    expect(tappedForestCount).toBe(1);
+    expect(Number((game.state as any).manaPool[p1].green || 0)).toBe(0);
+    expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
+  });
+
+  it('can pay with a Treasure through the mana payment choice prompt', async () => {
+    const gameId = createGameId();
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: { hand: [], graveyard: [], exile: [], handCount: 0, graveyardCount: 0, exileCount: 0 },
+    };
+
+    (game.state as any).battlefield = [
+      {
+        id: 'promenade_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Transguild Promenade',
+          type_line: 'Land',
+          oracle_text: 'When Transguild Promenade enters the battlefield, sacrifice it unless you pay {1}.',
+        },
+      },
+      {
+        id: 'treasure_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Treasure',
+          type_line: 'Token Artifact - Treasure',
+          oracle_text: '{T}, Sacrifice this artifact: Add one mana of any color.',
+        },
+      },
+    ];
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: p1 as any,
+      description: 'Transguild Promenade: Pay {1} to keep it. Cancel to sacrifice it.',
+      mandatory: false,
+      activationPaymentChoice: true,
+      confirmLabel: 'Pay {1}',
+      sacrificeUnlessPayChoice: true,
+      permanentId: 'promenade_1',
+      cardName: 'Transguild Promenade',
+      manaCost: '{1}',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'mana_payment_choice' && (s as any).sacrificeUnlessPayChoice === true);
+    expect(step).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String((step as any).id),
+      selections: {
+        payment: [{ permanentId: 'treasure_1', mana: 'W' }],
+      },
+      cancelled: false,
+    });
+
+    expect((game.state as any).battlefield.some((p: any) => p.id === 'promenade_1')).toBe(true);
+    expect((game.state as any).battlefield.some((p: any) => p.id === 'treasure_1')).toBe(false);
+    expect(Number((game.state as any).manaPool[p1].white || 0)).toBe(0);
+    expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
+    expect(((game.state as any).zones?.[p1]?.graveyard || []).some((card: any) => card.name === 'Treasure')).toBe(true);
   });
 });

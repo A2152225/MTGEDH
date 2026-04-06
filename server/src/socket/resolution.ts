@@ -32,11 +32,14 @@ import {
   broadcastManaPoolUpdate,
   calculateManaProduction,
   clearHumanAutoPassPauseOnAction,
+  getMaxGenericManaAvailable,
+  payGenericManaWithAvailableSources,
 } from "./util.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "./opening-hand.js";
 import { executeDeclareAttackers } from "./combat.js";
 import { parsePT, uid, calculateVariablePT, validateLifePayment } from "../state/utils.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { filterLibraryCardsForSearch } from "./library-search.js";
 import {
   handleBounceLandETB,
   chooseAILibrarySearchCards,
@@ -842,6 +845,206 @@ function applyWardManaPaymentSelection(
   }
 
   return { ok: true };
+}
+
+type ResolutionSelectedManaPaymentResult =
+  | {
+      ok: true;
+      tappedPermanents: string[];
+      sacrificedPermanents: string[];
+      paymentManaDelta?: Record<string, number>;
+    }
+  | { ok: false; code: string; message: string };
+
+function getResolutionManaSourceCostText(permanent: any): string {
+  return String((permanent as any)?.card?.oracle_text || '').split(':')[0].toLowerCase();
+}
+
+function resolutionManaSourceRequiresSacrifice(permanent: any): boolean {
+  return /\bsacrifice\b/.test(getResolutionManaSourceCostText(permanent));
+}
+
+function resolutionManaSourceHasUnsupportedAdditionalCosts(permanent: any): boolean {
+  const costText = getResolutionManaSourceCostText(permanent);
+  const manaSymbols = costText.match(/\{[^}]+\}/g) || [];
+  if (manaSymbols.some((symbol) => !/^\{[tq]\}$/i.test(symbol))) {
+    return true;
+  }
+
+  return /\bpay\b|\bdiscard\b|\bexile\b|\breturn\b/.test(costText);
+}
+
+function applySelectedManaPaymentForResolutionCost(
+  game: any,
+  playerId: string,
+  manaCost: string,
+  payment: ResolutionPaymentItem[] | undefined
+): ResolutionSelectedManaPaymentResult {
+  const parsedCost = parseManaCost(String(manaCost || ''));
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const manaPool = getOrInitManaPool(game.state, playerId) as any;
+  const manaPoolBeforePayment = snapshotResolutionManaPool((game.state as any)?.manaPool?.[playerId]);
+  const totalAvailable: Record<string, number> = payment && payment.length > 0
+    ? { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 }
+    : snapshotResolutionManaPool(manaPool);
+  const selectedFloatingMana: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+  const selectedPaymentTotals: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+  const usedPermanentIds = new Set<string>();
+  const tappedPermanents: string[] = [];
+  const sacrificedPermanents: string[] = [];
+
+  if (payment && payment.length > 0) {
+    for (const { permanentId, mana, count } of payment) {
+      const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
+      if (floatingPoolKey) {
+        const amount = Math.max(1, Number(count || 1));
+        selectedFloatingMana[floatingPoolKey] = (selectedFloatingMana[floatingPoolKey] || 0) + amount;
+        totalAvailable[floatingPoolKey] = (totalAvailable[floatingPoolKey] || 0) + amount;
+        continue;
+      }
+
+      if (usedPermanentIds.has(permanentId)) {
+        return { ok: false, code: 'INVALID_PAYMENT', message: 'A mana source can only be used once.' };
+      }
+      usedPermanentIds.add(permanentId);
+
+      const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
+      if (!permanent) {
+        return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield.` };
+      }
+      if ((permanent as any).tapped) {
+        return { ok: false, code: 'PAYMENT_SOURCE_TAPPED', message: `${(permanent as any).card?.name || 'Permanent'} is already tapped.` };
+      }
+      if (resolutionManaSourceHasUnsupportedAdditionalCosts(permanent)) {
+        return {
+          ok: false,
+          code: 'INVALID_PAYMENT',
+          message: `${(permanent as any).card?.name || 'Permanent'} requires an unsupported additional activation cost.`,
+        };
+      }
+
+      const permCard = (permanent as any).card || {};
+      const permTypeLine = String(permCard.type_line || '').toLowerCase();
+      const permIsCreature = /\bcreature\b/.test(permTypeLine);
+      const hasHaste = creatureHasHaste(permanent, battlefield, playerId);
+      if (permIsCreature && (permanent as any).summoningSickness && !hasHaste) {
+        return {
+          ok: false,
+          code: 'SUMMONING_SICKNESS',
+          message: `${permCard.name || 'Creature'} has summoning sickness and cannot use tap abilities this turn.`,
+        };
+      }
+
+      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+      const producedAmount = count != null
+        ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0))
+        : Number(manaInfo.totalAmount || 0);
+      const poolKey = MANA_POOL_KEY_BY_SYMBOL[mana];
+      if (!poolKey || producedAmount <= 0) {
+        return { ok: false, code: 'INVALID_PAYMENT', message: `Invalid mana payment from ${permCard.name || 'source'}.` };
+      }
+
+      totalAvailable[poolKey] = (totalAvailable[poolKey] || 0) + producedAmount;
+      for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
+        const bonusKey = MANA_POOL_KEY_BY_SYMBOL[String(bonus?.color || '').toUpperCase()];
+        const bonusAmount = Number(bonus?.amount || 0);
+        if (bonusKey && bonusAmount > 0 && (count == null || bonusKey !== poolKey)) {
+          totalAvailable[bonusKey] = (totalAvailable[bonusKey] || 0) + bonusAmount;
+        }
+      }
+    }
+
+    for (const [poolKey, amount] of Object.entries(selectedFloatingMana)) {
+      if (Number(manaPool[poolKey] || 0) < Number(amount || 0)) {
+        return { ok: false, code: 'INSUFFICIENT_MANA', message: `Not enough ${poolKey} mana selected from your pool.` };
+      }
+    }
+  }
+
+  const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+  if (validationError) {
+    return { ok: false, code: 'INSUFFICIENT_MANA', message: validationError };
+  }
+
+  if (payment && payment.length > 0) {
+    for (const { permanentId, mana, count } of payment) {
+      const floatingPoolKey = getFloatingPaymentPoolKey(permanentId, mana);
+      if (floatingPoolKey) {
+        const amount = Math.max(1, Number(count || 1));
+        selectedPaymentTotals[floatingPoolKey] = (selectedPaymentTotals[floatingPoolKey] || 0) + amount;
+        continue;
+      }
+
+      const permanent = battlefield.find((entry: any) => entry?.id === permanentId && entry?.controller === playerId);
+      if (!permanent) {
+        return { ok: false, code: 'PAYMENT_SOURCE_NOT_FOUND', message: `Permanent ${permanentId} not found on battlefield.` };
+      }
+
+      if (resolutionManaSourceRequiresSacrifice(permanent)) {
+        sacrificedPermanents.push(String(permanentId));
+      } else {
+        (permanent as any).tapped = true;
+        tappedPermanents.push(String(permanentId));
+      }
+
+      const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+      const producedAmount = count != null
+        ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0))
+        : Number(manaInfo.totalAmount || 0);
+      const spentAmount = count != null ? Math.max(Number(count) || 0, 0) : producedAmount;
+      const poolKey = MANA_POOL_KEY_BY_SYMBOL[mana];
+      if (poolKey && producedAmount > 0) {
+        manaPool[poolKey] = (manaPool[poolKey] || 0) + producedAmount;
+        selectedPaymentTotals[poolKey] = (selectedPaymentTotals[poolKey] || 0) + spentAmount;
+      }
+
+      for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
+        const bonusKey = MANA_POOL_KEY_BY_SYMBOL[String(bonus?.color || '').toUpperCase()];
+        const bonusAmount = Number(bonus?.amount || 0);
+        if (bonusKey && bonusAmount > 0 && (count == null || bonusKey !== poolKey)) {
+          manaPool[bonusKey] = (manaPool[bonusKey] || 0) + bonusAmount;
+        }
+      }
+    }
+
+    if (sacrificedPermanents.length > 0) {
+      const sacrificeSet = new Set(sacrificedPermanents);
+      const zones = ((game.state as any)?.zones || {})[playerId];
+      for (let index = battlefield.length - 1; index >= 0; index -= 1) {
+        const permanent = battlefield[index];
+        if (!permanent || !sacrificeSet.has(String(permanent.id || ''))) continue;
+        const [sacrificedPermanent] = battlefield.splice(index, 1);
+        if (zones) {
+          (zones as any).graveyard = Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : [];
+          if (sacrificedPermanent?.card) {
+            ((zones as any).graveyard as any[]).push({ ...(sacrificedPermanent.card || {}), zone: 'graveyard' });
+            (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
+          }
+        }
+      }
+    }
+
+    for (const [poolKey, amount] of Object.entries(selectedPaymentTotals)) {
+      if (Number(manaPool[poolKey] || 0) < Number(amount || 0)) {
+        return { ok: false, code: 'INSUFFICIENT_MANA', message: `Selected payment used more ${poolKey} mana than is available.` };
+      }
+    }
+
+    for (const [poolKey, amount] of Object.entries(selectedPaymentTotals)) {
+      if (amount > 0) {
+        manaPool[poolKey] = Number(manaPool[poolKey] || 0) - amount;
+      }
+    }
+  } else {
+    consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic, '[resolutionSelectedPayment]');
+  }
+
+  return {
+    ok: true,
+    tappedPermanents,
+    sacrificedPermanents,
+    paymentManaDelta: calculateResolutionManaPoolDelta(manaPoolBeforePayment, (game.state as any)?.manaPool?.[playerId]),
+  };
 }
 
 function getTappedResolutionPaymentPermanentIds(payment?: ResolutionPaymentItem[]): string[] {
@@ -2552,10 +2755,10 @@ async function handleAIResolutionStep(
       case ResolutionStepType.MANA_PAYMENT_CHOICE: {
         const stepData = step as any;
 
-        if (stepData.spellPaymentRequired === true) {
+        if (stepData.spellPaymentRequired === true || stepData.sacrificeUnlessPayChoice === true) {
           const selections = await chooseAISpellPaymentSelections(io, gameId, game, step.playerId as any, stepData);
           if (!selections) {
-            debugWarn(1, `[Resolution] AI could not assemble payment for ${String(stepData.cardName || stepData.sourceName || 'spell')}; cancelling cast`);
+            debugWarn(1, `[Resolution] AI could not assemble payment for ${String(stepData.cardName || stepData.sourceName || 'spell')}; cancelling prompt`);
             response = {
               stepId: step.id,
               playerId: step.playerId,
@@ -3841,6 +4044,20 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         if (!/\{[^}]+\}/.test(cost)) return `Unsupported mana cost (${cost || 'unknown'}).`;
 
         try {
+          const parsed = parseManaCost(cost);
+          const coloredTotal = Object.values(parsed.colors || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+          if (coloredTotal === 0 && Number(parsed.generic || 0) > 0) {
+            const totalAvailable = getMaxGenericManaAvailable(game.state, payerId);
+            if (totalAvailable < Number(parsed.generic || 0)) {
+              return `Insufficient mana. Missing ${Math.max(0, Number(parsed.generic || 0) - totalAvailable)} generic mana.`;
+            }
+            return null;
+          }
+        } catch {
+          // Fall back to pool-only validation below.
+        }
+
+        try {
           const { getOrInitManaPool, resolveManaCostForPoolPayment } = await import('./util.js');
           const pool = getOrInitManaPool(game.state, payerId) as any;
           const resolved = resolveManaCostForPoolPayment(pool, cost);
@@ -3855,17 +4072,12 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         const needed = Number(amount || 0);
         if (!Number.isFinite(needed) || needed <= 0) return null;
         try {
-          const { getOrInitManaPool } = await import('./util.js');
-          const pool = getOrInitManaPool(game.state, payerId) as any;
-          const total =
-            Number(pool?.white || 0) +
-            Number(pool?.blue || 0) +
-            Number(pool?.black || 0) +
-            Number(pool?.red || 0) +
-            Number(pool?.green || 0) +
-            Number(pool?.colorless || 0);
-          if (!Number.isFinite(total) || total < needed) {
-            return `Insufficient mana. Missing ${Math.max(0, needed - (Number.isFinite(total) ? total : 0))} generic mana.`;
+          const excludedPermanentIds = Array.isArray(stepAny?.attackers)
+            ? (stepAny.attackers as any[]).map((entry: any) => String(entry?.creatureId || '')).filter(Boolean)
+            : [];
+          const total = getMaxGenericManaAvailable(game.state, payerId, { excludedPermanentIds });
+          if (total < needed) {
+            return `Insufficient mana. Missing ${Math.max(0, needed - total)} generic mana.`;
           }
           return null;
         } catch {
@@ -8761,6 +8973,95 @@ async function handleStepResponse(
           broadcastGame(io, game, gameId);
           break;
         }
+      }
+
+      if (stepData.sacrificeUnlessPayChoice === true) {
+        const permanentId = String(stepData?.permanentId || step.sourceId || '').trim();
+        const manaCost = String(stepData?.manaCost || '{1}').trim();
+        const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+        const permanentIndex = battlefield.findIndex((entry: any) => entry && String(entry.id) === permanentId);
+        if (permanentIndex === -1) {
+          debugWarn(1, `[Resolution] sacrificeUnlessPayChoice: permanent not found (${permanentId})`);
+          break;
+        }
+
+        const permanent = battlefield[permanentIndex];
+        const cardName = String(stepData?.cardName || permanent?.card?.name || step.sourceName || 'Permanent');
+
+        if (response.cancelled) {
+          battlefield.splice(permanentIndex, 1);
+          const zones = game.state?.zones?.[pid];
+          if (zones) {
+            (zones as any).graveyard = Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : [];
+            if (permanent?.card) {
+              ((zones as any).graveyard as any[]).push({ ...(permanent.card || {}), zone: 'graveyard' });
+              (zones as any).graveyardCount = ((zones as any).graveyard as any[]).length;
+            }
+          }
+
+          io.to(gameId).emit('chat', {
+            id: `m_${Date.now()}`,
+            gameId,
+            from: 'system',
+            message: `${getPlayerName(game, pid)} sacrifices ${cardName} (didn't pay ${manaCost}).`,
+            ts: Date.now(),
+          });
+
+          try {
+            await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
+              playerId: pid,
+              permanentId,
+              payMana: false,
+              manaCost,
+              cardName,
+            });
+          } catch (e) {
+            debugWarn(1, '[Resolution] Failed to persist sacrificeUnlessPayChoice event:', e);
+          }
+
+          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+          broadcastGame(io, game, gameId);
+          break;
+        }
+
+        const payment = extractResolutionPaymentItems(response.selections as any);
+        const applied = applySelectedManaPaymentForResolutionCost(game, pid, manaCost, payment);
+        if (!applied.ok) {
+          const appliedError = applied as { ok: false; code: string; message: string };
+          emitToPlayer(io, pid as any, 'error', {
+            code: appliedError.code,
+            message: appliedError.message,
+          });
+          break;
+        }
+
+        broadcastManaPoolUpdate(io, gameId, pid, ((game.state as any)?.manaPool?.[pid] || {}) as any, `Paid ${manaCost} for ${cardName}`, game);
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message: `${getPlayerName(game, pid)} pays ${manaCost} for ${cardName}.`,
+          ts: Date.now(),
+        });
+
+        try {
+          await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
+            playerId: pid,
+            permanentId,
+            payMana: true,
+            manaCost,
+            cardName,
+            tappedPermanents: applied.tappedPermanents,
+            sacrificedPaymentPermanents: applied.sacrificedPermanents,
+            paymentManaDelta: applied.paymentManaDelta,
+          });
+        } catch (e) {
+          debugWarn(1, '[Resolution] Failed to persist sacrificeUnlessPayChoice event:', e);
+        }
+
+        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+        broadcastGame(io, game, gameId);
+        break;
       }
 
       if (stepData.activationPaymentChoice === true) {
@@ -19695,174 +19996,7 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
  * @param controllerId - Optional controller ID for CDA calculation context
  */
 function filterLibraryCards(library: any[], filter: any, gameState?: any, controllerId?: string): any[] {
-  const availableCards: any[] = [];
-  const searchCriteria = filter || {};
-  const matchesTypeFilter = (typeLine: string, types: string[]): boolean => {
-    return types.some((rawType: string) => {
-      const type = String(rawType || '').toLowerCase();
-      if (!type) return false;
-      if (type === 'historic') {
-        return typeLine.includes('artifact') || typeLine.includes('legendary') || typeLine.includes('saga');
-      }
-      if (type === 'permanent') {
-        return typeLine.includes('creature') ||
-          typeLine.includes('artifact') ||
-          typeLine.includes('enchantment') ||
-          typeLine.includes('land') ||
-          typeLine.includes('planeswalker') ||
-          typeLine.includes('battle');
-      }
-      if (type === 'noncreature') return !typeLine.includes('creature');
-      if (type === 'nonland') return !typeLine.includes('land');
-      if (type === 'nonartifact') return !typeLine.includes('artifact');
-      return typeLine.includes(type);
-    });
-  };
-  
-  // Build game state context for CDA calculations
-  const gameStateForCDA = gameState ? {
-    battlefield: gameState.battlefield || [],
-    zones: gameState.zones || {},
-    players: gameState.players || [],
-    life: gameState.life || {},
-    manaPool: gameState.manaPool || {},
-  } : undefined;
-  
-  for (const card of library) {
-    let matches = true;
-    
-    // Check types
-    if (searchCriteria.types && searchCriteria.types.length > 0) {
-      const typeLine = (card.type_line || '').toLowerCase();
-      matches = matchesTypeFilter(typeLine, searchCriteria.types);
-    }
-    
-    // Check subtypes
-    if (matches && searchCriteria.subtypes && searchCriteria.subtypes.length > 0) {
-      const typeLine = (card.type_line || '').toLowerCase();
-      matches = searchCriteria.subtypes.some((subtype: string) => typeLine.includes(subtype.toLowerCase()));
-    }
-    
-    // Check supertypes (e.g., "Basic" for basic lands)
-    if (matches && searchCriteria.supertypes && searchCriteria.supertypes.length > 0) {
-      const typeLine = (card.type_line || '').toLowerCase();
-      matches = searchCriteria.supertypes.some((supertype: string) => typeLine.includes(supertype.toLowerCase()));
-    }
-    
-    // Check colors
-    if (matches && searchCriteria.colors && searchCriteria.colors.length > 0) {
-      const cardColors = card.colors || [];
-      matches = searchCriteria.colors.some((color: string) => cardColors.includes(color));
-    }
-    
-    // Check mana value
-    if (matches && (typeof searchCriteria.maxCmc === 'number' || typeof searchCriteria.maxManaValue === 'number')) {
-      const maxCmc = typeof searchCriteria.maxCmc === 'number' ? searchCriteria.maxCmc : searchCriteria.maxManaValue;
-      matches = (card.cmc || 0) <= maxCmc;
-    }
-    
-    // Check power (e.g., "creature with power 2 or less" - Imperial Recruiter)
-    // Handle both numeric and variable (*) power via CDA calculation
-    if (matches && typeof searchCriteria.maxPower === 'number') {
-      if (card.power !== undefined && card.power !== null) {
-        const powerStr = String(card.power);
-        const powerNum = parseInt(powerStr, 10);
-        if (!isNaN(powerNum)) {
-          // Standard numeric power
-          matches = powerNum <= searchCriteria.maxPower;
-        } else if (powerStr.includes('*') && gameStateForCDA) {
-          // Variable power - calculate via CDA
-          const cardWithOwner = { ...card, owner: controllerId, controller: controllerId };
-          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
-          if (calculatedPT) {
-            matches = calculatedPT.power <= searchCriteria.maxPower;
-          }
-          // If CDA returns undefined, allow the card (can't determine)
-        }
-        // Other non-numeric formats without game state: allow the card
-      }
-      // If power is undefined (non-creature), don't filter based on power
-    }
-
-    if (matches && typeof searchCriteria.minPower === 'number') {
-      if (card.power !== undefined && card.power !== null) {
-        const powerStr = String(card.power);
-        const powerNum = parseInt(powerStr, 10);
-        if (!isNaN(powerNum)) {
-          matches = powerNum >= searchCriteria.minPower;
-        } else if (powerStr.includes('*') && gameStateForCDA) {
-          const cardWithOwner = { ...card, owner: controllerId, controller: controllerId };
-          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
-          if (calculatedPT) {
-            matches = calculatedPT.power >= searchCriteria.minPower;
-          }
-        }
-      }
-    }
-    
-    // Check toughness (e.g., "creature with toughness 2 or less" - Recruiter of the Guard)
-    // Handle both numeric and variable (*) toughness via CDA calculation
-    if (matches && typeof searchCriteria.maxToughness === 'number') {
-      if (card.toughness !== undefined && card.toughness !== null) {
-        const toughnessStr = String(card.toughness);
-        const toughnessNum = parseInt(toughnessStr, 10);
-        if (!isNaN(toughnessNum)) {
-          // Standard numeric toughness
-          matches = toughnessNum <= searchCriteria.maxToughness;
-        } else if (toughnessStr.includes('*') && gameStateForCDA) {
-          // Variable toughness - calculate via CDA
-          const cardWithOwner = { ...card, owner: controllerId, controller: controllerId };
-          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
-          if (calculatedPT) {
-            matches = calculatedPT.toughness <= searchCriteria.maxToughness;
-          }
-          // If CDA returns undefined, allow the card (can't determine)
-        }
-        // Other non-numeric formats without game state: allow the card
-      }
-      // If toughness is undefined (non-creature), don't filter based on toughness
-    }
-
-    if (matches && typeof searchCriteria.minToughness === 'number') {
-      if (card.toughness !== undefined && card.toughness !== null) {
-        const toughnessStr = String(card.toughness);
-        const toughnessNum = parseInt(toughnessStr, 10);
-        if (!isNaN(toughnessNum)) {
-          matches = toughnessNum >= searchCriteria.minToughness;
-        } else if (toughnessStr.includes('*') && gameStateForCDA) {
-          const cardWithOwner = { ...card, owner: controllerId, controller: controllerId };
-          const calculatedPT = calculateVariablePT(cardWithOwner, gameStateForCDA);
-          if (calculatedPT) {
-            matches = calculatedPT.toughness >= searchCriteria.minToughness;
-          }
-        }
-      }
-    }
-    
-    // Check minimum CMC (e.g., "mana value 6 or greater" - Fierce Empath)
-    if (matches && typeof searchCriteria.minCmc === 'number') {
-      matches = (card.cmc || 0) >= searchCriteria.minCmc;
-    }
-    
-    if (matches) {
-      availableCards.push({
-        id: card.id,
-        name: card.name,
-        type_line: card.type_line,
-        oracle_text: card.oracle_text,
-        image_uris: card.image_uris,  // Include full image_uris for battlefield placement
-        imageUrl: card.image_uris?.normal,
-        mana_cost: card.mana_cost,
-        cmc: card.cmc,
-        colors: card.colors,
-        power: card.power,
-        toughness: card.toughness,
-        loyalty: card.loyalty,
-      });
-    }
-  }
-  
-  return availableCards;
+  return filterLibraryCardsForSearch(library, filter, gameState, controllerId);
 }
 
 /**
@@ -20778,8 +20912,12 @@ async function handleOptionChoiceResponse(
     const cardName = String(stepData?.cardName || permanent?.card?.name || 'Permanent');
 
     let paid = false;
+    let paymentFailed = false;
+    let tappedPermanents: string[] = [];
+    let paymentManaDelta: Record<string, number> | undefined;
     if (shouldPay) {
       if (!/\{[^}]+\}/.test(manaCost)) {
+        paymentFailed = true;
         emitToPlayer(io, playerId, 'error', {
           code: 'UNSUPPORTED_COST',
           message: `Unsupported cost (${manaCost || 'unknown'}) for ${cardName}.`,
@@ -20787,18 +20925,54 @@ async function handleOptionChoiceResponse(
       } else {
         try {
           const parsed = parseManaCost(manaCost);
-          const pool = getOrInitManaPool(game.state, playerId) as any;
-          const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-          const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
+          const coloredTotal = Object.values(parsed.colors || {}).reduce((sum, value) => sum + Number(value || 0), 0);
 
-          if (validationError) {
-            emitToPlayer(io, playerId, 'error', {
-              code: 'INSUFFICIENT_MANA',
-              message: validationError,
-            });
+          if (coloredTotal === 0 && Number(parsed.generic || 0) > 0) {
+            const payment = payGenericManaWithAvailableSources(game.state, playerId, Number(parsed.generic || 0));
+            if (!payment.ok) {
+              paymentFailed = true;
+              emitToPlayer(io, playerId, 'error', {
+                code: 'INSUFFICIENT_MANA',
+                message: payment.error || 'Insufficient mana.',
+              });
+            } else {
+              paid = true;
+              tappedPermanents = payment.tappedPermanents;
+              paymentManaDelta = payment.paymentManaDelta;
+              broadcastManaPoolUpdate(io, gameId, playerId, getOrInitManaPool(game.state, playerId) as any, `Paid ${manaCost} for ${cardName}`, game);
+            }
           } else {
-            consumeManaFromPool(pool, parsed.colors, parsed.generic);
-            paid = true;
+            const pool = getOrInitManaPool(game.state, playerId) as any;
+            const totalAvailable = calculateTotalAvailableMana(pool, undefined);
+            const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
+
+            if (validationError) {
+              paymentFailed = true;
+              emitToPlayer(io, playerId, 'error', {
+                code: 'INSUFFICIENT_MANA',
+                message: validationError,
+              });
+            } else {
+              const beforePool = {
+                white: Number(pool.white || 0),
+                blue: Number(pool.blue || 0),
+                black: Number(pool.black || 0),
+                red: Number(pool.red || 0),
+                green: Number(pool.green || 0),
+                colorless: Number(pool.colorless || 0),
+              };
+              consumeManaFromPool(pool, parsed.colors, parsed.generic);
+              paymentManaDelta = {};
+              for (const key of ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const) {
+                const delta = Number(pool[key] || 0) - beforePool[key];
+                if (delta !== 0) paymentManaDelta[key] = delta;
+              }
+              paid = true;
+              broadcastManaPoolUpdate(io, gameId, playerId, pool as any, `Paid ${manaCost} for ${cardName}`, game);
+            }
+          }
+
+          if (paid) {
             io.to(gameId).emit('chat', {
               id: `m_${Date.now()}`,
               gameId,
@@ -20808,6 +20982,7 @@ async function handleOptionChoiceResponse(
             });
           }
         } catch (err) {
+          paymentFailed = true;
           debugError(1, `[Resolution] sacrificeUnlessPayChoice: failed to process mana payment`, err);
           emitToPlayer(io, playerId, 'error', {
             code: 'UNSUPPORTED_COST',
@@ -20815,6 +20990,11 @@ async function handleOptionChoiceResponse(
           });
         }
       }
+    }
+
+    if (shouldPay && paymentFailed && !paid) {
+      broadcastGame(io, game, gameId);
+      return;
     }
 
     if (!paid) {
@@ -20844,6 +21024,8 @@ async function handleOptionChoiceResponse(
         payMana: paid,
         manaCost,
         cardName,
+        tappedPermanents,
+        paymentManaDelta,
       });
     } catch (e) {
       debugWarn(1, '[Resolution] Failed to persist sacrificeUnlessPayChoice event:', e);
@@ -21836,10 +22018,27 @@ async function handleOptionChoiceResponse(
     }
 
     try {
+      const payment = payGenericManaWithAvailableSources(game.state, controllerId, amount, {
+        excludedPermanentIds: attackers.map((entry: any) => String(entry?.creatureId || '')).filter(Boolean),
+      });
+      if (!payment.ok) {
+        emitToPlayer(io, controllerId, 'error', {
+          code: 'INSUFFICIENT_MANA',
+          message: payment.error || 'Insufficient mana.',
+        });
+        broadcastGame(io, game, gameId);
+        return;
+      }
+
+      debug(1, `[combat] Player ${controllerId} paid {${amount}} to attack (${breakdown.map((entry: any) => entry.sources.join(', ')).join('; ')})`);
+      broadcastManaPoolUpdate(io, gameId, controllerId, getOrInitManaPool(game.state, controllerId) as any, 'Paid attack cost', game);
+
       await executeDeclareAttackers(io, gameId, controllerId as any, attackers, {
         attackCostPaid: true,
         attackCostAmount: amount,
         attackCostBreakdown: breakdown,
+        attackCostTappedPermanents: payment.tappedPermanents,
+        attackCostPaymentManaDelta: payment.paymentManaDelta,
       });
     } catch (err: any) {
       debugError(1, `[Resolution] attackCostPayment failed:`, err);

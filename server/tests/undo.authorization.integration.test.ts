@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, truncateEventsForUndo, appendEvent } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, truncateEventsForUndo, appendEvent, getEventCount, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerUndoHandlers, clearUndoRequestsForGame } from '../src/socket/undo.js';
 import { games } from '../src/socket/socket.js';
@@ -132,7 +132,7 @@ describe('undo authorization (integration)', () => {
     expect(undoRequest).toBeUndefined();
   });
 
-  it('requestUndoToStep and smart counts keep the current boundary event intact', async () => {
+  it('requestUndoToStep and smart counts include the current boundary event', async () => {
     const p1 = 'p1';
     const p2 = 'p2';
 
@@ -166,9 +166,9 @@ describe('undo authorization (integration)', () => {
 
     const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
     expect(smartUpdate).toBeTruthy();
-    expect(smartUpdate!.payload.stepCount).toBe(1);
-    expect(smartUpdate!.payload.phaseCount).toBe(1);
-    expect(smartUpdate!.payload.turnCount).toBe(1);
+    expect(smartUpdate!.payload.stepCount).toBe(2);
+    expect(smartUpdate!.payload.phaseCount).toBe(2);
+    expect(smartUpdate!.payload.turnCount).toBe(2);
 
     await handlers['requestUndoToStep']({ gameId: wrapperGameId });
 
@@ -176,9 +176,10 @@ describe('undo authorization (integration)', () => {
     expect(req).toBeTruthy();
     expect(req!.payload.gameId).toBe(wrapperGameId);
     expect(typeof req!.payload.undoId).toBe('string');
-    expect(req!.payload.actionsToUndo).toBe(1);
+    expect(req!.payload.actionsToUndo).toBe(2);
     expect(req!.payload.description).toBe('Undo current step');
     expect(req!.payload.playerNames).toEqual({ [p1]: 'P1', [p2]: 'P2' });
+    expect(req!.payload.boundaryPreview?.summary).toContain('Precombat Main');
   });
 
   it('smart undo counts use the replayed boundary when restored live state drifts ahead', async () => {
@@ -215,9 +216,9 @@ describe('undo authorization (integration)', () => {
 
     const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
     expect(smartUpdate).toBeTruthy();
-    expect(smartUpdate!.payload.stepCount).toBe(1);
-    expect(smartUpdate!.payload.phaseCount).toBe(1);
-    expect(smartUpdate!.payload.turnCount).toBe(1);
+    expect(smartUpdate!.payload.stepCount).toBe(2);
+    expect(smartUpdate!.payload.phaseCount).toBe(2);
+    expect(smartUpdate!.payload.turnCount).toBe(2);
   });
 
   it('smart undo counts stay bounded when replayed nextStep coexists with a pending library search', async () => {
@@ -283,9 +284,9 @@ describe('undo authorization (integration)', () => {
     const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
     expect(smartUpdate).toBeTruthy();
     expect(smartUpdate!.payload.totalCount).toBe(5);
-    expect(smartUpdate!.payload.stepCount).toBe(0);
-    expect(smartUpdate!.payload.phaseCount).toBe(0);
-    expect(smartUpdate!.payload.turnCount).toBe(2);
+    expect(smartUpdate!.payload.stepCount).toBe(1);
+    expect(smartUpdate!.payload.phaseCount).toBe(1);
+    expect(smartUpdate!.payload.turnCount).toBe(3);
   });
 
   it('requestUndoToTurn undoes only actions taken after the current turn began', async () => {
@@ -321,7 +322,7 @@ describe('undo authorization (integration)', () => {
 
     const req = emitted.find(e => e.room === wrapperGameId && e.event === 'undoRequest');
     expect(req).toBeTruthy();
-    expect(req!.payload.actionsToUndo).toBe(1);
+    expect(req!.payload.actionsToUndo).toBe(2);
     expect(req!.payload.description).toBe('Undo current turn');
   });
 
@@ -362,16 +363,16 @@ describe('undo authorization (integration)', () => {
 
     const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
     expect(smartUpdate).toBeTruthy();
-    expect(smartUpdate!.payload.stepCount).toBe(1);
-    expect(smartUpdate!.payload.phaseCount).toBe(1);
-    expect(smartUpdate!.payload.previousPhaseCount).toBe(3);
-    expect(smartUpdate!.payload.turnCount).toBe(3);
+    expect(smartUpdate!.payload.stepCount).toBe(2);
+    expect(smartUpdate!.payload.phaseCount).toBe(2);
+    expect(smartUpdate!.payload.previousPhaseCount).toBe(4);
+    expect(smartUpdate!.payload.turnCount).toBe(4);
 
     await handlers['requestUndoToPreviousPhase']({ gameId: wrapperGameId });
 
     const req = emitted.find(e => e.room === wrapperGameId && e.event === 'undoRequest');
     expect(req).toBeTruthy();
-    expect(req!.payload.actionsToUndo).toBe(3);
+    expect(req!.payload.actionsToUndo).toBe(4);
     expect(req!.payload.description).toBe('Undo to previous phase');
   });
 
@@ -413,16 +414,244 @@ describe('undo authorization (integration)', () => {
 
     const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
     expect(smartUpdate).toBeTruthy();
-    expect(smartUpdate!.payload.stepCount).toBe(1);
-    expect(smartUpdate!.payload.phaseCount).toBe(1);
-    expect(smartUpdate!.payload.turnCount).toBe(2);
+    expect(smartUpdate!.payload.stepCount).toBe(2);
+    expect(smartUpdate!.payload.phaseCount).toBe(2);
+    expect(smartUpdate!.payload.turnCount).toBe(3);
 
     await handlers['requestUndoToStep']({ gameId: wrapperGameId });
 
     const req = emitted.find(e => e.room === wrapperGameId && e.event === 'undoRequest');
     expect(req).toBeTruthy();
-    expect(req!.payload.actionsToUndo).toBe(1);
+    expect(req!.payload.actionsToUndo).toBe(2);
     expect(req!.payload.description).toBe('Undo current step');
+  });
+
+  it('persists turn, phase, and step metadata for live event appends', () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnNumber = 3;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_ATTACKERS';
+    (game as any).seq = 7;
+
+    appendEvent(wrapperGameId, 7, 'setLife', { playerId: p1, life: 39 });
+
+    const persisted = [...getEvents(wrapperGameId)].reverse().find((event: any) => event?.type === 'setLife') as any;
+    expect(persisted).toBeTruthy();
+    expect(persisted.turnNumber).toBe(3);
+    expect(persisted.phase).toBe('combat');
+    expect(persisted.step).toBe('DECLARE_ATTACKERS');
+  });
+
+  it('smart undo counts can use persisted boundary metadata without replay-specific event semantics', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    (game.state as any).turnNumber = 1;
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game as any).seq = 0;
+    appendEvent(wrapperGameId, 0, 'syntheticBoundaryA', { marker: 'a' });
+
+    (game.state as any).turnNumber = 1;
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game as any).seq = 1;
+    appendEvent(wrapperGameId, 1, 'syntheticBoundaryB', { marker: 'b' });
+
+    (game.state as any).turnNumber = 1;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'BEGIN_COMBAT';
+    (game as any).seq = 2;
+    appendEvent(wrapperGameId, 2, 'syntheticBoundaryC', { marker: 'c' });
+
+    (game.state as any).turnNumber = 1;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'BEGIN_COMBAT';
+    (game as any).seq = 3;
+    appendEvent(wrapperGameId, 3, 'syntheticBoundaryD', { marker: 'd' });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(wrapperGameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerUndoHandlers(io as any, socket as any);
+
+    await handlers['getSmartUndoCounts']({ gameId: wrapperGameId });
+
+    const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
+    expect(smartUpdate).toBeTruthy();
+    expect(smartUpdate!.payload.stepCount).toBe(2);
+    expect(smartUpdate!.payload.phaseCount).toBe(2);
+    expect(smartUpdate!.payload.turnCount).toBe(4);
+    expect(smartUpdate!.payload.previews?.step?.summary).toContain('Turn 1');
+    expect(smartUpdate!.payload.previews?.previousPhase?.summary).toContain('Turn 1');
+  });
+
+  it('previous phase metadata can rewind across a turn boundary', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    (game.state as any).turnNumber = 1;
+    (game.state as any).phase = 'ending';
+    (game.state as any).step = 'END';
+    (game as any).seq = 0;
+    appendEvent(wrapperGameId, 0, 'syntheticTurnOneMain', { marker: 't1-main' });
+
+    (game.state as any).turnNumber = 1;
+    (game.state as any).phase = 'ending';
+    (game.state as any).step = 'END';
+    (game as any).seq = 1;
+    appendEvent(wrapperGameId, 1, 'syntheticTurnOneEnding', { marker: 't1-end' });
+
+    (game.state as any).turnNumber = 2;
+    (game.state as any).phase = 'beginning';
+    (game.state as any).step = 'UNTAP';
+    (game as any).seq = 2;
+    appendEvent(wrapperGameId, 2, 'syntheticTurnTwoBeginning', { marker: 't2-begin' });
+
+    (game.state as any).turnNumber = 2;
+    (game.state as any).phase = 'beginning';
+    (game.state as any).step = 'UPKEEP';
+    (game as any).seq = 3;
+    appendEvent(wrapperGameId, 3, 'syntheticTurnTwoUpkeep', { marker: 't2-upkeep' });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(wrapperGameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerUndoHandlers(io as any, socket as any);
+
+    await handlers['getSmartUndoCounts']({ gameId: wrapperGameId });
+
+    const smartUpdate = emitted.find(e => e.event === 'smartUndoCountsUpdate');
+    expect(smartUpdate).toBeTruthy();
+    expect(smartUpdate!.payload.stepCount).toBe(1);
+    expect(smartUpdate!.payload.phaseCount).toBe(2);
+    expect(smartUpdate!.payload.previousPhaseCount).toBe(4);
+    expect(smartUpdate!.payload.turnCount).toBe(2);
+    expect(smartUpdate!.payload.previews?.previousPhase?.summary).toContain('Turn 1');
+  });
+
+  it('anchors a pending undo to the event count at request time', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+
+    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
+    appendEvent(wrapperGameId, 1, 'join', { playerId: p2, name: 'P2' });
+    appendEvent(wrapperGameId, 2, 'setLife', { playerId: p1, life: 39 });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: socketP1, handlers: handlersP1 } = createMockSocket(p1, emitted);
+    socketP1.rooms.add(wrapperGameId);
+    socketP1.data.gameId = wrapperGameId;
+
+    const { socket: socketP2, handlers: handlersP2 } = createMockSocket(p2, emitted);
+    socketP2.rooms.add(wrapperGameId);
+    socketP2.data.gameId = wrapperGameId;
+
+    const io = createMockIo(emitted, [socketP1, socketP2]);
+    registerUndoHandlers(io as any, socketP1 as any);
+    registerUndoHandlers(io as any, socketP2 as any);
+
+    await handlersP1['requestUndo']({ gameId: wrapperGameId, actionsToUndo: 1 });
+
+    appendEvent(wrapperGameId, 3, 'setLife', { playerId: p2, life: 38 });
+
+    const undoRequest = emitted.find((entry) => entry.room === wrapperGameId && entry.event === 'undoRequest');
+    expect(undoRequest).toBeTruthy();
+
+    await handlersP2['respondUndo']({
+      gameId: wrapperGameId,
+      undoId: String(undoRequest!.payload.undoId),
+      approved: true,
+    });
+
+    expect(getEventCount(wrapperGameId)).toBe(2);
+  });
+
+  it('cancels a pending undo request when a participant disconnects', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket: socketP1, handlers: handlersP1 } = createMockSocket(p1, emitted);
+    socketP1.rooms.add(gameId);
+    socketP1.data.gameId = gameId;
+
+    const { socket: socketP2, handlers: handlersP2 } = createMockSocket(p2, emitted);
+    socketP2.rooms.add(gameId);
+    socketP2.data.gameId = gameId;
+
+    const io = createMockIo(emitted, [socketP1, socketP2]);
+    registerUndoHandlers(io as any, socketP1 as any);
+    registerUndoHandlers(io as any, socketP2 as any);
+
+    await handlersP1['requestUndo']({ gameId, actionsToUndo: 1 });
+
+    const firstRequest = emitted.find((entry) => entry.room === gameId && entry.event === 'undoRequest');
+    expect(firstRequest).toBeTruthy();
+
+    await handlersP2['disconnect']?.();
+
+    const cancelled = emitted.find((entry) => entry.room === gameId && entry.event === 'undoCancelled');
+    expect(cancelled).toBeTruthy();
+    expect(String(cancelled!.payload.reason || '')).toContain('disconnected');
+
+    await handlersP1['requestUndo']({ gameId, actionsToUndo: 1 });
+
+    const allRequests = emitted.filter((entry) => entry.room === gameId && entry.event === 'undoRequest');
+    expect(allRequests).toHaveLength(2);
+    const pendingError = emitted.find((entry) => entry.event === 'error' && entry.payload?.code === 'UNDO_PENDING');
+    expect(pendingError).toBeUndefined();
   });
 
   it('single-player undo restores priority to the turn player and pauses auto-pass until action', async () => {

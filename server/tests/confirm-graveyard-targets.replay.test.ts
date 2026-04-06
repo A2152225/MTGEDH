@@ -207,4 +207,57 @@ describe('confirmGraveyardTargets replay semantics', () => {
     });
     expect((game.state as any).zones?.[p1]?.graveyardCount).toBe(0);
   });
+
+  it('replays face-down graveyard returns that immediately turn face up', () => {
+    const game = createInitialGameState('t_confirm_graveyard_targets_face_down_turn_up');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'turned_up_return_card_1',
+            name: 'Hidden Meadow',
+            type_line: 'Land',
+            oracle_text: '',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    game.applyEvent({
+      type: 'confirmGraveyardTargets',
+      playerId: p1,
+      selectedCardIds: ['turned_up_return_card_1'],
+      createdPermanentIds: ['turned_up_return_perm_1'],
+      destination: 'battlefield',
+      battlefieldFaceDown: true,
+      battlefieldTurnFaceUp: true,
+      battlefieldControllerMode: 'owner',
+    } as any);
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(1);
+    expect(battlefield[0]).toMatchObject({
+      id: 'turned_up_return_perm_1',
+      controller: p1,
+      owner: p1,
+      card: {
+        id: 'turned_up_return_card_1',
+        name: 'Hidden Meadow',
+        type_line: 'Land',
+      },
+    });
+    expect(battlefield[0]?.isFaceDown).not.toBe(true);
+    expect(battlefield[0]?.faceUpCard).toBeUndefined();
+    expect((game.state as any).zones?.[p1]?.graveyardCount).toBe(0);
+  });
 });

@@ -5,6 +5,7 @@
 
 import React, { useState, useRef, useEffect, type ReactNode } from 'react';
 import type { PlayerRef, PlayerID } from '../../../shared/src';
+import type { UndoBoundaryPreview } from './UndoRequestModal';
 
 type UndoScope = 'step' | 'phase' | 'previousPhase' | 'turn';
 
@@ -40,7 +41,18 @@ interface Props {
   onUndo?: (scope: UndoScope) => void;
   onOpenUndoMenu?: () => void;
   availableUndoCount?: number;
-  smartUndoCounts?: { stepCount: number; phaseCount: number; previousPhaseCount: number; turnCount: number };
+  smartUndoCounts?: {
+    stepCount: number;
+    phaseCount: number;
+    previousPhaseCount: number;
+    turnCount: number;
+    previews?: {
+      step?: UndoBoundaryPreview;
+      phase?: UndoBoundaryPreview;
+      previousPhase?: UndoBoundaryPreview;
+      turn?: UndoBoundaryPreview;
+    };
+  };
   // Randomness handlers
   onRollDie?: (sides: number) => void;
   onFlipCoin?: () => void;
@@ -128,11 +140,11 @@ export function GameStatusIndicator({
   
   const phaseKey = String(phase || '').toLowerCase();
   const stepKey = String(step || '').toLowerCase();
-  const undoOptions: Array<{ scope: UndoScope; label: string; count: number }> = [
-    { scope: 'step', label: 'Current Step', count: Number(smartUndoCounts?.stepCount || 0) },
-    { scope: 'phase', label: 'Current Phase', count: Number(smartUndoCounts?.phaseCount || 0) },
-    { scope: 'turn', label: 'Current Turn', count: Number(smartUndoCounts?.turnCount || 0) },
-    { scope: 'previousPhase', label: 'Previous Phase', count: Number(smartUndoCounts?.previousPhaseCount || 0) },
+  const undoOptions: Array<{ scope: UndoScope; label: string; count: number; preview?: UndoBoundaryPreview }> = [
+    { scope: 'step', label: 'Current Step', count: Number(smartUndoCounts?.stepCount || 0), preview: smartUndoCounts?.previews?.step },
+    { scope: 'phase', label: 'Current Phase', count: Number(smartUndoCounts?.phaseCount || 0), preview: smartUndoCounts?.previews?.phase },
+    { scope: 'turn', label: 'Current Turn', count: Number(smartUndoCounts?.turnCount || 0), preview: smartUndoCounts?.previews?.turn },
+    { scope: 'previousPhase', label: 'Previous Phase', count: Number(smartUndoCounts?.previousPhaseCount || 0), preview: smartUndoCounts?.previews?.previousPhase },
   ];
   const hasAnyUndoOption = undoOptions.some((option) => option.count > 0);
   const canOpenUndoMenu = Boolean(isYouPlayer && availableUndoCount > 0);
@@ -550,7 +562,7 @@ export function GameStatusIndicator({
               onClick={() => {
                 if (aiControlEnabled) {
                   // If AI is enabled, disable it directly
-                  onToggleAIControl(false);
+                  onToggleAIControl?.(false);
                 } else {
                   // If AI is disabled, show menu to select strategy
                   setShowAIMenu(!showAIMenu);
@@ -616,7 +628,7 @@ export function GameStatusIndicator({
                     key={strategy.id}
                     onClick={() => {
                       setSelectedStrategy(strategy.id);
-                      onToggleAIControl(true, strategy.id, 0.5);
+                      onToggleAIControl?.(true, strategy.id, 0.5);
                       setShowAIMenu(false);
                     }}
                     style={{
@@ -812,13 +824,22 @@ export function GameStatusIndicator({
                           cursor: enabled ? 'pointer' : 'not-allowed',
                           textAlign: 'left',
                           display: 'flex',
-                          alignItems: 'center',
+                          alignItems: 'flex-start',
                           justifyContent: 'space-between',
                           gap: 12,
                         }}
-                        title={enabled ? `${option.label} (${option.count} event${option.count === 1 ? '' : 's'})` : `${option.label} unavailable`}
+                        title={enabled
+                          ? `${option.label} (${option.count} event${option.count === 1 ? '' : 's'})${option.preview?.summary ? ` - ${option.preview.summary}` : ''}`
+                          : `${option.label} unavailable`}
                       >
-                        <span>{option.label}</span>
+                        <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <span>{option.label}</span>
+                          {option.preview?.summary && (
+                            <span style={{ fontSize: 10, color: enabled ? '#a5b4fc' : '#6b7280' }}>
+                              {option.preview.summary}
+                            </span>
+                          )}
+                        </span>
                         <span style={{ color: enabled ? '#c7d2fe' : '#6b7280' }}>{option.count}</span>
                       </button>
                     );

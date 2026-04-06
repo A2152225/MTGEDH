@@ -598,6 +598,35 @@ describe('Permanent Ability Discovery', () => {
       expect(ability?.restrictions?.some(restriction => restriction.requiresSorceryTiming)).toBe(true);
     });
 
+    it('does not surface Transmute outside the hand zone', () => {
+      const card: KnownCardRef = {
+        id: 'transmute-card',
+        name: 'Muddle the Mixture',
+        oracle_text: 'Transmute {1}{U}{U}',
+        type_line: 'Instant',
+      } as KnownCardRef;
+
+      const result = discoverZoneCardAbilities(card, 'transmute-card', 'player-1', 'graveyard');
+
+      expect(result.hasActivatedAbilities).toBe(false);
+      expect(result.abilities).toHaveLength(0);
+    });
+
+    it('does not surface Cycling outside the hand zone', () => {
+      const permanent = createTestPermanent(
+        'cycler-card',
+        'Test Cycler',
+        'Cycling {2}',
+        'player-1',
+        'Creature - Beast'
+      );
+
+      const result = discoverPermanentAbilities(permanent, 'player-1');
+
+      expect(result.hasActivatedAbilities).toBe(false);
+      expect(result.abilities).toHaveLength(0);
+    });
+
     it('discovers Transfigure as a battlefield activation with a sacrifice cost and sorcery restriction', () => {
       const card: KnownCardRef = {
         id: 'transfigure-card',
@@ -621,6 +650,20 @@ describe('Permanent Ability Discovery', () => {
       expect(ability?.cost).toBe('{1}{B}{B}, Sacrifice this permanent');
       expect(ability?.additionalCosts?.map(cost => cost.type)).toContain('sacrifice');
       expect(ability?.restrictions?.some(restriction => restriction.requiresSorceryTiming)).toBe(true);
+    });
+
+    it('does not surface Transfigure from the hand zone', () => {
+      const card: KnownCardRef = {
+        id: 'transfigure-card',
+        name: 'Fleshwrither',
+        oracle_text: 'Transfigure {1}{B}{B}',
+        type_line: 'Creature - Horror',
+      } as KnownCardRef;
+
+      const result = discoverZoneCardAbilities(card, 'transfigure-card', 'player-1', 'hand');
+
+      expect(result.hasActivatedAbilities).toBe(false);
+      expect(result.abilities).toHaveLength(0);
     });
   });
   

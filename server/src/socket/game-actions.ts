@@ -29,7 +29,8 @@ import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
-import { queueOptionalPaymentStep, queueShockLandPaymentStep } from "./optional-payment-prompts.js";
+import { filterLibraryCardsForSearch } from "./library-search.js";
+import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
@@ -290,126 +291,21 @@ export function finalizePlayedLand(
         .find((s: any) => (s as any)?.sacrificeUnlessPayChoice === true && String((s as any)?.permanentId || '') === String(permanent.id));
 
       if (!existing) {
-        queueOptionalPaymentStep(gameId, {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: playerId as any,
-          sourceName: cardName,
           sourceId: permanent.id,
+          sourceName: cardName,
           sourceImage: cardImageUrl,
-          description: `${cardName}: Sacrifice it unless you pay ${sacrificeCost}. (Float mana first, then choose Pay.)`,
-          mandatory: true,
-          payChoiceId: 'pay_cost',
-          payLabel: `Pay ${sacrificeCost}`,
-          declineChoiceId: 'sacrifice',
-          declineLabel: `Don't pay (sacrifice ${cardName})`,
-          validationKind: 'mana',
+          description: `${cardName}: Pay ${sacrificeCost} to keep it. Cancel to sacrifice it.`,
+          mandatory: false,
+          activationPaymentChoice: true,
+          confirmLabel: `Pay ${sacrificeCost}`,
+          permanentId: permanent.id,
+          cardName,
           manaCost: sacrificeCost,
-          stepData: {
-            sacrificeUnlessPayChoice: true,
-            permanentId: permanent.id,
-            cardName,
-            manaCost: sacrificeCost,
-          },
-          onPay: async () => {
-            const gameState = (game.state || {}) as any;
-            gameState.battlefield = gameState.battlefield || [];
-            const battlefieldState = gameState.battlefield as any[];
-            const permanentIndex = battlefieldState.findIndex((p: any) => p && p.id === permanent.id);
-            if (permanentIndex === -1) {
-              return;
-            }
-
-            const permanentOnBattlefield = battlefieldState[permanentIndex];
-            const cardLabel = String(cardName || permanentOnBattlefield?.card?.name || 'Permanent');
-
-            try {
-              const parsed = parseManaCost(sacrificeCost);
-              const pool = getOrInitManaPool(game.state, playerId) as any;
-              const totalAvailable = calculateTotalAvailableMana(pool, undefined);
-              const validationError = validateManaPayment(totalAvailable, parsed.colors, parsed.generic);
-
-              if (validationError) {
-                emitToPlayer(io, playerId, 'error', {
-                  code: 'INSUFFICIENT_MANA',
-                  message: validationError,
-                });
-                return;
-              }
-
-              consumeManaFromPool(pool, parsed.colors, parsed.generic);
-              io.to(gameId).emit('chat', {
-                id: `m_${Date.now()}`,
-                gameId,
-                from: 'system',
-                message: `${getPlayerName(game, playerId)} pays ${sacrificeCost} for ${cardLabel}.`,
-                ts: Date.now(),
-              });
-
-              try {
-                await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
-                  playerId,
-                  permanentId: permanent.id,
-                  payMana: true,
-                  cardName: cardLabel,
-                });
-              } catch (e) {
-                debugWarn(1, '[playLand] Failed to persist sacrificeUnlessPayChoice event:', e);
-              }
-
-              if (typeof (game as any).bumpSeq === 'function') {
-                (game as any).bumpSeq();
-              }
-              broadcastGame(io, game, gameId);
-            } catch (err) {
-              debugError(1, `[playLand] Failed to process payment (${sacrificeCost || 'unknown'}) for ${cardLabel}.`, err);
-              emitToPlayer(io, playerId, 'error', {
-                code: 'UNSUPPORTED_COST',
-                message: `Failed to process payment (${sacrificeCost || 'unknown'}) for ${cardLabel}.`,
-              });
-            }
-          },
-          onDecline: async () => {
-            const gameState = (game.state || {}) as any;
-            gameState.battlefield = gameState.battlefield || [];
-            const battlefieldState = gameState.battlefield as any[];
-            const permanentIndex = battlefieldState.findIndex((p: any) => p && p.id === permanent.id);
-            if (permanentIndex === -1) {
-              return;
-            }
-
-            const [permanentOnBattlefield] = battlefieldState.splice(permanentIndex, 1);
-            const cardLabel = String(cardName || permanentOnBattlefield?.card?.name || 'Permanent');
-            const playerZones = game.state?.zones?.[playerId];
-            if (playerZones) {
-              (playerZones as any).graveyard = (playerZones as any).graveyard || [];
-              ((playerZones as any).graveyard as any[]).push({ ...(permanentOnBattlefield as any).card, zone: 'graveyard' });
-              (playerZones as any).graveyardCount = ((playerZones as any).graveyard as any[]).length;
-            }
-
-            io.to(gameId).emit('chat', {
-              id: `m_${Date.now()}`,
-              gameId,
-              from: 'system',
-              message: `${getPlayerName(game, playerId)} sacrifices ${cardLabel} (didn't pay ${sacrificeCost}).`,
-              ts: Date.now(),
-            });
-
-            try {
-              await appendEvent(gameId, (game as any).seq || 0, 'sacrificeUnlessPayChoice', {
-                playerId,
-                permanentId: permanent.id,
-                payMana: false,
-                cardName: cardLabel,
-              });
-            } catch (e) {
-              debugWarn(1, '[playLand] Failed to persist sacrificeUnlessPayChoice event:', e);
-            }
-
-            if (typeof (game as any).bumpSeq === 'function') {
-              (game as any).bumpSeq();
-            }
-            broadcastGame(io, game, gameId);
-          },
-        });
+          sacrificeUnlessPayChoice: true,
+        } as any);
       }
       debug(2, `[playLand] ${cardName} has "sacrifice unless you pay ${sacrificeCost}" ETB trigger`);
     }
@@ -1043,6 +939,8 @@ function checkEnchantmentETBTriggers(
         if (library.length === 0) continue;
 
         const topCards = library.slice(0, 4);
+        const selectableCards = topCards.filter((card: any) => String(card?.type_line || '').toLowerCase().includes('creature'));
+        const nonSelectableCards = topCards.filter((card: any) => !String(card?.type_line || '').toLowerCase().includes('creature'));
         
         // Queue top-of-library look + optional take + bottom ordering via Resolution Queue
         ResolutionQueueManager.addStep(gameId, {
@@ -1057,7 +955,9 @@ function checkEnchantmentETBTriggers(
           destination: 'hand',
           reveal: true,
           shuffleAfter: false,
-          availableCards: topCards,
+          availableCards: selectableCards,
+          nonSelectableCards,
+          revealedCards: topCards,
           filter: { types: ['creature'] },
           remainderDestination: 'bottom',
           remainderPlayerChoosesOrder: true,
@@ -1073,77 +973,19 @@ function checkEnchantmentETBTriggers(
   }
 }
 
+export function runPostResolutionPermanentPromptChecks(
+  io: Server,
+  game: any,
+  gameId: string,
+): void {
+  checkCreatureTypeSelectionForNewPermanents(io, game, gameId);
+  checkColorChoiceForNewPermanents(io, game, gameId);
+  checkPlayerSelectionForNewPermanents(io, game, gameId);
+  checkEnchantmentETBTriggers(io, game, gameId);
+}
+
 function filterLibraryCardsForTutor(library: any[], filter: any): any[] {
-  if (!Array.isArray(library) || library.length === 0) return [];
-  const searchCriteria = filter || {};
-
-  const matchesTypeFilter = (typeLine: string, types: string[]): boolean => {
-    return types.some((rawType: string) => {
-      const type = String(rawType || '').toLowerCase();
-      if (!type) return false;
-      if (type === 'historic') {
-        return typeLine.includes('artifact') || typeLine.includes('legendary') || typeLine.includes('saga');
-      }
-      if (type === 'permanent') {
-        return typeLine.includes('creature') ||
-          typeLine.includes('artifact') ||
-          typeLine.includes('enchantment') ||
-          typeLine.includes('land') ||
-          typeLine.includes('planeswalker') ||
-          typeLine.includes('battle');
-      }
-      if (type === 'noncreature') return !typeLine.includes('creature');
-      if (type === 'nonland') return !typeLine.includes('land');
-      if (type === 'nonartifact') return !typeLine.includes('artifact');
-      return typeLine.includes(type);
-    });
-  };
-
-  return library
-    .filter((card: any) => {
-      if (!card) return false;
-      const typeLine = String(card.type_line || '').toLowerCase();
-
-      if (Array.isArray(searchCriteria.types) && searchCriteria.types.length > 0) {
-        if (!matchesTypeFilter(typeLine, searchCriteria.types)) return false;
-      }
-
-      if (Array.isArray(searchCriteria.subtypes) && searchCriteria.subtypes.length > 0) {
-        if (!searchCriteria.subtypes.some((subtype: string) => typeLine.includes(String(subtype).toLowerCase()))) return false;
-      }
-
-      if (Array.isArray(searchCriteria.supertypes) && searchCriteria.supertypes.length > 0) {
-        if (!searchCriteria.supertypes.some((supertype: string) => typeLine.includes(String(supertype).toLowerCase()))) return false;
-      }
-
-      const manaValue = Number(card.cmc || 0);
-      if (typeof searchCriteria.minCmc === 'number' && manaValue < searchCriteria.minCmc) return false;
-      if (typeof searchCriteria.maxCmc === 'number' && manaValue > searchCriteria.maxCmc) return false;
-
-      const power = Number.parseInt(String(card.power ?? ''), 10);
-      if (typeof searchCriteria.minPower === 'number' && Number.isFinite(power) && power < searchCriteria.minPower) return false;
-      if (typeof searchCriteria.maxPower === 'number' && Number.isFinite(power) && power > searchCriteria.maxPower) return false;
-
-      const toughness = Number.parseInt(String(card.toughness ?? ''), 10);
-      if (typeof searchCriteria.minToughness === 'number' && Number.isFinite(toughness) && toughness < searchCriteria.minToughness) return false;
-      if (typeof searchCriteria.maxToughness === 'number' && Number.isFinite(toughness) && toughness > searchCriteria.maxToughness) return false;
-
-      return true;
-    })
-    .map((candidate: any) => ({
-      id: candidate.id,
-      name: candidate.name,
-      type_line: candidate.type_line,
-      oracle_text: candidate.oracle_text,
-      image_uris: candidate.image_uris,
-      imageUrl: candidate.image_uris?.normal,
-      mana_cost: candidate.mana_cost,
-      cmc: candidate.cmc,
-      colors: candidate.colors,
-      power: candidate.power,
-      toughness: candidate.toughness,
-      loyalty: candidate.loyalty,
-    }));
+  return filterLibraryCardsForSearch(library, filter);
 }
 
 function getActivePermanentCardFace(permanent: any): { name: string; oracleText: string; typeLine: string } {
@@ -7540,13 +7382,23 @@ export function registerGameActions(io: Server, socket: Socket) {
       let finalTargets = targets as any[] | undefined;
       if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
         const pendingCast = (game.state as any).pendingSpellCasts[effectIdStr];
-        debug(2, `[completeCastSpell] Found pendingCast:`, JSON.stringify(pendingCast, null, 2));
+        const pendingCardId = String(pendingCast?.cardId || '').trim();
 
-        pendingFromZone = (pendingCast?.fromZone as any) || undefined;
-        pendingBypassExilePermissionCheck = pendingCast?.bypassExilePermissionCheck === true;
-        pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
-        pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
-        suspendedLibrarySearchStep = pendingCast?.librarySearchStepToResume;
+        if (pendingCardId && pendingCardId !== String(cardId)) {
+          debugWarn(
+            1,
+            `[completeCastSpell] Ignoring pending cast ${effectIdStr} for card ${pendingCardId} while completing ${String(cardId)}`,
+          );
+        } else {
+          debug(2, `[completeCastSpell] Found pendingCast:`, JSON.stringify(pendingCast, null, 2));
+
+          pendingFromZone = (pendingCast?.fromZone as any) || undefined;
+          pendingBypassExilePermissionCheck = pendingCast?.bypassExilePermissionCheck === true;
+          pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
+          pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
+          suspendedLibrarySearchStep = String(pendingCast?.fromZone || '').toLowerCase().trim() === 'library'
+            ? pendingCast?.librarySearchStepToResume
+            : undefined;
 
         // Mutate metadata is stored on pendingCast; copy it to the actual card object in hand before casting.
         if (String(pendingCast?.forcedAlternateCostId || '') === 'mutate') {
@@ -7638,7 +7490,8 @@ export function registerGameActions(io: Server, socket: Socket) {
           return;
         }
         
-        delete (game.state as any).pendingSpellCasts[effectIdStr];
+          delete (game.state as any).pendingSpellCasts[effectIdStr];
+        }
       } else {
         debug(2, `[completeCastSpell] No pendingCast found for effectId: ${effectIdStr}`);
       }
@@ -7846,7 +7699,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                       destination,
                       reveal: false,
                       shuffleAfter: true,
-                      availableCards: library,
+                      availableCards: filterLibraryCardsForSearch(library, filter, game.state, resolvedController),
                       filter,
                       splitDestination: isSplit,
                       toBattlefield: tutorInfo.toBattlefield || 1,

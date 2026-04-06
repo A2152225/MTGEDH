@@ -1193,18 +1193,78 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   }
   
   // ======== CYCLING ABILITIES ========
-  const cyclingMatch = oracleText.match(/cycling\s*(\{[^}]+\})/i);
-  if (cyclingMatch) {
+  const cyclingAbilities = oracleText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => {
+      const plainCyclingMatch = line.match(/^cycling\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      if (plainCyclingMatch) {
+        return [{
+          keywordLabel: 'Cycle',
+          cost: plainCyclingMatch[1],
+          description: 'Discard this card: Draw a card',
+          effect: 'Discard this card, then draw a card',
+        }];
+      }
+
+      const typeCyclingMatch = line.match(/^(.+?)cycling\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+      if (!typeCyclingMatch) {
+        return [];
+      }
+
+      const rawSelector = String(typeCyclingMatch[1] || '').trim();
+      const cost = typeCyclingMatch[2];
+      if (!rawSelector) {
+        return [];
+      }
+
+      const normalizedSelector = rawSelector.toLowerCase();
+      const prettySelector = rawSelector.replace(/\b\w/g, (char) => char.toUpperCase());
+      const article = /^[aeiou]/i.test(prettySelector) ? 'an' : 'a';
+      const landSelectors = new Set([
+        'basic land',
+        'artifact land',
+        'land',
+        'plains',
+        'island',
+        'swamp',
+        'mountain',
+        'forest',
+        'desert',
+        'gate',
+        'cave',
+        'locus',
+        'lair',
+        'sphere',
+        'mine',
+        'tower',
+        'power-plant',
+      ]);
+      const isLandcycling = landSelectors.has(normalizedSelector) || normalizedSelector.endsWith(' land');
+      const targetDescription = isLandcycling
+        ? `${article} ${prettySelector} card`
+        : `${article} ${prettySelector} creature card`;
+
+      return [{
+        keywordLabel: `${prettySelector}cycling`,
+        cost,
+        description: `Discard this card: Search your library for ${targetDescription}`,
+        effect: `Discard this card, then search your library for ${targetDescription}`,
+      }];
+    });
+
+  for (const cyclingAbility of cyclingAbilities) {
     abilities.push({
       id: `${card.id}-cycling-${abilityIndex++}`,
-      label: `Cycle ${cyclingMatch[1]}`,
-      description: 'Discard this card: Draw a card',
-      cost: cyclingMatch[1],
-      effect: 'Discard this card, then draw a card',
+      label: `${cyclingAbility.keywordLabel} ${cyclingAbility.cost}`,
+      description: cyclingAbility.description,
+      cost: cyclingAbility.cost,
+      effect: cyclingAbility.effect,
       requiresTap: false,
       requiresUntap: false,
       requiresSacrifice: false,
-      manaCost: cyclingMatch[1],
+      manaCost: cyclingAbility.cost,
       isManaAbility: false,
       isLoyaltyAbility: false,
       isFetchAbility: false,

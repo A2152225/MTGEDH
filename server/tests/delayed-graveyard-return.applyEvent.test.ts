@@ -101,4 +101,55 @@ describe('delayed graveyard return applyEvent', () => {
       },
     ]);
   });
+
+  it('replay scheduleDelayedGraveyardReturn preserves face-down turn-face-up metadata', () => {
+    const ctx: any = {
+      state: {
+        battlefield: [],
+        stack: [],
+      },
+      bumpSeq() {},
+    };
+
+    applyEvent(ctx, {
+      type: 'scheduleDelayedGraveyardReturn',
+      playerId: 'p1',
+      sourceName: 'Yarus, Roar of the Old Gods',
+      entries: [
+        {
+          scheduleId: 'delayed_turn_up_1',
+          cardId: 'manifested_land_card_1',
+          zoneOwnerId: 'p1',
+          fireAtTurnNumber: 4,
+          sourceName: 'Yarus, Roar of the Old Gods',
+          createdBy: 'p1',
+          destination: 'battlefield',
+          battlefieldControllerMode: 'owner',
+          battlefieldFaceDown: true,
+          battlefieldTurnFaceUp: true,
+        },
+      ],
+    } as any);
+
+    expect((ctx.state as any).pendingDelayedGraveyardReturns).toEqual([
+      {
+        scheduleId: 'delayed_turn_up_1',
+        cardId: 'manifested_land_card_1',
+        zoneOwnerId: 'p1',
+        fireAtTurnNumber: 4,
+        fireAtStep: 'end_step',
+        fireAtPlayerId: undefined,
+        sourceName: 'Yarus, Roar of the Old Gods',
+        createdBy: 'p1',
+        destination: 'battlefield',
+        destinationUsesSelectedCardOwner: false,
+        battlefieldControllerMode: 'owner',
+        battlefieldControllerId: undefined,
+        battlefieldTapped: false,
+        battlefieldCounters: undefined,
+        battlefieldFaceDown: true,
+        battlefieldTurnFaceUp: true,
+      },
+    ]);
+  });
 });

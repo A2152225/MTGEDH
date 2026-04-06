@@ -88,6 +88,14 @@ describe('Growing Rites of Itlimoc regressions', () => {
     expect(searchStep.filter).toEqual({ types: ['creature'] });
     expect(searchStep.availableCards.map((card: any) => card.id)).toEqual([
       'creature_1',
+      'creature_2',
+    ]);
+    expect(searchStep.nonSelectableCards.map((card: any) => card.id)).toEqual([
+      'land_1',
+      'instant_1',
+    ]);
+    expect(searchStep.revealedCards.map((card: any) => card.id)).toEqual([
+      'creature_1',
       'land_1',
       'creature_2',
       'instant_1',
