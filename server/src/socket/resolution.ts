@@ -10086,6 +10086,7 @@ async function handleStepResponse(
               xValue: castArgs.xValue,
               alternateCostId: 'overload',
               selectedCastMode: 'overload',
+              skipPriorityCheck: castArgs.skipPriorityCheck === true,
               convokeTappedCreatures: castArgs.convokeTappedCreatures,
             });
 
@@ -10123,6 +10124,7 @@ async function handleStepResponse(
             xValue: castArgs.xValue,
             alternateCostId: castArgs.alternateCostId,
             selectedCastMode: 'normal',
+            skipPriorityCheck: castArgs.skipPriorityCheck === true,
             convokeTappedCreatures: castArgs.convokeTappedCreatures,
           });
 
@@ -10139,6 +10141,7 @@ async function handleStepResponse(
           targets: castArgs.targets,
           xValue: castArgs.xValue,
           alternateCostId: castArgs.alternateCostId,
+          skipPriorityCheck: castArgs.skipPriorityCheck === true,
           convokeTappedCreatures: castArgs.convokeTappedCreatures,
         });
 
@@ -21163,6 +21166,7 @@ async function handleOptionChoiceResponse(
       alternateCostId: castArgs.alternateCostId || 'force_of_will',
       convokeTappedCreatures: castArgs.convokeTappedCreatures,
       skipInteractivePrompts: true,
+      skipPriorityCheck: true,
     });
 
     if (typeof (game as any).bumpSeq === 'function') {

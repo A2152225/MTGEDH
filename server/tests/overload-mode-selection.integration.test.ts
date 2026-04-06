@@ -170,4 +170,133 @@ describe('Overload mode selection (integration)', () => {
     const errorEvent = emitted.find((event) => event.event === 'error');
     expect(errorEvent).toBeUndefined();
   });
+
+  it('requestCastSpell offers overload for Cyclonic Rift before target selection and resumes with the overload cost', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'izzet_signet_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        card: {
+          name: 'Izzet Signet',
+          type_line: 'Artifact',
+          oracle_text: '{1}, {T}: Add {U}{R}.',
+          image_uris: { small: 'https://example.com/izzet-signet.jpg' },
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'cyclonic_rift_1',
+            name: 'Cyclonic Rift',
+            mana_cost: '{1}{U}',
+            manaCost: '{1}{U}',
+            type_line: 'Instant',
+            oracle_text: "Return target nonland permanent you don't control to its owner's hand. Overload {6}{U}",
+            image_uris: { small: 'https://example.com/cyclonic-rift.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 7, black: 0, red: 0, green: 0, colorless: 0 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'cyclonic_rift_1' });
+
+    const modeStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps
+      .find((step: any) => step.type === 'mode_selection' && String((step as any).sourceId || '') === 'cyclonic_rift_1') as any;
+    expect(modeStep).toBeDefined();
+    expect(modeStep.modeSelectionPurpose).toBe('overload');
+    expect(
+      ResolutionQueueManager
+        .getQueue(gameId)
+        .steps
+        .some((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Cyclonic Rift')
+    ).toBe(false);
+
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(modeStep.id),
+      selections: 'overload',
+    });
+
+    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
+    expect(continueEvent?.payload?.cardId).toBe('cyclonic_rift_1');
+    expect(continueEvent?.payload?.selectedCastMode).toBe('overload');
+    expect(continueEvent?.payload?.alternateCostId).toBe('overload');
+    expect(continueEvent?.payload?.skipPriorityCheck).toBe(true);
+
+    emitted.length = 0;
+    await handlers['castSpellFromHand'](continueEvent?.payload);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((step: any) => step.type === 'mode_selection' && String((step as any).sourceId || '') === 'cyclonic_rift_1')).toBe(false);
+    expect(queue.steps.some((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Cyclonic Rift')).toBe(false);
+
+    const paymentStep = queue.steps.find((step: any) =>
+      step.type === 'mana_payment_choice' &&
+      (step as any).spellPaymentRequired === true
+    ) as any;
+    const stackedRift = ((game.state as any).stack || []).find((item: any) =>
+      String(item?.card?.name || '') === 'Cyclonic Rift'
+    ) as any;
+
+    expect(Boolean(paymentStep) || Boolean(stackedRift)).toBe(true);
+    if (paymentStep) {
+      expect(String(paymentStep?.manaCost || '')).toBe('{6}{U}');
+    }
+    if (stackedRift) {
+      expect(String((stackedRift as any).alternateCostId || (stackedRift as any).card?.alternateCostId || '')).toBe('overload');
+    }
+
+    const errorEvent = emitted.find((event) => event.event === 'error');
+    expect(errorEvent).toBeUndefined();
+  });
 });

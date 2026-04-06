@@ -690,6 +690,31 @@ function performUndo(gameId: string, actionsToUndo: number, eventCountOverride?:
   }
 }
 
+function emitUndoCountsUpdate(io: Server, gameId: string, game: any): void {
+  try {
+    const eventCount = getEventCount(gameId);
+    const events = getEvents(gameId);
+    const { stepCount, phaseCount, previousPhaseCount, turnCount, previews } = calculateSmartUndoCounts(game, events);
+
+    io.to(gameId).emit('undoCountUpdate', {
+      gameId,
+      eventCount,
+    });
+
+    io.to(gameId).emit('smartUndoCountsUpdate', {
+      gameId,
+      stepCount,
+      phaseCount,
+      previousPhaseCount,
+      turnCount,
+      previews,
+      totalCount: events.length,
+    });
+  } catch (err) {
+    debugWarn(1, `[undo] Failed to emit updated undo counts for game ${gameId}:`, err);
+  }
+}
+
 export function registerUndoHandlers(io: Server, socket: Socket) {
   const getUndoRequesterContext = (gameId: string) => {
     const playerId = socket.data.playerId;
@@ -843,6 +868,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         });
 
         socket.emit("undoComplete", { gameId, success: true });
+        emitUndoCountsUpdate(io, gameId, game);
         broadcastGame(io, game, gameId);
       } else {
         socket.emit("error", {
@@ -890,6 +916,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         });
 
         socket.emit("undoComplete", { gameId, success: true });
+        emitUndoCountsUpdate(io, gameId, game);
         broadcastGame(io, game, gameId);
       } else {
         socket.emit("error", {
@@ -1106,6 +1133,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
             ts: Date.now(),
           });
 
+          emitUndoCountsUpdate(io, gameId, game);
           broadcastGame(io, game, gameId);
         } else {
           io.to(gameId).emit("undoCancelled", {

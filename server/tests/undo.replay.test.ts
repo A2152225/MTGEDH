@@ -494,6 +494,30 @@ describe('Undo and Replay', () => {
 });
 
   describe('RNG state after reset', () => {
+    it('skips auto-pass side effects while replaying nextStep events', () => {
+      const gameId = 'undo_replay_nextstep_no_autopass';
+      const p1 = 'p1' as PlayerID;
+      const p2 = 'p2' as PlayerID;
+
+      const game = createInitialGameState(gameId);
+      game.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+      game.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+      game.reset!(true);
+      (game.state as any).autoPassPlayers = new Set([p1, p2]);
+
+      game.replay!([
+        { type: 'nextTurn' } as any,
+        { type: 'nextStep' } as any,
+      ]);
+
+      expect((game.state as any).phase).toBe('beginning');
+      expect((game.state as any).step).toBe('UPKEEP');
+      expect([p1, p2]).toContain((game.state as any).priority);
+      expect((game.state as any)._autoPassResult).toBeUndefined();
+      expect(Array.from((((game.state as any).priorityPassedBy || new Set()) as Set<string>))).toEqual([]);
+    });
+
     it('should clear RNG state on reset so replay can re-seed correctly', () => {
       // This test verifies the root cause of the undo bug:
       // When reset() is called, the RNG state must be cleared so that

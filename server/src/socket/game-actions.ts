@@ -2796,8 +2796,60 @@ export async function requestCastSpellForSocket(
       delete (cardInHand as any).giftType;
     }
 
-    const oracleText = resolveGiftAwareOracleText(oracleTextRaw, giftInfo.hasGift ? giftPromised : undefined).toLowerCase();
+    const baseOracleText = resolveGiftAwareOracleText(oracleTextRaw, giftInfo.hasGift ? giftPromised : undefined);
+    const overloadRequested = options?.forcedAlternateCostId === 'overload' || (cardInHand as any).castWithOverload === true;
+    const overloadMatch = baseOracleText.match(/overload\s*\{([^}]+)\}/i);
+    const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
+    const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested).toLowerCase();
     const chosenXValue = Number.isFinite(options?.xValue) ? Math.max(0, Math.floor(Number(options?.xValue))) : undefined;
+
+    if (overloadCost && !overloadRequested) {
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'overload');
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MODE_SELECTION,
+          playerId: playerId as any,
+          sourceId: cardId,
+          sourceName: cardName,
+          sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          description: `Choose casting mode for ${cardName}`,
+          mandatory: true,
+          modes: [
+            {
+              id: 'normal',
+              label: 'Normal',
+              description: `Cast ${cardName} normally.`,
+            },
+            {
+              id: 'overload',
+              label: 'Overload',
+              description: `Cast ${cardName} with Overload (replaces "target" with "each").`,
+            },
+          ],
+          minModes: 1,
+          maxModes: 1,
+          allowDuplicates: false,
+          modeSelectionPurpose: 'overload',
+          castSpellFromHandArgs: {
+            cardId,
+            faceIndex: selectedFaceIndex,
+            fromZone: castSourceZone,
+            xValue: chosenXValue,
+            skipPriorityCheck: true,
+          },
+        } as any);
+      }
+
+      debug(2, `[requestCastSpell] Queued overload mode selection for ${cardName}`);
+      return;
+    }
+
+    if (overloadRequested && overloadCost) {
+      manaCost = overloadCost;
+    }
 
     // Forced alternate cost (Miracle / Mutate)
     if (options?.forcedAlternateCostId === 'miracle') {
@@ -3452,6 +3504,14 @@ export async function requestCastSpellForSocket(
   }
 }
 
+function getOracleTextForCastMode(oracleText: string, castWithOverload: boolean): string {
+  if (!castWithOverload) return oracleText;
+
+  const normalized = String(oracleText || '').replace(/\u2019/g, "'");
+  const withoutOverloadClause = normalized.replace(/\s*overload\s*\{[^}]+\}\.?/i, '').trim();
+  return withoutOverloadClause.replace(/\btarget\b/gi, 'each');
+}
+
 export function registerGameActions(io: Server, socket: Socket) {
   const ensureInGameRoom = (
     gameId: string,
@@ -4062,7 +4122,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check timing restrictions for sorcery-speed spells
       const giftPromisedForCast = (cardInHand as any).giftPromised === true;
-      const oracleText = resolveGiftAwareOracleText(cardInHand.oracle_text || "", giftPromisedForCast).toLowerCase();
+      const baseOracleText = resolveGiftAwareOracleText(cardInHand.oracle_text || "", giftPromisedForCast);
+      const overloadRequested = alternateCostId === 'overload' || (cardInHand as any).castWithOverload === true;
+      const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested).toLowerCase();
 
       // Carry over additional-cost payment state from requestCastSpell -> completeCastSpell.
       // Many resolution paths check this flag on the card object.
@@ -4148,6 +4210,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               convokeTappedCreatures,
               // Ensure we don't re-run prompts after paying the alternate cost.
               skipInteractivePrompts: true,
+              skipPriorityCheck: true,
             },
           } as any);
         }
@@ -4307,6 +4370,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               targets,
               xValue,
               alternateCostId,
+              skipPriorityCheck: true,
               convokeTappedCreatures,
             },
           } as any);
@@ -5424,12 +5488,20 @@ export function registerGameActions(io: Server, socket: Socket) {
       const isForceAltCostPaid = isForceAltCostRequested && (cardInHand as any).forceAltCostPaid === true;
       const isFreeCast = alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true;
       const usesWubrgAlternateCost = alternateCostId === 'wubrg_self' || alternateCostId === 'wubrg_external';
+      const resolvedOverloadCost = overloadRequested
+        ? String((cardInHand as any).overloadCost || '') || (() => {
+            const match = String((cardInHand as any).oracle_text || '').match(/overload\s*\{([^}]+)\}/i);
+            return match ? `{${match[1]}}` : '';
+          })()
+        : '';
 
       // Parse the mana cost to validate payment
       const rawManaCost = (isForceAltCostPaid || isFreeCast)
         ? ''
         : usesWubrgAlternateCost
           ? '{W}{U}{B}{R}{G}'
+          : resolvedOverloadCost
+            ? resolvedOverloadCost
           : (cardInHand.mana_cost || "");
       const manaCost = expandManaCostWithChosenX(rawManaCost, xValue);
       const parsedCost = parseManaCost(manaCost);

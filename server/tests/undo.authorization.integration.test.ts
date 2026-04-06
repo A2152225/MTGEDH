@@ -689,6 +689,45 @@ describe('undo authorization (integration)', () => {
     expect(undoComplete?.payload).toEqual({ gameId: wrapperGameId, success: true });
   });
 
+  it('emits refreshed undo counts after a successful undo rebuild', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(wrapperGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(wrapperGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+    ];
+    (game.state as any).turn = 5;
+    (game.state as any).turnNumber = 5;
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_ATTACKERS';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    appendEvent(wrapperGameId, 0, 'join', { playerId: p1, name: 'P1' });
+    appendEvent(wrapperGameId, 1, 'skipToPhase', { targetPhase: 'precombatMain', targetStep: 'MAIN1' });
+    appendEvent(wrapperGameId, 2, 'setLife', { playerId: p1, life: 39 });
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(wrapperGameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerUndoHandlers(io as any, socket as any);
+
+    await handlers['requestUndo']({ gameId: wrapperGameId, actionsToUndo: 1 });
+
+    const countUpdate = emitted.find(e => e.room === wrapperGameId && e.event === 'undoCountUpdate');
+    expect(countUpdate?.payload?.eventCount).toBe(2);
+
+    const smartUpdate = emitted.find(e => e.room === wrapperGameId && e.event === 'smartUndoCountsUpdate');
+    expect(smartUpdate).toBeTruthy();
+    expect(smartUpdate!.payload.gameId).toBe(wrapperGameId);
+    expect(smartUpdate!.payload.totalCount).toBe(2);
+  });
+
   it('does not allow a non-participant to read undo counts', async () => {
     const creator = 'creator';
     const attacker = 'attacker';

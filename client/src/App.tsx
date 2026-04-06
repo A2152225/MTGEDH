@@ -2092,6 +2092,7 @@ export function App() {
           alternateCostId: payload.alternateCostId,
           selectedCastMode: payload.selectedCastMode,
           skipInteractivePrompts: payload.skipInteractivePrompts,
+          skipPriorityCheck: payload.skipPriorityCheck,
           convokeTappedCreatures: payload.convokeTappedCreatures,
           fromZone: payload.fromZone,
           faceIndex: payload.faceIndex,
@@ -2317,7 +2318,7 @@ export function App() {
     
     // Request only the cheap total count here. Smart counts are computed on demand.
     socket.emit("getUndoCount", { gameId: safeView.id });
-  }, [safeView?.id, safeView?.turn, safeView?.step, safeView?.priority]);
+  }, [safeView]);
 
   React.useEffect(() => {
     if (!safeView?.id) return;

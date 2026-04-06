@@ -124,6 +124,7 @@ describe('Resolution FORCE alternate cost (Force of Will / Negation style)', () 
     expect(continueEvt!.payload.cardId).toBe('spell_1');
     expect(continueEvt!.payload.alternateCostId).toBe('force_of_will');
     expect(continueEvt!.payload.skipInteractivePrompts).toBe(true);
+    expect(continueEvt!.payload.skipPriorityCheck).toBe(true);
   });
 
   it('rejects selecting a non-blue card (no state changes)', async () => {
