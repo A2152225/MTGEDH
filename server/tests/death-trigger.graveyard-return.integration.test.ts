@@ -157,6 +157,93 @@ describe('Death trigger graveyard returns (integration)', () => {
     expect(String(confirmEvent?.payload?.destination || '')).toBe('hand');
   });
 
+  it('returns enchanted creatures to the battlefield under the aura controller for Fool\'s Demise', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'fooled_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'fooled_card_1',
+          name: 'Distracted Guard',
+          type_line: 'Creature - Human Soldier',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'fools_demise_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        attachedTo: 'fooled_1',
+        card: {
+          id: 'fools_demise_card_1',
+          name: "Fool's Demise",
+          type_line: 'Enchantment - Aura',
+          oracle_text: 'Enchant creature\nWhen enchanted creature dies, return that card to the battlefield under your control.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'fooled_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      source: 'fools_demise_1',
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      boundGraveyardCardId: 'fooled_card_1',
+      boundGraveyardOwnerId: opponentId,
+    });
+
+    game.resolveTopOfStack();
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'fooled_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: controllerId,
+      owner: opponentId,
+    });
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent?.payload).toMatchObject({
+      selectedCardIds: ['fooled_card_1'],
+      destination: 'battlefield',
+      targetPlayerId: opponentId,
+    });
+  });
+
   it('routes death triggers targeting your graveyard through GRAVEYARD_SELECTION with persisted metadata', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -520,6 +607,233 @@ describe('Death trigger graveyard returns (integration)', () => {
     });
   });
 
+  it('returns Presumed Dead targets suspected through granted temporary death-trigger text', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).stack = [
+      {
+        id: 'presumed_dead_spell_1',
+        type: 'spell',
+        controller: playerId,
+        source: 'hand',
+        targets: ['presumed_target_1'],
+        card: {
+          id: 'presumed_dead_card_1',
+          name: 'Presumed Dead',
+          type_line: 'Instant',
+          oracle_text: 'Until end of turn, target creature gets +2/+0 and gains "When this creature dies, return it to the battlefield under its owner\'s control and suspect it."',
+          zone: 'stack',
+        },
+      },
+    ];
+    (game.state as any).battlefield = [
+      {
+        id: 'presumed_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        temporaryPTMods: [],
+        temporaryAbilities: [],
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'presumed_target_card_1',
+          name: 'Night Market Lookout',
+          type_line: 'Creature - Human Rogue',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    game.resolveTopOfStack();
+
+    const buffedCreature = ((game.state as any).battlefield || []).find((perm: any) => perm?.id === 'presumed_target_1');
+    const temporaryAbilities = Array.isArray(buffedCreature?.temporaryAbilities) ? buffedCreature.temporaryAbilities : [];
+    expect(temporaryAbilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ability: 'when this creature dies, return it to the battlefield under its owner\'s control and suspect it.',
+        }),
+      ]),
+    );
+
+    expect(movePermanentToGraveyard(game as any, 'presumed_target_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      battlefieldControllerMode: 'owner',
+      battlefieldSuspected: true,
+      boundGraveyardCardId: 'presumed_target_card_1',
+    });
+
+    game.resolveTopOfStack();
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'presumed_target_card_1')).toBe(false);
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'presumed_target_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: playerId,
+      owner: playerId,
+      suspected: true,
+      isSuspected: true,
+      card: {
+        suspected: true,
+        isSuspected: true,
+      },
+    });
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent?.payload).toMatchObject({
+      selectedCardIds: ['presumed_target_card_1'],
+      destination: 'battlefield',
+      battlefieldSuspected: true,
+      battlefieldControllerMode: 'owner',
+    });
+  });
+
+  it('returns Perigee Beckoner targets tapped through granted temporary death-trigger text from a triggered ability', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).turnNumber = 2;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).stack = [
+      {
+        id: 'perigee_trigger_1',
+        type: 'triggered_ability',
+        controller: playerId,
+        source: 'perigee_beckoner_1',
+        sourceName: 'Perigee Beckoner',
+        description: 'Until end of turn, another target creature you control gets +2/+0 and gains "When this creature dies, return it to the battlefield tapped under its owner\'s control."',
+        effect: 'Until end of turn, another target creature you control gets +2/+0 and gains "When this creature dies, return it to the battlefield tapped under its owner\'s control."',
+        targets: ['perigee_target_1'],
+        mandatory: true,
+      },
+    ];
+    (game.state as any).battlefield = [
+      {
+        id: 'perigee_beckoner_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 3,
+        card: {
+          id: 'perigee_beckoner_card_1',
+          name: 'Perigee Beckoner',
+          type_line: 'Creature - Horror',
+          oracle_text: 'When this creature enters, until end of turn, another target creature you control gets +2/+0 and gains "When this creature dies, return it to the battlefield tapped under its owner\'s control."',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '3',
+        },
+      },
+      {
+        id: 'perigee_target_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        temporaryPTMods: [],
+        temporaryAbilities: [],
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'perigee_target_card_1',
+          name: 'Cloudrunner',
+          type_line: 'Creature - Bird',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+
+    game.resolveTopOfStack();
+
+    const buffedCreature = ((game.state as any).battlefield || []).find((perm: any) => perm?.id === 'perigee_target_1');
+    const temporaryAbilities = Array.isArray(buffedCreature?.temporaryAbilities) ? buffedCreature.temporaryAbilities : [];
+    expect(temporaryAbilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ability: 'when this creature dies, return it to the battlefield tapped under its owner\'s control.',
+        }),
+      ]),
+    );
+
+    expect(movePermanentToGraveyard(game as any, 'perigee_target_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      battlefieldControllerMode: 'owner',
+      battlefieldTapped: true,
+      boundGraveyardCardId: 'perigee_target_card_1',
+    });
+
+    game.resolveTopOfStack();
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'perigee_target_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: playerId,
+      owner: playerId,
+      tapped: true,
+    });
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent?.payload).toMatchObject({
+      selectedCardIds: ['perigee_target_card_1'],
+      destination: 'battlefield',
+      battlefieldControllerMode: 'owner',
+      battlefieldTapped: true,
+    });
+  });
+
   it('returns another nonartifact creature that dies face down and tapped under Missy\'s control', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);
@@ -798,6 +1112,689 @@ describe('Death trigger graveyard returns (integration)', () => {
       zoneOwnerId: playerId,
       destination: 'battlefield',
       sourceName: 'Marchesa, the Black Rose',
+    });
+  });
+
+  it('returns Villains with a finality counter through Thunderbolts Conspiracy', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'thunderbolts_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'thunderbolts_card_1',
+          name: 'Thunderbolts Conspiracy',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever a Villain you control dies, return it to the battlefield under its owner\'s control with a finality counter on it.',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'villain_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 2,
+        card: {
+          id: 'villain_card_1',
+          name: 'Stage Villain',
+          type_line: 'Creature - Villain Rogue',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '3',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'villain_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      battlefieldControllerMode: 'owner',
+      battlefieldCounters: { finality: 1 },
+      boundGraveyardCardId: 'villain_card_1',
+    });
+
+    game.resolveTopOfStack();
+
+    const playerZones = (game.state as any).zones?.[playerId];
+    expect((playerZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'villain_card_1')).toBe(false);
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'villain_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: playerId,
+      owner: playerId,
+      counters: { finality: 1 },
+    });
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent?.payload).toMatchObject({
+      selectedCardIds: ['villain_card_1'],
+      destination: 'battlefield',
+      battlefieldControllerMode: 'owner',
+      battlefieldCounters: { finality: 1 },
+    });
+  });
+
+  it('returns creatures damaged by Dread Slaver this turn under its controller\'s control', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'dread_slaver_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 5,
+        card: {
+          id: 'dread_slaver_card_1',
+          name: 'Dread Slaver',
+          type_line: 'Creature - Zombie',
+          oracle_text: 'Whenever a creature dealt damage by this creature this turn dies, return it to the battlefield under your control.',
+          zone: 'battlefield',
+          power: '3',
+          toughness: '5',
+        },
+      },
+      {
+        id: 'dread_victim_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 2,
+        card: {
+          id: 'dread_victim_card_1',
+          name: 'Doomed Guard',
+          type_line: 'Creature - Human Soldier',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '2',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+    (game.state as any).creaturesDamagedByThisCreatureThisTurn = {
+      dread_slaver_1: {
+        dread_victim_1: true,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'dread_victim_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      source: 'dread_slaver_1',
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      boundGraveyardCardId: 'dread_victim_card_1',
+      boundGraveyardOwnerId: opponentId,
+    });
+
+    game.resolveTopOfStack();
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'dread_victim_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: controllerId,
+      owner: opponentId,
+    });
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent?.payload).toMatchObject({
+      selectedCardIds: ['dread_victim_card_1'],
+      destination: 'battlefield',
+      targetPlayerId: opponentId,
+    });
+  });
+
+  it('returns creatures damaged by the equipped creature for Scythe of the Wretched', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'scythe_wielder_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        counters: {},
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'scythe_wielder_card_1',
+          name: 'Ghoul Bladebearer',
+          type_line: 'Creature - Zombie Warrior',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '4',
+          toughness: '4',
+        },
+      },
+      {
+        id: 'scythe_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        attachedTo: 'scythe_wielder_1',
+        card: {
+          id: 'scythe_card_1',
+          name: 'Scythe of the Wretched',
+          type_line: 'Artifact - Equipment',
+          oracle_text: 'Whenever a creature dealt damage by equipped creature this turn dies, return that card to the battlefield under your control.',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'scythe_victim_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'scythe_victim_card_1',
+          name: 'Hapless Infantry',
+          type_line: 'Creature - Human Soldier',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+    (game.state as any).creaturesDamagedByThisCreatureThisTurn = {
+      scythe_wielder_1: {
+        scythe_victim_1: true,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'scythe_victim_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      source: 'scythe_1',
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      boundGraveyardCardId: 'scythe_victim_card_1',
+      boundGraveyardOwnerId: opponentId,
+    });
+
+    game.resolveTopOfStack();
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'scythe_victim_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: controllerId,
+      owner: opponentId,
+    });
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent?.payload).toMatchObject({
+      selectedCardIds: ['scythe_victim_card_1'],
+      destination: 'battlefield',
+      targetPlayerId: opponentId,
+    });
+  });
+
+  it('returns equipped Samurai cards under the equipment controller\'s control', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'samurai_relic_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        attachedTo: 'samurai_target_1',
+        card: {
+          id: 'samurai_relic_card_1',
+          name: 'Samurai Relic',
+          type_line: 'Artifact - Equipment',
+          oracle_text: 'Whenever equipped creature dies, return that card to the battlefield under your control if it\'s a Samurai card.',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'samurai_target_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'samurai_target_card_1',
+          name: 'Wandering Ronin',
+          type_line: 'Creature - Human Samurai',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'samurai_target_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      source: 'samurai_relic_1',
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      boundGraveyardCardId: 'samurai_target_card_1',
+      boundGraveyardOwnerId: opponentId,
+    });
+
+    game.resolveTopOfStack();
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'samurai_target_card_1',
+    );
+    expect(returnedPermanent).toMatchObject({
+      controller: controllerId,
+      owner: opponentId,
+    });
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent?.payload).toMatchObject({
+      selectedCardIds: ['samurai_target_card_1'],
+      destination: 'battlefield',
+      targetPlayerId: opponentId,
+    });
+  });
+
+  it('does not bind equipped creature returns under your control when the dead card is not a Samurai', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'samurai_relic_2',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        attachedTo: 'not_samurai_target_1',
+        card: {
+          id: 'samurai_relic_card_2',
+          name: 'Samurai Relic',
+          type_line: 'Artifact - Equipment',
+          oracle_text: 'Whenever equipped creature dies, return that card to the battlefield under your control if it\'s a Samurai card.',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'not_samurai_target_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        basePower: 2,
+        baseToughness: 3,
+        card: {
+          id: 'not_samurai_target_card_1',
+          name: 'Ordinary Mercenary',
+          type_line: 'Creature - Human Mercenary',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '2',
+          toughness: '3',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'not_samurai_target_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).not.toHaveProperty('targetZone');
+    expect((game.state as any).stack[0]).not.toHaveProperty('boundGraveyardCardId');
+
+    game.resolveTopOfStack();
+
+    const returnedPermanent = ((game.state as any).battlefield || []).find(
+      (perm: any) => String(perm?.card?.id || '') === 'not_samurai_target_card_1',
+    );
+    expect(returnedPermanent).toBeUndefined();
+
+    const opponentZones = (game.state as any).zones?.[opponentId];
+    expect((opponentZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'not_samurai_target_card_1')).toBe(true);
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const confirmEvent = [...newEvents].reverse().find((event: any) => event.type === 'confirmGraveyardTargets') as any;
+    expect(confirmEvent).toBeUndefined();
+  });
+
+  it('schedules equipped creature returns for the next end step under the owner\'s control', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).turnNumber = 5;
+    (game.state as any).phase = 'main1';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'resurrection_orb_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        attachedTo: 'orb_target_1',
+        card: {
+          id: 'resurrection_orb_card_1',
+          name: 'Resurrection Orb',
+          type_line: 'Artifact - Equipment',
+          oracle_text: 'Whenever equipped creature dies, return that card to the battlefield under its owner\'s control at the beginning of the next end step.',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'orb_target_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'orb_target_card_1',
+          name: 'Borrowed Brute',
+          type_line: 'Creature - Ogre Warrior',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '4',
+          toughness: '4',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [], libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'orb_target_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      source: 'resurrection_orb_1',
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      delayedReturnAt: 'next_end_step',
+      battlefieldControllerMode: 'owner',
+      boundGraveyardCardId: 'orb_target_card_1',
+      boundGraveyardOwnerId: opponentId,
+    });
+
+    game.resolveTopOfStack();
+
+    const pendingDelayed = (game.state as any).pendingDelayedGraveyardReturns || [];
+    expect(pendingDelayed).toHaveLength(1);
+    expect(pendingDelayed[0]).toMatchObject({
+      cardId: 'orb_target_card_1',
+      zoneOwnerId: opponentId,
+      destination: 'battlefield',
+      battlefieldControllerMode: 'owner',
+      fireAtStep: 'end_step',
+      createdBy: controllerId,
+    });
+
+    const opponentZones = (game.state as any).zones?.[opponentId];
+    expect((opponentZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'orb_target_card_1')).toBe(true);
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const scheduleEvent = [...newEvents].reverse().find((event: any) => event.type === 'scheduleDelayedGraveyardReturn') as any;
+    expect(scheduleEvent?.payload?.entries).toHaveLength(1);
+    expect(scheduleEvent?.payload?.entries?.[0]).toMatchObject({
+      cardId: 'orb_target_card_1',
+      zoneOwnerId: opponentId,
+      destination: 'battlefield',
+      battlefieldControllerMode: 'owner',
+      fireAtStep: 'end_step',
+      createdBy: controllerId,
+    });
+  });
+
+  it('schedules Grave Betrayal returns for the next end step under the trigger controller', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const controllerId = 'p1';
+    const opponentId = 'p2';
+    const eventsBefore = getEvents(gameId).length;
+    (game.state as any).players = [
+      { id: controllerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = controllerId;
+    (game.state as any).priority = controllerId;
+    (game.state as any).turnNumber = 3;
+    (game.state as any).phase = 'main1';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).pendingDelayedGraveyardReturns = [];
+    (game.state as any).battlefield = [
+      {
+        id: 'grave_betrayal_1',
+        controller: controllerId,
+        owner: controllerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'grave_betrayal_card_1',
+          name: 'Grave Betrayal',
+          type_line: 'Enchantment',
+          oracle_text: 'Whenever a creature you don\'t control dies, return it to the battlefield under your control with an additional +1/+1 counter on it at the beginning of the next end step.',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'opponent_victim_1',
+        controller: opponentId,
+        owner: opponentId,
+        tapped: false,
+        counters: {},
+        basePower: 3,
+        baseToughness: 3,
+        card: {
+          id: 'opponent_victim_card_1',
+          name: 'Fallen Soldier',
+          type_line: 'Creature - Human Soldier',
+          oracle_text: '',
+          zone: 'battlefield',
+          power: '3',
+          toughness: '3',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [controllerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    expect(movePermanentToGraveyard(game as any, 'opponent_victim_1')).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect((game.state as any).stack[0]).toMatchObject({
+      targetZone: 'graveyard',
+      targetDestination: 'battlefield',
+      delayedReturnAt: 'next_end_step',
+      battlefieldCounters: { '+1/+1': 1 },
+      boundGraveyardCardId: 'opponent_victim_card_1',
+      boundGraveyardOwnerId: opponentId,
+    });
+
+    game.resolveTopOfStack();
+
+    expect(((game.state as any).battlefield || []).some((perm: any) => perm?.id === 'opponent_victim_1')).toBe(false);
+    expect(((game.state as any).battlefield || []).some((perm: any) => String(perm?.card?.id || '') === 'opponent_victim_card_1')).toBe(false);
+
+    const opponentZones = (game.state as any).zones?.[opponentId];
+    expect((opponentZones?.graveyard || []).some((card: any) => String(card?.id || '') === 'opponent_victim_card_1')).toBe(true);
+
+    const pendingDelayed = (game.state as any).pendingDelayedGraveyardReturns || [];
+    expect(pendingDelayed).toHaveLength(1);
+    expect(pendingDelayed[0]).toMatchObject({
+      cardId: 'opponent_victim_card_1',
+      zoneOwnerId: opponentId,
+      createdBy: controllerId,
+      destination: 'battlefield',
+      battlefieldCounters: { '+1/+1': 1 },
+      fireAtStep: 'end_step',
+    });
+
+    const newEvents = getEvents(gameId).slice(eventsBefore);
+    const scheduleEvent = [...newEvents].reverse().find((event: any) => event.type === 'scheduleDelayedGraveyardReturn') as any;
+    expect(scheduleEvent?.payload?.entries).toHaveLength(1);
+    expect(scheduleEvent?.payload?.entries?.[0]).toMatchObject({
+      cardId: 'opponent_victim_card_1',
+      zoneOwnerId: opponentId,
+      createdBy: controllerId,
+      destination: 'battlefield',
+      battlefieldCounters: { '+1/+1': 1 },
+      fireAtStep: 'end_step',
     });
   });
 

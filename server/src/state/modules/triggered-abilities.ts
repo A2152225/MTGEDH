@@ -2298,6 +2298,35 @@ export interface DeathTriggerResult {
   dyingCreatureCard?: any; // The card that died, for reanimation effects
 }
 
+function getPermanentRulesTextFragments(perm: any): string[] {
+  const fragments: string[] = [];
+
+  const oracleText = String(perm?.card?.oracle_text || '').trim().toLowerCase();
+  if (oracleText) {
+    fragments.push(oracleText);
+  }
+
+  const grantedAbilities = Array.isArray(perm?.grantedAbilities) ? perm.grantedAbilities : [];
+  for (const ability of grantedAbilities) {
+    const text = String(ability || '').trim().toLowerCase();
+    if (text) {
+      fragments.push(text);
+    }
+  }
+
+  const temporaryAbilities = Array.isArray(perm?.temporaryAbilities) ? perm.temporaryAbilities : [];
+  for (const entry of temporaryAbilities) {
+    const text = typeof entry === 'string'
+      ? String(entry || '').trim().toLowerCase()
+      : String(entry?.ability || '').trim().toLowerCase();
+    if (text) {
+      fragments.push(text);
+    }
+  }
+
+  return fragments;
+}
+
 function deathTriggerPermanentHasKeyword(perm: any, keywordLower: string): boolean {
   const wanted = String(keywordLower || '').toLowerCase().trim();
   if (!wanted) return false;
@@ -2318,19 +2347,69 @@ function deathTriggerPermanentHasKeyword(perm: any, keywordLower: string): boole
     }
   }
 
-  return String(perm?.card?.oracle_text || '').toLowerCase().includes(wanted);
+  return getPermanentRulesTextFragments(perm).some((text) => text.includes(wanted));
+}
+
+function getPermanentSubtypeWords(typeLineValue: string): string[] {
+  const typeLine = String(typeLineValue || '').toLowerCase();
+  const subtypeSection = typeLine.includes('—')
+    ? typeLine.split('—').slice(1).join(' ')
+    : typeLine.includes('-')
+      ? typeLine.split('-').slice(1).join(' ')
+      : '';
+  if (!subtypeSection) {
+    return [];
+  }
+
+  return subtypeSection
+    .split(/[^a-z0-9']+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function sourcePermanentIdDamagedDyingCreatureThisTurn(ctx: GameContext, sourcePermanentId: string, dyingCreature: any): boolean {
+  const sourceId = String(sourcePermanentId || '').trim();
+  const dyingPermanentId = String(dyingCreature?.id || '').trim();
+  if (!sourceId || !dyingPermanentId) {
+    return false;
+  }
+
+  const damaged = (ctx as any)?.state?.creaturesDamagedByThisCreatureThisTurn;
+  if (!damaged || typeof damaged !== 'object') {
+    return false;
+  }
+
+  const victims = (damaged as any)[sourceId];
+  return !!(victims && typeof victims === 'object' && victims[dyingPermanentId]);
+}
+
+function sourceDamagedDyingCreatureThisTurn(ctx: GameContext, sourcePermanent: any, dyingCreature: any): boolean {
+  return sourcePermanentIdDamagedDyingCreatureThisTurn(ctx, String(sourcePermanent?.id || ''), dyingCreature);
+}
+
+function equippedCreatureDamagedDyingCreatureThisTurn(ctx: GameContext, sourcePermanent: any, dyingCreature: any): boolean {
+  const equippedCreatureId = String((sourcePermanent as any)?.attachedTo || (sourcePermanent as any)?.equippedCreatureId || '').trim();
+  if (!equippedCreatureId) {
+    return false;
+  }
+
+  return sourcePermanentIdDamagedDyingCreatureThisTurn(ctx, equippedCreatureId, dyingCreature);
 }
 
 function deathTriggerClauseMatchesDyingCreature(
+  ctx: GameContext,
   clauseText: string,
   sourcePermanent: any,
   dyingCreature: any,
   dyingCreatureController: string,
 ): boolean {
   const clause = String(clauseText || '').replace(/[’]/g, "'").toLowerCase();
-  if (!clause || !clause.includes('creature')) return false;
-  if (clause.includes('enchanted creature') || clause.includes('equipped creature')) return false;
-  if (clause.includes('this creature') || clause.includes('this permanent') || clause.includes('~')) return false;
+  if (!clause) return false;
+
+  const damageMarkedDiesClause = /^a\s+creature\s+dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn$/i.test(clause);
+  const equippedDamageMarkedDiesClause = /^a\s+creature\s+dealt\s+damage\s+by\s+equipped\s+creature\s+this\s+turn$/i.test(clause);
+  if ((clause.includes('enchanted creature') || clause.includes('equipped creature')) && !equippedDamageMarkedDiesClause) return false;
+  if (!damageMarkedDiesClause && (clause.includes('this creature') || clause.includes('this permanent') || clause.includes('~'))) return false;
 
   const sourceCardName = String(sourcePermanent?.card?.name || '').trim().toLowerCase();
   if (sourceCardName && clause.includes(sourceCardName)) return false;
@@ -2343,7 +2422,13 @@ function deathTriggerClauseMatchesDyingCreature(
   if (clause.includes('you control') && dyingCreatureController !== sourceController) return false;
   if ((clause.includes("you don't control") || clause.includes('an opponent controls')) && dyingCreatureController === sourceController) return false;
 
+  if (damageMarkedDiesClause && !sourceDamagedDyingCreatureThisTurn(ctx, sourcePermanent, dyingCreature)) return false;
+  if (equippedDamageMarkedDiesClause && !equippedCreatureDamagedDyingCreatureThisTurn(ctx, sourcePermanent, dyingCreature)) return false;
+
   const typeLine = String(dyingCreature?.card?.type_line || '').toLowerCase();
+  const subtypeWords = getPermanentSubtypeWords(typeLine);
+  const clauseMentionsSubtype = subtypeWords.some((subtype) => clause.includes(subtype));
+  if (!clause.includes('creature') && !clauseMentionsSubtype) return false;
   const counters = dyingCreature?.counters && typeof dyingCreature.counters === 'object' ? dyingCreature.counters : {};
   const ownerId = String(dyingCreature?.owner || dyingCreature?.card?.owner || '').trim();
   const isToken = Boolean(dyingCreature?.isToken || dyingCreature?.token || dyingCreature?.card?.isToken || dyingCreature?.card?.token);
@@ -2387,22 +2472,29 @@ export function getDeathTriggers(
   const dyingCard = dyingCreature?.card;
   const dyingCardName = String(dyingCard?.name || 'Unknown');
   const lowerDyingCardName = dyingCardName.toLowerCase();
-  const dyingOracleText = String(dyingCard?.oracle_text || '');
   const selfDiesPattern = new RegExp(
     `when(?:ever)?\\s+(?:~|this creature|${escapeCardNameForRegex(dyingCardName)})\\s+dies,?\\s*([^.]+)`,
-    'i'
+    'ig'
   );
-  const selfDiesMatch = dyingOracleText.match(selfDiesPattern);
-  if (selfDiesMatch) {
-    results.push({
-      source: {
-        permanentId: String(dyingCreature?.id || ''),
-        cardName: dyingCardName,
-        controllerId: String(dyingCreatureController || ''),
-      },
-      effect: selfDiesMatch[1].trim(),
-      requiresSacrificeSelection: selfDiesMatch[1].toLowerCase().includes('sacrifice'),
-    });
+  const seenSelfEffects = new Set<string>();
+  for (const rulesText of getPermanentRulesTextFragments(dyingCreature)) {
+    const matches = rulesText.matchAll(selfDiesPattern);
+    for (const match of matches) {
+      const effect = String(match?.[1] || '').trim();
+      if (!effect) continue;
+      const effectKey = effect.toLowerCase();
+      if (seenSelfEffects.has(effectKey)) continue;
+      seenSelfEffects.add(effectKey);
+      results.push({
+        source: {
+          permanentId: String(dyingCreature?.id || ''),
+          cardName: dyingCardName,
+          controllerId: String(dyingCreatureController || ''),
+        },
+        effect,
+        requiresSacrificeSelection: effectKey.includes('sacrifice'),
+      });
+    }
   }
 
   for (const [knownName, info] of Object.entries(KNOWN_DEATH_TRIGGERS)) {
@@ -2432,7 +2524,7 @@ export function getDeathTriggers(
     if (!card) continue;
     
     const cardName = (card.name || '').toLowerCase();
-    const oracleText = (card.oracle_text || '').toLowerCase();
+    const oracleText = getPermanentRulesTextFragments(permanent).join('\n');
     const permanentController = permanent.controller;
     const attachedTo = String((permanent as any)?.attachedTo || '').trim();
     
@@ -2478,7 +2570,7 @@ export function getDeathTriggers(
       const genericDiesMatch = oracleText.match(/when(?:ever)?\s+([^.]+?)\s+dies,?\s*([^.]+)/i);
       if (
         genericDiesMatch &&
-        deathTriggerClauseMatchesDyingCreature(genericDiesMatch[1], permanent, dyingCreature, dyingCreatureController) &&
+        deathTriggerClauseMatchesDyingCreature(ctx, genericDiesMatch[1], permanent, dyingCreature, dyingCreatureController) &&
         !results.some(r => r.source.permanentId === permanent.id)
       ) {
         const effect = genericDiesMatch[2].trim();

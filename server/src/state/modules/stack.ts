@@ -233,6 +233,180 @@ function scheduleDelayedGraveyardReturn(ctx: GameContext, options: {
   }
 }
 
+function resolveBoundGraveyardReturnEffect(
+  ctx: GameContext,
+  state: any,
+  controller: PlayerID,
+  sourceName: string,
+  triggerItem: any,
+): boolean {
+  const boundGraveyardCardId = String((triggerItem as any).boundGraveyardCardId || '').trim();
+  const boundGraveyardOwnerId = String((triggerItem as any).boundGraveyardOwnerId || '').trim();
+  const boundTargetZone = String((triggerItem as any).targetZone || '').toLowerCase();
+  const boundTargetDestination = String((triggerItem as any).targetDestination || '').toLowerCase();
+  if (!boundGraveyardCardId || boundTargetZone !== 'graveyard' || (boundTargetDestination !== 'hand' && boundTargetDestination !== 'battlefield')) {
+    return false;
+  }
+
+  const zones = state.zones || {};
+  const delayedReturnAt = String((triggerItem as any).delayedReturnAt || '').toLowerCase();
+
+  if (delayedReturnAt === 'next_end_step' || delayedReturnAt === 'next_upkeep_selected_card_owner') {
+    const delayedOwnerSearchIds = boundGraveyardOwnerId
+      ? [boundGraveyardOwnerId, ...Object.keys(zones as Record<string, any>).filter((ownerId) => ownerId !== boundGraveyardOwnerId)]
+      : Object.keys(zones as Record<string, any>);
+
+    for (const ownerId of delayedOwnerSearchIds) {
+      const playerZones = (zones as Record<string, any>)[ownerId];
+      const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+      if (!graveyard.some((card: any) => String(card?.id || '') === boundGraveyardCardId)) {
+        continue;
+      }
+
+      scheduleDelayedGraveyardReturn(ctx, {
+        playerId: String(controller),
+        sourceName,
+        entries: [{
+          cardId: boundGraveyardCardId,
+          zoneOwnerId: String(ownerId),
+          destination: boundTargetDestination === 'battlefield' ? 'battlefield' : 'hand',
+          fireAtStep: delayedReturnAt === 'next_upkeep_selected_card_owner' ? 'upkeep' : 'end_step',
+          fireAtPlayerId: delayedReturnAt === 'next_upkeep_selected_card_owner' ? String(ownerId) : undefined,
+          destinationUsesSelectedCardOwner: (triggerItem as any).destinationUsesSelectedCardOwner === true,
+          battlefieldControllerMode: String((triggerItem as any).battlefieldControllerMode || '').toLowerCase() === 'owner' ? 'owner' : undefined,
+          battlefieldControllerId: boundTargetDestination === 'battlefield' && String((triggerItem as any).battlefieldControllerMode || '').toLowerCase() !== 'owner'
+            ? String(controller || '').trim() || undefined
+            : undefined,
+          battlefieldTapped: (triggerItem as any).battlefieldTapped === true,
+          battlefieldCounters: (triggerItem as any).battlefieldCounters && typeof (triggerItem as any).battlefieldCounters === 'object'
+            ? { ...((triggerItem as any).battlefieldCounters as Record<string, number>) }
+            : undefined,
+          battlefieldFaceDown: (triggerItem as any).battlefieldFaceDown === true,
+          battlefieldSuspected: (triggerItem as any).battlefieldSuspected === true,
+        }],
+      });
+      debug(2, `[executeTriggerEffect] ${sourceName} scheduled delayed graveyard return for ${boundGraveyardCardId}`);
+      return true;
+    }
+
+    return true;
+  }
+
+  let sourceOwnerId = '';
+  let boundCard: any | undefined;
+
+  const searchOwnerIds = boundGraveyardOwnerId
+    ? [boundGraveyardOwnerId, ...Object.keys(zones as Record<string, any>).filter((ownerId) => ownerId !== boundGraveyardOwnerId)]
+    : Object.keys(zones as Record<string, any>);
+
+  for (const ownerId of searchOwnerIds) {
+    const playerZones = (zones as Record<string, any>)[ownerId];
+    const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+    const idx = graveyard.findIndex((card: any) => String(card?.id || '') === boundGraveyardCardId);
+    if (idx === -1) continue;
+    sourceOwnerId = String(ownerId);
+    [boundCard] = graveyard.splice(idx, 1);
+    playerZones.graveyardCount = graveyard.length;
+    break;
+  }
+
+  if (!(boundCard && sourceOwnerId)) {
+    return true;
+  }
+
+  recordCardLeftGraveyardThisTurn(ctx, sourceOwnerId, boundCard);
+  const createdPermanentIds: string[] = [];
+
+  if (boundTargetDestination === 'hand') {
+    const destinationPlayerId = (triggerItem as any).destinationUsesSelectedCardOwner === true ? sourceOwnerId : String(controller);
+    const destinationZones = (zones[destinationPlayerId] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 }) as any;
+    zones[destinationPlayerId] = destinationZones;
+    destinationZones.hand = Array.isArray(destinationZones.hand) ? destinationZones.hand : [];
+    destinationZones.hand.push({ ...boundCard, zone: 'hand' });
+    destinationZones.handCount = destinationZones.hand.length;
+  } else if (boundTargetDestination === 'battlefield') {
+    const battlefield = state.battlefield = state.battlefield || [];
+    const typeLine = String(boundCard?.type_line || '').toLowerCase();
+    const isCreature = typeLine.includes('creature');
+    const permanentId = uid('perm');
+    const battlefieldControllerId = String((triggerItem as any).battlefieldControllerId || '').trim()
+      || (String((triggerItem as any).battlefieldControllerMode || '').toLowerCase() === 'owner'
+        ? sourceOwnerId
+        : String(controller));
+    const entersFaceDown = (triggerItem as any).battlefieldFaceDown === true;
+    const counters = (triggerItem as any).battlefieldCounters && typeof (triggerItem as any).battlefieldCounters === 'object'
+      ? { ...((triggerItem as any).battlefieldCounters as Record<string, number>) }
+      : {};
+    const permanent: any = entersFaceDown
+      ? {
+          id: permanentId,
+          controller: battlefieldControllerId,
+          owner: sourceOwnerId,
+          tapped: (triggerItem as any).battlefieldTapped === true,
+          counters,
+          basePower: 2,
+          baseToughness: 2,
+          summoningSickness: true,
+          card: {
+            name: 'Face-down Creature',
+            type_line: 'Creature',
+            zone: 'battlefield',
+            power: '2',
+            toughness: '2',
+          },
+          isFaceDown: true,
+          faceDownType: 'effect',
+          faceUpCard: { ...boundCard, zone: 'battlefield' },
+          canTurnFaceUp: isCreature,
+        }
+      : {
+          id: permanentId,
+          controller: battlefieldControllerId,
+          owner: sourceOwnerId,
+          tapped: (triggerItem as any).battlefieldTapped === true,
+          counters,
+          basePower: isCreature ? parsePT(boundCard?.power) : undefined,
+          baseToughness: isCreature ? parsePT(boundCard?.toughness) : undefined,
+          summoningSickness: isCreature,
+          card: { ...boundCard, zone: 'battlefield' },
+        };
+    if ((triggerItem as any).battlefieldSuspected === true) {
+      permanent.suspected = true;
+      permanent.isSuspected = true;
+      permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
+    }
+    battlefield.push(permanent as any);
+    createdPermanentIds.push(permanentId);
+  }
+
+  try {
+    const gameId = String((ctx as any)?.gameId || '').trim();
+    if (gameId) {
+      appendEvent(gameId, (ctx as any).seq ?? 0, 'confirmGraveyardTargets', {
+        playerId: String(controller),
+        effectId: String((triggerItem as any).id || sourceName || uid('graveyard_trigger')),
+        selectedCardIds: [boundGraveyardCardId],
+        createdPermanentIds: createdPermanentIds.length > 0 ? createdPermanentIds : undefined,
+        destination: boundTargetDestination,
+        targetPlayerId: sourceOwnerId,
+        destinationUsesSelectedCardOwner: (triggerItem as any).destinationUsesSelectedCardOwner === true ? true : undefined,
+        battlefieldControllerMode: String((triggerItem as any).battlefieldControllerMode || '').trim() || undefined,
+        battlefieldTapped: (triggerItem as any).battlefieldTapped === true ? true : undefined,
+        battlefieldCounters: (triggerItem as any).battlefieldCounters && typeof (triggerItem as any).battlefieldCounters === 'object'
+          ? { ...((triggerItem as any).battlefieldCounters as Record<string, number>) }
+          : undefined,
+        battlefieldFaceDown: (triggerItem as any).battlefieldFaceDown === true ? true : undefined,
+        battlefieldSuspected: (triggerItem as any).battlefieldSuspected === true ? true : undefined,
+      });
+    }
+  } catch (err) {
+    debugWarn(1, '[executeTriggerEffect] appendEvent(confirmGraveyardTargets bound) failed:', err);
+  }
+
+  debug(2, `[executeTriggerEffect] ${sourceName} returned ${boundCard?.name || boundGraveyardCardId} from ${sourceOwnerId}'s graveyard to ${boundTargetDestination}`);
+  return true;
+}
+
 
   function queueExploreDecisionStep(
     ctx: GameContext,
@@ -925,14 +1099,14 @@ function applySimpleTargetedTemporarySpellEffects(
   if (!text || !Array.isArray(targets) || targets.length === 0) return 0;
 
   const targetBuffMatch = text.match(
-    /(?:^|\.\s*)(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains? ([^.]+?))? until end of turn\.?/i
+    /(?:^|\.\s*)(?:until end of turn,?\s*)?(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control)? gets? ([+-]\d+)\/([+-]\d+)(?: and gains? (.+?))?(?: until end of turn)?\.?$/i
   );
   const targetAbilityMatch =
     text.match(
-      /(?:^|\.\s*)(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures? gains? (.+?) until end of turn\.?/i
+      /(?:^|\.\s*)(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control)? gains? (.+?) until end of turn\.?/i
     ) ||
     text.match(
-      /(?:^|\.\s*)until end of turn,?\s*(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures? gains? (.+?)\.?$/i
+      /(?:^|\.\s*)until end of turn,?\s*(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+)\s+)?target creatures?(?: you control)? gains? (.+?)\.?$/i
     );
 
   if (!targetBuffMatch && !targetAbilityMatch) return 0;
@@ -4585,6 +4759,11 @@ export function executeTriggerEffect(
   } catch {
     // Fall through to normal effect parsing.
   }
+
+  if (resolveBoundGraveyardReturnEffect(ctx, state, controller, sourceName, triggerItem)) {
+    return;
+  }
+
   const startingLife = state.startingLife || 40;
 
   // ===== GENERIC ORACLE-TEXT HOOKS =====
@@ -7304,14 +7483,14 @@ export function executeTriggerEffect(
   // - (?:up to (?:one|two|...|\d+) )? - Optional "up to N" targeting
   // - target creatures? gets? - Required targeting phrase
   // - ([+-]\d+)\/([+-]\d+) - Required P/T modification (captured as groups 1 & 2)
-  // - (?: and gains ([^.]+?))? - Optional ability granting (captured as group 3)
-  // - (?:\.|$| until end of turn) - Must end with period, EOL, or " until end of turn"
+  // - (?: and gains (.+?))? - Optional ability granting (captured as group 3)
+  // - (?: until end of turn)?\.?$ - Optional trailing duration, then end of sentence/text
   // ========================================================================
-  const creatureGetsMatch = desc.match(/(?:until end of turn,?\s*)?(?:up to (?:one|two|three|four|five|\d+) )?target creatures? gets? ([+-]\d+)\/([+-]\d+)(?: and gains ([^.]+?))?(?:\.|$| until end of turn)/i);
+  const creatureGetsMatch = desc.match(/(?:until end of turn,?\s*)?(?:another\s+)?(?:up to (?:one|two|three|four|five|\d+) )?target creatures?(?: you control)? gets? ([+-]\d+)\/([+-]\d+)(?: and gains (.+?))?(?: until end of turn)?\.?$/i);
   if (creatureGetsMatch && (triggerItem as any).targets?.length > 0) {
     const powerMod = parseInt(creatureGetsMatch[1], 10);
     const toughnessMod = parseInt(creatureGetsMatch[2], 10);
-    const gainedAbilities = creatureGetsMatch[3] ? creatureGetsMatch[3].trim() : null;
+    const gainedAbilities = creatureGetsMatch[3] ? splitGrantedTemporaryAbilities(creatureGetsMatch[3]) : [];
     const targets = (triggerItem as any).targets || [];
     const battlefield = state.battlefield || [];
     
@@ -7331,10 +7510,9 @@ export function executeTriggerEffect(
         });
         
         // Apply granted abilities until end of turn
-        if (gainedAbilities) {
+        if (gainedAbilities.length > 0) {
           targetCreature.temporaryAbilities = targetCreature.temporaryAbilities || [];
-          const abilities = gainedAbilities.split(/,\s*(?:and\s*)?/).map((a: string) => a.trim().toLowerCase());
-          for (const ability of abilities) {
+          for (const ability of gainedAbilities) {
             if (ability) {
               targetCreature.temporaryAbilities.push({
                 ability,
@@ -7344,7 +7522,7 @@ export function executeTriggerEffect(
               });
             }
           }
-          debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} and gains ${gainedAbilities} until end of turn`);
+          debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} and gains ${gainedAbilities.join(', ')} until end of turn`);
         } else {
           debug(2, `[executeTriggerEffect] ${targetCreature.card?.name || targetId} gets ${powerMod >= 0 ? '+' : ''}${powerMod}/${toughnessMod >= 0 ? '+' : ''}${toughnessMod} until end of turn`);
         }
@@ -7831,164 +8009,6 @@ export function executeTriggerEffect(
     }
     return;
   }
-
-    const boundGraveyardCardId = String((triggerItem as any).boundGraveyardCardId || '').trim();
-    const boundGraveyardOwnerId = String((triggerItem as any).boundGraveyardOwnerId || '').trim();
-    const boundTargetZone = String((triggerItem as any).targetZone || '').toLowerCase();
-    const boundTargetDestination = String((triggerItem as any).targetDestination || '').toLowerCase();
-    if (boundGraveyardCardId && boundTargetZone === 'graveyard' && (boundTargetDestination === 'hand' || boundTargetDestination === 'battlefield')) {
-      const zones = state.zones || {};
-      const delayedReturnAt = String((triggerItem as any).delayedReturnAt || '').toLowerCase();
-
-      if (delayedReturnAt === 'next_end_step' || delayedReturnAt === 'next_upkeep_selected_card_owner') {
-        const delayedOwnerSearchIds = boundGraveyardOwnerId
-          ? [boundGraveyardOwnerId, ...Object.keys(zones as Record<string, any>).filter((ownerId) => ownerId !== boundGraveyardOwnerId)]
-          : Object.keys(zones as Record<string, any>);
-
-        for (const ownerId of delayedOwnerSearchIds) {
-          const playerZones = (zones as Record<string, any>)[ownerId];
-          const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
-          if (!graveyard.some((card: any) => String(card?.id || '') === boundGraveyardCardId)) {
-            continue;
-          }
-
-          scheduleDelayedGraveyardReturn(ctx, {
-            playerId: String(controller),
-            sourceName,
-            entries: [{
-              cardId: boundGraveyardCardId,
-              zoneOwnerId: String(ownerId),
-              destination: boundTargetDestination === 'battlefield' ? 'battlefield' : 'hand',
-              fireAtStep: delayedReturnAt === 'next_upkeep_selected_card_owner' ? 'upkeep' : 'end_step',
-              fireAtPlayerId: delayedReturnAt === 'next_upkeep_selected_card_owner' ? String(ownerId) : undefined,
-              destinationUsesSelectedCardOwner: (triggerItem as any).destinationUsesSelectedCardOwner === true,
-              battlefieldControllerMode: String((triggerItem as any).battlefieldControllerMode || '').toLowerCase() === 'owner' ? 'owner' : undefined,
-              battlefieldTapped: (triggerItem as any).battlefieldTapped === true,
-              battlefieldCounters: (triggerItem as any).battlefieldCounters && typeof (triggerItem as any).battlefieldCounters === 'object'
-                ? { ...((triggerItem as any).battlefieldCounters as Record<string, number>) }
-                : undefined,
-              battlefieldFaceDown: (triggerItem as any).battlefieldFaceDown === true,
-              battlefieldSuspected: (triggerItem as any).battlefieldSuspected === true,
-            }],
-          });
-          debug(2, `[executeTriggerEffect] ${sourceName} scheduled delayed graveyard return for ${boundGraveyardCardId}`);
-          return;
-        }
-
-        return;
-      }
-
-      let sourceOwnerId = '';
-      let boundCard: any | undefined;
-
-      const searchOwnerIds = boundGraveyardOwnerId
-        ? [boundGraveyardOwnerId, ...Object.keys(zones as Record<string, any>).filter((ownerId) => ownerId !== boundGraveyardOwnerId)]
-        : Object.keys(zones as Record<string, any>);
-
-      for (const ownerId of searchOwnerIds) {
-        const playerZones = (zones as Record<string, any>)[ownerId];
-        const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
-        const idx = graveyard.findIndex((card: any) => String(card?.id || '') === boundGraveyardCardId);
-        if (idx === -1) continue;
-        sourceOwnerId = String(ownerId);
-        [boundCard] = graveyard.splice(idx, 1);
-        playerZones.graveyardCount = graveyard.length;
-        break;
-      }
-
-      if (boundCard && sourceOwnerId) {
-        recordCardLeftGraveyardThisTurn(ctx, sourceOwnerId, boundCard);
-        const createdPermanentIds: string[] = [];
-
-        if (boundTargetDestination === 'hand') {
-          const destinationPlayerId = (triggerItem as any).destinationUsesSelectedCardOwner === true ? sourceOwnerId : String(controller);
-          const destinationZones = (zones[destinationPlayerId] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 }) as any;
-          zones[destinationPlayerId] = destinationZones;
-          destinationZones.hand = Array.isArray(destinationZones.hand) ? destinationZones.hand : [];
-          destinationZones.hand.push({ ...boundCard, zone: 'hand' });
-          destinationZones.handCount = destinationZones.hand.length;
-        } else if (boundTargetDestination === 'battlefield') {
-          const battlefield = state.battlefield = state.battlefield || [];
-          const typeLine = String(boundCard?.type_line || '').toLowerCase();
-          const isCreature = typeLine.includes('creature');
-          const permanentId = uid('perm');
-          const battlefieldControllerId = String((triggerItem as any).battlefieldControllerMode || '').toLowerCase() === 'owner'
-            ? sourceOwnerId
-            : String(controller);
-          const entersFaceDown = (triggerItem as any).battlefieldFaceDown === true;
-          const counters = (triggerItem as any).battlefieldCounters && typeof (triggerItem as any).battlefieldCounters === 'object'
-            ? { ...((triggerItem as any).battlefieldCounters as Record<string, number>) }
-            : {};
-          const permanent: any = entersFaceDown
-            ? {
-                id: permanentId,
-                controller: battlefieldControllerId,
-                owner: sourceOwnerId,
-                tapped: (triggerItem as any).battlefieldTapped === true,
-                counters,
-                basePower: 2,
-                baseToughness: 2,
-                summoningSickness: true,
-                card: {
-                  name: 'Face-down Creature',
-                  type_line: 'Creature',
-                  zone: 'battlefield',
-                  power: '2',
-                  toughness: '2',
-                },
-                isFaceDown: true,
-                faceDownType: 'effect',
-                faceUpCard: { ...boundCard, zone: 'battlefield' },
-                canTurnFaceUp: isCreature,
-              }
-            : {
-                id: permanentId,
-                controller: battlefieldControllerId,
-                owner: sourceOwnerId,
-                tapped: (triggerItem as any).battlefieldTapped === true,
-                counters,
-                basePower: isCreature ? parsePT(boundCard?.power) : undefined,
-                baseToughness: isCreature ? parsePT(boundCard?.toughness) : undefined,
-                summoningSickness: isCreature,
-                card: { ...boundCard, zone: 'battlefield' },
-              };
-          if ((triggerItem as any).battlefieldSuspected === true) {
-            permanent.suspected = true;
-            permanent.isSuspected = true;
-            permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
-          }
-          battlefield.push(permanent as any);
-          createdPermanentIds.push(permanentId);
-        }
-
-        try {
-          const gameId = String((ctx as any)?.gameId || '').trim();
-          if (gameId) {
-            appendEvent(gameId, (ctx as any).seq ?? 0, 'confirmGraveyardTargets', {
-              playerId: String(controller),
-              effectId: String((triggerItem as any).id || sourceName || uid('graveyard_trigger')),
-              selectedCardIds: [boundGraveyardCardId],
-              createdPermanentIds: createdPermanentIds.length > 0 ? createdPermanentIds : undefined,
-              destination: boundTargetDestination,
-              targetPlayerId: sourceOwnerId,
-              destinationUsesSelectedCardOwner: (triggerItem as any).destinationUsesSelectedCardOwner === true ? true : undefined,
-              battlefieldControllerMode: String((triggerItem as any).battlefieldControllerMode || '').trim() || undefined,
-              battlefieldTapped: (triggerItem as any).battlefieldTapped === true ? true : undefined,
-              battlefieldCounters: (triggerItem as any).battlefieldCounters && typeof (triggerItem as any).battlefieldCounters === 'object'
-                ? { ...((triggerItem as any).battlefieldCounters as Record<string, number>) }
-                : undefined,
-              battlefieldFaceDown: (triggerItem as any).battlefieldFaceDown === true ? true : undefined,
-              battlefieldSuspected: (triggerItem as any).battlefieldSuspected === true ? true : undefined,
-            });
-          }
-        } catch (err) {
-          debugWarn(1, '[executeTriggerEffect] appendEvent(confirmGraveyardTargets bound) failed:', err);
-        }
-
-        debug(2, `[executeTriggerEffect] ${sourceName} returned ${boundCard?.name || boundGraveyardCardId} from ${sourceOwnerId}'s graveyard to ${boundTargetDestination}`);
-      }
-      return;
-    }
 
     // Pattern: "return target creature card from your graveyard to your hand"
     const graveyardToHandMatch = desc.match(/return\s+(?:up\s+to\s+one\s+)?target\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?card\s+from\s+(?:your\s+)?graveyard\s+to\s+your\s+hand/i);

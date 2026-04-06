@@ -49,9 +49,38 @@ type DeathTriggerStackMetadata = {
   boundGraveyardOwnerId?: string;
 };
 
+function getSubtypeWordsFromTypeLine(typeLineValue: string): string[] {
+  const typeLine = String(typeLineValue || '').toLowerCase();
+  const subtypeSection = typeLine.includes('—')
+    ? typeLine.split('—').slice(1).join(' ')
+    : typeLine.includes('-')
+      ? typeLine.split('-').slice(1).join(' ')
+      : '';
+  if (!subtypeSection) {
+    return [];
+  }
+
+  return subtypeSection
+    .split(/[^a-z0-9']+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any): DeathTriggerStackMetadata {
   const lower = String(effectText || '').toLowerCase();
   const metadata: DeathTriggerStackMetadata = {};
+  const dyingSubtypeWords = getSubtypeWordsFromTypeLine(String(dyingPermanent?.card?.type_line || ''));
+
+  const subtypeCardConditionMatch = lower.match(/if\s+it'?s\s+an?\s+([a-z0-9' -]+?)\s+card/);
+  if (subtypeCardConditionMatch) {
+    const requiredSubtypeWords = String(subtypeCardConditionMatch[1] || '')
+      .split(/[^a-z0-9']+/i)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (requiredSubtypeWords.length > 0 && !requiredSubtypeWords.every((word) => dyingSubtypeWords.includes(word))) {
+      return metadata;
+    }
+  }
 
   if (lower.includes('at the beginning of the next end step') || lower.includes('at beginning of next end step')) {
     metadata.delayedReturnAt = 'next_end_step';
