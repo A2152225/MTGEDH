@@ -18,6 +18,7 @@ interface PhaseNavigatorProps {
   currentStep?: string;
   turnPlayer?: PlayerID;
   you?: PlayerID;
+  docked?: boolean;
   isYourTurn: boolean;
   hasPriority: boolean;
   stackEmpty: boolean;
@@ -65,6 +66,7 @@ export function PhaseNavigator({
   currentStep,
   turnPlayer,
   you,
+  docked = false,
   isYourTurn,
   hasPriority,
   stackEmpty,
@@ -211,6 +213,7 @@ export function PhaseNavigator({
   
   // Drag handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (docked) return;
     // Only start drag from the header area
     const target = e.target as HTMLElement;
     if (!target.closest('[data-drag-handle]')) return;
@@ -223,7 +226,7 @@ export function PhaseNavigator({
       startX: e.clientX,
       startY: e.clientY,
     };
-  }, [position]);
+  }, [docked, position]);
   
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isDragging || !dragStartPos.current) return;
@@ -269,16 +272,17 @@ export function PhaseNavigator({
         ref={containerRef}
         onMouseDown={handleMouseDown}
         style={{
-          position: 'fixed',
-          left: position.x,
-          top: position.y,
-          zIndex: 100,
+          position: docked ? 'relative' : 'fixed',
+          left: docked ? undefined : position.x,
+          top: docked ? undefined : position.y,
+          zIndex: docked ? undefined : 100,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
           gap: 8,
-          cursor: isDragging ? 'grabbing' : 'default',
-          userSelect: 'none',
+          width: docked ? '100%' : undefined,
+          cursor: !docked && isDragging ? 'grabbing' : 'default',
+          userSelect: docked ? 'auto' : 'none',
         }}
       >
         <button
@@ -293,11 +297,13 @@ export function PhaseNavigator({
             border: '1px solid rgba(99,102,241,0.4)',
             background: 'rgba(30,30,50,0.95)',
             color: '#e5e7eb',
-            cursor: isDragging ? 'grabbing' : 'grab',
+            width: docked ? '100%' : undefined,
+            justifyContent: docked ? 'center' : undefined,
+            cursor: docked ? 'pointer' : (isDragging ? 'grabbing' : 'grab'),
             fontSize: 12,
             boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
           }}
-          title="Drag to move, click to expand phase navigator"
+          title={docked ? 'Expand phase navigator' : 'Drag to move, click to expand phase navigator'}
         >
           <span style={{ fontSize: 14 }}>⏩</span>
           <span>Phase Navigator</span>
@@ -311,19 +317,20 @@ export function PhaseNavigator({
       ref={containerRef}
       onMouseDown={handleMouseDown}
       style={{
-        position: 'fixed',
-        left: position.x,
-        top: position.y,
-        zIndex: 100,
+        position: docked ? 'relative' : 'fixed',
+        left: docked ? undefined : position.x,
+        top: docked ? undefined : position.y,
+        zIndex: docked ? undefined : 100,
         background: 'rgba(20,20,35,0.98)',
         borderRadius: 12,
         border: '1px solid rgba(99,102,241,0.4)',
         boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         padding: 12,
-        maxWidth: 320,
+        width: docked ? '100%' : undefined,
+        maxWidth: docked ? '100%' : 320,
         color: '#e5e7eb',
-        cursor: isDragging ? 'grabbing' : 'default',
-        userSelect: 'none',
+        cursor: !docked && isDragging ? 'grabbing' : 'default',
+        userSelect: docked ? 'auto' : 'none',
       }}
     >
       {/* Header - draggable */}
@@ -336,7 +343,7 @@ export function PhaseNavigator({
           marginBottom: 10,
           paddingBottom: 8,
           borderBottom: '1px solid rgba(255,255,255,0.1)',
-          cursor: isDragging ? 'grabbing' : 'grab',
+          cursor: docked ? 'default' : (isDragging ? 'grabbing' : 'grab'),
         }}
       >
         <span style={{ fontWeight: 600, fontSize: 13 }}>⏩ Phase Navigator</span>

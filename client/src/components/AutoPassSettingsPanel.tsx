@@ -5,6 +5,8 @@ interface Props {
   onToggleAutoPass: (step: string, enabled: boolean) => void;
   onClearAll: () => void;
   onSelectAll: () => void;
+  docked?: boolean;
+  defaultCollapsed?: boolean;
   isSinglePlayer?: boolean;
   onToggleAutoPassForTurn?: () => void;
   autoPassForTurnEnabled?: boolean;
@@ -32,13 +34,15 @@ export function AutoPassSettingsPanel({
   onToggleAutoPass, 
   onClearAll, 
   onSelectAll, 
+  docked = false,
+  defaultCollapsed = false,
   isSinglePlayer,
   onToggleAutoPassForTurn,
   autoPassForTurnEnabled
 }: Props) {
   const hasAnyAutoPass = autoPassSteps.size > 0;
   const hasAllAutoPass = autoPassSteps.size >= CONFIGURABLE_STEPS.length;
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
@@ -68,6 +72,7 @@ export function AutoPassSettingsPanel({
   }, [isSinglePlayer, onToggleAutoPass]);
   
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (docked) return;
     // Only start drag from the header area
     const target = e.target;
     if (!(target instanceof HTMLElement) || !target.closest('.drag-handle')) return;
@@ -80,7 +85,7 @@ export function AutoPassSettingsPanel({
       initialY: position.y,
     };
     e.preventDefault();
-  }, [position]);
+  }, [docked, position]);
   
   useEffect(() => {
     if (!isDragging) return;
@@ -128,10 +133,10 @@ export function AutoPassSettingsPanel({
         border: '1px solid #333',
         borderRadius: 8,
         padding: 0,
-        marginTop: 8,
-        transform: `translate(${position.x}px, ${position.y}px)`,
-        cursor: isDragging ? 'grabbing' : 'auto',
-        userSelect: isDragging ? 'none' : 'auto',
+        marginTop: docked ? 0 : 8,
+        transform: docked ? 'none' : `translate(${position.x}px, ${position.y}px)`,
+        cursor: !docked && isDragging ? 'grabbing' : 'auto',
+        userSelect: !docked && isDragging ? 'none' : 'auto',
       }}
       onMouseDown={handleMouseDown}
     >
@@ -144,7 +149,7 @@ export function AutoPassSettingsPanel({
           alignItems: 'center',
           padding: '8px 12px',
           borderBottom: isCollapsed ? 'none' : '1px solid #333',
-          cursor: 'grab',
+          cursor: docked ? 'default' : 'grab',
           background: '#222',
           borderRadius: isCollapsed ? 8 : '8px 8px 0 0',
         }}
@@ -170,6 +175,11 @@ export function AutoPassSettingsPanel({
           </span>
         </button>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {docked && (
+            <span style={{ fontSize: 10, color: hasAllAutoPass ? '#34d399' : '#888' }}>
+              {hasAllAutoPass ? 'ON' : hasAnyAutoPass ? `${autoPassSteps.size}/${CONFIGURABLE_STEPS.length}` : 'OFF'}
+            </span>
+          )}
           <span style={{ fontSize: 9, color: '#666' }}>⋮⋮</span>
         </div>
       </div>

@@ -3,7 +3,7 @@
 // Also includes control buttons (Concede, Leave Game, Undo) and randomness (Dice, Coin Flip) in the same row.
 // Also includes AI control toggle for autopilot mode.
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, type ReactNode } from 'react';
 import type { PlayerRef, PlayerID } from '../../../shared/src';
 
 type UndoScope = 'step' | 'phase' | 'previousPhase' | 'turn';
@@ -43,6 +43,7 @@ interface Props {
   // Randomness handlers
   onRollDie?: (sides: number) => void;
   onFlipCoin?: () => void;
+  extraActions?: ReactNode;
   // AI control
   aiControlEnabled?: boolean;
   aiStrategy?: string;
@@ -85,6 +86,7 @@ export function GameStatusIndicator({
   isYouPlayer, gameOver, onConcede, onLeaveGame, onUndo, onOpenUndoMenu, availableUndoCount = 0,
   smartUndoCounts,
   onRollDie, onFlipCoin,
+  extraActions,
   aiControlEnabled, aiStrategy, onToggleAIControl, availableAIStrategies
 }: Props) {
   const [showDiceMenu, setShowDiceMenu] = useState(false);
@@ -523,6 +525,16 @@ export function GameStatusIndicator({
 
       {/* Spacer to push control buttons to the right */}
       <div style={{ flex: 1, minWidth: 16 }} />
+
+      {/* Parent-provided utility actions (deck manager, etc.) */}
+      {extraActions && (
+        <>
+          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {extraActions}
+          </div>
+        </>
+      )}
 
       {/* AI Control toggle */}
       {onToggleAIControl && isYouPlayer && !gameOver && (

@@ -11,6 +11,8 @@
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:interactive": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/start-interactive-dev.ps1",
+    "dev:interactive:server": "powershell -NoProfile -ExecutionPolicy Bypass -File ./tools/start-interactive-dev.ps1 -ServerOnly",
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
     "dev:server:noreload": "npm run dev:noreload --workspace=server",

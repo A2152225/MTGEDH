@@ -118,7 +118,8 @@ const FORMAT_NAMES: Record<GameFormat, string> = {
 /**
  * Maximum number of AI opponents allowed
  */
-const MAX_AI_OPPONENTS = 8;
+const MAX_AI_OPPONENTS = 9;
+const MAX_TOTAL_SEATS = MAX_AI_OPPONENTS + 1;
 
 /**
  * AI Strategy display names and descriptions
@@ -659,13 +660,13 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
 
             {aiOpponents.length === 0 && (
               <div style={{ fontSize: 12, color: '#666', marginTop: 8 }}>
-                Click "Add AI Opponent" to add AI players to your game. You can add up to {MAX_AI_OPPONENTS} AI opponents.
+                Click "Add AI Opponent" to add AI players to your game. You can add up to {MAX_AI_OPPONENTS} AI opponents for a {MAX_TOTAL_SEATS}-seat table including you.
               </div>
             )}
 
             {isAtMaxAiCapacity && (
               <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 8 }}>
-                Maximum of {MAX_AI_OPPONENTS} AI opponents reached.
+                Maximum of {MAX_AI_OPPONENTS} AI opponents reached ({MAX_TOTAL_SEATS} total seats including you).
               </div>
             )}
 

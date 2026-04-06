@@ -37,6 +37,15 @@ import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
 function clamp(n: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, n)); }
 function isLandTypeLine(tl?: string) { return /\bland\b/i.test(tl || ''); }
+function rotatePoint(x: number, y: number, deg: number) {
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return {
+    x: x * cos - y * sin,
+    y: x * sin + y * cos,
+  };
+}
 
 function getTotalFloatingMana(manaPool?: ManaPool | null) {
   if (!manaPool) return 0;
@@ -251,6 +260,8 @@ export function TableLayout(props: {
   // External control for deck manager visibility
   externalDeckMgrOpen?: boolean;
   onDeckMgrOpenChange?: (open: boolean) => void;
+  externalDeckMgrAnchorEl?: HTMLElement | null;
+  focusedPlayerId?: PlayerID | null;
   gameId?: GameID;
   stackItems?: any[];
   importedCandidates?: KnownCardRef[]; // no longer used for commander UI, but kept for potential future UI
@@ -332,7 +343,8 @@ export function TableLayout(props: {
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
     onImportDeckText, onUseSavedDeck, onLocalImportConfirmChange,
-    externalDeckMgrOpen, onDeckMgrOpenChange,
+    externalDeckMgrOpen, onDeckMgrOpenChange, externalDeckMgrAnchorEl,
+    focusedPlayerId,
     gameId, stackItems, importedCandidates, energyCounters, energy,
     chatMessages, onSendChat, chatView, chatYou,
     monarch, initiative, dayNight, cityBlessing,
@@ -426,6 +438,14 @@ export function TableLayout(props: {
   }), [ordered.length, BOARD_W, BOARD_H, SEAT_GAP_X, SEAT_GAP_Y, CENTER_CLEAR_X, CENTER_CLEAR_Y, SIDE_PAD, sideOrder]);
 
   const { halfW, halfH } = useMemo(() => computeExtents(seatPositions, BOARD_W, BOARD_H), [seatPositions]);
+  const focusedBoardIndex = useMemo(
+    () => (focusedPlayerId ? ordered.findIndex((entry) => entry.player.id === focusedPlayerId) : -1),
+    [focusedPlayerId, ordered]
+  );
+  const isFocusedView = focusedBoardIndex >= 0;
+  const viewRotationDeg = focusedBoardIndex >= 0
+    ? -(seatPositions[focusedBoardIndex]?.rotateDeg ?? 0)
+    : 0;
 
   // Pan/Zoom and camera
   const containerRef = useRef<HTMLDivElement>(null);
@@ -444,6 +464,8 @@ export function TableLayout(props: {
   const [cam, setCam] = useState({ x: 0, y: 0, z: 1 });
   const camRef = useRef(cam);
   useEffect(() => { camRef.current = cam; }, [cam]);
+  const viewRotationRef = useRef(viewRotationDeg);
+  useEffect(() => { viewRotationRef.current = viewRotationDeg; }, [viewRotationDeg]);
   const dragRef = useRef<{ id: number; sx: number; sy: number; cx: number; cy: number; active: boolean } | null>(null);
   const [panKey, setPanKey] = useState(false);
   const [pendingTextSwapSource, setPendingTextSwapSource] = useState<string | null>(null);
@@ -479,11 +501,14 @@ export function TableLayout(props: {
       const rect = el.getBoundingClientRect();
       const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
       const cx = container.w / 2, cy = container.h / 2;
-      const wx = x + (sx - cx) / z, wy = y + (sy - cy) / z;
+      const worldOffset = rotatePoint((sx - cx) / z, (sy - cy) / z, -viewRotationRef.current);
+      const wx = x + worldOffset.x;
+      const wy = y + worldOffset.y;
       const factor = Math.exp(-(e.deltaY) * 0.00125);
       const newZ = clamp(z * factor, 0.15, 2.5);
-      const newCamX = wx - (sx - cx) / newZ;
-      const newCamY = wy - (sy - cy) / newZ;
+      const newWorldOffset = rotatePoint((sx - cx) / newZ, (sy - cy) / newZ, -viewRotationRef.current);
+      const newCamX = wx - newWorldOffset.x;
+      const newCamY = wy - newWorldOffset.y;
       setCam({ x: newCamX, y: newCamY, z: newZ });
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -502,9 +527,10 @@ export function TableLayout(props: {
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d || !d.active || d.id !== e.pointerId) return;
-    const dx = (e.clientX - d.sx) / camRef.current.z;
-    const dy = (e.clientY - d.sy) / camRef.current.z;
-    setCam(prev => ({ ...prev, x: d.cx - dx, y: d.cy - dy }));
+    const screenDx = (e.clientX - d.sx) / camRef.current.z;
+    const screenDy = (e.clientY - d.sy) / camRef.current.z;
+    const worldDelta = rotatePoint(screenDx, screenDy, -viewRotationRef.current);
+    setCam(prev => ({ ...prev, x: d.cx - worldDelta.x, y: d.cy - worldDelta.y }));
   };
   const onPointerUp = (e: React.PointerEvent) => {
     if (dragRef.current && dragRef.current.id === e.pointerId) {
@@ -514,18 +540,62 @@ export function TableLayout(props: {
     }
   };
 
+  function getBoardWorldCenter(pos: { x: number; y: number }) {
+    return {
+      x: container.w / 2 + pos.x,
+      y: container.h / 2 + pos.y,
+    };
+  }
+
   function centerOnBoardIndex(idx: number, preserveZoom = true) {
     const pos = seatPositions[idx];
     if (!pos) return;
-    setCam(c => ({ x: pos.x, y: pos.y, z: preserveZoom ? c.z : c.z }));
+    const worldCenter = getBoardWorldCenter(pos);
+    setCam(c => ({ x: worldCenter.x, y: worldCenter.y, z: preserveZoom ? c.z : c.z }));
+  }
+
+  function getFocusedBoardFrame() {
+    const isDesktopFocus = container.w >= 1200;
+    const horizontalMargin = isDesktopFocus ? 20 : 36;
+    const topMargin = isDesktopFocus ? 6 : 20;
+    const bottomMargin = isDesktopFocus ? 40 : 64;
+    const desiredScreenShiftPx = isDesktopFocus
+      ? Math.min(Math.max(container.h * 0.18, 84), 156)
+      : Math.min(Math.max(container.h * 0.13, 56), 110);
+    const focusWidth = BOARD_W + (isDesktopFocus ? 8 : 36);
+    const focusHeight = BOARD_H + (isDesktopFocus ? 16 : 40);
+    const usableWidth = Math.max(container.w - horizontalMargin * 2, 280);
+    const topAvailable = Math.max(container.h / 2 - desiredScreenShiftPx - topMargin, 120);
+    const bottomAvailable = Math.max(container.h / 2 + desiredScreenShiftPx - bottomMargin, 120);
+    const zx = usableWidth / focusWidth;
+    const zy = (2 * Math.min(topAvailable, bottomAvailable)) / focusHeight;
+
+    return {
+      zoom: clamp(Math.min(zx, zy), 0.32, isDesktopFocus ? 1.16 : 1.04),
+      desiredScreenShiftPx,
+    };
+  }
+
+  function focusOnBoardIndex(idx: number) {
+    const pos = seatPositions[idx];
+    if (!pos) return;
+    const worldCenter = getBoardWorldCenter(pos);
+    const { zoom, desiredScreenShiftPx } = getFocusedBoardFrame();
+    const worldOffset = rotatePoint(0, desiredScreenShiftPx / zoom, pos.rotateDeg);
+    setCam({
+      x: worldCenter.x + worldOffset.x,
+      y: worldCenter.y + worldOffset.y,
+      z: zoom,
+    });
   }
 
   function centerOnNearestWorldPoint(wx: number, wy: number, preserveZoom = true) {
     if (seatPositions.length === 0) return;
     let best = 0, bestD = Infinity;
     for (let i = 0; i < seatPositions.length; i++) {
-      const dx = seatPositions[i].x - wx;
-      const dy = seatPositions[i].y - wy;
+      const worldCenter = getBoardWorldCenter(seatPositions[i]);
+      const dx = worldCenter.x - wx;
+      const dy = worldCenter.y - wy;
       const d2 = dx * dx + dy * dy;
       if (d2 < bestD) { bestD = d2; best = i; }
     }
@@ -622,6 +692,14 @@ export function TableLayout(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [you, container.w, container.h]);
 
+  useEffect(() => {
+    if (!focusedPlayerId) return;
+    const idx = ordered.findIndex((entry) => entry.player.id === focusedPlayerId);
+    if (idx >= 0) {
+      focusOnBoardIndex(idx);
+    }
+  }, [focusedPlayerId, ordered, seatPositions, container.w, container.h]);
+
   const attachedToSet = useMemo(() => {
     const s = new Set<string>();
     for (const arr of permanentsByPlayer.values()) {
@@ -693,7 +771,8 @@ export function TableLayout(props: {
   }, [gameId, pendingXActivation]);
 
   const cameraTransform =
-    `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) translate(${-cam.x}px, ${-cam.y}px)`;
+    `translate(${container.w / 2}px, ${container.h / 2}px) scale(${cam.z}) rotate(${viewRotationDeg}deg) translate(${-cam.x}px, ${-cam.y}px)`;
+  const manualZoomStep = isFocusedView ? 1.04 : 1.12;
 
   // deck manager + import confirm
   const [deckMgrOpenInternal, setDeckMgrOpenInternal] = useState(false);
@@ -856,7 +935,7 @@ export function TableLayout(props: {
   const [chatText, setChatText] = useState("");
   
   // Chat panel state: collapsed and size
-  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [chatCollapsed, setChatCollapsed] = useState(true);
   const [chatSize, setChatSize] = useState<'small' | 'medium' | 'large'>('small');
   
   // Chat auto-scroll: ref and state to track if user has manually scrolled up
@@ -952,13 +1031,15 @@ export function TableLayout(props: {
           style={{
             position: 'absolute',
             top: 8,
-            left: '50%',
-            transform: 'translateX(-50%)',
+            left: 12,
+            right: 12,
             zIndex: 200,
             display: 'flex',
             gap: 8,
             alignItems: 'center',
-            padding: '8px 16px',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            padding: '6px 12px',
             borderRadius: 8,
             border: !hasKeptHand && !isPreGame ? '2px solid #ef4444' : '1px solid rgba(167, 139, 250, 0.6)',
             background: !hasKeptHand && !isPreGame 
@@ -980,14 +1061,17 @@ export function TableLayout(props: {
             </span>
           ) : (
             <>
-              {!isPreGame && (
-                <span style={{ fontSize: 12, color: '#fca5a5', fontWeight: 600 }}>
-                  ⚠️ Keep your hand to continue!
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {!isPreGame && (
+                  <span style={{ fontSize: 12, color: '#fca5a5', fontWeight: 600 }}>
+                    ⚠️ Keep your hand to continue!
+                  </span>
+                )}
+                <span style={{ fontSize: 12, color: '#c4b5fd' }}>
+                  Mulligans: {mulligansTaken}
                 </span>
-              )}
-              <span style={{ fontSize: 12, color: '#c4b5fd' }}>
-                Mulligans: {mulligansTaken}
-              </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <button
                 onClick={onKeepHand}
                 disabled={!canKeepHand}
@@ -1061,6 +1145,7 @@ export function TableLayout(props: {
                   ▶️ Begin Game
                 </button>
               )}
+              </div>
             </>
           )}
         </div>
@@ -1087,6 +1172,7 @@ export function TableLayout(props: {
             <div style={{ position: 'relative', zIndex: 2 }}>
               {ordered.map((pb, i) => {
                 const pos = seatPositions[i];
+                const isFocusedBoard = focusedBoardIndex === i;
                 const perms = pb.permanents;
                 // Separate lands from non-lands
                 const lands = splitLands ? perms.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
@@ -1140,13 +1226,22 @@ export function TableLayout(props: {
                       left: pos.x - BOARD_W / 2,
                       top: pos.y - BOARD_H / 2,
                       width: BOARD_W,
+                      height: BOARD_H,
                       transform: `translate(0,0) rotate(${isYouThis ? 0 : pos.rotateDeg}deg)`,
-                      transformOrigin: '50% 50%'
+                      transformOrigin: '50% 50%',
+                      opacity: !isFocusedView || isFocusedBoard ? 1 : 0.14,
+                      filter: !isFocusedView || isFocusedBoard ? 'none' : 'saturate(0.45) brightness(0.65)',
+                      pointerEvents: !isFocusedView || isFocusedBoard ? 'auto' : 'none',
+                      transition: 'opacity 180ms ease, filter 180ms ease'
                     }}
                   >
                     <div
                       style={{
                         position: 'relative',
+                        width: '100%',
+                        minHeight: BOARD_H,
+                        height: '100%',
+                        boxSizing: 'border-box',
                         ...playerBoardBg,
                         backdropFilter: 'blur(4px)',
                         borderRadius: 12,
@@ -1259,7 +1354,7 @@ export function TableLayout(props: {
                             {isYouThis && manaPool && (
                               <FloatingManaPool manaPool={manaPool} compact />
                             )}
-                            {isYouThis && (
+                            {isYouThis && !externalDeckMgrAnchorEl && (
                               <button
                                 ref={decksBtnRef}
                                 type="button"
@@ -1825,7 +1920,7 @@ export function TableLayout(props: {
               onImportText={(txt, nm) => handleRequestImportText(txt, nm)}
               gameId={gameId}
               canServer={!!isYouPlayer}
-              anchorEl={decksBtnRef.current}
+              anchorEl={externalDeckMgrAnchorEl ?? decksBtnRef.current}
               wide
               onUseSavedDeck={(deckId) => handleRequestUseSavedDeck(deckId)}
             />
@@ -1848,8 +1943,8 @@ export function TableLayout(props: {
           borderRadius: 6,
           fontSize: 12
         }}>
-          <button type="button" onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z * 1.15, 0.2, 2.5) }))}>+</button>
-          <button type="button" onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z / 1.15, 0.15, 2.5) }))}>−</button>
+          <button type="button" onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z * manualZoomStep, 0.2, 2.5) }))}>+</button>
+          <button type="button" onClick={() => setCam(prev => ({ ...prev, z: clamp(prev.z / manualZoomStep, 0.15, 2.5) }))}>−</button>
           <button type="button" onClick={() => centerOnYou(true)}>Center You</button>
           <button
             type="button"

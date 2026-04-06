@@ -11,7 +11,7 @@ import type {
   ManaPool,
 } from "../../shared/src";
 import { TableLayout } from "./components/TableLayout";
-import { CardPreviewLayer } from "./components/CardPreviewLayer";
+import { CardPreviewLayer, PreviewSizeControl } from "./components/CardPreviewLayer";
 import CommanderConfirmModal from "./components/CommanderConfirmModal";
 import { CommanderSelectModal } from "./components/CommanderSelectModal";
 import NameInUseModal from "./components/NameInUseModal";
@@ -528,6 +528,18 @@ export function App() {
   const hasShownBlockersModal = React.useRef<string | null>(null);
   // External control for deck manager visibility in TableLayout
   const [tableDeckMgrOpen, setTableDeckMgrOpen] = useState(false);
+  const [topDeckMgrAnchorEl, setTopDeckMgrAnchorEl] = useState<HTMLButtonElement | null>(null);
+  const [focusedPlayerId, setFocusedPlayerId] = useState<string | null>(null);
+  const [utilityRailCollapsed, setUtilityRailCollapsed] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1280
+  );
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   // Graveyard View Modal state
   const [graveyardModalOpen, setGraveyardModalOpen] = useState(false);
@@ -3423,6 +3435,27 @@ export function App() {
   }, [safeView?.id, you]);
 
   const isTable = layout === "table";
+  const showUtilityRail = isTable && !!safeView && !!you && viewportWidth >= 900;
+  const showExpandedUtilityRail = showUtilityRail && !utilityRailCollapsed;
+  const playerFocusOrder = useMemo(() => {
+    if (!safeView?.players || safeView.players.length === 0) return [];
+    const activePlayers = [...safeView.players]
+      .filter((player: any) => !player.spectator && !player.inactive)
+      .sort((a: any, b: any) => a.seat - b.seat);
+    const startIdx = safeView.turnPlayer
+      ? activePlayers.findIndex((player: any) => player.id === safeView.turnPlayer)
+      : -1;
+    if (startIdx < 0) return activePlayers;
+    return [...activePlayers.slice(startIdx), ...activePlayers.slice(0, startIdx)];
+  }, [safeView]);
+  const yourLibraryCount = useMemo(() => {
+    if (!safeView || !you) return 0;
+    const yourZones = safeView.zones?.[you] as any;
+    if (!yourZones) return 0;
+    if (typeof yourZones.libraryCount === 'number') return yourZones.libraryCount;
+    if (Array.isArray(yourZones.library)) return yourZones.library.length;
+    return 0;
+  }, [safeView, you]);
   const canPass = !!safeView && !!you && safeView.priority === you;
   const isYouPlayer =
     !!safeView && !!you && Array.isArray(safeView.players) && safeView.players.some((p) => p.id === you);
@@ -4887,7 +4920,11 @@ export function App() {
         padding: 8,
         fontFamily: "system-ui",
         display: "grid",
-        gridTemplateColumns: isTable ? "1fr" : "1.2fr 380px",
+        gridTemplateColumns: isTable
+          ? (showUtilityRail
+            ? `minmax(0, 1fr) ${utilityRailCollapsed ? '84px' : '320px'}`
+            : "1fr")
+          : "1.2fr 380px",
         gap: 8,
         minHeight: '100vh',
         ...getBackgroundStyle(appearanceSettings.tableBackground),
@@ -5102,6 +5139,33 @@ export function App() {
             smartUndoCounts={smartUndoCounts}
             onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}
             onFlipCoin={() => socket.emit("flipCoin", { gameId: safeView.id })}
+            extraActions={isYouPlayer ? (
+              <button
+                ref={setTopDeckMgrAnchorEl}
+                type="button"
+                onClick={() => setTableDeckMgrOpen(true)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: yourLibraryCount === 0
+                    ? 'linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)'
+                    : 'rgba(59, 130, 246, 0.18)',
+                  border: yourLibraryCount === 0
+                    ? '1px solid rgba(167, 139, 250, 0.8)'
+                    : '1px solid rgba(59, 130, 246, 0.35)',
+                  borderRadius: 4,
+                  color: '#fff',
+                  cursor: 'pointer',
+                  boxShadow: yourLibraryCount === 0
+                    ? '0 0 16px rgba(124, 58, 237, 0.35)'
+                    : 'none',
+                }}
+                title={yourLibraryCount === 0 ? 'Import or select a deck' : 'Open deck manager'}
+              >
+                📚 {yourLibraryCount === 0 ? 'Import Deck' : 'Decks'}
+              </button>
+            ) : undefined}
             aiControlEnabled={aiControlEnabled}
             aiStrategy={aiStrategy}
             onToggleAIControl={handleToggleAIControl}
@@ -5283,6 +5347,8 @@ export function App() {
               onLocalImportConfirmChange={handleLocalImportConfirmChange}
               externalDeckMgrOpen={tableDeckMgrOpen}
               onDeckMgrOpenChange={setTableDeckMgrOpen}
+              externalDeckMgrAnchorEl={topDeckMgrAnchorEl}
+              focusedPlayerId={focusedPlayerId}
               gameId={safeView.id}
               stackItems={safeView.stack as any}
               importedCandidates={importedCandidates}
@@ -5342,13 +5408,270 @@ export function App() {
         </div>
       </div>
 
-      {/* RIGHT COLUMN: currently unused (no Quick Actions / Zones) */}
-      <div />
+      {/* RIGHT COLUMN: docked utilities on wider screens */}
+      <div>
+        {showUtilityRail && safeView && you && (
+          <div
+            style={{
+              position: 'sticky',
+              top: 8,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                padding: utilityRailCollapsed ? '10px 8px' : '10px 12px',
+                borderRadius: 10,
+                background: 'linear-gradient(90deg, rgba(15,15,25,0.95), rgba(25,25,40,0.95))',
+                border: '1px solid rgba(99,102,241,0.3)',
+                color: '#e5e7eb',
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: '0.03em',
+                textTransform: 'uppercase',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: utilityRailCollapsed ? 'center' : 'space-between',
+                gap: 8,
+              }}
+            >
+              <span>{utilityRailCollapsed ? 'Rail' : 'Utility Rail'}</span>
+              <button
+                type="button"
+                onClick={() => setUtilityRailCollapsed((prev) => !prev)}
+                style={{
+                  borderRadius: 6,
+                  border: '1px solid rgba(255,255,255,0.16)',
+                  background: 'rgba(255,255,255,0.06)',
+                  color: '#fff',
+                  padding: utilityRailCollapsed ? '8px 6px' : '6px 10px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  minWidth: utilityRailCollapsed ? 48 : undefined,
+                }}
+                title={utilityRailCollapsed ? 'Expand utility rail' : 'Collapse utility rail'}
+              >
+                {utilityRailCollapsed ? 'Expand' : 'Collapse'}
+              </button>
+            </div>
 
-      <CardPreviewLayer />
+            {utilityRailCollapsed ? (
+              <div
+                style={{
+                  borderRadius: 10,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'rgba(20,20,30,0.95)',
+                  padding: '10px 8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  alignItems: 'center',
+                  color: '#e5e7eb',
+                  textAlign: 'center',
+                }}
+              >
+                <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#93c5fd' }}>
+                  {playerFocusOrder.length} Seats
+                </div>
+                <div style={{ fontSize: 10, color: '#9ca3af', lineHeight: 1.4 }}>
+                  Expand for focus, phase, auto-pass, and shortcuts.
+                </div>
+                <div style={{ width: '100%', height: 1, background: 'rgba(255,255,255,0.08)' }} />
+                <div style={{ fontSize: 10, color: '#34d399', lineHeight: 1.3 }}>Turn</div>
+                <div style={{ fontSize: 11, fontWeight: 600, wordBreak: 'break-word' }}>
+                  {playerFocusOrder.find((player: any) => player.id === safeView.turnPlayer)?.name || 'Waiting'}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    borderRadius: 10,
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'rgba(20,20,30,0.95)',
+                    padding: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                    color: '#e5e7eb',
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Player Focus
+                  </div>
+                  <div style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.4 }}>
+                    Turn-order view switcher. Click any player to center the battlefield on their board.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {playerFocusOrder.map((player: any, index: number) => {
+                      const isTurnPlayer = safeView.turnPlayer === player.id;
+                      const isFocused = (focusedPlayerId || you) === player.id;
+                      const isYouPlayerFocus = you === player.id;
+                      return (
+                        <button
+                          key={player.id}
+                          type="button"
+                          onClick={() => setFocusedPlayerId(player.id)}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            border: isFocused
+                              ? '1px solid rgba(59,130,246,0.85)'
+                              : '1px solid rgba(255,255,255,0.08)',
+                            background: isFocused
+                              ? 'rgba(30,64,175,0.28)'
+                              : 'rgba(255,255,255,0.04)',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                          }}
+                          title={`Center on ${player.name}`}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                            <span style={{ fontSize: 10, color: '#9ca3af', minWidth: 18 }}>{index + 1}.</span>
+                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {player.name}{isYouPlayerFocus ? ' (You)' : ''}
+                            </span>
+                          </span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                            {isTurnPlayer && <span style={{ fontSize: 10, color: '#34d399' }}>Turn</span>}
+                            {isFocused && <span style={{ fontSize: 10, color: '#93c5fd' }}>Focused</span>}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <PhaseNavigator
+                  docked
+                  currentPhase={safeView.phase}
+                  currentStep={safeView.step}
+                  turnPlayer={safeView.turnPlayer}
+                  you={you}
+                  isYourTurn={safeView.turnPlayer != null && safeView.turnPlayer === you}
+                  hasPriority={safeView.priority === you}
+                  stackEmpty={!((safeView as any).stack?.length > 0)}
+                  allPlayersReady={allPlayersHaveDecks && allPlayersKeptHands}
+                  phaseAdvanceBlockReason={phaseAdvanceBlockReason}
+                  showDamageReplacementToggle={damageReplacementEffectActiveCount > 1}
+                  damageReplacementMode={damageReplacementMode}
+                  onSetDamageReplacementMode={(mode) => {
+                    if (!safeView?.id) return;
+                    setDamageReplacementMode(mode);
+                    socket.emit('setReplacementEffectOrder', {
+                      gameId: safeView.id,
+                      effectType: 'damage',
+                      mode,
+                      customOrder: [],
+                    });
+                  }}
+                  onOpenReplacementEffectSettings={() => setReplacementEffectSettingsOpen(true)}
+                  onNextStep={() => socket.emit("nextStep", { gameId: safeView.id })}
+                  onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
+                  onAdvancingChange={setPhaseNavigatorAdvancing}
+                  onSkipToPhase={(targetPhase: string, targetStep?: string) => socket.emit("skipToPhase", { gameId: safeView.id, targetPhase, targetStep })}
+                />
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <AutoPassSettingsPanel
+                    docked
+                    defaultCollapsed
+                    autoPassSteps={autoPassSteps}
+                    onToggleAutoPass={handleToggleAutoPass}
+                    onClearAll={handleClearAllAutoPass}
+                    onSelectAll={handleSelectAllAutoPass}
+                    isSinglePlayer={
+                      !isPreGame &&
+                      (safeView.players || []).filter((p: any) => !p.spectator && !p.inactive).length === 1
+                    }
+                    onToggleAutoPassForTurn={handleToggleAutoPassForTurn}
+                    autoPassForTurnEnabled={autoPassForTurn}
+                  />
+
+                  <button
+                    onClick={() => setShowTriggerShortcuts(true)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #444',
+                      backgroundColor: '#2a2a2a',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      fontSize: 13,
+                    }}
+                    title="Configure auto-responses for Smothering Tithe, Rhystic Study, etc."
+                  >
+                    ⚡ Trigger Shortcuts
+                  </button>
+
+                  <button
+                    onClick={() => setShowLoopShortcutPanel(prev => !prev)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #444',
+                      backgroundColor: showLoopShortcutPanel ? '#1e3a8a' : '#2a2a2a',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      fontSize: 13,
+                    }}
+                    title="Record and replay a manual action line against live legal targets"
+                  >
+                    ↻ Loop Shortcuts
+                  </button>
+
+                  <LoopShortcutPanel
+                    open={showLoopShortcutPanel}
+                    onClose={() => setShowLoopShortcutPanel(false)}
+                    isRecording={isLoopShortcutRecording}
+                    isRunning={isLoopShortcutRunning}
+                    items={loopShortcutItems}
+                    shortcutName={loopShortcutName}
+                    savedShortcuts={savedLoopShortcuts}
+                    iterationCount={loopShortcutIterations}
+                    onShortcutNameChange={setLoopShortcutName}
+                    onIterationCountChange={(count) => setLoopShortcutIterations(Math.max(1, Math.min(50, count || 1)))}
+                    onStartRecording={handleStartLoopShortcutRecording}
+                    onStopRecording={handleStopLoopShortcutRecording}
+                    onRun={handleRunLoopShortcut}
+                    onClear={handleClearLoopShortcut}
+                    onSaveShortcut={handleSaveLoopShortcut}
+                    onLoadShortcut={handleLoadSavedLoopShortcut}
+                    onDeleteShortcut={handleDeleteSavedLoopShortcut}
+                    statusText={loopShortcutStatusText}
+                  />
+
+                  <PreviewSizeControl />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <CardPreviewLayer controlMode={showExpandedUtilityRail ? 'hidden' : 'floating'} />
 
       {/* Phase Navigator - Floating component for quick phase navigation */}
-      {safeView && you && (
+      {!showUtilityRail && safeView && you && (
         <PhaseNavigator
           currentPhase={safeView.phase}
           currentStep={safeView.step}
@@ -7396,7 +7719,7 @@ export function App() {
       />
 
       {/* Auto-Pass Settings Panel & Trigger Shortcuts - Draggable container in bottom-right */}
-      {safeView && you && (
+      {!showUtilityRail && safeView && you && (
         <DraggableSettingsPanel>
           <AutoPassSettingsPanel
             autoPassSteps={autoPassSteps}

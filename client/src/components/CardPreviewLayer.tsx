@@ -9,6 +9,7 @@ import type { KnownCardRef, CardFace } from '../../../shared/src';
 
 // Storage key for preview scale preference
 const PREVIEW_SCALE_KEY = 'mtgedh:previewScale';
+const PREVIEW_SCALE_CHANGED_EVT = 'card-preview:scale-change';
 const DEFAULT_PREVIEW_SCALE = 1.0;
 const MIN_PREVIEW_SCALE = 0.5;
 const MAX_PREVIEW_SCALE = 1.5;
@@ -27,6 +28,15 @@ function getInitialPreviewScale(): number {
     // Ignore localStorage errors
   }
   return DEFAULT_PREVIEW_SCALE;
+}
+
+function persistPreviewScale(scale: number) {
+  try {
+    localStorage.setItem(PREVIEW_SCALE_KEY, scale.toString());
+  } catch {
+    // Ignore localStorage errors
+  }
+  window.dispatchEvent(new CustomEvent(PREVIEW_SCALE_CHANGED_EVT, { detail: { scale } }));
 }
 
 // Gap between cards when showing multiple faces
@@ -85,7 +95,8 @@ export function hideCardPreview(element?: HTMLElement) {
   window.dispatchEvent(evt);
 }
 
-export function CardPreviewLayer() {
+export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' }) {
+  const { controlMode = 'floating' } = props;
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [meta, setMeta] = useState<{ 
     name?: string; 
@@ -111,11 +122,7 @@ export function CardPreviewLayer() {
   const handleScaleChange = useCallback((newScale: number) => {
     const clamped = clamp(newScale, MIN_PREVIEW_SCALE, MAX_PREVIEW_SCALE);
     setPreviewScale(clamped);
-    try {
-      localStorage.setItem(PREVIEW_SCALE_KEY, clamped.toString());
-    } catch {
-      // Ignore localStorage errors
-    }
+    persistPreviewScale(clamped);
   }, []);
 
   // Check if we have multiple faces to display
@@ -215,6 +222,13 @@ export function CardPreviewLayer() {
   }, [pickAndSetPosition]);
 
   useEffect(() => {
+    const onScaleChanged = (event: Event) => {
+      const scale = (event as CustomEvent<{ scale?: number }>).detail?.scale;
+      if (typeof scale === 'number' && !Number.isNaN(scale)) {
+        setPreviewScale(clamp(scale, MIN_PREVIEW_SCALE, MAX_PREVIEW_SCALE));
+      }
+    };
+
     const onShow = (e: Event) => {
       const ce = e as CustomEvent<ShowDetail>;
       const el = ce.detail?.element;
@@ -265,6 +279,7 @@ export function CardPreviewLayer() {
       setMeta(null);
     };
 
+    window.addEventListener(PREVIEW_SCALE_CHANGED_EVT, onScaleChanged as EventListener);
     window.addEventListener(SHOW_EVT, onShow as any);
     window.addEventListener(HIDE_EVT, onHide as any);
 
@@ -278,6 +293,7 @@ export function CardPreviewLayer() {
     const ticker = window.setInterval(scheduleUpdate, 120);
 
     return () => {
+      window.removeEventListener(PREVIEW_SCALE_CHANGED_EVT, onScaleChanged as EventListener);
       window.removeEventListener(SHOW_EVT, onShow as any);
       window.removeEventListener(HIDE_EVT, onHide as any);
       window.removeEventListener('scroll', onScrollOrResize, true);
@@ -291,6 +307,7 @@ export function CardPreviewLayer() {
 
   // Render nothing if no preview is active - but keep scale slider accessible via settings
   if (!anchor || !meta?.url) {
+    if (controlMode === 'hidden') return null;
     return (
       <PreviewScaleSlider
         scale={previewScale}
@@ -303,12 +320,14 @@ export function CardPreviewLayer() {
 
   return (
     <>
-      <PreviewScaleSlider
-        scale={previewScale}
-        onScaleChange={handleScaleChange}
-        show={showScaleSlider}
-        onToggle={() => setShowScaleSlider(s => !s)}
-      />
+      {controlMode !== 'hidden' && (
+        <PreviewScaleSlider
+          scale={previewScale}
+          onScaleChange={handleScaleChange}
+          show={showScaleSlider}
+          onToggle={() => setShowScaleSlider(s => !s)}
+        />
+      )}
       <div
         style={{
           position: 'fixed',
@@ -404,6 +423,91 @@ export function CardPreviewLayer() {
         )}
       </div>
     </>
+  );
+}
+
+export function PreviewSizeControl() {
+  const [scale, setScale] = useState<number>(getInitialPreviewScale);
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const onScaleChanged = (event: Event) => {
+      const next = (event as CustomEvent<{ scale?: number }>).detail?.scale;
+      if (typeof next === 'number' && !Number.isNaN(next)) {
+        setScale(clamp(next, MIN_PREVIEW_SCALE, MAX_PREVIEW_SCALE));
+      }
+    };
+    window.addEventListener(PREVIEW_SCALE_CHANGED_EVT, onScaleChanged as EventListener);
+    return () => window.removeEventListener(PREVIEW_SCALE_CHANGED_EVT, onScaleChanged as EventListener);
+  }, []);
+
+  const handleScaleChange = (nextScale: number) => {
+    const clamped = clamp(nextScale, MIN_PREVIEW_SCALE, MAX_PREVIEW_SCALE);
+    setScale(clamped);
+    persistPreviewScale(clamped);
+  };
+
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        border: '1px solid #444',
+        background: '#1f1f1f',
+        padding: 10,
+        color: '#fff',
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setShow((prev) => !prev)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          border: '1px solid #444',
+          borderRadius: 6,
+          background: show ? '#3b82f6' : '#2a2a2a',
+          color: '#fff',
+          padding: '8px 10px',
+          cursor: 'pointer',
+          fontSize: 13,
+          fontWeight: 500,
+        }}
+        title="Adjust card preview size"
+      >
+        <span>🔍 Preview Size</span>
+        <span style={{ fontSize: 12, opacity: 0.85 }}>{Math.round(scale * 100)}%</span>
+      </button>
+
+      {show && (
+        <div
+          style={{
+            marginTop: 10,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            padding: '8px 4px 2px',
+          }}
+        >
+          <div style={{ fontWeight: 600, fontSize: 12 }}>Card Preview Size</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ opacity: 0.7, fontSize: 11 }}>Small</span>
+            <input
+              type="range"
+              min={MIN_PREVIEW_SCALE}
+              max={MAX_PREVIEW_SCALE}
+              step={0.05}
+              value={scale}
+              onChange={(e) => handleScaleChange(parseFloat(e.target.value))}
+              style={{ flex: 1, accentColor: '#3b82f6' }}
+            />
+            <span style={{ opacity: 0.7, fontSize: 11 }}>Large</span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

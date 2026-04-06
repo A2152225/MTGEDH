@@ -71,6 +71,13 @@ cp .env.example .env
 npm run dev
 ```
 
+If you want the server CLI to accept typed commands reliably on Windows, use:
+```bash
+npm run dev:interactive
+```
+
+That launches the server in a separate `cmd.exe` window for the `mtgedh>` prompt and keeps the client in your current terminal.
+
 Server-only startup flags can be passed through the workspace script:
 ```bash
 npm --workspace @mtgedh/server run dev -- --wipe-games

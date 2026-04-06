@@ -50,6 +50,13 @@ This will start:
 - Backend server on http://localhost:3001
 - Frontend client on http://localhost:3000
 
+If you want an interactive server console window on Windows, use:
+```bash
+npm run dev:interactive
+```
+
+That opens the server in a separate `cmd.exe` window so the `mtgedh>` prompt can accept text input while the client stays in your current terminal.
+
 ### PowerShell note: typing causes restarts / can’t enter CLI commands
 
 The server includes an interactive CLI (`mtgedh>` prompt) for listing/deleting games.
@@ -67,6 +74,11 @@ Then use the `mtgedh>` prompt:
 - `delete game 1`
 - `delete id <gameId>`
 - `delete all`
+
+On Windows, you can launch just that interactive server window with:
+```bash
+npm run dev:interactive:server
+```
 
 2) Keep auto-reload, but run admin commands in a second terminal:
 ```bash
