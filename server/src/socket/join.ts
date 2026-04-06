@@ -51,6 +51,10 @@ function defaultPlayerZones() {
   };
 }
 
+function isReconnectablePlayer(player: any) {
+  return !player?.leftGame && !player?.conceded && !player?.hasLost && !player?.eliminated;
+}
+
 /** Find a roster entry by display name (case-insensitive, trimmed) */
 function findPlayerByName(game: any, name?: string) {
   if (!name) return undefined;
@@ -59,7 +63,7 @@ function findPlayerByName(game: any, name?: string) {
     if (!game || !game.state || !Array.isArray(game.state.players))
       return undefined;
     return (game.state.players as any[]).find(
-      (p) => String(p?.name || "").trim().toLowerCase() === nm
+      (p) => isReconnectablePlayer(p) && String(p?.name || "").trim().toLowerCase() === nm
     );
   } catch {
     return undefined;
@@ -73,7 +77,7 @@ function findPlayerBySeatToken(game: any, token?: string) {
     if (!game || !game.state || !Array.isArray(game.state.players))
       return undefined;
     return (game.state.players as any[]).find(
-      (p) => p?.seatToken && String(p.seatToken) === String(token)
+      (p) => isReconnectablePlayer(p) && p?.seatToken && String(p.seatToken) === String(token)
     );
   } catch {
     return undefined;

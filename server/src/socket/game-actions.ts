@@ -15,7 +15,7 @@ import {
 import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
 import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
-import { checkAndPromptOpeningHandActions } from "./opening-hand";
+import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "./opening-hand";
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
@@ -8412,6 +8412,8 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       if (concededPlayer) {
         const concededPlayerName = concededPlayer.name || newTurnPlayer;
+        const departureMode = String((concededPlayer as any).departureMode || "concede").toLowerCase();
+        const lossReason = departureMode === "leave" ? "Left the game" : "Conceded";
         
         // Clean up conceded player's permanents (exile them)
         const battlefield = game.state.battlefield || [];
@@ -8440,7 +8442,18 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Mark player as fully eliminated now
         (concededPlayer as any).hasLost = true;
         (concededPlayer as any).eliminated = true;
-        (concededPlayer as any).lossReason = "Conceded";
+        (concededPlayer as any).lossReason = lossReason;
+
+        const stateAny = game.state as any;
+        if (stateAny.autoPassForTurn && typeof stateAny.autoPassForTurn === "object") {
+          delete stateAny.autoPassForTurn[newTurnPlayer];
+        }
+        if (stateAny.autoPassPlayers instanceof Set) {
+          stateAny.autoPassPlayers.delete(newTurnPlayer);
+        }
+        if (stateAny.priorityClaimed instanceof Set) {
+          stateAny.priorityClaimed.delete(newTurnPlayer);
+        }
         
         // Emit that their field was cleaned up
         io.to(gameId).emit("chat", {
@@ -8450,6 +8463,15 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: `≡ƒÅ│∩╕Å ${concededPlayerName}'s permanents have been removed from the game.`,
           ts: Date.now(),
         });
+
+        try {
+          appendEvent(gameId, (game as any).seq || 0, "concededPlayerCleanup", {
+            playerId: newTurnPlayer,
+            lossReason,
+          });
+        } catch (e) {
+          debugWarn(1, "appendEvent(concededPlayerCleanup) failed", e);
+        }
         
         // Skip to next player's turn
         if (typeof (game as any).nextTurn === "function") {
@@ -10099,6 +10121,114 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   });
 
+  socket.on("unkeepHand", (payload?: { gameId?: unknown }) => {
+    const gameId = payload?.gameId;
+    try {
+      if (!gameId || typeof gameId !== 'string') return;
+      const game = ensureGame(gameId);
+      const playerId = socket.data.playerId;
+      if (!game || !playerId) return;
+
+      if (!ensureInGameRoom(gameId)) return;
+
+      const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
+      if (phaseStr !== "" && phaseStr !== "PRE_GAME") {
+        socket.emit("error", {
+          code: "NOT_PREGAME",
+          message: "Can only reopen your hand during pre-game",
+        });
+        return;
+      }
+
+      const mulliganState = (game.state as any).mulliganState?.[playerId];
+      if (!mulliganState?.hasKeptHand) {
+        socket.emit("error", {
+          code: "HAND_NOT_KEPT",
+          message: "Your hand is not currently locked in",
+        });
+        return;
+      }
+
+      const { allKept } = checkAllPlayersKeptHands(game);
+      if (allKept) {
+        socket.emit("error", {
+          code: "PREGAME_LOCKED",
+          message: "All players have already locked in their hands",
+        });
+        return;
+      }
+
+      const battlefield = Array.isArray((game.state as any)?.battlefield)
+        ? ((game.state as any).battlefield as any[])
+        : [];
+      const hasResolvedOpeningHandCard = battlefield.some((perm: any) =>
+        perm &&
+        perm.controller === playerId &&
+        isOpeningHandBattlefieldCard(perm.card, playerId, game.state)
+      );
+      if (hasResolvedOpeningHandCard) {
+        socket.emit("error", {
+          code: "OPENING_HAND_ACTIONS_RESOLVED",
+          message: "Cannot reopen your hand after resolving opening hand actions",
+        });
+        return;
+      }
+
+      try {
+        const openingHandSteps = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId)
+          .filter((step: any) => step?.type === ResolutionStepType.OPENING_HAND_ACTIONS);
+        for (const step of openingHandSteps) {
+          try {
+            ResolutionQueueManager.cancelStep(gameId, step.id);
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+
+      game.state = (game.state || {}) as any;
+      (game.state as any).mulliganState = (game.state as any).mulliganState || {};
+      (game.state as any).mulliganState[playerId] = {
+        ...(mulliganState || {}),
+        hasKeptHand: false,
+        pendingBottomCount: 0,
+        pendingBottomStepId: null,
+      };
+
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
+      }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "unkeepHand", {
+          playerId,
+          mulligansTaken: Number(mulliganState?.mulligansTaken || 0),
+        });
+      } catch (e) {
+        debugWarn(1, "appendEvent(unkeepHand) failed:", e);
+      }
+
+      io.to(gameId).emit("chat", {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: "system",
+        message: `${getPlayerName(game, playerId)} reopens their hand decision.`,
+        ts: Date.now(),
+      });
+
+      broadcastGame(io, game, gameId);
+    } catch (err: any) {
+      debugError(1, `unkeepHand error for game ${gameId}:`, err);
+      socket.emit("error", {
+        code: "UNKEEP_HAND_ERROR",
+        message: err?.message ?? String(err),
+      });
+    }
+  });
+
   // Mulligan - player shuffles hand back and draws a new hand (minus one card)
   socket.on("mulligan", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
@@ -10711,6 +10841,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         freeMulliganNoLandsOrAllLands?: boolean;
         anyCommanderDamageCountsAsCommanderDamage?: boolean;
         groupMulliganDiscount?: boolean;
+        immediateConcede?: boolean;
         enableArchenemy?: boolean;
         enablePlanechase?: boolean;
       };
@@ -10718,6 +10849,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       if (rules.freeMulliganNoLandsOrAllLands) enabledRules.push("Free Mulligan (No Lands/All Lands)");
       if (rules.anyCommanderDamageCountsAsCommanderDamage) enabledRules.push("Any Commander Damage Counts");
       if (rules.groupMulliganDiscount) enabledRules.push("Group Mulligan Discount");
+      if (rules.immediateConcede) enabledRules.push("Immediate Concede");
       if (rules.enableArchenemy) enabledRules.push("Archenemy (NYI)");
       if (rules.enablePlanechase) enabledRules.push("Planechase (NYI)");
 
@@ -11951,12 +12083,150 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       const playerName = player.name || playerId;
+      const immediateConcede = Boolean((game.state as any)?.houseRules?.immediateConcede);
+
+      if (immediateConcede) {
+        const battlefield = game.state.battlefield || [];
+        const concedingPermanents = battlefield.filter((permanent: any) => permanent.controller === playerId);
+
+        if (concedingPermanents.length > 0) {
+          const zones = (game.state as any).zones = (game.state as any).zones || {};
+          const playerZones = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+          (playerZones as any).exile = (playerZones as any).exile || [];
+
+          for (const perm of concedingPermanents) {
+            (playerZones as any).exile.push({
+              id: perm.id,
+              ...perm.card,
+              zone: 'exile',
+            });
+          }
+
+          game.state.battlefield = battlefield.filter((permanent: any) => permanent.controller !== playerId);
+        }
+
+        (player as any).hasLost = true;
+        (player as any).eliminated = true;
+        (player as any).lossReason = 'Conceded';
+        delete (player as any).conceded;
+        delete (player as any).concededAt;
+        (player as any).departureMode = 'concede';
+
+        const stateAny = game.state as any;
+        if (stateAny.autoPassForTurn && typeof stateAny.autoPassForTurn === 'object') {
+          delete stateAny.autoPassForTurn[playerId];
+        }
+        if (stateAny.autoPassPlayers instanceof Set) {
+          stateAny.autoPassPlayers.delete(playerId);
+        }
+        if (stateAny.priorityClaimed instanceof Set) {
+          stateAny.priorityClaimed.delete(playerId);
+        }
+        if (String(stateAny._pauseHumanAutoPassUntilActionFor || '') === String(playerId)) {
+          delete stateAny._pauseHumanAutoPassUntilActionFor;
+        }
+        if (!(stateAny.eliminationNotifications instanceof Set)) {
+          stateAny.eliminationNotifications = new Set<string>();
+        }
+        stateAny.eliminationNotifications.add(playerId);
+
+        io.to(gameId).emit("playerConceded", {
+          gameId,
+          playerId,
+          playerName,
+          message: `${playerName} has conceded the game. Their permanents were removed immediately.`,
+        });
+
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `≡ƒÅ│∩╕Å ${playerName} has conceded the game immediately.`,
+          ts: Date.now(),
+        });
+
+        if (game.state.priority === playerId) {
+          const turnOrder = game.state.turnOrder || players.filter((p: any) => !p.isSpectator).map((p: any) => p.id);
+          const currentIndex = turnOrder.indexOf(playerId);
+
+          for (let i = 1; i < turnOrder.length; i++) {
+            const nextIndex = (currentIndex + i) % turnOrder.length;
+            const nextPlayerId = turnOrder[nextIndex];
+            const nextPlayer = players.find((p: any) => p.id === nextPlayerId);
+            if (nextPlayer && !(nextPlayer as any).hasLost && !(nextPlayer as any).eliminated && !(nextPlayer as any).conceded && !(nextPlayer as any).isSpectator) {
+              game.state.priority = nextPlayerId;
+              break;
+            }
+          }
+        }
+
+        const activePlayers = players.filter((p: any) =>
+          !p.hasLost && !p.eliminated && !p.conceded && !p.isSpectator
+        );
+
+        if (activePlayers.length === 1) {
+          const winner = activePlayers[0];
+          const winnerName = winner.name || winner.id;
+
+          io.to(gameId).emit("gameOver", {
+            gameId,
+            type: 'victory',
+            winnerId: winner.id,
+            winnerName,
+            loserId: playerId,
+            loserName: playerName,
+            message: `${winnerName} wins! All opponents have conceded.`,
+          });
+
+          (game.state as any).gameOver = true;
+          (game.state as any).winner = winner.id;
+        } else if (activePlayers.length === 0) {
+          io.to(gameId).emit("gameOver", {
+            gameId,
+            type: 'draw',
+            message: "All players have conceded. The game is a draw.",
+          });
+
+          (game.state as any).gameOver = true;
+        }
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, "concede", { playerId, playerName, immediate: true });
+        } catch (e) {
+          debugWarn(1, "appendEvent(concede) failed:", e);
+        }
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, "concededPlayerCleanup", { playerId, lossReason: 'Conceded' });
+        } catch (e) {
+          debugWarn(1, "appendEvent(concededPlayerCleanup) failed:", e);
+        }
+
+        broadcastGame(io, game, gameId);
+        debug(2, `[concede] Player ${playerName} (${playerId}) conceded immediately in game ${gameId}`);
+        return;
+      }
 
       // Mark player as conceded - field cleanup happens on their next turn
       (player as any).conceded = true;
       (player as any).concededAt = Date.now();
+      (player as any).departureMode = "concede";
       // Note: We do NOT set hasLost or eliminated yet - that happens when their turn would start
       // This allows their permanents to remain on the field for other players to interact with
+
+      const stateAny = game.state as any;
+      if (!stateAny.autoPassForTurn || typeof stateAny.autoPassForTurn !== "object") {
+        stateAny.autoPassForTurn = {};
+      }
+      stateAny.autoPassForTurn[playerId] = true;
+
+      if (stateAny.priorityClaimed instanceof Set) {
+        stateAny.priorityClaimed.delete(playerId);
+      }
+
+      if (String(stateAny._pauseHumanAutoPassUntilActionFor || "") === String(playerId)) {
+        delete stateAny._pauseHumanAutoPassUntilActionFor;
+      }
 
       // Emit concede event
       io.to(gameId).emit("playerConceded", {

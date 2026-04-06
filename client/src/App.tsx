@@ -3544,6 +3544,8 @@ export function App() {
     return players.length > 0;
   }, [safeView]);
 
+  const canUnkeepHand = isPreGame && hasKeptHand && !allPlayersKeptHands && pendingBottomCount === 0;
+
   // Check if all players have imported decks (library + hand > 0)
   const allPlayersHaveDecks = useMemo(() => {
     if (!safeView) return false;
@@ -3569,6 +3571,9 @@ export function App() {
     if (!allPlayersKeptHands) return 'Waiting for all players to keep hands';
     return null;
   }, [isPreGame, allPlayersHaveDecks, allPlayersKeptHands]);
+
+  const showTopPanelPregameActions = isYouPlayer && isPreGame && showMulliganUI;
+  const showTableMulliganUI = showMulliganUI && !isPreGame;
 
   const damageReplacementEffectActiveCount = useMemo(() => {
     const n = Number((safeView as any)?.replacementEffectHints?.damageActiveCount ?? 0);
@@ -5131,6 +5136,7 @@ export function App() {
             cityBlessing={(safeView as any).cityBlessing}
             isYouPlayer={isYouPlayer}
             gameOver={(safeView as any).gameOver}
+            immediateConcede={Boolean((safeView as any).houseRules?.immediateConcede)}
             onConcede={() => socket.emit("concede", { gameId: safeView.id })}
             onLeaveGame={() => leaveGame(() => setJoinCollapsed(false))}
             onUndo={(scope) => handleRequestUndo(scope)}
@@ -5140,31 +5146,141 @@ export function App() {
             onRollDie={(sides: number) => socket.emit("rollDie", { gameId: safeView.id, sides })}
             onFlipCoin={() => socket.emit("flipCoin", { gameId: safeView.id })}
             extraActions={isYouPlayer ? (
-              <button
-                ref={setTopDeckMgrAnchorEl}
-                type="button"
-                onClick={() => setTableDeckMgrOpen(true)}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: yourLibraryCount === 0
-                    ? 'linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)'
-                    : 'rgba(59, 130, 246, 0.18)',
-                  border: yourLibraryCount === 0
-                    ? '1px solid rgba(167, 139, 250, 0.8)'
-                    : '1px solid rgba(59, 130, 246, 0.35)',
-                  borderRadius: 4,
-                  color: '#fff',
-                  cursor: 'pointer',
-                  boxShadow: yourLibraryCount === 0
-                    ? '0 0 16px rgba(124, 58, 237, 0.35)'
-                    : 'none',
-                }}
-                title={yourLibraryCount === 0 ? 'Import or select a deck' : 'Open deck manager'}
-              >
-                📚 {yourLibraryCount === 0 ? 'Import Deck' : 'Decks'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', width: '100%' }}>
+                <button
+                  ref={setTopDeckMgrAnchorEl}
+                  type="button"
+                  onClick={() => setTableDeckMgrOpen(true)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: yourLibraryCount === 0
+                      ? 'linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)'
+                      : 'rgba(59, 130, 246, 0.18)',
+                    border: yourLibraryCount === 0
+                      ? '1px solid rgba(167, 139, 250, 0.8)'
+                      : '1px solid rgba(59, 130, 246, 0.35)',
+                    borderRadius: 4,
+                    color: '#fff',
+                    cursor: 'pointer',
+                    boxShadow: yourLibraryCount === 0
+                      ? '0 0 16px rgba(124, 58, 237, 0.35)'
+                      : 'none',
+                  }}
+                  title={yourLibraryCount === 0 ? 'Import or select a deck' : 'Open deck manager'}
+                >
+                  📚 {yourLibraryCount === 0 ? 'Import Deck' : 'Decks'}
+                </button>
+
+                {showTopPanelPregameActions && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      flexWrap: 'wrap',
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(167, 139, 250, 0.45)',
+                      background: 'rgba(45, 27, 105, 0.2)',
+                      flex: '1 1 420px',
+                      minWidth: 0,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: '#ddd6fe', fontWeight: 600 }}>
+                      Mulligans: {mulligansTaken}
+                    </span>
+                    {pendingBottomCount > 0 ? (
+                      <span style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600 }}>
+                        Bottom {pendingBottomCount} card{pendingBottomCount === 1 ? '' : 's'}
+                      </span>
+                    ) : hasKeptHand ? (
+                      <span style={{ fontSize: 12, color: '#86efac', fontWeight: 600 }}>
+                        Hand kept
+                      </span>
+                    ) : null}
+                    <button
+                      onClick={() => {
+                        if (hasKeptHand && canUnkeepHand) {
+                          socket.emit("unkeepHand", { gameId: safeView.id });
+                          return;
+                        }
+                        socket.emit("keepHand", { gameId: safeView.id });
+                      }}
+                      disabled={!canKeepHand && !canUnkeepHand}
+                      style={{
+                        background: hasKeptHand
+                          ? (canUnkeepHand ? '#059669' : '#4b5563')
+                          : (canKeepHand ? '#10b981' : '#4b5563'),
+                        color: 'white',
+                        border: hasKeptHand ? '1px solid rgba(167, 243, 208, 0.55)' : 'none',
+                        borderRadius: 4,
+                        padding: '6px 12px',
+                        cursor: canKeepHand || canUnkeepHand ? 'pointer' : 'not-allowed',
+                        opacity: canKeepHand || canUnkeepHand ? 1 : 0.55,
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                      title={hasKeptHand && canUnkeepHand ? 'Click again to unlock your hand before the table is fully ready' : undefined}
+                    >
+                      {hasKeptHand ? '✓ Keep Hand' : 'Keep Hand'}
+                    </button>
+                    <button
+                      onClick={() => socket.emit("mulligan", { gameId: safeView.id })}
+                      disabled={!canMulligan}
+                      style={{
+                        background: canMulligan ? '#f59e0b' : '#4b5563',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '6px 12px',
+                        cursor: canMulligan ? 'pointer' : 'not-allowed',
+                        opacity: canMulligan ? 1 : 0.55,
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Mulligan
+                    </button>
+                    <button
+                      onClick={() => socket.emit("randomizeStartingPlayer", { gameId: safeView.id })}
+                      style={{
+                        background: '#8b5cf6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                      title="Randomly select which player goes first"
+                    >
+                      🎲 Random Start
+                    </button>
+                    {allPlayersKeptHands && hasKeptHand && (
+                      <button
+                        onClick={() => socket.emit("nextStep", { gameId: safeView.id })}
+                        style={{
+                          background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+                          color: 'white',
+                          border: '2px solid #15803d',
+                          borderRadius: 6,
+                          padding: '6px 16px',
+                          cursor: 'pointer',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          boxShadow: '0 2px 8px rgba(34, 197, 94, 0.35)',
+                        }}
+                        title="All players are ready. Begin the game."
+                      >
+                        ▶ Begin Game
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : undefined}
             aiControlEnabled={aiControlEnabled}
             aiStrategy={aiStrategy}
@@ -5365,7 +5481,7 @@ export function App() {
               onStopIgnoringSource={handleStopIgnoringSource}
               manaPool={manaPool}
               // Mulligan UI props
-              showMulliganUI={showMulliganUI}
+              showMulliganUI={showTableMulliganUI}
               hasKeptHand={hasKeptHand}
               mulligansTaken={mulligansTaken}
               pendingBottomCount={pendingBottomCount}

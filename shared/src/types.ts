@@ -452,6 +452,12 @@ export interface HouseRules {
   groupMulliganDiscount?: boolean;
 
   /**
+   * Concede and leave remove a player's battlefield immediately instead of
+   * waiting until that player's next turn.
+   */
+  immediateConcede?: boolean;
+
+  /**
    * Enable Archenemy variant cards in the match.
    * If enabled, requires a scheme deck to be imported/selected.
    */

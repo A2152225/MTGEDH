@@ -34,6 +34,7 @@ interface Props {
   // Control button handlers
   isYouPlayer?: boolean;
   gameOver?: boolean;
+  immediateConcede?: boolean;
   onConcede?: () => void;
   onLeaveGame?: () => void;
   onUndo?: (scope: UndoScope) => void;
@@ -83,7 +84,7 @@ const stepConfig: Record<string, { label: string; subColor: string }> = {
 export function GameStatusIndicator({ 
   turn, phase, step, turnPlayer, priority, players, you, combat,
   monarch, initiative, dayNight, cityBlessing,
-  isYouPlayer, gameOver, onConcede, onLeaveGame, onUndo, onOpenUndoMenu, availableUndoCount = 0,
+  isYouPlayer, gameOver, immediateConcede, onConcede, onLeaveGame, onUndo, onOpenUndoMenu, availableUndoCount = 0,
   smartUndoCounts,
   onRollDie, onFlipCoin,
   extraActions,
@@ -130,8 +131,8 @@ export function GameStatusIndicator({
   const undoOptions: Array<{ scope: UndoScope; label: string; count: number }> = [
     { scope: 'step', label: 'Current Step', count: Number(smartUndoCounts?.stepCount || 0) },
     { scope: 'phase', label: 'Current Phase', count: Number(smartUndoCounts?.phaseCount || 0) },
-    { scope: 'previousPhase', label: 'Previous Phase', count: Number(smartUndoCounts?.previousPhaseCount || 0) },
     { scope: 'turn', label: 'Current Turn', count: Number(smartUndoCounts?.turnCount || 0) },
+    { scope: 'previousPhase', label: 'Previous Phase', count: Number(smartUndoCounts?.previousPhaseCount || 0) },
   ];
   const hasAnyUndoOption = undoOptions.some((option) => option.count > 0);
   const canOpenUndoMenu = Boolean(isYouPlayer && availableUndoCount > 0);
@@ -157,12 +158,14 @@ export function GameStatusIndicator({
   const isYouInitiative = initiative === you;
   const youHaveBlessing = you ? cityBlessing?.[you] : false;
   const anyoneHasBlessing = cityBlessing ? Object.values(cityBlessing).some(v => v) : false;
+  const showAiControl = Boolean(onToggleAIControl && isYouPlayer && !gameOver);
+  const showBottomActionRow = Boolean(extraActions || onConcede || onLeaveGame || onUndo);
 
   return (
     <div style={{
       display: 'flex',
-      alignItems: 'center',
-      gap: 16,
+      flexDirection: 'column',
+      gap: 10,
       padding: '8px 16px',
       background: 'linear-gradient(90deg, rgba(15,15,25,0.95), rgba(25,25,40,0.95))',
       borderRadius: 10,
@@ -170,9 +173,25 @@ export function GameStatusIndicator({
       boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
       color: '#e5e7eb',
       fontSize: 13,
-      flexWrap: 'wrap',
-      rowGap: 8,
+      width: '100%',
     }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: 16,
+        flexWrap: 'wrap',
+        width: '100%',
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          flexWrap: 'wrap',
+          rowGap: 8,
+          flex: '1 1 700px',
+          minWidth: 0,
+        }}>
       {/* Turn number */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ 
@@ -523,22 +542,9 @@ export function GameStatusIndicator({
         </>
       )}
 
-      {/* Spacer to push control buttons to the right */}
-      <div style={{ flex: 1, minWidth: 16 }} />
+        </div>
 
-      {/* Parent-provided utility actions (deck manager, etc.) */}
-      {extraActions && (
-        <>
-          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {extraActions}
-          </div>
-        </>
-      )}
-
-      {/* AI Control toggle */}
-      {onToggleAIControl && isYouPlayer && !gameOver && (
-        <>
+        {showAiControl && (
           <div ref={aiMenuRef} style={{ position: 'relative' }}>
             <button
               onClick={() => {
@@ -637,21 +643,41 @@ export function GameStatusIndicator({
               </div>
             )}
           </div>
-          <div style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.15)' }} />
-        </>
-      )}
+        )}
+      </div>
 
-      {/* Control buttons (Concede, Leave, Undo) */}
-      {(onConcede || onLeaveGame || onUndo) && (
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: 6,
+      {showBottomActionRow && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          width: '100%',
+          paddingTop: 8,
+          borderTop: '1px solid rgba(255,255,255,0.08)',
         }}>
+          {extraActions && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flex: '1 1 420px', minWidth: 0 }}>
+              {extraActions}
+            </div>
+          )}
+
+          {(onConcede || onLeaveGame || onUndo) && (
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 6,
+              flexWrap: 'wrap',
+              marginLeft: 'auto',
+            }}>
           {onConcede && (
             <button
               onClick={() => {
-                if (confirm('Are you sure you want to concede? Your permanents will be removed at the start of your next turn.')) {
+                const message = immediateConcede
+                  ? 'Are you sure you want to concede? Your permanents will be removed immediately.'
+                  : 'Are you sure you want to concede? Your permanents will be removed at the start of your next turn.';
+                if (confirm(message)) {
                   onConcede();
                 }
               }}
@@ -674,7 +700,10 @@ export function GameStatusIndicator({
           {onLeaveGame && (
             <button
               onClick={() => {
-                if (confirm('Are you sure you want to leave this game?')) {
+                const message = immediateConcede
+                  ? 'Are you sure you want to leave this game? Your permanents will be removed immediately.'
+                  : 'Are you sure you want to leave this game? Your permanents will remain until your next turn.';
+                if (confirm(message)) {
                   onLeaveGame();
                 }
               }}
@@ -796,6 +825,8 @@ export function GameStatusIndicator({
                   })}
                 </div>
               )}
+            </div>
+          )}
             </div>
           )}
         </div>

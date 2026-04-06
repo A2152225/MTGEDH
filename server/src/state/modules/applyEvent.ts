@@ -1156,6 +1156,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (player as any).lossReason = String((e as any).lossReason || 'Conceded');
           }
 
+          if (stateAny.autoPassForTurn && typeof stateAny.autoPassForTurn === 'object') {
+            delete stateAny.autoPassForTurn[playerId];
+          }
+          if (stateAny.autoPassPlayers instanceof Set) {
+            stateAny.autoPassPlayers.delete(playerId);
+          }
+          if (stateAny.priorityClaimed instanceof Set) {
+            stateAny.priorityClaimed.delete(playerId);
+          }
+
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(concededPlayerCleanup): failed', err);
@@ -1165,7 +1175,42 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
       case "leave": {
         try {
-          leaveModule(ctx as any, (e as any).playerId);
+          const playerId = String((e as any).playerId || '').trim();
+          const deferred = (e as any).deferred === true;
+
+          if (!deferred) {
+            leaveModule(ctx as any, playerId as any);
+            break;
+          }
+
+          const stateAny = ctx.state as any;
+          const players = Array.isArray(stateAny.players) ? stateAny.players : [];
+          const player = players.find((entry: any) => entry && String(entry.id || '') === playerId);
+
+          if (player) {
+            (player as any).conceded = true;
+            (player as any).concededAt = Number((e as any).leftAt || Date.now());
+            (player as any).departureMode = 'leave';
+            (player as any).leftGame = true;
+            (player as any).leftAt = Number((e as any).leftAt || Date.now());
+            (player as any).connected = false;
+            try { delete (player as any).socketId; } catch {}
+          }
+
+          if (!stateAny.autoPassForTurn || typeof stateAny.autoPassForTurn !== 'object') {
+            stateAny.autoPassForTurn = {};
+          }
+          if (playerId) {
+            stateAny.autoPassForTurn[playerId] = true;
+          }
+          if (stateAny.priorityClaimed instanceof Set) {
+            stateAny.priorityClaimed.delete(playerId);
+          }
+          if (String(stateAny._pauseHumanAutoPassUntilActionFor || '') === playerId) {
+            delete stateAny._pauseHumanAutoPassUntilActionFor;
+          }
+
+          ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(leave): failed', err);
         }
@@ -2568,6 +2613,27 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(keepHand): failed", err);
+        }
+        break;
+      }
+
+      case "unkeepHand": {
+        const pid = (e as any).playerId;
+        const mulligansTaken = Math.max(0, Number((e as any).mulligansTaken ?? 0) || 0);
+        if (!pid) break;
+        try {
+          const state = ctx.state as any;
+          state.mulliganState = state.mulliganState || {};
+          state.mulliganState[pid] = {
+            ...(state.mulliganState[pid] || {}),
+            hasKeptHand: false,
+            mulligansTaken,
+            pendingBottomCount: 0,
+            pendingBottomStepId: null,
+          };
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(unkeepHand): failed", err);
         }
         break;
       }
@@ -7171,6 +7237,18 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           if (player) {
             (player as any).conceded = true;
             (player as any).concededAt = Date.now();
+            (player as any).departureMode = 'concede';
+          }
+
+          const stateAny = ctx.state as any;
+          if (!stateAny.autoPassForTurn || typeof stateAny.autoPassForTurn !== 'object') {
+            stateAny.autoPassForTurn = {};
+          }
+          if (pid) {
+            stateAny.autoPassForTurn[pid] = true;
+          }
+          if (stateAny.priorityClaimed instanceof Set) {
+            stateAny.priorityClaimed.delete(pid);
           }
           ctx.bumpSeq();
         } catch (err) {

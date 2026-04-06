@@ -1172,7 +1172,6 @@ export function TableLayout(props: {
             <div style={{ position: 'relative', zIndex: 2 }}>
               {ordered.map((pb, i) => {
                 const pos = seatPositions[i];
-                const isFocusedBoard = focusedBoardIndex === i;
                 const perms = pb.permanents;
                 // Separate lands from non-lands
                 const lands = splitLands ? perms.filter(x => isLandTypeLine((x.card as any)?.type_line)) : [];
@@ -1229,10 +1228,9 @@ export function TableLayout(props: {
                       height: BOARD_H,
                       transform: `translate(0,0) rotate(${isYouThis ? 0 : pos.rotateDeg}deg)`,
                       transformOrigin: '50% 50%',
-                      opacity: !isFocusedView || isFocusedBoard ? 1 : 0.14,
-                      filter: !isFocusedView || isFocusedBoard ? 'none' : 'saturate(0.45) brightness(0.65)',
-                      pointerEvents: !isFocusedView || isFocusedBoard ? 'auto' : 'none',
-                      transition: 'opacity 180ms ease, filter 180ms ease'
+                      opacity: 1,
+                      filter: 'none',
+                      pointerEvents: 'auto'
                     }}
                   >
                     <div

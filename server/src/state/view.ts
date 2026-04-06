@@ -16,6 +16,7 @@ export function viewFor(ctx: GameContext, viewer?: PlayerID, spectator = false):
     format: state.format,
     players: Array.isArray(state.players) ? (state.players as PlayerRef[]).map(p => ({ ...p })) : [],
     startingLife: state.startingLife,
+    houseRules: state.houseRules ? { ...state.houseRules } : undefined,
     life: { ...(state.life || {}) },
     turnPlayer: state.turnPlayer,
     priority: state.priority,

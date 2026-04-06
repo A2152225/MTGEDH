@@ -115,6 +115,71 @@ describe('leaveGame in-room scoping (integration)', () => {
     expect(socket.data.gameId).toBe(null);
   });
 
+  it('defaults to delayed leave during active games when Immediate Concede is disabled', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: 'p1', gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const leaveCalls: string[] = [];
+    const disconnectCalls: string[] = [];
+    const game = {
+      seq: 0,
+      state: {
+        phase: 'main1',
+        players: [{ id: 'p1', name: 'P1' }],
+      },
+      leave: (pid: string) => {
+        leaveCalls.push(pid);
+        return true;
+      },
+      disconnect: (socketId: string) => {
+        disconnectCalls.push(socketId);
+      },
+      bumpSeq: () => {
+        game.seq += 1;
+      },
+    } as any;
+    games.set(gameId as any, game);
+
+    const io = createMockIo(emitted);
+    registerDisconnectHandlers(io as any, socket as any);
+
+    await handlers['leaveGame']({ gameId });
+
+    expect(leaveCalls).toEqual([]);
+    expect(disconnectCalls).toEqual([socket.id]);
+    expect(game.state.players[0].conceded).toBe(true);
+    expect(game.state.players[0].leftGame).toBe(true);
+    expect(game.state.autoPassForTurn?.p1).toBe(true);
+  });
+
+  it('uses immediate leave when Immediate Concede is enabled', async () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: 'p1', gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const leaveCalls: string[] = [];
+    games.set(gameId as any, {
+      seq: 0,
+      state: {
+        phase: 'main1',
+        houseRules: { immediateConcede: true },
+        players: [{ id: 'p1', name: 'P1' }],
+      },
+      leave: (pid: string) => {
+        leaveCalls.push(pid);
+        return false;
+      },
+    } as any);
+
+    const io = createMockIo(emitted);
+    registerDisconnectHandlers(io as any, socket as any);
+
+    await handlers['leaveGame']({ gameId });
+
+    expect(leaveCalls).toEqual(['p1']);
+  });
+
   it('does not throw when payload is missing (crash-safety)', async () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket({ playerId: 'p1', gameId }, emitted);

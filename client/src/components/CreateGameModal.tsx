@@ -48,6 +48,8 @@ export interface HouseRulesConfig {
   anyCommanderDamageCountsAsCommanderDamage: boolean;
   /** If all human players mulligan, decrease mulligan count by 1 for each */
   groupMulliganDiscount: boolean;
+  /** Concede and leave remove a player's battlefield immediately */
+  immediateConcede: boolean;
   /** Enable Archenemy variant (NYI) */
   enableArchenemy: boolean;
   /** Enable Planechase variant (NYI) */
@@ -180,6 +182,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
   const [freeMulliganNoLandsOrAllLands, setFreeMulliganNoLandsOrAllLands] = useState(false);
   const [anyCommanderDamageCountsAsCommanderDamage, setAnyCommanderDamageCountsAsCommanderDamage] = useState(false);
   const [groupMulliganDiscount, setGroupMulliganDiscount] = useState(false);
+  const [immediateConcede, setImmediateConcede] = useState(false);
   const [enableArchenemy, setEnableArchenemy] = useState(false);
   const [enablePlanechase, setEnablePlanechase] = useState(false);
   const [customRuleSuggestion, setCustomRuleSuggestion] = useState('');
@@ -386,6 +389,7 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
     if (freeMulliganNoLandsOrAllLands) houseRules.freeMulliganNoLandsOrAllLands = true;
     if (anyCommanderDamageCountsAsCommanderDamage) houseRules.anyCommanderDamageCountsAsCommanderDamage = true;
     if (groupMulliganDiscount) houseRules.groupMulliganDiscount = true;
+    if (immediateConcede) houseRules.immediateConcede = true;
     if (enableArchenemy) houseRules.enableArchenemy = true;
     if (enablePlanechase) houseRules.enablePlanechase = true;
     
@@ -1054,6 +1058,27 @@ export function CreateGameModal({ open, onClose, onCreateGame, savedDecks = [], 
                       <div style={{ fontSize: 13 }}>Any Commander Damage Counts</div>
                       <div style={{ fontSize: 11, color: '#666' }}>
                         All damage from commanders counts as commander damage (not just combat)
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#444', marginBottom: 8 }}>
+                    Concede / Leave
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={immediateConcede}
+                      onChange={(e) => setImmediateConcede(e.target.checked)}
+                      style={{ width: 16, height: 16, marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13 }}>Immediate Concede</div>
+                      <div style={{ fontSize: 11, color: '#666' }}>
+                        Concede and Leave remove a player's battlefield immediately instead of waiting until their next turn
                       </div>
                     </div>
                   </label>

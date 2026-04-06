@@ -71,6 +71,43 @@ describe('game-actions in-room authorization (integration)', () => {
     expect(player?.conceded).toBeUndefined();
   });
 
+  it('concedes immediately when the Immediate Concede house rule is enabled', async () => {
+    const p1 = 'p1';
+    const p2 = 'p2';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).phase = 'main1';
+    (game.state as any).turnOrder = [p1, p2];
+    (game.state as any).priority = p1;
+    (game.state as any).houseRules = { immediateConcede: true };
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [p1]: 40, [p2]: 40 };
+    (game.state as any).battlefield = [
+      { id: 'perm_1', controller: p1, card: { name: 'Test Permanent', type_line: 'Artifact' } },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['concede']({ gameId });
+
+    const player = ((game.state as any).players as any[]).find((entry: any) => entry.id === p1);
+    expect(player?.hasLost).toBe(true);
+    expect(player?.eliminated).toBe(true);
+    expect(player?.lossReason).toBe('Conceded');
+    expect((game.state as any).battlefield).toEqual([]);
+  });
+
   it('blocks phaseOutPermanents when socket is not in the game room', async () => {
     const p1 = 'p1';
 
