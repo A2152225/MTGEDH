@@ -934,6 +934,90 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     expect(String(stack[0]?.description || '').toLowerCase()).not.toContain('tap target artifact');
   });
 
+  it('routes graveyard-to-library abilities through the selected ability text and preserves graveyard targeting', async () => {
+    const gyLibraryGameId = `${gameId}_graveyard_library`;
+    ResolutionQueueManager.removeQueue(gyLibraryGameId);
+    games.delete(gyLibraryGameId as any);
+
+    createGameIfNotExists(gyLibraryGameId, 'commander', 40);
+    const game = ensureGame(gyLibraryGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          { id: 'opp_artifact_1', name: 'Scrap Memory', type_line: 'Artifact', zone: 'graveyard' },
+          { id: 'opp_creature_1', name: 'Wrong Type', type_line: 'Creature', zone: 'graveyard' },
+        ],
+        graveyardCount: 2,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'archivist_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'archivist_card_1',
+          name: 'Keeper of the Cadence',
+          type_line: 'Artifact Creature',
+          oracle_text: '{3}: Put target artifact, instant, or sorcery card from a graveyard on the bottom of its owner\'s library.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gyLibraryGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: gyLibraryGameId, permanentId: 'archivist_1', abilityId: 'archivist_1-ability-0' });
+
+    const queue = ResolutionQueueManager.getQueue(gyLibraryGameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(queue.steps[0]).toEqual(
+      expect.objectContaining({
+        type: 'target_selection',
+        battlefieldAbilityTargetSelection: true,
+        targetDescription: 'card in a graveyard',
+      })
+    );
+
+    const validTargetIds = ((queue.steps[0] as any).validTargets || []).map((target: any) => String(target?.id));
+    expect(validTargetIds).toEqual(['opp_artifact_1']);
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+  });
+
   it('does not let control-change routing hijack an unrelated generic activation just because the permanent id contains control', async () => {
     const controlGameId = `${gameId}_control_change`;
     ResolutionQueueManager.removeQueue(controlGameId);

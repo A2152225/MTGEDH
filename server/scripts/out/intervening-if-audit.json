@@ -1,13 +1,13 @@
 {
   "meta": {
     "atomicCardsPath": "D:\\Git\\MTGEDH\\AtomicCards.json",
-    "generatedAt": "2026-02-04T00:51:16.051Z",
-    "cardNameCount": 33395,
-    "printingsCount": 34255,
-    "totalInterveningIfClausesFound": 706,
-    "recognizedCount": 706,
-    "recognizedDecidableCount": 689,
-    "recognizedNullCount": 17,
+    "generatedAt": "2026-04-06T08:54:27.991Z",
+    "cardNameCount": 33612,
+    "printingsCount": 34476,
+    "totalInterveningIfClausesFound": 710,
+    "recognizedCount": 710,
+    "recognizedDecidableCount": 710,
+    "recognizedNullCount": 0,
     "fallbackCount": 0,
     "unknownCount": 0
   },
@@ -146,6 +146,25 @@
       "sampleResult": false
     },
     {
+      "clause": "if a permanent left the battlefield under your control this turn",
+      "clauseLower": "if a permanent left the battlefield under your control this turn",
+      "count": 19,
+      "exampleCards": [
+        "Aid from the Cowl",
+        "Airdrop Aeronauts",
+        "Call for Unity",
+        "Countless Gears Renegade",
+        "Deadeye Harpooner",
+        "Foot Mystic",
+        "Hidden Herbalists",
+        "Hidden Stockpile",
+        "Insectoid Exterminator",
+        "Krang & Shredder"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if there are four or more card types among cards in your graveyard",
       "clauseLower": "if there are four or more card types among cards in your graveyard",
       "count": 19,
@@ -203,25 +222,6 @@
       "sampleResult": true
     },
     {
-      "clause": "if a permanent left the battlefield under your control this turn",
-      "clauseLower": "if a permanent left the battlefield under your control this turn",
-      "count": 13,
-      "exampleCards": [
-        "Aid from the Cowl",
-        "Airdrop Aeronauts",
-        "Call for Unity",
-        "Countless Gears Renegade",
-        "Deadeye Harpooner",
-        "Hidden Herbalists",
-        "Hidden Stockpile",
-        "Krang & Shredder",
-        "Rat King, Verminister",
-        "Renegade Rallier"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
       "clause": "if this card is in your graveyard",
       "clauseLower": "if this card is in your graveyard",
       "count": 13,
@@ -257,7 +257,7 @@
         "Rootwise Survivor"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if an opponent lost life this turn",
@@ -465,6 +465,23 @@
       "sampleResult": false
     },
     {
+      "clause": "if you control two or more tapped creatures",
+      "clauseLower": "if you control two or more tapped creatures",
+      "count": 8,
+      "exampleCards": [
+        "Current Curriculum",
+        "Dawnstrike Vanguard",
+        "Flight-Deck Coordinator",
+        "Frontline War-Rager",
+        "Sami, Ship's Engineer",
+        "Sunstar Chaplain",
+        "Thendar, the Overminer",
+        "Vaultguard Trooper"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
       "clause": "if you have no cards in hand",
       "clauseLower": "if you have no cards in hand",
       "count": 8,
@@ -513,22 +530,6 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
-    },
-    {
-      "clause": "if you control two or more tapped creatures",
-      "clauseLower": "if you control two or more tapped creatures",
-      "count": 7,
-      "exampleCards": [
-        "Dawnstrike Vanguard",
-        "Flight-Deck Coordinator",
-        "Frontline War-Rager",
-        "Sami, Ship's Engineer",
-        "Sunstar Chaplain",
-        "Thendar, the Overminer",
-        "Vaultguard Trooper"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
     },
     {
       "clause": "if you control your commander",
@@ -688,7 +689,8 @@
         "Marut",
         "Mastermind Plum"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if there are seven or more cards in your graveyard",
@@ -772,7 +774,7 @@
         "Sand Silos"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if you control a Desert or there is a Desert card in your graveyard",
@@ -787,6 +789,20 @@
       ],
       "evaluation": "recognized",
       "sampleResult": false
+    },
+    {
+      "clause": "if you control an artifact",
+      "clauseLower": "if you control an artifact",
+      "count": 5,
+      "exampleCards": [
+        "Donatello, Turtle Techie",
+        "Scholar of Stars",
+        "Thopter Spy Network",
+        "Toolcraft Exemplar",
+        "Waylaying Pirates"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you control seven or more lands",
@@ -973,19 +989,6 @@
       ],
       "evaluation": "recognized",
       "sampleResult": false
-    },
-    {
-      "clause": "if you control an artifact",
-      "clauseLower": "if you control an artifact",
-      "count": 4,
-      "exampleCards": [
-        "Scholar of Stars",
-        "Thopter Spy Network",
-        "Toolcraft Exemplar",
-        "Waylaying Pirates"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
     },
     {
       "clause": "if you gained 4 or more life this turn",
@@ -1274,7 +1277,8 @@
         "Deceit",
         "Emptiness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {G}{G} was spent to cast it",
@@ -1295,7 +1299,8 @@
         "Gruul Scrapper",
         "Steamcore Weird"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {R}{R} was spent to cast it",
@@ -1305,7 +1310,8 @@
         "Catharsis",
         "Vibrance"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {U}{U} was spent to cast it",
@@ -1315,7 +1321,8 @@
         "Deceit",
         "Wistfulness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {W}{W} was spent to cast it",
@@ -1325,7 +1332,8 @@
         "Catharsis",
         "Emptiness"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if 4 or more damage was dealt to it this turn",
@@ -1668,6 +1676,17 @@
       "sampleResult": true
     },
     {
+      "clause": "if Kona is tapped",
+      "clauseLower": "if kona is tapped",
+      "count": 2,
+      "exampleCards": [
+        "A-Kona, Rescue Beastie",
+        "Kona, Rescue Beastie"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if no creatures attacked this turn",
       "clauseLower": "if no creatures attacked this turn",
       "count": 2,
@@ -1752,7 +1771,8 @@
         "Bloodstone Goblin",
         "Hallar, the Firefletcher"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if the amount of mana spent to cast it was less than its mana value",
@@ -1763,7 +1783,7 @@
         "Tokka & Rahzar, Terrible Twos"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if the gift was promised",
@@ -2234,7 +2254,8 @@
       "exampleCards": [
         "Shrieking Grotesque"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {C} was spent to cast it",
@@ -2243,7 +2264,8 @@
       "exampleCards": [
         "Drowner of Truth // Drowned Jungle"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {C} wasn't spent to cast it",
@@ -2252,7 +2274,8 @@
       "exampleCards": [
         "Wumpus Aberration"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if {G} was spent to cast it",
@@ -2281,7 +2304,8 @@
       "exampleCards": [
         "Ogre Savant"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if {W} was spent to cast it",
@@ -2290,7 +2314,8 @@
       "exampleCards": [
         "Revenant Patriarch"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if a +1/+1 counter was put on a permanent under your control this turn",
@@ -2361,6 +2386,16 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
+    },
+    {
+      "clause": "if a creature entered and a creature died this turn",
+      "clauseLower": "if a creature entered and a creature died this turn",
+      "count": 1,
+      "exampleCards": [
+        "Perennial Gravewarden"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if a creature entered the battlefield under an opponent's control this turn",
@@ -3030,7 +3065,7 @@
         "Effie, Fast Learner"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if eight or more cards are in your graveyard",
@@ -3170,7 +3205,7 @@
         "Glimmer Hoarder"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if he was cast",
@@ -3213,6 +3248,16 @@
       "sampleResult": true
     },
     {
+      "clause": "if his sneak cost was paid",
+      "clauseLower": "if his sneak cost was paid",
+      "count": 1,
+      "exampleCards": [
+        "Leonardo, Leader in Blue"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
       "clause": "if Hixus entered this turn",
       "clauseLower": "if hixus entered this turn",
       "count": 1,
@@ -3250,7 +3295,7 @@
         "Improvising Aerialist"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if Inalla is in the command zone or on the battlefield",
@@ -3520,7 +3565,7 @@
         "Plane-Merge Elf"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if it shares a mana value with one or more uncrossed digits in the chosen number",
@@ -3629,7 +3674,8 @@
       "exampleCards": [
         "Archangel of Wrath"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if it was kicked with its {1}{G} kicker",
@@ -3958,7 +4004,8 @@
       "exampleCards": [
         "Graven Archfiend"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if its madness cost was paid",
@@ -4108,7 +4155,7 @@
         "Kalamax, the Stormsire"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if Katara is tapped",
@@ -4118,17 +4165,7 @@
         "Katara, Bending Prodigy"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if Kona is tapped",
-      "clauseLower": "if kona is tapped",
-      "count": 1,
-      "exampleCards": [
-        "Kona, Rescue Beastie"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if Kytheon and at least two other creatures attacked this combat",
@@ -4148,7 +4185,7 @@
         "Legolas, Counter of Kills"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if life was paid to activate it",
@@ -4167,7 +4204,8 @@
       "exampleCards": [
         "Vazi, Keen Negotiator"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if Managorger Phoenix is in your graveyard",
@@ -4227,7 +4265,7 @@
         "Titan Hunter"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if no mana was spent to cast that spell",
@@ -4367,7 +4405,7 @@
         "Rip, Spawn Hunter"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if Sarulf has one or more +1/+1 counters on it",
@@ -4407,7 +4445,7 @@
         "Tahngarth, First Mate"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if Taigam attacked this turn",
@@ -4417,7 +4455,7 @@
         "Taigam, Ojutai Master"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if that card is exiled",
@@ -4737,7 +4775,7 @@
         "Liberator, Urza's Battlethopter"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if the number of attacking creatures is greater than the number of quest counters on ED-E",
@@ -4747,7 +4785,7 @@
         "ED-E, Lonesome Eyebot"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if The Ozolith has counters on it",
@@ -4987,7 +5025,7 @@
         "The Mysterious Sphere"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if there are three or more instant and/or sorcery cards in your graveyard",
@@ -5167,7 +5205,7 @@
         "Mana Vault"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if this card is exiled with a scream counter on it",
@@ -5390,6 +5428,16 @@
       "sampleResult": false
     },
     {
+      "clause": "if this creature isn't all colors",
+      "clauseLower": "if this creature isn't all colors",
+      "count": 1,
+      "exampleCards": [
+        "Opulent Clomper"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if this creature regenerated this turn",
       "clauseLower": "if this creature regenerated this turn",
       "count": 1,
@@ -5556,7 +5604,8 @@
       "exampleCards": [
         "Inga and Esika"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if Tolsimir attacked this combat",
@@ -5636,7 +5685,7 @@
         "Wary Zone Guard"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if Wolverine dealt damage to another creature this turn",
@@ -5665,7 +5714,8 @@
       "exampleCards": [
         "Creepy Puppeteer"
       ],
-      "evaluation": "recognized"
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you both own and control Gisela and a creature named Bruna",
@@ -5885,7 +5935,7 @@
         "Warrior's Resolve"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if you control a creature with a counter on it",
@@ -7418,6 +7468,16 @@
       "sampleResult": true
     },
     {
+      "clause": "if you've cast an instant or sorcery spell this turn",
+      "clauseLower": "if you've cast an instant or sorcery spell this turn",
+      "count": 1,
+      "exampleCards": [
+        "Rootha, Mastering the Moment"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if you've cast another spell this turn",
       "clauseLower": "if you've cast another spell this turn",
       "count": 1,
@@ -7695,6 +7755,25 @@
       "sampleResult": false
     },
     {
+      "clause": "if a permanent left the battlefield under your control this turn",
+      "clauseLower": "if a permanent left the battlefield under your control this turn",
+      "count": 19,
+      "exampleCards": [
+        "Aid from the Cowl",
+        "Airdrop Aeronauts",
+        "Call for Unity",
+        "Countless Gears Renegade",
+        "Deadeye Harpooner",
+        "Foot Mystic",
+        "Hidden Herbalists",
+        "Hidden Stockpile",
+        "Insectoid Exterminator",
+        "Krang & Shredder"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if there are four or more card types among cards in your graveyard",
       "clauseLower": "if there are four or more card types among cards in your graveyard",
       "count": 19,
@@ -7752,25 +7831,6 @@
       "sampleResult": true
     },
     {
-      "clause": "if a permanent left the battlefield under your control this turn",
-      "clauseLower": "if a permanent left the battlefield under your control this turn",
-      "count": 13,
-      "exampleCards": [
-        "Aid from the Cowl",
-        "Airdrop Aeronauts",
-        "Call for Unity",
-        "Countless Gears Renegade",
-        "Deadeye Harpooner",
-        "Hidden Herbalists",
-        "Hidden Stockpile",
-        "Krang & Shredder",
-        "Rat King, Verminister",
-        "Renegade Rallier"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
       "clause": "if this card is in your graveyard",
       "clauseLower": "if this card is in your graveyard",
       "count": 13,
@@ -7806,7 +7866,7 @@
         "Rootwise Survivor"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if an opponent lost life this turn",
@@ -8014,6 +8074,23 @@
       "sampleResult": false
     },
     {
+      "clause": "if you control two or more tapped creatures",
+      "clauseLower": "if you control two or more tapped creatures",
+      "count": 8,
+      "exampleCards": [
+        "Current Curriculum",
+        "Dawnstrike Vanguard",
+        "Flight-Deck Coordinator",
+        "Frontline War-Rager",
+        "Sami, Ship's Engineer",
+        "Sunstar Chaplain",
+        "Thendar, the Overminer",
+        "Vaultguard Trooper"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
       "clause": "if you have no cards in hand",
       "clauseLower": "if you have no cards in hand",
       "count": 8,
@@ -8062,22 +8139,6 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
-    },
-    {
-      "clause": "if you control two or more tapped creatures",
-      "clauseLower": "if you control two or more tapped creatures",
-      "count": 7,
-      "exampleCards": [
-        "Dawnstrike Vanguard",
-        "Flight-Deck Coordinator",
-        "Frontline War-Rager",
-        "Sami, Ship's Engineer",
-        "Sunstar Chaplain",
-        "Thendar, the Overminer",
-        "Vaultguard Trooper"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
     },
     {
       "clause": "if you control your commander",
@@ -8227,6 +8288,20 @@
       "sampleResult": true
     },
     {
+      "clause": "if mana from a Treasure was spent to cast it",
+      "clauseLower": "if mana from a treasure was spent to cast it",
+      "count": 5,
+      "exampleCards": [
+        "Alchemist's Talent",
+        "Hired Hexblade",
+        "Jaded Sell-Sword",
+        "Marut",
+        "Mastermind Plum"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if there are seven or more cards in your graveyard",
       "clauseLower": "if there are seven or more cards in your graveyard",
       "count": 5,
@@ -8308,7 +8383,7 @@
         "Sand Silos"
       ],
       "evaluation": "recognized",
-      "sampleResult": false
+      "sampleResult": true
     },
     {
       "clause": "if you control a Desert or there is a Desert card in your graveyard",
@@ -8323,6 +8398,20 @@
       ],
       "evaluation": "recognized",
       "sampleResult": false
+    },
+    {
+      "clause": "if you control an artifact",
+      "clauseLower": "if you control an artifact",
+      "count": 5,
+      "exampleCards": [
+        "Donatello, Turtle Techie",
+        "Scholar of Stars",
+        "Thopter Spy Network",
+        "Toolcraft Exemplar",
+        "Waylaying Pirates"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
     },
     {
       "clause": "if you control seven or more lands",
@@ -8509,19 +8598,6 @@
       ],
       "evaluation": "recognized",
       "sampleResult": false
-    },
-    {
-      "clause": "if you control an artifact",
-      "clauseLower": "if you control an artifact",
-      "count": 4,
-      "exampleCards": [
-        "Scholar of Stars",
-        "Thopter Spy Network",
-        "Toolcraft Exemplar",
-        "Waylaying Pirates"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
     },
     {
       "clause": "if you gained 4 or more life this turn",
@@ -8803,6 +8879,17 @@
       "sampleResult": true
     },
     {
+      "clause": "if {B}{B} was spent to cast it",
+      "clauseLower": "if {b}{b} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Deceit",
+        "Emptiness"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
       "clause": "if {G}{G} was spent to cast it",
       "clauseLower": "if {g}{g} was spent to cast it",
       "count": 2,
@@ -8812,6 +8899,50 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
+    },
+    {
+      "clause": "if {R} was spent to cast it",
+      "clauseLower": "if {r} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Gruul Scrapper",
+        "Steamcore Weird"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {R}{R} was spent to cast it",
+      "clauseLower": "if {r}{r} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Catharsis",
+        "Vibrance"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {U}{U} was spent to cast it",
+      "clauseLower": "if {u}{u} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Deceit",
+        "Wistfulness"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {W}{W} was spent to cast it",
+      "clauseLower": "if {w}{w} was spent to cast it",
+      "count": 2,
+      "exampleCards": [
+        "Catharsis",
+        "Emptiness"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if 4 or more damage was dealt to it this turn",
@@ -9154,6 +9285,17 @@
       "sampleResult": true
     },
     {
+      "clause": "if Kona is tapped",
+      "clauseLower": "if kona is tapped",
+      "count": 2,
+      "exampleCards": [
+        "A-Kona, Rescue Beastie",
+        "Kona, Rescue Beastie"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if no creatures attacked this turn",
       "clauseLower": "if no creatures attacked this turn",
       "count": 2,
@@ -9231,6 +9373,17 @@
       "sampleResult": false
     },
     {
+      "clause": "if that spell was kicked",
+      "clauseLower": "if that spell was kicked",
+      "count": 2,
+      "exampleCards": [
+        "Bloodstone Goblin",
+        "Hallar, the Firefletcher"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if the amount of mana spent to cast it was less than its mana value",
       "clauseLower": "if the amount of mana spent to cast it was less than its mana value",
       "count": 2,
@@ -9239,7 +9392,7 @@
         "Tokka & Rahzar, Terrible Twos"
       ],
       "evaluation": "recognized",
-      "sampleResult": true
+      "sampleResult": false
     },
     {
       "clause": "if the gift was promised",
@@ -9704,6 +9857,36 @@
       "sampleResult": true
     },
     {
+      "clause": "if {B} was spent to cast it",
+      "clauseLower": "if {b} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Shrieking Grotesque"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {C} was spent to cast it",
+      "clauseLower": "if {c} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Drowner of Truth // Drowned Jungle"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {C} wasn't spent to cast it",
+      "clauseLower": "if {c} wasn't spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Wumpus Aberration"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": true
+    },
+    {
       "clause": "if {G} was spent to cast it",
       "clauseLower": "if {g} was spent to cast it",
       "count": 1,
@@ -9722,6 +9905,26 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
+    },
+    {
+      "clause": "if {U} was spent to cast it",
+      "clauseLower": "if {u} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Ogre Savant"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
+    },
+    {
+      "clause": "if {W} was spent to cast it",
+      "clauseLower": "if {w} was spent to cast it",
+      "count": 1,
+      "exampleCards": [
+        "Revenant Patriarch"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if a +1/+1 counter was put on a permanent under your control this turn",
@@ -9792,6 +9995,16 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
+    },
+    {
+      "clause": "if a creature entered and a creature died this turn",
+      "clauseLower": "if a creature entered and a creature died this turn",
+      "count": 1,
+      "exampleCards": [
+        "Perennial Gravewarden"
+      ],
+      "evaluation": "recognized",
+      "sampleResult": false
     },
     {
       "clause": "if a creature entered the battlefield under an opponent's control this turn",
@@ -9912,313 +10125,9 @@
       ],
       "evaluation": "recognized",
       "sampleResult": true
-    },
-    {
-      "clause": "if a player controls no creatures",
-      "clauseLower": "if a player controls no creatures",
-      "count": 1,
-      "exampleCards": [
-        "Sothera, the Supervoid"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if a player discarded a card this turn",
-      "clauseLower": "if a player discarded a card this turn",
-      "count": 1,
-      "exampleCards": [
-        "The Raven Man"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
-      "clause": "if a player has more cards in hand than each other player",
-      "clauseLower": "if a player has more cards in hand than each other player",
-      "count": 1,
-      "exampleCards": [
-        "Sokenzan Renegade"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
-      "clause": "if a player is the monarch",
-      "clauseLower": "if a player is the monarch",
-      "count": 1,
-      "exampleCards": [
-        "Fioran Reformist"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
-      "clause": "if a player was dealt 6 or more combat damage this turn",
-      "clauseLower": "if a player was dealt 6 or more combat damage this turn",
-      "count": 1,
-      "exampleCards": [
-        "Sidequest: Play Blitzball // World Champion, Celestial Weapon"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if a player was dealt combat damage by a Zombie this turn",
-      "clauseLower": "if a player was dealt combat damage by a zombie this turn",
-      "count": 1,
-      "exampleCards": [
-        "Lost Monarch of Ifnir"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if a player would planeswalk as a result of rolling the planar die",
-      "clauseLower": "if a player would planeswalk as a result of rolling the planar die",
-      "count": 1,
-      "exampleCards": [
-        "Fixed Point in Time"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
-      "clause": "if a source would deal damage",
-      "clauseLower": "if a source would deal damage",
-      "count": 1,
-      "exampleCards": [
-        "Approach My Molten Realm"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
-      "clause": "if a source would deal damage to that player or a permanent that player controls",
-      "clauseLower": "if a source would deal damage to that player or a permanent that player controls",
-      "count": 1,
-      "exampleCards": [
-        "Lightning, Army of One"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
-      "clause": "if all lands on the battlefield are Islands",
-      "clauseLower": "if all lands on the battlefield are islands",
-      "count": 1,
-      "exampleCards": [
-        "Quicksilver Fountain"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if all nonland permanents you control are white",
-      "clauseLower": "if all nonland permanents you control are white",
-      "count": 1,
-      "exampleCards": [
-        "Zealots en-Dal"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
-    },
-    {
-      "clause": "if an artifact or creature was put into a graveyard from the battlefield this turn",
-      "clauseLower": "if an artifact or creature was put into a graveyard from the battlefield this turn",
-      "count": 1,
-      "exampleCards": [
-        "Ichor Shade"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
-      "clause": "if an Assassin crewed it this turn",
-      "clauseLower": "if an assassin crewed it this turn",
-      "count": 1,
-      "exampleCards": [
-        "Adrestia"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": true
-    },
-    {
-      "clause": "if an Aura you controlled was attached to it",
-      "clauseLower": "if an aura you controlled was attached to it",
-      "count": 1,
-      "exampleCards": [
-        "Dawn Evangel"
-      ],
-      "evaluation": "recognized",
-      "sampleResult": false
     }
   ],
-  "topRecognizedNull": [
-    {
-      "clause": "if mana from a Treasure was spent to cast it",
-      "clauseLower": "if mana from a treasure was spent to cast it",
-      "count": 5,
-      "exampleCards": [
-        "Alchemist's Talent",
-        "Hired Hexblade",
-        "Jaded Sell-Sword",
-        "Marut",
-        "Mastermind Plum"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {B}{B} was spent to cast it",
-      "clauseLower": "if {b}{b} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Deceit",
-        "Emptiness"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {R} was spent to cast it",
-      "clauseLower": "if {r} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Gruul Scrapper",
-        "Steamcore Weird"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {R}{R} was spent to cast it",
-      "clauseLower": "if {r}{r} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Catharsis",
-        "Vibrance"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {U}{U} was spent to cast it",
-      "clauseLower": "if {u}{u} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Deceit",
-        "Wistfulness"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {W}{W} was spent to cast it",
-      "clauseLower": "if {w}{w} was spent to cast it",
-      "count": 2,
-      "exampleCards": [
-        "Catharsis",
-        "Emptiness"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if that spell was kicked",
-      "clauseLower": "if that spell was kicked",
-      "count": 2,
-      "exampleCards": [
-        "Bloodstone Goblin",
-        "Hallar, the Firefletcher"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {B} was spent to cast it",
-      "clauseLower": "if {b} was spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Shrieking Grotesque"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {C} was spent to cast it",
-      "clauseLower": "if {c} was spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Drowner of Truth // Drowned Jungle"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {C} wasn't spent to cast it",
-      "clauseLower": "if {c} wasn't spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Wumpus Aberration"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {U} was spent to cast it",
-      "clauseLower": "if {u} was spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Ogre Savant"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if {W} was spent to cast it",
-      "clauseLower": "if {w} was spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Revenant Patriarch"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if it was kicked twice",
-      "clauseLower": "if it was kicked twice",
-      "count": 1,
-      "exampleCards": [
-        "Archangel of Wrath"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if its additional cost was paid",
-      "clauseLower": "if its additional cost was paid",
-      "count": 1,
-      "exampleCards": [
-        "Graven Archfiend"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if mana from a Treasure was spent to cast it or activate it",
-      "clauseLower": "if mana from a treasure was spent to cast it or activate it",
-      "count": 1,
-      "exampleCards": [
-        "Vazi, Keen Negotiator"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if three or more mana from creatures was spent to cast it",
-      "clauseLower": "if three or more mana from creatures was spent to cast it",
-      "count": 1,
-      "exampleCards": [
-        "Inga and Esika"
-      ],
-      "evaluation": "recognized"
-    },
-    {
-      "clause": "if you attacked with exactly one other creature this combat",
-      "clauseLower": "if you attacked with exactly one other creature this combat",
-      "count": 1,
-      "exampleCards": [
-        "Creepy Puppeteer"
-      ],
-      "evaluation": "recognized"
-    }
-  ],
+  "topRecognizedNull": [],
   "topFallback": [],
   "topUnknown": []
 }

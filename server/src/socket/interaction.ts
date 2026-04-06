@@ -4778,6 +4778,123 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       debug(2, `[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, queued TARGET_SELECTION (${graveyardTargets.length} targets)`);
       return;
     }
+
+    const parseGraveyardToLibraryTypeFilter = (text: string): string[] | undefined => {
+      const qualifierMatch = text.match(/put target (.+?) card from (?:a|any) graveyard on (?:the )?(?:top|bottom) of its owner['’]s library/i);
+      const qualifier = String(qualifierMatch?.[1] || '').trim().toLowerCase();
+      if (!qualifier) return undefined;
+
+      const parsed = qualifier
+        .replace(/\band\b/gi, ',')
+        .replace(/\bor\b/gi, ',')
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .filter((part) => ['artifact', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery'].includes(part));
+
+      return parsed.length > 0 ? parsed : undefined;
+    };
+
+    const graveyardToLibraryMatch = scopedAbilityFullText.match(/put target (?:.+? )?card from (?:a|any) graveyard on (?:the )?(top|bottom) of its owner['’]s library/i);
+    if (graveyardToLibraryMatch && isGenericActivatedAbilityId) {
+      const placement = String(graveyardToLibraryMatch[1] || 'bottom').toLowerCase() === 'top' ? 'top' : 'bottom';
+      const costText = String(scopedAbilityFullText.split(':')[0] || '').trim();
+      const unsupportedCostText = costText
+        .replace(/\{[^}]+\}/g, ' ')
+        .replace(/[\s,]+/g, ' ')
+        .trim();
+      if (unsupportedCostText.length > 0) {
+        socket.emit('error', {
+          code: 'UNSUPPORTED_COST',
+          message: `Unsupported activation cost (${unsupportedCostText}).`,
+        });
+        return;
+      }
+
+      const manaSymbols = costText.match(/\{[^}]+\}/g) || [];
+      const manaOnly = manaSymbols.filter((symbol) => !/^\{T\}$/i.test(symbol)).join('');
+      if (manaOnly) {
+        const parsedCost = parseManaCost(manaOnly);
+        const pool = getOrInitManaPool(game.state, pid);
+        const totalAvailable = calculateTotalAvailableMana(pool, []);
+        const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
+        if (validationError) {
+          socket.emit('error', { code: 'INSUFFICIENT_MANA', message: validationError });
+          return;
+        }
+        consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, '[activateBattlefieldAbility:graveyard-to-library]');
+      }
+
+      const tappedPermanentsForCost = /\{T\}/i.test(costText) ? [String(permanentId)] : [];
+      if (tappedPermanentsForCost.length > 0) {
+        (permanent as any).tapped = true;
+      }
+
+      const targetFilterTypes = parseGraveyardToLibraryTypeFilter(scopedAbilityFullText);
+      const zonesAll = (game.state as any)?.zones || {};
+      const playersAll: any[] = Array.isArray((game.state as any)?.players) ? (game.state as any).players : [];
+      const graveyardTargets: any[] = [];
+
+      for (const p of playersAll) {
+        const pId = String(p?.id || '');
+        if (!pId) continue;
+        const pZones = zonesAll?.[pId];
+        const gy = pZones && Array.isArray(pZones.graveyard) ? pZones.graveyard : [];
+        for (const c of gy) {
+          if (!c || !c.id) continue;
+          const typeLine = String(c.type_line || '').toLowerCase();
+          if (Array.isArray(targetFilterTypes) && targetFilterTypes.length > 0 && !targetFilterTypes.some((typeName) => typeLine.includes(typeName))) {
+            continue;
+          }
+          graveyardTargets.push({
+            id: String(c.id),
+            label: `${String(c.name || 'Card')} (${getPlayerName(game, pId)})`,
+            description: String(c.type_line || 'Card'),
+            imageUrl: c.image_uris?.small || c.image_uris?.normal,
+          });
+        }
+      }
+
+      if (graveyardTargets.length === 0) {
+        socket.emit('error', {
+          code: 'NO_VALID_TARGETS',
+          message: 'No cards in any graveyard match this ability',
+        });
+        return;
+      }
+
+      const resolvedAbilityText = String(scopedAbilityText || `Put target card from a graveyard on the ${placement} of its owner's library.`).trim();
+      const resolvedActivatedAbilityText = String(scopedAbilityFullText || `${costText}: ${resolvedAbilityText}`).trim();
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: pid as any,
+        sourceId: permanentId,
+        sourceName: cardName,
+        sourceImage: (permanent as any)?.card?.image_uris?.small || (permanent as any)?.card?.image_uris?.normal,
+        description: `Choose a card to put on the ${placement} of its owner's library${costText ? ` (${costText})` : ''}`,
+        mandatory: true,
+        validTargets: graveyardTargets,
+        targetTypes: ['graveyard_card'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'card in a graveyard',
+        battlefieldAbilityTargetSelection: true,
+        permanentId,
+        abilityId,
+        cardName,
+        abilityText: resolvedAbilityText,
+        activatedAbilityText: resolvedActivatedAbilityText,
+        tappedPermanentsForCost,
+      } as any);
+
+      if (typeof game.bumpSeq === 'function') {
+        game.bumpSeq();
+      }
+      broadcastGame(io, game, gameId);
+      debug(2, `[activateBattlefieldAbility] Graveyard-to-library ability on ${cardName}: queued TARGET_SELECTION (${graveyardTargets.length} targets)`);
+      return;
+    }
     
     // Handle Control Change abilities (Humble Defector, etc.)
     // Check registry first, then fall back to pattern matching for unregistered cards

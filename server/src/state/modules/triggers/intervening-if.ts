@@ -132,6 +132,33 @@ function getCardsDrawnThisTurn(ctx: GameContext, playerId: string): number {
   return typeof v === 'number' ? v : 0;
 }
 
+function getExplicitColorSetFromObject(obj: any): Set<string> | null {
+  if (!obj) return null;
+
+  const colors =
+    (obj as any)?.colors ??
+    (obj as any)?.color_identity ??
+    (obj as any)?.card?.colors ??
+    (obj as any)?.card?.color_identity;
+
+  if (Array.isArray(colors)) {
+    const set = new Set<string>();
+    for (const color of colors) {
+      const normalized = normalizeColorToken(String(color ?? ''));
+      if (normalized) set.add(normalized);
+    }
+    return set;
+  }
+
+  const color = (obj as any)?.color ?? (obj as any)?.card?.color;
+  if (typeof color === 'string' && color.trim()) {
+    const normalized = normalizeColorToken(color);
+    return normalized ? new Set<string>([normalized]) : new Set<string>();
+  }
+
+  return null;
+}
+
 function getLifeGainedThisTurn(ctx: GameContext, playerId: string): number {
   const map = (ctx as any).state?.lifeGainedThisTurn;
   const v = map?.[playerId];
@@ -1604,6 +1631,33 @@ function evaluateInterveningIfClauseInternal(
 ): InterveningIfInternalResult {
   sourcePermanent = attachInterveningIfRefs(sourcePermanent, refs);
   const clause = toLower(clauseText);
+
+  if (clause.includes('if you control a creature with a +1/+1 counter on it that attacked this turn')) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+
+    const hasAnyCountersObject = battlefield.some((perm: any) => perm && (perm as any).counters && typeof (perm as any).counters === 'object');
+    if (!hasAnyCountersObject) return null;
+
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (String((perm as any).controller ?? '') !== String(controllerId)) continue;
+
+      const typeLine = String((perm as any)?.card?.type_line ?? '').toLowerCase();
+      if (!typeLine.includes('creature')) continue;
+
+      const plusOneCounters = getCounterCountCaseInsensitiveFromPerm(perm, '+1/+1');
+      if (!(typeof plusOneCounters === 'number' && plusOneCounters > 0)) continue;
+
+      const attacked =
+        (perm as any)?.attackedThisTurn === true ||
+        (typeof (perm as any)?.attacking === 'string' && String((perm as any).attacking).trim() !== '') ||
+        (perm as any)?.isAttacking === true;
+      if (attacked) return true;
+    }
+
+    return false;
+  }
 
   // ===== Day / Night (when state provides it) =====
   // Most of the pre-day/night werewolf templates are handled via spells-cast-last-turn checks.
@@ -7604,9 +7658,54 @@ function evaluateInterveningIfClauseInternal(
     return typeof v === 'boolean' ? v : null;
   }
 
+  // "if a creature entered and a creature died this turn"
+  if (/^if\s+a\s+creature\s+entered\s+and\s+a\s+creature\s+died\s+this\s+turn$/i.test(clause)) {
+    const stateAny = (ctx as any).state as any;
+    const enteredMap = stateAny?.creaturesEnteredBattlefieldThisTurnByController;
+    if (!enteredMap || typeof enteredMap !== 'object') return null;
+
+    const enteredTotal = (Object.values(enteredMap as any) as any[]).reduce(
+      (sum: number, value: any) => sum + (typeof value === 'number' ? value : 0),
+      0
+    );
+    const died = isCreatureDiedThisTurn(ctx);
+    if (died === null) return null;
+    return enteredTotal > 0 && died;
+  }
+
   // "if you've cast a noncreature spell this turn"
   if (/^if\s+you'?ve\s+cast\s+a\s+noncreature\s+spell\s+this\s+turn$/i.test(clause) || /^if\s+you\s+have\s+cast\s+a\s+noncreature\s+spell\s+this\s+turn$/i.test(clause)) {
     return getNoncreatureSpellsCastThisTurnCount(ctx, controllerId) >= 1;
+  }
+
+  // "if you've cast an instant or sorcery spell this turn"
+  if (
+    /^if\s+you'?ve\s+cast\s+an\s+instant\s+or\s+sorcery\s+spell\s+this\s+turn$/i.test(clause) ||
+    /^if\s+you\s+have\s+cast\s+an\s+instant\s+or\s+sorcery\s+spell\s+this\s+turn$/i.test(clause)
+  ) {
+    const raw = (ctx as any).state?.spellsCastThisTurn;
+    if (!Array.isArray(raw)) return null;
+
+    const spells = getSpellsCastThisTurn(ctx).filter((s: any) => String(s?.casterId || s?.controller || '') === controllerId);
+    if (spells.length === 0) return false;
+
+    let unknown = false;
+    for (const spell of spells) {
+      const explicit = (spell as any)?.isInstantOrSorcery;
+      if (typeof explicit === 'boolean') {
+        if (explicit) return true;
+        continue;
+      }
+
+      const typeLine = String((spell as any)?.card?.type_line ?? (spell as any)?.type_line ?? '').toLowerCase();
+      if (!typeLine) {
+        unknown = true;
+        continue;
+      }
+      if (typeLine.includes('instant') || typeLine.includes('sorcery')) return true;
+    }
+
+    return unknown ? null : false;
   }
 
   // "if an opponent cast a blue and/or black spell this turn" (Sandstalker Moloch)
@@ -7944,6 +8043,37 @@ function evaluateInterveningIfClauseInternal(
       stateAny?.plusOneCounterPlacedOnPermanentThisTurn?.[controllerId];
     if (typeof v === 'boolean') return v;
     return null;
+  }
+
+  // "if you control a creature with a +1/+1 counter on it that attacked this turn"
+  if (
+    /^if\s+you\s+control\s+a\s+creature\s+with\s+a\s+\+1\/\+1\s+counter\s+on\s+it\s+that\s+attacked\s+this\s+turn\.?$/i.test(clause) ||
+    clause.toLowerCase().includes('if you control a creature with a +1/+1 counter on it that attacked this turn')
+  ) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+
+    const hasAnyCountersObject = battlefield.some((perm: any) => perm && (perm as any).counters && typeof (perm as any).counters === 'object');
+    if (!hasAnyCountersObject) return null;
+
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (String((perm as any).controller ?? '') !== String(controllerId)) continue;
+
+      const typeLine = String((perm as any)?.card?.type_line ?? '').toLowerCase();
+      if (!typeLine.includes('creature')) continue;
+
+      const plusOneCounters = getCounterCountCaseInsensitiveFromPerm(perm, '+1/+1');
+      if (!(typeof plusOneCounters === 'number' && plusOneCounters > 0)) continue;
+
+      const attacked =
+        (perm as any)?.attackedThisTurn === true ||
+        (typeof (perm as any)?.attacking === 'string' && String((perm as any).attacking).trim() !== '') ||
+        (perm as any)?.isAttacking === true;
+      if (attacked) return true;
+    }
+
+    return false;
   }
 
   // "if you sacrificed N or more Clues this turn"
@@ -10457,6 +10587,14 @@ function evaluateInterveningIfClauseInternal(
     return (thisPermanentForSelfClauses as any).tapped !== true;
   }
 
+  // "if this creature isn't all colors"
+  if (/^if\s+this\s+creature\s+isn'?t\s+all\s+colors$/i.test(clause) || /^if\s+this\s+creature\s+is\s+not\s+all\s+colors$/i.test(clause)) {
+    if (!thisPermanentForSelfClauses) return null;
+    const colors = getExplicitColorSetFromObject(thisPermanentForSelfClauses);
+    if (colors === null) return null;
+    return colors.size < 5;
+  }
+
   if (/^if\s+it\s+is\s+enchanted$/i.test(clause) || /^if\s+it'?s\s+enchanted$/i.test(clause)) {
     if (!thisPermanentForSelfClauses) return null;
     return isPermanentEnchanted(ctx, thisPermanentForSelfClauses);
@@ -10732,6 +10870,28 @@ function evaluateInterveningIfClauseInternal(
       item?.card?.paidSpectacleCost ??
       item?.card?.spectaclePaid ??
       item?.card?.castWithSpectacle;
+    return typeof raw === 'boolean' ? raw : null;
+  }
+
+  // "if his sneak cost was paid"
+  if (/^if\s+his\s+sneak\s+cost\s+was\s+paid$/i.test(clause)) {
+    const item = getTriggeringStackItemForInterveningIf() ?? sourcePermanent;
+    if (!item) return null;
+    const altId =
+      item?.alternateCostId ??
+      item?.alternativeCost ??
+      item?.card?.alternateCostId ??
+      item?.card?.alternativeCost;
+    if (typeof altId === 'string' && altId.length > 0) return String(altId).toLowerCase() === 'sneak';
+    const raw =
+      item?.sneakCostWasPaid ??
+      item?.paidSneakCost ??
+      item?.sneakPaid ??
+      item?.castWithSneak ??
+      item?.card?.sneakCostWasPaid ??
+      item?.card?.paidSneakCost ??
+      item?.card?.sneakPaid ??
+      item?.card?.castWithSneak;
     return typeof raw === 'boolean' ? raw : null;
   }
 

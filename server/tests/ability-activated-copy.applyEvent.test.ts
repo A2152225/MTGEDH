@@ -237,6 +237,46 @@ describe('ability-activated copy retarget metadata via applyEvent', () => {
       modalOptions: ['gain_life', 'deal_damage'],
     });
   });
+    it('replay pushTriggeredAbility preserves bound graveyard return metadata', () => {
+      const ctx: any = {
+        state: {
+          battlefield: [],
+          stack: [],
+        },
+        bumpSeq() {},
+      };
+
+      applyEvent(ctx, {
+        type: 'pushTriggeredAbility',
+        triggerId: 'trigger_death_1',
+        sourceId: 'aura_1',
+        sourceName: 'Demonic Vigor',
+        controllerId: 'p1',
+        description: "return that card to its owner's hand",
+        triggerType: 'creature_dies',
+        effect: "return that card to its owner's hand",
+        mandatory: true,
+        targetZone: 'graveyard',
+        targetDestination: 'hand',
+        destinationUsesSelectedCardOwner: true,
+        boundGraveyardCardId: 'creature_card_1',
+      } as any);
+
+      expect(ctx.state.stack).toHaveLength(1);
+      expect(ctx.state.stack[0]).toMatchObject({
+        id: 'trigger_death_1',
+        type: 'triggered_ability',
+        controller: 'p1',
+        source: 'aura_1',
+        sourceName: 'Demonic Vigor',
+        description: "return that card to its owner's hand",
+        triggerType: 'creature_dies',
+        targetZone: 'graveyard',
+        targetDestination: 'hand',
+        destinationUsesSelectedCardOwner: true,
+        boundGraveyardCardId: 'creature_card_1',
+      });
+    });
 
   it('replay activateBattlefieldAbility reattaches persisted retarget metadata to the matching stack item', () => {
     const ctx: any = {

@@ -304,12 +304,17 @@ export interface GraveyardSelectionStep extends BaseResolutionStep {
     convokeTappedCreatures?: string[];
   };
 
+  readonly destinationUsesSelectedCardOwner?: boolean;
+  readonly battlefieldControllerMode?: 'selector' | 'owner';
+  readonly battlefieldControllerId?: string;
+
   readonly validTargets: readonly {
     id: string;
     name: string;
     typeLine?: string;
     manaCost?: string;
     imageUrl?: string;
+    zoneOwnerId?: string;
   }[];
   readonly imageUrl?: string;
 }

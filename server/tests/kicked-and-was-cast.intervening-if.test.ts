@@ -102,4 +102,29 @@ describe('Intervening-if: kicked + was cast (safe defaults)', () => {
     // Still returns null when nothing is tracked.
     expect(evaluateInterveningIfClause(g, 'p1', 'if that spell was foretold', { card: { name: 'X' } } as any)).toBe(null);
   });
+
+  it('"if his sneak cost was paid" respects alternate-cost metadata', () => {
+    const g: any = { state: {} };
+
+    expect(evaluateInterveningIfClause(g, 'p1', 'if his sneak cost was paid', { alternateCostId: 'sneak' } as any)).toBe(true);
+    expect(evaluateInterveningIfClause(g, 'p1', 'if his sneak cost was paid', { card: { alternateCostId: 'sneak' } } as any)).toBe(true);
+    expect(evaluateInterveningIfClause(g, 'p1', 'if his sneak cost was paid', { alternateCostId: 'spectacle' } as any)).toBe(false);
+  });
+
+  it('"if his sneak cost was paid" falls back to explicit boolean metadata and refs stack item', () => {
+    const g: any = { state: {} };
+
+    expect(evaluateInterveningIfClause(g, 'p1', 'if his sneak cost was paid', { castWithSneak: true } as any)).toBe(true);
+    expect(evaluateInterveningIfClause(g, 'p1', 'if his sneak cost was paid', { sneakCostWasPaid: false } as any)).toBe(false);
+    expect(
+      evaluateInterveningIfClause(
+        g,
+        'p1',
+        'if his sneak cost was paid',
+        { alternateCostId: 'spectacle' } as any,
+        { stackItem: { alternateCostId: 'sneak' } } as any,
+      ),
+    ).toBe(true);
+    expect(evaluateInterveningIfClause(g, 'p1', 'if his sneak cost was paid', { card: { name: 'X' } } as any)).toBe(null);
+  });
 });

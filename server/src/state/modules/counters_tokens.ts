@@ -9,6 +9,7 @@ import { getDeathTriggers } from "./triggered-abilities.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
+import { appendEvent } from '../../db/index.js';
 import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
 import { ensureInitialDayNightDesignationFromBattlefield } from "./day-night.js";
@@ -27,6 +28,294 @@ interface CounterModifier {
   doublesYourCounters: boolean;
   halvesOpponentCounters: boolean;
   addsBonusCounter: number; // For Hardened Scales (+1)
+}
+
+type DeathTriggerStackMetadata = {
+  requiresTarget?: true;
+  needsTargetSelection?: true;
+  targetZone?: 'graveyard';
+  targetDestination?: 'hand' | 'battlefield';
+  targetGraveyardScope?: 'your' | 'any';
+  destinationUsesSelectedCardOwner?: true;
+  battlefieldControllerMode?: 'owner';
+  delayedReturnAt?: 'next_end_step' | 'next_upkeep_selected_card_owner';
+  battlefieldTapped?: true;
+  battlefieldCounters?: Record<string, number>;
+  battlefieldFaceDown?: true;
+  battlefieldSuspected?: true;
+  targetFilterTypes?: string[];
+  targetFilterPermanentOnly?: true;
+  boundGraveyardCardId?: string;
+  boundGraveyardOwnerId?: string;
+};
+
+function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any): DeathTriggerStackMetadata {
+  const lower = String(effectText || '').toLowerCase();
+  const metadata: DeathTriggerStackMetadata = {};
+
+  if (lower.includes('at the beginning of the next end step') || lower.includes('at beginning of next end step')) {
+    metadata.delayedReturnAt = 'next_end_step';
+  }
+  if (
+    lower.includes('at the beginning of their next upkeep') ||
+    lower.includes('at beginning of their next upkeep') ||
+    lower.includes("at the beginning of its owner's next upkeep") ||
+    lower.includes("at beginning of its owner's next upkeep")
+  ) {
+    metadata.delayedReturnAt = 'next_upkeep_selected_card_owner';
+  }
+
+  if (lower.includes('return it to the battlefield tapped') || lower.includes('return that card to the battlefield tapped')) {
+    metadata.battlefieldTapped = true;
+  }
+  if (lower.includes('face down')) {
+    metadata.battlefieldFaceDown = true;
+  }
+  if (lower.includes('suspect it')) {
+    metadata.battlefieldSuspected = true;
+  }
+  if ((lower.includes('to the battlefield') && /\btapped\b/.test(lower)) || lower.includes('tapped under') || lower.includes('face down and tapped') || lower.includes('tapped and face down')) {
+    metadata.battlefieldTapped = true;
+  }
+
+  const battlefieldCounters: Record<string, number> = {};
+  if (
+    lower.includes('with a +1/+1 counter on it') ||
+    lower.includes('with an additional +1/+1 counter on it') ||
+    lower.includes('with +1/+1 counter')
+  ) {
+    battlefieldCounters['+1/+1'] = 1;
+  }
+  if (lower.includes('with a flying counter on it')) {
+    battlefieldCounters['flying'] = 1;
+  }
+  if (lower.includes('with a finality counter on it')) {
+    battlefieldCounters['finality'] = 1;
+  }
+  if (Object.keys(battlefieldCounters).length > 0) {
+    metadata.battlefieldCounters = battlefieldCounters;
+  }
+
+  if (
+    lower.includes('target') &&
+    (lower.includes('from your graveyard') || lower.includes('from a graveyard') || lower.includes('from any graveyard'))
+  ) {
+    metadata.requiresTarget = true;
+    metadata.needsTargetSelection = true;
+    metadata.targetZone = 'graveyard';
+    metadata.targetGraveyardScope = lower.includes('from your graveyard') ? 'your' : 'any';
+
+    if (/to its owner['’]s hand/.test(lower)) {
+      metadata.targetDestination = 'hand';
+      metadata.destinationUsesSelectedCardOwner = true;
+    } else if (lower.includes('to your hand')) {
+      metadata.targetDestination = 'hand';
+    } else if (/under its owner['’]s control/.test(lower)) {
+      metadata.targetDestination = 'battlefield';
+      metadata.battlefieldControllerMode = 'owner';
+    } else if (lower.includes('to the battlefield')) {
+      metadata.targetDestination = 'battlefield';
+    }
+
+    if (lower.includes('target permanent card')) {
+      metadata.targetFilterPermanentOnly = true;
+    } else if (lower.includes('target creature card')) {
+      metadata.targetFilterTypes = ['creature'];
+    } else if (lower.includes('target artifact card')) {
+      metadata.targetFilterTypes = ['artifact'];
+    } else if (lower.includes('target enchantment card')) {
+      metadata.targetFilterTypes = ['enchantment'];
+    } else if (lower.includes('target land card')) {
+      metadata.targetFilterTypes = ['land'];
+    } else if (lower.includes('target planeswalker card')) {
+      metadata.targetFilterTypes = ['planeswalker'];
+    } else if (lower.includes('target instant or sorcery card')) {
+      metadata.targetFilterTypes = ['instant', 'sorcery'];
+    }
+
+    return metadata;
+  }
+
+  const boundCardId = String(dyingPermanent?.card?.id || '').trim();
+  const boundOwnerId = String(dyingPermanent?.owner || dyingPermanent?.controller || '').trim();
+  if (!boundCardId) {
+    return metadata;
+  }
+
+  if (/^return (?:that card|it) to its owner['’]s hand\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'hand';
+    metadata.destinationUsesSelectedCardOwner = true;
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to its owner['’]s hand at the beginning of the next end step\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'hand';
+    metadata.destinationUsesSelectedCardOwner = true;
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return to owner['’]s hand at beginning of next end step\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'hand';
+    metadata.destinationUsesSelectedCardOwner = true;
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to your hand\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'hand';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield(?: tapped)? under its owner['’]s control(?: with [^.]+?)?(?: at the beginning of (?:the next end step|their next upkeep|its owner['’]s next upkeep))?\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.battlefieldControllerMode = 'owner';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield(?: tapped)? under your control(?: with [^.]+?)?(?: at the beginning of the next end step)?\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return creature to battlefield under your control(?: with (?:an additional )?\+1\/\+1 counter(?: on it)?)? at beginning of next end step\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield under its owner['’]s control\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.battlefieldControllerMode = 'owner';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield under its owner['’]s control at the beginning of the next end step\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.battlefieldControllerMode = 'owner';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return to battlefield under owner['’]s control at beginning of next end step\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.battlefieldControllerMode = 'owner';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield under your control\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield under your control at the beginning of the next end step\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return to battlefield under your control with an additional \+1\/\+1 counter on it at beginning of next end step/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return (?:that card|it) to the battlefield(?: tapped)? under its owner['’]s control at the beginning of (?:their|its owner['’]s) next upkeep\.?$/i.test(effectText)) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.battlefieldControllerMode = 'owner';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+  } else if (/^return\b/i.test(effectText) && lower.includes('to the battlefield')) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'battlefield';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+    if (/under (?:its )?owner['’]s control/.test(lower)) {
+      metadata.battlefieldControllerMode = 'owner';
+    }
+  } else if (/^return\b/i.test(effectText) && (lower.includes("to its owner's hand") || lower.includes("to owner's hand") || lower.includes('to your hand'))) {
+    metadata.targetZone = 'graveyard';
+    metadata.targetDestination = 'hand';
+    metadata.boundGraveyardCardId = boundCardId;
+    metadata.boundGraveyardOwnerId = boundOwnerId || undefined;
+    if (lower.includes("to its owner's hand") || lower.includes("to owner's hand")) {
+      metadata.destinationUsesSelectedCardOwner = true;
+    }
+  }
+
+  return metadata;
+}
+
+function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanent: any): void {
+  const state = ctx.state as any;
+  const triggerId = uid('trigger');
+  const effectText = String(trigger?.effect || '').trim();
+  const metadata = inferDeathTriggerStackMetadata(effectText, dyingPermanent);
+
+  const stackItem = {
+    id: triggerId,
+    type: 'triggered_ability',
+    controller: trigger.source.controllerId,
+    source: trigger.source.permanentId,
+    sourceName: trigger.source.cardName,
+    description: effectText,
+    triggerType: 'creature_dies',
+    effect: effectText,
+    mandatory: true,
+    ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+    ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
+    ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
+    ...(metadata.targetGraveyardScope ? { targetGraveyardScope: metadata.targetGraveyardScope } : null),
+    ...(metadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+    ...(metadata.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
+    ...(metadata.delayedReturnAt ? { delayedReturnAt: metadata.delayedReturnAt } : null),
+    ...(metadata.battlefieldTapped === true ? { battlefieldTapped: true } : null),
+    ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
+    ...(metadata.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
+    ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
+    ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+    ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+    ...(metadata.boundGraveyardCardId ? { boundGraveyardCardId: metadata.boundGraveyardCardId } : null),
+    ...(metadata.boundGraveyardOwnerId ? { boundGraveyardOwnerId: metadata.boundGraveyardOwnerId } : null),
+  } as any;
+
+  state.stack = state.stack || [];
+  state.stack.push(stackItem);
+
+  const gameId = String((ctx as any)?.gameId || '').trim();
+  if (!gameId) {
+    return;
+  }
+
+  try {
+    appendEvent(gameId, state.seq ?? 0, 'pushTriggeredAbility', {
+      triggerId,
+      sourceId: trigger.source.permanentId,
+      sourceName: trigger.source.cardName,
+      controllerId: trigger.source.controllerId,
+      description: effectText,
+      triggerType: 'creature_dies',
+      effect: effectText,
+      mandatory: true,
+      ...(metadata.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
+      ...(metadata.targetZone ? { targetZone: metadata.targetZone } : null),
+      ...(metadata.targetDestination ? { targetDestination: metadata.targetDestination } : null),
+      ...(metadata.targetGraveyardScope ? { targetGraveyardScope: metadata.targetGraveyardScope } : null),
+      ...(metadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
+      ...(metadata.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
+      ...(metadata.delayedReturnAt ? { delayedReturnAt: metadata.delayedReturnAt } : null),
+      ...(metadata.battlefieldTapped === true ? { battlefieldTapped: true } : null),
+      ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
+      ...(metadata.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
+      ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
+      ...(Array.isArray(metadata.targetFilterTypes) ? { targetFilterTypes: metadata.targetFilterTypes } : null),
+      ...(metadata.targetFilterPermanentOnly === true ? { targetFilterPermanentOnly: true } : null),
+      ...(metadata.boundGraveyardCardId ? { boundGraveyardCardId: metadata.boundGraveyardCardId } : null),
+      ...(metadata.boundGraveyardOwnerId ? { boundGraveyardOwnerId: metadata.boundGraveyardOwnerId } : null),
+    });
+  } catch (err) {
+    debugWarn(1, '[movePermanentToGraveyard] appendEvent(pushTriggeredAbility death) failed:', err);
+  }
 }
 
 export function trackPermanentSacrificedThisTurn(state: any, permanent: any): void {
@@ -864,17 +1153,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
           );
           if (ok === false) continue;
 
-          const triggerId = uid("trigger");
-          state.stack.push({
-            id: triggerId,
-            type: 'triggered_ability',
-            controller: trigger.source.controllerId,
-            source: trigger.source.permanentId,
-            sourceName: trigger.source.cardName,
-            description: trigger.effect,
-            triggerType: 'creature_dies',
-            mandatory: true,
-          } as any);
+          pushDeathTriggerOntoStack(ctx, trigger, perm);
         }
       }
       
@@ -1440,17 +1719,7 @@ export function runSBA(ctx: GameContext) {
                 );
                 if (ok === false) continue;
 
-                const triggerId = uid("trigger");
-                state.stack.push({
-                  id: triggerId,
-                  type: 'triggered_ability',
-                  controller: trigger.source.controllerId,
-                  source: trigger.source.permanentId,
-                  sourceName: trigger.source.cardName,
-                  description: trigger.effect,
-                  triggerType: 'creature_dies',
-                  mandatory: true,
-                } as any);
+                pushDeathTriggerOntoStack(ctx, trigger, destroyed);
               }
             }
           } catch (err) {

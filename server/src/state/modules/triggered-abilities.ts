@@ -2298,6 +2298,68 @@ export interface DeathTriggerResult {
   dyingCreatureCard?: any; // The card that died, for reanimation effects
 }
 
+function deathTriggerPermanentHasKeyword(perm: any, keywordLower: string): boolean {
+  const wanted = String(keywordLower || '').toLowerCase().trim();
+  if (!wanted) return false;
+
+  const counters = perm?.counters && typeof perm.counters === 'object' ? perm.counters : {};
+  if (wanted === 'flying' && Number(counters?.flying || 0) > 0) {
+    return true;
+  }
+
+  const keywordSets = [
+    Array.isArray(perm?.keywords) ? perm.keywords : [],
+    Array.isArray(perm?.grantedKeywords) ? perm.grantedKeywords : [],
+    Array.isArray(perm?.card?.keywords) ? perm.card.keywords : [],
+  ];
+  for (const keywords of keywordSets) {
+    if (keywords.some((keyword: any) => String(keyword || '').toLowerCase() === wanted)) {
+      return true;
+    }
+  }
+
+  return String(perm?.card?.oracle_text || '').toLowerCase().includes(wanted);
+}
+
+function deathTriggerClauseMatchesDyingCreature(
+  clauseText: string,
+  sourcePermanent: any,
+  dyingCreature: any,
+  dyingCreatureController: string,
+): boolean {
+  const clause = String(clauseText || '').replace(/[’]/g, "'").toLowerCase();
+  if (!clause || !clause.includes('creature')) return false;
+  if (clause.includes('enchanted creature') || clause.includes('equipped creature')) return false;
+  if (clause.includes('this creature') || clause.includes('this permanent') || clause.includes('~')) return false;
+
+  const sourceCardName = String(sourcePermanent?.card?.name || '').trim().toLowerCase();
+  if (sourceCardName && clause.includes(sourceCardName)) return false;
+
+  const sourcePermanentId = String(sourcePermanent?.id || '').trim();
+  const dyingPermanentId = String(dyingCreature?.id || '').trim();
+  if (clause.includes('another') && sourcePermanentId && sourcePermanentId === dyingPermanentId) return false;
+
+  const sourceController = String(sourcePermanent?.controller || '').trim();
+  if (clause.includes('you control') && dyingCreatureController !== sourceController) return false;
+  if ((clause.includes("you don't control") || clause.includes('an opponent controls')) && dyingCreatureController === sourceController) return false;
+
+  const typeLine = String(dyingCreature?.card?.type_line || '').toLowerCase();
+  const counters = dyingCreature?.counters && typeof dyingCreature.counters === 'object' ? dyingCreature.counters : {};
+  const ownerId = String(dyingCreature?.owner || dyingCreature?.card?.owner || '').trim();
+  const isToken = Boolean(dyingCreature?.isToken || dyingCreature?.token || dyingCreature?.card?.isToken || dyingCreature?.card?.token);
+  const isFaceDown = Boolean(dyingCreature?.faceDown || dyingCreature?.isFaceDown || dyingCreature?.card?.faceDown || dyingCreature?.card?.isFaceDown);
+
+  if (clause.includes('nontoken') && isToken) return false;
+  if (clause.includes('nonartifact') && typeLine.includes('artifact')) return false;
+  if (clause.includes('non-angel') && typeLine.includes('angel')) return false;
+  if (clause.includes("but don't own") && ownerId && ownerId === sourceController) return false;
+  if (clause.includes('without flying') && deathTriggerPermanentHasKeyword(dyingCreature, 'flying')) return false;
+  if (clause.includes('with a +1/+1 counter on it') && Number(counters['+1/+1'] || counters.plus1plus1 || 0) <= 0) return false;
+  if (clause.includes('face-down') && !isFaceDown) return false;
+
+  return true;
+}
+
 /**
  * Find all death triggers that should fire when a creature dies.
  * 
@@ -2321,6 +2383,46 @@ export function getDeathTriggers(
   const isCreature = dyingTypeLine.includes('creature');
   
   if (!isCreature) return results;
+
+  const dyingCard = dyingCreature?.card;
+  const dyingCardName = String(dyingCard?.name || 'Unknown');
+  const lowerDyingCardName = dyingCardName.toLowerCase();
+  const dyingOracleText = String(dyingCard?.oracle_text || '');
+  const selfDiesPattern = new RegExp(
+    `when(?:ever)?\\s+(?:~|this creature|${escapeCardNameForRegex(dyingCardName)})\\s+dies,?\\s*([^.]+)`,
+    'i'
+  );
+  const selfDiesMatch = dyingOracleText.match(selfDiesPattern);
+  if (selfDiesMatch) {
+    results.push({
+      source: {
+        permanentId: String(dyingCreature?.id || ''),
+        cardName: dyingCardName,
+        controllerId: String(dyingCreatureController || ''),
+      },
+      effect: selfDiesMatch[1].trim(),
+      requiresSacrificeSelection: selfDiesMatch[1].toLowerCase().includes('sacrifice'),
+    });
+  }
+
+  for (const [knownName, info] of Object.entries(KNOWN_DEATH_TRIGGERS)) {
+    if (info.triggerOn !== 'own') continue;
+    if (!lowerDyingCardName.includes(knownName)) continue;
+    if (results.some((result) => String(result?.source?.permanentId || '') === String(dyingCreature?.id || ''))) {
+      continue;
+    }
+
+    const effect = String(info.effect || '').trim();
+    results.push({
+      source: {
+        permanentId: String(dyingCreature?.id || ''),
+        cardName: dyingCardName,
+        controllerId: String(dyingCreatureController || ''),
+      },
+      effect,
+      requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+    });
+  }
   
   // Check all permanents on the battlefield for death triggers
   for (const permanent of battlefield) {
@@ -2332,8 +2434,69 @@ export function getDeathTriggers(
     const cardName = (card.name || '').toLowerCase();
     const oracleText = (card.oracle_text || '').toLowerCase();
     const permanentController = permanent.controller;
+    const attachedTo = String((permanent as any)?.attachedTo || '').trim();
     
     // ===== DYNAMIC DETECTION (Primary) =====
+
+    if ((oracleText.includes('when enchanted creature dies') || oracleText.includes('whenever enchanted creature dies')) &&
+        attachedTo && attachedTo === String(dyingCreature?.id || '')) {
+      const effectMatch = oracleText.match(/when(?:ever)? enchanted creature dies,?\s*([^.]+)/i);
+      if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
+        const effect = effectMatch[1].trim();
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+          dyingCreatureCard: dyingCreature?.card,
+        });
+      }
+    }
+
+    else if ((oracleText.includes('when equipped creature dies') || oracleText.includes('whenever equipped creature dies')) &&
+        attachedTo && attachedTo === String(dyingCreature?.id || '')) {
+      const effectMatch = oracleText.match(/when(?:ever)? equipped creature dies,?\s*([^.]+)/i);
+      if (effectMatch && !results.some(r => r.source.permanentId === permanent.id)) {
+        const effect = effectMatch[1].trim();
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+          dyingCreatureCard: dyingCreature?.card,
+        });
+      }
+    }
+
+    else {
+      const genericDiesMatch = oracleText.match(/when(?:ever)?\s+([^.]+?)\s+dies,?\s*([^.]+)/i);
+      if (
+        genericDiesMatch &&
+        deathTriggerClauseMatchesDyingCreature(genericDiesMatch[1], permanent, dyingCreature, dyingCreatureController) &&
+        !results.some(r => r.source.permanentId === permanent.id)
+      ) {
+        const effect = genericDiesMatch[2].trim();
+        const returnsUnderControl = effect.toLowerCase().includes('return') &&
+          effect.toLowerCase().includes('under your control');
+        results.push({
+          source: {
+            permanentId: permanent.id,
+            cardName: card.name,
+            controllerId: permanentController,
+          },
+          effect,
+          requiresSacrificeSelection: effect.toLowerCase().includes('sacrifice'),
+          returnsUnderControl,
+          dyingCreatureCard: returnsUnderControl ? dyingCreature?.card : undefined,
+        });
+      }
+    }
     
     // "Whenever a creature you control dies" or "Whenever another creature you control dies"
     if ((oracleText.includes('whenever a creature you control dies') ||

@@ -1010,4 +1010,87 @@ describe('activation effect replay semantics', () => {
     expect(Array.isArray(curator?.exiledCards)).toBe(true);
     expect(curator?.exiledCards?.[0]?.id).toBe('opp_gy_1');
   });
+
+  it('replays graveyard-to-library battlefield activations by rebuilding the stack item and moving the chosen card to its owner\'s library', () => {
+    const game = createInitialGameState('t_activate_graveyard_to_library_replay');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [{ id: 'p1_lib_1', name: 'P1 Top', type_line: 'Artifact', zone: 'library' }],
+        libraryCount: 1,
+      },
+      [p2]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'opp_gy_lib_1',
+            name: 'Opp Card',
+            type_line: 'Sorcery',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+        library: [{ id: 'p2_lib_1', name: 'Existing Top', type_line: 'Instant', zone: 'library' }],
+        libraryCount: 1,
+      },
+    };
+    (game as any).libraries = new Map([
+      [p1, [{ id: 'p1_lib_1', name: 'P1 Top', type_line: 'Artifact', zone: 'library' }]],
+      [p2, [{ id: 'p2_lib_1', name: 'Existing Top', type_line: 'Instant', zone: 'library' }]],
+    ]);
+    (game.state as any).battlefield = [
+      {
+        id: 'source_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'source_card_1',
+          name: 'Reito Lantern',
+          type_line: 'Artifact',
+          oracle_text: '{3}: Put target card from a graveyard on the bottom of its owner\'s library.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'source_1',
+      abilityId: 'source_1-ability-0',
+      cardName: 'Reito Lantern',
+      abilityText: 'Put target card from a graveyard on the bottom of its owner\'s library.',
+      activatedAbilityText: '{3}: Put target card from a graveyard on the bottom of its owner\'s library.',
+      targets: ['opp_gy_lib_1'],
+    } as any);
+
+    const stack = (game.state as any).stack || [];
+    expect(stack).toHaveLength(1);
+    expect(String(stack[0]?.description || '')).toBe('Put target card from a graveyard on the bottom of its owner\'s library.');
+    expect(stack[0]?.targets).toEqual(['opp_gy_lib_1']);
+
+    game.resolveTopOfStack();
+
+    expect((game.state as any).zones[p2].graveyard.some((card: any) => card?.id === 'opp_gy_lib_1')).toBe(false);
+    const p2Library = (game as any).libraries.get(p2) || [];
+    expect(p2Library.map((card: any) => card.id)).toEqual(['p2_lib_1', 'opp_gy_lib_1']);
+  });
 });

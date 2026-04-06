@@ -7,6 +7,7 @@ const oracleCardsPath = path.join(repoRoot, 'oracle-cards.json');
 function parseArgs(argv) {
   const args = {
     count: 500,
+    offset: 0,
     jsonOut: '',
     markdownOut: '',
   };
@@ -16,6 +17,12 @@ function parseArgs(argv) {
     if (arg === '--count') {
       const next = Number(argv[i + 1]);
       if (Number.isFinite(next) && next > 0) args.count = Math.floor(next);
+      i++;
+      continue;
+    }
+    if (arg === '--offset') {
+      const next = Number(argv[i + 1]);
+      if (Number.isFinite(next) && next >= 0) args.offset = Math.floor(next);
       i++;
       continue;
     }
@@ -35,7 +42,8 @@ function parseArgs(argv) {
 }
 
 function resolveOutputPaths(args) {
-  const basename = `oracle-automation-next-${args.count}`;
+  const offsetSuffix = args.offset > 0 ? `-offset-${args.offset}` : '';
+  const basename = `oracle-automation-next-${args.count}${offsetSuffix}`;
   return {
     outputJsonPath: path.join(repoRoot, args.jsonOut || path.join('tools', `${basename}.json`)),
     outputMarkdownPath: path.join(repoRoot, args.markdownOut || path.join('docs', `${basename}.md`)),
@@ -540,25 +548,27 @@ function buildFamilyMatches(cards, config) {
   }));
 }
 
-function buildQueue(cards, targetQueueSize) {
+function buildQueue(cards, targetQueueSize, offset = 0) {
   const seenOracleIds = new Set();
-  const queue = [];
-  const familySummaries = [];
+  const fullQueue = [];
+  const familyAvailableCounts = new Map();
+  const requiredQueueSize = offset + targetQueueSize;
 
   for (const config of familyConfigs) {
     const matches = buildFamilyMatches(cards, config);
+    familyAvailableCounts.set(config.id, matches.length);
     let queuedForFamily = 0;
 
     for (const match of matches) {
       const oracleId = String(match.card.oracle_id || match.card.id || match.card.name);
       if (seenOracleIds.has(oracleId)) continue;
       if (queuedForFamily >= config.targetCount) break;
-      if (queue.length >= targetQueueSize) break;
+      if (fullQueue.length >= requiredQueueSize) break;
 
       seenOracleIds.add(oracleId);
       queuedForFamily++;
-      queue.push({
-        queueIndex: queue.length + 1,
+      fullQueue.push({
+        queueIndex: fullQueue.length + 1,
         familyId: config.id,
         familyTitle: config.title,
         category: config.category,
@@ -570,19 +580,9 @@ function buildQueue(cards, targetQueueSize) {
         clause: match.clause,
       });
     }
-
-    familySummaries.push({
-      id: config.id,
-      title: config.title,
-      category: config.category,
-      targetCount: config.targetCount,
-      queuedCount: queuedForFamily,
-      availableCount: matches.length,
-      notes: config.notes,
-    });
   }
 
-  if (queue.length < targetQueueSize) {
+  if (fullQueue.length < requiredQueueSize) {
     const overflowPool = [];
     for (const config of familyConfigs) {
       const matches = buildFamilyMatches(cards, config);
@@ -602,12 +602,12 @@ function buildQueue(cards, targetQueueSize) {
     });
 
     for (const { config, match } of overflowPool) {
-      if (queue.length >= targetQueueSize) break;
+      if (fullQueue.length >= requiredQueueSize) break;
       const oracleId = String(match.card.oracle_id || match.card.id || match.card.name);
       if (seenOracleIds.has(oracleId)) continue;
       seenOracleIds.add(oracleId);
-      queue.push({
-        queueIndex: queue.length + 1,
+      fullQueue.push({
+        queueIndex: fullQueue.length + 1,
         familyId: config.id,
         familyTitle: `${config.title} (Overflow)`,
         category: config.category,
@@ -621,25 +621,50 @@ function buildQueue(cards, targetQueueSize) {
     }
   }
 
+  const queue = fullQueue.slice(offset, offset + targetQueueSize);
+  const familyQueuedCounts = new Map();
+  for (const item of queue) {
+    familyQueuedCounts.set(item.familyId, (familyQueuedCounts.get(item.familyId) || 0) + 1);
+  }
+
+  const rawFamilySummaries = familyConfigs.map(config => ({
+    id: config.id,
+    title: config.title,
+    category: config.category,
+    targetCount: config.targetCount,
+    queuedCount: familyQueuedCounts.get(config.id) || 0,
+    availableCount: familyAvailableCounts.get(config.id) || 0,
+    notes: config.notes,
+  }));
+
+  const familySummaries = offset > 0
+    ? rawFamilySummaries.filter(family => family.queuedCount > 0)
+    : rawFamilySummaries;
+
   return { queue, familySummaries };
 }
 
 function renderMarkdown(report) {
   const generatedAt = new Date().toISOString();
+  const queueLabel = `${report.queueStartIndex}-${report.queueEndIndex}`;
+  const titleSuffix = report.queueOffset > 0 ? ` (Items ${queueLabel})` : '';
   const lines = [
-    `# Oracle Automation Next ${report.targetQueueSize}`,
+    `# Oracle Automation Next ${report.targetQueueSize}${titleSuffix}`,
     '',
     `Generated: \`${generatedAt}\``,
     'Source: `oracle-cards.json`',
     'Scope: black-border paper-card automation candidates ordered by seam priority. The queue exhausts the active graveyard / recursion seam first, then spills into the next highest-population seams.',
     '',
     `Queued items: \`${report.queue.length}\``,
+    ...(report.queueOffset > 0 ? [`Queue window: \`${queueLabel}\``, ''] : ['']),
+    'Grant review note: when Oracle text contains quoted text like `gains "..."`, treat the quoted text as a granted effect to model separately from the host card\'s own effect text.',
     '',
     '## Queue Rules',
     '',
     '- Ordered by family priority first, then by EDHREC rank, then by card name.',
     '- Cards are deduped by `oracle_id`, so multi-print duplicates do not crowd out breadth.',
     '- This queue is intentionally seam-priority driven: graveyard/recursion work comes first, then the generator rolls into broader high-population seams like token creation, direct damage, draw, sacrifice, counters, and search effects.',
+    ...(report.queueOffset > 0 ? ['- Offset windows preserve the original global queue order; item numbers remain global queue indices rather than restarting from 1.'] : []),
     '- Nim Deathmantle-style payment + return + attach recursion is explicitly kept in the queue even when the family is small.',
     '',
     '## Family Summary',
@@ -672,8 +697,9 @@ function renderMarkdown(report) {
   lines.push('');
   lines.push('## Notes');
   lines.push('');
-  lines.push(`- Regenerate this file with \`node tools/build-next-automation-queue.js --count ${report.targetQueueSize}\` whenever the corpus or family priorities change.`);
+  lines.push(`- Regenerate this file with \`node tools/build-next-automation-queue.js --count ${report.targetQueueSize}${report.queueOffset > 0 ? ` --offset ${report.queueOffset}` : ''}\` whenever the corpus or family priorities change.`);
   lines.push('- If product scope widens beyond graveyard-heavy seams, add new family configs rather than manually editing the queue body.');
+  lines.push('- For cards with quoted granted text, queue the grant and the granted effect separately instead of collapsing them into the host effect line.');
   lines.push('');
 
   return `${lines.join('\n')}\n`;
@@ -683,11 +709,14 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const { outputJsonPath, outputMarkdownPath } = resolveOutputPaths(args);
   const cards = dedupeCards(readOracleCards().filter(isQueueEligible));
-  const { queue, familySummaries } = buildQueue(cards, args.count);
+  const { queue, familySummaries } = buildQueue(cards, args.count, args.offset);
   const report = {
     generatedAt: new Date().toISOString(),
     source: 'oracle-cards.json',
     targetQueueSize: args.count,
+    queueOffset: args.offset,
+    queueStartIndex: queue.length > 0 ? queue[0].queueIndex : args.offset + 1,
+    queueEndIndex: queue.length > 0 ? queue[queue.length - 1].queueIndex : args.offset,
     actualQueueSize: queue.length,
     familySummaries,
     queue,

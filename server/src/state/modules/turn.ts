@@ -391,11 +391,15 @@ function dequeuePendingNextEndStepZoneChangeTriggers(ctx: GameContext): any[] {
     const pendingExile: any[] = Array.isArray(stateAny.pendingExileAtNextEndStep)
       ? stateAny.pendingExileAtNextEndStep
       : [];
+    const pendingDelayedReturns: any[] = Array.isArray(stateAny.pendingDelayedGraveyardReturns)
+      ? stateAny.pendingDelayedGraveyardReturns
+      : [];
 
-    if (pendingSac.length === 0 && pendingExile.length === 0) return [];
+    if (pendingSac.length === 0 && pendingExile.length === 0 && pendingDelayedReturns.length === 0) return [];
 
     const remainingSac: any[] = [];
     const remainingExile: any[] = [];
+    const remainingDelayedReturns: any[] = [];
 
     type Group = {
       controllerId: string;
@@ -453,8 +457,51 @@ function dequeuePendingNextEndStepZoneChangeTriggers(ctx: GameContext): any[] {
       }
     }
 
+    const delayedReturnTriggers: any[] = [];
+    for (const entry of pendingDelayedReturns) {
+      const fireAt = Number(entry?.fireAtTurnNumber ?? 0) || 0;
+      const fireAtStep = String(entry?.fireAtStep || '').toLowerCase() === 'upkeep' ? 'upkeep' : 'end_step';
+      if (fireAtStep !== 'end_step' || fireAt > currentTurn) {
+        remainingDelayedReturns.push(entry);
+        continue;
+      }
+
+      delayedReturnTriggers.push({
+        controllerId: String(entry?.createdBy || entry?.zoneOwnerId || '').trim(),
+        permanentId: String(entry?.cardId || '').trim(),
+        cardName: String(entry?.sourceName || 'Delayed trigger').trim(),
+        description: String(entry?.destination || '').toLowerCase() === 'battlefield'
+          ? 'Return that card from your graveyard to the battlefield.'
+          : 'Return that card from your graveyard to your hand.',
+        effect: String(entry?.destination || '').toLowerCase() === 'battlefield'
+          ? 'Return that card from your graveyard to the battlefield.'
+          : 'Return that card from your graveyard to your hand.',
+        mandatory: true,
+        stackItem: {
+          delayedAction: 'graveyard_return',
+          delayedGraveyardReturnEntries: [{
+            scheduleId: String(entry?.scheduleId || '').trim() || undefined,
+            cardId: String(entry?.cardId || '').trim(),
+            zoneOwnerId: String(entry?.zoneOwnerId || '').trim(),
+            destination: String(entry?.destination || '').toLowerCase() === 'battlefield' ? 'battlefield' : 'hand',
+            destinationUsesSelectedCardOwner: entry?.destinationUsesSelectedCardOwner === true,
+            battlefieldControllerMode: String(entry?.battlefieldControllerMode || '').toLowerCase() === 'owner' ? 'owner' : undefined,
+            battlefieldControllerId: String(entry?.battlefieldControllerId || '').trim() || undefined,
+            battlefieldTapped: entry?.battlefieldTapped === true,
+            battlefieldCounters: entry?.battlefieldCounters && typeof entry.battlefieldCounters === 'object'
+              ? { ...(entry.battlefieldCounters as Record<string, number>) }
+              : undefined,
+            battlefieldFaceDown: entry?.battlefieldFaceDown === true ? true : undefined,
+            battlefieldSuspected: entry?.battlefieldSuspected === true ? true : undefined,
+          }],
+          delayedSourceName: String(entry?.sourceName || 'Delayed trigger').trim(),
+        },
+      });
+    }
+
     stateAny.pendingSacrificeAtNextEndStep = remainingSac;
     stateAny.pendingExileAtNextEndStep = remainingExile;
+    stateAny.pendingDelayedGraveyardReturns = remainingDelayedReturns;
 
     const triggers: any[] = [];
     for (const group of groups.values()) {
@@ -478,9 +525,75 @@ function dequeuePendingNextEndStepZoneChangeTriggers(ctx: GameContext): any[] {
       });
     }
 
+    triggers.push(...delayedReturnTriggers);
+
     return triggers;
   } catch (err) {
     debugWarn(1, '[turn] Failed to dequeue pending next-end-step zone-change triggers:', err);
+    return [];
+  }
+}
+
+function dequeuePendingUpkeepGraveyardReturnTriggers(ctx: GameContext, turnPlayer: PlayerID): any[] {
+  try {
+    const stateAny = (ctx as any).state as any;
+    if (!stateAny) return [];
+
+    const currentTurn = Number(stateAny?.turnNumber ?? 0) || 0;
+    const pendingDelayedReturns: any[] = Array.isArray(stateAny.pendingDelayedGraveyardReturns)
+      ? stateAny.pendingDelayedGraveyardReturns
+      : [];
+    if (pendingDelayedReturns.length === 0) return [];
+
+    const remainingDelayedReturns: any[] = [];
+    const triggers: any[] = [];
+
+    for (const entry of pendingDelayedReturns) {
+      const fireAtStep = String(entry?.fireAtStep || '').toLowerCase() === 'upkeep' ? 'upkeep' : 'end_step';
+      const fireAtTurn = Number(entry?.fireAtTurnNumber ?? 0) || 0;
+      const fireAtPlayerId = String(entry?.fireAtPlayerId || '').trim();
+      if (fireAtStep !== 'upkeep' || fireAtPlayerId !== String(turnPlayer) || fireAtTurn > currentTurn) {
+        remainingDelayedReturns.push(entry);
+        continue;
+      }
+
+      triggers.push({
+        controllerId: String(entry?.createdBy || entry?.zoneOwnerId || turnPlayer).trim(),
+        permanentId: String(entry?.cardId || '').trim(),
+        cardName: String(entry?.sourceName || 'Delayed trigger').trim(),
+        description: String(entry?.destination || '').toLowerCase() === 'battlefield'
+          ? 'Return that card from your graveyard to the battlefield.'
+          : 'Return that card from your graveyard to your hand.',
+        effect: String(entry?.destination || '').toLowerCase() === 'battlefield'
+          ? 'Return that card from your graveyard to the battlefield.'
+          : 'Return that card from your graveyard to your hand.',
+        mandatory: true,
+        stackItem: {
+          delayedAction: 'graveyard_return',
+          delayedGraveyardReturnEntries: [{
+            scheduleId: String(entry?.scheduleId || '').trim() || undefined,
+            cardId: String(entry?.cardId || '').trim(),
+            zoneOwnerId: String(entry?.zoneOwnerId || '').trim(),
+            destination: String(entry?.destination || '').toLowerCase() === 'battlefield' ? 'battlefield' : 'hand',
+            destinationUsesSelectedCardOwner: entry?.destinationUsesSelectedCardOwner === true,
+            battlefieldControllerMode: String(entry?.battlefieldControllerMode || '').toLowerCase() === 'owner' ? 'owner' : undefined,
+            battlefieldControllerId: String(entry?.battlefieldControllerId || '').trim() || undefined,
+            battlefieldTapped: entry?.battlefieldTapped === true,
+            battlefieldCounters: entry?.battlefieldCounters && typeof entry.battlefieldCounters === 'object'
+              ? { ...(entry.battlefieldCounters as Record<string, number>) }
+              : undefined,
+            battlefieldFaceDown: entry?.battlefieldFaceDown === true ? true : undefined,
+            battlefieldSuspected: entry?.battlefieldSuspected === true ? true : undefined,
+          }],
+          delayedSourceName: String(entry?.sourceName || 'Delayed trigger').trim(),
+        },
+      });
+    }
+
+    stateAny.pendingDelayedGraveyardReturns = remainingDelayedReturns;
+    return triggers;
+  } catch (err) {
+    debugWarn(1, '[turn] Failed to dequeue pending upkeep graveyard-return triggers:', err);
     return [];
   }
 }
@@ -4521,6 +4634,9 @@ export function nextStep(ctx: GameContext) {
         
         // Rule 504.1: Upkeep step - "at the beginning of your upkeep" triggers
         if (nextStep === "UPKEEP") {
+          const delayedUpkeepReturns = dequeuePendingUpkeepGraveyardReturnTriggers(ctx, turnPlayer);
+          pushTriggersToStack(delayedUpkeepReturns, 'upkeep', 'upkeep');
+
           // FIRST: Auto-process cumulative upkeep mana effects (e.g., Braid of Fire)
           // This must happen BEFORE triggers are collected, because Braid of Fire adds mana
           // as part of cumulative upkeep, not as a separate trigger

@@ -62,6 +62,7 @@ async function main(): Promise<void> {
   lines.push('');
   lines.push('Each item below is a distinct intervening-if clause string that the evaluator recognizes but returns `null` for under the audit probe context.');
   lines.push('In real gameplay, many become decidable once event refs/stack metadata are plumbed into `isInterveningIfSatisfied()` calls.');
+  lines.push('Quoted grant text should be treated as granted-effect context, not as if it were native host-card effect text, when triaging follow-up automation work.');
   lines.push('');
 
   for (const row of recognizedNull) {

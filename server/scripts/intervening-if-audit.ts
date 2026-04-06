@@ -207,6 +207,13 @@ function buildProbeContext(): any {
       },
       damageTakenThisTurnByPlayer: { [controllerId]: 0, [opp1]: 3, [opp2]: 0 },
 
+      // Combat tracking
+      attackersDeclaredThisCombatByPlayer: {
+        [controllerId]: [{ id: 'SRC' }, { id: 'ASSASSIN_ATK' }],
+        [opp1]: [{ id: 'ATK1' }],
+        [opp2]: [{ id: 'ATK2' }],
+      },
+
       // Battlefield
       battlefield: [
         {
@@ -225,6 +232,20 @@ function buildProbeContext(): any {
           counters: { '+1/+1': 1, '-1/-1': 1, quest: 2, soul: 2 },
           auras: ['aura1'],
           equipment: ['eq1'],
+        },
+        {
+          id: 'PLANE_MERGE',
+          controller: controllerId,
+          owner: controllerId,
+          card: { name: 'Plane-Merge Elf', type_line: 'Creature — Elf Wizard', manaValue: 3, power: '2', toughness: '2', colors: ['G'] },
+          counters: {},
+        },
+        {
+          id: 'MS1',
+          controller: controllerId,
+          owner: controllerId,
+          card: { name: 'The Mysterious Sphere', type_line: 'Artifact', manaValue: 2, colors: [] },
+          counters: {},
         },
         {
           id: 'aura1',
@@ -559,7 +580,11 @@ function buildProbeContext(): any {
           controller: controllerId,
           isManaAbility: false,
           targets: ['C2'],
-          manaSpentTotal: 1,
+          manaSpentTotal: 3,
+          manaFromTreasureSpentKnown: true,
+          manaFromTreasureSpent: true,
+          wasKicked: true,
+          kickerPaidCount: 2,
           // Alternate cost id (newer templates like spectacle/prowl/surge/madness)
           alternateCostId: 'spectacle',
           // Alternate/additional-cost flags (best-effort probe values)
@@ -567,7 +592,10 @@ function buildProbeContext(): any {
           surgeCostWasPaid: false,
           madnessCostWasPaid: false,
           spectacleCostWasPaid: true,
+          additionalCostPaidKnown: true,
           additionalCostWasPaid: false,
+          manaFromCreaturesSpent: 3,
+          convokeTappedCreatures: ['C2', 'ATK1', 'ATK2'],
           card: {
             id: 'SPELL1',
             name: 'Probe Spell',
@@ -577,13 +605,21 @@ function buildProbeContext(): any {
             colors: ['G'],
             oracle_text: 'Madness {1}{R}',
             alternateCostId: 'spectacle',
+            manaFromTreasureSpentKnown: true,
+            manaFromTreasureSpent: true,
+            wasKicked: true,
+            kickerPaidCount: 2,
+            additionalCostPaidKnown: true,
+            additionalCostWasPaid: false,
+            manaFromCreaturesSpent: 3,
+            convokeTappedCreatures: ['C2', 'ATK1', 'ATK2'],
           },
 
           // Snow-mana spent (so "if {S} of any of that spell's colors was spent" is decidable)
           snowManaSpentByColor: { green: 1 },
 
           // Mana spent breakdown (so "at least three mana of the same color" can be decidable)
-          manaSpentBreakdown: { green: 3 },
+          manaSpentBreakdown: { white: 0, blue: 0, black: 0, red: 0, green: 3, colorless: 0 },
         },
       ],
 
@@ -610,6 +646,9 @@ function buildProbeContext(): any {
             { id: 'THAT_CARD', name: 'That Card', type_line: 'Creature — Elf', exiledWithSourceId: 'SRC' },
             { name: 'Hex', type_line: 'Legendary Creature — Beast', counters: { fetch: 1 } },
             { name: 'Probe Spell', type_line: 'Instant', exiledWithSourceId: 'SRC' },
+            { id: 'MS_EX1', name: 'Sphere Exile 1', type_line: 'Instant', exiledWithSourceId: 'MS1' },
+            { id: 'MS_EX2', name: 'Sphere Exile 2', type_line: 'Sorcery', exiledWithSourceId: 'MS1' },
+            { id: 'MS_EX3', name: 'Sphere Exile 3', type_line: 'Artifact', exiledWithSourceId: 'MS1' },
           ],
         },
         [opp1]: {
@@ -832,8 +871,46 @@ function buildProbeSourceEnchantmentNonCreature(controllerId: string): any {
   };
 }
 
+function cloneProbeSource(src: any, patch: any): any {
+  return {
+    ...src,
+    ...patch,
+    card: {
+      ...(src?.card ?? {}),
+      ...(patch?.card ?? {}),
+    },
+  };
+}
+
 function pickProbeSourceForClause(clause: string, creatureSrc: any, enchantmentSrc: any): any {
   const c = String(clause || '').toLowerCase();
+  const tappedMatch = clause.match(/^if\s+(.+?)\s+is\s+tapped$/i);
+  if (tappedMatch) {
+    const cardName = String(tappedMatch[1] || '').trim();
+    return cloneProbeSource(creatureSrc, { tapped: true, card: { name: cardName } });
+  }
+
+  const attackedMatch = clause.match(/^if\s+(.+?)\s+attacked\s+this\s+turn$/i);
+  if (attackedMatch) {
+    const cardName = String(attackedMatch[1] || '').trim();
+    return cloneProbeSource(creatureSrc, { attackedThisTurn: true, attacking: true, card: { name: cardName } });
+  }
+
+  if (c.includes('plane-merge elf')) {
+    return cloneProbeSource(creatureSrc, { card: { name: 'Probe Shared Creature', type_line: 'Creature — Elf Knight' } });
+  }
+
+  if (c.includes('the mysterious sphere')) {
+    return cloneProbeSource(creatureSrc, { id: 'MS1', card: { name: 'The Mysterious Sphere', type_line: 'Artifact' } });
+  }
+
+  if (c.includes('sneak cost was paid')) {
+    return cloneProbeSource(creatureSrc, {
+      alternateCostId: 'sneak',
+      card: { alternateCostId: 'sneak' },
+    });
+  }
+
   if (c.includes('this enchantment')) return enchantmentSrc;
   return creatureSrc;
 }
