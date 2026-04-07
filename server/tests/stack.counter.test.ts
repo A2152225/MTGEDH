@@ -48,4 +48,61 @@ describe('Counterspell flow (COUNTER_TARGET_SPELL)', () => {
     const gy = g.state.zones?.[p1]?.graveyard ?? [];
     expect(gy.find(c => (c as any).id === 'card_bolt')).toBeTruthy();
   });
+
+  it('resolves a counterspell stack item whose target was persisted as a string stack id', () => {
+    const g = createInitialGameState('t_counter_2');
+
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+
+    const swordsToPlowshares: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> = {
+      id: 'card_swords',
+      name: 'Swords to Plowshares',
+      type_line: 'Instant',
+      oracle_text: 'Exile target creature. Its controller gains life equal to its power.',
+      image_uris: undefined,
+    };
+
+    g.applyEvent({
+      type: 'pushStack',
+      item: {
+        id: 'stack_swords',
+        controller: p1,
+        card: swordsToPlowshares,
+        targets: [],
+      },
+    });
+
+    const forceOfWill: Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'image_uris'> = {
+      id: 'card_force',
+      name: 'Force of Will',
+      type_line: 'Instant',
+      oracle_text: 'You may pay 1 life and exile a blue card from your hand rather than pay this spell\'s mana cost.\nCounter target spell.',
+      image_uris: undefined,
+    };
+
+    g.applyEvent({
+      type: 'pushStack',
+      item: {
+        id: 'stack_force',
+        controller: p2,
+        card: forceOfWill,
+        targets: ['stack_swords'],
+      },
+    });
+
+    expect(g.state.stack.map(item => item.id)).toEqual(['stack_swords', 'stack_force']);
+
+    g.resolveTopOfStack();
+
+    expect(g.state.stack).toHaveLength(0);
+
+    const p1Graveyard = g.state.zones?.[p1]?.graveyard ?? [];
+    const p2Graveyard = g.state.zones?.[p2]?.graveyard ?? [];
+    expect(p1Graveyard.find(card => (card as any).id === 'card_swords')).toBeTruthy();
+    expect(p2Graveyard.find(card => (card as any).id === 'card_force')).toBeTruthy();
+  });
 });

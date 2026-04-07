@@ -107,6 +107,26 @@ function resolveReplayCommanderId(ctx: any, event: any): string {
   return '';
 }
 
+function normalizeChosenTargetRefs(state: any, spec: any, chosen: any[]): any[] {
+  return (Array.isArray(chosen) ? chosen : []).map((target: any) => {
+    if (!target || typeof target !== 'string') return target;
+
+    if (
+      spec?.op === 'COUNTER_TARGET_SPELL' ||
+      spec?.op === 'COUNTER_TARGET_ABILITY' ||
+      (Array.isArray(state?.stack) && state.stack.some((stackItem: any) => String(stackItem?.id || '') === target))
+    ) {
+      return { kind: 'stack', id: target };
+    }
+
+    if (Array.isArray(state?.players) && state.players.some((player: any) => String(player?.id || '') === target)) {
+      return { kind: 'player', id: target };
+    }
+
+    return { kind: 'permanent', id: target };
+  });
+}
+
 function resolveReplayCommanderCard(ctx: any, event: any, commanderId: string): any | undefined {
   if (event?.card && typeof event.card === 'object' && !Array.isArray(event.card)) {
     return event.card;
@@ -1508,7 +1528,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "resolveSpell": {
         // Execute spell effects based on spec and chosen targets
         const spec = (e as any).spec;
-        const chosen = (e as any).chosen || [];
+        const chosen = normalizeChosenTargetRefs(ctx.state, spec, (e as any).chosen || []);
         const caster = (e as any).caster as PlayerID;
         
         // Handle COUNTER_TARGET_SPELL specially since it's not in the targeting module
@@ -3567,6 +3587,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   type: 'ability',
                   controller: playerId,
                   source: permId,
+                  abilityId,
                   sourceName: cardName,
                   description: `${searchDescription}, put ${maxSelections > 1 ? 'them' : 'it'} onto the battlefield${entersTapped ? ' tapped' : ''}, then shuffle`,
                   abilityType: 'fetch-land',
@@ -5838,6 +5859,54 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
 
         try {
           if (!pid) break;
+
+          const gameId = String((ctx as any).gameId || '').trim();
+
+          if (gameId) {
+            try {
+              const queue = ResolutionQueueManager.getQueue(gameId) as any;
+              const matchesResolvedSearchStep = (step: any): boolean => {
+                if (!step || String(step?.type || '') !== String(ResolutionStepType.LIBRARY_SEARCH)) {
+                  return false;
+                }
+
+                if (String(step?.playerId || '') !== pid) {
+                  return false;
+                }
+
+                const queuedSourceId = String(step?.sourceId || '').trim();
+                const queuedSourceName = String(step?.sourceName || '').trim();
+                const queuedAbilityId = String(step?.persistLibrarySearchResolveAbilityId || step?.abilityId || '').trim();
+
+                if (sourceId && queuedSourceId === sourceId) {
+                  return true;
+                }
+
+                if (abilityId && queuedAbilityId === abilityId) {
+                  return true;
+                }
+
+                return Boolean(sourceName) && queuedSourceName === sourceName;
+              };
+
+              const activeStepMatched = matchesResolvedSearchStep(queue?.activeStep);
+              const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+              if (activeStepMatched) {
+                queue.activeStep = undefined;
+              }
+
+              if (Array.isArray(queue?.steps) && beforeCount > 0) {
+                queue.steps = queue.steps.filter((step: any) => !matchesResolvedSearchStep(step));
+              }
+
+              if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+                queue.seq = Number(queue?.seq || 0) + 1;
+              }
+            } catch {
+              // best-effort only
+            }
+          }
 
           const zones = ctx.state.zones || {};
           const z = zones[pid] || {

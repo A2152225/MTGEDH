@@ -3334,6 +3334,7 @@ function enqueueLibrarySearchStep(
     description?: string;
     searchFor?: string;
     destination?: 'hand' | 'top' | 'battlefield' | 'graveyard' | 'split';
+    sourceId?: string;
     tapped?: boolean;
     optional?: boolean;
     source?: string;
@@ -3350,6 +3351,7 @@ function enqueueLibrarySearchStep(
     lifeLoss?: number;
     persistLibrarySearchResolve?: boolean;
     persistLibrarySearchResolveReason?: string;
+    persistLibrarySearchResolveAbilityId?: string;
   }
 ): void {
   const gameId = (ctx as any).gameId || 'unknown';
@@ -3363,6 +3365,7 @@ function enqueueLibrarySearchStep(
     description = options.searchFor || 'Search your library',
     searchFor = 'a card',
     destination = 'hand',
+    sourceId,
     tapped = false,
     optional = false,
     source = 'Library Search',
@@ -3379,6 +3382,7 @@ function enqueueLibrarySearchStep(
     lifeLoss,
     persistLibrarySearchResolve = true,
     persistLibrarySearchResolveReason = 'stack_resolution',
+    persistLibrarySearchResolveAbilityId,
   } = options;
 
   // Map all library cards with full data
@@ -3490,6 +3494,7 @@ function enqueueLibrarySearchStep(
   ResolutionQueueManager.addStep(gameId, {
     type: ResolutionStepType.LIBRARY_SEARCH,
     playerId: controller as PlayerID,
+    sourceId,
     description,
     mandatory: !optional,
     sourceName: source,
@@ -3510,6 +3515,7 @@ function enqueueLibrarySearchStep(
     lifeLoss,
     persistLibrarySearchResolve,
     persistLibrarySearchResolveReason,
+    persistLibrarySearchResolveAbilityId,
   });
 }
 
@@ -9196,11 +9202,13 @@ export function resolveTopOfStack(ctx: GameContext) {
         destination: 'battlefield',
         entersTapped: searchParams.entersTapped || false,
         optional: false,
+        sourceId: String((item as any).source || ''),
         source: sourceName,
         shuffleAfter: true,
         filter: searchParams.filter || { types: ['land'] },
         maxSelections: searchParams.maxSelections || 1,
         minSelections: 1,
+        persistLibrarySearchResolveAbilityId: String((item as any).abilityId || ''),
       });
       
       const searchDesc = searchParams.searchDescription || 'a land card';
@@ -11836,14 +11844,6 @@ export function resolveTopOfStack(ctx: GameContext) {
     }
     
     if (spellSpec) {
-      // Convert targets array to TargetRef format if needed
-      const targetRefs: TargetRef[] = targets.map((t: any) => {
-        if (typeof t === 'string') {
-          return { kind: 'permanent' as const, id: t };
-        }
-        return t;
-      });
-      
       // Generate effects based on spell type and targets.
       // For X spells, hydrate the amount at resolution time when X is known.
       let hydratedSpec: any = spellSpec;
@@ -11853,6 +11853,28 @@ export function resolveTopOfStack(ctx: GameContext) {
       if ((hydratedSpec as any)?.tokenCountIsX && typeof spellXValue === 'number') {
         hydratedSpec = { ...(hydratedSpec as any), tokenCount: spellXValue };
       }
+
+      // Convert persisted string targets back into the correct TargetRef kind.
+      // Counterspells commonly store stack item ids as plain strings during cast flow.
+      const targetRefs: TargetRef[] = targets.map((t: any) => {
+        if (typeof t !== 'string') {
+          return t;
+        }
+
+        if (
+          hydratedSpec?.op === 'COUNTER_TARGET_SPELL' ||
+          hydratedSpec?.op === 'COUNTER_TARGET_ABILITY' ||
+          state.stack?.some((stackItem: any) => String(stackItem?.id || '') === t)
+        ) {
+          return { kind: 'stack' as const, id: t };
+        }
+
+        if (state.players?.some((player: any) => String(player?.id || '') === t)) {
+          return { kind: 'player' as const, id: t };
+        }
+
+        return { kind: 'permanent' as const, id: t };
+      });
 
       const effects = resolveSpell(hydratedSpec as any, targetRefs, state as any, controller as any);
       

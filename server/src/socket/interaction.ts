@@ -4213,6 +4213,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         type: 'ability',
         controller: pid,
         source: permanentId,
+        abilityId,
         sourceName: cardName,
         description: `${searchDescription}, put ${maxSelections > 1 ? 'them' : 'it'} onto the battlefield${entersTapped ? ' tapped' : ''}, then shuffle`,
         abilityType: 'fetch-land',

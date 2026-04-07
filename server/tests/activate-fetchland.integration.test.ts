@@ -290,6 +290,8 @@ describe('activateFetchland persistence (integration)', () => {
     const replayBattlefield = ((replayGame.state as any).battlefield || []) as any[];
     const replayGraveyard = (((replayGame.state as any).zones || {})[p1]?.graveyard || []) as any[];
     expect((replayGame.state as any).stack || []).toHaveLength(0);
+    expect(ResolutionQueueManager.getPendingSummary(`${persistentGameId}_replay`).hasPending).toBe(false);
+    expect(ResolutionQueueManager.getStepsForPlayer(`${persistentGameId}_replay`, p1 as any)).toHaveLength(0);
     expect(replayBattlefield.some((permanent: any) => permanent?.card?.id === 'breeding_pool_1')).toBe(true);
     expect(replayGraveyard.some((card: any) => card?.name === 'Misty Rainforest')).toBe(true);
   });
