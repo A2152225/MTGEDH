@@ -11,7 +11,7 @@
 //
 // Defensive implementation: tolerates unknown event types and missing engine helpers.
 
-import type { GameContext } from "../context";
+import { createContext, type GameContext } from "../context";
 import type { PlayerID, GameEvent } from "../types";
 
 import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
@@ -859,6 +859,15 @@ export function reset(ctx: any, preservePlayers = false): void {
 
   // Fallback conservative reset
   try {
+    const currentState = (ctx.state && typeof ctx.state === 'object') ? ctx.state : {};
+    const preservedGameId = String((currentState as any).id || ctx.gameId || '').trim() || String(ctx.gameId || 'game');
+    const preservedFormat = (currentState as any).format;
+    const preservedStartingLife = Number((currentState as any).startingLife);
+    const preservedTurnDirection = Number((currentState as any).turnDirection);
+    const preservedPlayers = preservePlayers && Array.isArray((currentState as any).players)
+      ? ((currentState as any).players as any[]).map((player: any) => ({ ...player }))
+      : [];
+
     // preserve participants list if requested
     let participantsBackup: Array<any> = [];
     if (preservePlayers) {
@@ -873,76 +882,67 @@ export function reset(ctx: any, preservePlayers = false): void {
       }
     }
 
-    // Reset primary runtime containers
-    ctx.state = ctx.state || {};
-    ctx.state.battlefield = [];
-    ctx.state.stack = [];
-    ctx.state.turnPlayer = "" as any;
-    ctx.state.priority = "" as any;
-    ctx.state.phase = "pre_game" as any;
-    ctx.state.step = undefined;
-    ctx.state.active = false;
-    (ctx.state as any).turn = undefined;
-    (ctx.state as any).turnNumber = undefined;
-    (ctx.state as any).activePlayerIndex = undefined;
-    (ctx.state as any).priorityPassedBy = new Set<string>();
-    (ctx.state as any).priorityClaimed = new Set<string>();
-    // Impulse-style exile permissions must never survive a reset/replay.
-    // These will be rebuilt deterministically from replayed events when appropriate.
-    (ctx.state as any).playableFromExile = {};
-    // Clear commandZone in place to preserve reference identity
-    if (ctx.state.commandZone && typeof ctx.state.commandZone === 'object') {
-      for (const key of Object.keys(ctx.state.commandZone)) {
-        delete ctx.state.commandZone[key];
-      }
-    } else {
-      ctx.state.commandZone = {};
+    const freshCtx = createContext(preservedGameId);
+    const targetState = currentState as Record<string, any>;
+    for (const key of Object.keys(targetState)) {
+      delete targetState[key];
     }
-    ctx.state.zones = ctx.state.zones || {};
-    ctx.libraries = ctx.libraries || new Map<string, any[]>();
-    ctx.life = ctx.life || {};
-    ctx.poison = ctx.poison || {};
-    ctx.experience = ctx.experience || {};
+    Object.assign(targetState, freshCtx.state);
+    ctx.state = targetState;
 
-    // If preserving players, keep entries for those playerIds; otherwise clear players
+    if (preservedFormat != null) {
+      (ctx.state as any).format = preservedFormat;
+    }
+    if (Number.isFinite(preservedStartingLife) && preservedStartingLife > 0) {
+      (ctx.state as any).startingLife = preservedStartingLife;
+    }
+    if (Number.isFinite(preservedTurnDirection) && Math.abs(preservedTurnDirection) === 1) {
+      (ctx.state as any).turnDirection = preservedTurnDirection;
+    }
+
+    ctx.libraries = new Map<string, any[]>();
+    ctx.life = (ctx.state as any).life || {};
+    ctx.poison = {};
+    ctx.experience = {};
+    ctx.commandZone = (ctx.state as any).commandZone || {};
+    ctx.pendingInitialDraw = new Set<string>();
+    ctx.handVisibilityGrants = new Map();
+    ctx.revealedLibraryTopByOwner = new Map();
+    ctx.inactive = new Set<string>();
+    ctx.landsPlayedThisTurn = (ctx.state as any).landsPlayedThisTurn || {};
+    ctx.maxLandsPerTurn = {};
+    ctx.additionalDrawsPerTurn = {};
+    ctx.manaPool = {};
+
     if (!preservePlayers) {
-      ctx.state.players = [];
-      ctx.life = {};
-      ctx.poison = {};
-      ctx.experience = {};
+      (ctx.state as any).players = [];
     } else {
-      // ensure each known player has cleared zones & libraries
-      const pids = participantsBackup.length
-        ? participantsBackup.map((p) => p.playerId).filter(Boolean)
-        : (Object.keys(ctx.state.zones || {}) as string[]);
-      for (const pid of pids) {
-        ctx.state.zones[pid] = ctx.state.zones[pid] || {
+      (ctx.state as any).players = preservedPlayers;
+
+      const playerIds = preservedPlayers.length > 0
+        ? preservedPlayers.map((player: any) => String(player?.id || '').trim()).filter(Boolean)
+        : participantsBackup.map((participant) => String(participant?.playerId || '').trim()).filter(Boolean);
+
+      for (const pid of playerIds) {
+        (ctx.state as any).zones[pid] = {
           hand: [],
           handCount: 0,
+          library: [],
           libraryCount: 0,
           graveyard: [],
           graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
         };
-        // Clear hand
-        ctx.state.zones[pid].hand = [];
-        ctx.state.zones[pid].handCount = 0;
-        // Clear library
-        if (ctx.libraries && typeof ctx.libraries.set === "function")
-          ctx.libraries.set(pid, []);
-        else (ctx.libraries as any)[pid] = [];
-        ctx.state.zones[pid].libraryCount = 0;
-        // Clear graveyard (important for undo to properly restore previous state)
-        ctx.state.zones[pid].graveyard = [];
-        ctx.state.zones[pid].graveyardCount = 0;
-        // Clear exile if it exists
-        if (ctx.state.zones[pid].exile !== undefined) {
-          ctx.state.zones[pid].exile = [];
-          ctx.state.zones[pid].exileCount = 0;
+        ctx.libraries.set(pid, []);
+        ctx.life[pid] = Number((ctx.state as any).startingLife || 40);
+        ctx.poison[pid] = 0;
+        ctx.experience[pid] = 0;
+
+        const playerEntry = ((ctx.state as any).players || []).find((player: any) => String(player?.id || '').trim() === pid);
+        if (playerEntry) {
+          playerEntry.life = ctx.life[pid];
         }
-        // Reset life and counters
-        ctx.life[pid] = ctx.state.startingLife ?? ctx.life[pid] ?? 40;
-        if (ctx.poison) ctx.poison[pid] = 0;
-        if (ctx.experience) ctx.experience[pid] = 0;
       }
     }
 

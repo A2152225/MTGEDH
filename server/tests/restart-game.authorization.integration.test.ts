@@ -148,6 +148,73 @@ describe('restartGame authorization (integration)', () => {
     expect((game.state as any).phase).toBe('pre_game');
   });
 
+  it('fully clears gameplay state while preserving the player roster on restart', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 7 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 7 };
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'DECLARE_ATTACKERS';
+    (game.state as any).turnNumber = 5;
+    (game.state as any).battlefield = [{ id: 'perm_1', controller: p1, owner: p1, card: { id: 'c1', name: 'Kindred Discovery', type_line: 'Enchantment' } }];
+    (game.state as any).stack = [{ id: 'stack_1', controller: p1, source: 'perm_1' }];
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [{ id: 'hand_1', name: 'Island', type_line: 'Land' }],
+        handCount: 1,
+        library: [{ id: 'lib_1', name: 'Forest', type_line: 'Land' }],
+        libraryCount: 1,
+        graveyard: [{ id: 'gy_1', name: 'Opt', type_line: 'Instant' }],
+        graveyardCount: 1,
+        exile: [{ id: 'ex_1', name: 'Shared Fate', type_line: 'Enchantment' }],
+        exileCount: 1,
+      },
+    };
+    (game.state as any).manaPool = { [p1]: { blue: 3, white: 0, black: 0, red: 0, green: 0, colorless: 0 } };
+    (game.state as any).commandZone = { [p1]: { commanderIds: ['cmd_1'], commanderCards: [{ id: 'cmd_1', name: 'Commander' }] } };
+    (game.state as any).playableFromExile = { [p1]: { ex_1: true } };
+    (game.state as any).morophonChosenType = { perm_1: 'Merfolk' };
+    (game.state as any).replayPermanentAliases = { old_perm: 'perm_1' };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['restartGame']({ gameId });
+
+    expect((game.state as any).phase).toBe('pre_game');
+    expect((game.state as any).step).toBeUndefined();
+    expect((game.state as any).turnNumber).toBeUndefined();
+    expect((game.state as any).battlefield).toEqual([]);
+    expect((game.state as any).stack).toEqual([]);
+    expect((game.state as any).life).toEqual({ [p1]: 40 });
+    expect((game.state as any).manaPool).toBeUndefined();
+    expect((game.state as any).commandZone).toEqual({});
+    expect((game.state as any).playableFromExile).toBeUndefined();
+    expect((game.state as any).morophonChosenType).toBeUndefined();
+    expect((game.state as any).replayPermanentAliases).toBeUndefined();
+    expect((game.state as any).players).toHaveLength(1);
+    expect((game.state as any).players[0]).toMatchObject({ id: p1, name: 'P1', life: 40 });
+    expect((game.state as any).zones[p1]).toEqual({
+      hand: [],
+      handCount: 0,
+      library: [],
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    });
+  });
+
   it('does not allow the creator to restart when not in the game room', async () => {
     const p1 = 'p1';
 
