@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ClientGameView, KnownCardRef, PlayerID } from '../../../shared/src';
+import type { ClientGameView, KnownCardRef, PlayerID, PlayerZones } from '../../../shared/src';
 import { socket } from '../socket';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 
@@ -35,7 +35,7 @@ function CardThumb(props: { card: Partial<KnownCardRef> & { id: string; name?: s
 }
 
 /* Default safe zone shape used whenever a player's zone entry is missing */
-const DEFAULT_ZONE = {
+const DEFAULT_ZONE: PlayerZones & { library: readonly never[] } = {
   hand: [],
   handCount: 0,
   library: [],
@@ -66,6 +66,7 @@ export function ZonesPanel(props: {
           // Local defensive copies for arrays/counts
           const gy = Array.isArray(z.graveyard) ? z.graveyard as any as Array<Partial<KnownCardRef> & { id: string }> : [];
           const ex = Array.isArray(z.exile) ? z.exile as any as Array<Partial<KnownCardRef> & { id: string }> : [];
+          const libraryTop = z.libraryTop;
           const libCount = typeof z.libraryCount === 'number' ? z.libraryCount : (Array.isArray((z as any).library) ? (z as any).library.length : 0);
           const canAct = isYouPlayer && you === p.id;
 
@@ -78,11 +79,42 @@ export function ZonesPanel(props: {
 
               {/* Library */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-                <div style={{
-                  width: 40, height: 56, borderRadius: 6, border: '1px solid #444',
-                  background: 'repeating-linear-gradient(135deg, #333, #333 4px, #222 4px, #222 8px)'
-                }} title="Library" />
+                <div
+                  style={{
+                    position: 'relative',
+                    width: 40,
+                    height: 56,
+                    borderRadius: 6,
+                    border: libraryTop ? '1px solid rgba(16, 185, 129, 0.9)' : '1px solid #444',
+                    background: 'repeating-linear-gradient(135deg, #333, #333 4px, #222 4px, #222 8px)',
+                    cursor: libraryTop ? 'pointer' : 'default'
+                  }}
+                  title={libraryTop ? 'Hover to preview the top card of the library' : 'Library'}
+                  onMouseEnter={(e) => {
+                    if (libraryTop) showCardPreview(e.currentTarget as HTMLElement, libraryTop, { prefer: 'above', anchorPadding: 0 });
+                  }}
+                  onMouseLeave={(e) => {
+                    if (libraryTop) hideCardPreview(e.currentTarget as HTMLElement);
+                  }}
+                >
+                  {libraryTop ? (
+                    <div style={{
+                      position: 'absolute',
+                      top: 2,
+                      left: 2,
+                      background: 'rgba(16, 185, 129, 0.9)',
+                      color: '#fff',
+                      fontSize: 8,
+                      padding: '1px 3px',
+                      borderRadius: 3,
+                      pointerEvents: 'none'
+                    }}>
+                      Peek
+                    </div>
+                  ) : null}
+                </div>
                 <div>Library: {libCount}</div>
+                {libraryTop && <div style={{ fontSize: 12, opacity: 0.75 }}>Top card known</div>}
                 {canAct && (
                   <>
                     <button onClick={() => quickDraw(p.id as PlayerID)}>Draw 1</button>

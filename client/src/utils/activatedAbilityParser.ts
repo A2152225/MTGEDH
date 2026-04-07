@@ -443,15 +443,111 @@ function parseCostComponents(costStr: string): {
   return result;
 }
 
+function pushUniqueParsedAbility(abilities: ParsedActivatedAbility[], ability: ParsedActivatedAbility) {
+  const key = `${ability.cost}::${ability.effect}`.toLowerCase();
+  const exists = abilities.some((entry) => `${entry.cost}::${entry.effect}`.toLowerCase() === key);
+  if (!exists) {
+    abilities.push(ability);
+  }
+}
+
+function normalizeGrantedActivatedAbilityText(entry: string): string | null {
+  const raw = String(entry || '').trim();
+  if (!raw) return null;
+
+  const lower = raw.toLowerCase();
+  if (lower === 'tap_for_any_color') {
+    return '{T}: Add one mana of any color.';
+  }
+  if (lower === 'tap_for_green') {
+    return '{T}: Add {G}.';
+  }
+  if (lower === 'tap_for_white') {
+    return '{T}: Add {W}.';
+  }
+  if (lower === 'tap_for_blue') {
+    return '{T}: Add {U}.';
+  }
+  if (lower === 'tap_for_black') {
+    return '{T}: Add {B}.';
+  }
+  if (lower === 'tap_for_red') {
+    return '{T}: Add {R}.';
+  }
+
+  const quoted = raw.match(/["“”]([^"“”]*:[^"“”]*)["“”]/);
+  if (quoted?.[1]) {
+    return quoted[1].trim();
+  }
+
+  if (raw.includes(':') && (raw.includes('{T}') || /^(Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)\b/i.test(raw))) {
+    return raw;
+  }
+
+  return null;
+}
+
+function appendGrantedActivatedAbilities(
+  abilities: ParsedActivatedAbility[],
+  grantedAbilities: readonly string[] | undefined,
+): void {
+  if (!Array.isArray(grantedAbilities) || grantedAbilities.length === 0) return;
+
+  for (const entry of grantedAbilities) {
+    const grantedText = normalizeGrantedActivatedAbilityText(String(entry || ''));
+    if (!grantedText) continue;
+
+    const manaMatch = grantedText.match(/^\{T\}\s*:\s*Add\s+(.+?)\.?$/i);
+    if (manaMatch) {
+      const producedText = manaMatch[1].trim();
+      const normalizedProduced = producedText.toLowerCase();
+      const singleColorSymbol = producedText.match(/^\{([WUBRGC])\}$/i)?.[1]?.toUpperCase();
+      const nativeId = normalizedProduced.includes('any color')
+        ? 'native_any'
+        : singleColorSymbol
+          ? `native_${singleColorSymbol.toLowerCase()}`
+          : null;
+
+      if (!nativeId) continue;
+
+      const label = normalizedProduced.includes('any color')
+        ? 'Tap for any color'
+        : `Tap for {${singleColorSymbol}}`;
+      const description = normalizedProduced.includes('any color')
+        ? 'Add one mana of any color'
+        : `Add ${producedText}`;
+
+      pushUniqueParsedAbility(abilities, {
+        id: nativeId,
+        label,
+        description,
+        cost: '{T}',
+        effect: `Add ${producedText.replace(/\.$/, '')}`,
+        requiresTap: true,
+        requiresUntap: false,
+        requiresSacrifice: false,
+        isManaAbility: true,
+        isLoyaltyAbility: false,
+        isFetchAbility: false,
+      });
+    }
+  }
+}
+
 /**
  * Parse activated abilities from a card's oracle text
  */
-export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbility[] {
+export function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: readonly string[]): ParsedActivatedAbility[] {
   const abilities: ParsedActivatedAbility[] = [];
   const oracleText = card.oracle_text || '';
   const typeLine = (card.type_line || '').toLowerCase();
   const name = card.name || '';
   const lowerOracle = oracleText.toLowerCase();
+  const nativeOracleText = oracleText
+    .replace(/(?:other\s+)?(?:nontoken\s+)?creatures you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
+    .replace(/(?:other\s+)?lands you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
+    .replace(/(?:other\s+)?permanents you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '');
+  const lowerNativeOracle = nativeOracleText.toLowerCase();
   
   let abilityIndex = 0;
   
@@ -582,7 +678,7 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   const triggeredAbilityPattern = /^(when|whenever|at)\b/i;
   
   // Split oracle text by newlines and process each line/sentence
-  const sentences = oracleText.split(/\n/);
+  const sentences = nativeOracleText.split(/\n/);
   for (const sentence of sentences) {
     const thresholdAbility = parseThresholdGatedAbilityLine(
       sentence.trim(),
@@ -613,11 +709,11 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       }
 
       let timingRestriction: 'sorcery' | 'instant' | undefined;
-      if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(oracleText)) {
+      if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(nativeOracleText)) {
         timingRestriction = 'sorcery';
       }
 
-      const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(oracleText);
+      const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(nativeOracleText);
       const millEffect = parseMillEffect(effectPart);
       const isMillAbility = millEffect?.isMillAbility || false;
       const millCount = millEffect?.millCount;
@@ -733,12 +829,12 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       
       // Check for timing restrictions in the full oracle text
       let timingRestriction: 'sorcery' | 'instant' | undefined;
-      if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(oracleText)) {
+      if (/activate\s+(?:this\s+ability\s+)?(?:only\s+)?(?:as\s+a\s+)?sorcery/i.test(nativeOracleText)) {
         timingRestriction = 'sorcery';
       }
       
       // Check for once per turn
-      const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(oracleText);
+      const oncePerTurn = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i.test(nativeOracleText);
       
       // Check for mill effect
       const millEffect = parseMillEffect(effectPart);
@@ -868,7 +964,7 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
   // ======== "TAP: ADD" PATTERN (simpler mana abilities) ========
   // For artifacts and creatures with simple mana abilities not caught above
   if (!abilities.some(a => a.isManaAbility) && !typeLine.includes('land')) {
-    const simpleManaMatch = oracleText.match(/\{T\}:\s*Add\s+(\{[^}]+\}(?:\s*or\s*\{[^}]+\})*)/i);
+    const simpleManaMatch = nativeOracleText.match(/\{T\}:\s*Add\s+(\{[^}]+\}(?:\s*or\s*\{[^}]+\})*)/i);
     if (simpleManaMatch) {
       abilities.push({
         id: `${card.id}-mana-${abilityIndex++}`,
@@ -886,10 +982,10 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
     }
     
     // "Add one mana of any color" pattern
-    if (lowerOracle.includes('{t}') && 
-        (lowerOracle.includes('add one mana of any color') || 
-         lowerOracle.includes('add {w}{u}{b}{r}{g}') ||
-         lowerOracle.includes('any type of mana'))) {
+    if (lowerNativeOracle.includes('{t}') && 
+      (lowerNativeOracle.includes('add one mana of any color') || 
+       lowerNativeOracle.includes('add {w}{u}{b}{r}{g}') ||
+       lowerNativeOracle.includes('any type of mana'))) {
       // Don't add if we already have a mana ability for this
       if (!abilities.some(a => a.isManaAbility)) {
         abilities.push({
@@ -908,6 +1004,8 @@ export function parseActivatedAbilities(card: KnownCardRef): ParsedActivatedAbil
       }
     }
   }
+
+  appendGrantedActivatedAbilities(abilities, grantedAbilities);
   
   // ======== EQUIP ABILITIES ========
   // Equipment can have multiple equip abilities:

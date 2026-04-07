@@ -218,7 +218,7 @@ export function FreeField(props: {
     if (!kc) return;
 
     // Parse abilities from the card
-    const abilities = parseActivatedAbilities(kc);
+    const abilities = parseActivatedAbilities(kc, perm.grantedAbilities);
     if (abilities.length === 0) return;
 
     // Build activation context

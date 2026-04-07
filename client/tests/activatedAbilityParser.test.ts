@@ -57,6 +57,53 @@ describe('parseActivatedAbilities station parsing', () => {
     expect(abilities[0]?.isManaAbility).toBe(true);
   });
 
+  it('parses Cryptolith Rite granted mana text on the creature receiving it', () => {
+    const card: KnownCardRef = {
+      id: 'bear-card-1',
+      name: 'Grizzly Bears',
+      type_line: 'Creature — Bear',
+      oracle_text: '',
+    };
+
+    const abilities = parseActivatedAbilities(card, ['tap_for_any_color']);
+
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.id).toBe('native_any');
+    expect(abilities[0]?.cost).toBe('{T}');
+    expect(abilities[0]?.effect).toBe('Add one mana of any color');
+    expect(abilities[0]?.isManaAbility).toBe(true);
+  });
+
+  it('does not treat Cryptolith Rite itself as having the granted tap ability', () => {
+    const card: KnownCardRef = {
+      id: 'cryptolith-card-1',
+      name: 'Cryptolith Rite',
+      type_line: 'Enchantment',
+      oracle_text: 'Creatures you control have "{T}: Add one mana of any color."',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+
+    expect(abilities).toHaveLength(0);
+  });
+
+  it('parses quoted granted mana abilities from battlefield effects', () => {
+    const card: KnownCardRef = {
+      id: 'elf-card-1',
+      name: 'Llanowar Scout',
+      type_line: 'Creature — Elf Scout',
+      oracle_text: '',
+    };
+
+    const abilities = parseActivatedAbilities(card, ['"{T}: Add {G}."']);
+
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.id).toBe('native_g');
+    expect(abilities[0]?.cost).toBe('{T}');
+    expect(abilities[0]?.effect).toBe('Add {G}');
+    expect(abilities[0]?.isManaAbility).toBe(true);
+  });
+
   it('parses Luxury Suite mana text as a mana ability', () => {
     const card: KnownCardRef = {
       id: 'suite-card-1',

@@ -71,9 +71,9 @@ function convertToMenuOption(ability: ParsedActivatedAbility): ActivatedAbilityO
 /**
  * Parse abilities from card oracle text using the comprehensive parser
  */
-function parseActivatedAbilities(card: KnownCardRef): ActivatedAbilityOption[] {
+function parseActivatedAbilities(card: KnownCardRef, grantedAbilities?: readonly string[]): ActivatedAbilityOption[] {
   // Use the full ability parser for comprehensive coverage
-  const parsed = parseAbilitiesFull(card);
+  const parsed = parseAbilitiesFull(card, grantedAbilities);
   return parsed.map(convertToMenuOption);
 }
 
@@ -114,7 +114,7 @@ export function CardContextMenu({
   const isTapped = !!permanent.tapped;
   
   // Parse activated abilities from card
-  const abilities = card ? parseActivatedAbilities(card) : [];
+  const abilities = card ? parseActivatedAbilities(card, permanent.grantedAbilities) : [];
   
   // Adjust position to keep menu on screen
   useEffect(() => {

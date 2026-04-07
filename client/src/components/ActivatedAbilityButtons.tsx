@@ -445,7 +445,7 @@ export function ActivatedAbilityButtons({
   // Parse abilities from the card
   const abilities = useMemo(() => {
     if (!kc) return [];
-    const parsed = parseActivatedAbilities(kc);
+    const parsed = parseActivatedAbilities(kc, perm.grantedAbilities);
     
     // Debug logging for planeswalkers
     const typeLine = (kc?.type_line || '').toLowerCase();
@@ -466,7 +466,7 @@ export function ActivatedAbilityButtons({
     }
     
     return parsed;
-  }, [kc]);
+  }, [kc, perm.grantedAbilities]);
   
   // Build activation context
   const context: ActivationContext = useMemo(() => ({

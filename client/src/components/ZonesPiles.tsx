@@ -49,16 +49,17 @@ export function ZonesPiles(props: {
   // Which commanders are currently in the command zone (not on stack/battlefield)
   const inCommandZone = (isCommanderFormat ? (commander as any)?.inCommandZone : undefined) as string[] | undefined;
 
-  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean, onClick?: () => void, onDoubleClick?: () => void, isPlayable?: boolean) {
+  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean, onClick?: () => void, onDoubleClick?: () => void, isPlayable?: boolean, allowHiddenHoverPreview?: boolean) {
     const name = topCard?.name || "";
     // prefer art_crop -> normal -> small
     const img = topCard?.image_uris?.art_crop || topCard?.image_uris?.normal || topCard?.image_uris?.small || null;
     
     // For library, don't show the card image/name - keep it hidden
-    const showCardPreviewOnHover = !hideTopCard && topCard;
+    const showCardPreviewOnHover = !!topCard && (!hideTopCard || allowHiddenHoverPreview);
     const displayImage = !hideTopCard && img;
     const displayName = !hideTopCard && name;
     const isClickable = (!!onClick || !!onDoubleClick) && count > 0;
+    const showPeekBadge = !!hideTopCard && !!topCard && !!allowHiddenHoverPreview;
     
     const body = (
       <div
@@ -110,13 +111,33 @@ export function ZonesPiles(props: {
             {onDoubleClick ? 'Dbl-Click' : 'Click'}
           </div>
         )}
+        {showPeekBadge && (
+          <div
+            style={{
+              position: "absolute",
+              top: 4,
+              left: 4,
+              backgroundColor: "rgba(16, 185, 129, 0.9)",
+              color: "#fff",
+              fontSize: 9,
+              padding: "2px 4px",
+              borderRadius: 3,
+              pointerEvents: "none",
+            }}
+            aria-label="Hover to preview top card"
+          >
+            Peek
+          </div>
+        )}
       </div>
     );
 
     return (
       <div
         key={label}
-        title={isClickable ? `${onDoubleClick ? 'Double-click' : 'Click'} to view ${label}` : (topCard && !hideTopCard ? topCard.name : `${label} (${count})`)}
+        title={isClickable
+          ? `${onDoubleClick ? 'Double-click' : 'Click'} to view ${label}`
+          : (showCardPreviewOnHover ? `Hover to preview the top card of ${label}` : (topCard && !hideTopCard ? topCard.name : `${label} (${count})`))}
         style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 92 }}
         onMouseEnter={(e) => {
           if (showCardPreviewOnHover) showCardPreview(e.currentTarget as HTMLElement, topCard, { prefer: "above", anchorPadding: 0 });
@@ -230,7 +251,7 @@ export function ZonesPiles(props: {
   };
 
   // top-of-library to show in pile
-  const libraryTop = libArr.length > 0 ? (libArr[0] as KnownCardRef) : undefined;
+  const libraryTop = zones.libraryTop ?? (libArr.length > 0 ? (libArr[0] as KnownCardRef) : undefined);
   const graveTop = grArr.length > 0 ? (grArr[grArr.length - 1] as KnownCardRef) : undefined;
   const exileTop = exArr.length > 0 ? (exArr[exArr.length - 1] as KnownCardRef) : undefined;
   
@@ -243,7 +264,7 @@ export function ZonesPiles(props: {
     <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
       {/* Command zone now rendered before Library for expected layout */}
       {isCommanderFormat && commander ? <CommandSlots /> : null}
-      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */, undefined, undefined, libraryPlayable)}
+      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */, undefined, undefined, libraryPlayable, true)}
       {/* Graveyard supports both click and double-click - double-click opens the full graveyard modal */}
       {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, undefined, onViewGraveyard, graveyardPlayable)}
       {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, false, undefined, onViewExile, exilePlayable)}

@@ -152,6 +152,7 @@ export interface PlayerZones {
   hand: KnownCardRef[] | string[]; // sometimes only counts are present in views
   handCount: number;
   libraryCount: number;
+  libraryTop?: KnownCardRef;
   graveyard: KnownCardRef[] | string[];
   graveyardCount: number;
   exile?: KnownCardRef[] | string[];
