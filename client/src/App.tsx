@@ -2544,6 +2544,23 @@ export function App() {
           return;
         }
 
+        if ((step as any).mayAbilityPrompt === true || (step as any).optionalTriggeredAbilityPrompt === true) {
+          setMayAbilityModalData({
+            stepId: step.id,
+            sourceName: step.sourceName || 'Ability',
+            sourceImage: step.sourceImage,
+            effectText: (step as any).effectText || step.description,
+            fullAbilityText: (step as any).fullAbilityText,
+            effectKey: (step as any).effectKey || '',
+            gameId: (safeViewRef.current as any)?.id || payload.gameId || '',
+            shortcutCardName: step.sourceName || undefined,
+            persistMayAutoPreference: (step as any).mayAbilityPrompt === true,
+            persistTriggerShortcut: (step as any).optionalTriggeredAbilityPrompt === true,
+          });
+          setMayAbilityModalOpen(true);
+          return;
+        }
+
         // Generic option choice modal (Agitator Ant and similar)
         const request: OptionChoiceRequest = {
           gameId: payload.gameId,
@@ -3132,6 +3149,9 @@ export function App() {
           fullAbilityText: (step as any).fullAbilityText,
           effectKey: (step as any).effectKey || '',
           gameId: (safeView as any)?.id || '',
+          shortcutCardName: step.sourceName || undefined,
+          persistMayAutoPreference: true,
+          persistTriggerShortcut: false,
         });
         setMayAbilityModalOpen(true);
       }

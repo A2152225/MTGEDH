@@ -17,6 +17,7 @@
 
 import React, { useState } from 'react';
 import { socket } from '../socket';
+import { SHORTCUT_ELIGIBLE_TRIGGERS } from '../../../shared/src/types';
 
 export interface MayAbilityModalData {
   /** Resolution queue step ID to respond to */
@@ -33,6 +34,12 @@ export interface MayAbilityModalData {
   effectKey: string;
   /** Game ID, needed to emit setMayAutoPreference */
   gameId: string;
+  /** Optional source card name for syncing trigger shortcuts */
+  shortcutCardName?: string;
+  /** Whether this modal should save per-effect may auto preferences */
+  persistMayAutoPreference?: boolean;
+  /** Whether this modal should save trigger shortcuts */
+  persistTriggerShortcut?: boolean;
 }
 
 export interface MayAbilityModalProps {
@@ -49,14 +56,33 @@ export function MayAbilityModal({ open, data, onYes, onNo }: MayAbilityModalProp
   if (!open || !data) return null;
 
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const normalizedShortcutCardName = String(data.shortcutCardName || '').trim().toLowerCase();
+  const canPersistMayAutoPreference = data.persistMayAutoPreference !== false && Boolean(data.effectKey);
+  const canPersistTriggerShortcut = data.persistTriggerShortcut === true
+    && Boolean(normalizedShortcutCardName)
+    && Boolean(SHORTCUT_ELIGIBLE_TRIGGERS[normalizedShortcutCardName]);
+
+  const syncAutoPreference = (value: 'yes' | 'no') => {
+    if (canPersistMayAutoPreference) {
+      socket.emit('setMayAutoPreference', {
+        gameId: data.gameId,
+        effectKey: data.effectKey,
+        value,
+      });
+    }
+
+    if (canPersistTriggerShortcut) {
+      socket.emit('setTriggerShortcut', {
+        gameId: data.gameId,
+        cardName: normalizedShortcutCardName,
+        preference: value === 'yes' ? 'always_yes' : 'always_no',
+      });
+    }
+  };
 
   const handleSetAutoPreference = (value: 'yes' | 'no') => {
     setSaving(true);
-    socket.emit('setMayAutoPreference', {
-      gameId: data.gameId,
-      effectKey: data.effectKey,
-      value,
-    });
+    syncAutoPreference(value);
     if (value === 'yes') {
       onYes(data.stepId);
     } else {
@@ -204,103 +230,107 @@ export function MayAbilityModal({ open, data, onYes, onNo }: MayAbilityModalProp
         </div>
 
         {/* Yes for N times row */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 14,
-            padding: '9px 11px',
-            background: 'rgba(255,255,255,0.04)',
-            borderRadius: 8,
-            border: '1px solid rgba(255,255,255,0.07)',
-          }}
-        >
-          <span style={{ fontSize: 13, color: '#b0a8c8', flexShrink: 0 }}>Yes for</span>
-          <input
-            type="number"
-            min={1}
-            max={99}
-            value={yesCount}
-            onChange={e => setYesCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+        {canPersistMayAutoPreference && (
+          <div
             style={{
-              width: 48,
-              padding: '3px 6px',
-              borderRadius: 5,
-              border: '1px solid rgba(255,255,255,0.2)',
-              background: 'rgba(255,255,255,0.1)',
-              color: '#e8e4f8',
-              fontSize: 14,
-              textAlign: 'center',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 14,
+              padding: '9px 11px',
+              background: 'rgba(255,255,255,0.04)',
+              borderRadius: 8,
+              border: '1px solid rgba(255,255,255,0.07)',
             }}
-          />
-          <span style={{ fontSize: 13, color: '#b0a8c8', flex: 1 }}>times, then skip</span>
-          <button
-            disabled={saving}
-            onClick={() => handleYesForN(yesCount)}
-            style={{
-              padding: '5px 13px',
-              background: 'rgba(80, 160, 80, 0.18)',
-              border: '1px solid rgba(100, 200, 100, 0.35)',
-              borderRadius: 6,
-              color: '#9ee09e',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-              opacity: saving ? 0.5 : 1,
-            }}
-            title={`Say yes to this effect ${yesCount} time(s), then stop auto-resolving`}
           >
-            Yes ×{yesCount}
-          </button>
-        </div>
+            <span style={{ fontSize: 13, color: '#b0a8c8', flexShrink: 0 }}>Yes for</span>
+            <input
+              type="number"
+              min={1}
+              max={99}
+              value={yesCount}
+              onChange={e => setYesCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{
+                width: 48,
+                padding: '3px 6px',
+                borderRadius: 5,
+                border: '1px solid rgba(255,255,255,0.2)',
+                background: 'rgba(255,255,255,0.1)',
+                color: '#e8e4f8',
+                fontSize: 14,
+                textAlign: 'center',
+              }}
+            />
+            <span style={{ fontSize: 13, color: '#b0a8c8', flex: 1 }}>times, then skip</span>
+            <button
+              disabled={saving}
+              onClick={() => handleYesForN(yesCount)}
+              style={{
+                padding: '5px 13px',
+                background: 'rgba(80, 160, 80, 0.18)',
+                border: '1px solid rgba(100, 200, 100, 0.35)',
+                borderRadius: 6,
+                color: '#9ee09e',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                opacity: saving ? 0.5 : 1,
+              }}
+              title={`Say yes to this effect ${yesCount} time(s), then stop auto-resolving`}
+            >
+              Yes ×{yesCount}
+            </button>
+          </div>
+        )}
 
         {/* Auto-preference section */}
-        <div
-          style={{
-            borderTop: '1px solid rgba(255,255,255,0.08)',
-            paddingTop: 12,
-            display: 'flex',
-            justifyContent: 'center',
-            gap: 16,
-          }}
-        >
-          <button
-            disabled={saving}
-            onClick={() => handleSetAutoPreference('yes')}
+        {(canPersistMayAutoPreference || canPersistTriggerShortcut) && (
+          <div
             style={{
-              background: 'none',
-              border: 'none',
-              color: '#7cc87c',
-              fontSize: 12,
-              cursor: 'pointer',
-              textDecoration: 'underline',
-              padding: 0,
-              opacity: saving ? 0.5 : 1,
+              borderTop: '1px solid rgba(255,255,255,0.08)',
+              paddingTop: 12,
+              display: 'flex',
+              justifyContent: 'center',
+              gap: 16,
             }}
-            title={`Always automatically say Yes to "${data.effectText}" from ${data.sourceName}`}
           >
-            Always Yes
-          </button>
-          <span style={{ color: '#555', fontSize: 12 }}>·</span>
-          <button
-            disabled={saving}
-            onClick={() => handleSetAutoPreference('no')}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#c87c7c',
-              fontSize: 12,
-              cursor: 'pointer',
-              textDecoration: 'underline',
-              padding: 0,
-              opacity: saving ? 0.5 : 1,
-            }}
-            title={`Always automatically say No to "${data.effectText}" from ${data.sourceName}`}
-          >
-            Always No
-          </button>
-        </div>
+            <button
+              disabled={saving}
+              onClick={() => handleSetAutoPreference('yes')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#7cc87c',
+                fontSize: 12,
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                padding: 0,
+                opacity: saving ? 0.5 : 1,
+              }}
+              title={`Always automatically say Yes to "${data.effectText}" from ${data.sourceName}`}
+            >
+              Always Yes
+            </button>
+            <span style={{ color: '#555', fontSize: 12 }}>·</span>
+            <button
+              disabled={saving}
+              onClick={() => handleSetAutoPreference('no')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#c87c7c',
+                fontSize: 12,
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                padding: 0,
+                opacity: saving ? 0.5 : 1,
+              }}
+              title={`Always automatically say No to "${data.effectText}" from ${data.sourceName}`}
+            >
+              Always No
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -35,6 +35,7 @@ export function CardNameChoiceModal({
 }: CardNameChoiceModalProps) {
   const [value, setValue] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [selectedCandidate, setSelectedCandidate] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const deferredValue = useDeferredValue(value);
 
@@ -42,6 +43,7 @@ export function CardNameChoiceModal({
     if (open) {
       setValue('');
       setHighlightedIndex(0);
+      setSelectedCandidate(null);
       // Focus after mount
       setTimeout(() => inputRef.current?.focus(), 0);
     }
@@ -80,7 +82,14 @@ export function CardNameChoiceModal({
     (candidate) => normalizeCardNameChoiceValue(candidate) === normalizeCardNameChoiceValue(trimmed)
   );
   const highlightedCandidate = filteredCandidates[highlightedIndex];
-  const resolvedSelection = canonicalCandidate || (availableCandidates.length === 0 ? trimmed : highlightedCandidate);
+  const normalizedSelectedCandidate = selectedCandidate
+    ? availableCandidates.find(
+        (candidate) => normalizeCardNameChoiceValue(candidate) === normalizeCardNameChoiceValue(selectedCandidate)
+      )
+    : undefined;
+  const resolvedSelection = canonicalCandidate
+    || normalizedSelectedCandidate
+    || (availableCandidates.length === 0 ? trimmed : undefined);
   const canConfirm = Boolean(resolvedSelection && String(resolvedSelection).trim());
 
   const handleConfirm = () => {
@@ -97,8 +106,9 @@ export function CardNameChoiceModal({
       setHighlightedIndex((current) => Math.max(current - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (availableCandidates.length > 0 && highlightedCandidate && !canonicalCandidate) {
-        onConfirm(highlightedCandidate);
+      if (availableCandidates.length > 0 && highlightedCandidate && !canonicalCandidate && !normalizedSelectedCandidate) {
+        setValue(highlightedCandidate);
+        setSelectedCandidate(highlightedCandidate);
         return;
       }
       handleConfirm();
@@ -166,7 +176,10 @@ export function CardNameChoiceModal({
             ref={inputRef}
             type="text"
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setSelectedCandidate(null);
+            }}
             placeholder="Type a card name…"
             style={{
               width: '100%',
@@ -182,7 +195,7 @@ export function CardNameChoiceModal({
           />
           <div style={{ marginTop: 6, fontSize: 12, color: '#888' }}>
             {availableCandidates.length > 0
-              ? `Search ${availableCandidates.length.toLocaleString()} ${restrictionText || 'card'} names. Use arrow keys to pick a match.`
+              ? `Search ${availableCandidates.length.toLocaleString()} ${restrictionText || 'card'} names. Select an exact match, then confirm.`
               : 'Enter the exact name you want to choose.'}
           </div>
         </div>
@@ -211,7 +224,8 @@ export function CardNameChoiceModal({
                     onMouseEnter={() => setHighlightedIndex(index)}
                     onClick={() => {
                       setValue(candidate);
-                      onConfirm(candidate);
+                      setSelectedCandidate(candidate);
+                      setHighlightedIndex(index);
                     }}
                     style={{
                       width: '100%',
