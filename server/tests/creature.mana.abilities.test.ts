@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { getManaAbilitiesForPermanent, detectManaModifiers, getEffectiveBasicLandTypes } from '../src/state/modules/mana-abilities';
+import { calculateManaProduction } from '../src/socket/util.js';
 
 describe('Creature Mana Abilities', () => {
   describe('getManaAbilitiesForPermanent', () => {
@@ -184,6 +185,29 @@ describe('Creature Mana Abilities', () => {
       const abilities = getManaAbilitiesForPermanent(gameState, cryptolithRite, 'player1');
 
       expect(abilities).toHaveLength(0);
+    });
+
+    it('should preserve granted any-color mana as a color-choice source', () => {
+      const creature = {
+        id: 'bear-1',
+        controller: 'player1',
+        grantedAbilities: ['tap_for_any_color'],
+        card: {
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+        },
+      };
+
+      const manaProduction = calculateManaProduction({ battlefield: [creature] }, creature, 'player1');
+      expect(manaProduction.totalAmount).toBe(1);
+      expect(manaProduction.colors).toEqual(['any']);
+      expect(manaProduction.requiresColorChoice).toBe(true);
+
+      const greenManaProduction = calculateManaProduction({ battlefield: [creature] }, creature, 'player1', 'G');
+      expect(greenManaProduction.totalAmount).toBe(1);
+      expect(greenManaProduction.colors).toEqual(['G']);
+      expect(greenManaProduction.requiresColorChoice).toBe(false);
     });
 
     it('should remap basic land mana under Reality Twist without changing land types', () => {

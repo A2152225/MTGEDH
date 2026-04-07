@@ -6172,7 +6172,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const manaAmount = manaProduction.totalAmount;
       
       // If producing "any" color mana, prompt user for color choice
-      if (actualColor === 'any') {
+      if (manaColor === 'any' || manaProduction.requiresColorChoice === true || actualColor === 'any') {
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_COLOR_SELECTION,
           playerId: pid as PlayerID,
@@ -6185,6 +6185,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           permanentId,
           cardName,
           amount: manaAmount,
+          abilityId,
         } as any);
         
         broadcastGame(io, game, gameId);

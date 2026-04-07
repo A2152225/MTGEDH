@@ -2346,7 +2346,12 @@ export function App() {
     setMulliganBottomModalOpen(false);
     setMulliganBottomStepId(null);
     setDiscardModalOpen(false);
+    setDiscardCount(0);
+    setDiscardMaxHandSize(7);
     setDiscardResolutionStepId(null);
+    setDiscardResolutionReason('cleanup');
+    setDiscardResolutionTitle(null);
+    setDiscardResolutionDescription(null);
     setOpeningHandActionsModalOpen(false);
     setOpeningHandActionsStepId(null);
     setLibrarySearchModalOpen(false);
@@ -2379,6 +2384,18 @@ export function App() {
     setMutateModalOpen(false);
     setGraveyardSelectionModalOpen(false);
   }, []);
+
+  React.useEffect(() => {
+    if (!discardModalOpen || discardResolutionReason !== 'cleanup') return;
+
+    const phase = String(safeView?.phase || '').toUpperCase();
+    const hand = you ? (safeView?.zones?.[you]?.hand || []) : [];
+    const handSize = Array.isArray(hand) ? hand.length : 0;
+
+    if (phase === 'PRE_GAME' || handSize <= discardMaxHandSize) {
+      dismissResolutionStepUi();
+    }
+  }, [discardModalOpen, discardMaxHandSize, discardResolutionReason, dismissResolutionStepUi, safeView, you]);
   
   // Resolution Queue system handler for Kynaios, Join Forces, Tempting Offer, and Bounce Land
   // Listens for resolution step prompts and opens the appropriate modals
@@ -2431,11 +2448,29 @@ export function App() {
 
       // Handle Discard Selection resolution step (cleanup discard and discard effects)
       if (step.type === 'discard_selection') {
+        if (you && step.playerId && String(step.playerId) !== String(you)) {
+          return;
+        }
         const discardCount = Number(step.discardCount || 0);
         if (discardCount > 0) {
           // Treat anything other than explicit cleanup as an effect-style prompt.
           // This includes activation-cost prompts which use reason: 'activation_cost'.
           const reason: 'cleanup' | 'effect' = step.reason === 'cleanup' ? 'cleanup' : 'effect';
+          if (reason === 'cleanup') {
+            const maxHandSize = Number(step.maxHandSize || 7);
+            const currentHand = you ? (safeViewRef.current?.zones?.[you]?.hand || []) : [];
+            const currentHandSize = Array.isArray(currentHand) ? currentHand.length : 0;
+            if (currentHandSize <= maxHandSize) {
+              setDiscardModalOpen(false);
+              setDiscardCount(0);
+              setDiscardMaxHandSize(7);
+              setDiscardResolutionStepId(null);
+              setDiscardResolutionReason('cleanup');
+              setDiscardResolutionTitle(null);
+              setDiscardResolutionDescription(null);
+              return;
+            }
+          }
           setDiscardCount(discardCount);
           setDiscardMaxHandSize(Number(step.maxHandSize || 7));
           setDiscardResolutionStepId(String(step.id));
@@ -3307,13 +3342,20 @@ export function App() {
       lastResolutionStepsRef.current.delete(String(payload.stepId || ''));
       dismissResolutionStepUi();
     };
+
+    const handleNoResolutionStep = (payload: { gameId?: string }) => {
+      if (payload.gameId !== safeView?.id) return;
+      dismissResolutionStepUi();
+    };
     
     socket.on("resolutionStepPrompt", handleResolutionStepPrompt);
     socket.on("resolutionStepCancelled", handleResolutionStepCancelled);
+    socket.on("noResolutionStep", handleNoResolutionStep);
     
     return () => {
       socket.off("resolutionStepPrompt", handleResolutionStepPrompt);
       socket.off("resolutionStepCancelled", handleResolutionStepCancelled);
+      socket.off("noResolutionStep", handleNoResolutionStep);
     };
   }, [safeView?.id, openConfirmFromResolutionStep, you, mulliganBottomLastSubmittedStepId, dismissResolutionStepUi]);
 

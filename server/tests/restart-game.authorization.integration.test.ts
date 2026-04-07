@@ -215,6 +215,71 @@ describe('restartGame authorization (integration)', () => {
     });
   });
 
+  it('clears stale cleanup discard prompts on restart', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).phase = 'ending';
+    (game.state as any).step = 'CLEANUP';
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [
+          { id: 'hand_1', name: 'Island', type_line: 'Land' },
+          { id: 'hand_2', name: 'Forest', type_line: 'Land' },
+          { id: 'hand_3', name: 'Swamp', type_line: 'Land' },
+          { id: 'hand_4', name: 'Mountain', type_line: 'Land' },
+          { id: 'hand_5', name: 'Plains', type_line: 'Land' },
+        ],
+        handCount: 5,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId: p1 as any,
+      description: 'Cleanup: discard 1 card(s) to maximum hand size (7).',
+      sourceName: 'Cleanup Step',
+      mandatory: true,
+      hand: [
+        { id: 'hand_1', label: 'Island' },
+        { id: 'hand_2', label: 'Forest' },
+        { id: 'hand_3', label: 'Swamp' },
+        { id: 'hand_4', label: 'Mountain' },
+        { id: 'hand_5', label: 'Plains' },
+      ],
+      discardCount: 1,
+      currentHandSize: 5,
+      maxHandSize: 7,
+      reason: 'cleanup',
+    } as any);
+
+    expect(ResolutionQueueManager.getStepsForPlayer(gameId, p1 as any)).toHaveLength(1);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['restartGame']({ gameId });
+
+    expect((game.state as any).phase).toBe('pre_game');
+    expect(ResolutionQueueManager.getStepsForPlayer(gameId, p1 as any)).toHaveLength(0);
+  });
+
   it('does not allow the creator to restart when not in the game room', async () => {
     const p1 = 'p1';
 

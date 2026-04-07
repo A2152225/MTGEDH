@@ -3754,6 +3754,12 @@ export function calculateManaProduction(
   const typeLine = (card.type_line || '').toLowerCase();
   const cardName = (card.name || '').toLowerCase();
   const battlefield = gameState?.battlefield || [];
+  const grantedAbilities = Array.isArray(permanent?.grantedAbilities)
+    ? permanent.grantedAbilities.map((ability: any) => String(ability || '').toLowerCase())
+    : [];
+  const normalizedChosenColor = ['W', 'U', 'B', 'R', 'G', 'C'].includes(String(chosenColor || '').toUpperCase())
+    ? String(chosenColor).toUpperCase()
+    : undefined;
   
   const result: ManaProductionInfo = {
     colors: [],
@@ -3807,11 +3813,41 @@ export function calculateManaProduction(
     }
   }
   
+  const grantedManaColorMap: Record<string, string> = {
+    tap_for_white: 'W',
+    tap_for_blue: 'U',
+    tap_for_black: 'B',
+    tap_for_red: 'R',
+    tap_for_green: 'G',
+    tap_for_colorless: 'C',
+  };
+  const grantedSpecificManaColor = Object.entries(grantedManaColorMap).find(([ability]) => grantedAbilities.includes(ability))?.[1];
+  const hasGrantedAnyColorMana = grantedAbilities.some((ability) =>
+    ability === 'tap_for_any_color' ||
+    /\{t\}:\s*add\s+(?:one\s+)?mana of any color/.test(ability) ||
+    /\{t\}:\s*add\s+(?:one\s+)?mana of any one color/.test(ability)
+  );
+
+  if (hasGrantedAnyColorMana) {
+    if (normalizedChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(normalizedChosenColor)) {
+      result.colors = [normalizedChosenColor];
+      result.requiresColorChoice = false;
+    } else {
+      result.colors = ['any'];
+      result.requiresColorChoice = true;
+    }
+  } else if (grantedSpecificManaColor && result.colors.length === 0) {
+    result.colors = [grantedSpecificManaColor];
+  }
+
   // Check for "any color" patterns
   if (oracleText.includes('any color') || oracleText.includes('mana of any color')) {
-    result.colors = ['W', 'U', 'B', 'R', 'G'];
-    if (chosenColor && result.colors.includes(chosenColor)) {
-      result.colors = [chosenColor];
+    if (normalizedChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(normalizedChosenColor)) {
+      result.colors = [normalizedChosenColor];
+      result.requiresColorChoice = false;
+    } else {
+      result.colors = ['any'];
+      result.requiresColorChoice = true;
     }
   }
   
