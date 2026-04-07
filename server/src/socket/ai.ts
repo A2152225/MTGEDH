@@ -620,6 +620,207 @@ function generateId(prefix: string): string {
   return `${prefix}_${randomBytes(8).toString('hex')}`;
 }
 
+function getAILibraryCards(game: any, playerId: PlayerID): any[] {
+  if (!game || !game.state) return [];
+
+  try {
+    if (typeof (game as any).searchLibrary === 'function') {
+      const cards = (game as any).searchLibrary(playerId, '', MAX_LIBRARY_SEARCH_LIMIT) || [];
+      if (Array.isArray(cards) && cards.length > 0) {
+        return cards;
+      }
+    }
+  } catch {
+    // Fall through to direct storage checks.
+  }
+
+  try {
+    const libraries = (game as any).libraries;
+    if (libraries && typeof libraries.get === 'function') {
+      const cards = libraries.get(playerId);
+      if (Array.isArray(cards) && cards.length > 0) {
+        return cards;
+      }
+    }
+  } catch {
+    // Fall through to zone fallback.
+  }
+
+  const zones = game.state?.zones?.[playerId] as any;
+  return Array.isArray(zones?.library) ? zones.library : [];
+}
+
+async function ensureAIPreGameDeckLoaded(gameId: string, playerId: PlayerID): Promise<boolean> {
+  const runtime = getPersistedAIPlayerRuntimeData(gameId, playerId);
+  if (!runtime?.game?.state) {
+    return false;
+  }
+
+  const existingLibrary = getAILibraryCards(runtime.game, playerId);
+  if (existingLibrary.length > 0) {
+    return true;
+  }
+
+  const playerInState = runtime.playerInState as any;
+  const rawDeckText = typeof playerInState?.deckText === 'string' ? playerInState.deckText.trim() : '';
+  const rawDeckId = typeof playerInState?.deckId === 'string' ? playerInState.deckId.trim() : '';
+  const deckName = typeof playerInState?.deckName === 'string' ? playerInState.deckName : undefined;
+
+  let deckEntries: Array<{ name: string; count: number }> = [];
+  if (rawDeckText) {
+    try {
+      deckEntries = parseDecklist(rawDeckText);
+      debug(1, '[AI] Restoring AI deck from persisted deck text:', {
+        gameId,
+        playerId,
+        deckName,
+        entryCount: deckEntries.length,
+      });
+    } catch (err) {
+      debugWarn(1, '[AI] Failed to parse persisted AI deck text during pre-game recovery:', {
+        gameId,
+        playerId,
+        deckName,
+      }, err);
+      return false;
+    }
+  } else if (rawDeckId) {
+    try {
+      const deck = getDeck(rawDeckId);
+      if (!deck?.entries?.length) {
+        debugWarn(1, '[AI] Persisted AI deck id could not be loaded during pre-game recovery:', {
+          gameId,
+          playerId,
+          deckId: rawDeckId,
+        });
+        return false;
+      }
+
+      deckEntries = deck.entries;
+      debug(1, '[AI] Restoring AI deck from saved deck id:', {
+        gameId,
+        playerId,
+        deckId: rawDeckId,
+        deckName: deck.name,
+        entryCount: deckEntries.length,
+      });
+    } catch (err) {
+      debugWarn(1, '[AI] Failed to load persisted AI deck during pre-game recovery:', {
+        gameId,
+        playerId,
+        deckId: rawDeckId,
+      }, err);
+      return false;
+    }
+  } else {
+    debugWarn(1, '[AI] No persisted deck source available for AI pre-game recovery:', {
+      gameId,
+      playerId,
+      deckName,
+    });
+    return false;
+  }
+
+  if (deckEntries.length === 0) {
+    return false;
+  }
+
+  let byName: Map<string, any> | null = null;
+  try {
+    byName = await fetchCardsByExactNamesBatch(deckEntries.map((entry) => entry.name));
+  } catch (err) {
+    debugWarn(1, '[AI] Failed to resolve persisted AI deck cards during pre-game recovery:', {
+      gameId,
+      playerId,
+      deckName,
+    }, err);
+    return false;
+  }
+
+  if (!byName) {
+    return false;
+  }
+
+  const resolvedCards: any[] = [];
+  const missing: string[] = [];
+  for (const { name, count } of deckEntries) {
+    const key = normalizeName(name).toLowerCase();
+    const card = byName.get(key);
+    if (!card) {
+      missing.push(name);
+      continue;
+    }
+
+    for (let index = 0; index < (count || 1); index += 1) {
+      resolvedCards.push({
+        id: generateId(`card_${card.id}`),
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris,
+        mana_cost: card.mana_cost,
+        power: card.power,
+        toughness: card.toughness,
+        loyalty: (card as any).loyalty,
+        color_identity: card.color_identity,
+        zone: 'library',
+      });
+    }
+  }
+
+  if (resolvedCards.length === 0) {
+    debugWarn(1, '[AI] Persisted AI deck recovery resolved zero cards:', {
+      gameId,
+      playerId,
+      deckName,
+      missingCount: missing.length,
+    });
+    return false;
+  }
+
+  if (typeof (runtime.game as any).importDeckResolved === 'function') {
+    (runtime.game as any).importDeckResolved(playerId, resolvedCards);
+  } else {
+    runtime.game.state.zones = runtime.game.state.zones || {};
+    (runtime.game.state.zones as any)[playerId] = {
+      hand: [],
+      handCount: 0,
+      libraryCount: resolvedCards.length,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+  }
+
+  playerInState.deckName = deckName;
+  if (rawDeckId) playerInState.deckId = rawDeckId;
+  if (rawDeckText) playerInState.deckText = rawDeckText;
+
+  try {
+    await appendEvent(gameId, (runtime.game as any).seq || 0, 'deckImportResolved', {
+      playerId,
+      cards: resolvedCards,
+    });
+  } catch (err) {
+    debugWarn(1, '[AI] Failed to persist recovered AI deck import event:', {
+      gameId,
+      playerId,
+      deckName,
+    }, err);
+  }
+
+  debug(1, '[AI] Restored AI deck during pre-game recovery:', {
+    gameId,
+    playerId,
+    deckName,
+    resolvedCount: resolvedCards.length,
+    missingCount: missing.length,
+  });
+
+  return true;
+}
+
 /**
  * Auto-select and set commander for an AI player based on their deck
  * This is called after deck loading to ensure the AI can start the game
@@ -651,15 +852,7 @@ export async function autoSelectAICommander(
     // Get the AI player's library (deck)
     // The library is stored in ctx.libraries Map via importDeckResolved.
     // Use searchLibrary with empty query to get all cards (up to limit).
-    let library: any[] = [];
-    if (typeof (game as any).searchLibrary === 'function') {
-      // searchLibrary returns cards from ctx.libraries Map
-      library = (game as any).searchLibrary(playerId, '', MAX_LIBRARY_SEARCH_LIMIT) || [];
-    } else {
-      // Fallback to zones.library if searchLibrary not available (e.g., MinimalGameAdapter)
-      const zones = game.state.zones?.[playerId] as any;
-      library = zones?.library || [];
-    }
+    const library = getAILibraryCards(game, playerId);
     
     if (library.length === 0) {
       debugWarn(2, '[AI] autoSelectAICommander: no cards in library', { gameId, playerId });
@@ -881,6 +1074,21 @@ export async function handleAIGameFlow(
   
   // Pre-game phase: select commander if not done
   if (phaseStr === '' || phaseStr === 'PRE_GAME') {
+    const library = getAILibraryCards(game, playerId);
+    if (library.length === 0) {
+      debug(1, '[AI] AI has no loaded deck in pre_game, attempting recovery import', {
+        gameId,
+        playerId,
+      });
+
+      const deckRecovered = await ensureAIPreGameDeckLoaded(gameId, playerId);
+      if (deckRecovered) {
+        broadcastGame(io, game, gameId);
+        scheduleAIGameFlow(io, gameId, playerId, AI_THINK_TIME_MS);
+      }
+      return;
+    }
+
     if (!hasCommander) {
       debug(1, '[AI] AI needs to select commander');
       
@@ -1223,6 +1431,47 @@ export function scheduleAIPriority(
   delayMs: number = AI_REACTION_DELAY_MS,
 ): void {
   scheduleAIActionInternal(io, gameId, playerId, 'priority', delayMs);
+}
+
+function getAIPendingSpellCastStatus(gameId: string, game: any, playerId: PlayerID): {
+  effectIds: string[];
+  trackedEffectIds: string[];
+  orphanedEffectIds: string[];
+} {
+  const pendingSpellCasts = (game?.state as any)?.pendingSpellCasts || {};
+  const effectIds = Object.keys(pendingSpellCasts).filter(
+    (effectId) => pendingSpellCasts[effectId]?.playerId === playerId,
+  );
+
+  if (effectIds.length === 0) {
+    return {
+      effectIds: [],
+      trackedEffectIds: [],
+      orphanedEffectIds: [],
+    };
+  }
+
+  const queue = ResolutionQueueManager.getQueue(gameId);
+  const queueSteps = Array.isArray(queue?.steps) ? queue.steps : [];
+  const pendingTargets = ((game?.state as any)?.pendingTargets || {}) as Record<string, unknown>;
+
+  const trackedEffectIds = effectIds.filter((effectId) => {
+    if (pendingTargets[effectId]) {
+      return true;
+    }
+
+    return queueSteps.some((step: any) =>
+      String(step?.effectId || '') === effectId ||
+      String(step?.sourceId || '') === effectId ||
+      String(step?.spellCastContext?.effectId || '') === effectId,
+    );
+  });
+
+  return {
+    effectIds,
+    trackedEffectIds,
+    orphanedEffectIds: effectIds.filter((effectId) => !trackedEffectIds.includes(effectId)),
+  };
 }
 
 async function runExclusiveAIAction(
@@ -4198,18 +4447,25 @@ export async function handleAIPriority(
     // CRITICAL: Check for stuck pendingSpellCasts that could cause infinite loops
     // This can happen when a spell with targets gets stuck in the targeting workflow
     // Clean up any pendingSpellCasts that belong to this AI player
-    const pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
-    const aiPendingCasts = Object.keys(pendingSpellCasts).filter(effectId => 
-      pendingSpellCasts[effectId]?.playerId === playerId
-    );
-    if (aiPendingCasts.length > 0) {
-      debugWarn(2, `[AI] Cleaning up ${aiPendingCasts.length} stuck pending spell cast(s) to prevent infinite loop`);
-      for (const effectId of aiPendingCasts) {
+    const pendingCastStatus = getAIPendingSpellCastStatus(gameId, game, playerId);
+    if (pendingCastStatus.effectIds.length > 0) {
+      if (pendingCastStatus.trackedEffectIds.length > 0 || game.state.priority !== playerId) {
+        debug(1, '[AI] Waiting for pending spell cast flow to settle', {
+          gameId,
+          playerId,
+          trackedEffectIds: pendingCastStatus.trackedEffectIds,
+          priority: game.state.priority,
+        });
+        return;
+      }
+
+      const pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
+      debugWarn(2, `[AI] Cleaning up ${pendingCastStatus.orphanedEffectIds.length} orphaned pending spell cast(s)`);
+      for (const effectId of pendingCastStatus.orphanedEffectIds) {
         const castInfo = pendingSpellCasts[effectId];
-        debugWarn(2, `[AI] Removing stuck spell cast: ${castInfo?.cardName || 'unknown'} (effectId: ${effectId})`);
+        debugWarn(2, `[AI] Removing orphaned spell cast: ${castInfo?.cardName || 'unknown'} (effectId: ${effectId})`);
         delete pendingSpellCasts[effectId];
       }
-      // After cleanup, broadcast state and return - next AI action will proceed normally
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
@@ -4390,6 +4646,24 @@ export async function handleAIPriority(
           const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell.card, candidateSpell.cost);
           if (castProgressed) {
             scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            return;
+          }
+
+          const pendingCastStatus = getAIPendingSpellCastStatus(gameId, game, playerId);
+          const stackNow = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+          const aiHasPendingSteps = ResolutionQueueManager.playerHasPendingSteps(gameId, playerId);
+          const priorityStillHeld = game.state.priority === playerId;
+
+          if (!priorityStillHeld || stackNow > 0 || aiHasPendingSteps || pendingCastStatus.effectIds.length > 0) {
+            debug(1, '[AI] Cast attempt changed control flow; stopping additional spell attempts', {
+              gameId,
+              playerId,
+              cardName: candidateSpell.card?.name,
+              priority: game.state.priority,
+              stackNow,
+              aiHasPendingSteps,
+              pendingCastIds: pendingCastStatus.effectIds,
+            });
             return;
           }
         }
@@ -7113,6 +7387,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           if (playerInState) {
             playerInState.deckName = finalDeckName;
             playerInState.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
+            if (typeof aiDeckText === 'string' && aiDeckText.trim()) {
+              playerInState.deckText = aiDeckText;
+            }
           }
           
           debug(1, '[AI] Deck resolved for AI:', { 
@@ -7384,6 +7661,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             if (playerInState) {
               playerInState.deckName = finalDeckName;
               playerInState.deckId = aiConfig.deckId || (aiConfig.deckText ? `imported_${Date.now().toString(36)}_${i}` : null);
+              if (typeof aiConfig.deckText === 'string' && aiConfig.deckText.trim()) {
+                playerInState.deckText = aiConfig.deckText;
+              }
             }
           }
         }

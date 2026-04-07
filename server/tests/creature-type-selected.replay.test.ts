@@ -66,4 +66,36 @@ describe('creatureTypeSelected replay semantics', () => {
     expect(((game.state as any).battlefield || [])[0]?.chosenCreatureType).toBe('Dragon');
     expect((game.state as any).morophonChosenType).toEqual({ morophon_1: 'Dragon' });
   });
+
+  it('falls back to player and card name when replay cannot reconstruct the original permanent id', () => {
+    const game = createInitialGameState('t_creature_type_selected_replay_fallback');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'kindred_replay_1',
+        controller: p1,
+        owner: p1,
+        card: {
+          id: 'kindred_card_1',
+          name: 'Kindred Discovery',
+          type_line: 'Enchantment',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'creatureTypeSelected',
+      playerId: p1,
+      permanentId: 'kindred_live_random_id',
+      creatureType: 'Merfolk',
+      cardName: 'Kindred Discovery',
+    } as any);
+
+    expect(((game.state as any).battlefield || [])[0]?.chosenCreatureType).toBe('Merfolk');
+    expect((game.state as any).replayPermanentAliases).toEqual({
+      kindred_live_random_id: 'kindred_replay_1',
+    });
+  });
 });

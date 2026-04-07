@@ -294,5 +294,16 @@ describe('activateFetchland persistence (integration)', () => {
     expect(ResolutionQueueManager.getStepsForPlayer(`${persistentGameId}_replay`, p1 as any)).toHaveLength(0);
     expect(replayBattlefield.some((permanent: any) => permanent?.card?.id === 'breeding_pool_1')).toBe(true);
     expect(replayGraveyard.some((card: any) => card?.name === 'Misty Rainforest')).toBe(true);
+
+    game.reset!(true);
+    game.replay!(transformDbEventsForReplay(persistedEvents as any));
+
+    const undoStyleBattlefield = ((game.state as any).battlefield || []) as any[];
+    const undoStyleGraveyard = (((game.state as any).zones || {})[p1]?.graveyard || []) as any[];
+    expect((game.state as any).stack || []).toHaveLength(0);
+    expect(ResolutionQueueManager.getPendingSummary(persistentGameId).hasPending).toBe(false);
+    expect(ResolutionQueueManager.getStepsForPlayer(persistentGameId, p1 as any)).toHaveLength(0);
+    expect(undoStyleBattlefield.some((permanent: any) => permanent?.card?.id === 'breeding_pool_1')).toBe(true);
+    expect(undoStyleGraveyard.some((card: any) => card?.name === 'Misty Rainforest')).toBe(true);
   });
 });

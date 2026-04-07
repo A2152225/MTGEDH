@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import * as aiModule from '../src/socket/ai.js';
+import { resumePregameAIFlowAfterUndo } from '../src/socket/undo.js';
 import { broadcastGame, clearHumanAutoPassPauseOnAction, pauseHumanAutoPassUntilAction, suppressAutomationOnNextBroadcast } from '../src/socket/util.js';
 import { createContext } from '../src/state/context.js';
 
@@ -172,5 +174,28 @@ describe('undo broadcast automation suppression', () => {
     broadcastGame(io, game, gameId);
 
     expect(passPriority).toHaveBeenCalledTimes(1);
+  });
+
+  it('explicitly re-schedules AI pre-game flow after undo rebuilds a pre-game state', () => {
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+    const scheduleSpy = vi.spyOn(aiModule, 'scheduleAIGameFlow').mockImplementation(() => undefined);
+
+    const game: any = {
+      state: {
+        phase: 'pre_game',
+        players: [
+          { id: 'ai_1', name: 'AI Opponent', isAI: true, spectator: false, isSpectator: false },
+          { id: 'p1', name: 'Player 1', isAI: false, spectator: false, isSpectator: false },
+        ],
+      },
+    };
+
+    resumePregameAIFlowAfterUndo(io, 'undo_resume_pregame_ai', game);
+
+    expect(scheduleSpy).toHaveBeenCalledTimes(1);
+    expect(scheduleSpy).toHaveBeenCalledWith(io, 'undo_resume_pregame_ai', 'ai_1', 0);
+
+    scheduleSpy.mockRestore();
   });
 });

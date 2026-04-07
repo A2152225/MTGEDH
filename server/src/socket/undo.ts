@@ -10,7 +10,7 @@ import { createInitialGameState } from "../state/gameState.js";
 import { createContext } from "../state/context.js";
 import { replay as replayOnContext } from "../state/modules/applyEvent.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
-import { clearScheduledAIActionsForGame } from "./ai.js";
+import { clearScheduledAIActionsForGame, scheduleAIGameFlow } from "./ai.js";
 
 /**
  * Undo request state
@@ -715,6 +715,23 @@ function emitUndoCountsUpdate(io: Server, gameId: string, game: any): void {
   }
 }
 
+export function resumePregameAIFlowAfterUndo(io: Server, gameId: string, game: any): void {
+  try {
+    const phase = String((game?.state as any)?.phase || '').toLowerCase();
+    if (phase !== 'pre_game' && phase !== 'pre-game' && phase !== '') {
+      return;
+    }
+
+    const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+    for (const player of players) {
+      if (!player || player.isAI !== true || player.spectator || player.isSpectator) continue;
+      scheduleAIGameFlow(io, gameId, String(player.id) as any, 0);
+    }
+  } catch (err) {
+    debugWarn(1, `[undo] Failed to resume pre-game AI flow for game ${gameId}:`, err);
+  }
+}
+
 export function registerUndoHandlers(io: Server, socket: Socket) {
   const getUndoRequesterContext = (gameId: string) => {
     const playerId = socket.data.playerId;
@@ -870,6 +887,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         socket.emit("undoComplete", { gameId, success: true });
         emitUndoCountsUpdate(io, gameId, game);
         broadcastGame(io, game, gameId);
+        resumePregameAIFlowAfterUndo(io, gameId, game);
       } else {
         socket.emit("error", {
           code: "UNDO_FAILED",
@@ -918,6 +936,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
         socket.emit("undoComplete", { gameId, success: true });
         emitUndoCountsUpdate(io, gameId, game);
         broadcastGame(io, game, gameId);
+        resumePregameAIFlowAfterUndo(io, gameId, game);
       } else {
         socket.emit("error", {
           code: "UNDO_FAILED",
@@ -1135,6 +1154,7 @@ export function registerUndoHandlers(io: Server, socket: Socket) {
 
           emitUndoCountsUpdate(io, gameId, game);
           broadcastGame(io, game, gameId);
+          resumePregameAIFlowAfterUndo(io, gameId, game);
         } else {
           io.to(gameId).emit("undoCancelled", {
             gameId,

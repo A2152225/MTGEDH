@@ -132,6 +132,46 @@ describe('Undo and Replay', () => {
       expect(libAfterUndo).toEqual(libBeforeExtraDraw);
       expect(handAfterUndo.length).toBe(7);
     });
+
+    it('clears stale turn state before replay so nextTurn restarts from the replay baseline', () => {
+      const gameId = 'undo_turn_reset_baseline';
+      const p1 = 'p1' as PlayerID;
+      const p2 = 'p2' as PlayerID;
+
+      const game = createInitialGameState(gameId);
+      game.applyEvent({ type: 'join', playerId: p1, name: 'P1' } as any);
+      game.applyEvent({ type: 'join', playerId: p2, name: 'P2' } as any);
+
+      Object.assign(game.state as any, {
+        turn: 13,
+        turnNumber: 13,
+        turnPlayer: p2,
+        priority: p2,
+        phase: 'combat',
+        step: 'DECLARE_BLOCKERS',
+      });
+
+      game.reset!(true);
+
+      expect((game.state as any).turn).toBeUndefined();
+      expect((game.state as any).turnNumber).toBeUndefined();
+      expect((game.state as any).turnPlayer).toBe('');
+      expect((game.state as any).priority).toBe('');
+      expect((game.state as any).phase).toBe('pre_game');
+      expect((game.state as any).step).toBeUndefined();
+
+      game.replay!([
+        { type: 'join', playerId: p1, name: 'P1' },
+        { type: 'join', playerId: p2, name: 'P2' },
+        { type: 'nextTurn' },
+      ] as any);
+
+      expect((game.state as any).turnNumber).toBe(1);
+      expect((game.state as any).turn).toBe(1);
+      expect((game.state as any).phase).toBe('beginning');
+      expect(String((game.state as any).step || '').toUpperCase()).toBe('UNTAP');
+      expect(['p1', 'p2']).toContain((game.state as any).turnPlayer);
+    });
   });
 
   describe('Mulligan state restoration', () => {

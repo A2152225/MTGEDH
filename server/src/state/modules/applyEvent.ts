@@ -454,6 +454,55 @@ function applyRecordedPlayLandReplayState(ctx: GameContext, event: any): void {
   }
 }
 
+function resolveReplayPermanentByEvent(ctx: GameContext, options: {
+  permanentId?: unknown;
+  playerId?: unknown;
+  cardName?: unknown;
+}): any | undefined {
+  const requestedPermanentId = String(options?.permanentId || '').trim();
+  const playerId = String(options?.playerId || '').trim();
+  const cardName = String(options?.cardName || '').trim().toLowerCase();
+  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  if (battlefield.length === 0) {
+    return undefined;
+  }
+
+  const stateAny = ctx.state as any;
+  const replayPermanentAliases = (stateAny.replayPermanentAliases = stateAny.replayPermanentAliases || {});
+  const aliasedPermanentId = requestedPermanentId && typeof replayPermanentAliases[requestedPermanentId] === 'string'
+    ? String(replayPermanentAliases[requestedPermanentId] || '').trim()
+    : '';
+
+  const directMatch = battlefield.find((entry: any) => {
+    const entryId = String(entry?.id || '').trim();
+    return entryId !== '' && (entryId === requestedPermanentId || entryId === aliasedPermanentId);
+  });
+  if (directMatch) {
+    if (requestedPermanentId && aliasedPermanentId && aliasedPermanentId !== requestedPermanentId) {
+      replayPermanentAliases[requestedPermanentId] = String(directMatch.id || '');
+    }
+    return directMatch;
+  }
+
+  if (!playerId || !cardName) {
+    return undefined;
+  }
+
+  const fallbackMatches = battlefield.filter((entry: any) =>
+    String(entry?.controller || '').trim() === playerId &&
+    String(entry?.card?.name || '').trim().toLowerCase() === cardName
+  );
+  if (fallbackMatches.length !== 1) {
+    return undefined;
+  }
+
+  const resolvedPermanent = fallbackMatches[0];
+  if (requestedPermanentId) {
+    replayPermanentAliases[requestedPermanentId] = String(resolvedPermanent?.id || '').trim();
+  }
+  return resolvedPermanent;
+}
+
 function consumeRecordedManaCostFromPool(pool: Record<string, number>, manaCost?: string): void {
   if (!pool || !manaCost) return;
 
@@ -828,6 +877,16 @@ export function reset(ctx: any, preservePlayers = false): void {
     ctx.state = ctx.state || {};
     ctx.state.battlefield = [];
     ctx.state.stack = [];
+    ctx.state.turnPlayer = "" as any;
+    ctx.state.priority = "" as any;
+    ctx.state.phase = "pre_game" as any;
+    ctx.state.step = undefined;
+    ctx.state.active = false;
+    (ctx.state as any).turn = undefined;
+    (ctx.state as any).turnNumber = undefined;
+    (ctx.state as any).activePlayerIndex = undefined;
+    (ctx.state as any).priorityPassedBy = new Set<string>();
+    (ctx.state as any).priorityClaimed = new Set<string>();
     // Impulse-style exile permissions must never survive a reset/replay.
     // These will be rebuilt deterministically from replayed events when appropriate.
     (ctx.state as any).playableFromExile = {};
@@ -912,6 +971,9 @@ export function reset(ctx: any, preservePlayers = false): void {
 
     // Reset bump/seq if present
     try {
+      if (ctx.passesInRow && typeof ctx.passesInRow === "object" && "value" in ctx.passesInRow) {
+        ctx.passesInRow.value = 0;
+      }
       if (ctx.seq && typeof ctx.seq === "object" && "value" in ctx.seq)
         ctx.seq.value = 0;
       if (typeof ctx.bumpSeq === "function") ctx.bumpSeq();
@@ -6046,11 +6108,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "creatureTypeSelected": {
         // Creature type selection (e.g., Cavern of Souls, Metallic Mimic)
         const permId = (e as any).permanentId;
+        const playerId = (e as any).playerId;
         const creatureType = (e as any).creatureType;
+        const cardName = (e as any).cardName;
         try {
           if (permId && creatureType) {
-            const battlefield = ctx.state.battlefield || [];
-            const perm = battlefield.find((p: any) => p.id === permId);
+            const perm = resolveReplayPermanentByEvent(ctx, {
+              permanentId: permId,
+              playerId,
+              cardName,
+            });
             if (perm) {
               (perm as any).chosenCreatureType = creatureType;
 
@@ -6058,7 +6125,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               if (permCardName.includes('morophon')) {
                 const stateAny = ctx.state as any;
                 const morophonChosenType = (stateAny.morophonChosenType || {}) as Record<string, string>;
-                morophonChosenType[String(permId)] = String(creatureType);
+                morophonChosenType[String((perm as any)?.id || permId)] = String(creatureType);
                 stateAny.morophonChosenType = morophonChosenType;
               }
             }
