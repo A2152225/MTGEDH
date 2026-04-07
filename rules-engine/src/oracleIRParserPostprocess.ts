@@ -458,6 +458,93 @@ export function mergeLookSelectTopFollowupAbilities(
   });
 }
 
+function parseLookChooseFromTopTriple(
+  current: OracleEffectStep,
+  next: OracleEffectStep | undefined,
+  after: OracleEffectStep | undefined
+): OracleEffectStep | null {
+  if (current.kind !== 'unknown' || after?.kind !== 'unknown') return null;
+
+  const normalizedLook = normalizeOracleText(String(current.raw || '')).replace(/[.]+$/g, '').trim();
+  const normalizedRest = normalizeOracleText(String(after.raw || '')).replace(/[.]+$/g, '').trim();
+  if (!/^put the rest on the bottom of your library in a random order$/i.test(normalizedRest)) {
+    return null;
+  }
+
+  const lookMatch = normalizedLook.match(/^look at the top (a|an|\d+|x|[a-z]+) cards? of your library$/i);
+  if (!lookMatch) return null;
+
+  const amount = parseQuantity(String(lookMatch[1] || '').trim());
+  if (amount.kind !== 'number') return null;
+
+  if (next?.kind === 'unknown') {
+    const normalizedChoose = normalizeOracleText(String(next.raw || '')).replace(/[.]+$/g, '').trim();
+    const revealToHandMatch = normalizedChoose.match(
+      /^you may reveal (.+?) card from among them and put it into your hand$/i
+    );
+    if (!revealToHandMatch) return null;
+
+    return {
+      kind: 'look_choose_from_top',
+      who: { kind: 'you' },
+      amount,
+      selectorText: String(revealToHandMatch[1] || '').trim().replace(/^an?\s+/i, ''),
+      destination: 'hand',
+      reveal: true,
+      optional: true,
+      ...(current.sequence ? { sequence: current.sequence } : {}),
+      raw: `${normalizedLook}. ${normalizedChoose}. ${normalizedRest}`.trim(),
+    };
+  }
+
+  if (next?.kind === 'move_zone' && next.optional === true && (next.to === 'hand' || next.to === 'exile')) {
+    const selectorText = String((next.what as any)?.text || '').trim();
+    const cleanedSelectorText = selectorText
+      .replace(/\s+from\s+among\s+them$/i, '')
+      .replace(/^an?\s+/i, '')
+      .replace(/\s+card(?=\s+with\b|$)/i, '')
+      .trim();
+    if (!cleanedSelectorText) return null;
+
+    return {
+      kind: 'look_choose_from_top',
+      who: { kind: 'you' },
+      amount,
+      selectorText: cleanedSelectorText,
+      destination: next.to,
+      optional: true,
+      ...(current.sequence ? { sequence: current.sequence } : {}),
+      raw: `${normalizedLook}. ${normalizeOracleText(String(next.raw || '')).trim()}. ${normalizedRest}`.trim(),
+    };
+  }
+
+  return null;
+}
+
+export function mergeLookChooseFromTopAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const merged: OracleEffectStep[] = [];
+
+    for (let i = 0; i < ability.steps.length; i += 1) {
+      const current = ability.steps[i];
+      const next = ability.steps[i + 1];
+      const after = ability.steps[i + 2];
+      const combined = parseLookChooseFromTopTriple(current, next, after);
+      if (combined) {
+        merged.push(combined);
+        i += 2;
+        continue;
+      }
+
+      merged.push(current);
+    }
+
+    return merged.length === ability.steps.length ? ability : { ...ability, steps: merged };
+  });
+}
+
 function parseConditionalBattlefieldEntryCounters(rawClause: string): {
   readonly condition: OracleClauseCondition;
   readonly withCounters: Record<string, number>;
@@ -2233,18 +2320,21 @@ function extractLeadingInlineManaCost(text: string | undefined): string | null {
 export function expandUnearthKeywordAbilities(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  return abilities.map((ability) => {
+  return abilities.flatMap((ability) => {
     const normalizedEffect = normalizeOracleText(String(ability.effectText || '')).trim().toLowerCase();
     const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    if (/^unearth only as a sorcery[.)]*$/i.test(normalizedText)) {
+      return [];
+    }
     const alreadyExpanded =
       ability.steps.some((step) => step.kind === 'move_zone') &&
       ability.steps.some((step) => step.kind === 'schedule_delayed_battlefield_action') &&
       ability.steps.some((step) => step.kind === 'grant_leave_battlefield_replacement');
     if (alreadyExpanded) {
-      return ability;
+      return [ability];
     }
     if (normalizedEffect !== 'unearth' && !normalizedText.startsWith('unearth ')) {
-      return ability;
+      return [ability];
     }
 
     const manaCost = extractLeadingInlineManaCost(ability.cost) || String(ability.cost || '').trim();
@@ -2252,7 +2342,7 @@ export function expandUnearthKeywordAbilities(
       (step) => !(step.kind === 'unknown' && normalizeOracleText(String(step.raw || '')).trim().toLowerCase() === 'unearth')
     );
 
-    return {
+    return [{
       ...ability,
       ...(manaCost ? { cost: manaCost } : {}),
       effectText:
@@ -2281,7 +2371,65 @@ export function expandUnearthKeywordAbilities(
         },
         ...existingSteps,
       ],
-    };
+    }];
+  });
+}
+
+export function pruneMorphReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    return !/^turn it face up any time for its mana cost if it's a creature card[.)]*$/i.test(normalizedText);
+  });
+}
+
+export function pruneForetellReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    return !/^cast it on a later turn for its foretell cost[.)]*$/i.test(normalizedText);
+  });
+}
+
+export function pruneRedundantAttackRequirementAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => {
+    if (ability.type !== 'static' || ability.steps.length !== 1 || ability.steps[0]?.kind !== 'unknown') {
+      return true;
+    }
+
+    const normalizedText = normalizeOracleText(String(ability.text || '')).trim().toLowerCase();
+    return !/^this creature attacks each combat if able[.)]*$/i.test(normalizedText);
+  });
+}
+
+function isRedundantScryReminderUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  if (!normalized) return false;
+
+  return (
+    /^look at the top (?:card|[a-z0-9-]+ cards?) of your library$/i.test(normalized) ||
+    /^you may put that card on the bottom$/i.test(normalized) ||
+    /^(?:then\s+)?put any number of them on the bottom of your library and the rest on top in any order$/i.test(normalized)
+  );
+}
+
+export function pruneRedundantScryReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (!ability.steps.some((step) => step.kind === 'scry')) return ability;
+
+    const nextSteps = ability.steps.filter(step => !isRedundantScryReminderUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
 
@@ -4536,7 +4684,10 @@ function isRedundantActivationRestrictionUnknownStep(step: OracleEffectStep): bo
     .trim();
   if (!normalized) return false;
 
-  return /^activate only as a sorcery$/i.test(normalized);
+  return (
+    /^activate only as a sorcery$/i.test(normalized) ||
+    /^activate(?: this ability)? only once(?: each turn)?$/i.test(normalized)
+  );
 }
 
 export function pruneRedundantActivationRestrictionUnknownAbilities(

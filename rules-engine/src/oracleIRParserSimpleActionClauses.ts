@@ -1,7 +1,6 @@
 import type { OracleEffectStep } from './oracleIR';
 import { normalizeCounterName } from './oracleIRParserSacrificeHelpers';
 import { parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracleIRParserUtils';
-
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
 const PLAYER_SUBJECT_PREFIX =
@@ -14,12 +13,62 @@ function parseManaChoiceList(raw: string): string[] {
   return Array.isArray(matches) ? matches.map(symbol => String(symbol || '').trim()).filter(Boolean) : [];
 }
 
+function countEnergySymbols(raw: string): number {
+  const matches = String(raw || '').match(/\{E\}/gi);
+  return Array.isArray(matches) ? matches.length : 0;
+}
+
 export function tryParseSimpleActionClause(args: {
   clause: string;
   rawClause: string;
   withMeta: WithMeta;
 }): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
+
+  {
+    const searchBattlefield = clause.match(
+      /^search your library for (?:up to one |a |an )(.+?) card,\s*(reveal it,\s*)?put (?:it|that card) onto the battlefield( tapped)?(?: under your control)?(?:,\s*(?:then\s+)?shuffle(?: your library)?)?$/i
+    );
+    if (searchBattlefield) {
+      return withMeta({
+        kind: 'search_library',
+        who: { kind: 'you' },
+        criteria: { kind: 'raw', text: String(searchBattlefield[1] || '').trim() },
+        destination: 'battlefield',
+        revealFound: Boolean(searchBattlefield[2]),
+        entersTapped: Boolean(searchBattlefield[3]),
+        shuffle: /\bshuffle\b/i.test(clause) || undefined,
+        maxResults: 1,
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const shuffleLibrary = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}shuffle(?:s)?(?:\\s+(?:your|their|his or her)\\s+library)?$`, 'i')
+    );
+    if (shuffleLibrary) {
+      return withMeta({
+        kind: 'shuffle_library',
+        who: parsePlayerSelector(shuffleLibrary[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const addAnyColorMana = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}adds?\\s+one\\s+mana\\s+of\\s+any\\s+(?:one\\s+)?color\\s*$`, 'i'));
+    if (addAnyColorMana) {
+      return withMeta({
+        kind: 'add_mana',
+        who: parsePlayerSelector(addAnyColorMana[1]),
+        mana: '{W}',
+        manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        raw: rawClause,
+      });
+    }
+  }
 
   {
     const moreCards = clause.match(
@@ -84,6 +133,22 @@ export function tryParseSimpleActionClause(args: {
   }
 
   {
+    const addEnergyCounters = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+((?:\\{E\\})+)(?:\\s*\\(([^)]*energy counters?)\\))?\\s*$`, 'i'));
+    if (addEnergyCounters) {
+      const energyCount = countEnergySymbols(String(addEnergyCounters[2] || ''));
+      if (energyCount > 0) {
+        return withMeta({
+          kind: 'add_player_counter',
+          who: parsePlayerSelector(addEnergyCounters[1]),
+          amount: { kind: 'number', value: energyCount },
+          counter: 'energy',
+          raw: rawClause,
+        });
+      }
+    }
+  }
+
+  {
     const addPlayerCounters = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}get(?:s)?\\s+(${COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?$`, 'i')
     );
@@ -106,6 +171,19 @@ export function tryParseSimpleActionClause(args: {
         amount: parseQuantity(removeCounters[1]),
         counter: normalizeCounterName(String(removeCounters[2] || '')),
         target: parseObjectSelector(removeCounters[3]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const removeImplicitTimeCounter = clause.match(/^remove\s+(a|an|one)\s+time\s+counter$/i);
+    if (removeImplicitTimeCounter) {
+      return withMeta({
+        kind: 'remove_counter',
+        amount: { kind: 'number', value: 1 },
+        counter: 'time',
+        target: parseObjectSelector('it'),
         raw: rawClause,
       });
     }
@@ -487,6 +565,19 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
+    const discardTargeted = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+(that\\s+card|it)\\b`, 'i')
+    );
+    if (discardTargeted) {
+      return withMeta({
+        kind: 'discard',
+        who: parsePlayerSelector(discardTargeted[1]),
+        amount: { kind: 'number', value: 1 },
+        target: parseObjectSelector(discardTargeted[2]),
+        raw: rawClause,
+      });
+    }
+
     const discard = clause.match(
       new RegExp(`^${PLAYER_SUBJECT_PREFIX}discards?\\s+(a|an|\\d+|x|[a-z]+)\\s+cards?\\b`, 'i')
     );
@@ -499,12 +590,36 @@ export function tryParseSimpleActionClause(args: {
       });
     }
 
+    const discardTargetedDefault = clause.match(/^discard\s+(that\s+card|it)\b/i);
+    if (discardTargetedDefault) {
+      return withMeta({
+        kind: 'discard',
+        who: { kind: 'you' },
+        amount: { kind: 'number', value: 1 },
+        target: parseObjectSelector(discardTargetedDefault[1]),
+        raw: rawClause,
+      });
+    }
+
     const discardDefault = clause.match(/^discard\s+(a|an|\d+|x|[a-z]+)\s+cards?\b/i);
     if (discardDefault) {
       return withMeta({
         kind: 'discard',
         who: { kind: 'you' },
         amount: parseQuantity(discardDefault[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const revealHand = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}reveals?\\s+(?:your|their|his or her)\\s+hand\\b`, 'i')
+    );
+    if (revealHand) {
+      return withMeta({
+        kind: 'reveal_hand',
+        who: parsePlayerSelector(revealHand[1]),
         raw: rawClause,
       });
     }
@@ -564,6 +679,18 @@ export function tryParseSimpleActionClause(args: {
       return withMeta({
         kind: 'detain',
         target: parseObjectSelector(detain[1]),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const cantBlock = clause.match(/^(.+?)\s+can't\s+block\s+this\s+turn$/i);
+    if (cantBlock) {
+      return withMeta({
+        kind: 'cant_block',
+        target: parseObjectSelector(cantBlock[1]),
+        duration: 'end_of_turn',
         raw: rawClause,
       });
     }

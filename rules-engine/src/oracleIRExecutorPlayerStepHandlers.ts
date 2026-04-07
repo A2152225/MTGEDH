@@ -20,6 +20,7 @@ import {
   adjustLife,
   adjustPlayerCounter,
   discardCardsForPlayer,
+  discardSpecificCardsForPlayer,
   deriveWinningVoteChoice,
   drawCardsForPlayer,
   getCardManaValue,
@@ -70,6 +71,10 @@ type UnlessPaysLifeResult =
   | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly state?: GameState; readonly log: readonly string[] }
   | StepSkipResult;
 
+type UnlessPaysManaResult =
+  | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly state?: GameState; readonly log: readonly string[] }
+  | StepSkipResult;
+
 export type PlayerStepHandlerResult = StepApplyResult | StepSkipResult;
 
 function shuffleArray<T>(items: readonly T[]): T[] {
@@ -79,6 +84,75 @@ function shuffleArray<T>(items: readonly T[]): T[] {
     [shuffled[idx], shuffled[swapIdx]] = [shuffled[swapIdx], shuffled[idx]];
   }
   return shuffled;
+}
+
+function normalizeLookChooseSelectorText(value: string): string {
+  return String(value || '')
+    .replace(/^an?\s+/i, '')
+    .replace(/\s+card$/i, '')
+    .trim();
+}
+
+function splitLookChooseSelectorTerms(value: string): string[] {
+  const normalized = normalizeLookChooseSelectorText(value)
+    .replace(/\s*,\s*or\s+/gi, ',')
+    .replace(/\s+or\s+/gi, ',')
+    .replace(/\s*,\s*/g, ',')
+    .trim();
+  if (!normalized) return [];
+  return normalized
+    .split(',')
+    .map(part => part.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function cardMatchesLookChooseTerm(card: any, term: string): boolean {
+  const normalizedTerm = String(term || '').trim().toLowerCase();
+  if (!normalizedTerm) return false;
+
+  const parsedType = parseSimpleCardTypeFromText(normalizedTerm);
+  if (parsedType) {
+    return cardMatchesMoveZoneSingleTargetCriteria(card, { cardType: parsedType }, undefined, 0);
+  }
+
+  const typeLine = getCardTypeLineLower(card);
+  const name = String(card?.name || card?.card?.name || '').trim().toLowerCase();
+  return typeLine.includes(normalizedTerm) || name.includes(normalizedTerm);
+}
+
+function cardMatchesLookChooseSelector(card: any, selectorText: string): boolean {
+  const normalizedSelector = normalizeLookChooseSelectorText(selectorText)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalizedSelector) return false;
+
+  const manaValueMatch = normalizedSelector.match(/^(.+?)\s+with\s+mana\s+value\s+(\d+)\s+or\s+less$/i);
+  const selectorWithoutManaLimit = manaValueMatch ? String(manaValueMatch[1] || '').trim() : normalizedSelector;
+  const manaValueLimit = manaValueMatch ? Number.parseInt(String(manaValueMatch[2] || ''), 10) : null;
+  if (manaValueLimit !== null && (!Number.isFinite(manaValueLimit) || Number(getCardManaValue(card) ?? 0) > manaValueLimit)) {
+    return false;
+  }
+
+  const terms = splitLookChooseSelectorTerms(selectorWithoutManaLimit);
+  if (terms.length === 0) return false;
+
+  const negativeTerms = terms
+    .map(term => {
+      const match = term.match(/^non-?(.+)$/i);
+      return match ? String(match[1] || '').trim().toLowerCase() : null;
+    })
+    .filter((term): term is string => Boolean(term));
+  const positiveTerms = terms.filter(term => !/^non-?/i.test(term));
+
+  if (negativeTerms.some(term => cardMatchesLookChooseTerm(card, term))) {
+    return false;
+  }
+
+  if (positiveTerms.length === 0) {
+    return true;
+  }
+
+  return positiveTerms.some(term => cardMatchesLookChooseTerm(card, term));
 }
 
 function chooseCollectEvidenceCardIds(
@@ -2127,7 +2201,15 @@ export function applySearchLibraryStep(
     }));
     const enteredBattlefield =
       step.destination === 'battlefield'
-        ? createBattlefieldPermanentsFromCards(movedCards, playerId, playerId, false, false, undefined, 'library')
+        ? createBattlefieldPermanentsFromCards(
+            movedCards,
+            playerId,
+            playerId,
+            Boolean(step.entersTapped),
+            false,
+            undefined,
+            'library'
+          )
         : [];
 
     nextState = {
@@ -2175,6 +2257,47 @@ export function applySearchLibraryStep(
     if (step.shuffle !== false) {
       log.push(`${playerId} shuffled their library`);
     }
+  }
+
+  return { applied: true, state: nextState, log };
+}
+
+export function applyShuffleLibraryStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'shuffle_library' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped shuffle library (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+
+  for (const playerId of players) {
+    const player = nextState.players.find(p => p.id === playerId) as any;
+    if (!player) {
+      return {
+        applied: false,
+        message: `Skipped shuffle library (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+
+    const library = Array.isArray(player.library) ? [...player.library] : [];
+    const shuffledLibrary = shuffleArray(library);
+    nextState = {
+      ...(nextState as any),
+      players: nextState.players.map((entry: any) =>
+        entry.id === playerId ? { ...entry, library: shuffledLibrary } : entry
+      ),
+    } as GameState;
+    log.push(`${playerId} shuffled their library`);
   }
 
   return { applied: true, state: nextState, log };
@@ -2282,6 +2405,89 @@ export function applyLookSelectTopStep(
   };
 }
 
+export function applyLookChooseFromTopStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'look_choose_from_top' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const amount = quantityToNumber(step.amount, ctx);
+  if (amount === null) {
+    return {
+      applied: false,
+      message: `Skipped look-choose-from-top (unknown amount): ${step.raw}`,
+      reason: 'unknown_amount',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped look-choose-from-top (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  let nextState = state;
+  const log: string[] = [];
+  const movedCards: any[] = [];
+
+  for (const playerId of players) {
+    const player = nextState.players.find(entry => entry.id === playerId) as any;
+    if (!player) {
+      return {
+        applied: false,
+        message: `Skipped look-choose-from-top (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+      };
+    }
+
+    const library = Array.isArray(player.library) ? [...player.library] : [];
+    const hand = Array.isArray(player.hand) ? [...player.hand] : [];
+    const exile = Array.isArray(player.exile) ? [...player.exile] : [];
+    const lookedCount = Math.max(0, Math.min(library.length, amount | 0));
+    const lookedCards = library.splice(0, lookedCount);
+    const chosenIndex = lookedCards.findIndex(card => cardMatchesLookChooseSelector(card, step.selectorText));
+    const chosenCard = chosenIndex >= 0 ? lookedCards.splice(chosenIndex, 1)[0] : null;
+
+    if (chosenCard) {
+      movedCards.push(chosenCard);
+      if (step.destination === 'hand') {
+        hand.push(chosenCard);
+      } else {
+        exile.push(chosenCard);
+      }
+    }
+
+    const randomizedRest = shuffleArray(lookedCards);
+    const updatedPlayers = nextState.players.map(entry => {
+      if (entry.id !== playerId) return entry;
+      return {
+        ...(entry as any),
+        library: [...library, ...randomizedRest],
+        hand,
+        exile,
+      } as any;
+    });
+    nextState = { ...nextState, players: updatedPlayers as any };
+
+    const actionText = chosenCard
+      ? `${step.destination === 'hand' ? 'puts a matching card into their hand' : 'exiles a matching card'}`
+      : 'does not find a matching card';
+    log.push(
+      `${playerId} looks at ${lookedCount} card(s), ${actionText}, and puts ${randomizedRest.length} on the bottom of their library in a random order`
+    );
+  }
+
+  return {
+    applied: true,
+    state: nextState,
+    log,
+    ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+  };
+}
+
 export function applyMillStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'mill' }>,
@@ -2359,6 +2565,51 @@ export function applyDiscardStep(
     };
   }
 
+  if (step.target) {
+    if (players.length !== 1) {
+      return {
+        applied: false,
+        message: `Skipped discard (requires deterministic player binding): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const chosenIds = getNormalizedChosenIds(ctx);
+    if (chosenIds.length !== Math.max(0, amount | 0)) {
+      return {
+        applied: false,
+        message: `Skipped discard (requires chosen card binding): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const result = discardSpecificCardsForPlayer(state, players[0], chosenIds);
+    if (!result.applied) {
+      return {
+        applied: false,
+        message: `Skipped discard (chosen card unavailable): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: {
+          persist: false,
+          metadata: {
+            missingCardIds: [...result.missingCardIds],
+          },
+        },
+      };
+    }
+
+    return {
+      applied: true,
+      state: result.state,
+      log: result.log,
+      lastDiscardedCardCount: result.discardedCount,
+      lastDiscardedCards: result.discardedCards,
+      lastMovedCards: result.discardedCards,
+    };
+  }
+
   const wouldNeedChoice = players.some(playerId => {
     const player = state.players.find(p => p.id === playerId) as any;
     const handLength = Array.isArray(player?.hand) ? player.hand.length : 0;
@@ -2393,6 +2644,56 @@ export function applyDiscardStep(
     lastDiscardedCardCount: totalDiscarded,
     lastDiscardedCards: discardedCards,
     lastMovedCards: discardedCards,
+  };
+}
+
+export function applyRevealHandStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'reveal_hand' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length === 0) {
+    const opponentCount = (state.players || []).filter(
+      (player: any) => String(player?.id || '').trim() !== String(ctx.controllerId || '').trim()
+    ).length;
+    const requiresChoice = step.who.kind === 'target_opponent' && opponentCount > 1;
+    return {
+      applied: false,
+      message: `Skipped reveal hand (${requiresChoice ? 'requires player choice' : 'unsupported player selector'}): ${step.raw}`,
+      reason: requiresChoice ? 'player_choice_required' : 'unsupported_player_selector',
+      options: requiresChoice ? { classification: 'player_choice' } : undefined,
+    };
+  }
+
+  const log: string[] = [];
+  let lastRevealedCardCount = 0;
+  for (const playerId of players) {
+    const player = state.players.find(entry => entry.id === playerId) as any;
+    if (!player) {
+      return {
+        applied: false,
+        message: `Skipped reveal hand (player not found): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: { classification: 'invalid_input', persist: false },
+      };
+    }
+
+    const hand = Array.isArray(player.hand) ? player.hand : [];
+    lastRevealedCardCount = Math.max(lastRevealedCardCount, hand.length);
+    const revealedNames = hand
+      .map((card: any) => String(card?.name || card?.card?.name || card?.id || '').trim())
+      .filter(Boolean);
+    log.push(
+      `${playerId} reveals their hand: ${revealedNames.length > 0 ? revealedNames.join(', ') : '(empty)'}`
+    );
+  }
+
+  return {
+    applied: true,
+    state,
+    log,
+    lastRevealedCardCount,
   };
 }
 
@@ -2967,5 +3268,103 @@ export function evaluateUnlessPaysLifeStep(
     applied: true,
     shouldApplyNestedSteps: true,
     log: [`Resolved unless-pays-life step (payer cannot pay ${step.amount} life): ${step.raw}`],
+  };
+}
+
+export function evaluateUnlessPaysManaStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'unless_pays_mana' }>,
+  ctx: OracleIRExecutionContext
+): UnlessPaysManaResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped unless-pays-mana step (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          selectorKind: step.who.kind,
+          candidateCount: players.length,
+          manaCost: step.mana,
+        },
+      },
+    };
+  }
+
+  const payerId = players[0];
+  const payer = (state.players || []).find(player => String(player?.id || '').trim() === String(payerId || '').trim()) as any;
+  if (!payer) {
+    return {
+      applied: false,
+      message: `Skipped unless-pays-mana step (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const manaCost = parseSupportedManaCostString(step.mana);
+  if (!manaCost) {
+    return {
+      applied: false,
+      message: `Skipped unless-pays-mana step (unsupported mana cost): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'ambiguous' },
+    };
+  }
+
+  const explicitChoice =
+    ctx.unlessPaysManaChoice === 'pay' || ctx.unlessPaysManaChoice === 'decline'
+      ? ctx.unlessPaysManaChoice
+      : (ctx.selectorContext?.unlessPaysManaChoice === 'pay' || ctx.selectorContext?.unlessPaysManaChoice === 'decline'
+          ? ctx.selectorContext.unlessPaysManaChoice
+          : (ctx.unlessPaysLifeChoice === 'pay' || ctx.unlessPaysLifeChoice === 'decline'
+              ? ctx.unlessPaysLifeChoice
+              : (ctx.selectorContext?.unlessPaysLifeChoice === 'pay' || ctx.selectorContext?.unlessPaysLifeChoice === 'decline'
+                  ? ctx.selectorContext.unlessPaysLifeChoice
+                  : undefined)));
+
+  const manaPoolRecord: Record<PlayerID, any> = { ...((((state as any).manaPool || {}) as any) || {}) };
+  const currentPool = manaPoolRecord[payerId] || createEmptyManaPool();
+  const payment = payManaCost(currentPool, manaCost);
+  const canPayMana = Boolean(payment.success && payment.remainingPool);
+
+  if (canPayMana) {
+    if (explicitChoice === 'pay') {
+      manaPoolRecord[payerId] = payment.remainingPool;
+      return {
+        applied: true,
+        shouldApplyNestedSteps: false,
+        state: { ...(state as any), manaPool: manaPoolRecord } as any,
+        log: [`Resolved unless-pays-mana step (payer chose to pay ${step.mana}): ${step.raw}`],
+      };
+    }
+
+    if (explicitChoice === 'decline') {
+      return {
+        applied: true,
+        shouldApplyNestedSteps: true,
+        log: [`Resolved unless-pays-mana step (payer declined to pay ${step.mana}): ${step.raw}`],
+      };
+    }
+
+    return {
+      applied: false,
+      message: `Skipped unless-pays-mana step (opponent choice required): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: {
+        classification: 'player_choice',
+        metadata: {
+          payerId,
+          manaCost: step.mana,
+        },
+      },
+    };
+  }
+
+  return {
+    applied: true,
+    shouldApplyNestedSteps: true,
+    log: [`Resolved unless-pays-mana step (payer cannot pay ${step.mana}): ${step.raw}`],
   };
 }

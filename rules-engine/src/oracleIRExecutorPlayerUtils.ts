@@ -638,6 +638,14 @@ export function resolvePlayers(
     case 'target_player': {
       const bound = normalizeId(ctx.selectorContext?.targetPlayerId);
       if (bound && allPlayerIds.has(bound)) return [bound];
+      const boundSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+      if (boundSpellId) {
+        const stackItem = (state.stack || []).find((item: any) => String(item?.id || '').trim() === boundSpellId) as any;
+        const spellControllerId = normalizeId(stackItem?.controller || stackItem?.owner);
+        if (spellControllerId && allPlayerIds.has(spellControllerId)) {
+          return [spellControllerId];
+        }
+      }
       return [];
     }
     case 'unknown':
@@ -662,6 +670,8 @@ export function resolvePlayersFromDamageTarget(
   if (!t) return [];
 
   if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
+  if (t === 'target player') return resolvePlayers(state, { kind: 'target_player' }, ctx);
+  if (t === 'target opponent') return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
   if (
     t === 'that player' ||
     t === 'he or she' ||
@@ -1090,6 +1100,54 @@ export function discardCardsForPlayer(
     needsChoice: false,
     discardedCount: discarded.length,
     discardedCards: stampedDiscarded,
+  };
+}
+
+export function discardSpecificCardsForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  cardIds: readonly string[]
+): {
+  state: GameState;
+  log: string[];
+  applied: boolean;
+  discardedCount: number;
+  discardedCards: any[];
+  missingCardIds: readonly string[];
+} {
+  const log: string[] = [];
+  const player = state.players.find(p => p.id === playerId);
+  if (!player) {
+    return { state, log: [`Player not found: ${playerId}`], applied: false, discardedCount: 0, discardedCards: [], missingCardIds: [] };
+  }
+
+  const wantedIds = Array.from(new Set((Array.isArray(cardIds) ? cardIds : []).map(id => String(id || '').trim()).filter(Boolean)));
+  if (wantedIds.length === 0) {
+    return { state, log, applied: false, discardedCount: 0, discardedCards: [], missingCardIds: [] };
+  }
+
+  const wantedIdSet = new Set(wantedIds);
+  const hand = [...((player as any).hand || [])];
+  const graveyard = [...((player as any).graveyard || [])];
+  const discarded = hand.filter((card: any) => wantedIdSet.has(String(card?.id || '').trim()));
+  const missingCardIds = wantedIds.filter(id => !discarded.some((card: any) => String(card?.id || '').trim() === id));
+  if (missingCardIds.length > 0) {
+    return { state, log, applied: false, discardedCount: 0, discardedCards: [], missingCardIds };
+  }
+
+  const remainingHand = hand.filter((card: any) => !wantedIdSet.has(String(card?.id || '').trim()));
+  const stampedDiscarded = stampCardsPutIntoGraveyardThisTurn(state, discarded);
+  graveyard.push(...stampedDiscarded);
+
+  const updatedPlayers = state.players.map(p => (p.id === playerId ? { ...p, hand: remainingHand, graveyard } : p));
+  log.push(`${playerId} discards ${discarded.length} chosen card(s)`);
+  return {
+    state: { ...state, players: updatedPlayers as any },
+    log,
+    applied: true,
+    discardedCount: stampedDiscarded.length,
+    discardedCards: stampedDiscarded,
+    missingCardIds: [],
   };
 }
 

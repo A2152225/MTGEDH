@@ -333,22 +333,45 @@ export function resolveCreatureTargetIds(
   if (target.kind !== 'raw') return [];
 
   const targetText = normalizeOracleText(target.text);
-  if (targetText !== 'each other attacking creature' && targetText !== 'other attacking creatures') {
-    return [];
+  const sourceId = String(ctx.sourceId || '').trim();
+  const battlefield = getProcessedBattlefield(state).filter(permanent => isExecutorCreature(permanent));
+  const controllerId = String(ctx.controllerId || '').trim();
+
+  const controlledBy = (playerId: string): string[] =>
+    battlefield
+      .filter(permanent => String((permanent as any)?.controller || '').trim() === playerId)
+      .map(permanent => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
+
+  if (targetText === 'each other attacking creature' || targetText === 'other attacking creatures') {
+    return battlefield
+      .filter(permanent => {
+        const permanentId = String((permanent as any)?.id || '').trim();
+        if (!permanentId || permanentId === sourceId) return false;
+        return isAttackingPermanent(permanent);
+      })
+      .map(permanent => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
   }
 
-  const sourceId = String(ctx.sourceId || '').trim();
-  const battlefield = getProcessedBattlefield(state);
+  if (targetText === 'creatures you control' || targetText === 'all creatures you control') {
+    return controlledBy(controllerId);
+  }
 
-  return battlefield
-    .filter(permanent => {
-      const permanentId = String((permanent as any)?.id || '').trim();
-      if (!permanentId || permanentId === sourceId) return false;
-      if (!isExecutorCreature(permanent)) return false;
-      return isAttackingPermanent(permanent);
-    })
-    .map(permanent => String((permanent as any)?.id || '').trim())
-    .filter(Boolean);
+  if (targetText === 'creatures your opponents control' || targetText === 'all creatures your opponents control') {
+    return battlefield
+      .filter(permanent => String((permanent as any)?.controller || '').trim() !== controllerId)
+      .map(permanent => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  if (targetText === 'all creatures') {
+    return battlefield
+      .map(permanent => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  return [];
 }
 
 export function applyTemporaryPowerToughnessModifier(

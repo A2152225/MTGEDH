@@ -1283,7 +1283,7 @@ export function applyTapOrUntapStep(
     targetIds.includes(String(perm?.id || '').trim())
   );
   const choice: 'tap' | 'untap' =
-    ctx.tapOrUntapChoice ?? (currentTargets.some((perm: any) => Boolean(perm?.tapped)) ? 'untap' : 'tap');
+    step.mode ?? ctx.tapOrUntapChoice ?? (currentTargets.some((perm: any) => Boolean(perm?.tapped)) ? 'untap' : 'tap');
 
   return {
     applied: true,
@@ -1591,6 +1591,42 @@ export function applyDetainStep(
     applied: true,
     state: nextState,
     log: [`Detained ${targets.length} permanent(s)`],
+  };
+}
+
+export function applyCantBlockStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'cant_block' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
+  const targets = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx);
+  if (targets.length === 0) {
+    return {
+      applied: false,
+      message: `Skipped cant_block (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  if (targets.length > 1 && /^target\b/i.test(String((step.target as any)?.text || '').trim())) {
+    return {
+      applied: false,
+      message: `Skipped cant_block (needs player choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
+  const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
+    descriptions: ["can't block"],
+    expiresAt: 'end_of_turn',
+  });
+
+  return {
+    applied: true,
+    state: nextState,
+    log: [`Applied can't-block to ${targets.length} permanent(s)`],
   };
 }
 
@@ -2091,15 +2127,13 @@ export function applyRemoveCounterStep(
   }
 
   const targets = resolveDirectBattlefieldPermanents((state.battlefield || []) as BattlefieldPermanent[], step.target as any, ctx);
-  if (targets.length !== 1) {
+  if (targets.length > 1) {
     return {
       applied: false,
       message: `Skipped remove counter (no deterministic target): ${step.raw}`,
       reason: 'no_deterministic_target',
     };
   }
-
-  const target = targets[0] as any;
   const counterName = String(step.counter || '').trim();
   if (!counterName) {
     return {
@@ -2109,9 +2143,96 @@ export function applyRemoveCounterStep(
     };
   }
 
-  const currentCount = Number(target?.counters?.[counterName] ?? 0);
-  const normalizedCount = Number.isFinite(currentCount) ? currentCount : 0;
-  if (normalizedCount < amountValue) {
+  const battlefieldTarget = targets[0] as any;
+  if (battlefieldTarget) {
+    const currentCount = Number(battlefieldTarget?.counters?.[counterName] ?? 0);
+    const normalizedCount = Number.isFinite(currentCount) ? currentCount : 0;
+    if (normalizedCount < amountValue) {
+      return {
+        applied: false,
+        message: `Skipped remove counter (not enough counters): ${step.raw}`,
+        reason: 'impossible_action',
+        options: {
+          persist: false,
+          metadata: {
+            counter: counterName,
+            availableCount: normalizedCount,
+            requiredCount: amountValue,
+            targetId: String(battlefieldTarget?.id || '').trim() || null,
+          },
+        },
+      };
+    }
+
+    const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+      if (String(perm?.id || '').trim() !== String(battlefieldTarget?.id || '').trim()) return perm;
+      const counters = { ...((perm?.counters || {}) as Record<string, number>) };
+      const nextCount = normalizedCount - amountValue;
+      if (nextCount > 0) {
+        counters[counterName] = nextCount;
+      } else {
+        delete counters[counterName];
+      }
+      return {
+        ...perm,
+        counters,
+      };
+    });
+
+    return {
+      applied: true,
+      state: {
+        ...(state as any),
+        battlefield: nextBattlefield,
+      } as GameState,
+      log: [`Removed ${amountValue} ${counterName} counter(s)`],
+    };
+  }
+
+  const sourceId = String(ctx.sourceId || '').trim();
+  const location = sourceId ? findCardZoneLocation(state, sourceId) : null;
+  if (!location || location.zone !== 'exile') {
+    return {
+      applied: false,
+      message: `Skipped remove counter (no deterministic target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+
+  const ownerId = String(location.playerId || '').trim();
+  let removedFromExile = false;
+  let availableCount = 0;
+  const nextPlayers = (state.players || []).map((player: any) => {
+    const playerId = String(player?.id || '').trim();
+    if (playerId !== ownerId) return player;
+
+    const exile = Array.isArray(player?.exile) ? player.exile : [];
+    let changed = false;
+    const nextExile = exile.map((card: any) => {
+      if (String(card?.id || '').trim() !== sourceId) return card;
+      const currentCount = Number(card?.counters?.[counterName] ?? 0);
+      availableCount = Number.isFinite(currentCount) ? currentCount : 0;
+      if (availableCount < amountValue) return card;
+
+      const counters = { ...((card?.counters || {}) as Record<string, number>) };
+      const nextCount = availableCount - amountValue;
+      if (nextCount > 0) {
+        counters[counterName] = nextCount;
+      } else {
+        delete counters[counterName];
+      }
+      changed = true;
+      removedFromExile = true;
+      return {
+        ...card,
+        counters,
+      };
+    });
+
+    return changed ? { ...player, exile: nextExile } : player;
+  });
+
+  if (!removedFromExile) {
     return {
       applied: false,
       message: `Skipped remove counter (not enough counters): ${step.raw}`,
@@ -2120,34 +2241,19 @@ export function applyRemoveCounterStep(
         persist: false,
         metadata: {
           counter: counterName,
-          availableCount: normalizedCount,
+          availableCount,
           requiredCount: amountValue,
-          targetId: String(target?.id || '').trim() || null,
+          targetId: sourceId || null,
         },
       },
     };
   }
 
-  const nextBattlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
-    if (String(perm?.id || '').trim() !== String(target?.id || '').trim()) return perm;
-    const counters = { ...((perm?.counters || {}) as Record<string, number>) };
-    const nextCount = normalizedCount - amountValue;
-    if (nextCount > 0) {
-      counters[counterName] = nextCount;
-    } else {
-      delete counters[counterName];
-    }
-    return {
-      ...perm,
-      counters,
-    };
-  });
-
   return {
     applied: true,
     state: {
       ...(state as any),
-      battlefield: nextBattlefield,
+      players: nextPlayers as any,
     } as GameState,
     log: [`Removed ${amountValue} ${counterName} counter(s)`],
   };

@@ -25,6 +25,7 @@ import { applyChooseModeStep } from './oracleIRExecutorChooseModeStepHandlers';
 import {
   applyAddCounterStep,
   applyAddTypesStep,
+  applyCantBlockStep,
   applyDoubleCountersStep,
   applyDestroyStep,
   applyDetainStep,
@@ -89,16 +90,20 @@ import {
   applyGrantGraveyardPermissionStep,
   applyModifyGraveyardPermissionsStep,
   evaluateUnlessPaysLifeStep,
+  evaluateUnlessPaysManaStep,
   applyGainLifeStep,
   applyLoseLifeStep,
+  applyLookChooseFromTopStep,
   applyLookSelectTopStep,
   applyMillStep,
   applyOpenAttractionStep,
   applyPayManaStep,
   applyPlaneswalkStep,
+  applyRevealHandStep,
   applyRollVisitAttractionsStep,
   applyScryStep,
   applySearchLibraryStep,
+  applyShuffleLibraryStep,
   applySetInMotionStep,
   applySurveilStep,
   applyTakeInitiativeStep,
@@ -107,6 +112,7 @@ import {
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
 import { applySkipNextDrawStep } from './oracleIRExecutorTurnStepHandlers';
+import { stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import type {
   OracleIRExecutionContext,
   OracleIRExecutionOptions,
@@ -119,6 +125,113 @@ type RecurseExecutor = (
   ctx: OracleIRExecutionContext,
   options: OracleIRExecutionOptions
 ) => OracleIRExecutionResult;
+
+function applyCounterSpellStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'counter_spell' }>,
+  ctx: OracleIRExecutionContext
+):
+  | { readonly applied: true; readonly state: GameState; readonly log: readonly string[]; readonly lastMovedCards: readonly any[] }
+  | {
+      readonly applied: false;
+      readonly message: string;
+      readonly reason: 'player_choice_required' | 'failed_to_apply';
+      readonly options?: {
+        readonly classification?: 'player_choice' | 'invalid_input';
+        readonly metadata?: Record<string, string | number | boolean | readonly string[]>;
+        readonly persist?: boolean;
+      };
+    } {
+  const stackItems = Array.isArray((state as any).stack) ? [ ...((state as any).stack as any[]) ] : [];
+  const directTargetId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+  const candidateSpells = stackItems.filter(item => {
+    const itemId = String((item as any)?.id || '').trim();
+    return String((item as any)?.type || '').trim() === 'spell' && itemId && itemId !== String(ctx.sourceId || '').trim();
+  });
+
+  let targetSpell = directTargetId
+    ? candidateSpells.find(item => String((item as any)?.id || '').trim() === directTargetId)
+    : undefined;
+
+  if (!targetSpell && directTargetId) {
+    return {
+      applied: false,
+      message: `Skipped counter spell (target spell not found on stack): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: {
+        classification: 'invalid_input',
+        metadata: { targetSpellId: directTargetId },
+      },
+    };
+  }
+
+  if (!targetSpell) {
+    if (candidateSpells.length === 1) {
+      targetSpell = candidateSpells[0];
+    } else if (candidateSpells.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped counter spell (no legal spell target on stack): ${step.raw}`,
+        reason: 'failed_to_apply',
+        options: {
+          classification: 'invalid_input',
+          metadata: { stackSpellCount: 0 },
+          persist: false,
+        },
+      };
+    } else {
+      return {
+        applied: false,
+        message: `Skipped counter spell (requires stack target choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            stackSpellCount: candidateSpells.length,
+            candidateSpellIds: candidateSpells.map(item => String((item as any)?.id || '').trim()).filter(Boolean),
+          },
+        },
+      };
+    }
+  }
+
+  const targetSpellId = String((targetSpell as any)?.id || '').trim();
+  const ownerId = String((targetSpell as any)?.owner || (targetSpell as any)?.controller || '').trim();
+  if (!targetSpellId || !ownerId) {
+    return {
+      applied: false,
+      message: `Skipped counter spell (missing stack spell owner metadata): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: {
+        classification: 'invalid_input',
+        metadata: { targetSpellId },
+      },
+    };
+  }
+
+  const movedCard = (targetSpell as any)?.card || targetSpell;
+  const updatedStack = stackItems.filter(item => String((item as any)?.id || '').trim() !== targetSpellId);
+  const updatedPlayers = (state.players || []).map((player: any) => {
+    if (String(player?.id || '').trim() !== ownerId) return player;
+    const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+    return {
+      ...player,
+      graveyard: [...graveyard, ...stampCardsPutIntoGraveyardThisTurn(state, [movedCard])],
+    };
+  });
+  const targetName = String((targetSpell as any)?.card?.name || (targetSpell as any)?.name || targetSpellId).trim() || targetSpellId;
+
+  return {
+    applied: true,
+    state: {
+      ...state,
+      stack: updatedStack,
+      players: updatedPlayers as any,
+    },
+    log: [`Countered spell ${targetName}`],
+    lastMovedCards: [movedCard],
+  };
+}
 
 function getLastDieRollResultForPlayer(state: GameState, playerId: PlayerID): number | null {
   const playerRoll = (state as any)?.lastDieRollByPlayer?.[playerId];
@@ -340,6 +453,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'detain': {
         const result = applyDetainStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'cant_block': {
+        const result = applyCantBlockStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }
@@ -643,6 +761,11 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'shuffle_library': {
+        const result = applyShuffleLibraryStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
       case 'skip_next_draw_step': {
         const result = applySkipNextDrawStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -819,6 +942,16 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'look_choose_from_top': {
+        const result = applyLookChooseFromTopStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
+            ? [...appliedResult.lastMovedCards]
+            : lastMovedCards;
+          currentCtx = { ...currentCtx, lastMovedCards };
+        });
+        break;
+      }
       case 'explore': {
         const result = applyExploreStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -916,6 +1049,15 @@ export function applyOracleIRStepsToGameStateImpl(
             lastDiscardedCards,
             lastMovedCards,
           };
+        });
+        break;
+      }
+      case 'reveal_hand': {
+        const result = applyRevealHandStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          if (typeof appliedResult.lastRevealedCardCount === 'number') {
+            lastRevealedCardCount = Math.max(0, Number(appliedResult.lastRevealedCardCount) || 0);
+          }
         });
         break;
       }
@@ -1357,6 +1499,16 @@ export function applyOracleIRStepsToGameStateImpl(
         applyHandledStepResult(step, result);
         break;
       }
+      case 'counter_spell': {
+        const result = applyCounterSpellStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result, (appliedResult) => {
+          lastMovedCards = Array.isArray(appliedResult.lastMovedCards)
+            ? [...appliedResult.lastMovedCards]
+            : lastMovedCards;
+          currentCtx = { ...currentCtx, lastMovedCards };
+        });
+        break;
+      }
       case 'exile': {
         const result = applyExileStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
@@ -1481,6 +1633,32 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'unless_pays_life': {
         const result = evaluateUnlessPaysLifeStep(nextState, step, currentCtx);
+        if (!('shouldApplyNestedSteps' in result)) {
+          recordSkippedStep(step, result.message, result.reason, result.options);
+          break;
+        }
+
+        if (result.state) {
+          nextState = result.state;
+        }
+        log.push(...result.log);
+        if (!result.shouldApplyNestedSteps) {
+          appliedSteps.push(step);
+          break;
+        }
+
+        const nestedResult = recurse(nextState, step.steps, currentCtx, options);
+        nextState = nestedResult.state;
+        log.push(...nestedResult.log);
+        appliedSteps.push(...nestedResult.appliedSteps);
+        skippedSteps.push(...nestedResult.skippedSteps);
+        automationGaps.push(...nestedResult.automationGaps);
+        pendingOptionalSteps.push(...nestedResult.pendingOptionalSteps);
+        appliedSteps.push(step);
+        break;
+      }
+      case 'unless_pays_mana': {
+        const result = evaluateUnlessPaysManaStep(nextState, step, currentCtx);
         if (!('shouldApplyNestedSteps' in result)) {
           recordSkippedStep(step, result.message, result.reason, result.options);
           break;

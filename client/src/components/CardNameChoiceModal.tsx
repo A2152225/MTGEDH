@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useDeferredValue, useEffect, useRef, useState } from 'react';
 
 interface CardNameChoiceModalProps {
   open: boolean;
@@ -7,8 +7,18 @@ interface CardNameChoiceModalProps {
   cardName?: string;
   sourceImageUrl?: string;
   mandatory?: boolean;
+  restrictionText?: string;
+  candidateNames?: string[];
   onConfirm: (cardName: string) => void;
   onCancel: () => void;
+}
+
+function normalizeCardNameChoiceValue(value: string): string {
+  return String(value || '')
+    .replace(/[’‘`´]/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function CardNameChoiceModal({
@@ -18,32 +28,79 @@ export function CardNameChoiceModal({
   cardName,
   sourceImageUrl,
   mandatory = true,
+  restrictionText,
+  candidateNames,
   onConfirm,
   onCancel,
 }: CardNameChoiceModalProps) {
   const [value, setValue] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const deferredValue = useDeferredValue(value);
 
   useEffect(() => {
     if (open) {
       setValue('');
+      setHighlightedIndex(0);
       // Focus after mount
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
 
+  const trimmed = value.trim();
+  const normalizedQuery = normalizeCardNameChoiceValue(deferredValue);
+  const availableCandidates = Array.isArray(candidateNames) ? candidateNames : [];
+  const filteredCandidates = availableCandidates
+    .filter((candidate) => {
+      if (!normalizedQuery) return true;
+      return normalizeCardNameChoiceValue(candidate).includes(normalizedQuery);
+    })
+    .sort((left, right) => {
+      const leftNormalized = normalizeCardNameChoiceValue(left);
+      const rightNormalized = normalizeCardNameChoiceValue(right);
+      const leftStartsWith = normalizedQuery ? leftNormalized.startsWith(normalizedQuery) : true;
+      const rightStartsWith = normalizedQuery ? rightNormalized.startsWith(normalizedQuery) : true;
+      if (leftStartsWith !== rightStartsWith) {
+        return leftStartsWith ? -1 : 1;
+      }
+      if (left.length !== right.length) {
+        return left.length - right.length;
+      }
+      return left.localeCompare(right);
+    })
+    .slice(0, 60);
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [normalizedQuery, open]);
+
   if (!open) return null;
 
-  const trimmed = value.trim();
-  const canConfirm = trimmed.length > 0;
+  const canonicalCandidate = availableCandidates.find(
+    (candidate) => normalizeCardNameChoiceValue(candidate) === normalizeCardNameChoiceValue(trimmed)
+  );
+  const highlightedCandidate = filteredCandidates[highlightedIndex];
+  const resolvedSelection = canonicalCandidate || (availableCandidates.length === 0 ? trimmed : highlightedCandidate);
+  const canConfirm = Boolean(resolvedSelection && String(resolvedSelection).trim());
 
   const handleConfirm = () => {
     if (!canConfirm) return;
-    onConfirm(trimmed);
+    onConfirm(String(resolvedSelection).trim());
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'ArrowDown' && filteredCandidates.length > 0) {
+      e.preventDefault();
+      setHighlightedIndex((current) => Math.min(current + 1, filteredCandidates.length - 1));
+    } else if (e.key === 'ArrowUp' && filteredCandidates.length > 0) {
+      e.preventDefault();
+      setHighlightedIndex((current) => Math.max(current - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (availableCandidates.length > 0 && highlightedCandidate && !canonicalCandidate) {
+        onConfirm(highlightedCandidate);
+        return;
+      }
       handleConfirm();
     } else if (e.key === 'Escape') {
       if (!mandatory) onCancel();
@@ -124,9 +181,57 @@ export function CardNameChoiceModal({
             }}
           />
           <div style={{ marginTop: 6, fontSize: 12, color: '#888' }}>
-            Enter the exact name you want to choose.
+            {availableCandidates.length > 0
+              ? `Search ${availableCandidates.length.toLocaleString()} ${restrictionText || 'card'} names. Use arrow keys to pick a match.`
+              : 'Enter the exact name you want to choose.'}
           </div>
         </div>
+
+        {availableCandidates.length > 0 && (
+          <div
+            style={{
+              border: '1px solid #2f2f4d',
+              borderRadius: 8,
+              backgroundColor: '#141428',
+              maxHeight: 280,
+              overflowY: 'auto',
+            }}
+          >
+            {filteredCandidates.length === 0 ? (
+              <div style={{ padding: '12px 14px', fontSize: 13, color: '#888' }}>
+                No {restrictionText || 'card'} names match "{trimmed}".
+              </div>
+            ) : (
+              filteredCandidates.map((candidate, index) => {
+                const selected = index === highlightedIndex;
+                return (
+                  <button
+                    key={candidate}
+                    type="button"
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    onClick={() => {
+                      setValue(candidate);
+                      onConfirm(candidate);
+                    }}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '10px 14px',
+                      border: 'none',
+                      borderBottom: index < filteredCandidates.length - 1 ? '1px solid #20203a' : 'none',
+                      backgroundColor: selected ? '#21314e' : 'transparent',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                    }}
+                  >
+                    {candidate}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
           {!mandatory && (

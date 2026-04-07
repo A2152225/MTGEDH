@@ -51,6 +51,7 @@ import { recordCardLeftGraveyardThisTurn, recordCardPutIntoGraveyardThisTurn } f
 import { applyGoadToCreature } from "./goad-effects.js";
 import { getEffectiveBasicLandTypes } from "./mana-abilities.js";
 import { getTokenImageUrls } from "../../services/tokens.js";
+import { listLocalCardNamesForChoiceSync, parseCardNameChoiceCriteriaFromOracleText } from "../../services/localCardLookup.js";
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from "../../socket/land-helpers.js";
 import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
@@ -11133,9 +11134,20 @@ export function resolveTopOfStack(ctx: GameContext) {
     
     // Check for Card Name Choice ETB ("As ~ enters, choose a card name")
     // Examples: Pithing Needle, Runed Halo, Nevermore, Meddling Mage
-    const cardNamePattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?(?:name|choose) a (?:card|nonland card)(?: name)?/i;
+    const cardNamePattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?(?:name|choose) a[n]? (?:[^.;,\n]+? )?card(?: name)?/i;
     if (cardNamePattern.test(oracleText) && !isReplaying) {
       if (!newPermanent.chosenCardName) {
+        const cardNameChoiceCriteria = parseCardNameChoiceCriteriaFromOracleText(oracleText);
+        const cardNameChoiceReason = cardNameChoiceCriteria.restrictionText === 'card'
+          ? `Choose a card name for ${effectiveCard.name}`
+          : `Choose a ${cardNameChoiceCriteria.restrictionText} name for ${effectiveCard.name}`;
+        let candidateNames: string[] | undefined;
+        try {
+          candidateNames = listLocalCardNamesForChoiceSync(cardNameChoiceCriteria);
+        } catch (error) {
+          debugWarn(1, `[resolveTopOfStack] Failed to build card-name candidates for ${effectiveCard.name}:`, error);
+        }
+
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.CARD_NAME_CHOICE,
           playerId: controller as PlayerID,
@@ -11145,6 +11157,9 @@ export function resolveTopOfStack(ctx: GameContext) {
           sourceName: effectiveCard.name || 'Permanent',
           sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
           permanentId: newPermId,
+          reason: cardNameChoiceReason,
+          restrictionText: cardNameChoiceCriteria.restrictionText,
+          ...(candidateNames && candidateNames.length > 0 ? { candidateNames } : {}),
         });
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires card name choice, added resolution step`);
       }

@@ -5,6 +5,7 @@ export type OracleQuantity =
   | { readonly kind: 'x' }
   | { readonly kind: 'spells_cast_before_this_turn' }
   | { readonly kind: 'votes_for_choice'; readonly choice: string; readonly multiplier?: number }
+  | { readonly kind: 'object_stat'; readonly subject: 'it' | 'that_card' | 'that_creature'; readonly stat: 'power' | 'toughness' | 'mana_value' }
   | { readonly kind: 'unknown'; readonly raw?: string };
 
 export type OraclePlayerSelector =
@@ -166,8 +167,16 @@ export type OracleEffectStep =
         | { readonly kind: 'raw'; readonly text: string };
       readonly destination: 'hand' | 'battlefield' | 'graveyard' | 'exile' | 'top' | 'bottom';
       readonly revealFound?: boolean;
+      readonly entersTapped?: boolean;
       readonly shuffle?: boolean;
       readonly maxResults?: number;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'shuffle_library';
+      readonly who: OraclePlayerSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -445,6 +454,17 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'look_choose_from_top';
+      readonly who: OraclePlayerSelector;
+      readonly amount: OracleQuantity;
+      readonly selectorText: string;
+      readonly destination: 'hand' | 'exile';
+      readonly reveal?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'add_counter';
       readonly target: OracleObjectSelector;
       readonly counter: string;
@@ -510,6 +530,14 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'cant_block';
+      readonly target: OracleObjectSelector;
+      readonly duration: 'end_of_turn';
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'set_base_pt';
       readonly target: OracleObjectSelector;
       readonly power: number;
@@ -562,6 +590,14 @@ export type OracleEffectStep =
       readonly kind: 'discard';
       readonly who: OraclePlayerSelector;
       readonly amount: OracleQuantity;
+      readonly target?: OracleObjectSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'reveal_hand';
+      readonly who: OraclePlayerSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -585,6 +621,7 @@ export type OracleEffectStep =
   | {
       readonly kind: 'deal_damage';
       readonly amount: OracleQuantity;
+      readonly source?: OracleObjectSelector;
       readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
@@ -604,6 +641,7 @@ export type OracleEffectStep =
   | {
       readonly kind: 'tap_or_untap';
       readonly target: OracleObjectSelector;
+      readonly mode?: 'tap' | 'untap';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -702,6 +740,13 @@ export type OracleEffectStep =
       readonly kind: 'destroy';
       readonly target: OracleObjectSelector;
       readonly cantBeRegenerated?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      readonly kind: 'counter_spell';
+      readonly target: OracleObjectSelector;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -946,6 +991,19 @@ export type OracleEffectStep =
       readonly kind: 'unless_pays_life';
       readonly who: OraclePlayerSelector;
       readonly amount: number;
+      readonly steps: readonly OracleEffectStep[];
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
+       * Wrapper for effects that only happen if a referenced player doesn't or
+       * can't pay a fixed mana cost.
+       */
+      readonly kind: 'unless_pays_mana';
+      readonly who: OraclePlayerSelector;
+      readonly mana: string;
       readonly steps: readonly OracleEffectStep[];
       readonly optional?: boolean;
       readonly sequence?: 'then';

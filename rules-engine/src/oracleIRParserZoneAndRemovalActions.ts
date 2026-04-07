@@ -160,6 +160,24 @@ export function tryParseZoneAndRemovalClause(args: {
     return withMeta({ kind: 'destroy', target: parseObjectSelector(destroyMatch[1]), raw: rawClause });
   }
 
+  const counterUnlessPaysMatch = clause.match(/^counter\s+target\s+spell\s+unless\s+its\s+controller\s+pays\s+(\{[^}]+\})$/i);
+  if (counterUnlessPaysMatch) {
+    return withMeta({
+      kind: 'unless_pays_mana',
+      who: parsePlayerSelector('its controller'),
+      mana: String(counterUnlessPaysMatch[1] || '').trim(),
+      steps: [
+        withMeta({ kind: 'counter_spell', target: parseObjectSelector('target spell'), raw: rawClause })
+      ],
+      raw: rawClause,
+    });
+  }
+
+  const counterSpellMatch = clause.match(/^counter\s+target\s+spell$/i);
+  if (counterSpellMatch) {
+    return withMeta({ kind: 'counter_spell', target: parseObjectSelector('target spell'), raw: rawClause });
+  }
+
   const exileFromMatch = clause.match(/^exile\s+(.+?)\s+from\s+(.+)$/i);
   if (exileFromMatch) {
     const whatRaw = `${String(exileFromMatch[1] || '').trim()} from ${String(exileFromMatch[2] || '').trim()}`.trim();

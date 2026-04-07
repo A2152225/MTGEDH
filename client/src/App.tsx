@@ -693,6 +693,8 @@ export function App() {
     reason: string;
     imageUrl?: string;
     mandatory: boolean;
+    restrictionText?: string;
+    candidateNames?: string[];
   } | null>(null);
   
   // Any Color Mana Modal state - for Birds of Paradise, Chromatic Lantern, etc.
@@ -3104,6 +3106,8 @@ export function App() {
           reason: (step as any).reason || step.description || 'Choose a card name',
           imageUrl: step.sourceImage,
           mandatory: step.mandatory !== false,
+          restrictionText: (step as any).restrictionText,
+          candidateNames: Array.isArray((step as any).candidateNames) ? (step as any).candidateNames : undefined,
         });
         setCardNameChoiceModalOpen(true);
       }
@@ -7252,6 +7256,8 @@ export function App() {
         cardName={cardNameChoiceModalData?.cardName}
         sourceImageUrl={cardNameChoiceModalData?.imageUrl}
         mandatory={cardNameChoiceModalData?.mandatory ?? true}
+        restrictionText={cardNameChoiceModalData?.restrictionText}
+        candidateNames={cardNameChoiceModalData?.candidateNames}
         onConfirm={(chosenName) => {
           if (safeView?.id && cardNameChoiceModalData) {
             socket.emit('submitResolutionResponse', {

@@ -78,12 +78,78 @@ function readFiniteCardStat(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function readObjectStat(source: any, stat: 'power' | 'toughness' | 'mana_value'): number | null {
+  if (!source || typeof source !== 'object') return null;
+  if (stat === 'mana_value') {
+    return getCardManaValue((source as any)?.card ?? source);
+  }
+  return readFiniteCardStat((source as any)?.[stat] ?? (source as any)?.card?.[stat]);
+}
+
+function resolveDamageAmountSourceObjects(
+  state: GameState,
+  source: Extract<OracleEffectStep, { kind: 'deal_damage' }>['source'],
+  ctx: OracleIRExecutionContext,
+  runtime?: DamageRuntime
+): any[] {
+  const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+  if (!source || (source as any).kind !== 'raw') {
+    const directSource = findSourceObject(state, String(ctx.sourceId || '').trim());
+    return directSource ? [directSource] : [];
+  }
+
+  const raw = String((source as any).text || '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .toLowerCase();
+  if (!raw) return [];
+
+  if (/^that (?:card|creature card)$/.test(raw)) {
+    return moved;
+  }
+
+  if (/^(?:it|this (?:permanent|spell|creature|card))$/.test(raw)) {
+    const directSource = findSourceObject(state, String(ctx.sourceId || '').trim());
+    if (directSource) return [directSource];
+    return moved.length > 0 ? moved : [];
+  }
+
+  const singleCreatureId = resolveSingleCreatureTargetId(state, source as any, ctx);
+  if (singleCreatureId) {
+    const permanent = (state.battlefield || []).find((entry: any) => String(entry?.id || '').trim() === singleCreatureId);
+    return permanent ? [permanent] : [];
+  }
+
+  const selector = parseSimpleBattlefieldSelector({ kind: 'raw', text: normalizeRepeatedEachAllInList(String((source as any).text || '')) } as any);
+  if (selector) {
+    return ((state.battlefield || []) as any[]).filter((permanent: any) => permanentMatchesSelector(permanent, selector, ctx));
+  }
+
+  return [];
+}
+
 function resolveDamageAmount(
+  state: GameState,
   amount: Extract<OracleEffectStep, { kind: 'deal_damage' }>['amount'],
+  source: Extract<OracleEffectStep, { kind: 'deal_damage' }>['source'],
+  ctx: OracleIRExecutionContext,
   runtime?: DamageRuntime
 ): number | null {
   const numericAmount = quantityToNumber(amount);
   if (numericAmount !== null) return numericAmount;
+  if (amount.kind === 'object_stat') {
+    const sourceObjects =
+      amount.subject === 'that_card' || amount.subject === 'that_creature'
+        ? (Array.isArray(runtime?.lastMovedCards) ? [...runtime.lastMovedCards] : [])
+        : resolveDamageAmountSourceObjects(state, source, ctx, runtime);
+    if (sourceObjects.length === 0) return null;
+
+    const values = sourceObjects
+      .map((entry) => readObjectStat(entry, amount.stat))
+      .filter((entry): entry is number => entry !== null);
+    if (values.length === 0) return null;
+    return values.reduce((sum, value) => sum + value, 0);
+  }
   if (amount.kind !== 'unknown') return null;
 
   const raw = String(amount.raw || '')
@@ -267,7 +333,7 @@ export function applyDealDamageStep(
   ctx: OracleIRExecutionContext,
   runtime?: DamageRuntime
 ): DamageStepHandlerResult {
-  const amount = resolveDamageAmount(step.amount, runtime);
+  const amount = resolveDamageAmount(state, step.amount, step.source, ctx, runtime);
   if (amount === null) {
     return {
       applied: false,

@@ -49,6 +49,7 @@ export function buildOracleIRExecutionContext(
 
   const hintTargetOpponentId = normalizeId(hint?.targetOpponentId);
   const hintTargetPlayerId = normalizeId(hint?.targetPlayerId);
+  const hintTargetSpellId = normalizeId(hint?.targetSpellId);
   const hintTargetPermanentId = normalizeId(hint?.targetPermanentId);
   const hintCastFromZone = typeof hint?.castFromZone === 'string' ? hint.castFromZone.trim().toLowerCase() || undefined : undefined;
   const hintEnteredFromZone = typeof hint?.enteredFromZone === 'string' ? hint.enteredFromZone.trim().toLowerCase() || undefined : undefined;
@@ -71,8 +72,13 @@ export function buildOracleIRExecutionContext(
     hint?.unlessPaysLifeChoice === 'pay' || hint?.unlessPaysLifeChoice === 'decline'
       ? hint.unlessPaysLifeChoice
       : undefined;
+  const hintUnlessPaysManaChoice =
+    hint?.unlessPaysManaChoice === 'pay' || hint?.unlessPaysManaChoice === 'decline'
+      ? hint.unlessPaysManaChoice
+      : undefined;
   const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
   const baseTargetPlayerId = normalizeId(baseSel?.targetPlayerId);
+  const baseTargetSpellId = normalizeId(baseSel?.targetSpellId);
   const baseChosenMana = typeof baseSel?.chosenMana === 'string' ? baseSel.chosenMana.trim() || undefined : undefined;
   const baseChosenDungeonId = typeof baseSel?.chosenDungeonId === 'string' ? baseSel.chosenDungeonId.trim() || undefined : undefined;
   const baseChosenDungeonRoomId =
@@ -80,6 +86,10 @@ export function buildOracleIRExecutionContext(
   const baseUnlessPaysLifeChoice =
     baseSel?.unlessPaysLifeChoice === 'pay' || baseSel?.unlessPaysLifeChoice === 'decline'
       ? baseSel.unlessPaysLifeChoice
+      : undefined;
+  const baseUnlessPaysManaChoice =
+    baseSel?.unlessPaysManaChoice === 'pay' || baseSel?.unlessPaysManaChoice === 'decline'
+      ? baseSel.unlessPaysManaChoice
       : undefined;
 
   const eachOfThoseOpponents =
@@ -137,6 +147,7 @@ export function buildOracleIRExecutionContext(
       inferredTargetOpponentId ??
       baseTargetOpponentId ??
       baseTargetFromPlayer,
+    ...(hintTargetSpellId || baseTargetSpellId ? { targetSpellId: hintTargetSpellId ?? baseTargetSpellId } : {}),
     ...(sanitizedEachOfThoseOpponents ? { eachOfThoseOpponents: sanitizedEachOfThoseOpponents } : {}),
     ...((baseChosenObjectIds.length > 0 || (hintChosenObjectIds && hintChosenObjectIds.length > 0))
       ? {
@@ -150,6 +161,9 @@ export function buildOracleIRExecutionContext(
     ...(hintChosenMana || baseChosenMana ? { chosenMana: hintChosenMana ?? baseChosenMana } : {}),
     ...(hintUnlessPaysLifeChoice || baseUnlessPaysLifeChoice
       ? { unlessPaysLifeChoice: hintUnlessPaysLifeChoice ?? baseUnlessPaysLifeChoice }
+      : {}),
+    ...(hintUnlessPaysManaChoice || baseUnlessPaysManaChoice
+      ? { unlessPaysManaChoice: hintUnlessPaysManaChoice ?? baseUnlessPaysManaChoice }
       : {}),
   };
 
@@ -171,11 +185,13 @@ export function buildOracleIRExecutionContext(
       !selectorContext.chosenObjectIds &&
       !referenceSpellTypes &&
       typeof referenceSpellManaValue === 'undefined' &&
+      !hintTargetSpellId &&
       !hintTargetPermanentId &&
       !hintCastFromZone &&
       !hintEnteredFromZone &&
       !hint?.tapOrUntapChoice &&
       !hintUnlessPaysLifeChoice &&
+      !hintUnlessPaysManaChoice &&
       !hintChosenDungeonId &&
       !hintChosenDungeonRoomId &&
       !hintChosenMana &&
@@ -191,8 +207,10 @@ export function buildOracleIRExecutionContext(
         ...(hintCastFromZone ? { castFromZone: hintCastFromZone } : {}),
         ...(hintEnteredFromZone ? { enteredFromZone: hintEnteredFromZone } : {}),
         ...(selectorContext.chosenObjectIds ? { selectorContext } : {}),
+        ...(hintTargetSpellId ? { targetSpellId: hintTargetSpellId } : {}),
         ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
       ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
+        ...(hintUnlessPaysManaChoice ? { unlessPaysManaChoice: hintUnlessPaysManaChoice } : {}),
       ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
       ...(typeof referenceSpellManaValue !== 'undefined' ? { referenceSpellManaValue } : {}),
       ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),
@@ -207,8 +225,10 @@ export function buildOracleIRExecutionContext(
     ...(hintCastFromZone ? { castFromZone: hintCastFromZone } : {}),
     ...(hintEnteredFromZone ? { enteredFromZone: hintEnteredFromZone } : {}),
     selectorContext,
+    ...(hintTargetSpellId ? { targetSpellId: hintTargetSpellId } : {}),
     ...(hintTargetPermanentId ? { targetPermanentId: hintTargetPermanentId } : {}),
     ...(hint?.tapOrUntapChoice ? { tapOrUntapChoice: hint.tapOrUntapChoice } : {}),
+    ...(hintUnlessPaysManaChoice ? { unlessPaysManaChoice: hintUnlessPaysManaChoice } : {}),
     ...(referenceSpellTypes ? { referenceSpellTypes } : {}),
     ...(typeof referenceSpellManaValue !== 'undefined' ? { referenceSpellManaValue } : {}),
     ...(typeof hint?.wonCoinFlip === 'boolean' ? { wonCoinFlip: hint.wonCoinFlip } : {}),

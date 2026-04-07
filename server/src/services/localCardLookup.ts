@@ -28,6 +28,13 @@ export interface LocalCardLookupOptions {
   onStatus?: (status: LocalCardLookupStatus) => void;
 }
 
+export interface CardNameChoiceCriteria {
+  restrictionText: string;
+  requiredTerms: string[];
+  excludedTerms: string[];
+  allowedTypeAlternatives?: string[][];
+}
+
 type StoredCandidate = {
   payload: LocalCardLookupRecord;
   quality: number;
@@ -49,6 +56,143 @@ function emitStatus(options: LocalCardLookupOptions | undefined, status: LocalCa
 
 function normalizeLookupName(name: string): string {
   return normalizeName(name).toLowerCase();
+}
+
+function normalizeChoiceText(text: string): string {
+  return String(text || '')
+    .replace(/[’‘`´]/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function uniqueSorted(values: Iterable<string>): string[] {
+  return Array.from(new Set(Array.from(values).filter(Boolean))).sort((left, right) =>
+    left.localeCompare(right)
+  );
+}
+
+function parseRestrictionTerms(phrase: string): CardNameChoiceCriteria {
+  const normalizedPhrase = normalizeChoiceText(phrase);
+  const requiredTerms = new Set<string>();
+  const excludedTerms = new Set<string>();
+  const knownTerms = [
+    'artifact',
+    'battle',
+    'basic',
+    'creature',
+    'enchantment',
+    'instant',
+    'kindred',
+    'land',
+    'legendary',
+    'planeswalker',
+    'snow',
+    'sorcery',
+    'tribal',
+  ];
+
+  for (const term of knownTerms) {
+    if (new RegExp(`\\bnon${term}\\b`).test(normalizedPhrase)) {
+      excludedTerms.add(term);
+    }
+  }
+
+  const allowedTypeAlternatives = normalizedPhrase.includes(' or ')
+    ? normalizedPhrase
+        .split(/\bor\b/)
+        .map((segment) => {
+          const segmentTerms = knownTerms.filter((term) => new RegExp(`\\b${term}\\b`).test(segment));
+          return uniqueSorted(segmentTerms);
+        })
+        .filter((segmentTerms) => segmentTerms.length > 0)
+    : undefined;
+
+  if (allowedTypeAlternatives && allowedTypeAlternatives.length > 0) {
+    for (const term of ['legendary', 'basic', 'snow']) {
+      if (new RegExp(`\\b${term}\\b`).test(normalizedPhrase)) {
+        requiredTerms.add(term);
+      }
+    }
+  } else {
+    for (const term of knownTerms) {
+      if (excludedTerms.has(term)) continue;
+      if (new RegExp(`\\b${term}\\b`).test(normalizedPhrase)) {
+        requiredTerms.add(term);
+      }
+    }
+  }
+
+  const restrictionText = normalizedPhrase ? `${normalizedPhrase} card` : 'card';
+  return {
+    restrictionText,
+    requiredTerms: uniqueSorted(requiredTerms),
+    excludedTerms: uniqueSorted(excludedTerms),
+    ...(allowedTypeAlternatives && allowedTypeAlternatives.length > 0
+      ? { allowedTypeAlternatives }
+      : {}),
+  };
+}
+
+export function parseCardNameChoiceCriteriaFromOracleText(oracleText: string): CardNameChoiceCriteria {
+  const normalizedOracle = normalizeChoiceText(oracleText);
+  const explicitCardRestriction = normalizedOracle.match(
+    /(?:name|choose)\s+(?:a|an)\s+((?:[^.;,\n]+?)\s+)?card(?:\s+name)?/
+  );
+  const restrictionPhrase = String(explicitCardRestriction?.[1] || '').trim();
+  return parseRestrictionTerms(restrictionPhrase);
+}
+
+type CardNameCandidate = {
+  name: string;
+  typeLine: string;
+};
+
+function getCardNameCandidatesFromRecord(record: LocalCardLookupRecord): CardNameCandidate[] {
+  const candidates: CardNameCandidate[] = [];
+
+  if (record.name) {
+    candidates.push({ name: record.name, typeLine: String(record.type_line || '') });
+  }
+
+  if (Array.isArray(record.card_faces)) {
+    for (const face of record.card_faces) {
+      if (!face?.name) continue;
+      candidates.push({
+        name: face.name,
+        typeLine: String(face.type_line || record.type_line || ''),
+      });
+    }
+  }
+
+  return candidates;
+}
+
+function matchesCardNameChoiceCriteria(typeLine: string, criteria: CardNameChoiceCriteria): boolean {
+  const normalizedTypeLine = normalizeChoiceText(typeLine);
+
+  for (const excludedTerm of criteria.excludedTerms) {
+    if (new RegExp(`\\b${excludedTerm}\\b`).test(normalizedTypeLine)) {
+      return false;
+    }
+  }
+
+  for (const requiredTerm of criteria.requiredTerms) {
+    if (!new RegExp(`\\b${requiredTerm}\\b`).test(normalizedTypeLine)) {
+      return false;
+    }
+  }
+
+  if (criteria.allowedTypeAlternatives && criteria.allowedTypeAlternatives.length > 0) {
+    const matchesAlternative = criteria.allowedTypeAlternatives.some((alternativeTerms) =>
+      alternativeTerms.some((term) => new RegExp(`\\b${term}\\b`).test(normalizedTypeLine))
+    );
+    if (!matchesAlternative) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function resolveOracleCardsPath(): string {
@@ -279,8 +423,93 @@ async function buildLookupMap(options?: LocalCardLookupOptions): Promise<Map<str
   return aliasMap;
 }
 
+function buildLookupMapSync(options?: LocalCardLookupOptions): Map<string, StoredCandidate> {
+  const aliasMap = new Map<string, StoredCandidate>();
+  const oracleCardsPath = resolveOracleCardsPath();
+  const atomicCardsPath = resolveAtomicCardsPath();
+
+  if (fs.existsSync(oracleCardsPath)) {
+    emitStatus(options, { phase: 'building', message: `Reading oracle-cards index source from ${oracleCardsPath}` });
+    const raw = fs.readFileSync(oracleCardsPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    const cards = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : [];
+    for (const entry of cards) {
+      const card = toOracleRecord(entry);
+      if (!card) continue;
+      indexAlias(aliasMap, card.name, card, 1);
+      indexAlias(aliasMap, entry?.asciiName, card, 1);
+      if (Array.isArray(card.card_faces)) {
+        for (const face of card.card_faces) {
+          indexAlias(aliasMap, face?.name, card, 1);
+        }
+      }
+    }
+  } else {
+    debugWarn(1, `[card-lookup] oracle-cards.json not found at ${oracleCardsPath}`);
+  }
+
+  if (fs.existsSync(atomicCardsPath)) {
+    emitStatus(options, { phase: 'building', message: `Reading AtomicCards index source from ${atomicCardsPath}` });
+    const raw = fs.readFileSync(atomicCardsPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    const data = parsed?.data;
+    if (data && typeof data === 'object') {
+      for (const [name, printings] of Object.entries(data)) {
+        const bestPrinting = pickBestAtomicPrinting(printings as any[]);
+        const card = toAtomicRecord(name, bestPrinting);
+        if (!card) continue;
+        indexAlias(aliasMap, name, card, 2);
+        indexAlias(aliasMap, bestPrinting?.asciiName, card, 2);
+      }
+    } else {
+      debugWarn(1, '[card-lookup] AtomicCards.json did not have the expected data object');
+    }
+  } else {
+    debugWarn(1, `[card-lookup] AtomicCards.json not found at ${atomicCardsPath}`);
+  }
+
+  return aliasMap;
+}
+
 async function rebuildLookupIndex(database: DB, options?: LocalCardLookupOptions): Promise<void> {
   const aliasMap = await buildLookupMap(options);
+  const insertRow = database.prepare(
+    'INSERT INTO card_lookup (normalized_name, payload, source, quality, updated_at) VALUES (?, ?, ?, ?, ?)'
+  );
+  const insertMeta = database.prepare('INSERT INTO card_lookup_meta (key, value) VALUES (?, ?)');
+  const now = Date.now();
+
+  emitStatus(options, { phase: 'building', message: `Writing ${aliasMap.size} local card lookup rows to ${resolveLookupDbFile()}` });
+
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    database.prepare('DELETE FROM card_lookup').run();
+    database.prepare('DELETE FROM card_lookup_meta').run();
+
+    for (const [normalizedName, candidate] of aliasMap.entries()) {
+      insertRow.run(normalizedName, JSON.stringify(candidate.payload), candidate.payload.source, candidate.quality, now);
+    }
+
+    insertMeta.run('ready', '1');
+    insertMeta.run('schema_version', schemaVersion);
+    insertMeta.run('oracle_signature', getSourceSignature(resolveOracleCardsPath()));
+    insertMeta.run('atomic_signature', getSourceSignature(resolveAtomicCardsPath()));
+    insertMeta.run('built_at', String(now));
+    database.exec('COMMIT');
+  } catch (error) {
+    try {
+      database.exec('ROLLBACK');
+    } catch {
+      // ignore rollback failures
+    }
+    throw error;
+  }
+
+  debug(1, `[card-lookup] Built lookup table with ${aliasMap.size} aliases`);
+}
+
+function rebuildLookupIndexSync(database: DB, options?: LocalCardLookupOptions): void {
+  const aliasMap = buildLookupMapSync(options);
   const insertRow = database.prepare(
     'INSERT INTO card_lookup (normalized_name, payload, source, quality, updated_at) VALUES (?, ?, ?, ?, ?)'
   );
@@ -343,6 +572,20 @@ export async function ensureLocalCardLookupIndex(options: LocalCardLookupOptions
   return ensurePromise;
 }
 
+export function ensureLocalCardLookupIndexSync(options: LocalCardLookupOptions = {}): void {
+  const database = getDatabase();
+  emitStatus(options, { phase: 'checking', message: 'Checking local card lookup table' });
+
+  if (isLookupCurrent(database)) {
+    emitStatus(options, { phase: 'ready', message: 'Local card lookup table is ready' });
+    return;
+  }
+
+  emitStatus(options, { phase: 'building', message: 'Building local card lookup table from oracle-cards.json and AtomicCards.json' });
+  rebuildLookupIndexSync(database, options);
+  emitStatus(options, { phase: 'ready', message: 'Local card lookup table is ready' });
+}
+
 export async function lookupLocalCards(names: string[], options: LocalCardLookupOptions = {}): Promise<Map<string, LocalCardLookupRecord>> {
   await ensureLocalCardLookupIndex(options);
 
@@ -361,6 +604,60 @@ export async function lookupLocalCards(names: string[], options: LocalCardLookup
   }
 
   return result;
+}
+
+export async function listLocalCardNamesForChoice(
+  criteria: CardNameChoiceCriteria,
+  options: LocalCardLookupOptions = {}
+): Promise<string[]> {
+  await ensureLocalCardLookupIndex(options);
+
+  const database = getDatabase();
+  const rows = database.prepare('SELECT DISTINCT payload FROM card_lookup').all() as Array<{ payload: string }>;
+  const candidateNames = new Set<string>();
+
+  for (const row of rows) {
+    if (!row?.payload) continue;
+    try {
+      const record = JSON.parse(row.payload) as LocalCardLookupRecord;
+      for (const candidate of getCardNameCandidatesFromRecord(record)) {
+        if (!candidate.name) continue;
+        if (!matchesCardNameChoiceCriteria(candidate.typeLine, criteria)) continue;
+        candidateNames.add(candidate.name);
+      }
+    } catch (error) {
+      debugWarn(1, '[card-lookup] Failed to parse payload while listing card-name candidates', error);
+    }
+  }
+
+  return Array.from(candidateNames).sort((left, right) => left.localeCompare(right));
+}
+
+export function listLocalCardNamesForChoiceSync(
+  criteria: CardNameChoiceCriteria,
+  options: LocalCardLookupOptions = {}
+): string[] {
+  ensureLocalCardLookupIndexSync(options);
+
+  const database = getDatabase();
+  const rows = database.prepare('SELECT DISTINCT payload FROM card_lookup').all() as Array<{ payload: string }>;
+  const candidateNames = new Set<string>();
+
+  for (const row of rows) {
+    if (!row?.payload) continue;
+    try {
+      const record = JSON.parse(row.payload) as LocalCardLookupRecord;
+      for (const candidate of getCardNameCandidatesFromRecord(record)) {
+        if (!candidate.name) continue;
+        if (!matchesCardNameChoiceCriteria(candidate.typeLine, criteria)) continue;
+        candidateNames.add(candidate.name);
+      }
+    } catch (error) {
+      debugWarn(1, '[card-lookup] Failed to parse payload while listing card-name candidates', error);
+    }
+  }
+
+  return Array.from(candidateNames).sort((left, right) => left.localeCompare(right));
 }
 
 export function resetLocalCardLookupForTests(): void {

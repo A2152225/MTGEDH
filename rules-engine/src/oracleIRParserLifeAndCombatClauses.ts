@@ -3,6 +3,40 @@ import { parseObjectSelector, parsePlayerSelector, parseQuantity } from './oracl
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
 
+function parseDamageAmount(raw: string | undefined): Extract<OracleEffectStep, { kind: 'deal_damage' }>['amount'] {
+  const normalized = String(raw || '')
+    .replace(/[\u2019]/g, "'")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === 'its power') {
+    return { kind: 'object_stat', subject: 'it', stat: 'power' };
+  }
+  if (normalized === 'its toughness') {
+    return { kind: 'object_stat', subject: 'it', stat: 'toughness' };
+  }
+  if (normalized === 'its mana value') {
+    return { kind: 'object_stat', subject: 'it', stat: 'mana_value' };
+  }
+  if (normalized === "that card's power") {
+    return { kind: 'object_stat', subject: 'that_card', stat: 'power' };
+  }
+  if (normalized === "that card's toughness") {
+    return { kind: 'object_stat', subject: 'that_card', stat: 'toughness' };
+  }
+  if (normalized === "that card's mana value") {
+    return { kind: 'object_stat', subject: 'that_card', stat: 'mana_value' };
+  }
+  if (normalized === "that creature's power") {
+    return { kind: 'object_stat', subject: 'that_creature', stat: 'power' };
+  }
+  if (normalized === "that creature's toughness") {
+    return { kind: 'object_stat', subject: 'that_creature', stat: 'toughness' };
+  }
+
+  return { kind: 'unknown', raw: String(raw || '').trim() };
+}
+
 const PLAYER_SUBJECT_PREFIX =
   "(?:(you|each player|each opponent|each of those opponents|target player|target opponent|that player|that opponent|defending player|the defending player|he or she|they|its controller|its owner|that [a-z0-9][a-z0-9 ,.'’-]*?(?:'s|’s)? (?:controller|owner))\\s+)?";
 
@@ -102,20 +136,21 @@ export function tryParseLifeAndCombatClause(args: {
     if (dealDamageEqual) {
       return withMeta({
         kind: 'deal_damage',
-        amount: { kind: 'unknown', raw: String(dealDamageEqual[1] || '').trim() },
+        amount: parseDamageAmount(dealDamageEqual[1]),
         target: parseObjectSelector(dealDamageEqual[2]),
         raw: rawClause,
       });
     }
 
     const sourceDealsDamageEqual = clause.match(
-      /^(?:it|this (?:permanent|spell)|[a-z0-9 ,.'â€™/-]+)\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+to\s+(.+)$/i
+      /^((?:it|this (?:permanent|spell|creature|card)|[a-z0-9 ,.'â€™/-]+))\s+deals?\s+damage\s+equal\s+to\s+(.+?)\s+to\s+(.+)$/i
     );
     if (sourceDealsDamageEqual) {
       return withMeta({
         kind: 'deal_damage',
-        amount: { kind: 'unknown', raw: String(sourceDealsDamageEqual[1] || '').trim() },
-        target: parseObjectSelector(sourceDealsDamageEqual[2]),
+        amount: parseDamageAmount(sourceDealsDamageEqual[2]),
+        source: parseObjectSelector(sourceDealsDamageEqual[1]),
+        target: parseObjectSelector(sourceDealsDamageEqual[3]),
         raw: rawClause,
       });
     }
@@ -131,13 +166,14 @@ export function tryParseLifeAndCombatClause(args: {
     }
 
     const sourceDealsDamage = clause.match(
-      /^(?:it|this (?:permanent|spell))\s+deals?\s+(that much|\d+|x|[a-z]+)\s+damage\s+to\s+(.+)$/i
+      /^((?:it|this (?:permanent|spell|creature|card)))\s+deals?\s+(that much|\d+|x|[a-z]+)\s+damage\s+to\s+(.+)$/i
     );
     if (sourceDealsDamage) {
       return withMeta({
         kind: 'deal_damage',
-        amount: parseQuantity(sourceDealsDamage[1]),
-        target: parseObjectSelector(sourceDealsDamage[2]),
+        amount: parseQuantity(sourceDealsDamage[2]),
+        source: parseObjectSelector(sourceDealsDamage[1]),
+        target: parseObjectSelector(sourceDealsDamage[3]),
         raw: rawClause,
       });
     }
@@ -150,6 +186,26 @@ export function tryParseLifeAndCombatClause(args: {
         kind: 'tap_or_untap',
         target: parseObjectSelector(tapOrUntap[1]),
         optional: /\bmay\b/i.test(clause) || undefined,
+        raw: rawClause,
+      });
+    }
+
+    const tapTarget = clause.match(/^tap\s+((?:target|that|those|this)\s+.+|it|them)$/i);
+    if (tapTarget) {
+      return withMeta({
+        kind: 'tap_or_untap',
+        target: parseObjectSelector(tapTarget[1]),
+        mode: 'tap',
+        raw: rawClause,
+      });
+    }
+
+    const untapTarget = clause.match(/^untap\s+((?:target|that|those|this)\s+.+|it|them)$/i);
+    if (untapTarget) {
+      return withMeta({
+        kind: 'tap_or_untap',
+        target: parseObjectSelector(untapTarget[1]),
+        mode: 'untap',
         raw: rawClause,
       });
     }

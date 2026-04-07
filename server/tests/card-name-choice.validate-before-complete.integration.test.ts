@@ -80,6 +80,8 @@ describe('CARD_NAME_CHOICE validate-before-complete (integration)', () => {
       mandatory: true,
       permanentId,
       cardName: 'Test Permanent',
+      restrictionText: 'nonland card',
+      candidateNames: ['Black Lotus', 'Sol Ring'],
     } as any);
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -103,8 +105,19 @@ describe('CARD_NAME_CHOICE validate-before-complete (integration)', () => {
     const queueAfter = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfter.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
 
-    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'Black Lotus' });
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'Forest' });
+
+    const invalidCandidateError = emitted.find(e => e.event === 'error');
+    expect(invalidCandidateError?.payload?.code).toBe('INVALID_SELECTION');
+
+    const queueAfterInvalidCandidate = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfterInvalidCandidate.steps.some((s: any) => String(s.id) === stepId)).toBe(true);
+
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'black lotus' });
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+    expect((game.state as any).battlefield[0]?.chosenCardName).toBe('Black Lotus');
   });
 });

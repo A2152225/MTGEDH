@@ -70,6 +70,10 @@ import {
   expandOtherwiseConditionalUnknownAbilities,
   expandLeaveBattlefieldReplacementUnknownAbilities,
   expandPreventDamageUnknownAbilities,
+  pruneForetellReminderAbilities,
+  pruneMorphReminderAbilities,
+  pruneRedundantAttackRequirementAbilities,
+  pruneRedundantScryReminderUnknownAbilities,
   expandPayManaUnknownAbilities,
   expandSimpleConditionalUnknownAbilities,
   expandTapMatchingPermanentCountAbilities,
@@ -84,6 +88,7 @@ import {
   mergeDeterministicKeywordFollowupAbilities,
   mergeConditionalMoveZoneCounterFollowupAbilities,
   mergeConditionalGraveyardReminderFollowupAbilities,
+  mergeLookChooseFromTopAbilities,
   mergeLookSelectTopFollowupAbilities,
   pruneRedundantImpulseCleanupUnknownAbilities,
   pruneDuplicateGraveyardReminderAbilities,
@@ -1212,6 +1217,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
   abilities = mergeDieRollResultTableAbilities(abilities);
   abilities = mergeRevealFollowupAbilities(abilities);
+  abilities = mergeLookChooseFromTopAbilities(abilities);
   abilities = mergeLookSelectTopFollowupAbilities(abilities);
   abilities = mergeCopyChapterAbilityFollowupAbilities(abilities);
   abilities = expandConditionalLookTopChooseOneToHandRestToGraveyardAbilities(abilities);
@@ -1243,6 +1249,10 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandKeywordManaCostGraveyardPermissionAbilities(abilities);
   abilities = expandDisturbKeywordAbilities(abilities);
   abilities = expandUnearthKeywordAbilities(abilities);
+  abilities = pruneForetellReminderAbilities(abilities);
+  abilities = pruneMorphReminderAbilities(abilities);
+  abilities = pruneRedundantAttackRequirementAbilities(abilities);
+  abilities = pruneRedundantScryReminderUnknownAbilities(abilities);
   abilities = expandScavengeKeywordAbilities(abilities);
   abilities = expandTypecyclingKeywordAbilities(abilities);
   abilities = expandTransfigureKeywordAbilities(abilities);

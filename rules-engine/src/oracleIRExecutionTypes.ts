@@ -18,6 +18,8 @@ export interface OracleIRSelectorContext {
   readonly targetPlayerId?: PlayerID;
   /** Bound target for selectors parsed as target opponent. */
   readonly targetOpponentId?: PlayerID;
+  /** Bound target for selectors parsed as target spell. */
+  readonly targetSpellId?: string;
   /** Bound antecedent set for selectors parsed as "each of those opponents". */
   readonly eachOfThoseOpponents?: readonly PlayerID[];
   /** Bound chosen objects for multi-selection antecedents such as "the chosen creatures". */
@@ -30,6 +32,8 @@ export interface OracleIRSelectorContext {
   readonly chosenMana?: string;
   /** Bound pay/decline choice for unless-pays-life wrappers when already known. */
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
+  /** Bound pay/decline choice for unless-pays-mana wrappers when already known. */
+  readonly unlessPaysManaChoice?: 'pay' | 'decline';
 }
 
 export interface OracleIRExecutionEventHint {
@@ -37,6 +41,8 @@ export interface OracleIRExecutionEventHint {
   readonly targetPlayerId?: PlayerID;
   /** Best-effort single target opponent from trigger/ability resolution context. */
   readonly targetOpponentId?: PlayerID;
+  /** Best-effort single target spell from trigger/ability resolution context. */
+  readonly targetSpellId?: string;
   /** Best-effort single target permanent from trigger/ability resolution context. */
   readonly targetPermanentId?: string;
   /** Bound chosen objects for delayed/antecedent-based battlefield references. */
@@ -49,6 +55,8 @@ export interface OracleIRExecutionEventHint {
   readonly chosenMana?: string;
   /** Explicit pay/decline choice for unless-pays-life wrappers when already known. */
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
+  /** Explicit pay/decline choice for unless-pays-mana wrappers when already known. */
+  readonly unlessPaysManaChoice?: 'pay' | 'decline';
   /** Explicit choice for "tap or untap" style effects when known. */
   readonly tapOrUntapChoice?: 'tap' | 'untap';
   /** Generic affected players for this event (may include non-opponents). */
@@ -111,10 +119,14 @@ export interface OracleIRExecutionContext {
   readonly targetCreatureId?: string;
   /** Optional direct target permanent binding used by targeted effects like Merrow Reejerey. */
   readonly targetPermanentId?: string;
+  /** Optional direct target spell binding used by stack-targeted effects like counterspells. */
+  readonly targetSpellId?: string;
   /** Choice for effects worded as "tap or untap target permanent." */
   readonly tapOrUntapChoice?: 'tap' | 'untap';
   /** Choice for unless-pays-life wrappers when already known. */
   readonly unlessPaysLifeChoice?: 'pay' | 'decline';
+  /** Choice for unless-pays-mana wrappers when already known. */
+  readonly unlessPaysManaChoice?: 'pay' | 'decline';
   /** Normalized reference spell types used by some deterministic unknown-amount loops. */
   readonly referenceSpellTypes?: readonly string[];
   /** Reference spell mana value used by some deterministic unknown-amount loops. */

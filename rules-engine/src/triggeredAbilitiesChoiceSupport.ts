@@ -512,6 +512,10 @@ export function buildTriggeredAbilityChoiceEvents(
       }
     }
 
+    if ((step as any).mode) {
+      continue;
+    }
+
     if (!enrichedEventData?.tapOrUntapChoice) {
       const targetPermanentName = (() => {
         const targetPermanentId = normalizeTriggerContextId(enrichedEventData?.targetPermanentId);

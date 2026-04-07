@@ -59,6 +59,7 @@ import { permanentHasCreatureTypeNow } from "../state/creatureTypeNow.js";
 import { drawCards as drawCardsFromZones } from "../state/modules/zones.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDamageTrigger, type DamageTriggerInfo } from "../state/modules/triggers/damage-received.js";
 import { getTokenImageUrls } from "../services/tokens.js";
+import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
 import { executeTriggerEffect, triggerETBEffectsForToken } from "../state/modules/stack.js";
 import { creatureHasHaste, formatManaCostWithReduction, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
@@ -221,6 +222,25 @@ function getResolutionStepTimeoutMs(step: ResolutionStep | undefined): number {
     return configuredTimeout;
   }
   return DEFAULT_RESOLUTION_STEP_TIMEOUT_MS;
+}
+
+function canonicalizeCardNameChoiceSelection(selection: string, candidateNames: unknown): string | undefined {
+  const trimmed = String(selection || '').trim();
+  if (!trimmed) return undefined;
+
+  if (!Array.isArray(candidateNames) || candidateNames.length === 0) {
+    return trimmed;
+  }
+
+  const normalizedSelection = normalizeCardName(trimmed);
+  for (const candidateName of candidateNames) {
+    if (typeof candidateName !== 'string') continue;
+    if (normalizeCardName(candidateName) === normalizedSelection) {
+      return candidateName;
+    }
+  }
+
+  return undefined;
 }
 
 function emitNextPendingResolutionStep(io: Server, gameId: string, playerId: string): void {
@@ -5879,6 +5899,14 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           return;
         }
 
+        const canonicalSelection = canonicalizeCardNameChoiceSelection(selection, stepAny.candidateNames);
+        if (!canonicalSelection) {
+          socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid card name selection' });
+          return;
+        }
+
+        (response as any).selections = canonicalSelection;
+
         const permanentId = String(stepAny.permanentId || stepAny.sourceId || '').trim();
         if (permanentId) {
           const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
@@ -6986,6 +7014,10 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
     
     case ResolutionStepType.CARD_NAME_CHOICE:
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;
+      if ('cardName' in step) fields.cardName = (step as any).cardName;
+      if ('reason' in step) fields.reason = (step as any).reason;
+      if ('restrictionText' in step) fields.restrictionText = (step as any).restrictionText;
+      if ('candidateNames' in step) fields.candidateNames = (step as any).candidateNames;
       break;
     
     case ResolutionStepType.PLAYER_CHOICE:

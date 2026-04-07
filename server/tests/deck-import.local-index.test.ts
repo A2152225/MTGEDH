@@ -101,4 +101,51 @@ describe('resolveDeckList local table index', () => {
     expect(fetchCardsByExactNamesBatch).toHaveBeenCalledWith(['Remote Card'], 75, 120);
     expect(fetchCardByExactNameStrict).not.toHaveBeenCalled();
   });
+
+  it('lists filtered card-name candidates from the local lookup table', async () => {
+    writeLookupSources({
+      oracleCards: [
+        {
+          id: 'artifact-1',
+          name: 'Pithing Needle',
+          type_line: 'Artifact',
+        },
+        {
+          id: 'artifact-2',
+          name: 'Sol Ring',
+          type_line: 'Artifact',
+        },
+        {
+          id: 'land-1',
+          name: 'Forest',
+          type_line: 'Basic Land — Forest',
+        },
+        {
+          id: 'creature-1',
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+        },
+      ],
+    });
+
+    const localLookup = await import('../src/services/localCardLookup');
+
+    const nonlandCriteria = localLookup.parseCardNameChoiceCriteriaFromOracleText(
+      'As this artifact enters, choose a nonland card name.'
+    );
+    const artifactCriteria = localLookup.parseCardNameChoiceCriteriaFromOracleText(
+      'As this artifact enters, choose an artifact card name.'
+    );
+
+    await expect(localLookup.listLocalCardNamesForChoice(nonlandCriteria)).resolves.toEqual([
+      'Grizzly Bears',
+      'Pithing Needle',
+      'Sol Ring',
+    ]);
+
+    await expect(localLookup.listLocalCardNamesForChoice(artifactCriteria)).resolves.toEqual([
+      'Pithing Needle',
+      'Sol Ring',
+    ]);
+  });
 });

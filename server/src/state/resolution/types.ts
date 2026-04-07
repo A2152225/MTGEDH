@@ -837,6 +837,15 @@ export interface ActivatedAbilityStep extends BaseResolutionStep {
   readonly abilityData?: Record<string, any>;
 }
 
+export interface CardNameChoiceStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.CARD_NAME_CHOICE;
+  readonly permanentId?: string;
+  readonly cardName?: string;
+  readonly reason?: string;
+  readonly restrictionText?: string;
+  readonly candidateNames?: readonly string[];
+}
+
 export type ResolutionStep = 
   | TargetSelectionStep
   | MutateTargetSelectionStep
@@ -873,6 +882,7 @@ export type ResolutionStep =
   | SuspendCastStep
   | MorphTurnFaceUpStep
   | ActivatedAbilityStep
+  | CardNameChoiceStep
   | BaseResolutionStep;
 
 /**
