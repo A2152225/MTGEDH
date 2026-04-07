@@ -149,23 +149,21 @@ type CardNameCandidate = {
 };
 
 function getCardNameCandidatesFromRecord(record: LocalCardLookupRecord): CardNameCandidate[] {
-  const candidates: CardNameCandidate[] = [];
-
   if (record.name) {
-    candidates.push({ name: record.name, typeLine: String(record.type_line || '') });
+    return [{ name: record.name, typeLine: String(record.type_line || '') }];
   }
 
   if (Array.isArray(record.card_faces)) {
     for (const face of record.card_faces) {
       if (!face?.name) continue;
-      candidates.push({
+      return [{
         name: face.name,
         typeLine: String(face.type_line || record.type_line || ''),
-      });
+      }];
     }
   }
 
-  return candidates;
+  return [];
 }
 
 function matchesCardNameChoiceCriteria(typeLine: string, criteria: CardNameChoiceCriteria): boolean {
@@ -604,6 +602,34 @@ export async function lookupLocalCards(names: string[], options: LocalCardLookup
   }
 
   return result;
+}
+
+export function lookupLocalCardByNameSync(
+  name: string,
+  options: LocalCardLookupOptions = {}
+): LocalCardLookupRecord | undefined {
+  ensureLocalCardLookupIndexSync(options);
+
+  const normalizedName = normalizeLookupName(name);
+  if (!normalizedName) {
+    return undefined;
+  }
+
+  const database = getDatabase();
+  const row = database.prepare('SELECT payload FROM card_lookup WHERE normalized_name = ?').get(normalizedName) as
+    | { payload: string }
+    | undefined;
+
+  if (!row?.payload) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(row.payload) as LocalCardLookupRecord;
+  } catch (error) {
+    debugWarn(1, `[card-lookup] Failed to parse lookup payload for ${normalizedName}`, error);
+    return undefined;
+  }
 }
 
 export async function listLocalCardNamesForChoice(

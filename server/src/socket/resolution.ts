@@ -81,6 +81,7 @@ import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilit
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
+import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
 import {
   detectManaModifiers,
   getCreatureCountManaAmount,
@@ -228,16 +229,27 @@ function canonicalizeCardNameChoiceSelection(selection: string, candidateNames: 
   const trimmed = String(selection || '').trim();
   if (!trimmed) return undefined;
 
-  if (!Array.isArray(candidateNames) || candidateNames.length === 0) {
-    return trimmed;
+  const normalizedSelection = normalizeCardName(trimmed);
+
+  if (Array.isArray(candidateNames) && candidateNames.length > 0) {
+    for (const candidateName of candidateNames) {
+      if (typeof candidateName !== 'string') continue;
+      if (normalizeCardName(candidateName) === normalizedSelection) {
+        return candidateName;
+      }
+    }
+
+    return undefined;
   }
 
-  const normalizedSelection = normalizeCardName(trimmed);
-  for (const candidateName of candidateNames) {
-    if (typeof candidateName !== 'string') continue;
-    if (normalizeCardName(candidateName) === normalizedSelection) {
-      return candidateName;
+  try {
+    const localRecord = lookupLocalCardByNameSync(trimmed);
+    const canonicalName = String(localRecord?.name || '').trim();
+    if (canonicalName && normalizeCardName(canonicalName) === normalizedSelection) {
+      return canonicalName;
     }
+  } catch (error) {
+    debugWarn(1, '[Resolution] Failed local validation for card name choice:', error);
   }
 
   return undefined;

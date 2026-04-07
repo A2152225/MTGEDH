@@ -7944,9 +7944,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       case "cardNameChoice": {
         // Player chose a card name for a permanent (e.g., Pithing Needle, Runed Halo)
         try {
-          const { playerId, permanentId, chosenName } = e as any;
-          const battlefield = ctx.state.battlefield || [];
-          const permanent = battlefield.find((p: any) => p.id === permanentId);
+          const { playerId, permanentId, chosenName, cardName } = e as any;
+          const permanent = resolveReplayPermanentByEvent(ctx, {
+            permanentId,
+            playerId,
+            cardName,
+          });
           
           if (permanent) {
             (permanent as any).chosenCardName = chosenName;

@@ -116,6 +116,15 @@ describe('resolveDeckList local table index', () => {
           type_line: 'Artifact',
         },
         {
+          id: 'split-1',
+          name: 'Wear // Tear',
+          type_line: 'Instant',
+          card_faces: [
+            { name: 'Wear', type_line: 'Instant' },
+            { name: 'Tear', type_line: 'Instant' },
+          ],
+        },
+        {
           id: 'land-1',
           name: 'Forest',
           type_line: 'Basic Land — Forest',
@@ -141,6 +150,7 @@ describe('resolveDeckList local table index', () => {
       'Grizzly Bears',
       'Pithing Needle',
       'Sol Ring',
+      'Wear // Tear',
     ]);
 
     await expect(localLookup.listLocalCardNamesForChoice(artifactCriteria)).resolves.toEqual([

@@ -18,7 +18,8 @@ import { cardAnalyzer, CardCategory, SynergyArchetype, type DeckArchetypeProfile
 import { calculateManaProduction, ensureGame, broadcastGame, getPlayerName, getOrInitManaPool, validateManaPayment } from "./util.js";
 import { appendEvent, gameExistsInDb, isGameCreator } from "../db/index.js";
 import { getDeck, listDecks } from "../db/decks.js";
-import { fetchCardsByExactNamesBatch, normalizeName, parseDecklist } from "../services/scryfall.js";
+import { parseDecklist } from "../services/scryfall.js";
+import { resolveDeckList } from '../services/deckImport.js';
 import type { PlayerID } from "../../../shared/src/types.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
@@ -615,11 +616,6 @@ function findBestCommanders(cards: any[]): { commanders: any[]; colorIdentity: s
   };
 }
 
-/** Generate a unique ID using crypto */
-function generateId(prefix: string): string {
-  return `${prefix}_${randomBytes(8).toString('hex')}`;
-}
-
 function getAILibraryCards(game: any, playerId: PlayerID): any[] {
   if (!game || !game.state) return [];
 
@@ -648,6 +644,71 @@ function getAILibraryCards(game: any, playerId: PlayerID): any[] {
 
   const zones = game.state?.zones?.[playerId] as any;
   return Array.isArray(zones?.library) ? zones.library : [];
+}
+
+function persistAIPlayerDeckSource(
+  playerInState: any,
+  options: {
+    deckName?: string;
+    deckId?: string | null;
+    deckText?: string;
+  },
+): void {
+  if (!playerInState) return;
+
+  if (typeof options.deckName === 'string' && options.deckName.trim()) {
+    playerInState.deckName = options.deckName;
+  }
+
+  if (typeof options.deckId === 'string' && options.deckId.trim()) {
+    playerInState.deckId = options.deckId;
+  }
+
+  if (typeof options.deckText === 'string' && options.deckText.trim()) {
+    playerInState.deckText = options.deckText;
+  }
+}
+
+async function resolveAIDeckEntries(
+  deckEntries: Array<{ name: string; count: number }>,
+  context: {
+    gameId: string;
+    playerId: PlayerID;
+    deckName?: string;
+    logPrefix: string;
+  },
+): Promise<Awaited<ReturnType<typeof resolveDeckList>>> {
+  let lastStatusMessage = '';
+  const resolution = await resolveDeckList(deckEntries, {
+    uniqueInstanceIds: true,
+    onStatus: (status) => {
+      if (!status.message || status.message === lastStatusMessage) return;
+      debug(1, `${context.logPrefix} Deck resolution`, {
+        gameId: context.gameId,
+        playerId: context.playerId,
+        deckName: context.deckName,
+        phase: status.phase,
+        source: status.source,
+        completed: status.completed,
+        total: status.total,
+        message: status.message,
+      });
+      lastStatusMessage = status.message;
+    },
+  });
+
+  debug(1, `${context.logPrefix} Deck resolution summary`, {
+    gameId: context.gameId,
+    playerId: context.playerId,
+    deckName: context.deckName,
+    resolvedCount: resolution.resolvedCards.length,
+    missingCount: resolution.missing.length,
+    usedLocalFallback: resolution.usedLocalFallback,
+    sourcesUsed: resolution.sourcesUsed,
+    scryfallTimedOut: resolution.scryfallTimedOut,
+  });
+
+  return resolution;
 }
 
 async function ensureAIPreGameDeckLoaded(gameId: string, playerId: PlayerID): Promise<boolean> {
@@ -725,9 +786,14 @@ async function ensureAIPreGameDeckLoaded(gameId: string, playerId: PlayerID): Pr
     return false;
   }
 
-  let byName: Map<string, any> | null = null;
+  let resolution: Awaited<ReturnType<typeof resolveDeckList>>;
   try {
-    byName = await fetchCardsByExactNamesBatch(deckEntries.map((entry) => entry.name));
+    resolution = await resolveAIDeckEntries(deckEntries, {
+      gameId,
+      playerId,
+      deckName,
+      logPrefix: '[AI] Restoring persisted AI deck',
+    });
   } catch (err) {
     debugWarn(1, '[AI] Failed to resolve persisted AI deck cards during pre-game recovery:', {
       gameId,
@@ -737,36 +803,8 @@ async function ensureAIPreGameDeckLoaded(gameId: string, playerId: PlayerID): Pr
     return false;
   }
 
-  if (!byName) {
-    return false;
-  }
-
-  const resolvedCards: any[] = [];
-  const missing: string[] = [];
-  for (const { name, count } of deckEntries) {
-    const key = normalizeName(name).toLowerCase();
-    const card = byName.get(key);
-    if (!card) {
-      missing.push(name);
-      continue;
-    }
-
-    for (let index = 0; index < (count || 1); index += 1) {
-      resolvedCards.push({
-        id: generateId(`card_${card.id}`),
-        name: card.name,
-        type_line: card.type_line,
-        oracle_text: card.oracle_text,
-        image_uris: card.image_uris,
-        mana_cost: card.mana_cost,
-        power: card.power,
-        toughness: card.toughness,
-        loyalty: (card as any).loyalty,
-        color_identity: card.color_identity,
-        zone: 'library',
-      });
-    }
-  }
+  const resolvedCards = resolution.resolvedCards;
+  const missing = resolution.missing;
 
   if (resolvedCards.length === 0) {
     debugWarn(1, '[AI] Persisted AI deck recovery resolved zero cards:', {
@@ -7270,6 +7308,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       let deckLoadError: string | undefined;
       let deckEntries: Array<{ name: string; count: number }> = [];
       let finalDeckName: string | undefined;
+      const importedDeckId = typeof aiDeckText === 'string' && aiDeckText.trim()
+        ? `imported_${Date.now().toString(36)}`
+        : null;
       
       // Priority 1: Use aiDeckText if provided (import mode)
       if (typeof aiDeckText === 'string' && aiDeckText.trim()) {
@@ -7299,46 +7340,37 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           debugError(1, '[AI] Error loading deck for AI:', { deckId: aiDeckId, error: e });
         }
       }
+
+      persistAIPlayerDeckSource(playerInState, {
+        deckName: finalDeckName,
+        deckId: (typeof aiDeckId === 'string' && aiDeckId.trim()) ? aiDeckId.trim() : importedDeckId,
+        deckText: typeof aiDeckText === 'string' ? aiDeckText : undefined,
+      });
       
       // Resolve deck entries if we have any
       if (deckEntries.length > 0) {
-        const requestedNames = deckEntries.map((e: any) => e.name);
-        let byName: Map<string, any> | null = null;
-        
+        let resolution: Awaited<ReturnType<typeof resolveDeckList>>;
         try {
-          byName = await fetchCardsByExactNamesBatch(requestedNames);
+          resolution = await resolveAIDeckEntries(deckEntries, {
+            gameId,
+            playerId: aiPlayerId as any,
+            deckName: finalDeckName,
+            logPrefix: '[AI] Loading AI deck',
+          });
         } catch (e) {
-          debugWarn(1, '[AI] Failed to fetch cards from Scryfall:', e);
+          debugWarn(1, '[AI] Failed to resolve AI deck:', e);
+          resolution = {
+            resolvedCards: [],
+            validationCards: [],
+            missing: deckEntries.map((entry) => entry.name),
+            usedLocalFallback: false,
+            usedLocalIndex: false,
+            sourcesUsed: [],
+            scryfallTimedOut: false,
+          };
         }
-        
-        const resolvedCards: any[] = [];
-        const missing: string[] = [];
-        
-        if (byName) {
-          for (const { name, count } of deckEntries) {
-            const key = normalizeName(name).toLowerCase();
-            const card = byName.get(key);
-            if (!card) {
-              missing.push(name);
-              continue;
-            }
-            for (let i = 0; i < (count || 1); i++) {
-              resolvedCards.push({
-                id: generateId(`card_${card.id}`),
-                name: card.name,
-                type_line: card.type_line,
-                oracle_text: card.oracle_text,
-                image_uris: card.image_uris,
-                mana_cost: card.mana_cost,
-                power: card.power,
-                toughness: card.toughness,
-                loyalty: (card as any).loyalty,
-                color_identity: card.color_identity, // Include color_identity from Scryfall
-                zone: 'library',
-              });
-            }
-          }
-        }
+        const resolvedCards = resolution.resolvedCards;
+        const missing = resolution.missing;
         
         if (resolvedCards.length > 0) {
           // IMPORTANT: Don't shuffle yet - we need the original order for commander detection
@@ -7383,15 +7415,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           }
           
           // Store deck metadata on the player object
-          const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
-          if (playerInState) {
-            playerInState.deckName = finalDeckName;
-            playerInState.deckId = aiDeckId || (aiDeckText ? `imported_${Date.now().toString(36)}` : null);
-            if (typeof aiDeckText === 'string' && aiDeckText.trim()) {
-              playerInState.deckText = aiDeckText;
-            }
-          }
-          
           debug(1, '[AI] Deck resolved for AI:', { 
             aiPlayerId, 
             deckName: finalDeckName, 
@@ -7422,7 +7445,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           spectator: false,
           isAI: true,
           strategy,
-          deckId: aiDeckId,
+          deckId: playerInState?.deckId || aiDeckId,
+          deckName: playerInState?.deckName,
+          deckText: playerInState?.deckText,
           deckLoaded,
         });
       } catch (e) {
@@ -7560,6 +7585,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         let deckLoaded = false;
         let deckEntries: Array<{ name: string; count: number }> = [];
         let finalDeckName: string | undefined;
+        const importedDeckId = typeof aiConfig.deckText === 'string' && aiConfig.deckText.trim()
+          ? `imported_${Date.now().toString(36)}_${i}`
+          : null;
         
         // Priority 1: Use deckText if provided (import mode)
         if (aiConfig.deckText && aiConfig.deckText.trim()) {
@@ -7586,42 +7614,36 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             debugError(1, `[AI] Error loading deck for ${aiName}:`, { deckId: aiConfig.deckId, error: e });
           }
         }
+
+        persistAIPlayerDeckSource(playerInState, {
+          deckName: finalDeckName,
+          deckId: aiConfig.deckId || importedDeckId,
+          deckText: aiConfig.deckText,
+        });
         
         // Resolve deck entries if we have any
         if (deckEntries.length > 0) {
-          const requestedNames = deckEntries.map((e: any) => e.name);
-          let byName: Map<string, any> | null = null;
-          
+          let resolution: Awaited<ReturnType<typeof resolveDeckList>>;
           try {
-            byName = await fetchCardsByExactNamesBatch(requestedNames);
+            resolution = await resolveAIDeckEntries(deckEntries, {
+              gameId,
+              playerId: aiPlayerId as any,
+              deckName: finalDeckName,
+              logPrefix: `[AI] Loading deck for ${aiName}`,
+            });
           } catch (e) {
-            debugWarn(1, `[AI] Failed to fetch cards from Scryfall for ${aiName}:`, e);
+            debugWarn(1, `[AI] Failed to resolve deck for ${aiName}:`, e);
+            resolution = {
+              resolvedCards: [],
+              validationCards: [],
+              missing: deckEntries.map((entry) => entry.name),
+              usedLocalFallback: false,
+              usedLocalIndex: false,
+              sourcesUsed: [],
+              scryfallTimedOut: false,
+            };
           }
-          
-          const resolvedCards: any[] = [];
-          
-          if (byName) {
-            for (const { name, count } of deckEntries) {
-              const key = normalizeName(name).toLowerCase();
-              const card = byName.get(key);
-              if (!card) continue;
-              for (let j = 0; j < (count || 1); j++) {
-                resolvedCards.push({
-                  id: generateId(`card_${card.id}`),
-                  name: card.name,
-                  type_line: card.type_line,
-                  oracle_text: card.oracle_text,
-                  image_uris: card.image_uris,
-                  mana_cost: card.mana_cost,
-                  power: card.power,
-                  toughness: card.toughness,
-                  loyalty: (card as any).loyalty,
-                  color_identity: card.color_identity,
-                  zone: 'library',
-                });
-              }
-            }
-          }
+          const resolvedCards = resolution.resolvedCards;
           
           if (resolvedCards.length > 0) {
             deckLoaded = true;
@@ -7657,14 +7679,6 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             }
             
             // Store deck metadata on the player object
-            const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
-            if (playerInState) {
-              playerInState.deckName = finalDeckName;
-              playerInState.deckId = aiConfig.deckId || (aiConfig.deckText ? `imported_${Date.now().toString(36)}_${i}` : null);
-              if (typeof aiConfig.deckText === 'string' && aiConfig.deckText.trim()) {
-                playerInState.deckText = aiConfig.deckText;
-              }
-            }
           }
         }
         
@@ -7689,7 +7703,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             spectator: false,
             isAI: true,
             strategy,
-            deckId: aiConfig.deckId,
+            deckId: playerInState?.deckId || aiConfig.deckId,
+            deckName: playerInState?.deckName,
+            deckText: playerInState?.deckText,
             deckLoaded,
           });
         } catch (e) {

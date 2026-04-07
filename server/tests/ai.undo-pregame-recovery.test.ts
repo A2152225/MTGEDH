@@ -1,16 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { fetchCardsByExactNamesBatch } = vi.hoisted(() => ({
-  fetchCardsByExactNamesBatch: vi.fn(),
+const { resolveDeckList } = vi.hoisted(() => ({
+  resolveDeckList: vi.fn(),
 }));
 
-vi.mock('../src/services/scryfall.js', async () => {
-  const actual = await vi.importActual<typeof import('../src/services/scryfall.js')>('../src/services/scryfall.js');
-  return {
-    ...actual,
-    fetchCardsByExactNamesBatch,
-  };
-});
+vi.mock('../src/services/deckImport.js', () => ({
+  resolveDeckList,
+}));
 
 import { cleanupGameAI, handleAIGameFlow } from '../src/socket/ai.js';
 import { games } from '../src/socket/socket.js';
@@ -40,32 +36,72 @@ describe('AI pre-game undo recovery', () => {
   it('re-imports a persisted AI deck and re-selects commander when pre-game restarts with an empty library', async () => {
     vi.useFakeTimers();
 
-    fetchCardsByExactNamesBatch.mockResolvedValue(new Map([
-      ['morophon, the boundless', {
-        id: 'morophon-card',
-        name: 'Morophon, the Boundless',
-        type_line: 'Legendary Creature — Shapeshifter',
-        oracle_text: 'Changeling\nAs Morophon, the Boundless enters, choose a creature type.',
-        mana_cost: '{7}',
-        color_identity: ['W', 'U', 'B', 'R', 'G'],
-      }],
-      ['island', {
-        id: 'island-card',
-        name: 'Island',
-        type_line: 'Basic Land — Island',
-        oracle_text: '{T}: Add {U}.',
-        mana_cost: '',
-        color_identity: ['U'],
-      }],
-      ['opt', {
-        id: 'opt-card',
-        name: 'Opt',
-        type_line: 'Instant',
-        oracle_text: 'Scry 1, then draw a card.',
-        mana_cost: '{U}',
-        color_identity: ['U'],
-      }],
-    ]));
+    resolveDeckList.mockResolvedValue({
+      resolvedCards: [
+        {
+          id: 'morophon-card-instance',
+          name: 'Morophon, the Boundless',
+          type_line: 'Legendary Creature — Shapeshifter',
+          oracle_text: 'Changeling\nAs Morophon, the Boundless enters, choose a creature type.',
+          mana_cost: '{7}',
+        },
+        {
+          id: 'island-card-instance-1',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '{T}: Add {U}.',
+          mana_cost: '',
+        },
+        {
+          id: 'island-card-instance-2',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '{T}: Add {U}.',
+          mana_cost: '',
+        },
+        {
+          id: 'opt-card-instance-1',
+          name: 'Opt',
+          type_line: 'Instant',
+          oracle_text: 'Scry 1, then draw a card.',
+          mana_cost: '{U}',
+        },
+        {
+          id: 'opt-card-instance-2',
+          name: 'Opt',
+          type_line: 'Instant',
+          oracle_text: 'Scry 1, then draw a card.',
+          mana_cost: '{U}',
+        },
+        {
+          id: 'opt-card-instance-3',
+          name: 'Opt',
+          type_line: 'Instant',
+          oracle_text: 'Scry 1, then draw a card.',
+          mana_cost: '{U}',
+        },
+        {
+          id: 'opt-card-instance-4',
+          name: 'Opt',
+          type_line: 'Instant',
+          oracle_text: 'Scry 1, then draw a card.',
+          mana_cost: '{U}',
+        },
+        {
+          id: 'opt-card-instance-5',
+          name: 'Opt',
+          type_line: 'Instant',
+          oracle_text: 'Scry 1, then draw a card.',
+          mana_cost: '{U}',
+        },
+      ],
+      validationCards: [],
+      missing: [],
+      usedLocalFallback: true,
+      usedLocalIndex: true,
+      sourcesUsed: ['oracle-cards'],
+      scryfallTimedOut: false,
+    });
 
     const game = createInitialGameState(gameId);
     games.set(gameId, game as any);
@@ -116,7 +152,7 @@ describe('AI pre-game undo recovery', () => {
 
     await handleAIGameFlow(io, gameId, 'ai_1' as any);
 
-    expect(fetchCardsByExactNamesBatch).toHaveBeenCalledTimes(1);
+    expect(resolveDeckList).toHaveBeenCalledTimes(1);
     expect((game as any).searchLibrary?.('ai_1', '', 1000) || []).toHaveLength(8);
 
     await vi.runOnlyPendingTimersAsync();
