@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getAvailableMana, parseManaCost, canPayManaCost, canPayManaCostWithAvailableSources } from '../src/state/modules/mana-check.js';
+import { getAvailableMana, getTotalManaFromPool, parseManaCost, canPayManaCost, canPayManaCostWithAvailableSources } from '../src/state/modules/mana-check.js';
 
 /**
  * Tests for conditional mana sources like Exotic Orchard, Fellwar Stone, etc.
@@ -69,6 +69,100 @@ describe('Conditional Mana Sources', () => {
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{1}{R}'))).toBe(false);
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{2}{R}'))).toBe(false);
       expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{2}'))).toBe(false);
+    });
+
+    it('treats Mox Amber as unavailable without a colored legendary creature or planeswalker', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'mox_amber_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Mox Amber',
+              type_line: 'Legendary Artifact',
+              oracle_text: '{T}: Add one mana of any color among legendary creatures and planeswalkers you control.',
+            },
+          },
+          {
+            id: 'bear_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Grizzly Bears',
+              type_line: 'Creature — Bear',
+              oracle_text: '',
+              colors: ['G'],
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+      expect(mana.white).toBe(0);
+      expect(mana.blue).toBe(0);
+      expect(mana.black).toBe(0);
+      expect(mana.red).toBe(0);
+      expect(mana.green).toBe(0);
+      expect(getTotalManaFromPool(mana)).toBe(0);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{G}'))).toBe(false);
+    });
+
+    it('limits Mox Amber to colors shared by controlled legendary creatures and planeswalkers', () => {
+      const state = {
+        battlefield: [
+          {
+            id: 'mox_amber_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Mox Amber',
+              type_line: 'Legendary Artifact',
+              oracle_text: '{T}: Add one mana of any color among legendary creatures and planeswalkers you control.',
+            },
+          },
+          {
+            id: 'legend_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Yoshimaru, Ever Faithful',
+              type_line: 'Legendary Creature — Dog',
+              oracle_text: '',
+              colors: ['W'],
+            },
+          },
+          {
+            id: 'walker_1',
+            controller: 'player1',
+            tapped: false,
+            card: {
+              name: 'Ral Zarek',
+              type_line: 'Planeswalker — Ral',
+              oracle_text: '',
+              colors: ['U', 'R'],
+            },
+          },
+        ],
+        manaPool: {
+          player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        },
+      };
+
+      const mana = getAvailableMana(state, 'player1');
+      expect(mana.white).toBe(1);
+      expect(mana.blue).toBe(1);
+      expect(mana.red).toBe(1);
+      expect(mana.green).toBe(0);
+      expect(getTotalManaFromPool(mana)).toBe(1);
+
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{U}'))).toBe(true);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{R}'))).toBe(true);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{G}'))).toBe(false);
+      expect(canPayManaCostWithAvailableSources(state, 'player1', parseManaCost('{1}{U}'))).toBe(false);
     });
   });
 

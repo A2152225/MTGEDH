@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { PaymentPicker } from './PaymentPicker';
 import { FloatingManaPool } from './FloatingManaPool';
-import type { PaymentItem, ManaColor } from '../../../shared/src';
+import type { BattlefieldPermanent, PaymentItem, ManaColor } from '../../../shared/src';
 import {
   Color,
   parseManaCost,
@@ -9,6 +9,7 @@ import {
   calculateSuggestedPayment,
   calculateRemainingCostAfterFloatingMana,
   getTotalManaProduction,
+  type ManaPaymentSource,
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
@@ -427,7 +428,8 @@ interface CastSpellModalProps {
   oracleText?: string;
   forcedAlternateCostId?: string;
   extraAlternateCosts?: AlternateCost[];
-  availableSources: Array<{ id: string; name: string; options: Color[]; amount?: number }>;
+  availableSources: ManaPaymentSource[];
+  battlefieldPermanents?: BattlefieldPermanent[];
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
   castFromZone?: 'hand' | 'graveyard' | 'exile' | 'command';
@@ -461,6 +463,7 @@ export function CastSpellModal({
   forcedAlternateCostId,
   extraAlternateCosts,
   availableSources,
+  battlefieldPermanents = [],
   otherCardsInHand = [],
   floatingMana,
   castFromZone = 'hand',
@@ -569,9 +572,9 @@ export function CastSpellModal({
   }, [currentCost, manaCost, costReduction]);
 
   const floatingPaymentSources = useMemo(() => {
-    if (!manualFloatingManaSelection || !floatingMana) return [] as Array<{ id: string; name: string; options: Color[]; amount?: number }>;
+    if (!manualFloatingManaSelection || !floatingMana) return [] as ManaPaymentSource[];
 
-    const entries: Array<{ id: string; name: string; options: Color[]; amount?: number }> = [];
+    const entries: ManaPaymentSource[] = [];
     const poolEntries: Array<[keyof ManaPool, Color]> = [
       ['white', 'W'],
       ['blue', 'U'],
@@ -917,6 +920,7 @@ export function CastSpellModal({
             manaCost={effectiveManaCost || currentCost?.manaCost || manaCost}
             manaCostDisplay={effectiveManaCost || currentCost?.manaCost || manaCost}
             sources={availableSources}
+            battlefieldPermanents={battlefieldPermanents}
             chosen={payment}
             xValue={xValue}
             onChangeX={setXValue}

@@ -33,6 +33,15 @@ function readToughnessForComparison(permanent: BattlefieldPermanent | any): numb
   return null;
 }
 
+function readCreatureStatForComparison(
+  permanent: BattlefieldPermanent | any,
+  which: 'power' | 'toughness'
+): number | null {
+  return which === 'power'
+    ? readPowerForComparison(permanent)
+    : readToughnessForComparison(permanent);
+}
+
 function isAttackingPermanent(permanent: BattlefieldPermanent | any): boolean {
   return Boolean((permanent as any)?.attacking || (permanent as any)?.defendingPlayerId || (permanent as any)?.attackingPlayerId);
 }
@@ -88,7 +97,38 @@ export function resolveMentorTargetCreatureIdFromBattlefield(
   return legalTargets.length === 1 ? String((legalTargets[0] as any)?.id || '').trim() || undefined : undefined;
 }
 
-export function resolveBolsterTargetCreatureIdFromBattlefield(
+function normalizeCreatureControllerScope(rawScope: string): 'you-control' | 'opponents-control' | undefined {
+  const normalized = normalizeOracleText(rawScope);
+  if (normalized === 'you control') return 'you-control';
+  if (
+    normalized === 'your opponents control' ||
+    normalized === 'an opponent controls' ||
+    normalized === "you don't control" ||
+    normalized === 'you do not control'
+  ) {
+    return 'opponents-control';
+  }
+  return undefined;
+}
+
+function normalizeCreatureLegendQualifier(rawQualifier: string): 'legendary' | 'nonlegendary' | undefined {
+  const normalized = normalizeOracleText(rawQualifier);
+  if (normalized === 'legendary') return 'legendary';
+  if (normalized === 'nonlegendary') return 'nonlegendary';
+  return undefined;
+}
+
+function creatureMatchesLegendQualifier(
+  permanent: BattlefieldPermanent | any,
+  qualifier?: 'legendary' | 'nonlegendary'
+): boolean {
+  if (!qualifier) return true;
+  const typeLine = String((permanent as any)?.card?.type_line || (permanent as any)?.type_line || '').toLowerCase();
+  const isLegendary = typeLine.includes('legendary');
+  return qualifier === 'legendary' ? isLegendary : !isLegendary;
+}
+
+export function resolveCreatureExtremaQualifiedTargetIdFromBattlefield(
   battlefield: readonly BattlefieldPermanent[],
   target: OracleObjectSelector,
   ctx: OracleIRExecutionContext
@@ -96,27 +136,53 @@ export function resolveBolsterTargetCreatureIdFromBattlefield(
   if (target.kind !== 'raw') return undefined;
 
   const targetText = normalizeOracleText(target.text);
-  if (targetText !== 'target creature you control with the least toughness among creatures you control') {
+  const match = targetText.match(
+    /^target (other )?(legendary |nonlegendary )?creature (you control|your opponents control|an opponent controls|you don['’]?t control|you do not control) with the (least|lowest|smallest|greatest|highest) (power|toughness) among (other )?(legendary |nonlegendary )?creatures (you control|your opponents control|an opponent controls|you don['’]?t control|you do not control)$/i
+  );
+  if (!match) {
     return undefined;
   }
 
   const controllerId = String(ctx.controllerId || '').trim();
   if (!controllerId) return undefined;
 
+  const targetQualifier = normalizeCreatureLegendQualifier(String(match[2] || '').trim());
+  const targetScope = normalizeCreatureControllerScope(String(match[3] || ''));
+  const amongQualifier = normalizeCreatureLegendQualifier(String(match[7] || '').trim());
+  const amongScope = normalizeCreatureControllerScope(String(match[8] || ''));
+  if (!targetScope || !amongScope || targetScope !== amongScope) {
+    return undefined;
+  }
+
+  const isLeast = /^(least|lowest|smallest)$/i.test(String(match[4] || ''));
+  const which = String(match[5] || '').toLowerCase() as 'power' | 'toughness';
+  const excludeSourceId = Boolean(String(match[1] || '').trim()) || Boolean(String(match[6] || '').trim());
+  const sourceId = String(ctx.sourceId || '').trim();
+
   const processedBattlefield = applyStaticAbilitiesToBattlefield([...battlefield]) as BattlefieldPermanent[];
-  const controlledCreatures = processedBattlefield.filter(permanent => {
+  const candidateCreatures = processedBattlefield.filter(permanent => {
     if (!isExecutorCreature(permanent)) return false;
-    return String((permanent as any)?.controller || '').trim() === controllerId;
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (excludeSourceId && sourceId && permanentId === sourceId) return false;
+
+    const isControlledByYou = String((permanent as any)?.controller || '').trim() === controllerId;
+    const matchesControllerScope = targetScope === 'you-control' ? isControlledByYou : !isControlledByYou;
+    if (!matchesControllerScope) return false;
+
+    if (!creatureMatchesLegendQualifier(permanent, amongQualifier)) return false;
+    if (!creatureMatchesLegendQualifier(permanent, targetQualifier)) return false;
+
+    return true;
   });
-  if (controlledCreatures.length === 0) return undefined;
+  if (candidateCreatures.length === 0) return undefined;
 
-  const toughnessValues = controlledCreatures
-    .map(permanent => readToughnessForComparison(permanent))
+  const statValues = candidateCreatures
+    .map(permanent => readCreatureStatForComparison(permanent, which))
     .filter((value): value is number => value !== null);
-  if (toughnessValues.length === 0) return undefined;
+  if (statValues.length === 0) return undefined;
 
-  const leastToughness = Math.min(...toughnessValues);
-  const legalTargets = controlledCreatures.filter(permanent => readToughnessForComparison(permanent) === leastToughness);
+  const extremum = isLeast ? Math.min(...statValues) : Math.max(...statValues);
+  const legalTargets = candidateCreatures.filter(permanent => readCreatureStatForComparison(permanent, which) === extremum);
 
   const chosenIds = [
     String(ctx.targetCreatureId || '').trim(),
@@ -135,6 +201,14 @@ export function resolveBolsterTargetCreatureIdFromBattlefield(
   }
 
   return legalTargets.length === 1 ? String((legalTargets[0] as any)?.id || '').trim() || undefined : undefined;
+}
+
+export function resolveBolsterTargetCreatureIdFromBattlefield(
+  battlefield: readonly BattlefieldPermanent[],
+  target: OracleObjectSelector,
+  ctx: OracleIRExecutionContext
+): string | undefined {
+  return resolveCreatureExtremaQualifiedTargetIdFromBattlefield(battlefield, target, ctx);
 }
 
 export function resolveTrepanationBoostTargetCreatureId(
@@ -180,7 +254,7 @@ export function resolveSingleCreatureTargetId(
     return mentorTargetCreatureId;
   }
 
-  const bolsterTargetCreatureId = resolveBolsterTargetCreatureIdFromBattlefield(
+  const bolsterTargetCreatureId = resolveCreatureExtremaQualifiedTargetIdFromBattlefield(
     (state.battlefield || []) as BattlefieldPermanent[],
     target,
     ctx

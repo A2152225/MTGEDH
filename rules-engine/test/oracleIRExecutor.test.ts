@@ -47474,6 +47474,209 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect((targetB?.counters || {})['+1/+1']).toBe(2);
   });
 
+  it('treats "among creatures you control" as a limiter for raw creature target resolution', () => {
+    const steps = [
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 1 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'target creature you control with the greatest power among creatures you control' },
+        raw: 'Put a +1/+1 counter on target creature you control with the greatest power among creatures you control',
+      },
+    ] as any;
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'limiter-small',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            counters: {},
+            power: 2,
+            toughness: 2,
+            basePower: 2,
+            baseToughness: 2,
+            card: {
+              id: 'limiter-small-card',
+              name: 'Small Ally',
+              type_line: 'Creature - Human',
+              power: '2',
+              toughness: '2',
+            },
+          } as any,
+          {
+            id: 'limiter-large-controlled',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            counters: {},
+            power: 5,
+            toughness: 5,
+            basePower: 5,
+            baseToughness: 5,
+            card: {
+              id: 'limiter-large-controlled-card',
+              name: 'Large Ally',
+              type_line: 'Creature - Beast',
+              power: '5',
+              toughness: '5',
+            },
+          } as any,
+          {
+            id: 'limiter-largest-opponent',
+            ownerId: 'p2',
+            owner: 'p2',
+            controller: 'p2',
+            tapped: false,
+            counters: {},
+            power: 8,
+            toughness: 8,
+            basePower: 8,
+            baseToughness: 8,
+            card: {
+              id: 'limiter-largest-opponent-card',
+              name: 'Opponent Giant',
+              type_line: 'Creature - Giant',
+              power: '8',
+              toughness: '8',
+            },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'limiter-source',
+        sourceName: 'Limiter Test',
+      }
+    );
+
+    const small = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'limiter-small');
+    const largeControlled = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'limiter-large-controlled');
+    const largestOpponent = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'limiter-largest-opponent');
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['add_counter']);
+    expect((small?.counters || {})['+1/+1'] || 0).toBe(0);
+    expect((largeControlled?.counters || {})['+1/+1']).toBe(1);
+    expect((largestOpponent?.counters || {})['+1/+1'] || 0).toBe(0);
+  });
+
+  it('treats "among legendary creatures you control" as a legend-qualified limiter for raw creature target resolution', () => {
+    const steps = [
+      {
+        kind: 'add_counter',
+        amount: { kind: 'number', value: 1 },
+        counter: '+1/+1',
+        target: { kind: 'raw', text: 'target legendary creature you control with the greatest power among legendary creatures you control' },
+        raw: 'Put a +1/+1 counter on target legendary creature you control with the greatest power among legendary creatures you control',
+      },
+    ] as any;
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        battlefield: [
+          {
+            id: 'legendary-small',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            counters: {},
+            power: 2,
+            toughness: 2,
+            basePower: 2,
+            baseToughness: 2,
+            card: {
+              id: 'legendary-small-card',
+              name: 'Minor Legend',
+              type_line: 'Legendary Creature - Human',
+              power: '2',
+              toughness: '2',
+            },
+          } as any,
+          {
+            id: 'legendary-large',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            counters: {},
+            power: 4,
+            toughness: 4,
+            basePower: 4,
+            baseToughness: 4,
+            card: {
+              id: 'legendary-large-card',
+              name: 'Major Legend',
+              type_line: 'Legendary Creature - Angel',
+              power: '4',
+              toughness: '4',
+            },
+          } as any,
+          {
+            id: 'nonlegendary-largest',
+            ownerId: 'p1',
+            owner: 'p1',
+            controller: 'p1',
+            tapped: false,
+            counters: {},
+            power: 7,
+            toughness: 7,
+            basePower: 7,
+            baseToughness: 7,
+            card: {
+              id: 'nonlegendary-largest-card',
+              name: 'Huge Commoner',
+              type_line: 'Creature - Giant',
+              power: '7',
+              toughness: '7',
+            },
+          } as any,
+          {
+            id: 'opponent-legend-largest',
+            ownerId: 'p2',
+            owner: 'p2',
+            controller: 'p2',
+            tapped: false,
+            counters: {},
+            power: 9,
+            toughness: 9,
+            basePower: 9,
+            baseToughness: 9,
+            card: {
+              id: 'opponent-legend-largest-card',
+              name: 'Opponent Legend',
+              type_line: 'Legendary Creature - Dragon',
+              power: '9',
+              toughness: '9',
+            },
+          } as any,
+        ],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceId: 'legendary-limiter-source',
+        sourceName: 'Legendary Limiter Test',
+      }
+    );
+
+    const legendarySmall = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'legendary-small');
+    const legendaryLarge = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'legendary-large');
+    const nonlegendaryLargest = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'nonlegendary-largest');
+    const opponentLegendLargest = (result.state.battlefield as any[]).find((perm: any) => perm.id === 'opponent-legend-largest');
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['add_counter']);
+    expect((legendarySmall?.counters || {})['+1/+1'] || 0).toBe(0);
+    expect((legendaryLarge?.counters || {})['+1/+1']).toBe(1);
+    expect((nonlegendaryLargest?.counters || {})['+1/+1'] || 0).toBe(0);
+    expect((opponentLegendLargest?.counters || {})['+1/+1'] || 0).toBe(0);
+  });
+
   it('applies Morph keyword lines by turning the face-down source permanent face up', () => {
     const ir = parseOracleTextToIR('Morph {3}{G}', 'Barkhide Host');
     const steps = ir.abilities[0]?.steps ?? [];

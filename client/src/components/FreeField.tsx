@@ -6,7 +6,7 @@ import { getKeywordInfo, KEYWORD_GLOSSARY } from '../utils/keywordGlossary';
 import { CardContextMenu } from './CardContextMenu';
 import { ActivatedAbilityButtons } from './ActivatedAbilityButtons';
 import { AbilitySelectionModal } from './AbilitySelectionModal';
-import { parseActivatedAbilities, canActivateTapAbility, getThresholdActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
+import { parseActivatedAbilities, canActivateTapAbility, getConditionalManaAbilityStatus, getThresholdActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
@@ -238,8 +238,9 @@ export function FreeField(props: {
     const annotatedAbilities = abilities.map(ability => {
       const tapCheck = canActivateTapAbility(ability.requiresTap, context, ability.isManaAbility);
       const thresholdCheck = getThresholdActivationStatus(ability, perm);
-      let canActivateAbility = tapCheck.canActivate && thresholdCheck.canActivate;
-      let reason = thresholdCheck.reason || tapCheck.reason;
+      const conditionalManaCheck = getConditionalManaAbilityStatus(ability, perm, allBattlefieldPerms || perms);
+      let canActivateAbility = tapCheck.canActivate && thresholdCheck.canActivate && conditionalManaCheck.canActivate;
+      let reason = conditionalManaCheck.reason || thresholdCheck.reason || tapCheck.reason;
 
       // Check loyalty ability restrictions
       if (ability.isLoyaltyAbility) {

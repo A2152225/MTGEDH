@@ -20,6 +20,8 @@ export interface SacrificeSelectionProps {
    * Use 'artifact_or_creature' for compound types (e.g., Mondrak's ability).
    */
   permanentType?: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'artifact_or_creature';
+  creatureSubtype?: string;
+  excludePermanentId?: string;
   sourceImage?: string;
   onConfirm: (selectedIds: string[]) => void;
   onCancel?: () => void;
@@ -56,6 +58,8 @@ export function SacrificeSelectionModal({
   permanents,
   count,
   permanentType,
+  creatureSubtype,
+  excludePermanentId,
   sourceImage,
   onConfirm,
   onCancel,
@@ -72,17 +76,27 @@ export function SacrificeSelectionModal({
   // Filter permanents by type if specified
   const filteredPermanents = useMemo(() => {
     if (!permanentType || permanentType === 'permanent') {
-      return permanents;
+      return permanents.filter((perm) => String(perm.id || '') !== String(excludePermanentId || ''));
     }
     return permanents.filter(perm => {
+      if (String(perm.id || '') === String(excludePermanentId || '')) return false;
       const typeLine = (perm.card as KnownCardRef)?.type_line?.toLowerCase() || '';
       // Handle compound type: "artifact_or_creature" matches either artifact or creature
       if (permanentType === 'artifact_or_creature') {
-        return typeLine.includes('artifact') || typeLine.includes('creature');
+        const matches = typeLine.includes('artifact') || typeLine.includes('creature');
+        if (!matches) return false;
+        if (creatureSubtype && typeLine.includes('creature')) {
+          return typeLine.includes(creatureSubtype.toLowerCase());
+        }
+        return true;
       }
-      return typeLine.includes(permanentType);
+      if (!typeLine.includes(permanentType)) return false;
+      if (creatureSubtype && permanentType === 'creature') {
+        return typeLine.includes(creatureSubtype.toLowerCase());
+      }
+      return true;
     });
-  }, [permanents, permanentType]);
+  }, [creatureSubtype, excludePermanentId, permanents, permanentType]);
 
   const handleToggle = (id: string) => {
     setSelected(prev => {
@@ -185,7 +199,7 @@ export function SacrificeSelectionModal({
             padding: 40,
             fontSize: 16,
           }}>
-            No valid {permanentType || 'permanent'}s to sacrifice
+            No valid {creatureSubtype || permanentType || 'permanent'}s to sacrifice
           </div>
         ) : (
           <div style={{

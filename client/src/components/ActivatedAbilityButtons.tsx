@@ -8,6 +8,7 @@ import {
   canActivateTapAbility,
   getAbilityIcon,
   formatAbilityCost,
+  getConditionalManaAbilityStatus,
   getThresholdActivationStatus,
   type ParsedActivatedAbility,
   type ActivationContext,
@@ -491,9 +492,10 @@ export function ActivatedAbilityButtons({
         ability.isManaAbility
       );
       const thresholdCheck = getThresholdActivationStatus(ability, perm);
+      const conditionalManaCheck = getConditionalManaAbilityStatus(ability, perm, battlefield);
       
-      let canActivate = tapCheck.canActivate && thresholdCheck.canActivate;
-      let reason = thresholdCheck.reason || tapCheck.reason;
+      let canActivate = tapCheck.canActivate && thresholdCheck.canActivate && conditionalManaCheck.canActivate;
+      let reason = conditionalManaCheck.reason || thresholdCheck.reason || tapCheck.reason;
       
       // Check loyalty ability restrictions
       if (ability.isLoyaltyAbility) {

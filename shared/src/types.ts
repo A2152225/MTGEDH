@@ -910,9 +910,12 @@ export type ManaColor = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
 
 export interface PaymentItem {
   permanentId: string;
+  paymentSourceId?: string;
   mana: ManaColor;
   /** Number of mana produced by this tap (default 1, e.g., Sol Ring produces 2) */
   count?: number;
+  /** Permanents sacrificed to pay a mana ability activation cost. */
+  sacrificedPermanentIds?: string[];
   /** If using restricted mana from pool, the restriction index */
   fromRestrictedPool?: boolean;
   /** Index into the restricted mana array */

@@ -11,8 +11,10 @@
  * - Other activated abilities with cost:effect format
  */
 
-import type { KnownCardRef } from '../../../shared/src';
+import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import { parseSacrificeCost, parseNumberFromText, type SacrificeType } from '../../../shared/src/textUtils';
+
+const COLOR_SYMBOL_ORDER = ['W', 'U', 'B', 'R', 'G'] as const;
 
 /**
  * Represents a parsed activated ability
@@ -218,6 +220,83 @@ function parseManaProduction(text: string): string | null {
   }
   
   return null;
+}
+
+function getCardColorSymbols(card?: KnownCardRef): string[] {
+  const colors = new Set<string>();
+
+  if (Array.isArray(card?.colors)) {
+    for (const color of card.colors) {
+      const normalized = String(color || '').toUpperCase();
+      if ((COLOR_SYMBOL_ORDER as readonly string[]).includes(normalized)) {
+        colors.add(normalized);
+      }
+    }
+  }
+
+  if (colors.size === 0) {
+    const manaCost = String(card?.mana_cost || '').toUpperCase();
+    const manaTokens = manaCost.match(/\{([^}]+)\}/g) || [];
+    for (const token of manaTokens) {
+      for (const symbol of COLOR_SYMBOL_ORDER) {
+        if (token.includes(symbol)) {
+          colors.add(symbol);
+        }
+      }
+    }
+  }
+
+  return COLOR_SYMBOL_ORDER.filter((color) => colors.has(color));
+}
+
+function getMoxAmberAvailableColors(
+  battlefield: readonly BattlefieldPermanent[] | undefined,
+  controllerId: string,
+): string[] {
+  const colors = new Set<string>();
+
+  for (const permanent of battlefield || []) {
+    if (!permanent || String(permanent.controller || '') !== String(controllerId)) continue;
+
+    const typeLine = String((permanent.card as KnownCardRef | undefined)?.type_line || '').toLowerCase();
+    const isQualifyingCreature = typeLine.includes('legendary') && typeLine.includes('creature');
+    const isQualifyingPlaneswalker = typeLine.includes('planeswalker');
+    if (!isQualifyingCreature && !isQualifyingPlaneswalker) continue;
+
+    for (const color of getCardColorSymbols(permanent.card as KnownCardRef)) {
+      colors.add(color);
+    }
+  }
+
+  return COLOR_SYMBOL_ORDER.filter((color) => colors.has(color));
+}
+
+export function getConditionalManaAbilityStatus(
+  ability: Pick<ParsedActivatedAbility, 'isManaAbility' | 'effect'>,
+  permanent: BattlefieldPermanent,
+  battlefield?: readonly BattlefieldPermanent[],
+): { canActivate: boolean; reason?: string } {
+  if (!ability.isManaAbility) {
+    return { canActivate: true };
+  }
+
+  const sourceName = String((permanent.card as KnownCardRef | undefined)?.name || '').toLowerCase();
+  const effectText = String(ability.effect || '').toLowerCase();
+  const isMoxAmber = sourceName === 'mox amber' || effectText.includes('among legendary creatures and planeswalkers you control');
+
+  if (!isMoxAmber) {
+    return { canActivate: true };
+  }
+
+  const availableColors = getMoxAmberAvailableColors(battlefield, permanent.controller);
+  if (availableColors.length === 0) {
+    return {
+      canActivate: false,
+      reason: 'Needs a colored legendary creature or planeswalker',
+    };
+  }
+
+  return { canActivate: true };
 }
 
 /**

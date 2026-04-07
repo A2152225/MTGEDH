@@ -6,7 +6,9 @@
  */
 
 import type { PlayerID } from "../../../../shared/src";
+import { parseSacrificeCost, type SacrificeType } from "../../../../shared/src/textUtils";
 import { creatureHasHaste } from "../../socket/game-actions.js";
+import { getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "./mana-abilities.js";
 import { debug } from "../../utils/debug.js";
 
 /**
@@ -371,12 +373,25 @@ type SimpleManaKey = typeof SIMPLE_MANA_KEYS[number];
 
 type ExactManaSourceOption = {
   activationCost?: ParsedManaCost;
+  sacrificeCost?: {
+    type: SacrificeType;
+    count: number;
+    creatureSubtype?: string;
+    mustBeOther?: boolean;
+  };
   produced: Record<SimpleManaKey, number>;
 };
 
 type ExactManaSource = {
   id: string;
+  permanentId: string;
   options: ExactManaSourceOption[];
+};
+
+type ExactSacrificeCandidate = {
+  id: string;
+  typeLine: string;
+  subtypeWords: string[];
 };
 
 function createSimpleManaPool(seed?: Record<string, number>): Record<SimpleManaKey, number> {
@@ -439,6 +454,103 @@ function filterOutCostedTapMatches(
       return matchIndex >= costIndex && matchIndex < costEnd;
     });
   });
+}
+
+function escapeRegExp(value: string): string {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getSubtypeWordsFromTypeLine(typeLineValue: string): string[] {
+  const typeLine = String(typeLineValue || '').toLowerCase();
+  const subtypeSection = typeLine.includes('—')
+    ? typeLine.split('—').slice(1).join(' ')
+    : typeLine.includes('-')
+      ? typeLine.split('-').slice(1).join(' ')
+      : '';
+
+  if (!subtypeSection) return [];
+
+  return subtypeSection
+    .split(/[^a-z0-9']+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function buildExactSacrificeCandidates(state: any, playerId: PlayerID): ExactSacrificeCandidate[] {
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  return battlefield
+    .filter((permanent) => permanent?.controller === playerId && permanent?.card)
+    .map((permanent) => ({
+      id: String(permanent.id || ''),
+      typeLine: String(permanent.card?.type_line || '').toLowerCase(),
+      subtypeWords: getSubtypeWordsFromTypeLine(String(permanent.card?.type_line || '')),
+    }))
+    .filter((candidate) => Boolean(candidate.id));
+}
+
+function candidateMatchesSacrificeRequirement(
+  candidate: ExactSacrificeCandidate,
+  requirement: NonNullable<ExactManaSourceOption['sacrificeCost']>,
+  sourcePermanentId: string,
+): boolean {
+  if (requirement.mustBeOther && candidate.id === sourcePermanentId) {
+    return false;
+  }
+
+  switch (requirement.type) {
+    case 'creature':
+      if (!candidate.typeLine.includes('creature')) return false;
+      if (requirement.creatureSubtype) {
+        const subtype = String(requirement.creatureSubtype || '').toLowerCase();
+        return candidate.subtypeWords.includes(subtype);
+      }
+      return true;
+    case 'artifact':
+      return candidate.typeLine.includes('artifact');
+    case 'enchantment':
+      return candidate.typeLine.includes('enchantment');
+    case 'land':
+      return candidate.typeLine.includes('land');
+    case 'permanent':
+      return true;
+    case 'artifact_or_creature':
+      return candidate.typeLine.includes('artifact') || candidate.typeLine.includes('creature');
+    case 'self':
+      return candidate.id === sourcePermanentId;
+    default:
+      return false;
+  }
+}
+
+function removeSacrificeCandidates(
+  candidates: ExactSacrificeCandidate[],
+  requirement: NonNullable<ExactManaSourceOption['sacrificeCost']>,
+  sourcePermanentId: string,
+): ExactSacrificeCandidate[][] {
+  const requiredCount = Math.max(1, Number(requirement.count || 1));
+  const matchingCandidates = candidates.filter((candidate) =>
+    candidateMatchesSacrificeRequirement(candidate, requirement, sourcePermanentId),
+  );
+
+  if (matchingCandidates.length < requiredCount) {
+    return [];
+  }
+
+  const results: ExactSacrificeCandidate[][] = [];
+  const choose = (startIndex: number, chosenIds: string[]) => {
+    if (chosenIds.length >= requiredCount) {
+      const chosen = new Set(chosenIds);
+      results.push(candidates.filter((candidate) => !chosen.has(candidate.id)));
+      return;
+    }
+
+    for (let index = startIndex; index < matchingCandidates.length; index += 1) {
+      choose(index + 1, chosenIds.concat(matchingCandidates[index].id));
+    }
+  };
+
+  choose(0, []);
+  return results;
 }
 
 function spendGenericManaFromPool(
@@ -558,6 +670,13 @@ function buildProducedManaOptions(
   const manaText = String(fullManaText || '').trim();
   if (!manaText) return [];
 
+  if (isMoxAmberConditionalManaSource(String(permanent?.card?.name || ''), manaText)) {
+    return getMoxAmberAvailableColors(state, playerId)
+      .map((symbol) => manaSymbolToColorKey(symbol))
+      .filter((key): key is SimpleManaKey => Boolean(key))
+      .map((key) => createSingleColorProduction(key));
+  }
+
   const hasOrClause = /\{[wubrgc]\}(?:,?\s*\{[wubrgc]\})*,?\s+or\s+\{[wubrgc]\}/i.test(manaText);
   const manaTokens = manaText.match(/\{([wubrgc])\}/gi) || [];
   const isConditionalAnyColor = /that (?:a |an )?(?:land|permanent)|among (?:lands|permanents)/i.test(manaText);
@@ -613,6 +732,7 @@ function buildProducedManaOptions(
 
 function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[] {
   const battlefield = state?.battlefield || [];
+  const sacrificeCandidates = buildExactSacrificeCandidates(state, playerId);
   const sources: ExactManaSource[] = [];
 
   for (const permanent of battlefield) {
@@ -643,6 +763,7 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
       if (colorKey) {
         sources.push({
           id: String(permanent.id || `${cardName}_${sources.length}`),
+          permanentId: String(permanent.id || `${cardName}_${sources.length}`),
           options: [{ produced: createSingleColorProduction(colorKey) }],
         });
       }
@@ -651,8 +772,22 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
 
     const manaAbilityWithCostPattern = /\{([0-9]+|[wubrgc])\}(?:,\s*)?\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
     const manaAbilityNoCostPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
+    const sacrificeManaAbilityPattern = /([^:.\n]+):\s*add\s+([^.\n]+)/gi;
     const costMatches = [...oracleText.matchAll(manaAbilityWithCostPattern)];
     const noCostMatches = filterOutCostedTapMatches([...oracleText.matchAll(manaAbilityNoCostPattern)], costMatches);
+    const sacrificeSelfMatches = [
+      ...oracleText.matchAll(/(?:^|[.;]\s*)sacrifice\s+this[^:]*:\s*add\s+([^.\n]+)/gi),
+      ...(() => {
+        const escapedCardName = escapeRegExp(String(permanent.card.name || '').trim().toLowerCase());
+        if (!escapedCardName) return [] as RegExpMatchArray[];
+        return [...oracleText.matchAll(new RegExp(`(?:^|[.;]\\s*)sacrifice\\s+${escapedCardName}[^:]*:\\s*add\\s+([^.\\n]+)`, 'gi'))];
+      })(),
+    ];
+    const sacrificeOtherMatches = [...oracleText.matchAll(sacrificeManaAbilityPattern)].filter((match) => {
+      const costText = String(match[1] || '').trim();
+      const info = parseSacrificeCost(costText);
+      return info.requiresSacrifice === true && info.sacrificeType && info.sacrificeType !== 'self';
+    });
     const options: ExactManaSourceOption[] = [];
 
     for (const match of costMatches) {
@@ -670,20 +805,64 @@ function buildExactManaSources(state: any, playerId: PlayerID): ExactManaSource[
       }
     }
 
+    for (const match of sacrificeSelfMatches) {
+      const producedOptions = buildProducedManaOptions(state, playerId, permanent, String(match[1] || ''));
+      for (const produced of producedOptions) {
+        options.push({ produced });
+      }
+    }
+
+    for (const match of sacrificeOtherMatches) {
+      const costText = String(match[1] || '').trim();
+      const producedText = String(match[2] || '');
+      const sacrificeInfo = parseSacrificeCost(costText);
+      if (!sacrificeInfo.sacrificeType) continue;
+
+      const producedOptions = buildProducedManaOptions(state, playerId, permanent, producedText);
+      for (const produced of producedOptions) {
+        options.push({
+          produced,
+          sacrificeCost: {
+            type: sacrificeInfo.sacrificeType,
+            count: Math.max(1, Number(sacrificeInfo.sacrificeCount || 1)),
+            creatureSubtype: sacrificeInfo.creatureSubtype,
+            mustBeOther: Boolean(sacrificeInfo.mustBeOther),
+          },
+        });
+      }
+    }
+
     if (options.length > 0) {
       const dedupedOptions = new Map<string, ExactManaSourceOption>();
       for (const option of options) {
         const activationSignature = option.activationCost
           ? JSON.stringify(option.activationCost)
           : 'none';
+        const sacrificeSignature = option.sacrificeCost
+          ? JSON.stringify(option.sacrificeCost)
+          : 'none';
         const productionSignature = normalizePoolSignature(option.produced);
-        dedupedOptions.set(`${activationSignature}|${productionSignature}`, option);
+        dedupedOptions.set(`${activationSignature}|${sacrificeSignature}|${productionSignature}`, option);
       }
 
-      sources.push({
-        id: String(permanent.id || `${cardName}_${sources.length}`),
-        options: Array.from(dedupedOptions.values()),
-      });
+      const materializedOptions = Array.from(dedupedOptions.values());
+      const repeatableUses = materializedOptions.reduce((maxUses, option) => {
+        if (!option.sacrificeCost || option.activationCost) return maxUses;
+        const usages = sacrificeCandidates.filter((candidate) =>
+          candidateMatchesSacrificeRequirement(candidate, option.sacrificeCost!, String(permanent.id || '')),
+        ).length;
+        return Math.max(maxUses, usages);
+      }, 1);
+
+      const sourceCount = Math.max(1, repeatableUses);
+      for (let index = 0; index < sourceCount; index += 1) {
+        const sourceIdBase = String(permanent.id || `${cardName}_${sources.length}`);
+        sources.push({
+          id: sourceCount > 1 ? `${sourceIdBase}#${index}` : sourceIdBase,
+          permanentId: sourceIdBase,
+          options: materializedOptions,
+        });
+      }
     }
   }
 
@@ -1209,6 +1388,30 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
 
     for (const match of noCostMatches) {
       const fullManaText = match[1].trim();
+      const amberColors = isMoxAmberConditionalManaSource(cardName, fullManaText)
+        ? getMoxAmberAvailableColors(state, playerId)
+        : [];
+
+      if (isMoxAmberConditionalManaSource(cardName, fullManaText)) {
+        if (amberColors.length > 1) {
+          const lettersSorted = amberColors.slice().sort().join('');
+          for (const symbol of amberColors) {
+            const colorKey = manaSymbolToColorKey(symbol);
+            if (colorKey) {
+              pool[colorKey] = (pool[colorKey] || 0) + 1;
+            }
+          }
+
+          const markerKey = `choiceColors_${lettersSorted}`;
+          (pool as any)[markerKey] = Number((pool as any)[markerKey] || 0) + 1;
+        } else if (amberColors.length === 1) {
+          const colorKey = manaSymbolToColorKey(amberColors[0]);
+          if (colorKey) {
+            pool[colorKey] = (pool[colorKey] || 0) + 1;
+          }
+        }
+        continue;
+      }
       
       // Check if this is an OR mana ability (can produce one of multiple colors)
       // Patterns to detect:
@@ -1377,12 +1580,16 @@ export function canPayManaCostWithAvailableSources(
   }
 
   const sources = buildExactManaSources(state, playerId);
+  const sacrificeCandidates = buildExactSacrificeCandidates(state, playerId);
   const hasActivationCostSource = sources.some((source) =>
     source.options.some((option) => option.activationCost),
   );
+  const hasSacrificeCostSource = sources.some((source) =>
+    source.options.some((option) => option.sacrificeCost),
+  );
   const hasBranchingSource = sources.some((source) => source.options.length > 1);
 
-  if (!hasActivationCostSource && !hasBranchingSource) {
+  if (!hasActivationCostSource && !hasSacrificeCostSource && !hasBranchingSource) {
     return canPayManaCost(getAvailableMana(state, playerId), parsedCost, lifeAvailable);
   }
 
@@ -1392,6 +1599,7 @@ export function canPayManaCostWithAvailableSources(
     pool: Record<SimpleManaKey, number>,
     life: number,
     remainingSources: ExactManaSource[],
+    remainingSacrificeCandidates: ExactSacrificeCandidate[],
   ): boolean => {
     if (canPayManaCost(pool, parsedCost, life)) {
       return true;
@@ -1401,7 +1609,7 @@ export function canPayManaCostWithAvailableSources(
       return false;
     }
 
-    const key = `${normalizePoolSignature(pool)}|${life}|${remainingSources.map((source) => source.id).join(',')}`;
+    const key = `${normalizePoolSignature(pool)}|${life}|${remainingSources.map((source) => source.id).join(',')}|${remainingSacrificeCandidates.map((candidate) => candidate.id).join(',')}`;
     const cached = memo.get(key);
     if (typeof cached === 'boolean') {
       return cached;
@@ -1416,6 +1624,7 @@ export function canPayManaCostWithAvailableSources(
       for (const option of source.options) {
         let workingPool = createSimpleManaPool(pool);
         let workingLife = life;
+        let nextSacrificeCandidateSets: ExactSacrificeCandidate[][] = [remainingSacrificeCandidates];
 
         if (option.activationCost) {
           const spent = spendManaCostFromExactPool(workingPool, option.activationCost, workingLife);
@@ -1427,10 +1636,23 @@ export function canPayManaCostWithAvailableSources(
           workingLife = spent.lifeAvailable;
         }
 
-        const producedPool = addProducedMana(workingPool, option.produced);
-        if (search(producedPool, workingLife, nextRemainingSources)) {
-          memo.set(key, true);
-          return true;
+        if (option.sacrificeCost) {
+          nextSacrificeCandidateSets = removeSacrificeCandidates(
+            remainingSacrificeCandidates,
+            option.sacrificeCost,
+            source.permanentId,
+          );
+          if (nextSacrificeCandidateSets.length === 0) {
+            continue;
+          }
+        }
+
+        for (const nextSacrificeCandidates of nextSacrificeCandidateSets) {
+          const producedPool = addProducedMana(workingPool, option.produced);
+          if (search(producedPool, workingLife, nextRemainingSources, nextSacrificeCandidates)) {
+            memo.set(key, true);
+            return true;
+          }
         }
       }
     }
@@ -1439,5 +1661,5 @@ export function canPayManaCostWithAvailableSources(
     return false;
   };
 
-  return search(floatingPool, lifeAvailable, sources);
+  return search(floatingPool, lifeAvailable, sources, sacrificeCandidates);
 }

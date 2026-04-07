@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { socket } from "./socket";
+import { parseSacrificeCost } from "../../shared/src";
 import type {
   ClientGameView,
   PlayerID,
@@ -3985,8 +3986,29 @@ export function App() {
   const getAvailableManaSourcesForPlayer = (playerId: string) => {
     if (!safeView) return [];
     
-    const sources: Array<{ id: string; name: string; options: ManaColor[]; amount?: number }> = [];
+    const sources: Array<{
+      id: string;
+      sourcePermanentId?: string;
+      name: string;
+      options: ManaColor[];
+      amount?: number;
+      consumable?: boolean;
+      sacrificeCost?: {
+        count: number;
+        permanentType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'artifact_or_creature';
+        creatureSubtype?: string;
+        mustBeOther?: boolean;
+      };
+    }> = [];
     const globalBattlefield = safeView.battlefield || [];
+
+    const isConsumableManaSource = (cardName: string, oracleText: string, typeLine: string): boolean => {
+      const normalizedOracle = String(oracleText || '').toLowerCase();
+      const normalizedTypeLine = String(typeLine || '').toLowerCase();
+      const escapedName = String(cardName || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const selfSacrificePattern = new RegExp(`\\bsacrifice\\s+(?:this|${escapedName})\\b[^:]*:\\s*add\\b`, 'i');
+      return selfSacrificePattern.test(normalizedOracle) || /\btreasure\b/i.test(normalizedTypeLine);
+    };
 
     const getSourceManaAmount = (perm: BattlefieldPermanent, options: ManaColor[], baseAmount?: number): number => {
       const printedAmount = typeof baseAmount === 'number' && baseAmount > 0
@@ -4036,6 +4058,85 @@ export function App() {
     
     // Get player's battlefield permanents (filter global battlefield by controller)
     const battlefield = globalBattlefield.filter(perm => perm.controller === playerId);
+
+    const matchesSacrificeRequirement = (candidate: BattlefieldPermanent, source: BattlefieldPermanent, sacrificeInfo: NonNullable<typeof sources[number]['sacrificeCost']>) => {
+      if (!candidate || !candidate.card) return false;
+      if (candidate.controller !== playerId) return false;
+      if (sacrificeInfo.mustBeOther && String(candidate.id || '') === String(source.id || '')) return false;
+
+      const typeLine = String((candidate.card as any)?.type_line || '').toLowerCase();
+      switch (sacrificeInfo.permanentType) {
+        case 'creature':
+          if (!typeLine.includes('creature')) return false;
+          if (sacrificeInfo.creatureSubtype) {
+            return typeLine.includes(String(sacrificeInfo.creatureSubtype).toLowerCase());
+          }
+          return true;
+        case 'artifact':
+          return typeLine.includes('artifact');
+        case 'enchantment':
+          return typeLine.includes('enchantment');
+        case 'land':
+          return typeLine.includes('land');
+        case 'permanent':
+          return true;
+        case 'artifact_or_creature':
+          return typeLine.includes('artifact') || typeLine.includes('creature');
+        default:
+          return false;
+      }
+    };
+
+    const getManaSourceSacrificeCost = (perm: BattlefieldPermanent) => {
+      const oracleText = String(((perm.card as any)?.oracle_text || '')).toLowerCase();
+      const manaAbilityMatch = oracleText.match(/([^:.\n]+):\s*add\s+([^.\n]+)/i);
+      if (!manaAbilityMatch) return undefined;
+
+      const sacrificeInfo = parseSacrificeCost(String(manaAbilityMatch[1] || ''));
+      if (!sacrificeInfo.requiresSacrifice || !sacrificeInfo.sacrificeType || sacrificeInfo.sacrificeType === 'self') {
+        return undefined;
+      }
+
+      return {
+        count: Math.max(1, Number(sacrificeInfo.sacrificeCount || 1)),
+        permanentType: sacrificeInfo.sacrificeType,
+        ...(sacrificeInfo.creatureSubtype ? { creatureSubtype: sacrificeInfo.creatureSubtype } : {}),
+        ...(sacrificeInfo.mustBeOther ? { mustBeOther: true } : {}),
+      };
+    };
+
+    const addSourceInstances = (
+      perm: BattlefieldPermanent,
+      name: string,
+      options: ManaColor[],
+      amount: number,
+      consumable: boolean,
+      sacrificeCost?: NonNullable<typeof sources[number]['sacrificeCost']>
+    ) => {
+      const actualSourceId = String(perm.id || '');
+      const eligibleSacrificeCount = sacrificeCost
+        ? battlefield.filter((candidate) => matchesSacrificeRequirement(candidate, perm, sacrificeCost)).length
+        : 0;
+      const repeatCount = sacrificeCost
+        ? Math.max(0, Math.floor(eligibleSacrificeCount / Math.max(1, sacrificeCost.count)))
+        : 1;
+
+      if (sacrificeCost && repeatCount <= 0) return;
+
+      const instanceCount = Math.max(1, repeatCount);
+      for (let index = 0; index < instanceCount; index++) {
+        const sourceId = instanceCount > 1 ? `${actualSourceId}#${index}` : actualSourceId;
+        sources.push({
+          id: sourceId,
+          ...(sourceId !== actualSourceId ? { sourcePermanentId: actualSourceId } : {}),
+          name,
+          options,
+          ...(consumable ? { consumable: true } : {}),
+          ...(sacrificeCost ? { sacrificeCost } : {}),
+          ...(amount > 1 ? { amount } : {}),
+        });
+      }
+    };
     
     for (const perm of battlefield) {
       if (!perm || perm.tapped) continue; // Skip tapped permanents
@@ -4047,6 +4148,8 @@ export function App() {
       const typeLine = (card.type_line || '').toLowerCase();
       const oracleText = ((card as any).oracle_text || '').toLowerCase();
       const name = card.name;
+      const consumable = isConsumableManaSource(name, oracleText, typeLine);
+      const sacrificeCost = getManaSourceSacrificeCost(perm);
       
       // Check if permanent has a special mana amount (from Priest of Titania, Bighorn Rancher, etc.)
       const manaAmount = (perm as any).manaAmount;
@@ -4072,6 +4175,7 @@ export function App() {
           id: perm.id,
           name,
           options: basicColors,
+          ...(consumable ? { consumable: true } : {}),
           ...(amount > 1 ? { amount } : {}),
         });
       } else if (typeLine.includes('land')) {
@@ -4085,6 +4189,7 @@ export function App() {
               id: perm.id,
               name,
               options: oracleColors,
+              ...(consumable ? { consumable: true } : {}),
               ...(amount > 1 ? { amount } : {}),
             });
           } else {
@@ -4094,6 +4199,7 @@ export function App() {
               id: perm.id,
               name,
               options: ['C'],
+              ...(consumable ? { consumable: true } : {}),
               ...(amount > 1 ? { amount } : {}),
             });
           }
@@ -4124,8 +4230,13 @@ export function App() {
           // Pattern 6: {t}, sacrifice: add (for treasure-like effects)
           oracleText.match(/\{t\},\s*sacrifice[^:]*:\s*add\s+/i)
         );
+        const hasSelfSacrificeManaAbility = (
+          oracleText.match(/\bsacrifice\s+this\b[^:]*:\s*add\s+/i) ||
+          oracleText.match(new RegExp(`\\bsacrifice\\s+${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^:]*:\\s*add\\s+`, 'i'))
+        );
+        const hasOtherSacrificeManaAbility = Boolean(sacrificeCost);
         
-        if (hasTapManaAbility) {
+        if (hasTapManaAbility || hasSelfSacrificeManaAbility || hasOtherSacrificeManaAbility) {
           // Check for Metalcraft requirement in oracle text (e.g., Mox Opal)
           // Metalcraft - "as long as you control three or more artifacts"
           if (oracleText.includes('metalcraft') || 
@@ -4140,16 +4251,16 @@ export function App() {
           if (manaAmount && manaAmount > 0 && manaColor) {
             const mappedColor = MANA_COLOR_MAP[manaColor.toUpperCase()] || 'C';
             const amount = getSourceManaAmount(perm, [mappedColor], manaAmount);
-            sources.push({ id: perm.id, name, options: [mappedColor], ...(amount > 1 ? { amount } : {}) });
+            addSourceInstances(perm, name, [mappedColor], amount, consumable, sacrificeCost);
           } else {
             const artifactColors = parseManaColorsFromOracleText(oracleText);
             if (artifactColors.length > 0) {
               const amount = getSourceManaAmount(perm, artifactColors);
-              sources.push({ id: perm.id, name, options: artifactColors, ...(amount > 1 ? { amount } : {}) });
+              addSourceInstances(perm, name, artifactColors, amount, consumable, sacrificeCost);
             } else {
               // Default to colorless for mana artifacts without specific colors
               const amount = getSourceManaAmount(perm, ['C']);
-              sources.push({ id: perm.id, name, options: ['C'], ...(amount > 1 ? { amount } : {}) });
+              addSourceInstances(perm, name, ['C'], amount, consumable, sacrificeCost);
             }
           }
         }
@@ -6596,6 +6707,7 @@ export function App() {
         forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
         extraAlternateCosts={spellToCast?.extraAlternateCosts || battlefieldAlternateCosts}
         availableSources={you ? getAvailableManaSourcesForPlayer(you) : []}
+        battlefieldPermanents={you ? ((safeView?.battlefield || []).filter((perm: any) => perm.controller === you) as BattlefieldPermanent[]) : []}
         otherCardsInHand={useMemo(() => {
           if (!safeView || !you || !spellToCast) return [];
           const zones = safeView.zones?.[you];

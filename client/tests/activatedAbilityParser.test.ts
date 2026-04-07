@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseActivatedAbilities } from '../src/utils/activatedAbilityParser';
+import { getConditionalManaAbilityStatus, parseActivatedAbilities } from '../src/utils/activatedAbilityParser';
 import type { KnownCardRef } from '../../shared/src';
 
 describe('parseActivatedAbilities station parsing', () => {
@@ -55,6 +55,95 @@ describe('parseActivatedAbilities station parsing', () => {
     expect(abilities[0]?.cost).toBe('{T}');
     expect(abilities[0]?.effect).toBe("Add one mana of any color in your commander's color identity.");
     expect(abilities[0]?.isManaAbility).toBe(true);
+  });
+
+  it('marks Mox Amber mana activation unavailable without a colored legendary creature or planeswalker', () => {
+    const card: KnownCardRef = {
+      id: 'mox-amber-card-1',
+      name: 'Mox Amber',
+      type_line: 'Legendary Artifact',
+      oracle_text: '{T}: Add one mana of any color among legendary creatures and planeswalkers you control.',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+    expect(abilities).toHaveLength(1);
+
+    const status = getConditionalManaAbilityStatus(
+      abilities[0],
+      {
+        id: 'mox-amber-perm-1',
+        controller: 'player1',
+        owner: 'player1',
+        card,
+      },
+      [
+        {
+          id: 'mox-amber-perm-1',
+          controller: 'player1',
+          owner: 'player1',
+          card,
+        },
+        {
+          id: 'bear-perm-1',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            id: 'bear-card-1',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            oracle_text: '',
+            colors: ['G'],
+          },
+        },
+      ],
+    );
+
+    expect(status).toEqual({
+      canActivate: false,
+      reason: 'Needs a colored legendary creature or planeswalker',
+    });
+  });
+
+  it('marks Mox Amber mana activation available when a qualifying legend provides a color', () => {
+    const card: KnownCardRef = {
+      id: 'mox-amber-card-1',
+      name: 'Mox Amber',
+      type_line: 'Legendary Artifact',
+      oracle_text: '{T}: Add one mana of any color among legendary creatures and planeswalkers you control.',
+    };
+
+    const abilities = parseActivatedAbilities(card);
+    const status = getConditionalManaAbilityStatus(
+      abilities[0],
+      {
+        id: 'mox-amber-perm-1',
+        controller: 'player1',
+        owner: 'player1',
+        card,
+      },
+      [
+        {
+          id: 'mox-amber-perm-1',
+          controller: 'player1',
+          owner: 'player1',
+          card,
+        },
+        {
+          id: 'legend-perm-1',
+          controller: 'player1',
+          owner: 'player1',
+          card: {
+            id: 'legend-card-1',
+            name: 'Yoshimaru, Ever Faithful',
+            type_line: 'Legendary Creature — Dog',
+            oracle_text: '',
+            colors: ['W'],
+          },
+        },
+      ],
+    );
+
+    expect(status).toEqual({ canActivate: true });
   });
 
   it('parses Cryptolith Rite granted mana text on the creature receiving it', () => {

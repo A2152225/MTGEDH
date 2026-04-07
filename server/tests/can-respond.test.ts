@@ -17,6 +17,22 @@ function createTestContext(state: any): GameContext {
   } as any;
 }
 
+function createConditionGatedPermanent(id: string, oracleText: string, extras?: Record<string, unknown>) {
+  return {
+    id,
+    controller: 'p1',
+    tapped: false,
+    card: {
+      name: id,
+      type_line: 'Creature — Shapeshifter',
+      power: '3',
+      toughness: '3',
+      oracle_text: oracleText,
+      ...(extras || {}),
+    },
+  };
+}
+
 describe('canCastAnySpell', () => {
   it('should return false when hand is empty', () => {
     const ctx = createTestContext({
@@ -388,6 +404,333 @@ describe('canActivateAnyAbility', () => {
     });
     
     // Non-mana abilities DO require priority
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return false when the only activated ability requires metalcraft and metalcraft is inactive', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'argent_sphinx_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Argent Sphinx',
+            type_line: 'Artifact Creature — Sphinx',
+            oracle_text: 'Flying\nMetalcraft — {U}: Exile Argent Sphinx. Return it to the battlefield under your control at the beginning of the next end step.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when an activated metalcraft ability has three artifacts online', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'argent_sphinx_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Argent Sphinx',
+            type_line: 'Artifact Creature — Sphinx',
+            oracle_text: 'Flying\nMetalcraft — {U}: Exile Argent Sphinx. Return it to the battlefield under your control at the beginning of the next end step.',
+          },
+        },
+        {
+          id: 'artifact_2',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Test Relic',
+            type_line: 'Artifact',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'artifact_3',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Test Bauble',
+            type_line: 'Artifact',
+            oracle_text: '',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return false when a threshold-only activated ability is inactive', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'threshold_tester',
+          'Threshold — {1}{G}: Regenerate this creature. Activate only if there are seven or more cards in your graveyard.',
+          { type_line: 'Creature — Human Druid', power: '3', toughness: '1' },
+        ),
+      ],
+      zones: {
+        p1: { graveyard: [] },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when a threshold-only activated ability is active', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'threshold_tester',
+          'Threshold — {1}{G}: Regenerate this creature. Activate only if there are seven or more cards in your graveyard.',
+          { type_line: 'Creature — Human Druid', power: '3', toughness: '1' },
+        ),
+      ],
+      zones: {
+        p1: {
+          graveyard: Array.from({ length: 7 }, (_, index) => ({ id: `grave_${index}`, name: `Card ${index}` })),
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return false when a delirium-only activated ability is inactive', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'delirium_tester',
+          'Delirium — {2}{U}, {T}: Draw a card. Activate only if there are four or more card types among cards in your graveyard.',
+          { type_line: 'Creature — Merfolk Wizard', power: '1', toughness: '1' },
+        ),
+      ],
+      zones: {
+        p1: { graveyard: [{ id: 'g1', type_line: 'Creature' }, { id: 'g2', type_line: 'Instant' }] },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when a delirium-only activated ability is active', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'delirium_tester',
+          'Delirium — {2}{U}, {T}: Draw a card. Activate only if there are four or more card types among cards in your graveyard.',
+          { type_line: 'Creature — Merfolk Wizard', power: '1', toughness: '1' },
+        ),
+      ],
+      zones: {
+        p1: {
+          graveyard: [
+            { id: 'g1', type_line: 'Creature' },
+            { id: 'g2', type_line: 'Instant' },
+            { id: 'g3', type_line: 'Sorcery' },
+            { id: 'g4', type_line: 'Artifact' },
+          ],
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return false when a ferocious-only activated ability is inactive', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'ferocious_tester',
+          'Ferocious — {2}{G}{U}: Draw a card for each creature you control with power 4 or greater.',
+          { type_line: 'Creature — Orc Shaman', power: '2', toughness: '2' },
+        ),
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 1, colorless: 2 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when a ferocious-only activated ability is active', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'ferocious_tester',
+          'Ferocious — {2}{G}{U}: Draw a card for each creature you control with power 4 or greater.',
+          { type_line: 'Creature — Orc Shaman', power: '4', toughness: '2' },
+        ),
+        {
+          id: 'powerful_creature',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Powerhouse',
+            type_line: 'Creature — Beast',
+            power: '4',
+            toughness: '4',
+            oracle_text: '',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 1, colorless: 2 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return false when a formidable-only activated ability is inactive', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'formidable_tester',
+          'Formidable — {4}{R}{R}: Create a 4/4 red Dragon creature token with flying. Activate only if creatures you control have total power 8 or greater.',
+          { type_line: 'Creature — Human Shaman', power: '2', toughness: '2' },
+        ),
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 4 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when a formidable-only activated ability is active', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'formidable_tester',
+          'Formidable — {4}{R}{R}: Create a 4/4 red Dragon creature token with flying. Activate only if creatures you control have total power 8 or greater.',
+          { type_line: 'Creature — Human Shaman', power: '3', toughness: '2' },
+        ),
+        {
+          id: 'big_ally',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Big Ally',
+            type_line: 'Creature — Giant',
+            power: '5',
+            toughness: '5',
+            oracle_text: '',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 2, green: 0, colorless: 4 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('should return false when a coven-only activated ability is inactive', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'coven_tester',
+          'Coven — {1}{W}: Choose a color. This creature gains hexproof from that color until end of turn and can\'t be blocked by creatures of that color this turn. Activate only if you control three or more creatures with different powers.',
+          { type_line: 'Creature — Human Soldier', power: '3', toughness: '2' },
+        ),
+        {
+          id: 'same_power_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Soldier A',
+            type_line: 'Creature — Human',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'same_power_2',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Soldier B',
+            type_line: 'Creature — Human',
+            power: '2',
+            toughness: '2',
+            oracle_text: '',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 2, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
+    expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('should return true when a coven-only activated ability is active', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        createConditionGatedPermanent(
+          'coven_tester',
+          'Coven — {1}{W}: Choose a color. This creature gains hexproof from that color until end of turn and can\'t be blocked by creatures of that color this turn. Activate only if you control three or more creatures with different powers.',
+          { type_line: 'Creature — Human Soldier', power: '3', toughness: '2' },
+        ),
+        {
+          id: 'low_power',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Low Power',
+            type_line: 'Creature — Human',
+            power: '1',
+            toughness: '1',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'high_power',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'High Power',
+            type_line: 'Creature — Human',
+            power: '5',
+            toughness: '5',
+            oracle_text: '',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 2, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+    });
+
     expect(canActivateAnyAbility(ctx, 'p1' as PlayerID)).toBe(true);
   });
 

@@ -19,7 +19,8 @@ import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
-import { calculateMaxLandsPerTurn } from "./game-state-effects";
+import { calculateMaxLandsPerTurn, getActiveAbilityConditions } from "./game-state-effects";
+import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { isAbilityActivationProhibitedByChosenName, isSpellCastingProhibitedByChosenName } from "./chosen-name-restrictions.js";
@@ -46,6 +47,16 @@ function isSplitSecondLockActive(state: any): boolean {
 
 function isLandTypeLine(typeLine: unknown): boolean {
   return /\bland\b/i.test(String(typeLine || ''));
+}
+
+function isActivatedAbilityConditionMet(ctx: GameContext, playerId: PlayerID, fullAbilityText: string, oracleText?: string, matchIndex?: number): boolean {
+  const requirement = detectActivatedAbilityConditionRequirement(fullAbilityText, oracleText, matchIndex);
+  if (!requirement) {
+    return true;
+  }
+
+  const activeConditions = getActiveAbilityConditions(ctx, playerId);
+  return activeConditions[requirement.key] === true;
 }
 
 function buildCastEvaluationFace(card: any, face: any, faceIndex: number, extras?: Record<string, unknown>): any {
@@ -905,6 +916,11 @@ function hasActivatableAbility(
     const costsBeforeTap = abilityMatch[1] || ""; // Mana costs before {T}
     const additionalCostAfterTap = abilityMatch[2] || ""; // Other costs after {T}
     const effect = abilityMatch[3] || "";
+    const fullAbilityText = `${[String(costsBeforeTap || '').trim(), '{T}', String(additionalCostAfterTap || '').trim()].filter(Boolean).join(', ')}: ${String(effect || '').trim()}`;
+
+    if (!isActivatedAbilityConditionMet(ctx, playerId, fullAbilityText, oracleText, abilityMatch.index)) {
+      return false;
+    }
     
     // CRITICAL: Skip mana abilities - they don't use the stack and don't require priority
     // Per MTG Rule 605.3a, mana abilities can be activated whenever needed for payment
@@ -988,9 +1004,14 @@ function hasActivatableAbility(
   for (const match of matches) {
     const costPart = match[1];
     const effectPart = match[2];
+    const fullAbilityText = `${String(costPart || '').trim()}: ${String(effectPart || '').trim()}`;
     
     // Skip if this is just a mana ability we already checked
     if (costPart.includes("{T}") && hasTapAbility) continue;
+
+    if (!isActivatedAbilityConditionMet(ctx, playerId, fullAbilityText, oracleText, match.index)) {
+      continue;
+    }
     
     // Skip mana abilities - they don't require priority
     if (isManaAbility(oracleText, effectPart)) {
@@ -2384,11 +2405,15 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
       // First check if this ability has sorcery-speed restriction
       if (/(activate|use) (?:this ability|these abilities) only (?:as a sorcery|any time you could cast a sorcery)/i.test(oracleText)) {
         // Look for any activated ability pattern before the restriction: "{cost}: Effect"
-        const abilityPattern = /(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*:/gi;
+        const abilityPattern = /(\{[^}]+\}(?:\s*,?\s*\{[^}]+\})*)\s*:\s*([^.]+)/gi;
         const matches = oracleText.matchAll(abilityPattern);
         
         for (const match of matches) {
           const costString = match[1];
+          const fullAbilityText = `${String(costString || '').trim()}: ${String(match[2] || '').trim()}`;
+          if (!isActivatedAbilityConditionMet(ctx, playerId, fullAbilityText, oracleText, match.index)) {
+            continue;
+          }
           if (costString) {
             const parsedCost = parseManaCost(costString);
             if (canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {

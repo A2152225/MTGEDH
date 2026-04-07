@@ -210,6 +210,90 @@ describe('Creature Mana Abilities', () => {
       expect(greenManaProduction.requiresColorChoice).toBe(false);
     });
 
+    it('should not treat Mox Amber as a mana source without a colored legendary creature or planeswalker', () => {
+      const moxAmber = {
+        id: 'mox-amber-1',
+        controller: 'player1',
+        card: {
+          name: 'Mox Amber',
+          type_line: 'Legendary Artifact',
+          oracle_text: '{T}: Add one mana of any color among legendary creatures and planeswalkers you control.',
+        },
+      };
+
+      const nonLegendaryCreature = {
+        id: 'bear-1',
+        controller: 'player1',
+        card: {
+          name: 'Grizzly Bears',
+          type_line: 'Creature — Bear',
+          oracle_text: '',
+          colors: ['G'],
+        },
+      };
+
+      const gameState = {
+        battlefield: [moxAmber, nonLegendaryCreature],
+      };
+
+      expect(getManaAbilitiesForPermanent(gameState, moxAmber, 'player1')).toHaveLength(0);
+
+      const manaProduction = calculateManaProduction(gameState, moxAmber, 'player1');
+      expect(manaProduction.baseAmount).toBe(0);
+      expect(manaProduction.totalAmount).toBe(0);
+      expect(manaProduction.colors).toEqual([]);
+    });
+
+    it('should restrict Mox Amber colors to controlled legendary creatures and planeswalkers', () => {
+      const moxAmber = {
+        id: 'mox-amber-1',
+        controller: 'player1',
+        card: {
+          name: 'Mox Amber',
+          type_line: 'Legendary Artifact',
+          oracle_text: '{T}: Add one mana of any color among legendary creatures and planeswalkers you control.',
+        },
+      };
+
+      const legendaryCreature = {
+        id: 'legend-1',
+        controller: 'player1',
+        card: {
+          name: 'Raffine, Scheming Seer',
+          type_line: 'Legendary Creature — Sphinx Demon',
+          oracle_text: '',
+          colors: ['W', 'U', 'B'],
+        },
+      };
+
+      const planeswalker = {
+        id: 'walker-1',
+        controller: 'player1',
+        card: {
+          name: 'Koth, Fire of Resistance',
+          type_line: 'Planeswalker — Koth',
+          oracle_text: '',
+          colors: ['R'],
+        },
+      };
+
+      const gameState = {
+        battlefield: [moxAmber, legendaryCreature, planeswalker],
+      };
+
+      const manaAbilities = getManaAbilitiesForPermanent(gameState, moxAmber, 'player1');
+      expect(manaAbilities).toHaveLength(1);
+      expect([...(manaAbilities[0]?.produces || [])].sort()).toEqual(['B', 'R', 'U', 'W']);
+
+      const manaProduction = calculateManaProduction(gameState, moxAmber, 'player1');
+      expect([...manaProduction.colors].sort()).toEqual(['B', 'R', 'U', 'W']);
+      expect(manaProduction.requiresColorChoice).toBe(true);
+
+      const redManaProduction = calculateManaProduction(gameState, moxAmber, 'player1', 'R');
+      expect(redManaProduction.colors).toEqual(['R']);
+      expect(redManaProduction.requiresColorChoice).toBe(false);
+    });
+
     it('should remap basic land mana under Reality Twist without changing land types', () => {
       const realityTwist = {
         id: 'reality-twist-1',

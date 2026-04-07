@@ -8,6 +8,7 @@ import {
   type PaymentItem,
   type TriggerShortcut,
   type PlayerID,
+  parseSacrificeCost,
   SHORTCUT_ELIGIBLE_TRIGGERS,
   isTriggerShortcutType,
   isTriggerShortcutPreferenceAllowed,
@@ -19,7 +20,7 @@ import { checkAndPromptOpeningHandActions, isOpeningHandBattlefieldCard } from "
 import { detectSpellCastTriggers, getBeginningOfCombatTriggers, getEndStepTriggers, getLandfallTriggers, detectETBTriggers, detectEldraziEffect, type SpellCastTrigger } from "../state/modules/triggered-abilities";
 import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from "../state/modules/triggers/index.js";
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
-import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana } from "../state/modules/upkeep-triggers";
+import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
@@ -86,6 +87,78 @@ function getTappedPaymentPermanentIds(payment?: PaymentItem[]): string[] {
         .map((item) => item.permanentId)
     )
   );
+}
+
+function getPaymentActivationCostInfo(activationCost?: string | null): {
+  taps: boolean;
+  selfSacrifices: boolean;
+  sacrificeRequirement?: ReturnType<typeof parseSacrificeCost>;
+} {
+  const normalizedCost = String(activationCost || '').trim();
+  const taps = /\{t\}/i.test(normalizedCost);
+  const sacrificeInfo = parseSacrificeCost(normalizedCost);
+  if (!sacrificeInfo.requiresSacrifice || !sacrificeInfo.sacrificeType) {
+    return { taps, selfSacrifices: false };
+  }
+
+  return {
+    taps,
+    selfSacrifices: sacrificeInfo.sacrificeType === 'self',
+    sacrificeRequirement: sacrificeInfo,
+  };
+}
+
+function paymentSacrificeCandidateMatches(candidate: any, sourcePermanentId: string, playerId: string, sacrificeInfo: ReturnType<typeof parseSacrificeCost>): boolean {
+  if (!candidate) return false;
+  if (String(candidate.controller || '') !== String(playerId || '')) return false;
+  if (sacrificeInfo.mustBeOther && String(candidate.id || '') === String(sourcePermanentId || '')) return false;
+
+  const typeLine = String(candidate?.card?.type_line || '').toLowerCase();
+  switch (sacrificeInfo.sacrificeType) {
+    case 'creature':
+      if (!typeLine.includes('creature')) return false;
+      if (sacrificeInfo.creatureSubtype) {
+        return typeLine.includes(String(sacrificeInfo.creatureSubtype).toLowerCase());
+      }
+      return true;
+    case 'artifact':
+      return typeLine.includes('artifact');
+    case 'enchantment':
+      return typeLine.includes('enchantment');
+    case 'land':
+      return typeLine.includes('land');
+    case 'permanent':
+      return true;
+    case 'artifact_or_creature':
+      return typeLine.includes('artifact') || typeLine.includes('creature');
+    default:
+      return false;
+  }
+}
+
+function inferManaAbilityActivationCost(permanent: any, selectedMana: string): string {
+  const oracleText = String(permanent?.card?.oracle_text || '');
+  const lines = oracleText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const normalizedMana = String(selectedMana || '').trim().toUpperCase();
+
+  for (const line of lines) {
+    const match = line.match(/^([^:]+):\s*add\s+(.+)$/i);
+    if (!match) continue;
+    const producedText = String(match[2] || '').toUpperCase();
+    if (
+      !normalizedMana ||
+      producedText.includes(`{${normalizedMana}}`) ||
+      /ONE\s+MANA|ANY\s+COLOR|ANY\s+COMBINATION/.test(producedText)
+    ) {
+      return String(match[1] || '').trim();
+    }
+  }
+
+  const firstMatch = oracleText.match(/([^:\n]+):\s*add\s+([^\n]+)/i);
+  return firstMatch ? String(firstMatch[1] || '').trim() : '';
 }
 
 export function finalizePlayedLand(
@@ -5714,15 +5787,20 @@ export function registerGameActions(io: Server, socket: Socket) {
       const producedNonTreasureByColor: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
 
       const selectedPaymentTotals: Record<string, number> = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+      const tappedPaymentPermanents = new Set<string>();
+      const sacrificedPaymentPermanents = new Set<string>();
 
       if (!isForceAltCostPaid && payment && payment.length > 0) {
         debug(2, `[castSpellFromHand] Processing payment for ${cardInHand.name}:`, payment);
         
         // Get global battlefield (not zones.battlefield which may not exist)
         const globalBattlefield = game.state?.battlefield || [];
+        if (!(game as any).zones && game.state?.zones) {
+          (game as any).zones = game.state.zones;
+        }
         
-        // Process each payment item: tap the permanent and add mana to pool
-        for (const { permanentId, mana, count } of payment) {
+        // Process each payment item: apply the mana ability cost, then add mana to pool
+        for (const { permanentId, mana, count, sacrificedPermanentIds } of payment) {
           const floatingPoolKey = getFloatingPaymentPoolKey(String(permanentId || ''), String(mana || ''));
           if (floatingPoolKey) {
             const amount = Math.max(1, Number(count || 1));
@@ -5740,7 +5818,15 @@ export function registerGameActions(io: Server, socket: Socket) {
             return;
           }
           
-          if ((permanent as any).tapped) {
+          const permCard = (permanent as any).card || {};
+          const permTypeLine = (permCard.type_line || "").toLowerCase();
+          const permIsCreature = /\bcreature\b/.test(permTypeLine);
+          const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
+          const activationCostInfo = getPaymentActivationCostInfo(
+            manaInfo.activationCost || inferManaAbilityActivationCost(permanent, String(mana || ''))
+          );
+
+          if (activationCostInfo.taps && (permanent as any).tapped) {
             socket.emit("error", {
               code: "PAYMENT_SOURCE_TAPPED",
               message: `${(permanent as any).card?.name || 'Permanent'} is already tapped`,
@@ -5748,28 +5834,73 @@ export function registerGameActions(io: Server, socket: Socket) {
             return;
           }
           
-          // Rule 302.6 / 702.10: Check summoning sickness for creatures with tap abilities
-          // A creature can't use tap/untap abilities unless it has been continuously controlled
-          // since the turn began OR it has haste (from any source)
-          const permCard = (permanent as any).card || {};
-          const permTypeLine = (permCard.type_line || "").toLowerCase();
-          const permIsCreature = /\bcreature\b/.test(permTypeLine);
-          
-          // Check if creature has haste from any source (own text, granted abilities, or battlefield effects)
-          const hasHaste = creatureHasHaste(permanent, globalBattlefield, playerId);
-          
-          // summoningSickness is set when creatures enter the battlefield
-          // If a creature has summoning sickness and doesn't have haste, it can't use tap abilities
-          if (permIsCreature && (permanent as any).summoningSickness && !hasHaste) {
-            socket.emit("error", {
-              code: "SUMMONING_SICKNESS",
-              message: `${permCard.name || 'Creature'} has summoning sickness and cannot use tap abilities this turn`,
-            });
-            return;
+          if (activationCostInfo.taps) {
+            const hasHaste = creatureHasHaste(permanent, globalBattlefield, playerId);
+            if (permIsCreature && (permanent as any).summoningSickness && !hasHaste) {
+              socket.emit("error", {
+                code: "SUMMONING_SICKNESS",
+                message: `${permCard.name || 'Creature'} has summoning sickness and cannot use tap abilities this turn`,
+              });
+              return;
+            }
+
+            (permanent as any).tapped = true;
+            tappedPaymentPermanents.add(String(permanentId));
           }
-          
-          // Tap the permanent
-          (permanent as any).tapped = true;
+
+          if (activationCostInfo.sacrificeRequirement && activationCostInfo.selfSacrifices !== true) {
+            const requiredCount = Math.max(1, Number(activationCostInfo.sacrificeRequirement.sacrificeCount || 1));
+            const selectedSacrifices = Array.from(new Set((Array.isArray(sacrificedPermanentIds) ? sacrificedPermanentIds : []).map((id) => String(id || '').trim()).filter(Boolean)));
+            if (selectedSacrifices.length !== requiredCount) {
+              socket.emit('error', {
+                code: 'INVALID_PAYMENT_SACRIFICE_SELECTION',
+                message: `${permCard.name || 'Permanent'} requires sacrificing ${requiredCount} permanent(s) to produce mana.`,
+              });
+              return;
+            }
+
+            for (const sacrificedId of selectedSacrifices) {
+              const sacrificeCandidate = globalBattlefield.find((entry: any) => entry?.id === sacrificedId && entry?.controller === playerId);
+              if (!sacrificeCandidate || !paymentSacrificeCandidateMatches(sacrificeCandidate, String(permanentId), playerId, activationCostInfo.sacrificeRequirement)) {
+                socket.emit('error', {
+                  code: 'INVALID_PAYMENT_SACRIFICE_TARGET',
+                  message: `${permCard.name || 'Permanent'} cannot sacrifice the selected permanent for mana.`,
+                });
+                return;
+              }
+              if (sacrificedPaymentPermanents.has(String(sacrificedId))) {
+                socket.emit('error', {
+                  code: 'DUPLICATE_PAYMENT_SACRIFICE',
+                  message: 'A permanent cannot be sacrificed more than once to pay for this spell.',
+                });
+                return;
+              }
+            }
+
+            for (const sacrificedId of selectedSacrifices) {
+              const sacrificedName = sacrificePermanent(game as any, sacrificedId, playerId);
+              if (!sacrificedName) {
+                socket.emit('error', {
+                  code: 'PAYMENT_SACRIFICE_FAILED',
+                  message: 'Failed to sacrifice a selected permanent for mana payment.',
+                });
+                return;
+              }
+              sacrificedPaymentPermanents.add(String(sacrificedId));
+            }
+          }
+
+          if (activationCostInfo.selfSacrifices) {
+            const sacrificedName = sacrificePermanent(game as any, String(permanentId), playerId);
+            if (!sacrificedName) {
+              socket.emit('error', {
+                code: 'PAYMENT_SOURCE_SACRIFICE_FAILED',
+                message: `Failed to sacrifice ${(permanent as any).card?.name || 'payment source'} for mana payment.`,
+              });
+              return;
+            }
+            sacrificedPaymentPermanents.add(String(permanentId));
+          }
 
           const typeLineLower = String(((permanent as any).card || {})?.type_line || '').toLowerCase();
           const isSnowSource = /\bsnow\b/.test(typeLineLower);
@@ -5790,7 +5921,6 @@ export function registerGameActions(io: Server, socket: Socket) {
           // - Dynamic mana (Gaea's Cradle, Wirewood Channeler)
           // - Land enchantments (Wild Growth, Overgrowth)
           // - Global effects (Caged Sun, Mana Reflection, Mirari's Wake)
-          const manaInfo = calculateManaProduction(game.state, permanent, playerId, mana);
           const producedAmount = count !== undefined && count !== null
             ? Math.max(Number(count) || 0, Number(manaInfo.totalAmount || 0))
             : Number(manaInfo.totalAmount || 0);
@@ -6215,8 +6345,6 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
       
-      const tappedPaymentPermanents = getTappedPaymentPermanentIds(payment);
-
       // Always use applyEvent to properly route through state management system
       // This ensures ctx.state.zones is updated (which viewFor uses)
       // The RulesBridge above only validates - it does NOT modify the actual game state
@@ -6292,9 +6420,14 @@ export function registerGameActions(io: Server, socket: Socket) {
                     manaFromCreaturesSpent: convokeTappedCreatures.length,
                   }
                 : {}),
-              ...(tappedPaymentPermanents.length > 0
+              ...(tappedPaymentPermanents.size > 0
                 ? {
-                    tappedPermanents: tappedPaymentPermanents.slice(),
+                    tappedPermanents: Array.from(tappedPaymentPermanents),
+                  }
+                : {}),
+              ...(sacrificedPaymentPermanents.size > 0
+                ? {
+                    sacrificedPermanents: Array.from(sacrificedPaymentPermanents),
                   }
                 : {}),
               ...(additionalCost && typeof additionalCostPaid === 'boolean'
@@ -6782,9 +6915,14 @@ export function registerGameActions(io: Server, socket: Socket) {
                   .map(([color]) => color),
               }
             : {}),
-          ...(tappedPaymentPermanents.length > 0
+          ...(tappedPaymentPermanents.size > 0
             ? {
-                tappedPermanents: tappedPaymentPermanents.slice(),
+                tappedPermanents: Array.from(tappedPaymentPermanents),
+              }
+            : {}),
+          ...(sacrificedPaymentPermanents.size > 0
+            ? {
+                sacrificedPermanents: Array.from(sacrificedPaymentPermanents),
               }
             : {}),
           ...(Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0

@@ -75,6 +75,7 @@ function buildSignetBaseline(playerId: string) {
 describe('mana payment choice selection flow', () => {
   const signetGameId = 'test_mana_payment_choice_signet';
   const spellGameId = 'test_mana_payment_choice_spell';
+  const altarSpellGameId = 'test_mana_payment_choice_spell_altar';
   const reflectedSpellGameId = 'test_mana_payment_choice_spell_reflection';
   const mikokoroGameId = 'test_mana_payment_choice_mikokoro';
   const playerId = 'p1';
@@ -88,10 +89,12 @@ describe('mana payment choice selection flow', () => {
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(signetGameId);
     ResolutionQueueManager.removeQueue(spellGameId);
+    ResolutionQueueManager.removeQueue(altarSpellGameId);
     ResolutionQueueManager.removeQueue(reflectedSpellGameId);
     ResolutionQueueManager.removeQueue(mikokoroGameId);
     games.delete(signetGameId as any);
     games.delete(spellGameId as any);
+    games.delete(altarSpellGameId as any);
     games.delete(reflectedSpellGameId as any);
     games.delete(mikokoroGameId as any);
   });
@@ -251,6 +254,213 @@ describe('mana payment choice selection flow', () => {
 
     const stackNames = ((game.state as any).stack || []).map((entry: any) => entry.card?.name || entry.sourceName || entry.id);
     expect(stackNames).toContain("Wayfarer's Bauble");
+  });
+
+  it('lets altar mana payment sacrifice chosen creatures while casting a spell', async () => {
+    createGameIfNotExists(altarSpellGameId, 'commander', 40);
+    const game = ensureGame(altarSpellGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'altar_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'altar_card_1',
+          name: "Ashnod's Altar",
+          type_line: 'Artifact',
+          oracle_text: 'Sacrifice a creature: Add {C}{C}.',
+        },
+      },
+      {
+        id: 'bear_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'bear_card_1',
+          name: 'Grizzly Bears',
+          type_line: 'Creature - Bear',
+          oracle_text: '',
+          power: '2',
+          toughness: '2',
+        },
+      },
+      {
+        id: 'elf_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        card: {
+          id: 'elf_card_1',
+          name: 'Llanowar Elves',
+          type_line: 'Creature - Elf Druid',
+          oracle_text: '{T}: Add {G}.',
+          power: '1',
+          toughness: '1',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'archive_1',
+            name: 'Hedron Archive',
+            mana_cost: '{4}',
+            manaCost: '{4}',
+            type_line: 'Artifact',
+            oracle_text: '{T}: Add {C}{C}.',
+            image_uris: { small: 'https://example.com/archive.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, altarSpellGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId: altarSpellGameId, cardId: 'archive_1' });
+
+    const paymentStep = ResolutionQueueManager
+      .getQueue(altarSpellGameId)
+      .steps
+      .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
+    expect(paymentStep).toBeDefined();
+    expect(paymentStep.manaCost).toBe('{4}');
+
+    await handlers['submitResolutionResponse']({
+      gameId: altarSpellGameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: 'altar_1', mana: 'C', count: 2, sacrificedPermanentIds: ['bear_1'] },
+          { permanentId: 'altar_1', mana: 'C', count: 2, sacrificedPermanentIds: ['elf_1'] },
+        ],
+      },
+    });
+
+    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
+    expect(continueEvent?.payload?.cardId).toBe('archive_1');
+
+    emitted.length = 0;
+    await handlers['completeCastSpell'](continueEvent?.payload);
+
+    const castError = emitted.find((event) => event.event === 'error');
+    expect(castError).toBeUndefined();
+
+    const battlefieldIds = ((game.state as any).battlefield || []).map((entry: any) => entry.id);
+    expect(battlefieldIds).toContain('altar_1');
+    expect(battlefieldIds).not.toContain('bear_1');
+    expect(battlefieldIds).not.toContain('elf_1');
+
+    const graveyardIds = ((((game.state as any).zones?.[playerId]?.graveyard) || []) as any[]).map((card: any) => card.id);
+    expect(graveyardIds).toContain('bear_card_1');
+    expect(graveyardIds).toContain('elf_card_1');
+    expect((game.state as any).manaPool[playerId]).toEqual({
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+    });
+
+    const persistedEvents = getEvents(altarSpellGameId);
+    const castEvent = [...persistedEvents].reverse().find((event: any) => String(event?.type) === 'castSpell') as any;
+    expect(castEvent?.payload?.sacrificedPermanents).toEqual(expect.arrayContaining(['bear_1', 'elf_1']));
+
+    const replayGame = createInitialGameState('test_mana_payment_choice_spell_altar_replay');
+    Object.assign((replayGame.state as any), {
+      ...(game.state as any),
+      stack: [],
+      battlefield: [
+        {
+          id: 'altar_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'altar_card_1',
+            name: "Ashnod's Altar",
+            type_line: 'Artifact',
+            oracle_text: 'Sacrifice a creature: Add {C}{C}.',
+          },
+        },
+        {
+          id: 'bear_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'bear_card_1',
+            name: 'Grizzly Bears',
+            type_line: 'Creature - Bear',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'elf_1',
+          controller: playerId,
+          owner: playerId,
+          tapped: false,
+          card: {
+            id: 'elf_card_1',
+            name: 'Llanowar Elves',
+            type_line: 'Creature - Elf Druid',
+            oracle_text: '{T}: Add {G}.',
+          },
+        },
+      ],
+      zones: {
+        [playerId]: {
+          hand: [
+            {
+              id: 'archive_1',
+              name: 'Hedron Archive',
+              mana_cost: '{4}',
+              manaCost: '{4}',
+              type_line: 'Artifact',
+              oracle_text: '{T}: Add {C}{C}.',
+            },
+          ],
+          handCount: 1,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+        },
+      },
+    });
+    replayGame.applyEvent({ type: 'castSpell', ...(castEvent?.payload || {}) } as any);
+
+    const replayBattlefieldIds = ((replayGame.state as any).battlefield || []).map((entry: any) => entry.id);
+    expect(replayBattlefieldIds).toContain('altar_1');
+    expect(replayBattlefieldIds).not.toContain('bear_1');
+    expect(replayBattlefieldIds).not.toContain('elf_1');
   });
 
   it('lets exact spell payment spend only part of reflected land mana and keep the excess floating', async () => {

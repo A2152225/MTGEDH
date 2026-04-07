@@ -933,6 +933,7 @@ export async function executeDeclareAttackers(
     attackCostAmount?: number;
     attackCostBreakdown?: any[];
     attackCostTappedPermanents?: string[];
+    attackCostSacrificedPermanents?: string[];
     attackCostPaymentManaDelta?: Record<string, number>;
   }
 ): Promise<void> {
@@ -1162,6 +1163,7 @@ export async function executeDeclareAttackers(
             attackCostAmount: options.attackCostAmount,
             attackCostBreakdown: options.attackCostBreakdown,
             tappedPermanents: options.attackCostTappedPermanents,
+            sacrificedPermanents: options.attackCostSacrificedPermanents,
             paymentManaDelta: options.attackCostPaymentManaDelta,
           }
         : {}),

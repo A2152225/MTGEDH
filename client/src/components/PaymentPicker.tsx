@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { PaymentItem, ManaColor } from '../../../shared/src';
+import type { BattlefieldPermanent, PaymentItem, ManaColor } from '../../../shared/src';
 import {
   Color,
   MANA_COLORS,
@@ -10,10 +10,12 @@ import {
   calculateSuggestedPayment,
   calculateRemainingCostAfterFloatingMana,
   getTotalManaProduction,
+  type ManaPaymentSource,
   type SuggestedPaymentSelection,
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
+import { SacrificeSelectionModal } from './SacrificeSelectionModal';
 
 function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
   return canPayCost(cost, pool);
@@ -87,7 +89,8 @@ export interface ConvokeCreature {
 export interface PaymentPickerProps {
   manaCost?: string;
   manaCostDisplay?: string;
-  sources: Array<{ id: string; name: string; options: Color[]; amount?: number }>;
+  sources: ManaPaymentSource[];
+  battlefieldPermanents?: BattlefieldPermanent[];
   chosen: PaymentItem[];
   xValue?: number;
   onChangeX?: (x: number) => void;
@@ -109,6 +112,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
     manaCost, 
     manaCostDisplay, 
     sources, 
+    battlefieldPermanents = [],
     chosen, 
     xValue = 0, 
     onChangeX, 
@@ -131,9 +135,9 @@ export function PaymentPicker(props: PaymentPickerProps) {
   
   // Calculate remaining cost after floating mana
   const floatingSources = useMemo(() => {
-    if (!manualFloatingManaSelection || !floatingMana) return [] as Array<{ id: string; name: string; options: Color[]; amount?: number }>;
+    if (!manualFloatingManaSelection || !floatingMana) return [] as ManaPaymentSource[];
 
-    const entries: Array<{ id: string; name: string; options: Color[]; amount?: number }> = [];
+    const entries: ManaPaymentSource[] = [];
     const poolEntries: Array<[keyof ManaPool, Color]> = [
       ['white', 'W'],
       ['blue', 'U'],
@@ -190,16 +194,84 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const satisfied = useMemo(() => canPayEnhanced(costForPayment, pool), [costForPayment, pool]);
   const remaining = useMemo(() => remainingAfter(costForPayment, pool), [costForPayment, pool]);
 
-  const chosenById = useMemo(() => new Set(chosen.map(p => p.permanentId)), [chosen]);
+  const getPaymentItemKey = (item: PaymentItem) => String(item.paymentSourceId || item.permanentId || '');
+  const getSourcePermanentId = (source: ManaPaymentSource) => String(source.sourcePermanentId || source.id || '');
+
+  const chosenById = useMemo(() => new Set(chosen.map(getPaymentItemKey)), [chosen]);
+
+  const [pendingSacrificeSelection, setPendingSacrificeSelection] = React.useState<{
+    source: ManaPaymentSource;
+    mana: Color;
+  } | null>(null);
 
   // Calculate colors needed by other cards in hand
   const colorsToPreserve = useMemo(() => computeColorsNeededByOtherCards(otherCardsInHand), [otherCardsInHand]);
+  const sourcesEligibleForSuggestion = useMemo(
+    () => effectiveSources.filter((source) => !source.sacrificeCost),
+    [effectiveSources]
+  );
   
   // Calculate suggested payment when no sources have been chosen yet (considers floating mana)
   const suggestedPayment = useMemo(() => {
     if (chosen.length > 0) return new Map<string, SuggestedPaymentSelection>();
-    return calculateSuggestedPayment(cost, effectiveSources, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
-  }, [cost, effectiveSources, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection]);
+    return calculateSuggestedPayment(cost, sourcesEligibleForSuggestion, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
+  }, [cost, sourcesEligibleForSuggestion, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection]);
+
+  const sourceById = useMemo(() => new Map(effectiveSources.map((source) => [source.id, source])), [effectiveSources]);
+
+  const getConsumableSourcesForIds = (sourceIds: Iterable<string>): ManaPaymentSource[] => {
+    const seen = new Set<string>();
+    const result: ManaPaymentSource[] = [];
+    for (const sourceId of sourceIds) {
+      const source = sourceById.get(sourceId);
+      if (!source || source.consumable !== true || seen.has(source.id)) continue;
+      seen.add(source.id);
+      result.push(source);
+    }
+    return result;
+  };
+
+  const selectedConsumableSources = useMemo(
+    () => getConsumableSourcesForIds(chosen.map(getPaymentItemKey)),
+    [chosen, sourceById]
+  );
+
+  const selectedSacrificeCostSources = useMemo(() => {
+    const seen = new Set<string>();
+    const result: ManaPaymentSource[] = [];
+    for (const item of chosen) {
+      const source = sourceById.get(getPaymentItemKey(item));
+      if (!source || !source.sacrificeCost || seen.has(source.id)) continue;
+      seen.add(source.id);
+      result.push(source);
+    }
+    return result;
+  }, [chosen, sourceById]);
+
+  const suggestedConsumableSources = useMemo(
+    () => getConsumableSourcesForIds(suggestedPayment.keys()),
+    [suggestedPayment, sourceById]
+  );
+
+  const consumableWarning = useMemo(() => {
+    const warnedSources = selectedConsumableSources.length > 0
+      ? selectedConsumableSources
+      : suggestedConsumableSources;
+
+    if (warnedSources.length === 0 && selectedSacrificeCostSources.length === 0) return null;
+
+    if (warnedSources.length === 0 && selectedSacrificeCostSources.length > 0) {
+      const sourceNames = selectedSacrificeCostSources.map((source) => source.name).join(', ');
+      return `Selected payment requires sacrificing other permanents via: ${sourceNames}.`;
+    }
+
+    const sourceNames = warnedSources.map((source) => source.name).join(', ');
+    const prefix = selectedConsumableSources.length > 0
+      ? 'Selected payment uses'
+      : 'Suggested payment includes';
+
+    return `${prefix} consumable mana source${warnedSources.length === 1 ? '' : 's'}: ${sourceNames}. These will be used up as part of payment.`;
+  }, [selectedConsumableSources, selectedSacrificeCostSources, suggestedConsumableSources]);
 
   // Helper to get mana count for a source - uses amount if specified (for Priest of Titania, etc.)
   // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources:
@@ -214,13 +286,28 @@ export function PaymentPicker(props: PaymentPickerProps) {
     return getTotalManaProduction(source.options);
   };
 
-  const add = (permanentId: string, mana: Color) => {
-    if (chosenById.has(permanentId)) return; // one per source
-    const count = getManaCountForSource(permanentId);
-    onChange([...chosen, { permanentId, mana, count }]);
+  const createPaymentItem = (source: ManaPaymentSource, mana: Color, sacrificedPermanentIds?: string[]): PaymentItem => {
+    const count = getManaCountForSource(source.id);
+    const actualPermanentId = getSourcePermanentId(source);
+    return {
+      permanentId: actualPermanentId,
+      ...(source.id !== actualPermanentId ? { paymentSourceId: source.id } : {}),
+      mana,
+      count,
+      ...(Array.isArray(sacrificedPermanentIds) && sacrificedPermanentIds.length > 0 ? { sacrificedPermanentIds } : {}),
+    };
   };
-  const remove = (permanentId: string) => {
-    onChange(chosen.filter(p => p.permanentId !== permanentId));
+
+  const add = (source: ManaPaymentSource, mana: Color) => {
+    if (chosenById.has(source.id)) return;
+    if (source.sacrificeCost) {
+      setPendingSacrificeSelection({ source, mana });
+      return;
+    }
+    onChange([...chosen, createPaymentItem(source, mana)]);
+  };
+  const remove = (sourceId: string) => {
+    onChange(chosen.filter((payment) => getPaymentItemKey(payment) !== sourceId));
   };
   
   // Clear all selections including floating mana
@@ -235,16 +322,18 @@ export function PaymentPicker(props: PaymentPickerProps) {
     // Use the suggested payment to auto-fill (considers floating mana)
     if (suggestedPayment.size === 0) {
       // Recalculate if already chosen some
-      const newSuggested = calculateSuggestedPayment(cost, effectiveSources, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
+      const newSuggested = calculateSuggestedPayment(cost, sourcesEligibleForSuggestion, colorsToPreserve, manualFloatingManaSelection ? undefined : floatingMana);
       const newPayment: PaymentItem[] = [];
       for (const [permanentId, selection] of newSuggested.entries()) {
-        newPayment.push({ permanentId, mana: selection.color, count: selection.count });
+        const source = sourceById.get(permanentId);
+        newPayment.push(source ? createPaymentItem(source, selection.color) : { permanentId, mana: selection.color, count: selection.count });
       }
       onChange(newPayment);
     } else {
       const newPayment: PaymentItem[] = [];
       for (const [permanentId, selection] of suggestedPayment.entries()) {
-        newPayment.push({ permanentId, mana: selection.color, count: selection.count });
+        const source = sourceById.get(permanentId);
+        newPayment.push(source ? createPaymentItem(source, selection.color) : { permanentId, mana: selection.color, count: selection.count });
       }
       onChange(newPayment);
     }
@@ -305,6 +394,23 @@ export function PaymentPicker(props: PaymentPickerProps) {
         </div>
       )}
 
+      {consumableWarning && (
+        <div
+          style={{
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid rgba(217, 119, 6, 0.35)',
+            background: 'rgba(245, 158, 11, 0.12)',
+            color: '#92400e',
+            fontSize: 12,
+            fontWeight: 600,
+            lineHeight: 1.5,
+          }}
+        >
+          Warning: {consumableWarning}
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <b>Sources:</b>
         <button 
@@ -350,6 +456,40 @@ export function PaymentPicker(props: PaymentPickerProps) {
                   <span style={{ fontSize: 11, opacity: 0.7 }}>{isFloatingSource ? 'floating' : 'untapped'}</span>
                 )}
               </div>
+              {s.consumable && (
+                <div style={{ marginBottom: 6 }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: '#b45309',
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 999,
+                      background: 'rgba(245, 158, 11, 0.14)',
+                      border: '1px solid rgba(217, 119, 6, 0.28)',
+                    }}
+                  >
+                    consumable
+                  </span>
+                </div>
+              )}
+              {s.sacrificeCost && (
+                <div style={{ marginBottom: 6 }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: '#7c3aed',
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 999,
+                      background: 'rgba(139, 92, 246, 0.14)',
+                      border: '1px solid rgba(124, 58, 237, 0.28)',
+                    }}
+                  >
+                    sacrifice required
+                  </span>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                 {hasAmount && (
                   <span style={{ 
@@ -370,7 +510,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                   return (
                     <button
                       key={`${s.id}:${opt}`}
-                      onClick={() => add(s.id, opt)}
+                      onClick={() => add(s, opt)}
                       disabled={used}
                       style={{ 
                         padding: '2px 6px', 
@@ -477,6 +617,25 @@ export function PaymentPicker(props: PaymentPickerProps) {
           )}
         </div>
       )}
+
+      <SacrificeSelectionModal
+        open={pendingSacrificeSelection !== null}
+        title={pendingSacrificeSelection ? `${pendingSacrificeSelection.source.name} - Choose Sacrifice` : 'Choose Sacrifice'}
+        description={pendingSacrificeSelection
+          ? `Select ${pendingSacrificeSelection.source.sacrificeCost?.count || 1} permanent(s) to sacrifice for ${pendingSacrificeSelection.source.name} and add ${pendingSacrificeSelection.mana}.`
+          : ''}
+        permanents={battlefieldPermanents}
+        count={pendingSacrificeSelection?.source.sacrificeCost?.count || 1}
+        permanentType={pendingSacrificeSelection?.source.sacrificeCost?.permanentType}
+        creatureSubtype={pendingSacrificeSelection?.source.sacrificeCost?.creatureSubtype}
+        excludePermanentId={pendingSacrificeSelection?.source.sacrificeCost?.mustBeOther ? getSourcePermanentId(pendingSacrificeSelection.source) : undefined}
+        onConfirm={(selectedIds) => {
+          if (!pendingSacrificeSelection) return;
+          onChange([...chosen, createPaymentItem(pendingSacrificeSelection.source, pendingSacrificeSelection.mana, selectedIds)]);
+          setPendingSacrificeSelection(null);
+        }}
+        onCancel={() => setPendingSacrificeSelection(null)}
+      />
     </div>
   );
 }

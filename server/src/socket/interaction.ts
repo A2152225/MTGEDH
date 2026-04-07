@@ -35,6 +35,8 @@ import { parseTargetRequirements } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { isCreatureNow } from "../state/creatureTypeNow.js";
+import { countArtifacts, getActiveAbilityConditions } from "../state/modules/game-state-effects.js";
+import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
 
 function cardHasSplitSecond(card: any): boolean {
   if (!card) return false;
@@ -61,6 +63,30 @@ function isSplitSecondLockActive(state: any): boolean {
     if (cardHasSplitSecond(card)) return true;
   }
   return false;
+}
+
+function getMetalcraftInactiveErrorPayload(game: any, playerId: string) {
+  const artifactCount = countArtifacts(game as any, playerId);
+  return {
+    code: 'METALCRAFT_NOT_ACTIVE',
+    message: `Metalcraft is not active. You control ${artifactCount} artifacts (need 3 or more).`,
+  };
+}
+
+function getActivatedAbilityConditionErrorPayload(
+  requirement: ActivatedAbilityConditionRequirement,
+  game: any,
+  playerId: string,
+  cardName: string,
+) {
+  if (requirement.key === 'metalcraft') {
+    return getMetalcraftInactiveErrorPayload(game, playerId);
+  }
+
+  return {
+    code: requirement.errorCode,
+    message: requirement.getFailureMessage(cardName),
+  };
 }
 
 // ============================================================================
@@ -6119,18 +6145,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Check for Metalcraft requirement (Mox Opal)
       // Rule 702.80 - Metalcraft abilities only work if you control 3+ artifacts
-      if (oracleText.includes('metalcraft')) {
-        const artifactCount = battlefield.filter((p: any) => {
-          if (p.controller !== pid) return false;
-          const permTypeLine = (p.card?.type_line || '').toLowerCase();
-          return permTypeLine.includes('artifact');
-        }).length;
-        
-        if (artifactCount < 3) {
-          socket.emit("error", {
-            code: "METALCRAFT_NOT_ACTIVE",
-            message: `Metalcraft is not active. You control ${artifactCount} artifacts (need 3 or more).`,
-          });
+      const manaAbilityRequirement = detectActivatedAbilityConditionRequirement(oracleText);
+      if (manaAbilityRequirement) {
+        const activeConditions = getActiveAbilityConditions(game as any, pid);
+        if (!activeConditions[manaAbilityRequirement.key]) {
+          socket.emit("error", getActivatedAbilityConditionErrorPayload(manaAbilityRequirement, game, pid, cardName));
           return;
         }
       }
@@ -6173,6 +6192,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // If producing "any" color mana, prompt user for color choice
       if (manaColor === 'any' || manaProduction.requiresColorChoice === true || actualColor === 'any') {
+        const allowedColors = Array.isArray(manaProduction.colors)
+          ? manaProduction.colors.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase()))
+          : [];
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_COLOR_SELECTION,
           playerId: pid as PlayerID,
@@ -6185,6 +6207,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           permanentId,
           cardName,
           amount: manaAmount,
+          allowedColors: allowedColors.length > 0 ? allowedColors : undefined,
           abilityId,
         } as any);
         
@@ -6820,11 +6843,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     
     // Parse activated abilities: look for "cost: effect" patterns
     const abilityPattern = /([^:]+):\s*([^.]+\.?)/gi;
-    const abilities: { cost: string; effect: string }[] = [];
+    const abilities: { cost: string; effect: string; fullText: string }[] = [];
     let match;
     while ((match = abilityPattern.exec(abilityOracleText)) !== null) {
       const cost = match[1].trim();
       const effect = match[2].trim();
+      const fullText = match[0].trim();
       // Filter out keyword abilities and keep only activated abilities
       const costLower = cost.toLowerCase();
       if (
@@ -6837,7 +6861,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         costLower.includes('exile') ||
         costLower.includes('return')
       ) {
-        abilities.push({ cost, effect });
+        abilities.push({ cost, effect, fullText });
       }
     }
     
@@ -6901,6 +6925,33 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // This handles simple cases like basic lands: "{T}: Add {G}"
         abilityText = abilityOracleText;
         requiresTap = abilityOracleText.includes('{T}:') || abilityOracleText.toLowerCase().includes('tap:');
+      }
+    }
+
+    const selectedAbilityFullText = selectedAbilityIndex < abilities.length
+      ? String(abilities[selectedAbilityIndex]?.fullText || `${abilities[selectedAbilityIndex]?.cost || ''}: ${abilities[selectedAbilityIndex]?.effect || ''}`).trim()
+      : String(abilityOracleText || '').trim();
+    const selectedAbilityMatchIndex = selectedAbilityIndex < abilities.length
+      ? (() => {
+          const parsedFullText = String(abilities[selectedAbilityIndex]?.fullText || '').trim();
+          if (!parsedFullText) {
+            return undefined;
+          }
+          const matchIndex = oracleText.indexOf(parsedFullText);
+          return matchIndex >= 0 ? matchIndex : undefined;
+        })()
+      : undefined;
+
+    const selectedAbilityRequirement = detectActivatedAbilityConditionRequirement(
+      selectedAbilityFullText,
+      oracleText,
+      selectedAbilityMatchIndex,
+    );
+    if (selectedAbilityRequirement) {
+      const activeConditions = getActiveAbilityConditions(game as any, pid);
+      if (!activeConditions[selectedAbilityRequirement.key]) {
+        socket.emit('error', getActivatedAbilityConditionErrorPayload(selectedAbilityRequirement, game, pid, cardName));
+        return;
       }
     }
 
@@ -10086,6 +10137,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
                 abilityId,
                 cardName,
                 amount: finalTotal,
+                allowedColors: produces.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase())),
                 // Activation-cost evidence (for deterministic replay) and deferred costs
                 lifeToPayForCost: pendingLifePaymentForCost || undefined,
                 tappedPermanentsForCost: tappedPermanentsForCost,

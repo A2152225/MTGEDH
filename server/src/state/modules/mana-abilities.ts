@@ -33,6 +33,62 @@
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getActualPowerToughness } from "../../state/utils.js";
 
+const COLOR_SYMBOL_ORDER = ['W', 'U', 'B', 'R', 'G'] as const;
+
+function getCardColorSymbols(card: any): string[] {
+  const colors = new Set<string>();
+
+  if (Array.isArray(card?.colors)) {
+    for (const color of card.colors) {
+      const normalized = String(color || '').toUpperCase();
+      if ((COLOR_SYMBOL_ORDER as readonly string[]).includes(normalized)) {
+        colors.add(normalized);
+      }
+    }
+  }
+
+  if (colors.size === 0) {
+    const manaCost = String(card?.mana_cost || '').toUpperCase();
+    const manaTokens = manaCost.match(/\{([^}]+)\}/g) || [];
+    for (const token of manaTokens) {
+      for (const symbol of COLOR_SYMBOL_ORDER) {
+        if (token.includes(symbol)) {
+          colors.add(symbol);
+        }
+      }
+    }
+  }
+
+  return COLOR_SYMBOL_ORDER.filter((color) => colors.has(color));
+}
+
+export function isMoxAmberConditionalManaSource(cardName: string, text: string): boolean {
+  const normalizedName = String(cardName || '').trim().toLowerCase();
+  const normalizedText = String(text || '').trim().toLowerCase();
+  return normalizedName === 'mox amber' || normalizedText.includes('among legendary creatures and planeswalkers you control');
+}
+
+export function getMoxAmberAvailableColors(gameState: any, playerId: string): string[] {
+  const battlefield = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
+  const colors = new Set<string>();
+
+  for (const permanent of battlefield) {
+    if (!permanent || String(permanent.controller || '') !== String(playerId)) continue;
+
+    const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+    const isQualifyingCreature = typeLine.includes('legendary') && typeLine.includes('creature');
+    const isQualifyingPlaneswalker = typeLine.includes('planeswalker');
+
+    if (!isQualifyingCreature && !isQualifyingPlaneswalker) continue;
+
+    for (const color of getCardColorSymbols(permanent.card)) {
+      colors.add(color);
+    }
+  }
+
+  return COLOR_SYMBOL_ORDER.filter((color) => colors.has(color));
+}
+
 /**
  * Get commander color identity for a player
  * Returns set of color keys (white, blue, black, red, green) in commander's color identity
@@ -677,6 +733,7 @@ export function getManaAbilitiesForPermanent(
     .replace(/(?:other\s+)?(?:nontoken\s+)?creatures you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
     .replace(/(?:other\s+)?lands you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '')
     .replace(/(?:other\s+)?permanents you control have\s+["“”][^"“”]*\{t\}:[^"“”]*["“”]/gi, '');
+  const cardName = String(card.name || '').toLowerCase();
   
   const isLand = typeLine.includes("land");
   const isCreature = typeLine.includes("creature");
@@ -1103,6 +1160,13 @@ export function getManaAbilitiesForPermanent(
       // Check for "any color" mana (Birds of Paradise, Arcane Signet, etc.) - but not variable amounts.
       // Support additional costs in the activation cost, e.g. "{T}, Pay 2 life, Sacrifice this: Add one mana of any color."
       if (nativeOracleText.match(/\{t\}[^:]*:\s*add\s+one\s+mana\s+of\s+any\s+color/i)) {
+        if (isMoxAmberConditionalManaSource(cardName, nativeOracleText)) {
+          const produces = getMoxAmberAvailableColors(gameState, playerId);
+          if (produces.length > 0) {
+            abilities.push({ id: 'native_any', cost: '{T}', produces });
+          }
+        }
+        else {
         // Check if this is restricted to commander's color identity
         // Pattern: "add one mana of any color in your commander's color identity"
         const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(nativeOracleText);
@@ -1132,6 +1196,7 @@ export function getManaAbilitiesForPermanent(
         } else {
           // Unrestricted "any color" source (Birds of Paradise, Chromatic Lantern, etc.)
           abilities.push({ id: 'native_any', cost: '{T}', produces: ['W', 'U', 'B', 'R', 'G'] });
+        }
         }
       }
     }

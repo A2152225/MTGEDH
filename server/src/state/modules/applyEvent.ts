@@ -2024,6 +2024,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           // best-effort only
         }
 
+        try {
+          const sacrificedPermanents = Array.isArray((e as any).sacrificedPermanents)
+            ? ((e as any).sacrificedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
+            : [];
+          for (const permanentId of sacrificedPermanents) {
+            const stillOnBattlefield = Array.isArray(ctx.state.battlefield)
+              ? (ctx.state.battlefield as any[]).some((entry: any) => entry && String(entry.id || '') === permanentId)
+              : false;
+            if (!stillOnBattlefield) continue;
+            movePermanentToGraveyard(ctx as any, permanentId, true);
+          }
+        } catch {
+          // best-effort only
+        }
+
         const stackLengthBefore = ctx.state.stack?.length || 0;
 
         // Prefer full card object for replay (contains all card data)

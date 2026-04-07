@@ -138,4 +138,244 @@ describe('Arcane Signet - canAct Detection After Playing', () => {
     
     expect(result).toBe(true);
   });
+
+  it('should detect self-sacrifice mana sources like Lotus Petal in canAct', () => {
+    const state: any = {
+      battlefield: [
+        {
+          id: 'perm_petal',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          summoningSickness: false,
+          card: {
+            name: 'Lotus Petal',
+            type_line: 'Artifact',
+            oracle_text: 'Sacrifice Lotus Petal: Add one mana of any color.',
+          },
+        },
+      ],
+      commandZone: {},
+      manaPool: {
+        player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      zones: {
+        player1: {
+          hand: [
+            {
+              id: 'card_in_hand',
+              name: 'Lightning Bolt',
+              type_line: 'Instant',
+              mana_cost: '{R}',
+              oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            },
+          ],
+        },
+      },
+      stack: [],
+      step: 'MAIN1',
+      turnPlayer: 'player1',
+      players: ['player1', 'player2'],
+    };
+
+    const ctx: GameContext = {
+      state,
+      libraries: new Map(),
+      rng: () => 0.5,
+    };
+
+    expect(canAct(ctx, 'player1')).toBe(true);
+  });
+
+  it('should detect Ashnod\'s Altar when a creature can be sacrificed for mana', () => {
+    const state: any = {
+      battlefield: [
+        {
+          id: 'perm_altar',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          summoningSickness: false,
+          card: {
+            name: "Ashnod's Altar",
+            type_line: 'Artifact',
+            oracle_text: 'Sacrifice a creature: Add {C}{C}.',
+          },
+        },
+        {
+          id: 'perm_bear',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          summoningSickness: true,
+          card: {
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            oracle_text: '',
+          },
+        },
+      ],
+      commandZone: {},
+      manaPool: {
+        player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      zones: {
+        player1: {
+          hand: [
+            {
+              id: 'card_in_hand',
+              name: 'Mind Stone',
+              type_line: 'Artifact',
+              mana_cost: '{2}',
+              oracle_text: '{T}: Add {C}.',
+            },
+          ],
+        },
+      },
+      stack: [],
+      step: 'MAIN1',
+      turnPlayer: 'player1',
+      players: ['player1', 'player2'],
+    };
+
+    const ctx: GameContext = {
+      state,
+      libraries: new Map(),
+      rng: () => 0.5,
+    };
+
+    expect(canAct(ctx, 'player1')).toBe(true);
+  });
+
+  it('should detect Phyrexian Altar for colored mana when a creature can be sacrificed', () => {
+    const state: any = {
+      battlefield: [
+        {
+          id: 'perm_altar',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          summoningSickness: false,
+          card: {
+            name: 'Phyrexian Altar',
+            type_line: 'Artifact',
+            oracle_text: 'Sacrifice a creature: Add one mana of any color.',
+          },
+        },
+        {
+          id: 'perm_elf',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          summoningSickness: true,
+          card: {
+            name: 'Llanowar Elves',
+            type_line: 'Creature — Elf Druid',
+            oracle_text: '{T}: Add {G}.',
+          },
+        },
+      ],
+      commandZone: {},
+      manaPool: {
+        player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      zones: {
+        player1: {
+          hand: [
+            {
+              id: 'card_in_hand',
+              name: 'Lightning Bolt',
+              type_line: 'Instant',
+              mana_cost: '{R}',
+              oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            },
+          ],
+        },
+      },
+      stack: [],
+      step: 'MAIN1',
+      turnPlayer: 'player1',
+      players: ['player1', 'player2'],
+    };
+
+    const ctx: GameContext = {
+      state,
+      libraries: new Map(),
+      rng: () => 0.5,
+    };
+
+    expect(canAct(ctx, 'player1')).toBe(true);
+  });
+
+  it('should allow repeated altar activations when enough creatures are available', () => {
+    const state: any = {
+      battlefield: [
+        {
+          id: 'perm_altar',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          summoningSickness: false,
+          card: {
+            name: "Ashnod's Altar",
+            type_line: 'Artifact',
+            oracle_text: 'Sacrifice a creature: Add {C}{C}.',
+          },
+        },
+        {
+          id: 'perm_token_1',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          summoningSickness: true,
+          card: {
+            name: 'Servo',
+            type_line: 'Artifact Creature — Servo',
+            oracle_text: '',
+          },
+        },
+        {
+          id: 'perm_token_2',
+          controller: 'player1',
+          owner: 'player1',
+          tapped: false,
+          summoningSickness: true,
+          card: {
+            name: 'Servo',
+            type_line: 'Artifact Creature — Servo',
+            oracle_text: '',
+          },
+        },
+      ],
+      commandZone: {},
+      manaPool: {
+        player1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      zones: {
+        player1: {
+          hand: [
+            {
+              id: 'card_in_hand',
+              name: 'Hedron Archive',
+              type_line: 'Artifact',
+              mana_cost: '{4}',
+              oracle_text: '{T}: Add {C}{C}.',
+            },
+          ],
+        },
+      },
+      stack: [],
+      step: 'MAIN1',
+      turnPlayer: 'player1',
+      players: ['player1', 'player2'],
+    };
+
+    const ctx: GameContext = {
+      state,
+      libraries: new Map(),
+      rng: () => 0.5,
+    };
+
+    expect(canAct(ctx, 'player1')).toBe(true);
+  });
 });

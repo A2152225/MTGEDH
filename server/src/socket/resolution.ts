@@ -20917,6 +20917,7 @@ async function handleOptionChoiceResponse(
     let paid = false;
     let paymentFailed = false;
     let tappedPermanents: string[] = [];
+    let sacrificedPaymentPermanents: string[] = [];
     let paymentManaDelta: Record<string, number> | undefined;
     if (shouldPay) {
       if (!/\{[^}]+\}/.test(manaCost)) {
@@ -20941,6 +20942,7 @@ async function handleOptionChoiceResponse(
             } else {
               paid = true;
               tappedPermanents = payment.tappedPermanents;
+              sacrificedPaymentPermanents = payment.sacrificedPermanents;
               paymentManaDelta = payment.paymentManaDelta;
               broadcastManaPoolUpdate(io, gameId, playerId, getOrInitManaPool(game.state, playerId) as any, `Paid ${manaCost} for ${cardName}`, game);
             }
@@ -21028,6 +21030,7 @@ async function handleOptionChoiceResponse(
         manaCost,
         cardName,
         tappedPermanents,
+        sacrificedPaymentPermanents,
         paymentManaDelta,
       });
     } catch (e) {
@@ -22042,6 +22045,7 @@ async function handleOptionChoiceResponse(
         attackCostAmount: amount,
         attackCostBreakdown: breakdown,
         attackCostTappedPermanents: payment.tappedPermanents,
+        attackCostSacrificedPermanents: payment.sacrificedPermanents,
         attackCostPaymentManaDelta: payment.paymentManaDelta,
       });
     } catch (err: any) {

@@ -17,7 +17,7 @@ import type { InMemoryGame } from "../state/types.js";
 import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
-import { getDevotionManaAmount, getCreatureCountManaAmount } from "../state/modules/mana-abilities.js";
+import { getDevotionManaAmount, getCreatureCountManaAmount, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
 import { canRespond, canAct, getCostAdjustmentInfo, getHandCastEvaluationCards, isCardPlayableAsLandFromHand, isTransformBackFace } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
@@ -26,6 +26,7 @@ import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRe
 import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
 import { calculateMaxLandsPerTurn } from "../state/modules/game-state-effects.js";
+import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { debug, debugWarn, debugError, debugEnv } from "../utils/debug.js";
 import { BOOT_ID } from "../utils/bootId.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
@@ -2949,15 +2950,31 @@ export function consumeManaFromPool(
     ok: boolean;
     error?: string;
     tappedPermanents: string[];
+    sacrificedPermanents: string[];
     paymentManaDelta: Record<string, number>;
     consumed: Record<string, number>;
   };
+
+  function escapeRegExp(value: string): string {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function isSelfSacrificeManaSource(permanent: any): boolean {
+    const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
+    const cardName = String(permanent?.card?.name || '').trim().toLowerCase();
+    if (!oracleText.includes('add')) return false;
+    if (/\bsacrifice\s+this\b[^:]*:\s*add\b/i.test(oracleText)) return true;
+    if (cardName && new RegExp(`\\bsacrifice\\s+${escapeRegExp(cardName)}\\b[^:]*:\\s*add\\b`, 'i').test(oracleText)) {
+      return true;
+    }
+    return false;
+  }
 
   function getGenericAutoPaymentCandidates(
     gameState: any,
     playerId: string,
     excludedPermanentIds?: string[],
-  ): Array<{ permanent: any; amount: number }> {
+  ): Array<{ permanent: any; amount: number; sacrificesSelf: boolean }> {
     const battlefield = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
     const excluded = new Set((excludedPermanentIds || []).map((id) => String(id)));
 
@@ -2994,6 +3011,7 @@ export function consumeManaFromPool(
         return {
           permanent,
           amount: Math.max(1, Number(production?.totalAmount || production?.baseAmount || 0)),
+          sacrificesSelf: isSelfSacrificeManaSource(permanent),
         };
       })
       .sort((left, right) => {
@@ -3002,6 +3020,9 @@ export function consumeManaFromPool(
         const leftIsLand = leftType.includes('land') ? 0 : 1;
         const rightIsLand = rightType.includes('land') ? 0 : 1;
         if (leftIsLand !== rightIsLand) return leftIsLand - rightIsLand;
+        const leftIsConsumable = left.sacrificesSelf ? 1 : 0;
+        const rightIsConsumable = right.sacrificesSelf ? 1 : 0;
+        if (leftIsConsumable !== rightIsConsumable) return leftIsConsumable - rightIsConsumable;
         return left.amount - right.amount;
       });
   }
@@ -3035,7 +3056,7 @@ export function consumeManaFromPool(
     const needed = Math.max(0, Math.floor(Number(amount) || 0));
     const emptyConsumed = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
     if (needed <= 0) {
-      return { ok: true, tappedPermanents: [], paymentManaDelta: {}, consumed: emptyConsumed };
+      return { ok: true, tappedPermanents: [], sacrificedPermanents: [], paymentManaDelta: {}, consumed: emptyConsumed };
     }
 
     const maxAvailable = getMaxGenericManaAvailable(gameState, playerId, options);
@@ -3044,6 +3065,7 @@ export function consumeManaFromPool(
         ok: false,
         error: `Insufficient mana. Missing ${needed - maxAvailable} generic mana.`,
         tappedPermanents: [],
+        sacrificedPermanents: [],
         paymentManaDelta: {},
         consumed: emptyConsumed,
       };
@@ -3059,6 +3081,7 @@ export function consumeManaFromPool(
       colorless: Number(pool.colorless || 0),
     };
     const tappedPermanents: string[] = [];
+    const sacrificedPermanents: string[] = [];
     const floating = Object.values(beforePool).reduce((sum, value) => sum + Number(value || 0), 0);
     let manaNeeded = Math.max(0, needed - floating);
 
@@ -3069,9 +3092,22 @@ export function consumeManaFromPool(
         const permanent = entry.permanent;
         if (!permanent || permanent.tapped) continue;
 
-        permanent.tapped = true;
+        if (entry.sacrificesSelf) {
+          const sacrificed = movePermanentToGraveyard({
+            state: gameState,
+            libraries: new Map(),
+            bumpSeq: () => undefined,
+            rng: Math.random,
+            gameId: '',
+          } as any, String(permanent.id || ''), true);
+          if (!sacrificed) continue;
+          sacrificedPermanents.push(String(permanent.id || ''));
+        } else {
+          permanent.tapped = true;
+          tappedPermanents.push(String(permanent.id || ''));
+        }
+
         pool.colorless = Number(pool.colorless || 0) + entry.amount;
-        tappedPermanents.push(String(permanent.id || ''));
         manaNeeded -= entry.amount;
       }
     }
@@ -3086,6 +3122,7 @@ export function consumeManaFromPool(
     return {
       ok: true,
       tappedPermanents,
+      sacrificedPermanents,
       paymentManaDelta,
       consumed,
     };
@@ -3840,8 +3877,28 @@ export function calculateManaProduction(
     result.colors = [grantedSpecificManaColor];
   }
 
+  const isMoxAmberConditionalSource = isMoxAmberConditionalManaSource(cardName, oracleText);
+
+  if (isMoxAmberConditionalSource) {
+    const availableColors = getMoxAmberAvailableColors(gameState, playerId);
+    if (availableColors.length === 0) {
+      result.colors = [];
+      result.baseAmount = 0;
+      result.totalAmount = 0;
+      result.requiresColorChoice = false;
+    } else if (normalizedChosenColor && availableColors.includes(normalizedChosenColor)) {
+      result.colors = [normalizedChosenColor];
+      result.requiresColorChoice = false;
+    } else if (availableColors.length === 1) {
+      result.colors = [availableColors[0]];
+      result.requiresColorChoice = false;
+    } else {
+      result.colors = availableColors;
+      result.requiresColorChoice = true;
+    }
+  }
   // Check for "any color" patterns
-  if (oracleText.includes('any color') || oracleText.includes('mana of any color')) {
+  else if (oracleText.includes('any color') || oracleText.includes('mana of any color')) {
     if (normalizedChosenColor && ['W', 'U', 'B', 'R', 'G'].includes(normalizedChosenColor)) {
       result.colors = [normalizedChosenColor];
       result.requiresColorChoice = false;
@@ -4629,7 +4686,7 @@ export function calculateManaProduction(
   result.totalAmount = Math.max(0, total);
   
   // If no colors determined, default to colorless
-  if (result.colors.length === 0) {
+  if (result.colors.length === 0 && result.totalAmount > 0) {
     result.colors = ['C'];
   }
   

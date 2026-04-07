@@ -23,6 +23,23 @@ export interface OtherCardInfo {
   mana_cost?: string;
 }
 
+export interface ManaSourceSacrificeCost {
+  count: number;
+  permanentType: 'creature' | 'artifact' | 'enchantment' | 'land' | 'permanent' | 'artifact_or_creature';
+  creatureSubtype?: string;
+  mustBeOther?: boolean;
+}
+
+export interface ManaPaymentSource {
+  id: string;
+  sourcePermanentId?: string;
+  name: string;
+  options: Color[];
+  amount?: number;
+  consumable?: boolean;
+  sacrificeCost?: ManaSourceSacrificeCost;
+}
+
 /**
  * Parse a mana cost string into its individual components
  * Handles colored mana, generic mana, hybrid mana, and X costs
@@ -337,7 +354,7 @@ export function getTotalManaProduction(options: Color[]): number {
   return 1;
 }
 
-function getSourceManaCapacity(source: { options: Color[]; amount?: number }): number {
+function getSourceManaCapacity(source: ManaPaymentSource): number {
   if (typeof source.amount === 'number' && source.amount > 0) return source.amount;
   return getTotalManaProduction(source.options);
 }
@@ -363,7 +380,7 @@ export interface SuggestedPaymentSelection {
  */
 export function calculateSuggestedPayment(
   cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] },
-  sources: Array<{ id: string; name: string; options: Color[]; amount?: number }>,
+  sources: ManaPaymentSource[],
   colorsToPreserve: Set<Color>,
   floatingMana?: ManaPool
 ): Map<string, SuggestedPaymentSelection> {
@@ -386,25 +403,27 @@ export function calculateSuggestedPayment(
   const getUniqueColors = (options: Color[]) => [...new Set(options)];
   
   // Helper: check if source produces only colorless
-  const isColorlessOnly = (source: { options: Color[] }) => {
+  const isColorlessOnly = (source: Pick<ManaPaymentSource, 'options'>) => {
     const unique = getUniqueColors(source.options);
     return unique.length === 1 && unique[0] === 'C';
   };
+
+  const isConsumableSource = (source: Pick<ManaPaymentSource, 'consumable'>) => source.consumable === true;
   
   // Helper: check if source produces colorless among other options
-  const hasColorlessOption = (source: { options: Color[] }) => 
+  const hasColorlessOption = (source: Pick<ManaPaymentSource, 'options'>) => 
     source.options.includes('C');
   
   // Helper: count unique non-colorless options (for sorting multi-color lands last)
-  const colorOptionCount = (source: { options: Color[] }) => 
+  const colorOptionCount = (source: Pick<ManaPaymentSource, 'options'>) => 
     getUniqueColors(source.options).filter(c => c !== 'C').length;
   
   // Helper: get total mana this source produces
   // Uses getTotalManaProduction which correctly handles choice sources vs multi-mana sources
-  const getManaAmount = (source: { options: Color[]; amount?: number }) => getSourceManaCapacity(source);
+  const getManaAmount = (source: ManaPaymentSource) => getSourceManaCapacity(source);
 
   const assignFromSource = (
-    source: { id: string; name: string; options: Color[]; amount?: number },
+    source: ManaPaymentSource,
     color: Color,
     requestedAmount: number,
   ): number => {
@@ -434,7 +453,12 @@ export function calculateSuggestedPayment(
     // Sort sources: prefer sources with fewer unique options (more specific)
     const colorSources = sources
       .filter(s => !usedSources.has(s.id) && s.options.includes(c))
-      .sort((a, b) => getUniqueColors(a.options).length - getUniqueColors(b.options).length);
+      .sort((a, b) => {
+        if (isConsumableSource(a) !== isConsumableSource(b)) {
+          return isConsumableSource(a) ? 1 : -1;
+        }
+        return getUniqueColors(a.options).length - getUniqueColors(b.options).length;
+      });
     
     for (const source of colorSources) {
       if (costRemaining[c] <= 0) break;
@@ -452,6 +476,9 @@ export function calculateSuggestedPayment(
         // Prefer colorless-only sources
         if (isColorlessOnly(a) && !isColorlessOnly(b)) return -1;
         if (!isColorlessOnly(a) && isColorlessOnly(b)) return 1;
+        if (isConsumableSource(a) !== isConsumableSource(b)) {
+          return isConsumableSource(a) ? 1 : -1;
+        }
         return a.options.length - b.options.length;
       });
     
@@ -466,7 +493,7 @@ export function calculateSuggestedPayment(
   // Second pass: handle remaining hybrid costs (after floating mana was used)
   for (const hybrid of hybridsRemaining) {
     let bestColor: Color | null = null;
-    let bestSource: { id: string; name: string; options: Color[]; amount?: number } | null = null;
+    let bestSource: ManaPaymentSource | null = null;
     let bestScore = Infinity;
     
     for (const source of sources) {
@@ -480,8 +507,9 @@ export function calculateSuggestedPayment(
         
         // Score: prefer colors NOT needed by other cards, and fewer options
         const preservePenalty = colorsToPreserve.has(c) ? 100 : 0;
+        const consumablePenalty = source.consumable === true ? 50 : 0;
         const optionPenalty = source.options.length;
-        const score = preservePenalty + optionPenalty;
+        const score = preservePenalty + consumablePenalty + optionPenalty;
         
         if (score < bestScore) {
           bestScore = score;
@@ -519,6 +547,11 @@ export function calculateSuggestedPayment(
     const remainingSources = sources.filter(s => !usedSources.has(s.id));
     
     remainingSources.sort((a, b) => {
+      // Prefer reusable sources before consumable ones.
+      if (isConsumableSource(a) !== isConsumableSource(b)) {
+        return isConsumableSource(a) ? 1 : -1;
+      }
+
       // 1. Colorless-only sources first (best for generic)
       const aColorlessOnly = isColorlessOnly(a);
       const bColorlessOnly = isColorlessOnly(b);
