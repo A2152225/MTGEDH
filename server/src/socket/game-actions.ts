@@ -429,6 +429,180 @@ function mapSpellTargetRefToDisplay(game: any, playerId: string, targetRef: any)
   };
 }
 
+function splitSpellTargetClauses(oracleText: string): string[] {
+  const normalized = String(oracleText || '')
+    .replace(/[’]/g, "'")
+    .replace(/[−–—]/g, '-')
+    .replace(/\r\n?/g, '\n')
+    .trim();
+
+  if (!normalized) return [];
+
+  return normalized
+    .split(/\n+/)
+    .map((line) => line.replace(/^(?:•|\*|-)\s*/, '').trim())
+    .filter(Boolean)
+    .flatMap((line) => line.split(/(?<=[.;])\s+/))
+    .flatMap((chunk) => chunk.split(/\bthen\b/i).map((part, index) => (index === 0 ? part : `then ${part}`).trim()))
+    .map((chunk) => chunk.replace(/[.;]\s*$/g, '').trim())
+    .filter(Boolean);
+}
+
+function buildSpellTargetListFromRequirements(game: any, playerId: string, targetReqs: any): Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> {
+  const validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }> = [];
+
+  for (const rawTargetType of Array.isArray(targetReqs?.targetTypes) ? targetReqs.targetTypes : []) {
+    const targetTypeLower = String(rawTargetType || '').toLowerCase();
+    if (targetTypeLower === 'creature' || targetTypeLower === 'permanent' || targetTypeLower === 'artifact' ||
+        targetTypeLower === 'enchantment' || targetTypeLower === 'land' || targetTypeLower === 'planeswalker' ||
+        targetTypeLower.includes('nonland') || targetTypeLower.includes('noncreature')) {
+      const permanents = (game.state.battlefield || []).filter((permanent: any) => {
+        const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+        if (targetTypeLower === 'permanent') return true;
+        if (targetTypeLower.includes('nonland')) return !typeLine.includes('land');
+        if (targetTypeLower.includes('noncreature')) return !typeLine.includes('creature');
+        return typeLine.includes(targetTypeLower);
+      });
+
+      for (const permanent of permanents) {
+        validTargetList.push({
+          id: permanent.id,
+          kind: 'permanent',
+          name: permanent.card?.name || 'Unknown',
+          imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+          controller: permanent.controller,
+          isOpponent: permanent.controller !== playerId,
+          typeLine: permanent.card?.type_line,
+        });
+      }
+      continue;
+    }
+
+    if (targetTypeLower === 'player' || targetTypeLower === 'opponent' || targetTypeLower === 'any') {
+      const players = (game.state.players || []).filter((player: any) => targetTypeLower !== 'opponent' || player.id !== playerId);
+      for (const player of players) {
+        validTargetList.push({
+          id: player.id,
+          kind: 'player',
+          name: player.name || player.id,
+          isOpponent: player.id !== playerId,
+          life: player.life,
+        });
+      }
+
+      if (targetTypeLower === 'any') {
+        const permanents = (game.state.battlefield || []).filter((permanent: any) => {
+          const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+          return typeLine.includes('creature') || typeLine.includes('planeswalker');
+        });
+
+        for (const permanent of permanents) {
+          validTargetList.push({
+            id: permanent.id,
+            kind: 'permanent',
+            name: permanent.card?.name || 'Unknown',
+            imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
+            controller: permanent.controller,
+            isOpponent: permanent.controller !== playerId,
+            typeLine: permanent.card?.type_line,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (targetTypeLower === 'spell') {
+      const stackItems = (game.state.stack || []).filter((entry: any) => entry?.type !== 'ability' && entry?.type !== 'triggered_ability' && entry?.type !== 'activated_ability');
+      for (const item of stackItems) {
+        validTargetList.push({
+          id: item.id,
+          kind: 'stack',
+          name: item.card?.name || item.sourceName || 'Unknown Spell',
+          imageUrl: item.card?.image_uris?.small || item.card?.image_uris?.normal,
+          controller: item.controller,
+          isOpponent: item.controller !== playerId,
+          typeLine: item.card?.type_line,
+        });
+      }
+      continue;
+    }
+
+    if (targetTypeLower === 'ability') {
+      const stackItems = (game.state.stack || []).filter((entry: any) => entry?.type === 'ability' || entry?.type === 'triggered_ability' || entry?.type === 'activated_ability');
+      for (const item of stackItems) {
+        validTargetList.push({
+          id: item.id,
+          kind: 'stack',
+          name: item.sourceName || item.description || 'Ability',
+          imageUrl: item.sourceImage || item.imageUrl,
+          controller: item.controller,
+          isOpponent: item.controller !== playerId,
+          typeLine: item.type,
+        });
+      }
+    }
+  }
+
+  return validTargetList.filter((target, index, all) => all.findIndex((candidate) => String(candidate.id) === String(target.id)) === index);
+}
+
+function buildSpellTargetSelectionClauses(
+  game: any,
+  playerId: string,
+  cardName: string,
+  oracleText: string,
+  xValue?: number,
+): Array<{
+  clauseText: string;
+  validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }>;
+  minTargets: number;
+  maxTargets: number;
+  targetDescription: string;
+}> {
+  const clauses = splitSpellTargetClauses(oracleText);
+  const targetClauses: Array<{
+    clauseText: string;
+    validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }>;
+    minTargets: number;
+    maxTargets: number;
+    targetDescription: string;
+  }> = [];
+
+  for (const clauseText of clauses) {
+    const spellSpec = categorizeSpell(cardName, clauseText);
+    const targetReqs = parseTargetRequirements(clauseText);
+    const minTargets = spellSpec
+      ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, xValue)
+      : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, xValue);
+    const maxTargets = spellSpec
+      ? resolveTargetCount(spellSpec.maxTargets, (spellSpec as any).maxTargetsIsX === true, xValue)
+      : resolveTargetCount(targetReqs?.maxTargets, (targetReqs as any)?.maxTargetsIsX === true, xValue);
+
+    if (targetReqs?.perOpponent) {
+      return [];
+    }
+
+    const needsTargets = spellSpec ? maxTargets > 0 : Boolean(targetReqs?.needsTargets) && maxTargets > 0;
+    if (!needsTargets) continue;
+
+    const validTargetList = spellSpec
+      ? evaluateTargeting(game.state as any, playerId, spellSpec).map((targetRef: any) => mapSpellTargetRefToDisplay(game, playerId, targetRef))
+      : buildSpellTargetListFromRequirements(game, playerId, targetReqs);
+
+    if (validTargetList.length === 0 && minTargets === 0) continue;
+
+    targetClauses.push({
+      clauseText,
+      validTargetList,
+      minTargets,
+      maxTargets,
+      targetDescription: spellSpec?.targetDescription || targetReqs?.targetDescription || 'target',
+    });
+  }
+
+  return targetClauses.length > 1 ? targetClauses : [];
+}
+
 function findPendingSpellCastStep(gameId: string, playerId: string, cardId: string): any | undefined {
   const normalizedCardId = String(cardId || '').trim();
   if (!normalizedCardId) {
@@ -2869,11 +3043,24 @@ export async function requestCastSpellForSocket(
       delete (cardInHand as any).giftType;
     }
 
+    const selectedModes = Array.isArray((cardInHand as any).selectedModes)
+      ? (cardInHand as any).selectedModes
+      : undefined;
+    const selectedAdditionalCostModes = Array.isArray((cardInHand as any).selectedAdditionalCostModes)
+      ? (cardInHand as any).selectedAdditionalCostModes
+      : (Array.isArray((cardInHand as any).selectedSpreeModes)
+        ? (cardInHand as any).selectedSpreeModes
+        : undefined);
     const baseOracleText = resolveGiftAwareOracleText(oracleTextRaw, giftInfo.hasGift ? giftPromised : undefined);
+    const spellModeAdditionalCost = getSpellModeAdditionalCost(baseOracleText, selectedModes, selectedAdditionalCostModes);
+    const entwineCost = getEntwineCostForSelectedModes(baseOracleText, selectedModes)
+      || (((cardInHand as any).castWithEntwine === true && String((cardInHand as any).entwineCost || '').trim())
+        ? String((cardInHand as any).entwineCost).trim()
+        : undefined);
     const overloadRequested = options?.forcedAlternateCostId === 'overload' || (cardInHand as any).castWithOverload === true;
     const overloadMatch = baseOracleText.match(/overload\s*\{([^}]+)\}/i);
     const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
-    const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested).toLowerCase();
+    const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested, selectedModes, selectedAdditionalCostModes).toLowerCase();
     const chosenXValue = Number.isFinite(options?.xValue) ? Math.max(0, Math.floor(Number(options?.xValue))) : undefined;
 
     if (overloadCost && !overloadRequested) {
@@ -3041,6 +3228,89 @@ export async function requestCastSpellForSocket(
       return;
     }
 
+    const additionalCostModeInfo = isInstantOrSorcery ? extractAdditionalCostModesFromOracleText(baseOracleText) : undefined;
+    if (additionalCostModeInfo && (!Array.isArray(selectedAdditionalCostModes) || selectedAdditionalCostModes.length === 0)) {
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find((s: any) =>
+          s?.type === ResolutionStepType.MODE_SELECTION &&
+          String((s as any)?.sourceId || '') === String(cardId) &&
+          String((s as any)?.modeSelectionPurpose || '') === additionalCostModeInfo.purpose
+        );
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MODE_SELECTION,
+          playerId: playerId as any,
+          sourceId: cardId,
+          sourceName: cardName,
+          sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          description: baseOracleText,
+          mandatory: true,
+          modes: additionalCostModeInfo.options.map((mode) => ({
+            id: mode.id,
+            label: mode.label,
+            description: `${mode.effect}${mode.cost ? ` (${mode.cost})` : ''}`,
+          })),
+          minModes: additionalCostModeInfo.minModes,
+          maxModes: additionalCostModeInfo.maxModes,
+          allowDuplicates: false,
+          modeSelectionPurpose: additionalCostModeInfo.purpose,
+          castSpellFromHandArgs: {
+            cardId,
+            faceIndex: selectedFaceIndex,
+            fromZone: castSourceZone,
+            xValue: chosenXValue,
+            skipPriorityCheck: true,
+          },
+        } as any);
+      }
+
+      debug(2, `[requestCastSpell] Queued ${additionalCostModeInfo.purpose} selection for ${cardName}`);
+      return;
+    }
+
+    const modalSpellInfo = isInstantOrSorcery ? extractModalModesFromOracleText(baseOracleText) : undefined;
+    if (modalSpellInfo && (!Array.isArray(selectedModes) || selectedModes.length === 0)) {
+      const existing = ResolutionQueueManager
+        .getStepsForPlayer(gameId, playerId as any)
+        .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'modalSpell');
+
+      if (!existing) {
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MODE_SELECTION,
+          playerId: playerId as any,
+          sourceId: cardId,
+          sourceName: cardName,
+          sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          description: baseOracleText,
+          mandatory: true,
+          modes: modalSpellInfo.options.map((option) => ({
+            id: option.id,
+            label: option.label,
+            description: option.description,
+          })),
+          minModes: modalSpellInfo.minModes,
+          maxModes: modalSpellInfo.maxModes,
+          normalMinModes: modalSpellInfo.normalMinModes,
+          normalMaxModes: modalSpellInfo.normalMaxModes,
+          entwineCost: modalSpellInfo.entwineCost,
+          allowDuplicates: false,
+          modeSelectionPurpose: 'modalSpell',
+          castSpellFromHandArgs: {
+            cardId,
+            faceIndex: selectedFaceIndex,
+            fromZone: castSourceZone,
+            xValue: chosenXValue,
+            skipPriorityCheck: true,
+          },
+        } as any);
+      }
+
+      debug(2, `[requestCastSpell] Queued modal selection for ${cardName}`);
+      return;
+    }
+
     const resolvedManaCost = expandManaCostWithChosenX(manaCost, chosenXValue);
 
     // Check if this spell requires targets
@@ -3138,9 +3408,25 @@ export async function requestCastSpellForSocket(
     }
 
     if (needsTargets) {
+      const multiTargetClauses = !isAura
+        ? buildSpellTargetSelectionClauses(game, String(playerId), cardName, oracleText, chosenXValue)
+        : [];
       let validTargetList: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string }[] = [];
 
-      if (isAura) {
+      if (multiTargetClauses.length > 1) {
+        const failingClause = multiTargetClauses.find((clause) => clause.validTargetList.length < clause.minTargets);
+        if (failingClause) {
+          socket.emit("error", {
+            code: "NO_VALID_TARGETS",
+            message: `No valid targets for ${cardName} (${failingClause.targetDescription})`,
+          });
+          return;
+        }
+
+        validTargetList = multiTargetClauses
+          .flatMap((clause) => clause.validTargetList)
+          .filter((target, index, all) => all.findIndex((candidate) => String(candidate.id) === String(target.id)) === index);
+      } else if (isAura) {
         const auraMatch = oracleText.match(/enchant\s+(creature|permanent|player|artifact|land|opponent)/i);
         const auraTargetType = auraMatch ? auraMatch[1].toLowerCase() : 'creature';
 
@@ -3197,10 +3483,19 @@ export async function requestCastSpellForSocket(
           cardName,
           manaCost: resolvedManaCost,
           rawManaCost: manaCost,
+          entwineCost,
           fromZone: castSourceZone,
           playerId,
           faceIndex: selectedFaceIndex,
           xValue: chosenXValue,
+          selectedModes: Array.isArray((cardForCast as any).selectedModes) ? [...((cardForCast as any).selectedModes as string[])] : undefined,
+          selectedAdditionalCostModes: Array.isArray((cardForCast as any).selectedAdditionalCostModes)
+            ? [...((cardForCast as any).selectedAdditionalCostModes as string[])]
+            : (Array.isArray((cardForCast as any).selectedSpreeModes)
+              ? [...((cardForCast as any).selectedSpreeModes as string[])]
+              : undefined),
+          selectedSpreeModes: Array.isArray((cardForCast as any).selectedSpreeModes) ? [...((cardForCast as any).selectedSpreeModes as string[])] : undefined,
+          castWithEntwine: (cardForCast as any).castWithEntwine === true,
           validTargetIds: validTargetList.map((t: any) => t.id),
           card: { ...cardForCast },
           forcedAlternateCostId: options?.forcedAlternateCostId,
@@ -3319,70 +3614,101 @@ export async function requestCastSpellForSocket(
           }
         }
 
-        const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
+        if (multiTargetClauses.length > 1) {
+          for (const clause of multiTargetClauses) {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: playerId as PlayerID,
+              description: `Choose ${clause.targetDescription} for ${cardName}`,
+              mandatory: clause.minTargets > 0,
+              sourceId: effectId,
+              sourceName: cardName,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              validTargets: clause.validTargetList.map((t: any) => ({
+                id: t.id,
+                label: t.name,
+                description: t.kind,
+                imageUrl: t.imageUrl,
+                type: t.kind === 'player' ? 'player' : (t.kind === 'stack' ? 'card' : 'permanent'),
+                controller: t.controller,
+                typeLine: t.typeLine,
+                life: t.life,
+                isOpponent: t.isOpponent,
+              })),
+              targetTypes: ['spell_target'],
+              minTargets: clause.minTargets,
+              maxTargets: clause.maxTargets,
+              targetDescription: clause.targetDescription,
+              spellCastContext: {
+                cardId,
+                cardName,
+                manaCost: resolvedManaCost,
+                rawManaCost: manaCost,
+                entwineCost,
+                playerId,
+                faceIndex: selectedFaceIndex,
+                effectId,
+                oracleText,
+                imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+                forcedAlternateCostId: options?.forcedAlternateCostId,
+                castWithoutPayingManaCost: isFreeCast,
+                bypassExilePermissionCheck,
+                xValue: chosenXValue,
+              },
+            });
+          }
 
-        const modal = oracleText ? extractModalModesFromOracleText(oracleText) : undefined;
-        if (modal && modal.allOptionsHaveTargets) {
+          debug(2, `[requestCastSpell] Added ${multiTargetClauses.length} TARGET_SELECTION steps to Resolution Queue for ${cardName} (effectId: ${effectId})`);
+        } else {
+          const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
+
           ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.MODE_SELECTION,
+            type: ResolutionStepType.TARGET_SELECTION,
             playerId: playerId as PlayerID,
-            description: `Choose a mode for ${cardName}`,
+            description: `Choose ${targetDescription} for ${cardName}`,
             mandatory: true,
             sourceId: effectId,
             sourceName: cardName,
-            sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            modes: modal.options.map(o => ({ id: o.id, label: o.label, description: o.description })),
-            minModes: modal.minModes,
-            maxModes: modal.maxModes,
-            allowDuplicates: false,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            validTargets: validTargetList.map((t: any) => {
+              const isPlayerTarget = t.kind === 'player';
+              const isStackTarget = t.kind === 'stack';
+              return {
+                id: t.id,
+                label: t.name,
+                description: t.kind,
+                imageUrl: t.imageUrl,
+                type: isPlayerTarget ? 'player' : (isStackTarget ? 'card' : 'permanent'),
+                controller: t.controller,
+                typeLine: t.typeLine,
+                life: t.life,
+                isOpponent: t.isOpponent,
+              };
+            }),
+            targetTypes: [isAura ? 'aura_target' : 'spell_target'],
+            minTargets: requiredMinTargets,
+            maxTargets: requiredMaxTargets,
+            targetDescription,
+            spellCastContext: {
+              cardId,
+              cardName,
+              manaCost: resolvedManaCost,
+              rawManaCost: manaCost,
+              entwineCost,
+              playerId,
+              faceIndex: selectedFaceIndex,
+              effectId,
+              oracleText,
+              imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              forcedAlternateCostId: options?.forcedAlternateCostId,
+              castWithoutPayingManaCost: isFreeCast,
+              bypassExilePermissionCheck,
+              xValue: chosenXValue,
+            },
           });
+
+          debug(2, `[requestCastSpell] Added TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
         }
-
-        ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.TARGET_SELECTION,
-          playerId: playerId as PlayerID,
-          description: `Choose ${targetDescription} for ${cardName}`,
-          mandatory: true,
-          sourceId: effectId,
-          sourceName: cardName,
-          sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-          validTargets: validTargetList.map((t: any) => {
-            const isPlayerTarget = t.kind === 'player';
-            const isStackTarget = t.kind === 'stack';
-            return {
-              id: t.id,
-              label: t.name,
-              description: t.kind,
-              imageUrl: t.imageUrl,
-              type: isPlayerTarget ? 'player' : (isStackTarget ? 'card' : 'permanent'),
-              controller: t.controller,
-              typeLine: t.typeLine,
-              life: t.life,
-              isOpponent: t.isOpponent,
-            };
-          }),
-          targetTypes: [isAura ? 'aura_target' : 'spell_target'],
-          minTargets: requiredMinTargets,
-          maxTargets: requiredMaxTargets,
-          targetDescription,
-          spellCastContext: {
-            cardId,
-            cardName,
-            manaCost: resolvedManaCost,
-            rawManaCost: manaCost,
-            playerId,
-            faceIndex: selectedFaceIndex,
-            effectId,
-            oracleText,
-            imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            forcedAlternateCostId: options?.forcedAlternateCostId,
-            castWithoutPayingManaCost: isFreeCast,
-            bypassExilePermissionCheck,
-            xValue: chosenXValue,
-          },
-        });
-
-        debug(2, `[requestCastSpell] Added TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
         debug(2, `[requestCastSpell] ======== REQUEST END (waiting for targets via Resolution Queue) ========`);
         return;
       }
@@ -3391,7 +3717,10 @@ export async function requestCastSpellForSocket(
     // No targets needed — still need to handle additional costs before payment.
     const costReduction = calculateCostReduction(game, playerId, cardForCast);
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
-    const paymentManaCost = formatManaCostWithReduction(resolvedManaCost, costReduction, chosenXValue);
+    const paymentManaCost = appendManaCost(
+      formatManaCostWithReduction(resolvedManaCost, costReduction, chosenXValue),
+      spellModeAdditionalCost,
+    );
 
     (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
     (game.state as any).pendingSpellCasts[effectId] = {
@@ -3399,10 +3728,19 @@ export async function requestCastSpellForSocket(
       cardName,
       manaCost: resolvedManaCost,
       rawManaCost: manaCost,
+      entwineCost,
       fromZone: castSourceZone,
       playerId,
       faceIndex: selectedFaceIndex,
       xValue: chosenXValue,
+      selectedModes: Array.isArray((cardForCast as any).selectedModes) ? [...((cardForCast as any).selectedModes as string[])] : undefined,
+      selectedAdditionalCostModes: Array.isArray((cardForCast as any).selectedAdditionalCostModes)
+        ? [...((cardForCast as any).selectedAdditionalCostModes as string[])]
+        : (Array.isArray((cardForCast as any).selectedSpreeModes)
+          ? [...((cardForCast as any).selectedSpreeModes as string[])]
+          : undefined),
+      selectedSpreeModes: Array.isArray((cardForCast as any).selectedSpreeModes) ? [...((cardForCast as any).selectedSpreeModes as string[])] : undefined,
+      castWithEntwine: (cardForCast as any).castWithEntwine === true,
       validTargetIds: [],
       targets: [],
       card: { ...cardForCast },
@@ -3577,10 +3915,214 @@ export async function requestCastSpellForSocket(
   }
 }
 
-function getOracleTextForCastMode(oracleText: string, castWithOverload: boolean): string {
-  if (!castWithOverload) return oracleText;
+function getSelectedModalOracleText(oracleText: string, selectedModes?: unknown): string {
+  const selectedModeIds = Array.isArray(selectedModes)
+    ? selectedModes.map((mode: unknown) => String(mode || '')).filter(Boolean)
+    : [];
 
-  const normalized = String(oracleText || '').replace(/\u2019/g, "'");
+  if (selectedModeIds.length === 0) return oracleText;
+
+  const modalInfo = extractModalModesFromOracleText(oracleText);
+  if (!modalInfo) return oracleText;
+
+  const selectedOptions = modalInfo.options.filter((option) => selectedModeIds.includes(String(option.id)));
+  if (selectedOptions.length === 0) return oracleText;
+
+  return selectedOptions.map((option) => option.raw).join('\n');
+}
+
+function extractAdditionalCostModesFromOracleText(oracleText: string): {
+  purpose: 'spree' | 'tiered';
+  minModes: number;
+  maxModes: number;
+  preservedLines: string[];
+  options: Array<{ id: string; label: string; cost: string; effect: string }>;
+} | undefined {
+  const normalizedText = String(oracleText || '')
+    .replace(/[’]/g, "'")
+    .replace(/[−–—]/g, '-')
+    .replace(/\r\n?/g, '\n');
+  const lines = normalizedText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const headerIndex = lines.findIndex((line) => /^spree\b/i.test(line) || /^tiered\b/i.test(line));
+  if (headerIndex === -1) return undefined;
+
+  const purpose: 'spree' | 'tiered' = /^tiered\b/i.test(lines[headerIndex]) ? 'tiered' : 'spree';
+  const options: Array<{ id: string; label: string; cost: string; effect: string }> = [];
+  const preservedLines: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (index === headerIndex) continue;
+
+    if (index < headerIndex) {
+      preservedLines.push(line);
+      continue;
+    }
+
+    if (purpose === 'spree') {
+      const spreeMatch = line.match(/^\+\s*((?:\{[^}]+\}\s*)+)\s*-\s*(.+)$/i);
+      if (spreeMatch) {
+        const cost = String(spreeMatch[1] || '').replace(/\s+/g, '').trim();
+        const effect = String(spreeMatch[2] || '').trim();
+        options.push({
+          id: `spree_${options.length}`,
+          label: `Pay ${cost}`,
+          cost,
+          effect,
+        });
+        continue;
+      }
+    } else {
+      const tieredMatch = line.match(/^(?:•|\*|-)\s*(.+?)\s*-\s*((?:\{[^}]+\}\s*)+)\s*-\s*(.+)$/i);
+      if (tieredMatch) {
+        const label = String(tieredMatch[1] || '').trim();
+        const cost = String(tieredMatch[2] || '').replace(/\s+/g, '').trim();
+        const effect = String(tieredMatch[3] || '').trim();
+        options.push({
+          id: `tiered_${options.length}`,
+          label,
+          cost,
+          effect,
+        });
+        continue;
+      }
+    }
+
+    preservedLines.push(line);
+  }
+
+  if (options.length === 0) return undefined;
+
+  return {
+    purpose,
+    minModes: 1,
+    maxModes: purpose === 'tiered' ? 1 : options.length,
+    preservedLines,
+    options,
+  };
+}
+
+function getSelectedAdditionalCostOracleText(oracleText: string, selectedAdditionalCostModes?: unknown): string {
+  const selectedModeIds = Array.isArray(selectedAdditionalCostModes)
+    ? selectedAdditionalCostModes.map((mode: unknown) => String(mode || '')).filter(Boolean)
+    : [];
+
+  if (selectedModeIds.length === 0) return oracleText;
+
+  const additionalCostModeInfo = extractAdditionalCostModesFromOracleText(oracleText);
+  if (!additionalCostModeInfo) return oracleText;
+
+  const selectedSet = new Set(selectedModeIds);
+  const selectedEffects = additionalCostModeInfo.options
+    .filter((mode) => selectedSet.has(mode.id))
+    .map((mode) => mode.effect);
+
+  if (selectedEffects.length === 0) return oracleText;
+
+  const scopedLines = [...additionalCostModeInfo.preservedLines, ...selectedEffects].filter(Boolean);
+  return scopedLines.length > 0 ? scopedLines.join('\n') : oracleText;
+}
+
+function getEntwineCostForSelectedModes(oracleText: string, selectedModes?: unknown): string | undefined {
+  const selectedModeIds = Array.isArray(selectedModes)
+    ? selectedModes.map((mode: unknown) => String(mode || '')).filter(Boolean)
+    : [];
+
+  if (selectedModeIds.length === 0) return undefined;
+
+  const modalInfo = extractModalModesFromOracleText(oracleText);
+  if (!modalInfo?.entwineCost) return undefined;
+
+  const selectedSet = new Set(selectedModeIds);
+  const allModeIds = modalInfo.options.map((option) => String(option.id));
+  if (allModeIds.length === 0 || selectedSet.size !== allModeIds.length) return undefined;
+
+  return allModeIds.every((id) => selectedSet.has(id)) ? modalInfo.entwineCost : undefined;
+}
+
+function repeatManaCost(cost: string, count: number): string {
+  if (!cost || count <= 0) return '';
+  return Array.from({ length: count }, () => String(cost).trim()).join('');
+}
+
+function getEscalateAdditionalCost(oracleText: string, selectedModes?: unknown): string | undefined {
+  const selectedModeIds = Array.isArray(selectedModes)
+    ? selectedModes.map((mode: unknown) => String(mode || '')).filter(Boolean)
+    : [];
+
+  if (selectedModeIds.length <= 1) return undefined;
+
+  const escalateMatch = String(oracleText || '').match(/\bEscalate\s*[—\-]?\s*((?:\{[^}]+\}\s*)+)\s*(?:\(|$)/i);
+  if (!escalateMatch) return undefined;
+
+  const perModeCost = String(escalateMatch[1] || '').replace(/\s+/g, '').trim();
+  if (!perModeCost) return undefined;
+
+  return repeatManaCost(perModeCost, selectedModeIds.length - 1);
+}
+
+function getAdditionalCostModeCost(oracleText: string, selectedAdditionalCostModes?: unknown): string | undefined {
+  const selectedModeIds = Array.isArray(selectedAdditionalCostModes)
+    ? selectedAdditionalCostModes.map((mode: unknown) => String(mode || '')).filter(Boolean)
+    : [];
+
+  if (selectedModeIds.length === 0) return undefined;
+
+  const additionalCostModeInfo = extractAdditionalCostModesFromOracleText(oracleText);
+  if (!additionalCostModeInfo) return undefined;
+
+  const selectedSet = new Set(selectedModeIds);
+  const extraCost = additionalCostModeInfo.options
+    .filter((mode) => selectedSet.has(mode.id))
+    .map((mode) => mode.cost)
+    .filter(Boolean)
+    .join('');
+
+  return extraCost || undefined;
+}
+
+export function getSpellModeAdditionalCost(
+  oracleText: string,
+  selectedModes?: unknown,
+  selectedAdditionalCostModes?: unknown,
+): string {
+  const effectiveAdditionalCostModes = Array.isArray(selectedAdditionalCostModes) && selectedAdditionalCostModes.length > 0
+    ? selectedAdditionalCostModes
+    : selectedModes;
+
+  return appendManaCost(
+    getEntwineCostForSelectedModes(oracleText, selectedModes),
+    getEscalateAdditionalCost(oracleText, selectedModes),
+    getAdditionalCostModeCost(oracleText, effectiveAdditionalCostModes),
+  );
+}
+
+function appendManaCost(baseCost: string, ...extraCosts: Array<string | undefined>): string {
+  const parts = [String(baseCost || '').trim(), ...extraCosts.map((cost) => String(cost || '').trim())]
+    .filter(Boolean);
+  return parts.join('');
+}
+
+function getOracleTextForCastMode(
+  oracleText: string,
+  castWithOverload: boolean,
+  selectedModes?: unknown,
+  selectedAdditionalCostModes?: unknown,
+): string {
+  const effectiveAdditionalCostModes = Array.isArray(selectedAdditionalCostModes) && selectedAdditionalCostModes.length > 0
+    ? selectedAdditionalCostModes
+    : selectedModes;
+  const additionalCostScopedText = getSelectedAdditionalCostOracleText(oracleText, effectiveAdditionalCostModes);
+  const modeScopedText = additionalCostScopedText === oracleText
+    ? getSelectedModalOracleText(oracleText, selectedModes)
+    : additionalCostScopedText;
+  if (!castWithOverload) return modeScopedText;
+
+  const normalized = String(modeScopedText || '').replace(/\u2019/g, "'");
   const withoutOverloadClause = normalized.replace(/\s*overload\s*\{[^}]+\}\.?/i, '').trim();
   return withoutOverloadClause.replace(/\btarget\b/gi, 'each');
 }
@@ -4195,9 +4737,24 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Check timing restrictions for sorcery-speed spells
       const giftPromisedForCast = (cardInHand as any).giftPromised === true;
+      const selectedModes = Array.isArray((cardInHand as any).selectedModes)
+        ? (cardInHand as any).selectedModes
+        : (targets as any)?.selectedModes;
+      const selectedAdditionalCostModes = Array.isArray((cardInHand as any).selectedAdditionalCostModes)
+        ? (cardInHand as any).selectedAdditionalCostModes
+        : (Array.isArray((cardInHand as any).selectedSpreeModes)
+          ? (cardInHand as any).selectedSpreeModes
+          : (Array.isArray((targets as any)?.selectedAdditionalCostModes)
+            ? (targets as any).selectedAdditionalCostModes
+            : (targets as any)?.selectedSpreeModes));
       const baseOracleText = resolveGiftAwareOracleText(cardInHand.oracle_text || "", giftPromisedForCast);
+      const spellModeAdditionalCost = getSpellModeAdditionalCost(baseOracleText, selectedModes, selectedAdditionalCostModes);
+      const entwineCost = getEntwineCostForSelectedModes(baseOracleText, selectedModes)
+        || (((cardInHand as any).castWithEntwine === true && String((cardInHand as any).entwineCost || '').trim())
+          ? String((cardInHand as any).entwineCost).trim()
+          : undefined);
       const overloadRequested = alternateCostId === 'overload' || (cardInHand as any).castWithOverload === true;
-      const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested).toLowerCase();
+      const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested, selectedModes, selectedAdditionalCostModes).toLowerCase();
 
       // Carry over additional-cost payment state from requestCastSpell -> completeCastSpell.
       // Many resolution paths check this flag on the card object.
@@ -4457,139 +5014,95 @@ export function registerGameActions(io: Server, socket: Socket) {
       // Pattern: "Choose two ΓÇö" or "Choose one ΓÇö" followed by bullet points
       // IMPORTANT: Only apply to INSTANTS and SORCERIES, not to permanents with triggered abilities
       // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one ΓÇö" which is a TRIGGER, not a modal spell
-      const modalSpellMatch = isInstantOrSorcery ? oracleText.match(/choose\s+(one|two|three|four|any number)\s*(?:ΓÇö|[-])/i) : null;
+      const modalSpellInfo = isInstantOrSorcery ? extractModalModesFromOracleText(baseOracleText) : undefined;
       const modesAlreadySelected = (cardInHand as any).selectedModes || (targets as any)?.selectedModes;
-      
-      // Check for Spree cards (new mechanic from Outlaws of Thunder Junction)
-      // Pattern: "Spree (Choose one or more additional costs.)" followed by "+ {cost} ΓÇö Effect"
-      const isSpreeCard = oracleText.includes('spree');
-      const spreeModesSelected = (cardInHand as any).selectedSpreeModes || (targets as any)?.selectedSpreeModes;
-      
-      if (isSpreeCard && !spreeModesSelected) {
-        // Parse spree costs and effects
-        // Pattern: "+ {cost} ΓÇö Effect text"
-        const spreePattern = /\+\s*(\{[^}]+\})\s*[ΓÇö-]\s*([^+]+?)(?=\+\s*\{|$)/gi;
-        const spreeModes: { id: string; name: string; description: string; cost: string }[] = [];
-        let match;
-        let index = 0;
-        
-        const originalOracleText = cardInHand.oracle_text || "";
-        while ((match = spreePattern.exec(originalOracleText)) !== null) {
-          const cost = match[1];
-          const effect = match[2].trim().replace(/\n/g, ' ');
-          spreeModes.push({
-            id: `spree_${index}`,
-            name: `Pay ${cost}`,
-            description: effect,
-            cost: cost,
-          });
-          index++;
-        }
-        
-        if (spreeModes.length > 0) {
-          const existing = ResolutionQueueManager
-            .getStepsForPlayer(gameId, playerId as any)
-            .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'spree');
+      const additionalCostModeInfo = isInstantOrSorcery ? extractAdditionalCostModesFromOracleText(baseOracleText) : undefined;
+      const additionalCostModesSelected = (cardInHand as any).selectedAdditionalCostModes
+        || (cardInHand as any).selectedSpreeModes
+        || (targets as any)?.selectedAdditionalCostModes
+        || (targets as any)?.selectedSpreeModes;
 
-          if (!existing) {
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.MODE_SELECTION,
-              playerId: playerId as any,
-              sourceId: cardId,
-              sourceName: cardInHand.name,
-              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-              description: originalOracleText,
-              mandatory: true,
-              modes: spreeModes.map((m: any) => ({
-                id: m.id,
-                label: m.name,
-                description: `${m.description}${m.cost ? ` (${m.cost})` : ''}`,
-              })),
-              minModes: 1,
-              maxModes: -1,
-              allowDuplicates: false,
-              modeSelectionPurpose: 'spree',
-              castSpellFromHandArgs: {
-                cardId,
-                payment,
-                targets,
-                xValue,
-                alternateCostId,
-                convokeTappedCreatures,
-              },
-            } as any);
-          }
+      if (additionalCostModeInfo && !additionalCostModesSelected) {
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) =>
+            s?.type === ResolutionStepType.MODE_SELECTION &&
+            String((s as any)?.sourceId || '') === String(cardId) &&
+            String((s as any)?.modeSelectionPurpose || '') === additionalCostModeInfo.purpose
+          );
 
-          debug(2, `[castSpellFromHand] Queued Spree mode selection for ${cardInHand.name}`);
-          return; // Wait for mode selection via Resolution Queue
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MODE_SELECTION,
+            playerId: playerId as any,
+            sourceId: cardId,
+            sourceName: cardInHand.name,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: baseOracleText,
+            mandatory: true,
+            modes: additionalCostModeInfo.options.map((mode) => ({
+              id: mode.id,
+              label: mode.label,
+              description: `${mode.effect}${mode.cost ? ` (${mode.cost})` : ''}`,
+            })),
+            minModes: additionalCostModeInfo.minModes,
+            maxModes: additionalCostModeInfo.maxModes,
+            allowDuplicates: false,
+            modeSelectionPurpose: additionalCostModeInfo.purpose,
+            castSpellFromHandArgs: {
+              cardId,
+              payment,
+              targets,
+              xValue,
+              alternateCostId,
+              convokeTappedCreatures,
+            },
+          } as any);
         }
+
+        debug(2, `[castSpellFromHand] Queued ${additionalCostModeInfo.purpose} mode selection for ${cardInHand.name}`);
+        return;
       }
       
-      if (modalSpellMatch && !modesAlreadySelected) {
-        const modeCount = modalSpellMatch[1].toLowerCase();
-        const modeCountMap: Record<string, number> = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'any number': -1 };
-        const numModes = modeCountMap[modeCount] ?? -1;
-        
-        // Extract the mode options (bullet points after "Choose X ΓÇö")
-        // Pattern: "ΓÇó Mode text" repeated
-        const modeOptionsMatch = oracleText.match(/(?:choose\s+(?:one|two|three|four|any number)\s*(?:ΓÇö|[-]))\s*((?:ΓÇó[^ΓÇó]+)+)/i);
-        const modeOptions: { id: string; name: string; description: string }[] = [];
-        
-        if (modeOptionsMatch) {
-          const optionsText = modeOptionsMatch[1];
-          const bullets = optionsText.split('ΓÇó').filter(s => s.trim().length > 0);
-          
-          for (let i = 0; i < bullets.length; i++) {
-            const modeText = bullets[i].trim();
-            modeOptions.push({
-              id: `mode_${i + 1}`,
-              name: `Mode ${i + 1}`,
-              description: modeText,
-            });
-          }
+      if (modalSpellInfo && !modesAlreadySelected) {
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'modalSpell');
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.MODE_SELECTION,
+            playerId: playerId as any,
+            sourceId: cardId,
+            sourceName: cardInHand.name,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            description: baseOracleText,
+            mandatory: true,
+            modes: modalSpellInfo.options.map((option) => ({
+              id: option.id,
+              label: option.label,
+              description: option.description,
+            })),
+            minModes: modalSpellInfo.minModes,
+            maxModes: modalSpellInfo.maxModes,
+            normalMinModes: modalSpellInfo.normalMinModes,
+            normalMaxModes: modalSpellInfo.normalMaxModes,
+            entwineCost: modalSpellInfo.entwineCost,
+            allowDuplicates: false,
+            modeSelectionPurpose: 'modalSpell',
+            castSpellFromHandArgs: {
+              cardId,
+              payment,
+              targets,
+              xValue,
+              alternateCostId,
+              convokeTappedCreatures,
+            },
+          } as any);
         }
-        
-        // Modal spells need at least 1 mode option (for "choose one") or 2+ (for "choose two" etc.)
-        if (modeOptions.length >= numModes || (numModes === -1 && modeOptions.length > 0)) {
-          const existing = ResolutionQueueManager
-            .getStepsForPlayer(gameId, playerId as any)
-            .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'modalSpell');
 
-          if (!existing) {
-            const minModes = numModes === -1 ? 1 : Math.max(1, numModes);
-            const maxModes = numModes;
-
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.MODE_SELECTION,
-              playerId: playerId as any,
-              sourceId: cardId,
-              sourceName: cardInHand.name,
-              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-              description: oracleText,
-              mandatory: true,
-              modes: modeOptions.map((m: any) => ({
-                id: m.id,
-                label: m.name,
-                description: m.description,
-              })),
-              minModes,
-              maxModes,
-              allowDuplicates: false,
-              modeSelectionPurpose: 'modalSpell',
-              castSpellFromHandArgs: {
-                cardId,
-                payment,
-                targets,
-                xValue,
-                alternateCostId,
-                convokeTappedCreatures,
-              },
-            } as any);
-          }
-
-          debug(2, `[castSpellFromHand] Queued modal selection (choose ${modeCount}) for ${cardInHand.name}`);
-          return; // Wait for mode selection via Resolution Queue
-        }
+        debug(2, `[castSpellFromHand] Queued modal selection for ${cardInHand.name}`);
+        return; // Wait for mode selection via Resolution Queue
       }
       
       // Check if this spell has overload (e.g., Cyclonic Rift)
@@ -5114,6 +5627,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       // If categorizeSpell didn't find a pattern but the spell has "target" in text,
       // use the comprehensive detection
       const targetReqs = (isInstantOrSorcery && !isAura) ? parseTargetRequirements(oracleText) : null;
+      const multiTargetClauses = !isAura
+        ? buildSpellTargetSelectionClauses(game, String(playerId), String(cardInHand.name || ''), oracleText, xValue)
+        : [];
       
       // Only request target selection if:
       // 1. The spell requires targets (minTargets > 0 OR needsTargets)
@@ -5295,8 +5811,20 @@ export function registerGameActions(io: Server, socket: Socket) {
           // Build valid targets based on what the spell can target
           let validTargetList: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string }[] = [];
           
-          // Use evaluateTargeting if we have a spellSpec
-          if (spellSpec) {
+          if (multiTargetClauses.length > 1) {
+            const failingClause = multiTargetClauses.find((clause) => clause.validTargetList.length < clause.minTargets);
+            if (failingClause) {
+              socket.emit("error", {
+                code: "NO_VALID_TARGETS",
+                message: `No valid targets for ${cardInHand.name} (${failingClause.targetDescription})`,
+              });
+              return;
+            }
+
+            validTargetList = multiTargetClauses
+              .flatMap((clause) => clause.validTargetList)
+              .filter((target, index, all) => all.findIndex((candidate) => String(candidate.id) === String(target.id)) === index);
+          } else if (spellSpec) {
             const validRefs = evaluateTargeting(game.state as any, playerId, spellSpec);
             validTargetList = validRefs.map((t: any) => {
               if (t.kind === 'permanent') {
@@ -5425,9 +5953,23 @@ export function registerGameActions(io: Server, socket: Socket) {
             cardId,
             cardName: cardInHand.name,
             manaCost: cardInHand.mana_cost || "",
+            rawManaCost: cardInHand.mana_cost || "",
             playerId,
+            fromZone: castSourceZone,
+            faceIndex: selectedFaceIndex,
+            xValue,
+            selectedModes: Array.isArray(selectedModes) ? [...selectedModes] : undefined,
+            selectedAdditionalCostModes: Array.isArray(selectedAdditionalCostModes) ? [...selectedAdditionalCostModes] : undefined,
+            selectedSpreeModes: Array.isArray((cardInHand as any).selectedSpreeModes)
+              ? [...((cardInHand as any).selectedSpreeModes as string[])]
+              : undefined,
+            castWithEntwine: (cardInHand as any).castWithEntwine === true,
+            entwineCost,
             validTargetIds: validTargetList.map((t: any) => t.id),
             card: { ...cardInHand }, // Copy full card object to preserve oracle text, type line, etc.
+            forcedAlternateCostId: alternateCostId,
+            castWithoutPayingManaCost: alternateCostId === 'free' || (cardInHand as any).castWithoutPayingManaCost === true,
+            bypassExilePermissionCheck,
           };
           
           // Check for per-opponent targeting (e.g., Dismantling Wave)
@@ -5496,45 +6038,99 @@ export function registerGameActions(io: Server, socket: Socket) {
             return; // Wait for target selection via Resolution Queue
           }
           
-          // Use Resolution Queue for target selection
-          ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.TARGET_SELECTION,
-            playerId: playerId as PlayerID,
-            description: `Choose ${targetDescription} for ${cardInHand.name}`,
-            mandatory: true,
-            sourceId: effectId,
-            sourceName: cardInHand.name,
-            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            validTargets: validTargetList.map((t: any) => ({
-              id: t.id,
-              label: t.name,
-              description: t.kind,
-              imageUrl: t.imageUrl,
-            })),
-            targetTypes: ['spell_target'],
-            minTargets: requiredMinTargets,
-            maxTargets: requiredMaxTargets,
-            targetDescription,
-            // Store spell casting context for payment request after targets selected
-            spellCastContext: {
-              cardId,
-              cardName: cardInHand.name,
-              manaCost: cardInHand.mana_cost || "",
-              playerId,
-              effectId,
-              oracleText,
-              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            },
-          });
-          
-          debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
+          if (multiTargetClauses.length > 1) {
+            for (const clause of multiTargetClauses) {
+              ResolutionQueueManager.addStep(gameId, {
+                type: ResolutionStepType.TARGET_SELECTION,
+                playerId: playerId as PlayerID,
+                description: `Choose ${clause.targetDescription} for ${cardInHand.name}`,
+                mandatory: clause.minTargets > 0,
+                sourceId: effectId,
+                sourceName: cardInHand.name,
+                sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+                validTargets: clause.validTargetList.map((t: any) => ({
+                  id: t.id,
+                  label: t.name,
+                  description: t.kind,
+                  imageUrl: t.imageUrl,
+                })),
+                targetTypes: ['spell_target'],
+                minTargets: clause.minTargets,
+                maxTargets: clause.maxTargets,
+                targetDescription: clause.targetDescription,
+                spellCastContext: {
+                  cardId,
+                  cardName: cardInHand.name,
+                  manaCost: cardInHand.mana_cost || "",
+                  playerId,
+                  effectId,
+                  oracleText,
+                  imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+                },
+              });
+            }
+
+            debug(2, `[castSpellFromHand] Added ${multiTargetClauses.length} TARGET_SELECTION steps for ${cardInHand.name}`);
+          } else {
+            ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: playerId as PlayerID,
+              description: `Choose ${targetDescription} for ${cardInHand.name}`,
+              mandatory: true,
+              sourceId: effectId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              validTargets: validTargetList.map((t: any) => ({
+                id: t.id,
+                label: t.name,
+                description: t.kind,
+                imageUrl: t.imageUrl,
+              })),
+              targetTypes: ['spell_target'],
+              minTargets: requiredMinTargets,
+              maxTargets: requiredMaxTargets,
+              targetDescription,
+              // Store spell casting context for payment request after targets selected
+              spellCastContext: {
+                cardId,
+                cardName: cardInHand.name,
+                manaCost: cardInHand.mana_cost || "",
+                playerId,
+                effectId,
+                oracleText,
+                imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              },
+            });
+            
+            debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for ${requiredMinTargets}-${requiredMaxTargets} target(s) for ${cardInHand.name} (${targetDescription})`);
+          }
           return; // Wait for target selection via Resolution Queue
         } else {
           debug(2, `[handleCastSpellFromHand] Skipping target request - already have ${targets?.length || 0} target(s) or skipInteractivePrompts=${skipInteractivePrompts}`);
         }
         
         // Validate provided targets if we have a spellSpec
-        if (spellSpec && targets && targets.length > 0) {
+        if (shouldSkipAllPrompts && multiTargetClauses.length > 1 && targets && targets.length > 0) {
+          debug(2, `[handleCastSpellFromHand] Validating ${targets.length} queued multi-clause target(s) for ${cardInHand.name}`);
+          const validTargetIds = new Set(
+            multiTargetClauses
+              .flatMap((clause) => clause.validTargetList)
+              .map((target) => String(target.id))
+          );
+
+          for (const target of targets) {
+            const targetId = typeof target === 'string' ? target : target.id;
+            if (!validTargetIds.has(String(targetId))) {
+              debugError(1, `[handleCastSpellFromHand] INVALID QUEUED TARGET: ${targetId} not in queued clause set`);
+              socket.emit("error", {
+                code: "INVALID_TARGET",
+                message: `Invalid target for ${cardInHand.name}`,
+              });
+              return;
+            }
+          }
+          debug(2, `[handleCastSpellFromHand] Queued multi-clause targets validated successfully`);
+        } else if (spellSpec && targets && targets.length > 0) {
           debug(2, `[handleCastSpellFromHand] Validating ${targets.length} target(s) for ${cardInHand.name}`);
           const validRefs = evaluateTargeting(game.state as any, playerId, spellSpec);
           const validTargetIds = new Set(validRefs.map((t: any) => t.id));
@@ -5569,13 +6165,16 @@ export function registerGameActions(io: Server, socket: Socket) {
         : '';
 
       // Parse the mana cost to validate payment
-      const rawManaCost = (isForceAltCostPaid || isFreeCast)
-        ? ''
-        : usesWubrgAlternateCost
-          ? '{W}{U}{B}{R}{G}'
-          : resolvedOverloadCost
-            ? resolvedOverloadCost
-          : (cardInHand.mana_cost || "");
+      const rawManaCost = appendManaCost(
+        (isForceAltCostPaid || isFreeCast)
+          ? ''
+          : usesWubrgAlternateCost
+            ? '{W}{U}{B}{R}{G}'
+            : resolvedOverloadCost
+              ? resolvedOverloadCost
+              : (cardInHand.mana_cost || ""),
+        spellModeAdditionalCost,
+      );
       const manaCost = expandManaCostWithChosenX(rawManaCost, xValue);
       const parsedCost = parseManaCost(manaCost);
       
@@ -7661,6 +8260,38 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
           } catch (e) {
             debugWarn(1, '[completeCastSpell] Failed to apply gift metadata:', e);
+          }
+        }
+
+        if ('selectedModes' in pendingCast || 'selectedAdditionalCostModes' in pendingCast || 'selectedSpreeModes' in pendingCast || 'entwineCost' in pendingCast || 'castWithEntwine' in pendingCast) {
+          try {
+            const zones = (game.state as any)?.zones?.[playerId];
+            const fromZone = String(pendingCast?.fromZone || 'hand').toLowerCase().trim();
+            const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
+            const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
+            const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
+            const library: any[] = Array.isArray((game.libraries as any)?.get?.(playerId))
+              ? (game.libraries as any).get(playerId)
+              : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
+            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : fromZone === 'library' ? library : hand;
+            const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
+            if (cardObj) {
+              if (Array.isArray(pendingCast?.selectedModes)) {
+                (cardObj as any).selectedModes = [...pendingCast.selectedModes];
+              }
+              if (Array.isArray(pendingCast?.selectedAdditionalCostModes)) {
+                (cardObj as any).selectedAdditionalCostModes = [...pendingCast.selectedAdditionalCostModes];
+              }
+              if (Array.isArray(pendingCast?.selectedSpreeModes)) {
+                (cardObj as any).selectedSpreeModes = [...pendingCast.selectedSpreeModes];
+              }
+              if (pendingCast?.castWithEntwine === true) {
+                (cardObj as any).castWithEntwine = true;
+                (cardObj as any).entwineCost = String(pendingCast?.entwineCost || '');
+              }
+            }
+          } catch (e) {
+            debugWarn(1, '[completeCastSpell] Failed to apply modal metadata:', e);
           }
         }
         

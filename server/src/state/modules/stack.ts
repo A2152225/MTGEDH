@@ -11695,8 +11695,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     const hasColorChoiceSpell = spellColorChoicePattern.test(oracleTextLower.trim());
     
     // Check if spell already has a chosen color (from stack item)
-    const stackItem = state.stack?.find((s: any) => s.id === card?.id);
-    const existingChosenColor = (card as any)?.chosenColor || (stackItem as any)?.chosenColor;
+    const existingChosenColor = (card as any)?.chosenColor || (item as any)?.chosenColor;
     
     if (hasColorChoiceSpell && !existingChosenColor && !isReplaying) {
       // This spell needs a color choice before it can resolve
@@ -11715,6 +11714,9 @@ export function resolveTopOfStack(ctx: GameContext) {
         spellId: card?.id, // Mark this as a spell color choice (not permanent ETB)
         oracleText: oracleText, // Include oracle text for effect application later
       });
+
+      state.stack = state.stack || [];
+      state.stack.push(item as any);
       
       // Don't continue with resolution - wait for color choice
       // The spell stays on the stack and will be re-processed after color is chosen
@@ -11774,6 +11776,117 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
         
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} granted protection from ${existingChosenColor} to ${affectedCount} creature(s)`);
+      }
+    }
+
+    const selectedModes = Array.isArray((item as any)?.selectedModes)
+      ? (item as any).selectedModes
+      : Array.isArray((card as any)?.selectedModes)
+        ? (card as any).selectedModes
+        : [];
+    const isAcademicProbation = String(effectiveCard.name || '').toLowerCase() === 'academic probation';
+
+    if (isAcademicProbation) {
+      const currentTurn = Number((state as any).turnNumber ?? 0) || 0;
+      const selectedModeSet = new Set(selectedModes.map((mode: any) => String(mode || '')));
+      const usesChosenNameMode = selectedModeSet.has('mode_1');
+      const usesPermanentMode = selectedModeSet.has('mode_2');
+
+      if (usesChosenNameMode) {
+        const chosenCardName = String((item as any)?.chosenCardName || (card as any)?.chosenCardName || '').trim();
+
+        if (!chosenCardName && !isReplaying) {
+          const modeText = 'Choose a nonland card name. Opponents can\'t cast spells with the chosen name until your next turn.';
+          const cardNameChoiceCriteria = parseCardNameChoiceCriteriaFromOracleText(modeText);
+          let candidateNames: string[] | undefined;
+
+          try {
+            candidateNames = listLocalCardNamesForChoiceSync(cardNameChoiceCriteria);
+          } catch (err) {
+            debugWarn(1, `[resolveTopOfStack] Failed to gather Academic Probation card-name candidates:`, err);
+          }
+
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.CARD_NAME_CHOICE,
+            playerId: controller as PlayerID,
+            description: `Choose a nonland card name for ${effectiveCard.name}`,
+            mandatory: true,
+            sourceId: card?.id || effectiveCard.id,
+            sourceName: effectiveCard.name || 'Spell',
+            sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+            spellId: card?.id || effectiveCard.id,
+            cardName: effectiveCard.name,
+            reason: `Choose a nonland card name for ${effectiveCard.name}`,
+            restrictionText: cardNameChoiceCriteria.restrictionText,
+            candidateNames,
+          } as any);
+
+          state.stack = state.stack || [];
+          state.stack.push(item as any);
+          return;
+        }
+
+        if (chosenCardName) {
+          const stateAny = state as any;
+          stateAny.untilNextTurnSpellNameCastRestrictions = Array.isArray(stateAny.untilNextTurnSpellNameCastRestrictions)
+            ? stateAny.untilNextTurnSpellNameCastRestrictions
+            : [];
+
+          const alreadyApplied = stateAny.untilNextTurnSpellNameCastRestrictions.some((entry: any) =>
+            String(entry?.sourceId || '') === String(card?.id || effectiveCard.id || '') &&
+            String(entry?.chosenCardName || entry?.chosenName || '') === chosenCardName
+          );
+
+          if (!alreadyApplied) {
+            stateAny.untilNextTurnSpellNameCastRestrictions.push({
+              sourceId: card?.id || effectiveCard.id,
+              sourceName: effectiveCard.name,
+              chosenCardName,
+              controllerId: controller,
+              turnApplied: currentTurn,
+              opponentsOnly: true,
+            });
+          }
+        }
+      }
+
+      if (usesPermanentMode) {
+        const targetPermanentId = String(typeof targets[0] === 'string' ? targets[0] : targets[0]?.id || '').trim();
+        const targetPermanent = targetPermanentId
+          ? (state.battlefield || []).find((perm: any) => perm && String(perm.id || '') === targetPermanentId)
+          : undefined;
+
+        if (targetPermanent) {
+          const grantText = "This permanent can't attack or block (until your next turn)";
+
+          (targetPermanent as any).grantedAbilities = Array.isArray((targetPermanent as any).grantedAbilities)
+            ? (targetPermanent as any).grantedAbilities
+            : [];
+          if (!(targetPermanent as any).grantedAbilities.includes(grantText)) {
+            (targetPermanent as any).grantedAbilities.push(grantText);
+          }
+
+          (targetPermanent as any).untilNextTurnGrants = Array.isArray((targetPermanent as any).untilNextTurnGrants)
+            ? (targetPermanent as any).untilNextTurnGrants
+            : [];
+          (targetPermanent as any).untilNextTurnGrants.push({
+            controllerId: controller,
+            turnApplied: currentTurn,
+            grantedAbilities: [grantText],
+            sourceName: effectiveCard.name,
+            kind: 'cant_attack_or_block',
+          });
+
+          (targetPermanent as any).untilNextTurnCantActivateAbilities = Array.isArray((targetPermanent as any).untilNextTurnCantActivateAbilities)
+            ? (targetPermanent as any).untilNextTurnCantActivateAbilities
+            : [];
+          (targetPermanent as any).untilNextTurnCantActivateAbilities.push({
+            controllerId: controller,
+            turnApplied: currentTurn,
+            sourceName: effectiveCard.name,
+            kind: 'cant_activate_abilities',
+          });
+        }
       }
     }
     
@@ -15775,6 +15888,10 @@ export function castSpell(
     }
   }
   
+  if (card.selectedAdditionalCostModes && Array.isArray(card.selectedAdditionalCostModes)) {
+    stackItem.selectedAdditionalCostModes = card.selectedAdditionalCostModes;
+  }
+
   // Include selected spree modes if this is a spree spell
   if (card.selectedSpreeModes && Array.isArray(card.selectedSpreeModes)) {
     stackItem.selectedSpreeModes = card.selectedSpreeModes;

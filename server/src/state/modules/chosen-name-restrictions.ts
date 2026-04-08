@@ -42,12 +42,39 @@ function getBattlefield(state: any): any[] {
   return Array.isArray(state?.battlefield) ? state.battlefield : [];
 }
 
+function getTemporarySpellNameRestrictions(state: any): any[] {
+  return Array.isArray(state?.untilNextTurnSpellNameCastRestrictions)
+    ? state.untilNextTurnSpellNameCastRestrictions
+    : [];
+}
+
 export function isSpellCastingProhibitedByChosenName(state: any, playerId: PlayerID, spellName: string): {
   prohibited: boolean;
   by?: { sourceId?: string; sourceName?: string; chosenName?: string };
 } {
   const targetName = normalizeCardName(spellName);
   if (!targetName) return { prohibited: false };
+
+  for (const restriction of getTemporarySpellNameRestrictions(state)) {
+    const chosen = (restriction as any)?.chosenCardName || (restriction as any)?.chosenName;
+    const chosenName = normalizeCardName(String(chosen || ''));
+    if (!chosenName || chosenName !== targetName) continue;
+
+    const controller = String((restriction as any)?.controllerId || '').trim() || undefined;
+    const opponentsOnly = (restriction as any)?.opponentsOnly === true;
+    if (opponentsOnly && controller && controller === playerId) {
+      continue;
+    }
+
+    return {
+      prohibited: true,
+      by: {
+        sourceId: (restriction as any)?.sourceId,
+        sourceName: (restriction as any)?.sourceName,
+        chosenName: String(chosen),
+      },
+    };
+  }
 
   for (const perm of getBattlefield(state)) {
     const chosen = (perm as any)?.chosenCardName;

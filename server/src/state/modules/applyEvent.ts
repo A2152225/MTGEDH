@@ -7942,9 +7942,21 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
       
       case "cardNameChoice": {
-        // Player chose a card name for a permanent (e.g., Pithing Needle, Runed Halo)
+        // Player chose a card name for a permanent or spell.
         try {
-          const { playerId, permanentId, chosenName, cardName } = e as any;
+          const { playerId, permanentId, spellId, chosenName, cardName } = e as any;
+          const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
+          const stackItem = stack.find((item: any) =>
+            item && (String(item.id || '') === String(spellId || '') || String(item.cardId || '') === String(spellId || ''))
+          );
+
+          if (stackItem && chosenName) {
+            (stackItem as any).chosenCardName = chosenName;
+            debug(2, `[applyEvent] Applied spell card name choice: ${stackItem.card?.name || stackItem.sourceName || spellId} -> ${chosenName}`);
+            ctx.bumpSeq();
+            break;
+          }
+
           const permanent = resolveReplayPermanentByEvent(ctx, {
             permanentId,
             playerId,

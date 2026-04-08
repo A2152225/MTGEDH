@@ -840,6 +840,7 @@ export interface ActivatedAbilityStep extends BaseResolutionStep {
 export interface CardNameChoiceStep extends BaseResolutionStep {
   readonly type: ResolutionStepType.CARD_NAME_CHOICE;
   readonly permanentId?: string;
+  readonly spellId?: string;
   readonly cardName?: string;
   readonly reason?: string;
   readonly restrictionText?: string;

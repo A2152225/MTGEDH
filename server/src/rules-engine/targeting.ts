@@ -239,6 +239,56 @@ export function parseTargetRequirements(oracleText?: string): {
       targetControllerConstraint: 'opponent',
     };
   }
+
+  const anyNumberTargetsMatch = t.match(/(?:choose\s+)?any\s+number\s+of\s+target\s+([^.]+)/i);
+  if (anyNumberTargetsMatch) {
+    const targetPhrase = anyNumberTargetsMatch[1].trim();
+    const normalizedTargetPhrase = targetPhrase
+      .replace(/\beach\b/g, '')
+      .replace(/\buntil end of turn\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    minTargets = 0;
+    maxTargets = 999;
+
+    if (/\bopponents?\b/i.test(normalizedTargetPhrase)) {
+      targetTypes.push('opponent');
+      targetDescription = `any number of target ${normalizedTargetPhrase}`;
+      return {
+        needsTargets: true,
+        targetTypes,
+        minTargets,
+        maxTargets,
+        targetDescription,
+        targetControllerConstraint: 'opponent',
+      };
+    }
+
+    if (/\bcreatures?\b/i.test(normalizedTargetPhrase)) {
+      targetTypes.push('creature');
+    } else if (/\bartifacts?\b/i.test(normalizedTargetPhrase)) {
+      targetTypes.push('artifact');
+    } else if (/\benchantments?\b/i.test(normalizedTargetPhrase)) {
+      targetTypes.push('enchantment');
+    } else if (/\bpermanents?\b/i.test(normalizedTargetPhrase)) {
+      targetTypes.push('permanent');
+    } else {
+      targetTypes.push(normalizedTargetPhrase.replace(/\s+you control|\s+an opponent controls|\s+with different controllers/g, '').trim());
+    }
+
+    targetDescription = `any number of target ${normalizedTargetPhrase}`;
+    return {
+      needsTargets: true,
+      targetTypes,
+      minTargets,
+      maxTargets,
+      targetDescription,
+      targetControllerConstraint: /\byou control\b/i.test(normalizedTargetPhrase)
+        ? 'you'
+        : (/\ban opponent controls\b/i.test(normalizedTargetPhrase) ? 'opponent' : 'any'),
+    };
+  }
   
   // Check for "for each opponent, X target Y that player controls" patterns
   // Examples:

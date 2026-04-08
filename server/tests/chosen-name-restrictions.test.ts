@@ -79,4 +79,22 @@ describe('chosen-name restrictions', () => {
 
     expect(isAbilityActivationProhibitedByChosenName(state, 'p1' as PlayerID, 'Arcane Signet', true).prohibited).toBe(true);
   });
+
+  it('blocks casting from a temporary spell-generated chosen-name restriction', () => {
+    const state: any = {
+      untilNextTurnSpellNameCastRestrictions: [
+        {
+          sourceId: 'academic_probation_1',
+          sourceName: 'Academic Probation',
+          chosenCardName: 'Counterspell',
+          controllerId: 'p1',
+          turnApplied: 4,
+          opponentsOnly: true,
+        },
+      ],
+    };
+
+    expect(isSpellCastingProhibitedByChosenName(state, 'p2' as PlayerID, 'Counterspell').prohibited).toBe(true);
+    expect(isSpellCastingProhibitedByChosenName(state, 'p1' as PlayerID, 'Counterspell').prohibited).toBe(false);
+  });
 });

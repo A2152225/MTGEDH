@@ -61,7 +61,7 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDa
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
 import { executeTriggerEffect, triggerETBEffectsForToken } from "../state/modules/stack.js";
-import { creatureHasHaste, formatManaCostWithReduction, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
+import { creatureHasHaste, formatManaCostWithReduction, getSpellModeAdditionalCost, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
@@ -253,6 +253,21 @@ function canonicalizeCardNameChoiceSelection(selection: string, candidateNames: 
   }
 
   return undefined;
+}
+
+function buildPendingCastPaymentManaCost(pendingCast: any): string {
+  const baseManaCost = formatManaCostWithReduction(
+    String(pendingCast?.manaCost || ''),
+    pendingCast?.costReduction,
+    pendingCast?.xValue,
+  );
+  const spellModeAdditionalCost = getSpellModeAdditionalCost(
+    String(pendingCast?.card?.oracle_text || ''),
+    pendingCast?.selectedModes,
+    pendingCast?.selectedAdditionalCostModes ?? pendingCast?.selectedSpreeModes,
+  ) || String(pendingCast?.entwineCost || pendingCast?.card?.entwineCost || '').trim();
+  const extraTax = String(pendingCast?.additionalCostTax || '').trim();
+  return `${baseManaCost}${spellModeAdditionalCost}${extraTax}`;
 }
 
 function emitNextPendingResolutionStep(io: Server, gameId: string, playerId: string): void {
@@ -4368,7 +4383,27 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
 
         const normalized = selectionIds.map((x) => String(x)).filter((x) => x.trim().length > 0);
 
-        if ((Number.isFinite(minModes) ? normalized.length : 0) < (Number.isFinite(minModes) ? minModes : 0) ||
+        const normalMinModes = Number(stepAny?.normalMinModes ?? minModes);
+        const normalMaxModesRaw = Number(stepAny?.normalMaxModes ?? maxModes);
+        const normalMaxModes =
+          Number.isFinite(normalMaxModesRaw)
+            ? (normalMaxModesRaw < 0 ? Infinity : normalMaxModesRaw)
+            : Infinity;
+        const entwineCost = typeof stepAny?.entwineCost === 'string' && stepAny.entwineCost.trim().length > 0
+          ? String(stepAny.entwineCost)
+          : undefined;
+        const allModeCount = modeIds.length;
+        const withinNormalRange =
+          (Number.isFinite(normalMinModes) ? normalized.length : 0) >= (Number.isFinite(normalMinModes) ? normalMinModes : 0) &&
+          (Number.isFinite(normalMaxModes) ? normalized.length : 0) <= (Number.isFinite(normalMaxModes) ? normalMaxModes : Infinity);
+        const isEntwinedSelection = Boolean(entwineCost) && allModeCount > 0 && normalized.length === allModeCount;
+
+        if (entwineCost) {
+          if (!withinNormalRange && !isEntwinedSelection) {
+            socket.emit('error', { code: 'INVALID_SELECTION', message: 'Entwine requires the normal number of modes or all modes' });
+            return;
+          }
+        } else if ((Number.isFinite(minModes) ? normalized.length : 0) < (Number.isFinite(minModes) ? minModes : 0) ||
             (Number.isFinite(maxModes) ? normalized.length : 0) > (Number.isFinite(maxModes) ? maxModes : Infinity)) {
           socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid number of modes selected' });
           return;
@@ -5882,8 +5917,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           return;
         }
 
+        const spellId = String(stepAny.spellId || '').trim();
+        if (spellId) {
+          const stack: any[] = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+          const stackItem = stack.find((item: any) => item && (String(item.id || '') === spellId || String(item.cardId || '') === spellId));
+          if (!stackItem) {
+            socket.emit('error', { code: 'SPELL_NOT_FOUND', message: 'Spell is no longer on the stack' });
+            return;
+          }
+        }
+
         const permanentId = String(stepAny.permanentId || stepAny.sourceId || '').trim();
-        if (permanentId) {
+        if (permanentId && !spellId) {
           const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
           const perm = battlefield.find((p: any) => p && String(p.id) === permanentId);
           if (!perm) {
@@ -6922,6 +6967,9 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('modes' in step) fields.modes = step.modes;
       if ('minModes' in step) fields.minModes = step.minModes;
       if ('maxModes' in step) fields.maxModes = step.maxModes;
+      if ('normalMinModes' in step) fields.normalMinModes = (step as any).normalMinModes;
+      if ('normalMaxModes' in step) fields.normalMaxModes = (step as any).normalMaxModes;
+      if ('entwineCost' in step) fields.entwineCost = (step as any).entwineCost;
       if ('allowDuplicates' in step) fields.allowDuplicates = step.allowDuplicates;
       break;
       
@@ -9990,18 +10038,23 @@ async function handleStepResponse(
         const purpose = String(stepData.modeSelectionPurpose || '');
 
         const zones = (game.state as any)?.zones?.[pid];
-        if (!zones || !Array.isArray(zones.hand)) {
+        const zoneName = castArgs.fromZone === 'exile' || castArgs.fromZone === 'graveyard' || castArgs.fromZone === 'library'
+          ? castArgs.fromZone
+          : 'hand';
+        const zoneCards = Array.isArray(zones?.[zoneName]) ? zones[zoneName] : undefined;
+
+        if (!zones || !Array.isArray(zoneCards)) {
           emitToPlayer(io, pid as any, 'error', { code: 'NO_HAND', message: 'Hand not found' });
           break;
         }
 
-        const cardInHand = (zones.hand as any[]).find((c: any) => c && c.id === cardId);
+        const cardInHand = (zoneCards as any[]).find((c: any) => c && c.id === cardId);
         if (!cardInHand) {
           emitToPlayer(io, pid as any, 'error', { code: 'CARD_NOT_IN_HAND', message: 'Card not found in hand' });
           break;
         }
 
-        if (purpose === 'modalSpell' || purpose === 'spree') {
+        if (purpose === 'modalSpell' || purpose === 'spree' || purpose === 'tiered') {
           const selectedModes = (Array.isArray(selectedRaw) ? selectedRaw : [selectedRaw])
             .map((x: any) => String(x ?? ''))
             .filter(Boolean);
@@ -10011,9 +10064,27 @@ async function handleStepResponse(
             break;
           }
 
+          const modeOptions: any[] = Array.isArray(stepData?.modes) ? stepData.modes : [];
+          const entwineCost = purpose === 'modalSpell' && typeof stepData?.entwineCost === 'string' && stepData.entwineCost.trim().length > 0
+            ? String(stepData.entwineCost).trim()
+            : undefined;
+          const isEntwinedSelection = Boolean(entwineCost) && modeOptions.length > 0 && selectedModes.length === modeOptions.length;
+
           (cardInHand as any).selectedModes = selectedModes;
+          if (purpose === 'spree' || purpose === 'tiered') {
+            (cardInHand as any).selectedAdditionalCostModes = selectedModes;
+          }
           if (purpose === 'spree') {
             (cardInHand as any).selectedSpreeModes = selectedModes;
+          }
+          if (purpose === 'modalSpell') {
+            if (isEntwinedSelection) {
+              (cardInHand as any).castWithEntwine = true;
+              (cardInHand as any).entwineCost = entwineCost;
+            } else {
+              delete (cardInHand as any).castWithEntwine;
+              delete (cardInHand as any).entwineCost;
+            }
           }
 
           appendCastSpellContinuationEvent(gameId, game, {
@@ -10021,11 +10092,17 @@ async function handleStepResponse(
             cardId,
             cardUpdates: {
               selectedModes,
+              selectedAdditionalCostModes: purpose === 'spree' || purpose === 'tiered' ? selectedModes : null,
               selectedSpreeModes: purpose === 'spree' ? selectedModes : null,
+              ...(purpose === 'modalSpell'
+                ? {
+                    castWithEntwine: isEntwinedSelection ? true : null,
+                    entwineCost: isEntwinedSelection ? entwineCost : null,
+                  }
+                : {}),
             },
           });
 
-          const modeOptions: any[] = Array.isArray(stepData?.modes) ? stepData.modes : [];
           const labels = selectedModes.map((id: string) => {
             const m = modeOptions.find(o => String(o?.id) === id);
             return String(m?.label || id);
@@ -10042,6 +10119,8 @@ async function handleStepResponse(
           emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
             gameId,
             cardId,
+            faceIndex: castArgs.faceIndex,
+            fromZone: castArgs.fromZone,
             payment: castArgs.payment,
             targets: castArgs.targets,
             xValue: castArgs.xValue,
@@ -10076,6 +10155,8 @@ async function handleStepResponse(
           emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
             gameId,
             cardId,
+            faceIndex: castArgs.faceIndex,
+            fromZone: castArgs.fromZone,
             payment: castArgs.payment,
             targets: castArgs.targets,
             xValue: castArgs.xValue,
@@ -10125,6 +10206,8 @@ async function handleStepResponse(
             emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
               gameId,
               cardId,
+              faceIndex: castArgs.faceIndex,
+              fromZone: castArgs.fromZone,
               payment: castArgs.payment,
               targets: castArgs.targets,
               xValue: castArgs.xValue,
@@ -10163,6 +10246,8 @@ async function handleStepResponse(
           emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
             gameId,
             cardId,
+            faceIndex: castArgs.faceIndex,
+            fromZone: castArgs.fromZone,
             payment: castArgs.payment,
             targets: castArgs.targets,
             xValue: castArgs.xValue,
@@ -10181,6 +10266,8 @@ async function handleStepResponse(
         emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
           gameId,
           cardId,
+          faceIndex: castArgs.faceIndex,
+          fromZone: castArgs.fromZone,
           payment: castArgs.payment,
           targets: castArgs.targets,
           xValue: castArgs.xValue,
@@ -12662,13 +12749,7 @@ async function handleTargetSelectionResponse(
     if (!pendingCast.noTargets) return;
     if (!pendingCast.pendingPaymentAfterAdditionalCost) return;
 
-    const baseManaCost = formatManaCostWithReduction(
-      String(pendingCast.manaCost || ''),
-      pendingCast.costReduction,
-      pendingCast.xValue,
-    );
-    const extraTax = String(pendingCast.additionalCostTax || '');
-    const finalManaCost = baseManaCost + extraTax;
+    const finalManaCost = buildPendingCastPaymentManaCost(pendingCast);
 
     const existingPaymentStep = ResolutionQueueManager
       .getStepsForPlayer(gameId, payerId as any)
@@ -15866,19 +15947,43 @@ async function handleTargetSelectionResponse(
         return;
       }
       
-      // Store targets with the pending cast
-      pendingCast.targets = selections;
+      const existingTargets = Array.isArray(pendingCast.targets)
+        ? pendingCast.targets.map((targetId: any) => String(targetId))
+        : [];
+
+      // Preserve target order across multiple queued target steps for the same spell.
+      pendingCast.targets = [...existingTargets, ...selections.map((targetId: string) => String(targetId))];
+
+      const remainingTargetSteps = ResolutionQueueManager
+        .getStepsForPlayer(gameId, pid as any)
+        .filter((queueStep: any) =>
+          queueStep?.type === ResolutionStepType.TARGET_SELECTION &&
+          String((queueStep as any)?.spellCastContext?.effectId || '') === String(effectId)
+        );
+
+      if (remainingTargetSteps.length > 0) {
+        debug(2, `[Resolution] Stored ${selections.length} target(s) for ${cardName}; waiting on ${remainingTargetSteps.length} more target step(s)`);
+
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+
+        broadcastGame(io, game, gameId);
+        return;
+      }
       
       // Calculate final mana cost, accounting for Strive and other target-based modifiers
-      let finalManaCost = formatManaCostWithReduction(String(manaCost || ''), pendingCast.costReduction, pendingCast.xValue);
+      let finalManaCost = buildPendingCastPaymentManaCost(pendingCast);
       let striveCostMessage = '';
       
       // Check for Strive additional cost
       const cardOracleText = pendingCast.card?.oracle_text || oracleText || '';
       const striveMatch = cardOracleText.match(/\bStrive\s*[—\-]\s*This spell costs\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s+more to cast for each target beyond the first/i);
-      if (striveMatch && selections.length > 1) {
+      const finalTargets = Array.isArray(pendingCast.targets) ? pendingCast.targets.map((targetId: any) => String(targetId)) : selections;
+
+      if (striveMatch && finalTargets.length > 1) {
         const striveCostPer = striveMatch[1].trim();
-        const additionalTargets = selections.length - 1;
+        const additionalTargets = finalTargets.length - 1;
         
         // Build the additional cost string
         let additionalCost = '';
@@ -15887,15 +15992,11 @@ async function handleTargetSelectionResponse(
         }
         
         finalManaCost = finalManaCost + additionalCost;
-        striveCostMessage = ` (Strive: +${striveCostPer} × ${additionalTargets} for ${selections.length} targets)`;
+        striveCostMessage = ` (Strive: +${striveCostPer} × ${additionalTargets} for ${finalTargets.length} targets)`;
         debug(1, `[Resolution] Strive cost added: base ${manaCost} + ${additionalCost} = ${finalManaCost}`);
       }
       
       // Update the pending cast with the final cost
-      // Apply extra mana-based additional costs (e.g. "Blight N or pay {X}")
-      if (pendingCast.additionalCostTax) {
-        finalManaCost = finalManaCost + String(pendingCast.additionalCostTax);
-      }
       pendingCast.finalManaCost = finalManaCost;
 
       const existingPaymentStep = ResolutionQueueManager
@@ -15922,7 +16023,7 @@ async function handleTargetSelectionResponse(
           manaCost: finalManaCost,
           xValue: pendingCast.xValue,
           effectId,
-          targets: selections,
+          targets: finalTargets,
           imageUrl,
           costReduction: pendingCast.costReduction,
           convokeOptions: pendingCast.convokeOptions,
@@ -19299,10 +19400,50 @@ async function handleCardNameChoiceResponse(
   }
   
   const permanentId = (step as any).permanentId || (step as any).sourceId;
+  const spellId = (step as any).spellId;
   const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
-  
-  // Find the permanent on the battlefield
+
   const state = game.state || {};
+
+  if (spellId) {
+    const stack = Array.isArray(state.stack) ? state.stack : [];
+    const spellOnStack = stack.find((stackItem: any) => stackItem && (stackItem.id === spellId || stackItem.cardId === spellId));
+
+    if (!spellOnStack) {
+      debugWarn(2, `[Resolution] Card name choice: spell ${spellId} not found on stack`);
+      return;
+    }
+
+    (spellOnStack as any).chosenCardName = selection;
+
+    try {
+      await appendEvent(gameId, (game as any).seq || 0, "cardNameChoice", {
+        playerId: pid,
+        spellId,
+        cardName,
+        chosenName: selection,
+      });
+    } catch (e) {
+      debugWarn(1, "[Resolution] Failed to persist spell card name choice event:", e);
+    }
+
+    if (typeof (game as any).bumpSeq === "function") {
+      (game as any).bumpSeq();
+    }
+
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} chose "${selection}" for ${cardName}.`,
+      ts: Date.now(),
+    });
+
+    debug(2, `[Resolution] Spell card name choice completed: ${cardName} -> ${selection}`);
+    return;
+  }
+
+  // Find the permanent on the battlefield
   const battlefield = state.battlefield || [];
   const permanent = battlefield.find((p: any) => p.id === permanentId);
   
@@ -21916,13 +22057,7 @@ async function handleOptionChoiceResponse(
       if (!pendingCast.noTargets) return;
       if (!pendingCast.pendingPaymentAfterAdditionalCost) return;
 
-      const baseManaCost = formatManaCostWithReduction(
-        String(pendingCast.manaCost || ''),
-        pendingCast.costReduction,
-        pendingCast.xValue,
-      );
-      const extraTax = String(pendingCast.additionalCostTax || '');
-      const finalManaCost = baseManaCost + extraTax;
+      const finalManaCost = buildPendingCastPaymentManaCost(pendingCast);
 
       const existingPaymentStep = ResolutionQueueManager
         .getStepsForPlayer(gameId, playerId as any)

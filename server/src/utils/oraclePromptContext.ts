@@ -24,6 +24,9 @@ export interface OraclePromptContext {
 export interface OracleModalModeInfo {
   readonly minModes: number;
   readonly maxModes: number;
+  readonly normalMinModes: number;
+  readonly normalMaxModes: number;
+  readonly entwineCost?: string;
   readonly options: readonly {
     readonly id: string;
     readonly label: string;
@@ -173,8 +176,9 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
   // Supported (best-effort):
   // - "Choose one —"
   // - "Choose one or both —"
+  // - "Choose one or more —"
   // - "Choose any number —"
-  const headerIndex = lines.findIndex(l => /^choose\s+(one|two|three|four|any number)\b/i.test(l) && /-/.test(l));
+  const headerIndex = lines.findIndex(l => /^choose\s+(one(?:\s+or\s+(?:both|more))?|two|three|four|any number)\b/i.test(l) && /-/.test(l));
   if (headerIndex === -1) return undefined;
 
   const header = lines[headerIndex];
@@ -192,6 +196,9 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
   } else if (/^choose\s+one\s+or\s+both\b/i.test(headerLower)) {
     minModes = 1;
     maxModes = 2;
+  } else if (/^choose\s+one\s+or\s+more\b/i.test(headerLower)) {
+    minModes = 1;
+    maxModes = 99; // will be clamped to option count after parsing
   } else {
     const headerMatch = header.match(/^choose\s+(one|two|three|four)\b/i);
     if (!headerMatch) return undefined;
@@ -199,6 +206,9 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
     minModes = wordToCount[word] ?? 1;
     maxModes = minModes;
   }
+
+  const normalMinModes = minModes;
+  const normalMaxModes = maxModes;
 
   // Collect bullet lines that follow.
   const rawOptions: string[] = [];
@@ -216,6 +226,15 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
     maxModes = rawOptions.length;
   }
 
+  const entwineMatch = text.match(/\bentwine\s+((?:\{[^}]+\}\s*)+)/i);
+  const entwineCost = entwineMatch
+    ? entwineMatch[1].replace(/\s+/g, '').trim()
+    : undefined;
+
+  if (entwineCost && rawOptions.length > maxModes) {
+    maxModes = rawOptions.length;
+  }
+
   const options = rawOptions.map((raw, idx) => {
     const label = raw.length > 60 ? raw.slice(0, 57) + '...' : raw;
     return {
@@ -228,7 +247,7 @@ export function extractModalModesFromOracleText(oracleText: string): OracleModal
 
   const allOptionsHaveTargets = rawOptions.every(o => /\btarget\b/i.test(o) || /\bany target\b/i.test(o));
 
-  return { minModes, maxModes, options, allOptionsHaveTargets };
+  return { minModes, maxModes, normalMinModes, normalMaxModes, entwineCost, options, allOptionsHaveTargets };
 }
 
 export function getOracleTextFromResolutionStep(step: unknown): string | undefined {
