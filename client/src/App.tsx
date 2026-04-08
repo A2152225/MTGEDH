@@ -61,6 +61,8 @@ import { CounterMovementModal } from "./components/CounterMovementModal";
 import { StationCreatureSelectionModal, type StationCreature, type StationInfo } from "./components/StationCreatureSelectionModal";
 import { PlayerTargetSelectionModal, type PlayerTarget } from "./components/PlayerTargetSelectionModal";
 import { PonderModal, type PeekCard, type PonderVariant } from "./components/PonderModal";
+import { DanceWithCalamityCastModal, DanceWithCalamityModal } from "./components/DanceWithCalamityModal";
+import { LimDulsVaultModal } from "./components/LimDulsVaultModal";
 import { ExploreModal, type ExploreCard } from "./components/ExploreModal";
 import { BatchExploreModal, type ExploreResult } from "./components/BatchExploreModal";
 import { CascadeModal } from "./components/CascadeModal";
@@ -442,6 +444,7 @@ export function App() {
     description?: string;
     filter?: { types?: string[]; subtypes?: string[]; maxCmc?: number };
     maxSelections: number;
+    maxTotalManaValue?: number;
     moveTo: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'split';
     shuffleAfter: boolean;
     targetPlayerId?: string; // Whose library we're searching (for Gitaxian Probe, etc.)
@@ -600,6 +603,33 @@ export function App() {
     targetPlayerName?: string;
     isOwnLibrary: boolean;
     stepId?: string;  // For resolution queue integration
+  } | null>(null);
+  const [limDulsVaultModalOpen, setLimDulsVaultModalOpen] = useState(false);
+  const [limDulsVaultRequest, setLimDulsVaultRequest] = useState<{
+    cardName: string;
+    cardImageUrl?: string;
+    cards: PeekCard[];
+    currentLife: number;
+    totalLifePaid: number;
+    stepId: string;
+  } | null>(null);
+  const [danceWithCalamityModalOpen, setDanceWithCalamityModalOpen] = useState(false);
+  const [danceWithCalamityRequest, setDanceWithCalamityRequest] = useState<{
+    cardName: string;
+    cardImageUrl?: string;
+    exiledCards: PeekCard[];
+    totalManaValue: number;
+    canContinue: boolean;
+    stepId: string;
+  } | null>(null);
+  const [danceWithCalamityCastModalOpen, setDanceWithCalamityCastModalOpen] = useState(false);
+  const [danceWithCalamityCastRequest, setDanceWithCalamityCastRequest] = useState<{
+    cardName: string;
+    cardImageUrl?: string;
+    exiledCards: PeekCard[];
+    spellCards: PeekCard[];
+    totalManaValue: number;
+    stepId: string;
   } | null>(null);
   
   // Cascade modal state
@@ -2366,7 +2396,15 @@ export function App() {
     setOptionChoiceModalOpen(false);
     setTwoPileSplitModalOpen(false);
     setPonderModalOpen(false);
+    setPonderRequest(null);
+    setLimDulsVaultModalOpen(false);
+    setLimDulsVaultRequest(null);
+    setDanceWithCalamityModalOpen(false);
+    setDanceWithCalamityRequest(null);
+    setDanceWithCalamityCastModalOpen(false);
+    setDanceWithCalamityCastRequest(null);
     setCascadeModalOpen(false);
+    setCascadePrompt(null);
     setTapUntapTargetModalOpen(false);
     setFightTargetModalOpen(false);
     setCounterMovementModalOpen(false);
@@ -3064,6 +3102,42 @@ export function App() {
         });
         setPonderModalOpen(true);
       }
+
+      else if (step.type === 'lim_duls_vault') {
+        setLimDulsVaultRequest({
+          cardName: step.sourceName || "Lim-Dul's Vault",
+          cardImageUrl: step.sourceImage,
+          cards: step.cards || [],
+          currentLife: Number(step.currentLife || 0),
+          totalLifePaid: Number(step.totalLifePaid || 0),
+          stepId: step.id,
+        });
+        setLimDulsVaultModalOpen(true);
+      }
+
+      else if (step.type === 'dance_with_calamity') {
+        setDanceWithCalamityRequest({
+          cardName: step.sourceName || 'Dance with Calamity',
+          cardImageUrl: step.sourceImage,
+          exiledCards: step.exiledCards || [],
+          totalManaValue: Number(step.totalManaValue || 0),
+          canContinue: step.canContinue === true,
+          stepId: step.id,
+        });
+        setDanceWithCalamityModalOpen(true);
+      }
+
+      else if (step.type === 'dance_with_calamity_cast') {
+        setDanceWithCalamityCastRequest({
+          cardName: step.sourceName || 'Dance with Calamity',
+          cardImageUrl: step.sourceImage,
+          exiledCards: step.exiledCards || [],
+          spellCards: step.spellCards || [],
+          totalManaValue: Number(step.totalManaValue || 0),
+          stepId: step.id,
+        });
+        setDanceWithCalamityCastModalOpen(true);
+      }
       
       // Handle Library Search resolution step
       else if (step.type === 'library_search') {
@@ -3085,6 +3159,7 @@ export function App() {
           description: step.description || step.searchCriteria || 'Search your library',
           filter: step.filter || {},
           maxSelections: step.maxSelections || 1,
+          maxTotalManaValue: Number.isFinite(Number((step as any).maxTotalManaValue)) ? Number((step as any).maxTotalManaValue) : undefined,
           moveTo,
           shuffleAfter: step.shuffleAfter !== false,
           targetPlayerId: (step as any).targetPlayerId || step.playerId,
@@ -7118,6 +7193,7 @@ export function App() {
         description={librarySearchData?.description}
         filter={librarySearchData?.filter}
         maxSelections={librarySearchData?.maxSelections || 1}
+        maxTotalManaValue={librarySearchData?.maxTotalManaValue}
         moveTo={librarySearchData?.moveTo || 'hand'}
         shuffleAfter={librarySearchData?.shuffleAfter ?? true}
         splitDestination={librarySearchData?.splitDestination}
@@ -7853,6 +7929,106 @@ export function App() {
           onCancel={() => {
             setPonderModalOpen(false);
             setPonderRequest(null);
+          }}
+        />
+      )}
+
+      {limDulsVaultModalOpen && limDulsVaultRequest && (
+        <LimDulsVaultModal
+          cards={limDulsVaultRequest.cards}
+          cardName={limDulsVaultRequest.cardName}
+          cardImageUrl={limDulsVaultRequest.cardImageUrl}
+          imagePref={appearanceSettings.imagePref || 'normal'}
+          currentLife={limDulsVaultRequest.currentLife}
+          totalLifePaid={limDulsVaultRequest.totalLifePaid}
+          onContinue={(orderedIds) => {
+            if (!safeView?.id || !limDulsVaultRequest) return;
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: limDulsVaultRequest.stepId,
+              selections: {
+                action: 'continue',
+                orderedIds,
+              },
+              cancelled: false,
+            });
+            setLimDulsVaultModalOpen(false);
+            setLimDulsVaultRequest(null);
+          }}
+          onFinish={(orderedIds) => {
+            if (!safeView?.id || !limDulsVaultRequest) return;
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: limDulsVaultRequest.stepId,
+              selections: {
+                action: 'finish',
+                orderedIds,
+              },
+              cancelled: false,
+            });
+            setLimDulsVaultModalOpen(false);
+            setLimDulsVaultRequest(null);
+          }}
+        />
+      )}
+
+      {danceWithCalamityModalOpen && danceWithCalamityRequest && (
+        <DanceWithCalamityModal
+          cardName={danceWithCalamityRequest.cardName}
+          cardImageUrl={danceWithCalamityRequest.cardImageUrl}
+          imagePref={appearanceSettings.imagePref || 'normal'}
+          exiledCards={danceWithCalamityRequest.exiledCards}
+          totalManaValue={danceWithCalamityRequest.totalManaValue}
+          canContinue={danceWithCalamityRequest.canContinue}
+          onContinue={() => {
+            if (!safeView?.id || !danceWithCalamityRequest) return;
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: danceWithCalamityRequest.stepId,
+              selections: {
+                action: 'continue',
+              },
+              cancelled: false,
+            });
+            setDanceWithCalamityModalOpen(false);
+            setDanceWithCalamityRequest(null);
+          }}
+          onStop={() => {
+            if (!safeView?.id || !danceWithCalamityRequest) return;
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: danceWithCalamityRequest.stepId,
+              selections: {
+                action: 'stop',
+              },
+              cancelled: false,
+            });
+            setDanceWithCalamityModalOpen(false);
+            setDanceWithCalamityRequest(null);
+          }}
+        />
+      )}
+
+      {danceWithCalamityCastModalOpen && danceWithCalamityCastRequest && (
+        <DanceWithCalamityCastModal
+          cardName={danceWithCalamityCastRequest.cardName}
+          cardImageUrl={danceWithCalamityCastRequest.cardImageUrl}
+          imagePref={appearanceSettings.imagePref || 'normal'}
+          exiledCards={danceWithCalamityCastRequest.exiledCards}
+          spellCards={danceWithCalamityCastRequest.spellCards}
+          totalManaValue={danceWithCalamityCastRequest.totalManaValue}
+          onConfirm={(orderedSpellIds) => {
+            if (!safeView?.id || !danceWithCalamityCastRequest) return;
+            socket.emit('submitResolutionResponse', {
+              gameId: safeView.id,
+              stepId: danceWithCalamityCastRequest.stepId,
+              selections: {
+                orderedSpellIds,
+              },
+              cancelled: false,
+            });
+            setDanceWithCalamityCastModalOpen(false);
+            setDanceWithCalamityCastRequest(null);
           }}
         />
       )}

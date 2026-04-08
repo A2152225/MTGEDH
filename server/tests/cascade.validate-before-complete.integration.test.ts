@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -124,5 +124,90 @@ describe('CASCADE validate-before-complete (integration)', () => {
     await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'decline' });
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+  });
+
+  it('persists cascadeResolve when a cascade decision completes', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+
+    const remainingLibrary = [{ id: 'after_1', name: 'After Card', type_line: 'Sorcery' }];
+    (game as any).libraries = new Map();
+    (game as any).libraries.set(p1, [...remainingLibrary]);
+
+    (game.state as any).zones = {
+      [p1]: {
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: remainingLibrary.length,
+      },
+    };
+    (game.state as any).pendingCascade = {
+      [p1]: [
+        {
+          sourceName: 'Bloodbraid Elf',
+          sourceCardId: 'bloodbraid_elf',
+          manaValue: 4,
+          instance: 1,
+          effectId: 'eff_persist',
+          awaiting: true,
+          hitCard: { id: 'hit_1', name: 'Hit Card', type_line: 'Instant', oracle_text: 'Draw a card.' },
+          exiledCards: [
+            { id: 'hit_1', name: 'Hit Card', type_line: 'Instant', oracle_text: 'Draw a card.' },
+            { id: 'ex_2', name: 'Other', type_line: 'Sorcery', oracle_text: 'Scry 1.' },
+          ],
+        },
+      ],
+    };
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.CASCADE,
+      playerId: p1 as any,
+      description: 'Cascade now',
+      mandatory: true,
+      sourceId: 'bloodbraid_elf',
+      sourceName: 'Bloodbraid Elf',
+      effectId: 'eff_persist',
+      hitCard: { id: 'hit_1', name: 'Hit Card', type_line: 'Instant', oracle_text: 'Draw a card.' },
+      exiledCards: [{ id: 'hit_1', name: 'Hit Card' }, { id: 'ex_2', name: 'Other' }],
+      manaValue: 4,
+      cascadeNumber: 1,
+      totalCascades: 1,
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'cascade');
+    await handlers['submitResolutionResponse']({ gameId, stepId: String((step as any).id), selections: 'decline' });
+
+    const cascadeEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'cascadeResolve') as any;
+    expect(cascadeEvent).toBeDefined();
+    expect(cascadeEvent.payload).toMatchObject({
+      playerId: p1,
+      effectId: 'eff_persist',
+      sourceCardId: 'bloodbraid_elf',
+      sourceName: 'Bloodbraid Elf',
+      cast: false,
+    });
+    expect(cascadeEvent.payload.libraryAfter.map((card: any) => card.id)).toHaveLength(3);
+    expect(cascadeEvent.payload.libraryAfter.map((card: any) => card.id)).toContain('after_1');
+    expect(cascadeEvent.payload.libraryAfter.map((card: any) => card.id)).toContain('hit_1');
+    expect(cascadeEvent.payload.libraryAfter.map((card: any) => card.id)).toContain('ex_2');
   });
 });

@@ -107,6 +107,9 @@ export enum ResolutionStepType {
   CASCADE = 'cascade',
   SCRY = 'scry',
   SURVEIL = 'surveil',
+  LIM_DULS_VAULT = 'lim_duls_vault',
+  DANCE_WITH_CALAMITY = 'dance_with_calamity',
+  DANCE_WITH_CALAMITY_CAST = 'dance_with_calamity_cast',
   DISCARD_EFFECT = 'discard_effect',
   MILL = 'mill',
   DEVOUR_SELECTION = 'devour_selection',
@@ -553,6 +556,7 @@ export interface LibrarySearchStep extends BaseResolutionStep {
   readonly searchCriteria: string;
   readonly minSelections: number;
   readonly maxSelections: number;
+  readonly maxTotalManaValue?: number;
   readonly mandatory: boolean;
   readonly destination: 'hand' | 'battlefield' | 'top' | 'bottom' | 'graveyard' | 'exile';
   readonly reveal: boolean;
@@ -591,6 +595,43 @@ export interface PonderEffectStep extends BaseResolutionStep {
   readonly cardCount: number;
   readonly drawAfter: boolean;
   readonly mayShuffleAfter: boolean;
+}
+
+/**
+ * Bottom-of-library ordering step
+ *
+ * Used when an effect reveals or looks at cards and then asks the player to
+ * put some or all of them on the bottom of a library in a chosen order.
+ */
+export interface BottomOrderStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.BOTTOM_ORDER;
+  readonly cards: readonly KnownCardRef[];
+  readonly shuffleAfter?: boolean;
+  readonly effectId?: string;
+}
+
+export interface LimDulsVaultStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.LIM_DULS_VAULT;
+  readonly cards: readonly KnownCardRef[];
+  readonly effectId: string;
+  readonly currentLife: number;
+  readonly totalLifePaid: number;
+}
+
+export interface DanceWithCalamityStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.DANCE_WITH_CALAMITY;
+  readonly effectId: string;
+  readonly exiledCards: readonly KnownCardRef[];
+  readonly totalManaValue: number;
+  readonly canContinue: boolean;
+}
+
+export interface DanceWithCalamityCastStep extends BaseResolutionStep {
+  readonly type: ResolutionStepType.DANCE_WITH_CALAMITY_CAST;
+  readonly effectId: string;
+  readonly exiledCards: readonly KnownCardRef[];
+  readonly spellCards: readonly KnownCardRef[];
+  readonly totalManaValue: number;
 }
 
 /**
@@ -866,6 +907,10 @@ export type ResolutionStep =
   | LibrarySearchStep
   | OptionChoiceStep
   | PonderEffectStep
+  | BottomOrderStep
+  | LimDulsVaultStep
+  | DanceWithCalamityStep
+  | DanceWithCalamityCastStep
   | ExploreDecisionStep
   | BatchExploreDecisionStep
   | ScryStep

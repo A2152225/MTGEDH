@@ -4,7 +4,7 @@ import { ensureGame, broadcastGame, schedulePriorityTimeout } from "./util";
 import { appendEvent, updateGameCreatorPlayerId, getGameCreator } from "../db";
 import { computeDiff } from "../utils/diff";
 import { games } from "./socket.js";
-import { emitResolutionStepPrompt } from "./resolution.js";
+import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingPonder, processPendingScry, processPendingSurveil } from "./resolution.js";
 import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
@@ -1015,6 +1015,18 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
             } catch {}
 
             // Build view (viewFor or raw) with judge support
+            try {
+              await processPendingCascades(io as any, game, gameId);
+              processPendingScry(io as any, game, gameId);
+              processPendingSurveil(io as any, game, gameId);
+              processPendingPonder(io as any, game, gameId);
+              processPendingBottomOrder(io as any, game, gameId);
+              processPendingLimDulsVault(io as any, game, gameId);
+              processPendingDanceWithCalamity(io as any, game, gameId);
+            } catch (e) {
+              debugWarn(1, 'joinGame: pending resolution restore failed', e);
+            }
+
             let rawView: any;
             try {
               if (typeof (game as any).viewFor === "function") {

@@ -3350,6 +3350,7 @@ function enqueueLibrarySearchStep(
     toHand?: number;
     entersTapped?: boolean;
     lifeLoss?: number;
+    maxTotalManaValue?: number;
     persistLibrarySearchResolve?: boolean;
     persistLibrarySearchResolveReason?: string;
     persistLibrarySearchResolveAbilityId?: string;
@@ -3381,6 +3382,7 @@ function enqueueLibrarySearchStep(
     toHand = 0,
     entersTapped = tapped,
     lifeLoss,
+    maxTotalManaValue,
     persistLibrarySearchResolve = true,
     persistLibrarySearchResolveReason = 'stack_resolution',
     persistLibrarySearchResolveAbilityId,
@@ -3492,6 +3494,10 @@ function enqueueLibrarySearchStep(
     return matches;
   });
 
+  const effectiveMaxSelections = Number.isFinite(maxSelections)
+    ? Math.max(minSelections, Math.min(maxSelections, Math.max(availableCards.length, minSelections)))
+    : Math.max(availableCards.length, minSelections);
+
   ResolutionQueueManager.addStep(gameId, {
     type: ResolutionStepType.LIBRARY_SEARCH,
     playerId: controller as PlayerID,
@@ -3501,7 +3507,8 @@ function enqueueLibrarySearchStep(
     sourceName: source,
     searchCriteria: searchFor,
     minSelections,
-    maxSelections,
+    maxSelections: effectiveMaxSelections,
+    maxTotalManaValue,
     destination,
     reveal,
     shuffleAfter,
@@ -6874,6 +6881,30 @@ export function executeTriggerEffect(
   // This regex-based approach handles ALL cards with "search your library" patterns,
   // not just hardcoded card names. Works for any of the 27,000+ MTG cards.
   // ============================================================================
+  const proteanHulkMatch = desc.match(/search your library for any number of creature cards with total mana value (\d+) or less and put them onto the battlefield/i);
+  if (proteanHulkMatch) {
+    const maxTotalManaValue = Math.max(0, Number(proteanHulkMatch[1] || 0));
+    enqueueLibrarySearchStep(ctx, controller as PlayerID, {
+      sourceId: String((triggerItem as any)?.source || (triggerItem as any)?.permanentId || ''),
+      source: sourceName,
+      description: `${sourceName}: Search your library for any number of creature cards with total mana value ${maxTotalManaValue} or less.`,
+      searchFor: `any number of creature cards with total mana value ${maxTotalManaValue} or less`,
+      destination: 'battlefield',
+      optional: true,
+      maxSelections: Number.MAX_SAFE_INTEGER,
+      minSelections: 0,
+      reveal: true,
+      shuffleAfter: true,
+      filter: { types: ['creature'] },
+      maxTotalManaValue,
+      persistLibrarySearchResolve: true,
+      persistLibrarySearchResolveReason: 'stack_resolution',
+    });
+
+    debug(2, `[executeTriggerEffect] ${sourceName}: queued Protean Hulk search with total mana value cap ${maxTotalManaValue}`);
+    return;
+  }
+
   const searchLibraryMatch = desc.match(/(?:you may )?search your library for (?:a|an|up to (?:one|two|three|\d+)) ([^,\.]+)/i);
   if (searchLibraryMatch) {
     const searchFor = searchLibraryMatch[1].trim();
@@ -13521,6 +13552,37 @@ export function resolveTopOfStack(ctx: GameContext) {
       debug(2, `[resolveTopOfStack] Ponder-style spell ${effectiveCard.name} set up pending effect (variant: ${ponderConfig.variant}, cards: ${ponderConfig.cardCount})`);
     }
 
+    if (isLimDulsVaultSpell(effectiveCard.name, oracleTextLower)) {
+      const currentLife = Number((state as any).life?.[controller] ?? state.startingLife ?? 40);
+      (state as any).pendingLimDulsVault = (state as any).pendingLimDulsVault || {};
+      (state as any).pendingLimDulsVault[controller] = {
+        effectId: uid('lim_duls_vault'),
+        sourceName: effectiveCard.name || "Lim-Dul's Vault",
+        sourceImage: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
+        totalLifePaid: 0,
+        currentLife,
+      };
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} set up pending Lim-Dul's Vault prompt`);
+    }
+
+    if (isDanceWithCalamitySpell(effectiveCard.name, oracleTextLower)) {
+      if (typeof (ctx as any).shuffleLibrary === 'function') {
+        (ctx as any).shuffleLibrary(controller);
+      }
+
+      (state as any).pendingDanceWithCalamity = (state as any).pendingDanceWithCalamity || {};
+      (state as any).pendingDanceWithCalamity[controller] = {
+        effectId: uid('dance_with_calamity'),
+        sourceName: effectiveCard.name || 'Dance with Calamity',
+        sourceImage: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
+        exiledCards: [],
+        totalManaValue: 0,
+        stage: 'exile',
+        queued: false,
+      };
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} set up pending Dance with Calamity prompt`);
+    }
+
     // Handle Genesis Wave: Reveal top X, you may put any number of permanents with MV <= X onto battlefield, rest to graveyard
     if ((effectiveCard.name || '').toLowerCase().includes('genesis wave')) {
       const xVal = typeof spellXValue === 'number' ? spellXValue : 0;
@@ -14736,6 +14798,31 @@ function isPonderStyleSpell(cardName: string, oracleTextLower: string): boolean 
   }
   
   return false;
+}
+
+function isLimDulsVaultSpell(cardName: string, oracleTextLower: string): boolean {
+  const nameLower = (cardName || '').toLowerCase();
+  if (nameLower === "lim-dûl's vault" || nameLower === "lim-dul's vault") {
+    return true;
+  }
+
+  return oracleTextLower.includes('look at the top five cards of your library')
+    && oracleTextLower.includes('pay 1 life')
+    && oracleTextLower.includes('put those cards on the bottom of your library in any order')
+    && oracleTextLower.includes('put the last cards you looked at this way on top in any order');
+}
+
+function isDanceWithCalamitySpell(cardName: string, oracleTextLower: string): boolean {
+  const nameLower = (cardName || '').toLowerCase();
+  if (nameLower === 'dance with calamity') {
+    return true;
+  }
+
+  return oracleTextLower.includes('shuffle your library')
+    && oracleTextLower.includes('as many times as you choose')
+    && oracleTextLower.includes('you may exile the top card of your library')
+    && oracleTextLower.includes('if the total mana value of the cards exiled this way is 13 or less')
+    && oracleTextLower.includes('you may cast any number of spells from among those cards without paying their mana costs');
 }
 
 /**

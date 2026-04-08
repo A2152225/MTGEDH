@@ -97,6 +97,31 @@ type ResolutionPaymentItem = {
   count?: number;
 };
 
+function cloneCascadeZoneCard(card: any, zone: 'library' | 'exile'): any {
+  return card && typeof card === 'object' ? { ...card, zone } : card;
+}
+
+function cloneCascadeLibrary(cards: any[]): any[] {
+  return Array.isArray(cards) ? cards.map((card: any) => cloneCascadeZoneCard(card, 'library')) : [];
+}
+
+function cloneLibraryStateForEvent(cards: any[]): any[] {
+  return Array.isArray(cards) ? cards.map((card: any) => ({ ...card, zone: 'library' })) : [];
+}
+
+function cloneZoneCardsForEvent(cards: any[], zone: 'hand' | 'library' | 'graveyard' | 'exile'): any[] {
+  return Array.isArray(cards) ? cards.map((card: any) => ({ ...card, zone })) : [];
+}
+
+function cloneExileStateForEvent(cards: any[]): any[] {
+  return cloneZoneCardsForEvent(cards, 'exile');
+}
+
+function hasPendingSpellCastForPlayer(game: any, playerId: string): boolean {
+  const pendingSpellCasts = Object.values(((game?.state as any)?.pendingSpellCasts || {})) as any[];
+  return pendingSpellCasts.some((entry: any) => String(entry?.playerId || '') === String(playerId || ''));
+}
+
 const MANA_POOL_KEY_BY_SYMBOL: Record<string, string> = {
   W: 'white',
   U: 'blue',
@@ -2003,7 +2028,7 @@ async function handleAIResolutionStep(
         const minSelections = searchStep.minSelections || 0;
         const maxSelections = searchStep.maxSelections || 1;
         const destination = searchStep.destination || 'hand';
-        const filter = searchStep.filter || {};
+        const maxTotalManaValue = Number(searchStep.maxTotalManaValue);
         
         if (availableCards.length === 0) {
           // No valid cards found - complete with empty selection
@@ -2022,6 +2047,7 @@ async function handleAIResolutionStep(
           minSelections,
           maxSelections,
           destination,
+          maxTotalManaValue: Number.isFinite(maxTotalManaValue) ? maxTotalManaValue : undefined,
         });
         
         response = {
@@ -2114,6 +2140,65 @@ async function handleAIResolutionStep(
           timestamp: Date.now(),
         };
         debug(2, `[Resolution] AI bottom_order: ordering ${cards.length} card(s) as-is`);
+        break;
+      }
+
+      case ResolutionStepType.LIM_DULS_VAULT: {
+        const vaultStep = step as any;
+        const cards = Array.isArray(vaultStep.cards) ? vaultStep.cards : [];
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            action: 'finish',
+            orderedIds: cards.map((card: any) => String(card?.id || '')).filter(Boolean),
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI lim_duls_vault: keeping current top-five order`);
+        break;
+      }
+
+      case ResolutionStepType.DANCE_WITH_CALAMITY: {
+        const danceStep = step as any;
+        const exiledCards = Array.isArray(danceStep.exiledCards) ? danceStep.exiledCards : [];
+        const totalManaValue = Number(danceStep.totalManaValue || 0);
+        const hasSpell = exiledCards.some((card: any) => !String(card?.type_line || '').toLowerCase().includes('land'));
+        const shouldContinue = danceStep.canContinue === true && (!hasSpell || totalManaValue <= 8);
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            action: shouldContinue ? 'continue' : 'stop',
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI dance_with_calamity: ${shouldContinue ? 'continue' : 'stop'} at total ${totalManaValue}`);
+        break;
+      }
+
+      case ResolutionStepType.DANCE_WITH_CALAMITY_CAST: {
+        const castStep = step as any;
+        const spellCards = Array.isArray(castStep.spellCards) ? castStep.spellCards : [];
+        const orderedSpellIds = [...spellCards]
+          .sort((left: any, right: any) => (Number(right?.cmc || 0) || 0) - (Number(left?.cmc || 0) || 0))
+          .map((card: any) => String(card?.id || ''))
+          .filter(Boolean);
+
+        response = {
+          stepId: step.id,
+          playerId: step.playerId,
+          selections: {
+            orderedSpellIds,
+          },
+          cancelled: false,
+          timestamp: Date.now(),
+        };
+        debug(2, `[Resolution] AI dance_with_calamity_cast: selected ${orderedSpellIds.length} spell(s)`);
         break;
       }
       
@@ -2960,7 +3045,7 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
   /**
    * Get the next resolution step for the current player
    */
-  socket.on("getMyNextResolutionStep", (payload?: { gameId?: unknown }) => {
+  socket.on("getMyNextResolutionStep", async (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!((socket.data as any)?.spectator || (socket.data as any)?.isSpectator);
@@ -2993,6 +3078,21 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       return;
     }
     
+    try {
+      const game = ensureGame(gameId);
+      if (game) {
+        await processPendingCascades(io, game, gameId);
+        processPendingScry(io, game, gameId);
+        processPendingSurveil(io, game, gameId);
+        processPendingPonder(io, game, gameId);
+        processPendingBottomOrder(io, game, gameId);
+        processPendingLimDulsVault(io, game, gameId);
+        processPendingDanceWithCalamity(io, game, gameId);
+      }
+    } catch {
+      // best-effort only
+    }
+
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, pid);
     const nextStep = steps.length > 0 ? steps[0] : undefined;
     
@@ -3645,13 +3745,13 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
           }
         }
 
+        const selectedCards = selectedIds
+          .map((id) => availableCards.find((c: any) => String(c?.id) === String(id)))
+          .filter(Boolean);
+
         // Enforce optional constraints that the handler also enforces.
         // Doing this here prevents consuming the step if the selection violates constraints.
         if (selectedIds.length > 0) {
-          const selectedCards = selectedIds
-            .map((id) => availableCards.find((c: any) => String(c?.id) === String(id)))
-            .filter(Boolean);
-
           const maxTypes = stepAny.maxTypes as Record<string, number> | undefined;
           if (maxTypes && typeof maxTypes === 'object') {
             const counts: Record<string, number> = {};
@@ -3682,6 +3782,20 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
               }
               seen.add(name);
             }
+          }
+        }
+
+        const maxTotalManaValue = Number(stepAny.maxTotalManaValue);
+        if (Number.isFinite(maxTotalManaValue) && maxTotalManaValue >= 0) {
+          const totalManaValue = (selectedCards as any[]).reduce((sum: number, card: any) => {
+            return sum + Math.max(0, Number(card?.cmc || 0) || 0);
+          }, 0);
+          if (totalManaValue > maxTotalManaValue) {
+            socket.emit('error', {
+              code: 'INVALID_SELECTION_TOTAL_MANA_VALUE',
+              message: `Selected cards total mana value ${totalManaValue} exceeds ${maxTotalManaValue}.`,
+            });
+            return;
           }
         }
 
@@ -5802,6 +5916,56 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       }
     }
 
+    if (step.type === ResolutionStepType.LIM_DULS_VAULT) {
+      const stepAny = step as any;
+
+      if (cancelled) {
+        socket.emit('error', { code: 'STEP_MANDATORY', message: 'This step is mandatory and cannot be cancelled' });
+        return;
+      }
+
+      const raw: any = response.selections as any;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid Lim-Dul\'s Vault selection format' });
+        return;
+      }
+
+      const action = String(raw.action || '').trim();
+      if (action !== 'continue' && action !== 'finish') {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Invalid Lim-Dul\'s Vault action' });
+        return;
+      }
+
+      const orderedIds = Array.isArray(raw.orderedIds)
+        ? raw.orderedIds.map((value: any) => String(value || '')).filter(Boolean)
+        : [];
+      const cards: any[] = Array.isArray(stepAny.cards) ? stepAny.cards : [];
+      const stepCardIds = cards.map((card: any) => String(card?.id || '')).filter(Boolean);
+
+      if (orderedIds.length !== stepCardIds.length) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Lim-Dul\'s Vault order must include all revealed cards' });
+        return;
+      }
+      const seen = new Set(orderedIds);
+      if (seen.size !== orderedIds.length) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Duplicate card selected' });
+        return;
+      }
+      const stepSet = new Set(stepCardIds);
+      if (!orderedIds.every((id: string) => stepSet.has(id))) {
+        socket.emit('error', { code: 'INVALID_SELECTION', message: 'Lim-Dul\'s Vault selection contains invalid card(s)' });
+        return;
+      }
+
+      if (action === 'continue') {
+        const currentLife = Number((game.state as any)?.life?.[pid] ?? (game.state as any)?.startingLife ?? 40);
+        if (!Number.isFinite(currentLife) || currentLife <= 1) {
+          socket.emit('error', { code: 'INSUFFICIENT_LIFE', message: 'You do not have enough life to continue with Lim-Dul\'s Vault' });
+          return;
+        }
+      }
+    }
+
     // Validate PLAYER_CHOICE selections before completing the step.
     // The handler can early-return on invalid/unsupported selection formats.
     if (step.type === ResolutionStepType.PLAYER_CHOICE) {
@@ -6990,6 +7154,7 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
       if ('searchCriteria' in step) fields.searchCriteria = step.searchCriteria;
       if ('minSelections' in step) fields.minSelections = step.minSelections;
       if ('maxSelections' in step) fields.maxSelections = step.maxSelections;
+      if ('maxTotalManaValue' in step) fields.maxTotalManaValue = (step as any).maxTotalManaValue;
       if ('destination' in step) fields.destination = step.destination;
       if ('reveal' in step) fields.reveal = step.reveal;
       if ('shuffleAfter' in step) fields.shuffleAfter = step.shuffleAfter;
@@ -7166,6 +7331,27 @@ function getTypeSpecificFields(step: ResolutionStep): Record<string, any> {
     case ResolutionStepType.BOTTOM_ORDER:
       if ('cards' in step) fields.cards = (step as any).cards;
       if ('shuffleAfter' in step) fields.shuffleAfter = (step as any).shuffleAfter;
+      break;
+
+    case ResolutionStepType.LIM_DULS_VAULT:
+      if ('cards' in step) fields.cards = (step as any).cards;
+      if ('effectId' in step) fields.effectId = (step as any).effectId;
+      if ('currentLife' in step) fields.currentLife = (step as any).currentLife;
+      if ('totalLifePaid' in step) fields.totalLifePaid = (step as any).totalLifePaid;
+      break;
+
+    case ResolutionStepType.DANCE_WITH_CALAMITY:
+      if ('effectId' in step) fields.effectId = (step as any).effectId;
+      if ('exiledCards' in step) fields.exiledCards = (step as any).exiledCards;
+      if ('totalManaValue' in step) fields.totalManaValue = (step as any).totalManaValue;
+      if ('canContinue' in step) fields.canContinue = (step as any).canContinue;
+      break;
+
+    case ResolutionStepType.DANCE_WITH_CALAMITY_CAST:
+      if ('effectId' in step) fields.effectId = (step as any).effectId;
+      if ('exiledCards' in step) fields.exiledCards = (step as any).exiledCards;
+      if ('spellCards' in step) fields.spellCards = (step as any).spellCards;
+      if ('totalManaValue' in step) fields.totalManaValue = (step as any).totalManaValue;
       break;
       
     case ResolutionStepType.PROLIFERATE:
@@ -11343,6 +11529,18 @@ async function handleStepResponse(
 
     case ResolutionStepType.BOTTOM_ORDER:
       handleBottomOrderResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.LIM_DULS_VAULT:
+      handleLimDulsVaultResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.DANCE_WITH_CALAMITY:
+      handleDanceWithCalamityResponse(io, game, gameId, step, response);
+      break;
+
+    case ResolutionStepType.DANCE_WITH_CALAMITY_CAST:
+      handleDanceWithCalamityCastSelectionResponse(io, game, gameId, step, response);
       break;
       
     case ResolutionStepType.PROLIFERATE:
@@ -17536,8 +17734,12 @@ async function handleCascadeResponse(
   
   const cascadeStep = step as any;
   const effectId = cascadeStep.effectId;
-  const hitCard = cascadeStep.hitCard;
-  const exiledCards = cascadeStep.exiledCards || [];
+  const pendingCascade = ((game.state as any).pendingCascade || {}) as Record<string, any[]>;
+  const playerQueue = Array.isArray(pendingCascade[pid]) ? pendingCascade[pid] : [];
+  const queueIndex = playerQueue.findIndex((entry: any) => String(entry?.effectId || '') === String(effectId || ''));
+  const entry = queueIndex >= 0 ? playerQueue[queueIndex] : undefined;
+  const hitCard = entry?.hitCard || cascadeStep.hitCard;
+  const exiledCards = Array.isArray(entry?.exiledCards) ? entry.exiledCards : (cascadeStep.exiledCards || []);
   
   debug(2, `[Resolution] Cascade response: player=${pid}, cast=${cast}, effectId=${effectId}`);
   
@@ -17558,38 +17760,36 @@ async function handleCascadeResponse(
     const j = Math.floor(Math.random() * (i + 1));
     [randomized[i], randomized[j]] = [randomized[j], randomized[i]];
   }
-  
-  for (const card of randomized) {
-    if (cast && hitCard && card.id === hitCard.id) continue;
-    lib.push({ ...card, zone: 'library' });
-  }
-  z.libraryCount = lib.length;
+
+  const remainingLibrary = cloneCascadeLibrary(lib);
+  const bottomCards = randomized
+    .filter((card) => !(cast && hitCard && card?.id === hitCard.id))
+    .map((card) => cloneCascadeZoneCard(card, 'library'));
+  const libraryAfter = [...remainingLibrary, ...bottomCards];
+
+  appendGameEvent(game, gameId, 'cascadeResolve', {
+    playerId: pid,
+    effectId,
+    sourceCardId: entry?.sourceCardId || cascadeStep.sourceId,
+    sourceName: entry?.sourceName || cascadeStep.sourceName || 'Cascade',
+    cascadeNumber: entry?.instance || cascadeStep.cascadeNumber || 1,
+    totalCascades: cascadeStep.totalCascades || 1,
+    cast,
+    hitCard: hitCard ? { ...hitCard } : null,
+    exiledCards: exiledCards.map((card: any) => ({ ...card })),
+    libraryAfter,
+  });
   
   // Cast the hit card if chosen
   if (cast && hitCard) {
-    if (typeof game.applyEvent === 'function') {
-      game.applyEvent({
-        type: "castSpell",
-        playerId: pid,
-        card: { ...hitCard },
-        // Cascade casts from exile without paying its mana cost.
-        fromZone: 'exile',
-        castWithoutPayingManaCost: true,
-      });
-    }
-    
-    try {
-      await appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { 
-        playerId: pid, 
-        cardId: hitCard.id, 
-        card: hitCard, 
-        cascade: true,
-        fromZone: 'exile',
-        castWithoutPayingManaCost: true,
-      });
-    } catch {
-      // ignore persistence failures
-    }
+    appendGameEvent(game, gameId, 'castSpell', {
+      playerId: pid,
+      cardId: hitCard.id,
+      card: { ...hitCard },
+      cascade: true,
+      fromZone: 'exile',
+      castWithoutPayingManaCost: true,
+    });
     
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
@@ -17599,10 +17799,6 @@ async function handleCascadeResponse(
       ts: Date.now(),
     });
   } else if (hitCard) {
-    // Declined casting - put the hit card on bottom as well
-    lib.push({ ...hitCard, zone: 'library' });
-    z.libraryCount = lib.length;
-    
     io.to(gameId).emit("chat", {
       id: `m_${Date.now()}`,
       gameId,
@@ -17611,6 +17807,8 @@ async function handleCascadeResponse(
       ts: Date.now(),
     });
   }
+
+  await processPendingCascades(io, game, gameId);
   
   // Emit cascade complete
   io.to(gameId).emit("cascadeComplete", { gameId, effectId });
@@ -17689,6 +17887,13 @@ function handleScryResponse(
     });
   } catch {
     // Ignore persistence failures
+  }
+
+  if ((game.state as any).pendingScry) {
+    delete (game.state as any).pendingScry[pid];
+    if (Object.keys((game.state as any).pendingScry).length === 0) {
+      delete (game.state as any).pendingScry;
+    }
   }
   
   // Emit chat message
@@ -17909,6 +18114,13 @@ function handleSurveilResponse(
     });
   } catch {
     // Ignore persistence failures
+  }
+
+  if ((game.state as any).pendingSurveil) {
+    delete (game.state as any).pendingSurveil[pid];
+    if (Object.keys((game.state as any).pendingSurveil).length === 0) {
+      delete (game.state as any).pendingSurveil;
+    }
   }
   
   // Emit chat message
@@ -18390,36 +18602,43 @@ function handleBottomOrderResponse(
   const byId = new Map<string, any>(cards.map((c: any) => [String(c.id), c]));
   const orderedCards = bottomIds.map(id => byId.get(id)).filter(Boolean);
 
-  const ctx = (game as any).ctx || game;
-  if (typeof (ctx as any).putCardsOnBottomOfLibrary === 'function') {
-    (ctx as any).putCardsOnBottomOfLibrary(pid, orderedCards);
-  } else {
-    const lib = (game as any).libraries?.get(pid) || [];
-    for (const card of orderedCards) {
-      lib.push({ ...card, zone: 'library' });
-    }
-    (game as any).libraries?.set(pid, lib);
-    const zones = (game.state as any).zones = (game.state as any).zones || {};
-    const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
-    z.libraryCount = lib.length;
+  const originalLib = (game as any).libraries?.get(pid) || [];
+  const lib = Array.isArray(originalLib) ? originalLib.map((card: any) => ({ ...card })) : [];
+  for (const card of orderedCards) {
+    lib.push({ ...card, zone: 'library' });
   }
 
   const shuffleAfter = bottomStep.shuffleAfter === true;
   if (shuffleAfter) {
-    if (typeof (ctx as any).shuffleLibrary === 'function') {
-      (ctx as any).shuffleLibrary(pid);
+    if (typeof (game as any).shuffleLibrary === 'function') {
+      const shadowGame = {
+        ...(game as any),
+        libraries: new Map((game as any).libraries || []),
+      };
+      shadowGame.libraries.set(pid, lib);
+      shadowGame.shuffleLibrary(pid);
+      const shuffled = shadowGame.libraries.get(pid);
+      lib.length = 0;
+      if (Array.isArray(shuffled)) {
+        lib.push(...shuffled.map((card: any) => ({ ...card })));
+      }
     } else {
-      const lib = (game as any).libraries?.get(pid) || [];
       for (let i = lib.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [lib[i], lib[j]] = [lib[j], lib[i]];
       }
-      (game as any).libraries?.set(pid, lib);
-      const zones = (game.state as any).zones = (game.state as any).zones || {};
-      const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 };
-      z.libraryCount = lib.length;
     }
   }
+
+  appendGameEvent(game, gameId, 'bottomOrderResolve', {
+    playerId: pid,
+    effectId: bottomStep.effectId,
+    sourceId: bottomStep.sourceId,
+    sourceName: bottomStep.sourceName,
+    orderedCardIds: bottomIds,
+    shuffleAfter,
+    libraryAfter: cloneLibraryStateForEvent(lib),
+  });
 
   io.to(gameId).emit('chat', {
     id: `m_${Date.now()}`,
@@ -18428,10 +18647,306 @@ function handleBottomOrderResponse(
     message: `${getPlayerName(game, pid)} put ${orderedCards.length} card(s) on the bottom of their library in a chosen order${shuffleAfter ? ' and shuffled' : ''}.`,
     ts: Date.now(),
   });
+}
 
-  if (typeof game.bumpSeq === 'function') {
-    game.bumpSeq();
+function handleLimDulsVaultResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const selections = response.selections as any;
+  const action = String(selections?.action || 'finish');
+  const orderedIds = Array.isArray(selections?.orderedIds)
+    ? selections.orderedIds.map((value: any) => String(value || '')).filter(Boolean)
+    : [];
+  const vaultStep = step as any;
+  const cards: any[] = Array.isArray(vaultStep.cards) ? vaultStep.cards : [];
+  const byId = new Map<string, any>(cards.map((card: any) => [String(card?.id || ''), card]));
+  const orderedCards = orderedIds.map((id: string) => byId.get(id)).filter(Boolean);
+
+  const originalLib = (game as any).libraries?.get(pid) || [];
+  const lib = Array.isArray(originalLib) ? originalLib.map((card: any) => ({ ...card })) : [];
+  const extracted = orderedIds.map((id: string) => {
+    const idx = lib.findIndex((card: any) => String(card?.id || '') === id);
+    if (idx < 0) return null;
+    const [removed] = lib.splice(idx, 1);
+    return removed;
+  }).filter(Boolean) as any[];
+  const extractedById = new Map<string, any>(extracted.map((card: any) => [String(card?.id || ''), card]));
+  const orderedResolvedCards = orderedIds.map((id: string) => extractedById.get(id)).filter(Boolean);
+  const pendingEntry = ((game.state as any)?.pendingLimDulsVault || {})[pid] || {};
+  const totalLifePaidBefore = Number(pendingEntry?.totalLifePaid || vaultStep.totalLifePaid || 0);
+  const currentLife = Number((game.state as any)?.life?.[pid] ?? (game.state as any)?.startingLife ?? 40);
+
+  if (action === 'continue') {
+    const lifeAfter = currentLife - 1;
+    const libraryAfter = [
+      ...lib.map((card: any) => ({ ...card, zone: 'library' })),
+      ...orderedResolvedCards.map((card: any) => ({ ...card, zone: 'library' })),
+    ];
+
+    appendGameEvent(game, gameId, 'limDulsVaultContinue', {
+      playerId: pid,
+      effectId: vaultStep.effectId,
+      sourceName: vaultStep.sourceName,
+      sourceImage: vaultStep.sourceImage,
+      orderedBottomIds: orderedIds,
+      lifePaid: 1,
+      totalLifePaid: totalLifePaidBefore + 1,
+      lifeAfter,
+      libraryAfter: cloneLibraryStateForEvent(libraryAfter),
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} pays 1 life and continues with ${vaultStep.sourceName || "Lim-Dul's Vault"}.`,
+      ts: Date.now(),
+    });
+
+    processPendingLimDulsVault(io, game, gameId);
+    return;
   }
+
+  let shuffledRemainder = lib.map((card: any) => ({ ...card }));
+  if (typeof (game as any).shuffleLibrary === 'function') {
+    const shadowGame = {
+      ...(game as any),
+      libraries: new Map((game as any).libraries || []),
+    };
+    shadowGame.libraries.set(pid, shuffledRemainder);
+    shadowGame.shuffleLibrary(pid);
+    const shuffled = shadowGame.libraries.get(pid);
+    shuffledRemainder = Array.isArray(shuffled)
+      ? shuffled.map((card: any) => ({ ...card }))
+      : shuffledRemainder;
+  } else {
+    for (let i = shuffledRemainder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledRemainder[i], shuffledRemainder[j]] = [shuffledRemainder[j], shuffledRemainder[i]];
+    }
+  }
+
+  const libraryAfter = [
+    ...orderedResolvedCards.map((card: any) => ({ ...card, zone: 'library' })),
+    ...shuffledRemainder.map((card: any) => ({ ...card, zone: 'library' })),
+  ];
+
+  appendGameEvent(game, gameId, 'limDulsVaultResolve', {
+    playerId: pid,
+    effectId: vaultStep.effectId,
+    sourceName: vaultStep.sourceName,
+    sourceImage: vaultStep.sourceImage,
+    orderedTopIds: orderedIds,
+    totalLifePaid: totalLifePaidBefore,
+    libraryAfter: cloneLibraryStateForEvent(libraryAfter),
+  });
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${getPlayerName(game, pid)} finishes resolving ${vaultStep.sourceName || "Lim-Dul's Vault"}.`,
+    ts: Date.now(),
+  });
+}
+
+function handleDanceWithCalamityResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const danceStep = step as any;
+  const pendingEntry = ((game.state as any)?.pendingDanceWithCalamity || {})[pid] || {};
+  const action = String((response.selections as any)?.action || 'stop');
+  const sourceName = String(pendingEntry?.sourceName || danceStep.sourceName || 'Dance with Calamity');
+  const sourceImage = pendingEntry?.sourceImage || danceStep.sourceImage;
+  const effectId = String(pendingEntry?.effectId || danceStep.effectId || danceStep.sourceId || '');
+  const exiledCards = Array.isArray(pendingEntry?.exiledCards)
+    ? pendingEntry.exiledCards.map((card: any) => ({ ...card, zone: 'exile' }))
+    : [];
+  const totalManaValueBefore = Number(pendingEntry?.totalManaValue || danceStep.totalManaValue || 0);
+  const library = Array.isArray((game as any).libraries?.get(pid))
+    ? ((game as any).libraries.get(pid) as any[])
+    : [];
+
+  if (action === 'continue') {
+    const nextCard = library[0];
+    if (!nextCard) {
+      appendGameEvent(game, gameId, 'danceWithCalamityResolve', {
+        playerId: pid,
+        effectId,
+        sourceName,
+        sourceImage,
+        outcome: 'no_more_cards',
+        totalManaValue: totalManaValueBefore,
+        exiledCards: cloneExileStateForEvent(exiledCards),
+        libraryAfter: cloneLibraryStateForEvent(library),
+      });
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} finishes ${sourceName} because their library is empty.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    const nextExiledCards = [...exiledCards, { ...nextCard, zone: 'exile' }];
+    const nextLibrary = library.slice(1).map((card: any) => ({ ...card, zone: 'library' }));
+    const totalManaValue = totalManaValueBefore + Math.max(0, Number(nextCard?.cmc || 0) || 0);
+
+    if (totalManaValue > 13) {
+      appendGameEvent(game, gameId, 'danceWithCalamityResolve', {
+        playerId: pid,
+        effectId,
+        sourceName,
+        sourceImage,
+        outcome: 'bust',
+        totalManaValue,
+        exiledCards: cloneExileStateForEvent(nextExiledCards),
+        libraryAfter: cloneLibraryStateForEvent(nextLibrary),
+      });
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, pid)} exiles ${nextCard.name} with ${sourceName}, pushing the total mana value to ${totalManaValue}. The cards remain in exile and can't be cast.`,
+        ts: Date.now(),
+      });
+      return;
+    }
+
+    appendGameEvent(game, gameId, 'danceWithCalamityContinue', {
+      playerId: pid,
+      effectId,
+      sourceName,
+      sourceImage,
+      totalManaValue,
+      exiledCards: cloneExileStateForEvent(nextExiledCards),
+      libraryAfter: cloneLibraryStateForEvent(nextLibrary),
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} exiles ${nextCard.name} with ${sourceName}. Total mana value: ${totalManaValue}.`,
+      ts: Date.now(),
+    });
+
+    processPendingDanceWithCalamity(io, game, gameId);
+    return;
+  }
+
+  const spellCardIds = exiledCards
+    .filter((card: any) => !String(card?.type_line || '').toLowerCase().includes('land'))
+    .map((card: any) => String(card?.id || ''))
+    .filter(Boolean);
+
+  if (spellCardIds.length === 0) {
+    appendGameEvent(game, gameId, 'danceWithCalamityResolve', {
+      playerId: pid,
+      effectId,
+      sourceName,
+      sourceImage,
+      outcome: exiledCards.length > 0 ? 'no_spells' : 'no_exiles',
+      totalManaValue: totalManaValueBefore,
+      exiledCards: cloneExileStateForEvent(exiledCards),
+      libraryAfter: cloneLibraryStateForEvent(library),
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} stops with ${sourceName}, but there are no exiled spells to cast.`,
+      ts: Date.now(),
+    });
+    return;
+  }
+
+  appendGameEvent(game, gameId, 'danceWithCalamityBeginCasting', {
+    playerId: pid,
+    effectId,
+    sourceName,
+    sourceImage,
+    totalManaValue: totalManaValueBefore,
+    spellCardIds,
+  });
+
+  processPendingDanceWithCalamity(io, game, gameId);
+}
+
+function handleDanceWithCalamityCastSelectionResponse(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse
+): void {
+  const pid = response.playerId;
+  const castStep = step as any;
+  const pendingEntry = ((game.state as any)?.pendingDanceWithCalamity || {})[pid] || {};
+  const effectId = String(pendingEntry?.effectId || castStep.effectId || castStep.sourceId || '');
+  const sourceName = String(pendingEntry?.sourceName || castStep.sourceName || 'Dance with Calamity');
+  const sourceImage = pendingEntry?.sourceImage || castStep.sourceImage;
+  const totalManaValue = Number(pendingEntry?.totalManaValue || castStep.totalManaValue || 0);
+  const validSpellIds = new Set(
+    (Array.isArray(pendingEntry?.spellCardIds) ? pendingEntry.spellCardIds : (castStep.spellCards || []).map((card: any) => card?.id))
+      .map((value: any) => String(value || ''))
+      .filter(Boolean)
+  );
+  const rawOrderedSpellIds = Array.isArray((response.selections as any)?.orderedSpellIds)
+    ? (response.selections as any).orderedSpellIds
+    : [];
+  const seen = new Set<string>();
+  const orderedSpellIds = rawOrderedSpellIds
+    .map((value: any) => String(value || ''))
+    .filter((id: string) => validSpellIds.has(id) && !seen.has(id) && (seen.add(id), true));
+
+  if (orderedSpellIds.length === 0) {
+    appendGameEvent(game, gameId, 'danceWithCalamityResolve', {
+      playerId: pid,
+      effectId,
+      sourceName,
+      sourceImage,
+      outcome: 'no_casts',
+      totalManaValue,
+      exiledCards: cloneExileStateForEvent(Array.isArray(pendingEntry?.exiledCards) ? pendingEntry.exiledCards : []),
+      libraryAfter: cloneLibraryStateForEvent(Array.isArray((game as any).libraries?.get(pid)) ? (game as any).libraries.get(pid) : []),
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} chooses not to cast any exiled spells with ${sourceName}.`,
+      ts: Date.now(),
+    });
+    return;
+  }
+
+  appendGameEvent(game, gameId, 'danceWithCalamitySetCastOrder', {
+    playerId: pid,
+    effectId,
+    sourceName,
+    sourceImage,
+    totalManaValue,
+    orderedSpellIds,
+  });
+
+  processPendingDanceWithCalamity(io, game, gameId);
 }
 
 /**
@@ -18639,6 +19154,17 @@ async function handleLibrarySearchResponse(
       seen.add(name);
     }
   }
+
+  const maxTotalManaValue = Number((searchStep as any).maxTotalManaValue);
+  if (Number.isFinite(maxTotalManaValue) && maxTotalManaValue >= 0 && selectedCards.length > 0) {
+    const totalManaValue = selectedCards.reduce((sum: number, card: any) => {
+      return sum + Math.max(0, Number(card?.cmc || 0) || 0);
+    }, 0);
+    if (totalManaValue > maxTotalManaValue) {
+      debugWarn(1, `[Resolution] Library search: selection total mana value ${totalManaValue} exceeds ${maxTotalManaValue}`);
+      return;
+    }
+  }
   
   // If the remainder is ordered by the player, do not shuffle in this handler.
   // Any shuffleAfter responsibility is deferred to the follow-up bottom_order step.
@@ -18647,6 +19173,7 @@ async function handleLibrarySearchResponse(
     lib.length > 0 &&
     (!shuffleOnlyIfSelectedFromLibrary || didSelectFromLibrary) &&
     !(remainderPlayerChoosesOrder && remainderDestination === 'bottom');
+  let pendingBottomOrderEntry: Record<string, any> | undefined;
 
   // For destination=top with shuffling in this handler, place selected after shuffling remainder
   const deferTopPlacement = destination === 'top' && willShuffleInThisHandler && !shuffleOnlyIfSelectedFromLibrary;
@@ -18773,17 +19300,39 @@ async function handleLibrarySearchResponse(
       if (cardsToOrder.length > 0) {
         const shuffleAfterBottomOrder =
           shuffleAfter && (!shuffleOnlyIfSelectedFromLibrary || didSelectFromLibrary);
+        const bottomOrderEffectId = [
+          String((step as any).sourceId || sourceName || 'bottom_order'),
+          ...cardsToOrder.map((card: any) => String(card?.id || '')).filter(Boolean),
+        ].join(':');
+
+        pendingBottomOrderEntry = {
+          effectId: bottomOrderEffectId,
+          sourceId: (step as any).sourceId,
+          sourceName,
+          sourceImage: (step as any).sourceImage,
+          cards: cardsToOrder.map((card: any) => ({ ...card, zone: 'library' })),
+          shuffleAfter: shuffleAfterBottomOrder,
+          description: `${sourceName}: Put the rest on the bottom of your library in any order.`,
+          queued: true,
+        };
+
+        const stateAny = game.state as any;
+        stateAny.pendingBottomOrder = stateAny.pendingBottomOrder || {};
+        const pendingList = Array.isArray(stateAny.pendingBottomOrder[pid]) ? stateAny.pendingBottomOrder[pid] : [];
+        pendingList.push({ ...pendingBottomOrderEntry });
+        stateAny.pendingBottomOrder[pid] = pendingList;
 
         ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.BOTTOM_ORDER,
           playerId: pid as any,
-          description: `${sourceName}: Put the rest on the bottom of your library in any order.`,
+          description: pendingBottomOrderEntry.description,
           mandatory: true,
           sourceId: (step as any).sourceId,
           sourceName,
           sourceImage: (step as any).sourceImage,
-          cards: cardsToOrder,
+          cards: pendingBottomOrderEntry.cards,
           shuffleAfter: shuffleAfterBottomOrder,
+          effectId: bottomOrderEffectId,
         } as any);
       }
 
@@ -18859,6 +19408,17 @@ async function handleLibrarySearchResponse(
         destinationFaceDown,
         grantPlayableFromExileToController,
         playableFromExileTypeKey,
+        pendingBottomOrder: pendingBottomOrderEntry
+          ? {
+              effectId: String(pendingBottomOrderEntry.effectId || ''),
+              sourceId: String(pendingBottomOrderEntry.sourceId || ''),
+              sourceName: String(pendingBottomOrderEntry.sourceName || ''),
+              sourceImage: pendingBottomOrderEntry.sourceImage,
+              description: String(pendingBottomOrderEntry.description || ''),
+              cards: cloneLibraryStateForEvent(pendingBottomOrderEntry.cards || []),
+              shuffleAfter: pendingBottomOrderEntry.shuffleAfter === true,
+            }
+          : undefined,
         libraryAfter: lib.map((card: any) => ({ ...card, zone: 'library' })),
         lifeLoss: Number(lifeLoss || 0),
       });
@@ -19669,13 +20229,25 @@ export async function processPendingCascades(
       };
       z.libraryCount = lib.length;
       
-      // If nothing hit, bottom exiled and continue
+      // If nothing hit, bottom exiled in a random order and persist the resolved library state.
       if (!hitCard) {
-        for (const card of exiled) {
-          lib.push({ ...card, zone: "library" });
+        const randomized = [...exiled];
+        for (let i = randomized.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [randomized[i], randomized[j]] = [randomized[j], randomized[i]];
         }
-        z.libraryCount = lib.length;
-        queue.shift();
+
+        appendGameEvent(game, gameId, 'cascadeResolve', {
+          playerId,
+          sourceCardId: entry.sourceCardId,
+          sourceName: entry.sourceName || 'Cascade',
+          cascadeNumber: entry.instance || 1,
+          totalCascades: queue.length,
+          cast: false,
+          hitCard: null,
+          exiledCards: exiled.map((card: any) => ({ ...card })),
+          libraryAfter: [...cloneCascadeLibrary(lib), ...cloneCascadeLibrary(randomized)],
+        });
         continue;
       }
       
@@ -19746,8 +20318,11 @@ export function processPendingScry(
     if (!pending || typeof pending !== 'object') return;
     
     for (const playerId of Object.keys(pending)) {
-      const scryCount = pending[playerId];
-      if (typeof scryCount !== 'number' || scryCount <= 0) continue;
+      const rawEntry = pending[playerId];
+      const entry = typeof rawEntry === 'number' ? { count: rawEntry } : rawEntry;
+      const scryCount = Number(entry?.count || 0);
+      if (!Number.isFinite(scryCount) || scryCount <= 0) continue;
+      if (entry?.queued === true) continue;
       
       // Get library
       const lib = (game as any).libraries?.get(playerId) || [];
@@ -19780,17 +20355,74 @@ export function processPendingScry(
         cards,
         scryCount: actualCount,
       });
-      
-      // Clear from pending state
-      delete pending[playerId];
-    }
-    
-    // Clean up empty pending object
-    if (Object.keys(pending).length === 0) {
-      delete (game.state as any).pendingScry;
+
+      pending[playerId] = {
+        ...(typeof rawEntry === 'object' && rawEntry ? rawEntry : {}),
+        count: actualCount,
+        queued: true,
+      };
     }
   } catch (err) {
     debugWarn(1, "[processPendingScry] Error:", err);
+  }
+}
+
+export function processPendingSurveil(
+  io: Server,
+  game: any,
+  gameId: string
+): void {
+  try {
+    const pending = (game.state as any).pendingSurveil;
+    if (!pending || typeof pending !== 'object') return;
+
+    for (const playerId of Object.keys(pending)) {
+      const rawEntry = pending[playerId];
+      const entry = typeof rawEntry === 'number' ? { count: rawEntry } : rawEntry;
+      const surveilCount = Number(entry?.count || 0);
+      if (!Number.isFinite(surveilCount) || surveilCount <= 0) continue;
+      if (entry?.queued === true) continue;
+
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (!Array.isArray(lib)) continue;
+
+      const actualCount = Math.min(surveilCount, lib.length);
+      if (actualCount === 0) {
+        delete pending[playerId];
+        continue;
+      }
+
+      const cards = lib.slice(0, actualCount).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type_line: c.type_line,
+        oracle_text: c.oracle_text,
+        imageUrl: c.image_uris?.normal,
+        mana_cost: c.mana_cost,
+        cmc: c.cmc,
+      }));
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.SURVEIL,
+        playerId,
+        description: `Surveil ${actualCount}`,
+        mandatory: true,
+        cards,
+        surveilCount: actualCount,
+      });
+
+      pending[playerId] = {
+        ...(typeof rawEntry === 'object' && rawEntry ? rawEntry : {}),
+        count: actualCount,
+        queued: true,
+      };
+    }
+
+    if (Object.keys(pending).length === 0) {
+      delete (game.state as any).pendingSurveil;
+    }
+  } catch (err) {
+    debugWarn(1, "[processPendingSurveil] Error:", err);
   }
 }
 
@@ -19886,8 +20518,21 @@ function handlePonderEffectResponse(
   try {
     const { playerId } = step;
     const { selections, cancelled } = response;
+    const targetPid = step.targetPlayerId || playerId;
+    const originalLib = (game as any).libraries?.get(targetPid) || [];
+    const lib = Array.isArray(originalLib) ? originalLib.map((card: any) => ({ ...card })) : [];
     
     if (cancelled) {
+      appendGameEvent(game, gameId, 'ponderEffectResolve', {
+        playerId,
+        targetPlayerId: targetPid,
+        effectId: step.effectId,
+        sourceName: step.sourceName,
+        variant: step.variant,
+        cancelled: true,
+        libraryAfter: cloneLibraryStateForEvent(lib),
+      });
+
       debug(2, `[handlePonderEffectResponse] ${playerId} cancelled ponder`);
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -19901,10 +20546,6 @@ function handlePonderEffectResponse(
     
     // selections should be: { newOrder: string[], shouldShuffle: boolean, toHand?: string[] }
     const { newOrder, shouldShuffle, toHand } = selections as any;
-    const targetPid = step.targetPlayerId || playerId;
-    
-    // Get library for the target player
-    const lib = (game as any).libraries?.get(targetPid) || [];
     
     // Remove the top N cards that were being reordered
     const cardCount = step.cardCount || step.cards?.length || 0;
@@ -19914,21 +20555,18 @@ function handlePonderEffectResponse(
     }
     
     const cardById = new Map(removedCards.map((c: any) => [c.id, c]));
+    const toHandCards: any[] = [];
+    let drawnCard: any | undefined;
     
     // Move cards to hand if specified (Telling Time style)
     if (toHand && toHand.length > 0) {
-      const zones = (game.state as any).zones || {};
-      const z = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-      z.hand = z.hand || [];
-      
       for (const cardId of toHand) {
         const card = cardById.get(cardId);
         if (card) {
-          (z.hand as any[]).push({ ...card, zone: 'hand' });
+          toHandCards.push({ ...card });
           cardById.delete(cardId);
         }
       }
-      z.handCount = (z.hand as any[]).length;
       
       debug(2, `[handlePonderEffectResponse] ${playerId} put ${toHand.length} card(s) to hand`);
     }
@@ -19939,20 +20577,23 @@ function handlePonderEffectResponse(
         lib.push({ ...card, zone: 'library' });
       }
       
-      // Use game's shuffleLibrary for deterministic RNG if available
       if (typeof (game as any).shuffleLibrary === "function") {
-        if ((game as any).libraries) {
-          (game as any).libraries.set(targetPid, lib);
+        const shadowGame = {
+          ...(game as any),
+          libraries: new Map((game as any).libraries || []),
+        };
+        shadowGame.libraries.set(targetPid, lib);
+        shadowGame.shuffleLibrary(targetPid);
+        const shuffled = shadowGame.libraries.get(targetPid);
+        lib.length = 0;
+        if (Array.isArray(shuffled)) {
+          lib.push(...shuffled.map((card: any) => ({ ...card })));
         }
-        (game as any).shuffleLibrary(targetPid);
       } else {
         debugWarn(2, "[handlePonderEffectResponse] game.shuffleLibrary not available, using Math.random");
         for (let i = lib.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [lib[i], lib[j]] = [lib[j], lib[i]];
-        }
-        if ((game as any).libraries) {
-          (game as any).libraries.set(targetPid, lib);
         }
       }
       
@@ -19976,21 +20617,11 @@ function handlePonderEffectResponse(
       debug(2, `[handlePonderEffectResponse] ${targetPid} reordered top ${newOrder.length} cards`);
     }
     
-    // Update library count
-    const zones = (game.state as any).zones || {};
-    const targetZones = zones[targetPid] = zones[targetPid] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-    targetZones.libraryCount = lib.length;
-    
     // Draw a card if specified (Ponder draws after reordering/shuffling)
     let drawnCardName: string | undefined;
     if (step.drawAfter && playerId === targetPid) {
       if (lib.length > 0) {
-        const drawnCard = lib.shift();
-        const playerZones = zones[playerId] = zones[playerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
-        playerZones.hand = playerZones.hand || [];
-        (playerZones.hand as any[]).push({ ...drawnCard, zone: 'hand' });
-        playerZones.handCount = (playerZones.hand as any[]).length;
-        playerZones.libraryCount = lib.length;
+        drawnCard = lib.shift();
         drawnCardName = drawnCard.name;
         
         debug(2, `[handlePonderEffectResponse] ${playerId} drew ${drawnCardName}`);
@@ -20004,11 +20635,18 @@ function handlePonderEffectResponse(
         });
       }
     }
-    
-    // Clear pendingPonder state
-    if ((game.state as any).pendingPonder) {
-      delete (game.state as any).pendingPonder[playerId];
-    }
+
+    appendGameEvent(game, gameId, 'ponderEffectResolve', {
+      playerId,
+      targetPlayerId: targetPid,
+      effectId: step.effectId,
+      sourceName: step.sourceName,
+      variant: step.variant,
+      shouldShuffle: shouldShuffle === true,
+      toHandCards: cloneZoneCardsForEvent(toHandCards, 'hand'),
+      drawnCard: drawnCard ? { ...drawnCard, zone: 'hand' } : undefined,
+      libraryAfter: cloneLibraryStateForEvent(lib),
+    });
     
     // Log event
     io.to(gameId).emit("chat", {
@@ -20018,13 +20656,6 @@ function handlePonderEffectResponse(
       message: `${getPlayerName(game, playerId)} completed ponder effect (${step.sourceName || 'unknown'})`,
       ts: Date.now(),
     });
-    
-    // Bump sequence
-    if (typeof (game as any).bumpSeq === "function") {
-      (game as any).bumpSeq();
-    }
-    
-    broadcastGame(io, game, gameId);
   } catch (e) {
     debugError(1, '[handlePonderEffectResponse] Error:', e);
   }
@@ -20147,6 +20778,7 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
       if (!ponderData || typeof ponderData !== 'object') continue;
       
       const data = ponderData as any;
+      if (data.queued === true) continue;
       const { effectId, cardCount, cardName, drawAfter, targetPlayerId, variant } = data;
       
       // Get the top cards for ponder
@@ -20165,14 +20797,229 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
         variant: variant || 'ponder',
         cardCount: actualCount,
         drawAfter: drawAfter || false,
-        mayShuffleAfter: true,
+        mayShuffleAfter: data.canShuffle !== false,
         targetPlayerId: targetPid,
         sourceName: cardName,
         effectId,
       });
+
+      data.queued = true;
     }
   } catch (e) {
     debugError(1, '[processPendingPonder] Error:', e);
+  }
+}
+
+export function processPendingBottomOrder(io: Server, game: any, gameId: string): void {
+  try {
+    const pendingBottomOrder = (game.state as any)?.pendingBottomOrder;
+    if (!pendingBottomOrder || typeof pendingBottomOrder !== 'object') return;
+
+    for (const [playerId, rawEntries] of Object.entries(pendingBottomOrder)) {
+      const entries = Array.isArray(rawEntries) ? rawEntries : [];
+      for (const entry of entries) {
+        if (!entry || typeof entry !== 'object') continue;
+        if (entry.queued === true) continue;
+
+        const cards = Array.isArray(entry.cards) ? entry.cards : [];
+        if (cards.length === 0) continue;
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.BOTTOM_ORDER,
+          playerId: playerId as string,
+          description: String(entry.description || `${entry.sourceName || 'Effect'}: Put cards on the bottom in any order.`),
+          mandatory: true,
+          sourceId: entry.sourceId,
+          sourceName: entry.sourceName,
+          sourceImage: entry.sourceImage,
+          cards,
+          shuffleAfter: entry.shuffleAfter === true,
+          effectId: entry.effectId,
+        } as any);
+
+        entry.queued = true;
+      }
+    }
+  } catch (err) {
+    debugWarn(1, '[processPendingBottomOrder] Error:', err);
+  }
+}
+
+export function processPendingLimDulsVault(io: Server, game: any, gameId: string): void {
+  try {
+    const pendingVault = (game.state as any)?.pendingLimDulsVault;
+    if (!pendingVault || typeof pendingVault !== 'object') return;
+
+    for (const [playerId, rawEntry] of Object.entries(pendingVault)) {
+      const entry = rawEntry as any;
+      if (!entry || typeof entry !== 'object') continue;
+      if (entry.queued === true) continue;
+
+      const lib = (game as any).libraries?.get(playerId) || [];
+      if (!Array.isArray(lib)) continue;
+
+      const actualCount = Math.min(5, lib.length);
+      if (actualCount <= 0) {
+        delete pendingVault[playerId];
+        continue;
+      }
+
+      const cards = lib.slice(0, actualCount).map((card: any) => ({
+        id: card.id,
+        name: card.name,
+        type_line: card.type_line,
+        oracle_text: card.oracle_text,
+        image_uris: card.image_uris,
+        imageUrl: card.image_uris?.normal || card.image_uris?.small,
+        mana_cost: card.mana_cost,
+        cmc: card.cmc,
+      }));
+      const currentLife = Number((game.state as any)?.life?.[playerId] ?? (game.state as any)?.startingLife ?? 40);
+
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.LIM_DULS_VAULT,
+        playerId: playerId as string,
+        description: "Lim-Dul's Vault: Reorder these cards, then either pay 1 life to put them on the bottom or keep them as your final five.",
+        mandatory: true,
+        sourceId: entry.effectId,
+        sourceName: entry.sourceName || "Lim-Dul's Vault",
+        sourceImage: entry.sourceImage,
+        cards,
+        effectId: String(entry.effectId || ''),
+        currentLife,
+        totalLifePaid: Number(entry.totalLifePaid || 0),
+      } as any);
+
+      entry.currentLife = currentLife;
+      entry.queued = true;
+    }
+
+    if (Object.keys(pendingVault).length === 0) {
+      delete (game.state as any).pendingLimDulsVault;
+    }
+  } catch (err) {
+    debugWarn(1, '[processPendingLimDulsVault] Error:', err);
+  }
+}
+
+export function processPendingDanceWithCalamity(io: Server, game: any, gameId: string): void {
+  try {
+    const pendingDance = (game.state as any)?.pendingDanceWithCalamity;
+    if (!pendingDance || typeof pendingDance !== 'object') return;
+
+    for (const [playerId, rawEntry] of Object.entries(pendingDance)) {
+      const entry = rawEntry as any;
+      if (!entry || typeof entry !== 'object') continue;
+      if (entry.queued === true) continue;
+
+      const sourceName = String(entry.sourceName || 'Dance with Calamity');
+      const sourceImage = entry.sourceImage;
+      const effectId = String(entry.effectId || '');
+      const totalManaValue = Number(entry.totalManaValue || 0);
+      const exiledCards = Array.isArray(entry.exiledCards) ? entry.exiledCards : [];
+      const stage = String(entry.stage || 'exile');
+
+      if (stage === 'exile') {
+        const library = Array.isArray((game as any).libraries?.get(playerId))
+          ? ((game as any).libraries.get(playerId) as any[])
+          : [];
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.DANCE_WITH_CALAMITY,
+          playerId: playerId as string,
+          description: `${sourceName}: Exile the top card, or stop and cast spells from among the exiled cards.`,
+          mandatory: true,
+          sourceId: effectId,
+          sourceName,
+          sourceImage,
+          effectId,
+          exiledCards,
+          totalManaValue,
+          canContinue: library.length > 0 && totalManaValue <= 13,
+        } as any);
+
+        entry.queued = true;
+        continue;
+      }
+
+      if (stage === 'select_casts') {
+        const allowedIds = new Set(
+          (Array.isArray(entry.spellCardIds) ? entry.spellCardIds : [])
+            .map((value: any) => String(value || ''))
+            .filter(Boolean)
+        );
+        const spellCards = exiledCards.filter((card: any) => allowedIds.has(String(card?.id || '')));
+        if (spellCards.length === 0) continue;
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.DANCE_WITH_CALAMITY_CAST,
+          playerId: playerId as string,
+          description: `${sourceName}: Choose any number of exiled spells to cast, then set their cast order.`,
+          mandatory: true,
+          sourceId: effectId,
+          sourceName,
+          sourceImage,
+          effectId,
+          exiledCards,
+          spellCards,
+          totalManaValue,
+        } as any);
+
+        entry.queued = true;
+        continue;
+      }
+
+      if (stage === 'cast_sequence') {
+        if (hasPendingSpellCastForPlayer(game, String(playerId))) {
+          continue;
+        }
+
+        const orderedSpellIds = Array.isArray(entry.orderedSpellIds)
+          ? entry.orderedSpellIds.map((value: any) => String(value || '')).filter(Boolean)
+          : [];
+        const nextCastIndex = Math.max(0, Number(entry.nextCastIndex || 0));
+        const nextCardId = orderedSpellIds[nextCastIndex];
+        if (!nextCardId) continue;
+
+        const exileZone = Array.isArray((game.state as any)?.zones?.[playerId]?.exile)
+          ? (game.state as any).zones[playerId].exile
+          : [];
+        const nextCard = exileZone.find((card: any) => String(card?.id || '') === nextCardId)
+          || exiledCards.find((card: any) => String(card?.id || '') === nextCardId);
+        if (!nextCard) {
+          entry.nextCastIndex = nextCastIndex + 1;
+          entry.queued = false;
+          continue;
+        }
+
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.OPTION_CHOICE,
+          playerId: playerId as string,
+          description: `${sourceName}: You may cast ${nextCard?.name || 'that card'} from exile without paying its mana cost.`,
+          mandatory: false,
+          sourceId: effectId,
+          sourceName,
+          sourceImage,
+          options: [
+            { id: 'cast', label: `Cast ${nextCard?.name || 'that card'}` },
+            { id: 'decline', label: 'Decline' },
+          ],
+          minSelections: 1,
+          maxSelections: 1,
+          castFromExileCardId: nextCard?.id,
+          castFromExileCard: nextCard,
+          castFromExileDeclineDestination: 'exile',
+          danceWithCalamityCastPrompt: true,
+          danceWithCalamityEffectId: effectId,
+          danceWithCalamityOrderedSpellIds: orderedSpellIds,
+          danceWithCalamityNextCastIndex: nextCastIndex,
+        } as any);
+
+        entry.queued = true;
+      }
+    }
+  } catch (err) {
+    debugWarn(1, '[processPendingDanceWithCalamity] Error:', err);
   }
 }
 
@@ -22436,6 +23283,130 @@ async function handleOptionChoiceResponse(
 
   // ===== GENERIC: "You may cast <that card> from exile without paying its mana cost." =====
   // Used by planeswalker templates and other effects that exile a card then offer a free cast.
+  if (stepData.danceWithCalamityCastPrompt === true && stepData.castFromExileCardId && stepData.castFromExileCard) {
+    const choiceId = extractId(selectedOption) || 'decline';
+    const effectId = String(stepData.danceWithCalamityEffectId || '');
+    const orderedSpellIds = Array.isArray(stepData.danceWithCalamityOrderedSpellIds)
+      ? stepData.danceWithCalamityOrderedSpellIds.map((value: any) => String(value || '')).filter(Boolean)
+      : [];
+    const nextCastIndex = Math.max(0, Number(stepData.danceWithCalamityNextCastIndex || 0));
+    const exiledCardId = String(stepData.castFromExileCardId || '');
+    const exiledCard = stepData.castFromExileCard;
+    const sourceName = String(stepData.sourceName || step.sourceName || 'Dance with Calamity');
+    const pendingEntry = ((game.state as any)?.pendingDanceWithCalamity || {})[playerId] || {};
+    const sourceImage = pendingEntry?.sourceImage || (step as any).sourceImage;
+    const totalManaValue = Number(pendingEntry?.totalManaValue || 0);
+    const exiledCards = Array.isArray(pendingEntry?.exiledCards) ? pendingEntry.exiledCards : [];
+
+    if (choiceId === 'cast') {
+      const fakeSocket: any = {
+        data: { playerId, spectator: false },
+        emit: (event: string, payload: unknown) => {
+          emitToPlayer(io, playerId as any, event as any, payload);
+        },
+      };
+
+      const stackLengthBefore = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+      await requestCastSpellForSocket(
+        io,
+        fakeSocket,
+        { gameId, cardId: exiledCardId },
+        {
+          skipPriorityCheck: true,
+          forcedAlternateCostId: 'free',
+          castWithoutPayingManaCost: true,
+          bypassExilePermissionCheck: true,
+        }
+      );
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const stackLengthAfter = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+      const exileZone = Array.isArray((game.state as any)?.zones?.[playerId]?.exile)
+        ? (game.state as any).zones[playerId].exile
+        : [];
+      const cardStillInExile = exileZone.some((entry: any) => String(entry?.id || '') === exiledCardId);
+      const pendingSpellCasts = Object.values(((game.state as any)?.pendingSpellCasts || {})) as any[];
+      const hasPendingCast = pendingSpellCasts.some((entry: any) => String(entry?.cardId || '') === exiledCardId);
+      const queue = ResolutionQueueManager.getQueue(gameId);
+      const hasPendingStep = queue.steps.some((queuedStep: any) =>
+        String(queuedStep?.sourceId || '') === exiledCardId ||
+        String(queuedStep?.cardId || '') === exiledCardId ||
+        String(queuedStep?.spellCardId || '') === exiledCardId ||
+        String(queuedStep?.spellCastContext?.cardId || '') === exiledCardId
+      );
+      const progressed = stackLengthAfter > stackLengthBefore || !cardStillInExile || hasPendingCast || hasPendingStep;
+
+      if (!progressed) {
+        const livePendingEntry = ((game.state as any)?.pendingDanceWithCalamity || {})[playerId];
+        if (livePendingEntry && typeof livePendingEntry === 'object') {
+          livePendingEntry.queued = false;
+        }
+        processPendingDanceWithCalamity(io, game, gameId);
+        return;
+      }
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} casts ${exiledCard.name} with ${sourceName} without paying its mana cost.`,
+        ts: Date.now(),
+      });
+    } else {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} declines to cast ${exiledCard.name} with ${sourceName}.`,
+        ts: Date.now(),
+      });
+    }
+
+    const currentExileZone = Array.isArray((game.state as any)?.zones?.[playerId]?.exile)
+      ? (game.state as any).zones[playerId].exile
+      : [];
+    const remainingExiledCards = currentExileZone.map((card: any) => ({ ...card, zone: 'exile' }));
+    const livePendingEntry = ((game.state as any)?.pendingDanceWithCalamity || {})[playerId];
+    if (livePendingEntry && typeof livePendingEntry === 'object') {
+      livePendingEntry.exiledCards = remainingExiledCards;
+    }
+
+    const nextIndex = nextCastIndex + 1;
+    if (nextIndex >= orderedSpellIds.length) {
+      appendGameEvent(game, gameId, 'danceWithCalamityResolve', {
+        playerId,
+        effectId,
+        sourceName,
+        sourceImage,
+        outcome: 'complete',
+        totalManaValue,
+        exiledCards: cloneExileStateForEvent(remainingExiledCards),
+        libraryAfter: cloneLibraryStateForEvent(Array.isArray((game as any).libraries?.get(playerId)) ? (game as any).libraries.get(playerId) : []),
+      });
+    } else {
+      appendGameEvent(game, gameId, 'danceWithCalamityAdvanceCast', {
+        playerId,
+        effectId,
+        sourceName,
+        sourceImage,
+        totalManaValue,
+        orderedSpellIds,
+        nextCastIndex: nextIndex,
+      });
+
+      if (!hasPendingSpellCastForPlayer(game, playerId)) {
+        processPendingDanceWithCalamity(io, game, gameId);
+      }
+    }
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
+
   if (stepData.castFromExileCardId && stepData.castFromExileCard) {
     const choiceId = extractId(selectedOption) || 'decline';
     const exiledCardId = String(stepData.castFromExileCardId);

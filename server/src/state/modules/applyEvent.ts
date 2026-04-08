@@ -189,6 +189,70 @@ function generateDeterministicId(ctx: any, prefix: string, cardId: string): stri
   return `${prefix}_${cardId}_${ctx._idCounter}`;
 }
 
+function clearReplayDanceWithCalamitySteps(gameId: string, playerId: string, effectId: string): void {
+  if (!gameId) return;
+
+  try {
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    const matchesDanceStep = (step: any): boolean => {
+      if (!step) return false;
+      const stepType = String(step?.type || '');
+      if (String(step?.playerId || '') !== playerId) return false;
+
+      if (stepType === String(ResolutionStepType.DANCE_WITH_CALAMITY) || stepType === String(ResolutionStepType.DANCE_WITH_CALAMITY_CAST)) {
+        return !effectId || String(step?.effectId || '') === effectId;
+      }
+
+      if (stepType === String(ResolutionStepType.OPTION_CHOICE) && (step as any)?.danceWithCalamityCastPrompt === true) {
+        return !effectId || String((step as any)?.danceWithCalamityEffectId || '') === effectId;
+      }
+
+      return false;
+    };
+
+    const activeStepMatched = matchesDanceStep(queue?.activeStep);
+    const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+    if (activeStepMatched) {
+      queue.activeStep = undefined;
+    }
+    if (Array.isArray(queue?.steps) && beforeCount > 0) {
+      queue.steps = queue.steps.filter((step: any) => !matchesDanceStep(step));
+    }
+    if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+      queue.seq = Number(queue?.seq || 0) + 1;
+    }
+  } catch {
+    // best-effort only
+  }
+}
+
+function ensureReplayPlayerZones(stateAny: any, playerId: string): any {
+  const zones = stateAny.zones = stateAny.zones || {};
+  return (zones[playerId] = zones[playerId] || {
+    hand: [],
+    handCount: 0,
+    library: [],
+    libraryCount: 0,
+    graveyard: [],
+    graveyardCount: 0,
+    exile: [],
+    exileCount: 0,
+  });
+}
+
+function mergeCardsIntoReplayExile(playerZones: any, cards: any[]): void {
+  const exile = playerZones.exile = Array.isArray(playerZones.exile) ? playerZones.exile : [];
+  const byId = new Set(exile.map((card: any) => String(card?.id || '')).filter(Boolean));
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const cardId = String(card?.id || '').trim();
+    if (!cardId || byId.has(cardId)) continue;
+    exile.push({ ...card, zone: 'exile' });
+    byId.add(cardId);
+  }
+  playerZones.exileCount = exile.length;
+}
+
 const MANA_CODE_TO_POOL_KEY: Record<string, string> = {
   W: 'white',
   U: 'blue',
@@ -2528,22 +2592,699 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       }
 
       case "scryResolve": {
-        applyScry(
-          ctx as any,
-          (e as any).playerId,
-          (e as any).keepTopOrder || [],
-          (e as any).bottomOrder || []
-        );
+        const pid = String((e as any).playerId || '').trim();
+        try {
+          if (!pid) break;
+
+          const gameId = String((ctx as any).gameId || '').trim();
+          if (gameId) {
+            try {
+              const queue = ResolutionQueueManager.getQueue(gameId) as any;
+              const matchesScryStep = (step: any): boolean => {
+                return Boolean(step)
+                  && String(step?.type || '') === String(ResolutionStepType.SCRY)
+                  && String(step?.playerId || '') === pid;
+              };
+
+              const activeStepMatched = matchesScryStep(queue?.activeStep);
+              const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+              if (activeStepMatched) {
+                queue.activeStep = undefined;
+              }
+              if (Array.isArray(queue?.steps) && beforeCount > 0) {
+                queue.steps = queue.steps.filter((step: any) => !matchesScryStep(step));
+              }
+              if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+                queue.seq = Number(queue?.seq || 0) + 1;
+              }
+            } catch {
+              // best-effort only
+            }
+          }
+
+          applyScry(
+            ctx as any,
+            pid,
+            Array.isArray((e as any).keepTopOrder)
+              ? ((e as any).keepTopOrder as any[]).map((card: any) => String(card?.id || card || '')).filter(Boolean)
+              : [],
+            Array.isArray((e as any).bottomOrder)
+              ? ((e as any).bottomOrder as any[]).map((card: any) => String(card?.id || card || '')).filter(Boolean)
+              : []
+          );
+
+          const pendingScry = (ctx.state as any).pendingScry;
+          if (pendingScry && typeof pendingScry === 'object') {
+            delete pendingScry[pid];
+            if (Object.keys(pendingScry).length === 0) {
+              delete (ctx.state as any).pendingScry;
+            }
+          }
+        } catch (err) {
+          debugWarn(1, 'applyEvent(scryResolve): failed', err);
+        }
         break;
       }
 
       case "surveilResolve": {
-        applySurveil(
-          ctx as any,
-          (e as any).playerId,
-          (e as any).toGraveyard || [],
-          (e as any).keepTopOrder || []
-        );
+        const pid = String((e as any).playerId || '').trim();
+        try {
+          if (!pid) break;
+
+          const gameId = String((ctx as any).gameId || '').trim();
+          if (gameId) {
+            try {
+              const queue = ResolutionQueueManager.getQueue(gameId) as any;
+              const matchesSurveilStep = (step: any): boolean => {
+                return Boolean(step)
+                  && String(step?.type || '') === String(ResolutionStepType.SURVEIL)
+                  && String(step?.playerId || '') === pid;
+              };
+
+              const activeStepMatched = matchesSurveilStep(queue?.activeStep);
+              const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+              if (activeStepMatched) {
+                queue.activeStep = undefined;
+              }
+              if (Array.isArray(queue?.steps) && beforeCount > 0) {
+                queue.steps = queue.steps.filter((step: any) => !matchesSurveilStep(step));
+              }
+              if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+                queue.seq = Number(queue?.seq || 0) + 1;
+              }
+            } catch {
+              // best-effort only
+            }
+          }
+
+          applySurveil(
+            ctx as any,
+            pid,
+            Array.isArray((e as any).toGraveyard)
+              ? ((e as any).toGraveyard as any[]).map((card: any) => String(card?.id || card || '')).filter(Boolean)
+              : [],
+            Array.isArray((e as any).keepTopOrder)
+              ? ((e as any).keepTopOrder as any[]).map((card: any) => String(card?.id || card || '')).filter(Boolean)
+              : []
+          );
+
+          const pendingSurveil = (ctx.state as any).pendingSurveil;
+          if (pendingSurveil && typeof pendingSurveil === 'object') {
+            delete pendingSurveil[pid];
+            if (Object.keys(pendingSurveil).length === 0) {
+              delete (ctx.state as any).pendingSurveil;
+            }
+          }
+        } catch (err) {
+          debugWarn(1, 'applyEvent(surveilResolve): failed', err);
+        }
+        break;
+      }
+
+      case "ponderEffectResolve": {
+        const pid = String((e as any).playerId || '').trim();
+        const targetPid = String((e as any).targetPlayerId || pid).trim();
+        const effectId = String((e as any).effectId || '').trim();
+        const sourceName = String((e as any).sourceName || '').trim();
+        const variant = String((e as any).variant || '').trim();
+        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const toHandCards = Array.isArray((e as any).toHandCards) ? (e as any).toHandCards as any[] : [];
+        const drawnCard = (e as any).drawnCard && typeof (e as any).drawnCard === 'object'
+          ? { ...(e as any).drawnCard, zone: 'hand' }
+          : null;
+
+        try {
+          if (!pid || !targetPid) break;
+
+          const gameId = String((ctx as any).gameId || '').trim();
+          if (gameId) {
+            try {
+              const queue = ResolutionQueueManager.getQueue(gameId) as any;
+              const matchesPonderStep = (step: any): boolean => {
+                if (!step || String(step?.type || '') !== String(ResolutionStepType.PONDER_EFFECT)) {
+                  return false;
+                }
+                if (String(step?.playerId || '') !== pid) {
+                  return false;
+                }
+                if (effectId && String(step?.effectId || '') === effectId) {
+                  return true;
+                }
+                if (targetPid && String(step?.targetPlayerId || pid) !== targetPid) {
+                  return false;
+                }
+                if (sourceName && String(step?.sourceName || '') === sourceName) {
+                  return true;
+                }
+                return Boolean(variant) && String(step?.variant || '') === variant;
+              };
+
+              const activeStepMatched = matchesPonderStep(queue?.activeStep);
+              const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+              if (activeStepMatched) {
+                queue.activeStep = undefined;
+              }
+              if (Array.isArray(queue?.steps) && beforeCount > 0) {
+                queue.steps = queue.steps.filter((step: any) => !matchesPonderStep(step));
+              }
+              if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+                queue.seq = Number(queue?.seq || 0) + 1;
+              }
+            } catch {
+              // best-effort only
+            }
+          }
+
+          const stateAny = ctx.state as any;
+          const zones = stateAny.zones = stateAny.zones || {};
+          const targetZones = zones[targetPid] = zones[targetPid] || {
+            hand: [],
+            handCount: 0,
+            library: [],
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          };
+          const playerZones = zones[pid] = zones[pid] || {
+            hand: [],
+            handCount: 0,
+            library: [],
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          };
+
+          targetZones.library = libraryAfter;
+          targetZones.libraryCount = libraryAfter.length;
+          if (ctx.libraries?.set) {
+            ctx.libraries.set(targetPid, cloneLibraryCards(libraryAfter));
+          }
+
+          if (toHandCards.length > 0) {
+            playerZones.hand = Array.isArray(playerZones.hand) ? playerZones.hand : [];
+            for (const card of toHandCards) {
+              (playerZones.hand as any[]).push({ ...card, zone: 'hand' });
+            }
+            playerZones.handCount = (playerZones.hand as any[]).length;
+          }
+
+          if (drawnCard) {
+            playerZones.hand = Array.isArray(playerZones.hand) ? playerZones.hand : [];
+            (playerZones.hand as any[]).push({ ...drawnCard, zone: 'hand' });
+            playerZones.handCount = (playerZones.hand as any[]).length;
+          }
+
+          if (stateAny.pendingPonder && typeof stateAny.pendingPonder === 'object') {
+            delete stateAny.pendingPonder[pid];
+            if (Object.keys(stateAny.pendingPonder).length === 0) {
+              delete stateAny.pendingPonder;
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(ponderEffectResolve): failed', err);
+        }
+        break;
+      }
+
+      case "bottomOrderResolve": {
+        const pid = String((e as any).playerId || '').trim();
+        const effectId = String((e as any).effectId || '').trim();
+        const sourceId = String((e as any).sourceId || '').trim();
+        const sourceName = String((e as any).sourceName || '').trim();
+        const orderedCardIds = Array.isArray((e as any).orderedCardIds)
+          ? ((e as any).orderedCardIds as any[]).map((id: any) => String(id || '')).filter(Boolean)
+          : [];
+        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+        const matchesCardSet = (cards: any): boolean => {
+          const candidateIds = Array.isArray(cards)
+            ? cards.map((card: any) => String(card?.id || '')).filter(Boolean)
+            : [];
+          return orderedCardIds.length > 0
+            && candidateIds.length === orderedCardIds.length
+            && candidateIds.every((id: string) => orderedCardIds.includes(id));
+        };
+
+        try {
+          if (!pid) break;
+
+          const gameId = String((ctx as any).gameId || '').trim();
+          if (gameId) {
+            try {
+              const queue = ResolutionQueueManager.getQueue(gameId) as any;
+              const matchesBottomOrderStep = (step: any): boolean => {
+                if (!step || String(step?.type || '') !== String(ResolutionStepType.BOTTOM_ORDER)) {
+                  return false;
+                }
+                if (String(step?.playerId || '') !== pid) {
+                  return false;
+                }
+                if (effectId && String(step?.effectId || '') === effectId) {
+                  return true;
+                }
+                if (sourceId && String(step?.sourceId || '') === sourceId && matchesCardSet(step?.cards)) {
+                  return true;
+                }
+                if (sourceName && String(step?.sourceName || '') === sourceName && matchesCardSet(step?.cards)) {
+                  return true;
+                }
+                return false;
+              };
+
+              const activeStepMatched = matchesBottomOrderStep(queue?.activeStep);
+              const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+              if (activeStepMatched) {
+                queue.activeStep = undefined;
+              }
+              if (Array.isArray(queue?.steps) && beforeCount > 0) {
+                queue.steps = queue.steps.filter((step: any) => !matchesBottomOrderStep(step));
+              }
+              if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+                queue.seq = Number(queue?.seq || 0) + 1;
+              }
+            } catch {
+              // best-effort only
+            }
+          }
+
+          const stateAny = ctx.state as any;
+          const zones = stateAny.zones = stateAny.zones || {};
+          const playerZones = zones[pid] = zones[pid] || {
+            hand: [],
+            handCount: 0,
+            library: [],
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          };
+
+          playerZones.library = libraryAfter;
+          playerZones.libraryCount = libraryAfter.length;
+          if (ctx.libraries?.set) {
+            ctx.libraries.set(pid, cloneLibraryCards(libraryAfter));
+          }
+
+          if (stateAny.pendingBottomOrder && typeof stateAny.pendingBottomOrder === 'object') {
+            const existing = Array.isArray(stateAny.pendingBottomOrder[pid]) ? stateAny.pendingBottomOrder[pid] : [];
+            stateAny.pendingBottomOrder[pid] = existing.filter((entry: any) => {
+              if (!entry || typeof entry !== 'object') {
+                return false;
+              }
+              if (effectId && String(entry.effectId || '') === effectId) {
+                return false;
+              }
+              if (sourceId && String(entry.sourceId || '') === sourceId && matchesCardSet(entry.cards)) {
+                return false;
+              }
+              if (sourceName && String(entry.sourceName || '') === sourceName && matchesCardSet(entry.cards)) {
+                return false;
+              }
+              return true;
+            });
+
+            if (!Array.isArray(stateAny.pendingBottomOrder[pid]) || stateAny.pendingBottomOrder[pid].length === 0) {
+              delete stateAny.pendingBottomOrder[pid];
+            }
+            if (Object.keys(stateAny.pendingBottomOrder).length === 0) {
+              delete stateAny.pendingBottomOrder;
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(bottomOrderResolve): failed', err);
+        }
+        break;
+      }
+
+      case "limDulsVaultContinue": {
+        const pid = String((e as any).playerId || '').trim();
+        const effectId = String((e as any).effectId || '').trim();
+        const sourceName = String((e as any).sourceName || "Lim-Dul's Vault").trim();
+        const sourceImage = (e as any).sourceImage;
+        const lifePaid = Number((e as any).lifePaid || 0);
+        const lifeAfter = Number((e as any).lifeAfter);
+        const totalLifePaid = Number((e as any).totalLifePaid || 0);
+        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+
+        try {
+          if (!pid) break;
+
+          const gameId = String((ctx as any).gameId || '').trim();
+          if (gameId) {
+            try {
+              const queue = ResolutionQueueManager.getQueue(gameId) as any;
+              const matchesVaultStep = (step: any): boolean => {
+                return Boolean(step)
+                  && String(step?.type || '') === String(ResolutionStepType.LIM_DULS_VAULT)
+                  && String(step?.playerId || '') === pid
+                  && (!effectId || String(step?.effectId || '') === effectId);
+              };
+
+              const activeStepMatched = matchesVaultStep(queue?.activeStep);
+              const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+              if (activeStepMatched) {
+                queue.activeStep = undefined;
+              }
+              if (Array.isArray(queue?.steps) && beforeCount > 0) {
+                queue.steps = queue.steps.filter((step: any) => !matchesVaultStep(step));
+              }
+              if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+                queue.seq = Number(queue?.seq || 0) + 1;
+              }
+            } catch {
+              // best-effort only
+            }
+          }
+
+          const stateAny = ctx.state as any;
+          stateAny.life = stateAny.life || {};
+          if (Number.isFinite(lifeAfter)) {
+            stateAny.life[pid] = lifeAfter;
+          } else if (Number.isFinite(lifePaid) && lifePaid > 0) {
+            const currentLife = Number(stateAny.life?.[pid] ?? stateAny.startingLife ?? 40);
+            stateAny.life[pid] = currentLife - lifePaid;
+          }
+          if (Number.isFinite(lifePaid) && lifePaid > 0) {
+            stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
+            stateAny.lifeLostThisTurn[pid] = Number(stateAny.lifeLostThisTurn[pid] || 0) + lifePaid;
+          }
+
+          const zones = stateAny.zones = stateAny.zones || {};
+          const playerZones = zones[pid] = zones[pid] || {
+            hand: [],
+            handCount: 0,
+            library: [],
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          };
+          playerZones.library = libraryAfter;
+          playerZones.libraryCount = libraryAfter.length;
+          if (ctx.libraries?.set) {
+            ctx.libraries.set(pid, cloneLibraryCards(libraryAfter));
+          }
+
+          stateAny.pendingLimDulsVault = stateAny.pendingLimDulsVault || {};
+          stateAny.pendingLimDulsVault[pid] = {
+            effectId,
+            sourceName,
+            sourceImage,
+            totalLifePaid,
+            currentLife: Number(stateAny.life?.[pid] ?? stateAny.startingLife ?? 40),
+            queued: false,
+          };
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(limDulsVaultContinue): failed', err);
+        }
+        break;
+      }
+
+      case "limDulsVaultResolve": {
+        const pid = String((e as any).playerId || '').trim();
+        const effectId = String((e as any).effectId || '').trim();
+        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+
+        try {
+          if (!pid) break;
+
+          const gameId = String((ctx as any).gameId || '').trim();
+          if (gameId) {
+            try {
+              const queue = ResolutionQueueManager.getQueue(gameId) as any;
+              const matchesVaultStep = (step: any): boolean => {
+                return Boolean(step)
+                  && String(step?.type || '') === String(ResolutionStepType.LIM_DULS_VAULT)
+                  && String(step?.playerId || '') === pid
+                  && (!effectId || String(step?.effectId || '') === effectId);
+              };
+
+              const activeStepMatched = matchesVaultStep(queue?.activeStep);
+              const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+              if (activeStepMatched) {
+                queue.activeStep = undefined;
+              }
+              if (Array.isArray(queue?.steps) && beforeCount > 0) {
+                queue.steps = queue.steps.filter((step: any) => !matchesVaultStep(step));
+              }
+              if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+                queue.seq = Number(queue?.seq || 0) + 1;
+              }
+            } catch {
+              // best-effort only
+            }
+          }
+
+          const stateAny = ctx.state as any;
+          const zones = stateAny.zones = stateAny.zones || {};
+          const playerZones = zones[pid] = zones[pid] || {
+            hand: [],
+            handCount: 0,
+            library: [],
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          };
+          playerZones.library = libraryAfter;
+          playerZones.libraryCount = libraryAfter.length;
+          if (ctx.libraries?.set) {
+            ctx.libraries.set(pid, cloneLibraryCards(libraryAfter));
+          }
+
+          if (stateAny.pendingLimDulsVault && typeof stateAny.pendingLimDulsVault === 'object') {
+            delete stateAny.pendingLimDulsVault[pid];
+            if (Object.keys(stateAny.pendingLimDulsVault).length === 0) {
+              delete stateAny.pendingLimDulsVault;
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(limDulsVaultResolve): failed', err);
+        }
+        break;
+      }
+
+      case "danceWithCalamityContinue": {
+        const pid = String((e as any).playerId || '').trim();
+        const effectId = String((e as any).effectId || '').trim();
+        const sourceName = String((e as any).sourceName || 'Dance with Calamity').trim();
+        const sourceImage = (e as any).sourceImage;
+        const totalManaValue = Number((e as any).totalManaValue || 0);
+        const exiledCards = Array.isArray((e as any).exiledCards)
+          ? ((e as any).exiledCards as any[]).map((card: any) => ({ ...card, zone: 'exile' }))
+          : [];
+        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+
+        try {
+          if (!pid) break;
+
+          clearReplayDanceWithCalamitySteps(String((ctx as any).gameId || '').trim(), pid, effectId);
+
+          const stateAny = ctx.state as any;
+          const playerZones = ensureReplayPlayerZones(stateAny, pid);
+          playerZones.library = libraryAfter;
+          playerZones.libraryCount = libraryAfter.length;
+          mergeCardsIntoReplayExile(playerZones, exiledCards);
+          if (ctx.libraries?.set) {
+            ctx.libraries.set(pid, cloneLibraryCards(libraryAfter));
+          }
+
+          stateAny.pendingDanceWithCalamity = stateAny.pendingDanceWithCalamity || {};
+          stateAny.pendingDanceWithCalamity[pid] = {
+            effectId,
+            sourceName,
+            sourceImage,
+            exiledCards,
+            totalManaValue,
+            stage: 'exile',
+            queued: false,
+          };
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(danceWithCalamityContinue): failed', err);
+        }
+        break;
+      }
+
+      case "danceWithCalamityBeginCasting": {
+        const pid = String((e as any).playerId || '').trim();
+        const effectId = String((e as any).effectId || '').trim();
+        const sourceName = String((e as any).sourceName || 'Dance with Calamity').trim();
+        const sourceImage = (e as any).sourceImage;
+        const totalManaValue = Number((e as any).totalManaValue || 0);
+        const spellCardIds = Array.isArray((e as any).spellCardIds)
+          ? (e as any).spellCardIds.map((value: any) => String(value || '')).filter(Boolean)
+          : [];
+
+        try {
+          if (!pid) break;
+
+          clearReplayDanceWithCalamitySteps(String((ctx as any).gameId || '').trim(), pid, effectId);
+
+          const stateAny = ctx.state as any;
+          const playerZones = ensureReplayPlayerZones(stateAny, pid);
+          const existing = (stateAny.pendingDanceWithCalamity || {})[pid] || {};
+          const replayExiledCards = Array.isArray(existing.exiledCards) && existing.exiledCards.length > 0
+            ? existing.exiledCards
+            : (Array.isArray(playerZones.exile) ? playerZones.exile.map((card: any) => ({ ...card, zone: 'exile' })) : []);
+          stateAny.pendingDanceWithCalamity = stateAny.pendingDanceWithCalamity || {};
+          stateAny.pendingDanceWithCalamity[pid] = {
+            effectId,
+            sourceName,
+            sourceImage,
+            exiledCards: replayExiledCards,
+            totalManaValue,
+            stage: 'select_casts',
+            spellCardIds,
+            queued: false,
+          };
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(danceWithCalamityBeginCasting): failed', err);
+        }
+        break;
+      }
+
+      case "danceWithCalamitySetCastOrder": {
+        const pid = String((e as any).playerId || '').trim();
+        const effectId = String((e as any).effectId || '').trim();
+        const sourceName = String((e as any).sourceName || 'Dance with Calamity').trim();
+        const sourceImage = (e as any).sourceImage;
+        const totalManaValue = Number((e as any).totalManaValue || 0);
+        const orderedSpellIds = Array.isArray((e as any).orderedSpellIds)
+          ? (e as any).orderedSpellIds.map((value: any) => String(value || '')).filter(Boolean)
+          : [];
+
+        try {
+          if (!pid) break;
+
+          clearReplayDanceWithCalamitySteps(String((ctx as any).gameId || '').trim(), pid, effectId);
+
+          const stateAny = ctx.state as any;
+          const playerZones = ensureReplayPlayerZones(stateAny, pid);
+          const existing = (stateAny.pendingDanceWithCalamity || {})[pid] || {};
+          const replayExiledCards = Array.isArray(existing.exiledCards) && existing.exiledCards.length > 0
+            ? existing.exiledCards
+            : (Array.isArray(playerZones.exile) ? playerZones.exile.map((card: any) => ({ ...card, zone: 'exile' })) : []);
+          stateAny.pendingDanceWithCalamity = stateAny.pendingDanceWithCalamity || {};
+          stateAny.pendingDanceWithCalamity[pid] = {
+            effectId,
+            sourceName,
+            sourceImage,
+            exiledCards: replayExiledCards,
+            totalManaValue,
+            stage: 'cast_sequence',
+            orderedSpellIds,
+            nextCastIndex: 0,
+            queued: false,
+          };
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(danceWithCalamitySetCastOrder): failed', err);
+        }
+        break;
+      }
+
+      case "danceWithCalamityAdvanceCast": {
+        const pid = String((e as any).playerId || '').trim();
+        const effectId = String((e as any).effectId || '').trim();
+        const sourceName = String((e as any).sourceName || 'Dance with Calamity').trim();
+        const sourceImage = (e as any).sourceImage;
+        const totalManaValue = Number((e as any).totalManaValue || 0);
+        const orderedSpellIds = Array.isArray((e as any).orderedSpellIds)
+          ? (e as any).orderedSpellIds.map((value: any) => String(value || '')).filter(Boolean)
+          : [];
+        const nextCastIndex = Math.max(0, Number((e as any).nextCastIndex || 0));
+
+        try {
+          if (!pid) break;
+
+          clearReplayDanceWithCalamitySteps(String((ctx as any).gameId || '').trim(), pid, effectId);
+
+          const stateAny = ctx.state as any;
+          const playerZones = ensureReplayPlayerZones(stateAny, pid);
+          const existing = (stateAny.pendingDanceWithCalamity || {})[pid] || {};
+          const replayExiledCards = Array.isArray(existing.exiledCards) && existing.exiledCards.length > 0
+            ? existing.exiledCards
+            : (Array.isArray(playerZones.exile) ? playerZones.exile.map((card: any) => ({ ...card, zone: 'exile' })) : []);
+          stateAny.pendingDanceWithCalamity = stateAny.pendingDanceWithCalamity || {};
+          stateAny.pendingDanceWithCalamity[pid] = {
+            effectId,
+            sourceName,
+            sourceImage,
+            exiledCards: replayExiledCards,
+            totalManaValue,
+            stage: 'cast_sequence',
+            orderedSpellIds,
+            nextCastIndex,
+            queued: false,
+          };
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(danceWithCalamityAdvanceCast): failed', err);
+        }
+        break;
+      }
+
+      case "danceWithCalamityResolve": {
+        const pid = String((e as any).playerId || '').trim();
+        const effectId = String((e as any).effectId || '').trim();
+        const exiledCards = Array.isArray((e as any).exiledCards)
+          ? ((e as any).exiledCards as any[]).map((card: any) => ({ ...card, zone: 'exile' }))
+          : [];
+        const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+
+        try {
+          if (!pid) break;
+
+          clearReplayDanceWithCalamitySteps(String((ctx as any).gameId || '').trim(), pid, effectId);
+
+          const stateAny = ctx.state as any;
+          const playerZones = ensureReplayPlayerZones(stateAny, pid);
+          playerZones.library = libraryAfter;
+          playerZones.libraryCount = libraryAfter.length;
+          if (ctx.libraries?.set) {
+            ctx.libraries.set(pid, cloneLibraryCards(libraryAfter));
+          }
+          if (exiledCards.length > 0) {
+            mergeCardsIntoReplayExile(playerZones, exiledCards);
+          }
+
+          if (stateAny.pendingDanceWithCalamity && typeof stateAny.pendingDanceWithCalamity === 'object') {
+            delete stateAny.pendingDanceWithCalamity[pid];
+            if (Object.keys(stateAny.pendingDanceWithCalamity).length === 0) {
+              delete stateAny.pendingDanceWithCalamity;
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(danceWithCalamityResolve): failed', err);
+        }
         break;
       }
 
@@ -3953,7 +4694,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const discarded = (e as any).discardedCardIds;
             const pid = playerId != null ? String(playerId) : '';
             if (pid && Array.isArray(discarded) && discarded.length > 0) {
-              const zones = (ctx.state as any).zones || {};
+              (ctx.state as any).zones = (ctx.state as any).zones || {};
+              const zones = (ctx.state as any).zones;
               const z = zones[pid];
               if (z && Array.isArray(z.hand)) {
                 z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
@@ -5924,6 +6666,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const destinationFaceDown = (e as any).destinationFaceDown === true;
         const grantPlayableFromExileToController = (e as any).grantPlayableFromExileToController === true;
         const playableFromExileTypeKey = String((e as any).playableFromExileTypeKey || '').toLowerCase();
+        const pendingBottomOrder = (e as any).pendingBottomOrder && typeof (e as any).pendingBottomOrder === 'object'
+          ? (e as any).pendingBottomOrder as Record<string, any>
+          : undefined;
         const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
           ? ((e as any).createdPermanentIds as any[]).map((id: any) => String(id || '').trim()).filter(Boolean)
           : [];
@@ -6113,12 +6858,139 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             (ctx.state as any).life[pid] = currentLife - lifeLoss;
           }
 
+          if (pendingBottomOrder) {
+            const stateAny = ctx.state as any;
+            stateAny.pendingBottomOrder = stateAny.pendingBottomOrder || {};
+            const pendingList = Array.isArray(stateAny.pendingBottomOrder[pid]) ? stateAny.pendingBottomOrder[pid] : [];
+            pendingList.push({
+              effectId: String(pendingBottomOrder.effectId || ''),
+              sourceId: String(pendingBottomOrder.sourceId || sourceId || ''),
+              sourceName: String(pendingBottomOrder.sourceName || sourceName || ''),
+              sourceImage: pendingBottomOrder.sourceImage,
+              description: String(pendingBottomOrder.description || `${sourceName || 'Effect'}: Put cards on the bottom in any order.`),
+              cards: cloneLibraryCards(Array.isArray(pendingBottomOrder.cards) ? pendingBottomOrder.cards as any[] : []),
+              shuffleAfter: pendingBottomOrder.shuffleAfter === true,
+              queued: false,
+            });
+            stateAny.pendingBottomOrder[pid] = pendingList;
+          }
+
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(librarySearchResolve): failed', err);
         }
         break;
       }
+
+        case "cascadeResolve": {
+          const pid = String((e as any).playerId || '').trim();
+          const effectId = String((e as any).effectId || '').trim();
+          const sourceCardId = String((e as any).sourceCardId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const cascadeNumber = Number((e as any).cascadeNumber || 0);
+          const cast = (e as any).cast === true;
+          const hitCard = (e as any).hitCard && typeof (e as any).hitCard === 'object'
+            ? { ...(e as any).hitCard }
+            : null;
+          const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+
+          try {
+            if (!pid) break;
+
+            const gameId = String((ctx as any).gameId || '').trim();
+            if (gameId) {
+              try {
+                const queue = ResolutionQueueManager.getQueue(gameId) as any;
+                const matchesCascadeStep = (step: any): boolean => {
+                  if (!step || String(step?.type || '') !== String(ResolutionStepType.CASCADE)) {
+                    return false;
+                  }
+                  if (String(step?.playerId || '') !== pid) {
+                    return false;
+                  }
+                  if (effectId && String(step?.effectId || '') === effectId) {
+                    return true;
+                  }
+                  if (sourceCardId && String(step?.sourceId || '') === sourceCardId) {
+                    return cascadeNumber <= 0 || Number(step?.cascadeNumber || 0) === cascadeNumber;
+                  }
+                  return Boolean(sourceName) && String(step?.sourceName || '') === sourceName;
+                };
+
+                const activeStepMatched = matchesCascadeStep(queue?.activeStep);
+                const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+                if (activeStepMatched) {
+                  queue.activeStep = undefined;
+                }
+                if (Array.isArray(queue?.steps) && beforeCount > 0) {
+                  queue.steps = queue.steps.filter((step: any) => !matchesCascadeStep(step));
+                }
+                if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+                  queue.seq = Number(queue?.seq || 0) + 1;
+                }
+              } catch {
+                // best-effort only
+              }
+            }
+
+            const pendingCascade = (((ctx.state as any) || {}).pendingCascade || {}) as Record<string, any[]>;
+            const playerQueue = Array.isArray(pendingCascade[pid]) ? pendingCascade[pid] : [];
+            const matchingIndex = playerQueue.findIndex((entry: any) => {
+              if (effectId && String(entry?.effectId || '') === effectId) return true;
+              if (sourceCardId && String(entry?.sourceCardId || '') === sourceCardId) {
+                return cascadeNumber <= 0 || Number(entry?.instance || 0) === cascadeNumber;
+              }
+              return Boolean(sourceName) && String(entry?.sourceName || '') === sourceName;
+            });
+            if (matchingIndex >= 0) {
+              playerQueue.splice(matchingIndex, 1);
+            }
+            if (playerQueue.length > 0) {
+              pendingCascade[pid] = playerQueue;
+            } else if (pid in pendingCascade) {
+              delete pendingCascade[pid];
+            }
+            if (Object.keys(pendingCascade).length > 0) {
+              (ctx.state as any).pendingCascade = pendingCascade;
+            } else {
+              delete (ctx.state as any).pendingCascade;
+            }
+
+            const zones = (ctx.state as any).zones || {};
+            const z = zones[pid] || {
+              hand: [],
+              handCount: 0,
+              library: [],
+              libraryCount: 0,
+              graveyard: [],
+              graveyardCount: 0,
+              exile: [],
+              exileCount: 0,
+            };
+            zones[pid] = z;
+
+            (z as any).library = libraryAfter;
+            z.libraryCount = libraryAfter.length;
+            if (ctx.libraries?.set) {
+              ctx.libraries.set(pid as any, cloneLibraryCards(libraryAfter));
+            }
+
+            if (cast && hitCard) {
+              const exile = Array.isArray((z as any).exile) ? (z as any).exile : [];
+              if (!exile.some((card: any) => String(card?.id || '') === String(hitCard.id || ''))) {
+                exile.push({ ...hitCard, zone: 'exile' });
+              }
+              (z as any).exile = exile;
+              (z as any).exileCount = exile.length;
+            }
+
+            ctx.bumpSeq();
+          } catch (err) {
+            debugWarn(1, 'applyEvent(cascadeResolve): failed', err);
+          }
+          break;
+        }
 
       case "creatureTypeSelected": {
         // Creature type selection (e.g., Cavern of Souls, Metallic Mimic)

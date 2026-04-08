@@ -29,7 +29,9 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'activateUpgradeAbility',
   'addManaToPool',
   'bounceLandChoice',
+  'bottomOrderResolve',
   'cardNameChoice',
+  'cascadeResolve',
   'castSpellContinuation',
   'changePermanentControl',
   'clashResolve',
@@ -52,6 +54,13 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'kynaiosChoiceComplete',
   'kynaiosChoiceResponse',
   'librarySearchResolve',
+  'limDulsVaultContinue',
+  'limDulsVaultResolve',
+  'danceWithCalamityContinue',
+  'danceWithCalamityBeginCasting',
+  'danceWithCalamitySetCastOrder',
+  'danceWithCalamityAdvanceCast',
+  'danceWithCalamityResolve',
   'moxDiamondChoice',
   'mulliganPutToBottom',
   'opponentMayPayResolve',
@@ -59,6 +68,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'playerChoice',
   'playerSelection',
   'playOpeningHandCards',
+  'ponderEffectResolve',
   'proliferateResolve',
   'removeManaFromPool',
   'removeManaPoolDoesNotEmpty',
@@ -83,6 +93,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
 ]);
 
 const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
+  Conceded: 'false-positive capture from payload strings like lossReason: Conceded, not an event type',
   allPlayersPassed: 'nextStep reason marker captured by the appendEvent meta regex, not a standalone persisted event type',
   adjustLife: 'non-interactive gameplay primitive; covered by direct life bookkeeping tests rather than prompt-resolution replay guard',
   castSpell: 'core gameplay event, not a queued interaction outcome',
@@ -101,7 +112,9 @@ const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
   sacrificePermanent: 'generic gameplay primitive, not a queued interaction outcome',
   setHouseRules: 'configuration event, not a queued interaction outcome',
   setTriggerShortcut: 'preference/configuration event, not a queued interaction outcome',
+  scheduleDelayedGraveyardReturn: 'covered by targeted applyEvent tests in delayed-graveyard-return.applyEvent.test.ts rather than replay-named guard files',
   skipToPhaseCleanup: 'nextStep reason marker captured by the appendEvent meta regex, not a standalone persisted event type',
+  unkeepHand: 'opening-hand progression primitive; the replay guard focuses on completion events instead',
 };
 
 function walkFiles(dirPath: string): string[] {

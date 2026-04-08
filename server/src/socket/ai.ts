@@ -1832,25 +1832,55 @@ export function chooseAILibrarySearchCards(
     minSelections?: number;
     maxSelections?: number;
     destination?: string;
+    maxTotalManaValue?: number;
   }
 ): string[] {
   const minSelections = Math.max(0, Number(options?.minSelections ?? 0));
   const maxSelections = Math.max(minSelections, Number(options?.maxSelections ?? 1));
+  const profile = ensureAIDeckProfile(game, playerId);
+  const destination = String(options?.destination || 'hand');
+  const maxTotalManaValue = Number(options?.maxTotalManaValue);
+
+  const scoredCards = [...availableCards]
+    .map((card: any) => ({
+      id: String(card?.id || ''),
+      manaValue: Math.max(0, Number(card?.cmc || 0) || 0),
+      score: scoreCardForAIAcquisition(game, playerId, card, destination, profile),
+    }))
+    .filter((entry) => Boolean(entry.id))
+    .sort((left, right) => right.score - left.score || left.manaValue - right.manaValue);
+
+  if (Number.isFinite(maxTotalManaValue) && maxTotalManaValue >= 0) {
+    const selected: string[] = [];
+    let runningTotal = 0;
+
+    for (const entry of scoredCards) {
+      if (selected.length >= maxSelections) break;
+      if (runningTotal + entry.manaValue > maxTotalManaValue) continue;
+      selected.push(entry.id);
+      runningTotal += entry.manaValue;
+    }
+
+    if (selected.length >= minSelections) {
+      return selected;
+    }
+
+    const cheapestRemaining = [...scoredCards].sort((left, right) => left.manaValue - right.manaValue || right.score - left.score);
+    for (const entry of cheapestRemaining) {
+      if (selected.length >= minSelections || selected.length >= maxSelections) break;
+      if (selected.includes(entry.id)) continue;
+      if (runningTotal + entry.manaValue > maxTotalManaValue) continue;
+      selected.push(entry.id);
+      runningTotal += entry.manaValue;
+    }
+
+    return selected;
+  }
+
   const defaultSelection = availableCards.length > 0 ? 1 : 0;
   const desiredSelection = Math.max(minSelections, Math.min(maxSelections, defaultSelection));
   const numToSelect = Math.min(availableCards.length, desiredSelection);
-  const profile = ensureAIDeckProfile(game, playerId);
-  const destination = String(options?.destination || 'hand');
-
-  return [...availableCards]
-    .map((card: any) => ({
-      id: String(card?.id || ''),
-      score: scoreCardForAIAcquisition(game, playerId, card, destination, profile),
-    }))
-    .sort((left, right) => right.score - left.score)
-    .slice(0, numToSelect)
-    .map((entry) => entry.id)
-    .filter(Boolean);
+  return scoredCards.slice(0, numToSelect).map((entry) => entry.id);
 }
 
 export function chooseAIGraveyardSelectionIds(
@@ -4453,6 +4483,33 @@ export async function handleAIPriority(
   debug(1, '[AI] AI has priority, proceeding with action');
   
   try {
+    try {
+      const resolutionModule = await import('./resolution.js');
+      if (resolutionModule?.processPendingCascades) {
+        await resolutionModule.processPendingCascades(io as any, game, gameId);
+      }
+      if (resolutionModule?.processPendingScry) {
+        resolutionModule.processPendingScry(io as any, game, gameId);
+      }
+      if (resolutionModule?.processPendingSurveil) {
+        resolutionModule.processPendingSurveil(io as any, game, gameId);
+      }
+      if (resolutionModule?.processPendingPonder) {
+        resolutionModule.processPendingPonder(io as any, game, gameId);
+      }
+      if (resolutionModule?.processPendingBottomOrder) {
+        resolutionModule.processPendingBottomOrder(io as any, game, gameId);
+      }
+      if (resolutionModule?.processPendingLimDulsVault) {
+        resolutionModule.processPendingLimDulsVault(io as any, game, gameId);
+      }
+      if (resolutionModule?.processPendingDanceWithCalamity) {
+        resolutionModule.processPendingDanceWithCalamity(io as any, game, gameId);
+      }
+    } catch {
+      // best-effort only
+    }
+
     // Check for Resolution Queue steps that the AI needs to respond to
     // This handles trigger ordering, Kynaios choices, and other player interactions
     const queue = ResolutionQueueManager.getQueue(gameId);

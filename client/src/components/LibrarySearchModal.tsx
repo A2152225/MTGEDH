@@ -31,6 +31,7 @@ export interface LibrarySearchModalProps {
     colors?: string[];
   };
   maxSelections?: number;  // Default 1 for most tutors
+  maxTotalManaValue?: number;
   moveTo?: 'hand' | 'battlefield' | 'top' | 'graveyard' | 'split';
   shuffleAfter?: boolean;
   // For split destination effects (Cultivate, Kodama's Reach)
@@ -184,6 +185,7 @@ export function LibrarySearchModal({
   description,
   filter,
   maxSelections = 1,
+  maxTotalManaValue,
   moveTo = 'hand',
   shuffleAfter = true,
   splitDestination = false,
@@ -253,6 +255,15 @@ export function LibrarySearchModal({
     // Sort by name
     return result;
   }, [displayCards, searchQuery]);
+
+  const selectedManaValueTotal = useMemo(() => {
+    let total = 0;
+    for (const cardId of selectedIds) {
+      const card = cards.find((entry) => entry.id === cardId) || displayCards.find((entry) => entry.id === cardId);
+      total += Math.max(0, Number(card?.cmc || 0) || 0);
+    }
+    return total;
+  }, [cards, displayCards, selectedIds]);
   
   const toggleSelect = useCallback((cardId: string) => {
     setSelectedIds(prev => {
@@ -276,12 +287,24 @@ export function LibrarySearchModal({
             });
           }, 0);
         }
-      } else if (next.size < maxSelections) {
-        next.add(cardId);
+      } else {
+        const card = cards.find((entry) => entry.id === cardId) || displayCards.find((entry) => entry.id === cardId);
+        const cardManaValue = Math.max(0, Number(card?.cmc || 0) || 0);
+        const currentTotal = Array.from(next).reduce((sum, selectedId) => {
+          const selectedCard = cards.find((entry) => entry.id === selectedId) || displayCards.find((entry) => entry.id === selectedId);
+          return sum + Math.max(0, Number(selectedCard?.cmc || 0) || 0);
+        }, 0);
+        const exceedsManaValueCap = Number.isFinite(maxTotalManaValue)
+          && typeof maxTotalManaValue === 'number'
+          && currentTotal + cardManaValue > maxTotalManaValue;
+
+        if (!exceedsManaValueCap && next.size < maxSelections) {
+          next.add(cardId);
+        }
       }
       return next;
     });
-  }, [maxSelections, splitDestination]);
+  }, [cards, displayCards, maxSelections, maxTotalManaValue, splitDestination]);
   
   // Handle assigning a selected card to battlefield (for split destination)
   const assignToBattlefield = useCallback((cardId: string) => {
@@ -477,7 +500,13 @@ export function LibrarySearchModal({
               : `${validTargetCards.length} valid targets available`}
             {maxSelections > 1 ? ` • Select up to ${maxSelections}` : ' • Select 1 card'}
             {selectedIds.size > 0 && ` • ${selectedIds.size} selected`}
+            {Number.isFinite(maxTotalManaValue) && typeof maxTotalManaValue === 'number' && ` • Mana value ${selectedManaValueTotal}/${maxTotalManaValue}`}
           </div>
+          {Number.isFinite(maxTotalManaValue) && typeof maxTotalManaValue === 'number' && (
+            <div style={{ marginTop: 4, fontSize: 11, color: '#93c5fd' }}>
+              Selected cards must have total mana value {maxTotalManaValue} or less.
+            </div>
+          )}
           <div style={{ marginTop: 4, fontSize: 11, color: '#f59e0b' }}>
             ⚠️ You must select a card or fail to find (cannot close by clicking outside)
           </div>

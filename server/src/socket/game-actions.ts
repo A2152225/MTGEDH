@@ -1,7 +1,7 @@
 ﻿import type { Server, Socket } from "socket.io";
 import type { InMemoryGame } from "../state/types";
 import { ensureGame, broadcastGame, appendGameEvent, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName, emitToPlayer, calculateManaProduction, broadcastManaPoolUpdate, millUntilLand, suppressAutomationOnNextBroadcast, LAND_PLAY_AUTOMATION_SUPPRESSION_MS, clearHumanAutoPassPauseOnAction } from "./util";
-import { emitResolutionStepPrompt, processPendingCascades, processPendingScry, processPendingProliferate, processPendingPonder, queueMayAbilityStep } from "./resolution.js";
+import { emitResolutionStepPrompt, processPendingBottomOrder, processPendingCascades, processPendingDanceWithCalamity, processPendingLimDulsVault, processPendingPonder, processPendingProliferate, processPendingScry, processPendingSurveil, queueMayAbilityStep } from "./resolution.js";
 import { appendEvent, isGameCreator } from "../db";
 import { GameManager } from "../GameManager.js";
 import {
@@ -8108,9 +8108,21 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Process any pending scry effects
       processPendingScry(io, game, gameId);
+
+      // Process any pending surveil effects
+      processPendingSurveil(io, game, gameId);
       
       // Process any pending ponder effects
       processPendingPonder(io, game, gameId);
+
+      // Process any pending bottom-order effects
+      processPendingBottomOrder(io, game, gameId);
+
+      // Process any pending Lim-Dul's Vault effects
+      processPendingLimDulsVault(io, game, gameId);
+
+      // Process any pending Dance with Calamity effects
+      processPendingDanceWithCalamity(io, game, gameId);
       
       // Process any pending proliferate effects
       processPendingProliferate(io, game, gameId);
@@ -8570,9 +8582,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process any pending scry effects
         processPendingScry(io, game, gameId);
+
+        // Process any pending surveil effects
+        processPendingSurveil(io, game, gameId);
         
         // Process any pending ponder effects
         processPendingPonder(io, game, gameId);
+
+        // Process any pending bottom-order effects
+        processPendingBottomOrder(io, game, gameId);
+
+        // Process any pending Lim-Dul's Vault effects
+        processPendingLimDulsVault(io, game, gameId);
+
+        // Process any pending Dance with Calamity effects
+        processPendingDanceWithCalamity(io, game, gameId);
         
         // Process any pending proliferate effects
         processPendingProliferate(io, game, gameId);
@@ -9402,12 +9426,24 @@ export function registerGameActions(io: Server, socket: Socket) {
         
         // Process any pending scry effects
         processPendingScry(io, game, gameId);
+
+        // Process any pending surveil effects
+        processPendingSurveil(io, game, gameId);
         
         // Process any pending proliferate effects
         processPendingProliferate(io, game, gameId);
         
         // Process any pending ponder effects
         processPendingPonder(io, game, gameId);
+
+        // Process any pending bottom-order effects
+        processPendingBottomOrder(io, game, gameId);
+
+        // Process any pending Lim-Dul's Vault effects
+        processPendingLimDulsVault(io, game, gameId);
+
+        // Process any pending Dance with Calamity effects
+        processPendingDanceWithCalamity(io, game, gameId);
       }
 
       // If all players passed priority with empty stack, advance to next step
