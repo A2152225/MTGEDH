@@ -9,7 +9,7 @@ import {
   findPermanentsWithCreatureType 
 } from "../../../shared/src/creatureTypes";
 import { parseSacrificeCost, type SacrificeType } from "../../../shared/src/textUtils";
-import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility } from "../state/modules/triggered-abilities";
+import { getLandfallTriggers, getETBTriggersForPermanent, getLoyaltyActivationLimit, detectUtilityLandAbility, detectHideawayAbility } from "../state/modules/triggered-abilities";
 import { movePermanentToGraveyard, trackPermanentSacrificedThisTurn } from "../state/modules/counters_tokens.js";
 import { triggerETBEffectsForToken } from "../state/modules/stack";
 import { recordCardLeftGraveyardThisTurn } from "../state/modules/turn-tracking.js";
@@ -35,7 +35,7 @@ import { parseTargetRequirements } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { isCreatureNow } from "../state/creatureTypeNow.js";
-import { countArtifacts, getActiveAbilityConditions } from "../state/modules/game-state-effects.js";
+import { countArtifacts, getActiveAbilityConditions, getTotalCreaturePower } from "../state/modules/game-state-effects.js";
 import { detectActivatedAbilityConditionRequirement, type ActivatedAbilityConditionRequirement } from "../state/modules/activated-ability-conditions.js";
 
 function cardHasSplitSecond(card: any): boolean {
@@ -87,6 +87,125 @@ function getActivatedAbilityConditionErrorPayload(
     code: requirement.errorCode,
     message: requirement.getFailureMessage(cardName),
   };
+}
+
+function getLibraryCountForPlayer(game: any, playerId: string): number {
+  const libraries = (game as any)?.libraries;
+  if (libraries && typeof libraries.get === 'function') {
+    const library = libraries.get(playerId);
+    if (Array.isArray(library)) {
+      return library.length;
+    }
+  }
+
+  return Number(game?.state?.zones?.[playerId]?.libraryCount || 0);
+}
+
+function getHandCountForPlayer(game: any, playerId: string): number {
+  const zones = game?.state?.zones?.[playerId];
+  if (Array.isArray(zones?.hand)) {
+    return zones.hand.length;
+  }
+
+  return Number(zones?.handCount || 0);
+}
+
+function getManaAbilityLifeEffect(card: any, producesColoredMana: boolean): {
+  amount: number;
+  isDamage: boolean;
+} {
+  if (!producesColoredMana) {
+    return { amount: 0, isDamage: false };
+  }
+
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
+  const isDamage = oracleText.includes('deals 1 damage to you');
+  const isLifePayment = !isDamage && oracleText.includes('{t},') && oracleText.includes('pay 1 life');
+
+  if (!isDamage && !isLifePayment) {
+    return { amount: 0, isDamage: false };
+  }
+
+  return {
+    amount: 1,
+    isDamage,
+  };
+}
+
+function evaluateHideawayActivationCondition(game: any, playerId: string, permanent: any): {
+  met: boolean;
+  message?: string;
+} {
+  const cardName = String(permanent?.card?.name || permanent?.name || 'This land');
+  const hideawayAbility = detectHideawayAbility(permanent?.card);
+  const condition = hideawayAbility?.condition || 'unknown';
+
+  switch (condition) {
+    case 'Attacked with 3+ creatures this turn': {
+      const creaturesAttacked = Number(game?.state?.creaturesAttackedThisTurn?.[playerId] || 0);
+      if (creaturesAttacked >= 3) {
+        return { met: true };
+      }
+
+      return {
+        met: false,
+        message: `${cardName}'s hideaway ability requires you to attack with three or more creatures this turn. (You attacked with ${creaturesAttacked})`,
+      };
+    }
+    case 'Control creatures with total power 10+': {
+      const totalPower = getTotalCreaturePower(game as any, playerId);
+      if (totalPower >= 10) {
+        return { met: true };
+      }
+
+      return {
+        met: false,
+        message: `${cardName}'s hideaway ability requires creatures you control to have total power 10 or greater. (Current total power: ${totalPower})`,
+      };
+    }
+    case 'A library has 20 or fewer cards': {
+      const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+      const hasSmallLibrary = players.some((player: any) => getLibraryCountForPlayer(game, String(player?.id || '')) <= 20);
+      if (hasSmallLibrary) {
+        return { met: true };
+      }
+
+      return {
+        met: false,
+        message: `${cardName}'s hideaway ability requires a library to have 20 or fewer cards.`,
+      };
+    }
+    case 'Each player has no cards in hand': {
+      const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+      const allHandsEmpty = players.every((player: any) => getHandCountForPlayer(game, String(player?.id || '')) === 0);
+      if (allHandsEmpty) {
+        return { met: true };
+      }
+
+      return {
+        met: false,
+        message: `${cardName}'s hideaway ability requires each player to have no cards in hand.`,
+      };
+    }
+    case 'An opponent was dealt 7+ damage this turn': {
+      const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+      const damageTakenThisTurnByPlayer = game?.state?.damageTakenThisTurnByPlayer || {};
+      const opponentLostSevenOrMore = players.some((player: any) => {
+        const candidateId = String(player?.id || '');
+        return candidateId !== playerId && Number(damageTakenThisTurnByPlayer[candidateId] || 0) >= 7;
+      });
+      if (opponentLostSevenOrMore) {
+        return { met: true };
+      }
+
+      return {
+        met: false,
+        message: `${cardName}'s hideaway ability requires an opponent to have been dealt 7 or more damage this turn.`,
+      };
+    }
+    default:
+      return { met: true };
+  }
 }
 
 // ============================================================================
@@ -296,6 +415,10 @@ const SPECIAL_LAND_ABILITIES: Record<string, LandAbilityConfig> = {
     type: 'hideaway',
     hideawayCount: 4,
   },
+  'howltooth hollow': {
+    type: 'hideaway',
+    hideawayCount: 4,
+  },
   'spinerock knoll': {
     type: 'hideaway',
     hideawayCount: 4,
@@ -326,6 +449,36 @@ function calculateInteractionManaPoolDelta(before: any, after: any): Record<stri
   }
 
   return Object.keys(delta).length > 0 ? delta : undefined;
+}
+
+function persistQueuedBattlefieldAbilityStepActivation(params: {
+  gameId: string;
+  game: any;
+  playerId: string;
+  permanentId: string;
+  abilityId: string;
+  cardName: string;
+  queuedStep: Record<string, any>;
+  tappedPermanents?: string[];
+  paymentManaDelta?: Record<string, number>;
+  abilityText?: string;
+  activatedAbilityText?: string;
+}): void {
+  try {
+    appendEvent(params.gameId, (params.game as any).seq ?? 0, 'activateBattlefieldAbility', {
+      playerId: params.playerId,
+      permanentId: params.permanentId,
+      abilityId: params.abilityId,
+      cardName: params.cardName,
+      ...(params.abilityText ? { abilityText: params.abilityText } : {}),
+      ...(params.activatedAbilityText ? { activatedAbilityText: params.activatedAbilityText } : {}),
+      ...(Array.isArray(params.tappedPermanents) && params.tappedPermanents.length > 0 ? { tappedPermanents: params.tappedPermanents } : {}),
+      ...(params.paymentManaDelta ? { paymentManaDelta: params.paymentManaDelta } : {}),
+      queuedResolutionStep: params.queuedStep,
+    });
+  } catch (e) {
+    debugWarn(1, 'appendEvent(activateBattlefieldAbility:queued-step) failed:', e);
+  }
 }
 
 // ============================================================================
@@ -3689,6 +3842,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       const hybridCost = specialLandConfig.cost!;
       const parsedCost = parseManaCost(hybridCost);
       const manaPool = getOrInitManaPool(game.state, pid);
+      const manaPoolBeforePayment = snapshotInteractionManaPool(manaPool);
       
       // Check if player can pay the hybrid cost
       const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
@@ -3753,7 +3907,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       });
       
       // Resolution Queue: prompt player to choose how to distribute the mana
-      ResolutionQueueManager.addStep(gameId, {
+      const manaSelectionStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.MANA_COLOR_SELECTION,
         playerId: pid as PlayerID,
         sourceId: permanentId,
@@ -3772,6 +3926,36 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          playerId: pid,
+          permanentId,
+          abilityId,
+          cardName,
+          tappedPermanents: [String(permanentId)],
+          paymentManaDelta: calculateInteractionManaPoolDelta(manaPoolBeforePayment, manaPool),
+          queuedResolutionStep: {
+            id: String((manaSelectionStep as any).id || ''),
+            type: ResolutionStepType.MANA_COLOR_SELECTION,
+            playerId: pid,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+            description: `Choose how to distribute ${specialLandConfig.totalMana} mana from ${cardName}.`,
+            mandatory: true,
+            selectionKind: 'distribution',
+            permanentId,
+            cardName,
+            availableColors: [...(specialLandConfig.colors || [])],
+            totalAmount: specialLandConfig.totalMana,
+            message: `Choose how to distribute ${specialLandConfig.totalMana} mana from ${cardName}.`,
+          },
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(activateBattlefieldAbility:hybrid-mana) failed:', e);
+      }
+
       broadcastGame(io, game, gameId);
       return;
     }
@@ -3876,7 +4060,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         (permanent as any).tapped = true;
         
         // Resolution Queue: prompt player to distribute mana (and consume counters)
-        ResolutionQueueManager.addStep(gameId, {
+        const manaSelectionStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_COLOR_SELECTION,
           playerId: pid as PlayerID,
           sourceId: permanentId,
@@ -3898,6 +4082,38 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         if (typeof game.bumpSeq === "function") {
           game.bumpSeq();
         }
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: pid,
+            permanentId,
+            abilityId,
+            cardName,
+            tappedPermanents: [String(permanentId)],
+            queuedResolutionStep: {
+              id: String((manaSelectionStep as any).id || ''),
+              type: ResolutionStepType.MANA_COLOR_SELECTION,
+              playerId: pid,
+              sourceId: permanentId,
+              sourceName: cardName,
+              sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+              description: `Remove ${storageCounters} ${specialLandConfig.counterType} counter${storageCounters !== 1 ? 's' : ''} to add ${storageCounters} mana.`,
+              mandatory: true,
+              selectionKind: 'distribution',
+              permanentId,
+              cardName,
+              availableColors: [...(specialLandConfig.colors || [])],
+              totalAmount: storageCounters,
+              message: `Remove ${storageCounters} ${specialLandConfig.counterType} counter${storageCounters !== 1 ? 's' : ''} to add ${storageCounters} mana.`,
+              isStorageCounter: true,
+              counterType: specialLandConfig.counterType,
+              removeCounterCount: storageCounters,
+            },
+          });
+        } catch (e) {
+          debugWarn(1, 'appendEvent(activateBattlefieldAbility:storage-remove) failed:', e);
+        }
+
         broadcastGame(io, game, gameId);
         return;
       }
@@ -4018,27 +4234,52 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      // Check hideaway condition (this varies by card)
-      // For Windbrisk Heights: "you attacked with three or more creatures this turn"
-      // For now, we'll implement a basic version
-      // Future: Add condition checking based on card
-      
-      const canPlayHideaway = true; // TODO: Implement condition checks
-      
-      if (!canPlayHideaway) {
+      const hideawayCondition = evaluateHideawayActivationCondition(game, pid, permanent);
+      if (!hideawayCondition.met) {
         socket.emit("error", {
-          code: "HIDEAWAY_CONDITION_NOT_MET",
-          message: `You haven't met the condition to play ${cardName}'s exiled card`,
+          code: "ACTIVATION_CONDITION_NOT_MET",
+          message: hideawayCondition.message || `You haven't met the condition to play ${cardName}'s exiled card`,
         });
         return;
       }
+
+      if ((permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return;
+      }
+
+      const activationCostText = String(scopedAbilityFullText || '').split(':')[0] || '';
+      const manaCost = (activationCostText.match(/\{[^}]+\}/g) || [])
+        .filter(symbol => !/^\{t\}$/i.test(symbol))
+        .join('');
+      const manaPool = getOrInitManaPool(game.state, pid);
+      const manaPoolBeforePayment = snapshotInteractionManaPool(manaPool);
+
+      if (manaCost) {
+        const paid = validateAndConsumeManaCostFromPool(manaPool as any, manaCost, {
+          logPrefix: '[activateBattlefieldAbility:hideaway]',
+        });
+        if (!paid) {
+          socket.emit("error", {
+            code: "INSUFFICIENT_MANA",
+            message: "Not enough mana to activate this ability",
+          });
+          return;
+        }
+      }
+
+      (permanent as any).tapped = true;
       
       // Move the hideaway card to hand or cast it
       // For now, move to hand
       const zones = (game.state as any).zones?.[pid];
+      const movedCard = { ...hideawayData.card, zone: 'hand' };
       if (zones) {
         zones.hand = zones.hand || [];
-        zones.hand.push({ ...hideawayData.card, zone: 'hand' });
+        zones.hand.push(movedCard);
         zones.handCount = zones.hand.length;
       }
       
@@ -4056,6 +4297,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+          playerId: pid,
+          permanentId,
+          abilityId,
+          cardName,
+          tappedPermanents: [String(permanentId)],
+          paymentManaDelta: calculateInteractionManaPoolDelta(manaPoolBeforePayment, manaPool),
+          hideawayMovedCardToHand: movedCard,
+          clearedHideawayPermanentId: String(permanentId),
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(activateBattlefieldAbility:hideaway) failed:', e);
+      }
+
       broadcastGame(io, game, gameId);
       return;
     }
@@ -4889,6 +5146,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Parse the cost and validate mana availability
       const parsedCost = parseManaCost(cost);
       const pool = getOrInitManaPool(game.state, pid);
+      const manaPoolBeforePayment = snapshotInteractionManaPool(pool);
       const totalAvailable = calculateTotalAvailableMana(pool, []);
       
       // Validate payment
@@ -4909,10 +5167,11 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
       const resolvedAbilityText = String(scopedAbilityText || 'Exile target card from a graveyard.').trim();
       const resolvedActivatedAbilityText = String(scopedAbilityFullText || `${cost}: ${resolvedAbilityText}`).trim();
+      const tappedPermanentsForCost = (scopedAbilityFullText.match(/\{[^}]*\bT\b[^}]*\}:/) ? [String(permanentId)] : []);
 
       // Route through the shared battlefield target-selection continuation so the
       // activation becomes a real stack item and copied abilities can retarget honestly.
-      ResolutionQueueManager.addStep(gameId, {
+      const targetStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: pid as any,
         sourceId: permanentId,
@@ -4931,12 +5190,46 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         cardName,
         abilityText: resolvedAbilityText,
         activatedAbilityText: resolvedActivatedAbilityText,
-        tappedPermanentsForCost: (scopedAbilityFullText.match(/\{[^}]*\bT\b[^}]*\}:/) ? [String(permanentId)] : []),
+        tappedPermanentsForCost,
       } as any);
 
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
+      persistQueuedBattlefieldAbilityStepActivation({
+        gameId,
+        game,
+        playerId: String(pid),
+        permanentId: String(permanentId),
+        abilityId: String(abilityId),
+        cardName,
+        abilityText: resolvedAbilityText,
+        activatedAbilityText: resolvedActivatedAbilityText,
+        tappedPermanents: tappedPermanentsForCost,
+        paymentManaDelta: calculateInteractionManaPoolDelta(manaPoolBeforePayment, pool),
+        queuedStep: {
+          id: String((targetStep as any).id || ''),
+          type: ResolutionStepType.TARGET_SELECTION,
+          playerId: pid,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (permanent as any)?.card?.image_uris?.small || (permanent as any)?.card?.image_uris?.normal,
+          description: `Choose a card to exile from a graveyard (${cost})`,
+          mandatory: true,
+          validTargets: graveyardTargets.map((target: any) => ({ ...target })),
+          targetTypes: ['graveyard_card'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: 'card in a graveyard',
+          battlefieldAbilityTargetSelection: true,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText: resolvedAbilityText,
+          activatedAbilityText: resolvedActivatedAbilityText,
+          tappedPermanentsForCost,
+        },
+      });
       broadcastGame(io, game, gameId);
       debug(2, `[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, queued TARGET_SELECTION (${graveyardTargets.length} targets)`);
       return;
@@ -5159,6 +5452,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (isFightAbility) {
       // Parse the cost
       const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /fights?/i);
+      let manaPoolBeforePayment: Record<string, number> | undefined;
+      let poolAfterPayment: any;
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -5172,6 +5467,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // Validate and consume mana
         const parsedCost = parseManaCost(manaCost);
         const pool = getOrInitManaPool(game.state, pid);
+        manaPoolBeforePayment = snapshotInteractionManaPool(pool);
+        poolAfterPayment = pool;
         const totalAvailable = calculateTotalAvailableMana(pool, []);
         
         const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
@@ -5202,7 +5499,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Queue fight target selection via Resolution Queue
-      ResolutionQueueManager.addStep(gameId, {
+      const fightStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.FIGHT_TARGET,
         playerId: pid as PlayerID,
         sourceId: permanentId,
@@ -5224,6 +5521,35 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
+      persistQueuedBattlefieldAbilityStepActivation({
+        gameId,
+        game,
+        playerId: String(pid),
+        permanentId: String(permanentId),
+        abilityId: String(abilityId),
+        cardName,
+        activatedAbilityText: String(scopedAbilityFullText || '').trim(),
+        tappedPermanents: requiresTap ? [String(permanentId)] : undefined,
+        paymentManaDelta: manaPoolBeforePayment && poolAfterPayment ? calculateInteractionManaPoolDelta(manaPoolBeforePayment, poolAfterPayment) : undefined,
+        queuedStep: {
+          id: String((fightStep as any).id || ''),
+          type: ResolutionStepType.FIGHT_TARGET,
+          playerId: pid,
+          sourceId: permanentId,
+          sourceName: cardName,
+          abilityId,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: scopedAbilityFullText,
+          activatedAbilityText: scopedAbilityFullText,
+          mandatory: true,
+          targetFilter: {
+            types: ['creature'],
+            controller: fightController,
+            excludeSource: true,
+          },
+          title: `${cardName} - Fight`,
+        },
+      });
       broadcastGame(io, game, gameId);
       return;
     }
@@ -5248,6 +5574,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // Parse the cost
       const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /put (?:a|an|one) [^\s]+ counter/i);
+      let manaPoolBeforePayment: Record<string, number> | undefined;
+      let poolAfterPayment: any;
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -5261,6 +5589,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // Validate and consume mana
         const parsedCost = parseManaCost(manaCost);
         const pool = getOrInitManaPool(game.state, pid);
+        manaPoolBeforePayment = snapshotInteractionManaPool(pool);
+        poolAfterPayment = pool;
         const totalAvailable = calculateTotalAvailableMana(pool, []);
         
         const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
@@ -5311,7 +5641,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }));
 
       // Queue target selection via Resolution Queue
-      ResolutionQueueManager.addStep(gameId, {
+      const counterStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.COUNTER_TARGET,
         playerId: pid as PlayerID,
         sourceId: permanentId,
@@ -5335,6 +5665,37 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
+      persistQueuedBattlefieldAbilityStepActivation({
+        gameId,
+        game,
+        playerId: String(pid),
+        permanentId: String(permanentId),
+        abilityId: String(abilityId),
+        cardName,
+        activatedAbilityText: String(scopedAbilityFullText || '').trim(),
+        tappedPermanents: requiresTap ? [String(permanentId)] : undefined,
+        paymentManaDelta: manaPoolBeforePayment && poolAfterPayment ? calculateInteractionManaPoolDelta(manaPoolBeforePayment, poolAfterPayment) : undefined,
+        queuedStep: {
+          id: String((counterStep as any).id || ''),
+          type: ResolutionStepType.COUNTER_TARGET,
+          playerId: pid,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: scopedAbilityFullText,
+          mandatory: true,
+          counterType,
+          targetController,
+          oracleText: scopedAbilityFullText,
+          scalingText,
+          validTargets: validTargets.map((target: any) => ({ ...target })),
+          targetTypes: wantsCreature ? ['creature'] : ['permanent'],
+          minTargets: 1,
+          maxTargets: 1,
+          targetDescription: targetTypeLower || 'target',
+          title: `${cardName} - Add ${counterType} counter`,
+        },
+      });
       broadcastGame(io, game, gameId);
       return;
     }
@@ -5348,6 +5709,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (isMoveCounterAbility) {
       // Parse the cost
       const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /move (?:a|one) counter/i);
+      let manaPoolBeforePayment: Record<string, number> | undefined;
+      let poolAfterPayment: any;
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -5361,6 +5724,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // Validate and consume mana
         const parsedCost = parseManaCost(manaCost);
         const pool = getOrInitManaPool(game.state, pid);
+        manaPoolBeforePayment = snapshotInteractionManaPool(pool);
+        poolAfterPayment = pool;
         const totalAvailable = calculateTotalAvailableMana(pool, []);
         
         const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
@@ -5378,7 +5743,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
 
       // Unified Resolution Queue prompt
-      ResolutionQueueManager.addStep(gameId, {
+      const movementStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.COUNTER_MOVEMENT,
         playerId: pid as PlayerID,
         sourceId: permanentId,
@@ -5401,6 +5766,36 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
+      persistQueuedBattlefieldAbilityStepActivation({
+        gameId,
+        game,
+        playerId: String(pid),
+        permanentId: String(permanentId),
+        abilityId: String(abilityId),
+        cardName,
+        activatedAbilityText: String(scopedAbilityFullText || '').trim(),
+        tappedPermanents: requiresTap ? [String(permanentId)] : undefined,
+        paymentManaDelta: manaPoolBeforePayment && poolAfterPayment ? calculateInteractionManaPoolDelta(manaPoolBeforePayment, poolAfterPayment) : undefined,
+        queuedStep: {
+          id: String((movementStep as any).id || ''),
+          type: ResolutionStepType.COUNTER_MOVEMENT,
+          playerId: pid,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: scopedAbilityFullText,
+          mandatory: true,
+          sourceFilter: {
+            controller: 'you',
+            requiresCounters: true,
+          },
+          targetFilter: {
+            controller: 'any',
+            excludeSource: true,
+          },
+          title: cardName,
+        },
+      });
       broadcastGame(io, game, gameId);
       return;
     }
@@ -5413,6 +5808,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     if (isTapUntapAbility && tapUntapParams) {
       // Parse the cost
       const { requiresTap, manaCost } = parseActivationCost(scopedAbilityFullText, /(?:tap|untap)/i);
+      let manaPoolBeforePayment: Record<string, number> | undefined;
+      let poolAfterPayment: any;
       
       if (requiresTap && (permanent as any).tapped) {
         socket.emit("error", {
@@ -5426,6 +5823,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         // Validate and consume mana
         const parsedCost = parseManaCost(manaCost);
         const pool = getOrInitManaPool(game.state, pid);
+        manaPoolBeforePayment = snapshotInteractionManaPool(pool);
+        poolAfterPayment = pool;
         const totalAvailable = calculateTotalAvailableMana(pool, []);
         
         const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
@@ -5443,7 +5842,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
 
       // Queue tap/untap target selection via Resolution Queue
-      ResolutionQueueManager.addStep(gameId, {
+      const tapUntapStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TAP_UNTAP_TARGET,
         playerId: pid as PlayerID,
         sourceId: permanentId,
@@ -5466,6 +5865,36 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
+      persistQueuedBattlefieldAbilityStepActivation({
+        gameId,
+        game,
+        playerId: String(pid),
+        permanentId: String(permanentId),
+        abilityId: String(abilityId),
+        cardName,
+        activatedAbilityText: String(scopedAbilityFullText || '').trim(),
+        tappedPermanents: requiresTap ? [String(permanentId)] : undefined,
+        paymentManaDelta: manaPoolBeforePayment && poolAfterPayment ? calculateInteractionManaPoolDelta(manaPoolBeforePayment, poolAfterPayment) : undefined,
+        queuedStep: {
+          id: String((tapUntapStep as any).id || ''),
+          type: ResolutionStepType.TAP_UNTAP_TARGET,
+          playerId: pid,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+          description: scopedAbilityFullText,
+          mandatory: true,
+          action: tapUntapParams.action,
+          targetFilter: {
+            types: tapUntapParams.types as any[],
+            controller: tapUntapParams.controller,
+            tapStatus: 'any',
+            excludeSource: tapUntapParams.excludeSource,
+          },
+          targetCount: tapUntapParams.count,
+          title: cardName,
+        },
+      });
       broadcastGame(io, game, gameId);
       return;
     }
@@ -6192,6 +6621,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       // If producing "any" color mana, prompt user for color choice
       if (manaColor === 'any' || manaProduction.requiresColorChoice === true || actualColor === 'any') {
+        const manaLifeEffect = getManaAbilityLifeEffect(permanent.card, true);
         const allowedColors = Array.isArray(manaProduction.colors)
           ? manaProduction.colors.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase()))
           : [];
@@ -6209,6 +6639,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           amount: manaAmount,
           allowedColors: allowedColors.length > 0 ? allowedColors : undefined,
           abilityId,
+          tappedPermanentsForCost: [permanentId],
+          manaLifeLossAmount: manaLifeEffect.amount > 0 ? manaLifeEffect.amount : undefined,
+          manaLifeLossIsDamage: manaLifeEffect.amount > 0 ? manaLifeEffect.isDamage : undefined,
         } as any);
         
         broadcastGame(io, game, gameId);
@@ -6242,53 +6675,37 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         ts: Date.now(),
       });
       
-      // ===== PAIN LANDS - Deal 1 damage when tapped for colored mana =====
-      // Pain lands (Shivan Reef, Nurturing Peatland, etc.) deal 1 damage to you when tapped for colored mana
-      // Check oracle text for pattern like "{T}, Pay 1 life:" or "deals 1 damage to you"
-      const isPainLand = oracleText.includes('deals 1 damage to you') || 
-                         (oracleText.includes('{t},') && oracleText.includes('pay 1 life'));
-      const isTappingForColoredMana = manaColor !== 'colorless' && manaColor !== 'any';
-      
-      // Known pain lands
-      const PAIN_LANDS = new Set([
-        'shivan reef', 'llanowar wastes', 'caves of koilos', 'adarkar wastes', 
-        'sulfurous springs', 'underground river', 'karplusan forest', 'battlefield forge',
-        'brushland', 'yavimaya coast',
-        // Horizon lands (pay 1 life, draw a card)
-        'horizon canopy', 'nurturing peatland', 'fiery islet', 'sunbaked canyon',
-        'silent clearing', 'waterlogged grove',
-      ]);
-      
-      const lowerName = cardName.toLowerCase();
-      const painLifeLost = ((isPainLand || PAIN_LANDS.has(lowerName)) && isTappingForColoredMana) ? 1 : 0;
-      if (painLifeLost > 0) {
-        // Deal 1 damage to controller
+      const manaLifeEffect = getManaAbilityLifeEffect(permanent.card, actualColor !== 'C');
+      if (manaLifeEffect.amount > 0) {
         game.state.life = game.state.life || {};
         const startingLife = game.state.startingLife || 40;
         const currentLife = game.state.life[pid] ?? startingLife;
-        game.state.life[pid] = currentLife - painLifeLost;
+        game.state.life[pid] = currentLife - manaLifeEffect.amount;
 
-        // Track per-turn damage and life lost.
         try {
-          (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
-          (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
-            ((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + 1;
+          if (manaLifeEffect.isDamage) {
+            (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+            (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
+              ((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + manaLifeEffect.amount;
+          }
 
           (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
-          (game.state as any).lifeLostThisTurn[String(pid)] = ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + 1;
+          (game.state as any).lifeLostThisTurn[String(pid)] =
+            ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + manaLifeEffect.amount;
         } catch {}
-        
-        // Sync to player object
+
         const player = (game.state.players || []).find((p: any) => p.id === pid);
         if (player) {
           player.life = game.state.life[pid];
         }
-        
+
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
           from: "system",
-          message: `${cardName} dealt 1 damage to ${getPlayerName(game, pid)} (${currentLife} → ${game.state.life[pid]}).`,
+          message: manaLifeEffect.isDamage
+            ? `${cardName} dealt ${manaLifeEffect.amount} damage to ${getPlayerName(game, pid)} (${currentLife} → ${game.state.life[pid]}).`
+            : `${getPlayerName(game, pid)} pays ${manaLifeEffect.amount} life for ${cardName} (${currentLife} → ${game.state.life[pid]}).`,
           ts: Date.now(),
         });
       }
@@ -6351,7 +6768,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         abilityId,
         manaColor,
         addedMana,
-        lifeLost: painLifeLost || undefined,
+        lifeLost: manaLifeEffect.amount || undefined,
       });
       
       broadcastGame(io, game, gameId);

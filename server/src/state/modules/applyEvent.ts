@@ -271,14 +271,6 @@ const MANA_NAME_TO_CODE: Record<string, string> = {
   colorless: 'C',
 };
 
-const PAIN_LANDS = new Set([
-  'shivan reef', 'llanowar wastes', 'caves of koilos', 'adarkar wastes',
-  'sulfurous springs', 'underground river', 'karplusan forest', 'battlefield forge',
-  'brushland', 'yavimaya coast',
-  'horizon canopy', 'nurturing peatland', 'fiery islet', 'sunbaked canyon',
-  'silent clearing', 'waterlogged grove',
-]);
-
 function normalizeManaColorCode(value: unknown): string | undefined {
   const raw = String(value ?? '').trim();
   if (!raw) return undefined;
@@ -336,20 +328,22 @@ function applyRecordedManaToPool(ctx: any, playerId: string, rawMana: unknown): 
   }
 }
 
-function inferLegacyManaLifeLoss(permanent: any, manaColor: unknown): number {
+function inferLegacyManaLifeEffect(permanent: any, manaColor: unknown): { amount: number; isDamage: boolean } {
   const chosenColor = normalizeManaColorCode(manaColor);
-  if (!chosenColor || chosenColor === 'C') return 0;
+  if (!chosenColor || chosenColor === 'C') return { amount: 0, isDamage: false };
 
-  const cardName = String(permanent?.card?.name || '').toLowerCase();
   const oracleText = String(permanent?.card?.oracle_text || '').toLowerCase();
-  const isPainLand = oracleText.includes('deals 1 damage to you') ||
-    (oracleText.includes('{t},') && oracleText.includes('pay 1 life')) ||
-    PAIN_LANDS.has(cardName);
+  const isDamage = oracleText.includes('deals 1 damage to you');
+  const isLifePayment = !isDamage && oracleText.includes('{t},') && oracleText.includes('pay 1 life');
 
-  return isPainLand ? 1 : 0;
+  if (!isDamage && !isLifePayment) {
+    return { amount: 0, isDamage: false };
+  }
+
+  return { amount: 1, isDamage };
 }
 
-function applyManaAbilityLifeLoss(ctx: any, playerId: string, amount: number): void {
+function applyManaAbilityLifeLoss(ctx: any, playerId: string, amount: number, tracksDamage: boolean): void {
   const finalAmount = Number(amount || 0);
   if (!playerId || finalAmount <= 0) return;
 
@@ -359,9 +353,11 @@ function applyManaAbilityLifeLoss(ctx: any, playerId: string, amount: number): v
   (ctx.state as any).life[playerId] = Math.max(0, currentLife - finalAmount);
 
   try {
-    (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
-    (ctx.state as any).damageTakenThisTurnByPlayer[String(playerId)] =
-      (((ctx.state as any).damageTakenThisTurnByPlayer[String(playerId)] || 0) + finalAmount);
+    if (tracksDamage) {
+      (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
+      (ctx.state as any).damageTakenThisTurnByPlayer[String(playerId)] =
+        (((ctx.state as any).damageTakenThisTurnByPlayer[String(playerId)] || 0) + finalAmount);
+    }
 
     (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
     (ctx.state as any).lifeLostThisTurn[String(playerId)] =
@@ -3751,8 +3747,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             applyRecordedManaToPool(ctx, playerId, recordedMana);
 
             const explicitLifeLost = Number((e as any).lifeLost || 0);
+            const inferredLifeEffect = perm ? inferLegacyManaLifeEffect(perm, (e as any).manaColor) : { amount: 0, isDamage: false };
             if (Number.isFinite(explicitLifeLost) && explicitLifeLost > 0) {
-              applyManaAbilityLifeLoss(ctx, playerId, explicitLifeLost);
+              applyManaAbilityLifeLoss(ctx, playerId, explicitLifeLost, inferredLifeEffect.isDamage);
             }
           }
           if (perm) {
@@ -4636,10 +4633,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               applyRecordedManaToPool(ctx, playerId, manaToApply);
 
               const explicitLifeLost = Number((e as any).lifeLost || 0);
+              const inferredLifeEffect = perm ? inferLegacyManaLifeEffect(perm, manaColor) : { amount: 0, isDamage: false };
               const replayLifeLost = explicitLifeLost > 0
                 ? explicitLifeLost
-                : (perm ? inferLegacyManaLifeLoss(perm, manaColor) : 0);
-              applyManaAbilityLifeLoss(ctx, playerId, replayLifeLost);
+                : inferredLifeEffect.amount;
+              applyManaAbilityLifeLoss(ctx, playerId, replayLifeLost, inferredLifeEffect.isDamage);
             }
 
             if (perm) {
@@ -4891,6 +4889,60 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const deltas = entry?.deltas;
               if (!permanentId || !deltas || typeof deltas !== 'object' || Array.isArray(deltas)) continue;
               updateCounters(ctx as any, permanentId, deltas as Record<string, number>);
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted a hideaway card moving to hand, replay that zone change
+          // and clear the source permanent's hidden card so reconnect/undo stay deterministic.
+          try {
+            const movedHideawayCard = (e as any).hideawayMovedCardToHand;
+            const clearedHideawayPermanentId = String((e as any).clearedHideawayPermanentId || permId || '').trim();
+            const pid = playerId != null ? String(playerId) : '';
+            if (pid && movedHideawayCard && typeof movedHideawayCard === 'object' && !Array.isArray(movedHideawayCard)) {
+              const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
+              const z = zones[pid] = zones[pid] || { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 };
+              z.hand = Array.isArray(z.hand) ? z.hand : [];
+              (z.hand as any[]).push({ ...(movedHideawayCard as any), zone: 'hand' });
+              z.handCount = (z.hand as any[]).length;
+            }
+
+            if (clearedHideawayPermanentId) {
+              const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
+              const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === clearedHideawayPermanentId) as any;
+              if (permanent && 'hideawayCard' in permanent) {
+                delete permanent.hideawayCard;
+              }
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // If the server persisted a queued battlefield prompt for an activation,
+          // rebuild that prompt during replay so reconnect/undo preserves the pre-response state.
+          try {
+            const rawStep = (e as any).queuedResolutionStep;
+            const gameId = String((ctx as any).gameId || '').trim();
+            const stepId = String((rawStep as any)?.id || '').trim();
+            const stepType = String((rawStep as any)?.type || '').trim();
+            if (gameId && rawStep && typeof rawStep === 'object' && !Array.isArray(rawStep) && stepType) {
+              const queue = ResolutionQueueManager.getQueue(gameId) as any;
+              const alreadyPresent = Boolean(
+                (queue?.activeStep && String((queue.activeStep as any)?.id || '') === stepId) ||
+                (Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === stepId))
+              );
+
+              if (!alreadyPresent) {
+                ResolutionQueueManager.addStep(gameId, {
+                  ...(rawStep as any),
+                  ...(stepId ? { id: stepId } : {}),
+                  type: stepType as any,
+                  playerId: String((rawStep as any).playerId || playerId || '') as any,
+                  description: String((rawStep as any).description || ''),
+                  mandatory: (rawStep as any).mandatory !== false,
+                } as any);
+              }
             }
           } catch {
             // best-effort only

@@ -3546,22 +3546,26 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       // validate affordability BEFORE we complete the step.
       // Otherwise, the handler can emit INSUFFICIENT_LIFE after the step was already consumed.
       const lifeToPayForCost = Number(stepAny.lifeToPayForCost || 0);
-      if (Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0) {
+      const manaLifeLossAmount = Number(stepAny.manaLifeLossAmount || 0);
+      const totalLifeRequired =
+        (Number.isFinite(lifeToPayForCost) ? Math.max(0, lifeToPayForCost) : 0) +
+        (Number.isFinite(manaLifeLossAmount) ? Math.max(0, manaLifeLossAmount) : 0);
+      if (totalLifeRequired > 0) {
         try {
           const stateAny = game.state as any;
           stateAny.life = stateAny.life || {};
           const cur = Number(stateAny.life?.[pid] ?? 40);
-          if (!Number.isFinite(cur) || cur < lifeToPayForCost) {
+          if (!Number.isFinite(cur) || cur < totalLifeRequired) {
             socket.emit('error', {
               code: 'INSUFFICIENT_LIFE',
-              message: `Need to pay ${lifeToPayForCost} life to complete this activation.`,
+              message: `Need to pay ${totalLifeRequired} life to complete this activation.`,
             });
             return;
           }
         } catch {
           socket.emit('error', {
             code: 'INSUFFICIENT_LIFE',
-            message: `Need to pay ${lifeToPayForCost} life to complete this activation.`,
+            message: `Need to pay ${totalLifeRequired} life to complete this activation.`,
           });
           return;
         }
@@ -9096,6 +9100,8 @@ async function handleStepResponse(
       // for this selection.
       try {
         const lifeToPay = Number(stepData.lifeToPayForCost || 0);
+        const manaLifeLossAmount = Number(stepData.manaLifeLossAmount || 0);
+        const manaLifeLossIsDamage = stepData.manaLifeLossIsDamage === true;
         const tappedPermanentsForCost: string[] = Array.isArray(stepData.tappedPermanentsForCost)
           ? stepData.tappedPermanentsForCost.map((x: any) => String(x))
           : [];
@@ -9139,6 +9145,36 @@ async function handleStepResponse(
             lifePaidForCost: lifeToPay,
           });
         }
+
+        if (Number.isFinite(manaLifeLossAmount) && manaLifeLossAmount > 0) {
+          try {
+            (game.state as any).life = (game.state as any).life || {};
+            const cur = Number((game.state as any).life?.[pid] ?? 40);
+            (game.state as any).life[pid] = Math.max(0, cur - manaLifeLossAmount);
+
+            if (manaLifeLossIsDamage) {
+              (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+              (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
+                Number((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + manaLifeLossAmount;
+            }
+
+            (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+            (game.state as any).lifeLostThisTurn[String(pid)] =
+              Number((game.state as any).lifeLostThisTurn[String(pid)] || 0) + manaLifeLossAmount;
+
+            io.to(gameId).emit('chat', {
+              id: `m_${Date.now()}`,
+              gameId,
+              from: 'system',
+              message: manaLifeLossIsDamage
+                ? `${cardName} dealt ${manaLifeLossAmount} damage to ${getPlayerName(game, pid)} (${cur} → ${(game.state as any).life[pid]}).`
+                : `${getPlayerName(game, pid)} pays ${manaLifeLossAmount} life for ${cardName} (${cur} → ${(game.state as any).life[pid]}).`,
+              ts: Date.now(),
+            });
+          } catch {
+            // best-effort only
+          }
+        }
       } catch (e) {
         debugWarn(1, '[Resolution] activateBattlefieldAbility (mana color selection evidence) failed:', e);
       }
@@ -9153,6 +9189,9 @@ async function handleStepResponse(
           abilityId,
           manaColor,
           addedMana,
+          lifeLost: Number.isFinite(Number(stepData.manaLifeLossAmount || 0)) && Number(stepData.manaLifeLossAmount || 0) > 0
+            ? Number(stepData.manaLifeLossAmount || 0)
+            : undefined,
         });
       } catch (e) {
         debugWarn(1, 'appendEvent(activateManaAbility) failed:', e);

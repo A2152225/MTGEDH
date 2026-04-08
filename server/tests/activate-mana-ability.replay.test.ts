@@ -117,6 +117,42 @@ describe('activateManaAbility replay semantics', () => {
     expect((game.state as any).players?.find((player: any) => player.id === p1)?.life).toBe(39);
   });
 
+  it('replays pay-life mana activations without counting them as damage', () => {
+    const game = createInitialGameState('t_activate_mana_ability_pay_life_not_damage_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'confluence_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'confluence_card_1',
+          name: 'Mana Confluence',
+          type_line: 'Land',
+          oracle_text: '{T}, Pay 1 life: Add one mana of any color.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateManaAbility',
+      playerId: p1,
+      permanentId: 'confluence_1',
+      abilityId: 'confluence_1-ability-0',
+      manaColor: 'W',
+    } as any);
+
+    expect((game.state as any).manaPool?.[p1]).toEqual({ white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+    expect((game.state as any).life?.[p1]).toBe(39);
+    expect((game.state as any).damageTakenThisTurnByPlayer?.[p1] ?? 0).toBe(0);
+    expect((game.state as any).lifeLostThisTurn?.[p1]).toBe(1);
+  });
+
   it('replays a multi-ability land mana activation without sacrificing the land', () => {
     const game = createInitialGameState('t_activate_mana_ability_myriad_landscape_replay');
     const p1 = 'p1' as PlayerID;

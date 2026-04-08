@@ -333,6 +333,7 @@ describe('special land generic ability routing (integration)', () => {
     (game.state as any).manaPool = {
       [playerId]: { white: 1, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
     };
+    (game.state as any).creaturesAttackedThisTurn = { [playerId]: 0 };
     (game.state as any).zones = {
       [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0 },
     };
@@ -362,14 +363,348 @@ describe('special land generic ability routing (integration)', () => {
 
     await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'windbrisk_1', abilityId: 'windbrisk_1-ability-1' });
 
-    const hand = (game.state as any).zones?.[playerId]?.hand || [];
+    const failedError = emitted.find(entry => entry.event === 'error');
+    expect(failedError?.payload?.code).toBe('ACTIVATION_CONDITION_NOT_MET');
+
+    let hand = (game.state as any).zones?.[playerId]?.hand || [];
+    expect(hand).toHaveLength(0);
+
+    let permanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'windbrisk_1');
+    expect((permanent as any)?.hideawayCard).toBeDefined();
+
+    emitted.length = 0;
+    (game.state as any).creaturesAttackedThisTurn[playerId] = 3;
+
+    await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'windbrisk_1', abilityId: 'windbrisk_1-ability-1' });
+
+    hand = (game.state as any).zones?.[playerId]?.hand || [];
     expect(hand).toHaveLength(1);
     expect(String(hand[0]?.name || '')).toBe('Secret Spell');
+    expect(Number((game.state as any).manaPool?.[playerId]?.white || 0)).toBe(0);
 
-    const permanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'windbrisk_1');
+    permanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'windbrisk_1');
     expect((permanent as any)?.hideawayCard).toBeUndefined();
+    expect(Boolean((permanent as any)?.tapped)).toBe(true);
 
     const queue = ResolutionQueueManager.getQueue(hideawayGameId);
     expect(queue.steps).toHaveLength(0);
+  });
+
+  it('requires total creature power for Mosswort Bridge hideaway play', async () => {
+    const hideawayGameId = `${gameId}_mosswort`;
+    ResolutionQueueManager.removeQueue(hideawayGameId);
+    games.delete(hideawayGameId as any);
+
+    createGameIfNotExists(hideawayGameId, 'commander', 40);
+    const game = ensureGame(hideawayGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const hiddenCard = { id: 'hidden_mosswort_1', name: 'Oversized Secret', type_line: 'Creature', oracle_text: 'Trample' };
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'mosswort_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        hideawayCard: { card: hiddenCard },
+        card: {
+          id: 'mosswort_card_1',
+          name: 'Mosswort Bridge',
+          type_line: 'Land',
+          oracle_text: 'Hideaway 4\n{T}: Add {G}.\n{G}, {T}: You may play the exiled card without paying its mana cost if creatures you control have total power 10 or greater.',
+        },
+      },
+      {
+        id: 'creature_small_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'creature_small_card_1',
+          name: 'Hill Giant',
+          type_line: 'Creature — Giant',
+          power: '3',
+          toughness: '3',
+          oracle_text: '',
+        },
+      },
+      {
+        id: 'creature_small_2',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'creature_small_card_2',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature — Bear',
+          power: '2',
+          toughness: '2',
+          oracle_text: '',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(hideawayGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'mosswort_1', abilityId: 'mosswort_1-ability-1' });
+
+    const failedError = emitted.find(entry => entry.event === 'error');
+    expect(failedError?.payload?.code).toBe('ACTIVATION_CONDITION_NOT_MET');
+    expect(((game.state as any).zones?.[playerId]?.hand || [])).toHaveLength(0);
+
+    emitted.length = 0;
+    (game.state as any).battlefield.push({
+      id: 'creature_large_1',
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      counters: {},
+      card: {
+        id: 'creature_large_card_1',
+        name: 'Colossal Dreadmaw',
+        type_line: 'Creature — Dinosaur',
+        power: '6',
+        toughness: '6',
+        oracle_text: 'Trample',
+      },
+    });
+
+    await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'mosswort_1', abilityId: 'mosswort_1-ability-1' });
+
+    const hand = (game.state as any).zones?.[playerId]?.hand || [];
+    expect(hand).toHaveLength(1);
+    expect(String(hand[0]?.name || '')).toBe('Oversized Secret');
+  });
+
+  it('requires empty hands for Howltooth Hollow hideaway play', async () => {
+    const hideawayGameId = `${gameId}_howltooth`;
+    ResolutionQueueManager.removeQueue(hideawayGameId);
+    games.delete(hideawayGameId as any);
+
+    createGameIfNotExists(hideawayGameId, 'commander', 40);
+    const game = ensureGame(hideawayGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    const hiddenCard = { id: 'hidden_howltooth_1', name: 'Handless Secret', type_line: 'Sorcery', oracle_text: 'Target player discards two cards.' };
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 1, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: { hand: [{ id: 'p1_card_1', name: 'Card A' }], handCount: 1, graveyard: [], graveyardCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'howltooth_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        hideawayCard: { card: hiddenCard },
+        card: {
+          id: 'howltooth_card_1',
+          name: 'Howltooth Hollow',
+          type_line: 'Land',
+          oracle_text: 'Hideaway 4\n{T}: Add {B}.\n{B}, {T}: You may play the exiled card without paying its mana cost if each player has no cards in hand.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(hideawayGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'howltooth_1', abilityId: 'howltooth_1-ability-1' });
+
+    const failedError = emitted.find(entry => entry.event === 'error');
+    expect(failedError?.payload?.code).toBe('ACTIVATION_CONDITION_NOT_MET');
+    expect(((game.state as any).zones?.[playerId]?.hand || [])).toHaveLength(1);
+
+    emitted.length = 0;
+    (game.state as any).zones[playerId].hand = [];
+    (game.state as any).zones[playerId].handCount = 0;
+
+    await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'howltooth_1', abilityId: 'howltooth_1-ability-1' });
+
+    const hand = (game.state as any).zones?.[playerId]?.hand || [];
+    expect(hand).toHaveLength(1);
+    expect(String(hand[0]?.name || '')).toBe('Handless Secret');
+  });
+
+  it('requires a library with 20 or fewer cards for Shelldock Isle hideaway play', async () => {
+    const hideawayGameId = `${gameId}_shelldock`;
+    ResolutionQueueManager.removeQueue(hideawayGameId);
+    games.delete(hideawayGameId as any);
+
+    createGameIfNotExists(hideawayGameId, 'commander', 40);
+    const game = ensureGame(hideawayGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    const hiddenCard = { id: 'hidden_shelldock_1', name: 'Deep Secret', type_line: 'Instant', oracle_text: 'Draw a card.' };
+    const makeLibrary = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => ({ id: `${prefix}_${index}`, name: `Card ${index}` }));
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    game.libraries = new Map([
+      [playerId, makeLibrary(30, 'p1_lib')],
+      [opponentId, makeLibrary(25, 'p2_lib')],
+    ]) as any;
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, libraryCount: 30, graveyard: [], graveyardCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, libraryCount: 25, graveyard: [], graveyardCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'shelldock_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        hideawayCard: { card: hiddenCard },
+        card: {
+          id: 'shelldock_card_1',
+          name: 'Shelldock Isle',
+          type_line: 'Land',
+          oracle_text: 'Hideaway 4\n{T}: Add {U}.\n{U}, {T}: You may play the exiled card without paying its mana cost if a library has twenty or fewer cards in it.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(hideawayGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'shelldock_1', abilityId: 'shelldock_1-ability-1' });
+
+    const failedError = emitted.find(entry => entry.event === 'error');
+    expect(failedError?.payload?.code).toBe('ACTIVATION_CONDITION_NOT_MET');
+    expect(((game.state as any).zones?.[playerId]?.hand || [])).toHaveLength(0);
+
+    emitted.length = 0;
+    game.libraries.set(opponentId, makeLibrary(20, 'p2_small_lib'));
+    (game.state as any).zones[opponentId].libraryCount = 20;
+
+    await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'shelldock_1', abilityId: 'shelldock_1-ability-1' });
+
+    const hand = (game.state as any).zones?.[playerId]?.hand || [];
+    expect(hand).toHaveLength(1);
+    expect(String(hand[0]?.name || '')).toBe('Deep Secret');
+  });
+
+  it('requires actual damage, not just life loss, for Spinerock Knoll hideaway play', async () => {
+    const hideawayGameId = `${gameId}_spinerock`;
+    ResolutionQueueManager.removeQueue(hideawayGameId);
+    games.delete(hideawayGameId as any);
+
+    createGameIfNotExists(hideawayGameId, 'commander', 40);
+    const game = ensureGame(hideawayGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const opponentId = 'p2';
+    const hiddenCard = { id: 'hidden_spinerock_1', name: 'Burn Secret', type_line: 'Sorcery', oracle_text: 'Deal 3 damage to any target.' };
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 1, green: 0, colorless: 0 },
+    };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0, [opponentId]: 7 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0, [opponentId]: 0 };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0 },
+      [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'spinerock_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        hideawayCard: { card: hiddenCard },
+        card: {
+          id: 'spinerock_card_1',
+          name: 'Spinerock Knoll',
+          type_line: 'Land',
+          oracle_text: 'Hideaway 4\n{T}: Add {R}.\n{R}, {T}: You may play the exiled card without paying its mana cost if an opponent was dealt 7 or more damage this turn.',
+        },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(hideawayGameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'spinerock_1', abilityId: 'spinerock_1-ability-1' });
+
+    const failedError = emitted.find(entry => entry.event === 'error');
+    expect(failedError?.payload?.code).toBe('ACTIVATION_CONDITION_NOT_MET');
+    expect(((game.state as any).zones?.[playerId]?.hand || [])).toHaveLength(0);
+    expect(((game.state as any).battlefield.find((entry: any) => entry.id === 'spinerock_1') as any)?.hideawayCard).toBeDefined();
+
+    emitted.length = 0;
+    (game.state as any).damageTakenThisTurnByPlayer[opponentId] = 7;
+
+    await handlers['activateBattlefieldAbility']({ gameId: hideawayGameId, permanentId: 'spinerock_1', abilityId: 'spinerock_1-ability-1' });
+
+    const hand = (game.state as any).zones?.[playerId]?.hand || [];
+    expect(hand).toHaveLength(1);
+    expect(String(hand[0]?.name || '')).toBe('Burn Secret');
+    expect(((game.state as any).battlefield.find((entry: any) => entry.id === 'spinerock_1') as any)?.hideawayCard).toBeUndefined();
   });
 });

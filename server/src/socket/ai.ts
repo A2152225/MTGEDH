@@ -60,15 +60,21 @@ const COLOR_IDENTITY_MAP: Record<string, string> = {
 
 const AI_MANA_COLOR_PRIORITY = ['W', 'U', 'B', 'R', 'G', 'C'];
 
-const AI_PAIN_LANDS = new Set([
-  'shivan reef', 'llanowar wastes', 'caves of koilos', 'adarkar wastes',
-  'sulfurous springs', 'underground river', 'karplusan forest', 'battlefield forge',
-  'brushland', 'yavimaya coast',
-  'horizon canopy', 'nurturing peatland', 'fiery islet', 'sunbaked canyon',
-  'silent clearing', 'waterlogged grove',
-]);
-
 const AI_MANA_ABILITY_PATTERN = /add\s+(\{[wubrgc]\}(?:\s+or\s+\{[wubrgc]\})?|\{[wubrgc]\}\{[wubrgc]\}|one mana|two mana|three mana|mana of any|any color|[xX] mana|an amount of|mana in any combination)/i;
+
+function getAIManaLifeEffect(card: any, producesColoredMana: boolean): { amount: number; isDamage: boolean } {
+  if (!producesColoredMana) {
+    return { amount: 0, isDamage: false };
+  }
+
+  const oracleText = String(card?.oracle_text || '').toLowerCase();
+  const isDamage = oracleText.includes('deals 1 damage to you');
+  if (!isDamage) {
+    return { amount: 0, isDamage: false };
+  }
+
+  return { amount: 1, isDamage };
+}
 
 function applyChosenXToManaCost(manaCost: string, xValue: number): string {
   const safeXValue = Math.max(0, Math.floor(Number(xValue) || 0));
@@ -3119,7 +3125,7 @@ function chooseAIManaColorForActivation(game: any, playerId: PlayerID, producedC
   })[0] || 'C';
 }
 
-function applyAIManaLifeLoss(game: any, playerId: PlayerID, amount: number): void {
+function applyAIManaLifeLoss(game: any, playerId: PlayerID, amount: number, trackDamage: boolean): void {
   const finalAmount = Number(amount || 0);
   if (finalAmount <= 0) return;
 
@@ -3129,9 +3135,11 @@ function applyAIManaLifeLoss(game: any, playerId: PlayerID, amount: number): voi
   game.state.life[playerId] = Math.max(0, currentLife - finalAmount);
 
   try {
-    (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
-    (game.state as any).damageTakenThisTurnByPlayer[String(playerId)] =
-      (((game.state as any).damageTakenThisTurnByPlayer[String(playerId)] || 0) + finalAmount);
+    if (trackDamage) {
+      (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
+      (game.state as any).damageTakenThisTurnByPlayer[String(playerId)] =
+        (((game.state as any).damageTakenThisTurnByPlayer[String(playerId)] || 0) + finalAmount);
+    }
 
     (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
     (game.state as any).lifeLostThisTurn[String(playerId)] =
@@ -5933,7 +5941,7 @@ async function executeAIActivateAbility(
 
         if (manaCostLifePaid > 0) {
           persistedLifePaidForCost = manaCostLifePaid;
-          applyAIManaLifeLoss(game, playerId, manaCostLifePaid);
+          applyAIManaLifeLoss(game, playerId, manaCostLifePaid, false);
         }
 
         if (requiresSelfSacrifice) {
@@ -5979,12 +5987,9 @@ async function executeAIActivateAbility(
         }
         const addedMana = manaAmount > 0 ? { [manaPoolKey]: manaAmount } : undefined;
 
-        const isPainLand = (card.oracle_text || '').toLowerCase().includes('deals 1 damage to you') ||
-          ((card.oracle_text || '').toLowerCase().includes('{t},') && (card.oracle_text || '').toLowerCase().includes('pay 1 life') && resolvedManaColor !== 'C') ||
-          (AI_PAIN_LANDS.has(lowerCardName) && resolvedManaColor !== 'C');
-        const painLifeLost = isPainLand ? 1 : 0;
-        if (painLifeLost > 0) {
-          applyAIManaLifeLoss(game, playerId, painLifeLost);
+        const manaLifeEffect = getAIManaLifeEffect(card, resolvedManaColor !== 'C');
+        if (manaLifeEffect.amount > 0) {
+          applyAIManaLifeLoss(game, playerId, manaLifeEffect.amount, manaLifeEffect.isDamage);
         }
         
         // Handle special lands that create tokens for opponents (Forbidden Orchard)
@@ -6058,7 +6063,7 @@ async function executeAIActivateAbility(
             abilityId: typeof action?.abilityId === 'string' && action.abilityId.trim() ? action.abilityId : undefined,
             manaColor: resolvedManaColor,
             addedMana,
-            lifeLost: painLifeLost || undefined,
+            lifeLost: manaLifeEffect.amount || undefined,
             isAI: true,
           });
 

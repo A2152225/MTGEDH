@@ -48,16 +48,26 @@ describe('AI mana ability integration', () => {
     } as any);
   }
 
-  it('sacrifices Treasure mana sources live and persists the exact mana added', async () => {
-    createGameIfNotExists(gameId, 'commander', 40);
-    const game = ensureGame(gameId);
+  function setupTestGame(suffix: string) {
+    const localGameId = `${gameId}_${suffix}`;
+    games.delete(localGameId as any);
+    unregisterAIPlayer(localGameId, playerId as any);
+    createGameIfNotExists(localGameId, 'commander', 40);
+    const game = ensureGame(localGameId);
     if (!game) throw new Error('ensureGame returned undefined');
+    return { localGameId, game };
+  }
+
+  it('sacrifices Treasure mana sources live and persists the exact mana added', async () => {
+    const { localGameId, game } = setupTestGame('treasure');
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
     ];
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
     (game.state as any).phase = 'main';
@@ -105,12 +115,12 @@ describe('AI mana ability integration', () => {
       },
     ];
 
-    registerAIPlayer(gameId, playerId as any);
-  mockAIActivatedAbilityDecision('treasure_1', 'Treasure', '{T}, Sacrifice this artifact: Add one mana of any color.');
+    registerAIPlayer(localGameId, playerId as any);
+    mockAIActivatedAbilityDecision('treasure_1', 'Treasure', '{T}, Sacrifice this artifact: Add one mana of any color.');
 
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
     try {
-      await handleAIPriority(createNoopIo(), gameId, playerId as any);
+      await handleAIPriority(createNoopIo(), localGameId, playerId as any);
     } finally {
       setTimeoutSpy.mockRestore();
     }
@@ -119,24 +129,24 @@ describe('AI mana ability integration', () => {
     const totalMana = Object.values((game.state as any).manaPool?.[playerId] || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0);
     expect(totalMana).toBe(1);
 
-    const manaEvent = [...getEvents(gameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
+    const manaEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
     expect(manaEvent?.payload?.manaColor).toMatch(/^[WUBRG]$/);
     expect(Object.values(manaEvent?.payload?.addedMana || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0)).toBe(1);
 
-    const costEvent = [...getEvents(gameId)].reverse().find((event: any) => event?.type === 'activateBattlefieldAbility') as any;
+    const costEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateBattlefieldAbility') as any;
     expect((costEvent?.payload?.sacrificedPermanents || []).map(String)).toContain('treasure_1');
   });
 
-  it('applies pain-land life loss live and persists the mana delta', async () => {
-    createGameIfNotExists(gameId, 'commander', 40);
-    const game = ensureGame(gameId);
-    if (!game) throw new Error('ensureGame returned undefined');
+  it('applies self-damage mana loss live and persists the mana delta', async () => {
+    const { localGameId, game } = setupTestGame('damage');
 
     (game.state as any).players = [
       { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
     ];
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
     (game.state as any).turnPlayer = playerId;
     (game.state as any).priority = playerId;
     (game.state as any).phase = 'main';
@@ -168,37 +178,115 @@ describe('AI mana ability integration', () => {
     };
     (game.state as any).battlefield = [
       {
-        id: 'reef_1',
+        id: 'confluence_damage_1',
         controller: playerId,
         owner: playerId,
         tapped: false,
         summoningSickness: false,
         counters: {},
         card: {
-          id: 'reef_card_1',
-          name: 'Shivan Reef',
+          id: 'confluence_damage_card_1',
+          name: 'Mana Confluence',
           type_line: 'Land',
-          oracle_text: '{T}: Add {C}. {T}: Add {U} or {R}. Shivan Reef deals 1 damage to you.',
+          oracle_text: '{T}: Add one mana of any color. Whenever Mana Confluence is tapped for mana, it deals 1 damage to you.',
         },
       },
     ];
 
-    registerAIPlayer(gameId, playerId as any);
-  mockAIActivatedAbilityDecision('reef_1', 'Shivan Reef', '{T}: Add {C}. {T}: Add {U} or {R}. Shivan Reef deals 1 damage to you.');
+    registerAIPlayer(localGameId, playerId as any);
+    mockAIActivatedAbilityDecision('confluence_damage_1', 'Mana Confluence', '{T}: Add one mana of any color. Whenever Mana Confluence is tapped for mana, it deals 1 damage to you.');
 
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
     try {
-      await handleAIPriority(createNoopIo(), gameId, playerId as any);
+      await handleAIPriority(createNoopIo(), localGameId, playerId as any);
     } finally {
       setTimeoutSpy.mockRestore();
     }
 
     expect((game.state as any).life?.[playerId]).toBe(39);
+    expect((game.state as any).damageTakenThisTurnByPlayer?.[playerId]).toBe(1);
     const totalMana = Object.values((game.state as any).manaPool?.[playerId] || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0);
     expect(totalMana).toBe(1);
 
-    const manaEvent = [...getEvents(gameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
+    const manaEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
     expect(manaEvent?.payload?.lifeLost).toBe(1);
     expect(Object.values(manaEvent?.payload?.addedMana || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0)).toBe(1);
+  });
+
+  it('treats pay-life mana abilities as life loss without damage tracking', async () => {
+    const { localGameId, game } = setupTestGame('pay_life');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).lifeLostThisTurn = { [playerId]: 0 };
+    (game.state as any).damageTakenThisTurnByPlayer = { [playerId]: 0 };
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'spell_3',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1. Draw a card.',
+            mana_cost: '{W}',
+            cmc: 1,
+            zone: 'hand',
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        library: [],
+        libraryCount: 0,
+        exile: [],
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'confluence_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'confluence_card_1',
+          name: 'Mana Confluence',
+          type_line: 'Land',
+          oracle_text: '{T}, Pay 1 life: Add one mana of any color.',
+        },
+      },
+    ];
+
+    registerAIPlayer(localGameId, playerId as any);
+    mockAIActivatedAbilityDecision('confluence_1', 'Mana Confluence', '{T}, Pay 1 life: Add one mana of any color.');
+
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
+    try {
+      await handleAIPriority(createNoopIo(), localGameId, playerId as any);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+
+    expect((game.state as any).life?.[playerId]).toBe(39);
+    expect(Number((game.state as any).lifeLostThisTurn?.[playerId] || 0)).toBe(1);
+    expect((game.state as any).damageTakenThisTurnByPlayer?.[playerId] ?? 0).toBe(0);
+
+    const manaEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateManaAbility') as any;
+    expect(Object.values(manaEvent?.payload?.addedMana || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0)).toBe(1);
+
+    const costEvent = [...getEvents(localGameId)].reverse().find((event: any) => event?.type === 'activateBattlefieldAbility') as any;
+    expect(costEvent?.payload?.lifePaidForCost).toBe(1);
   });
 });

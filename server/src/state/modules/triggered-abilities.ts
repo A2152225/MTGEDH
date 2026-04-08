@@ -4230,25 +4230,29 @@ export function detectHideawayAbility(card: any): HideawayAbility | null {
   
   // Extract condition for playing the exiled card
   let condition = "unknown";
+  const hasPattern = (pattern: RegExp) => pattern.test(oracleText);
   
   // Mosswort Bridge pattern
-  if (oracleText.includes('creatures with total power 10 or greater')) {
+  if (
+    hasPattern(/creatures with total power 10 or greater/i) ||
+    hasPattern(/creatures you control have total power 10 or greater/i)
+  ) {
     condition = "Control creatures with total power 10+";
   }
   // Windbrisk Heights pattern
-  else if (oracleText.includes('attacked with three or more creatures')) {
+  else if (hasPattern(/attacked with (three|3) or more creatures(?: this turn)?/i)) {
     condition = "Attacked with 3+ creatures this turn";
   }
   // Shelldock Isle pattern
-  else if (oracleText.includes('library has twenty or fewer cards')) {
+  else if (hasPattern(/(?:a )?library has (twenty|20) or fewer cards(?: in it)?/i)) {
     condition = "A library has 20 or fewer cards";
   }
   // Howltooth Hollow pattern
-  else if (oracleText.includes('each player has no cards in hand')) {
+  else if (hasPattern(/each player has no cards in hand/i)) {
     condition = "Each player has no cards in hand";
   }
   // Spinerock Knoll pattern
-  else if (oracleText.includes('opponent was dealt 7 or more damage')) {
+  else if (hasPattern(/(?:an )?opponent was dealt (7|seven) or more damage(?: this turn)?/i)) {
     condition = "An opponent was dealt 7+ damage this turn";
   }
   
