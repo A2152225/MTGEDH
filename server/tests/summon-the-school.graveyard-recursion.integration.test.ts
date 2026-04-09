@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -187,6 +187,12 @@ describe('Summon the School graveyard recursion (integration)', () => {
       'merfolk_4',
     ]);
 
+    const queuedTapCostEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'activateGraveyardAbility') as any;
+    expect(queuedTapCostEvent?.payload?.cardId).toBe('summon_1');
+    expect(queuedTapCostEvent?.payload?.queuedResolutionStep?.type).toBe('target_selection');
+    expect(queuedTapCostEvent?.payload?.queuedResolutionStep?.tapCreaturesCost).toBe(true);
+    expect(queuedTapCostEvent?.payload?.queuedResolutionStep?.requiredCount).toBe(4);
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: step.id,
@@ -331,5 +337,84 @@ describe('Summon the School graveyard recursion (integration)', () => {
       'merfolk_3',
       'merfolk_4',
     ]);
+  });
+
+  it('replays the unresolved tap-four-Merfolk cost prompt before any creatures are tapped', () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [
+      { id: 'merfolk_1', controller: p1, owner: p1, tapped: false, card: { id: 'm1', name: 'A', type_line: 'Creature - Merfolk', oracle_text: '' } },
+      { id: 'merfolk_2', controller: p1, owner: p1, tapped: false, card: { id: 'm2', name: 'B', type_line: 'Creature - Merfolk', oracle_text: '' } },
+      { id: 'merfolk_3', controller: p1, owner: p1, tapped: false, card: { id: 'm3', name: 'C', type_line: 'Creature - Merfolk', oracle_text: '' } },
+      { id: 'merfolk_4', controller: p1, owner: p1, tapped: false, card: { id: 'm4', name: 'D', type_line: 'Creature - Merfolk', oracle_text: '' } },
+    ];
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [
+          {
+            id: 'summon_1',
+            name: 'Summon the School',
+            mana_cost: '{3}{U}',
+            type_line: 'Tribal Sorcery - Merfolk',
+            oracle_text: 'Create two 1/1 blue Merfolk Wizard creature tokens. Tap four untapped Merfolk you control: Return this card from your graveyard to your hand.',
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId: p1,
+      cardId: 'summon_1',
+      abilityId: 'return-from-graveyard',
+      queuedResolutionStep: {
+        id: 'queued_summon_tap_cost_1',
+        type: 'target_selection',
+        playerId: p1,
+        sourceName: 'Summon the School',
+        sourceId: 'summon_1',
+        description: 'Tap 4 untapped merfolks you control to return Summon the School from your graveyard to your hand.',
+        mandatory: false,
+        validTargets: [
+          { id: 'merfolk_1', label: 'A', description: 'Creature - Merfolk', imageUrl: undefined },
+          { id: 'merfolk_2', label: 'B', description: 'Creature - Merfolk', imageUrl: undefined },
+          { id: 'merfolk_3', label: 'C', description: 'Creature - Merfolk', imageUrl: undefined },
+          { id: 'merfolk_4', label: 'D', description: 'Creature - Merfolk', imageUrl: undefined },
+        ],
+        targetTypes: ['tap_cost'],
+        minTargets: 4,
+        maxTargets: 4,
+        targetDescription: 'untapped merfolks you control',
+        tapCreaturesCost: true,
+        cardId: 'summon_1',
+        abilityId: 'return-from-graveyard',
+        creatureType: 'merfolk',
+        requiredCount: 4,
+      },
+    } as any);
+
+    const zones = (game.state as any).zones[p1];
+    expect(zones.graveyardCount).toBe(1);
+    expect(zones.handCount).toBe(0);
+    expect(((game.state as any).battlefield || []).every((perm: any) => !perm.tapped)).toBe(true);
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(String((queue.steps[0] as any)?.id || '')).toBe('queued_summon_tap_cost_1');
+    expect((queue.steps[0] as any)?.tapCreaturesCost).toBe(true);
   });
 });

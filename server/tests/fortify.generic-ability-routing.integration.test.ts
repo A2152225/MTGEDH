@@ -117,6 +117,12 @@ describe('Fortify generic ability routing (integration)', () => {
     expect(step.validTargets).toHaveLength(1);
     expect(step.validTargets[0]?.id).toBe('land_1');
 
+    const queuedActivation = [...getEvents(persistentGameId)].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
+    expect(queuedActivation?.payload?.permanentId).toBe('fort_1');
+    expect(queuedActivation?.payload?.queuedResolutionStep?.type).toBe('target_selection');
+    expect(queuedActivation?.payload?.queuedResolutionStep?.abilityType).toBe('fortify');
+    expect(queuedActivation?.payload?.queuedResolutionStep?.validTargets?.[0]?.id).toBe('land_1');
+
     await handlers['submitResolutionResponse']({ gameId: persistentGameId, stepId: step.id, selections: ['land_1'] });
 
     const paymentStep = ResolutionQueueManager.getQueue(persistentGameId).steps[0] as any;

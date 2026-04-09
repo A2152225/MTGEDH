@@ -170,6 +170,12 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(discardStep).toBeDefined();
     expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['retrace_land_1']);
 
+    const queuedRetraceEvent = [...getEvents(retraceGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
+    expect(queuedRetraceEvent?.payload?.cardId).toBe('retrace_1');
+    expect(queuedRetraceEvent?.payload?.queuedResolutionStep?.type).toBe('discard_selection');
+    expect(queuedRetraceEvent?.payload?.queuedResolutionStep?.graveyardCastDiscardAsCost).toBe(true);
+    expect((queuedRetraceEvent?.payload?.queuedResolutionStep?.hand || []).map((card: any) => card.id)).toEqual(['retrace_land_1']);
+
     await handlers['submitResolutionResponse']({
       gameId: retraceGameId,
       stepId: String(discardStep.id),
@@ -211,6 +217,12 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     const selectionStep = steps.find(step => step.type === ResolutionStepType.GRAVEYARD_SELECTION) as any;
     expect(selectionStep).toBeDefined();
     expect((selectionStep.validTargets || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3']);
+
+    const queuedEscapeEvent = [...getEvents(escapeGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
+    expect(queuedEscapeEvent?.payload?.cardId).toBe('escape_1');
+    expect(queuedEscapeEvent?.payload?.queuedResolutionStep?.type).toBe('graveyard_selection');
+    expect(queuedEscapeEvent?.payload?.queuedResolutionStep?.graveyardCastExileAsCost).toBe(true);
+    expect((queuedEscapeEvent?.payload?.queuedResolutionStep?.validTargets || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3']);
 
     await handlers['submitResolutionResponse']({
       gameId: escapeGameId,
@@ -327,6 +339,114 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     expect(stack[0]?.card?.id).toBe('jump_start_replay_1');
     expect(stack[0]?.card?.castWithAbility).toBe('jump-start');
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+  });
+
+  it('replays queued retrace discard prompts before the discard cost is paid', () => {
+    const replayGameId = `${gameId}_retrace_prompt_replay`;
+    const { game, playerId } = seedGame(replayGameId, 'retrace_prompt_1', 'Flame Jab deals 1 damage to any target.\nRetrace', {
+      hand: [
+        {
+          id: 'retrace_prompt_land_1',
+          name: 'Mountain',
+          type_line: 'Basic Land - Mountain',
+          oracle_text: '',
+          zone: 'hand',
+        },
+      ],
+    });
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'retrace_prompt_1',
+      abilityId: 'retrace',
+      queuedResolutionStep: {
+        id: 'queued_retrace_discard_1',
+        type: ResolutionStepType.DISCARD_SELECTION,
+        playerId,
+        sourceId: 'retrace_prompt_1',
+        sourceName: 'Grave Spell',
+        description: 'Grave Spell: Discard 1 land card to cast it using retrace.',
+        mandatory: false,
+        hand: [
+          {
+            id: 'retrace_prompt_land_1',
+            name: 'Mountain',
+            type_line: 'Basic Land - Mountain',
+            oracle_text: '',
+            zone: 'hand',
+          },
+        ],
+        discardCount: 1,
+        currentHandSize: 1,
+        maxHandSize: 7,
+        reason: 'activation_cost',
+        graveyardCastDiscardAsCost: true,
+        cardId: 'retrace_prompt_1',
+        abilityId: 'retrace',
+        cardName: 'Grave Spell',
+        discardTypeRestriction: 'land',
+      },
+    } as any);
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id)).toContain('retrace_prompt_1');
+    expect((game.state as any).stack || []).toHaveLength(0);
+    const steps = ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId);
+    expect(steps).toHaveLength(1);
+    expect(String((steps[0] as any)?.id || '')).toBe('queued_retrace_discard_1');
+    expect((steps[0] as any)?.graveyardCastDiscardAsCost).toBe(true);
+  });
+
+  it('replays queued escape exile prompts before the exile cost is paid', () => {
+    const replayGameId = `${gameId}_escape_prompt_replay`;
+    const { game, playerId } = seedGame(replayGameId, 'escape_prompt_1', 'Return target creature card from your graveyard to your hand.\nEscape {2}{G}, Exile three other cards from your graveyard.', {
+      extraGraveyard: [
+        { id: 'escape_prompt_cost_1', name: 'Card One', type_line: 'Instant', oracle_text: '' },
+        { id: 'escape_prompt_cost_2', name: 'Card Two', type_line: 'Sorcery', oracle_text: '' },
+        { id: 'escape_prompt_cost_3', name: 'Card Three', type_line: 'Creature - Human', oracle_text: '' },
+      ],
+    });
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'escape_prompt_1',
+      abilityId: 'escape',
+      queuedResolutionStep: {
+        id: 'queued_escape_exile_1',
+        type: ResolutionStepType.GRAVEYARD_SELECTION,
+        playerId,
+        sourceId: 'escape_prompt_1',
+        sourceName: 'Grave Spell',
+        description: 'Grave Spell: Exile 3 other cards from your graveyard to cast it using escape.',
+        mandatory: false,
+        targetPlayerId: playerId,
+        minTargets: 3,
+        maxTargets: 3,
+        destination: 'exile',
+        cardId: 'escape_prompt_1',
+        cardName: 'Grave Spell',
+        title: 'Exile 3 other cards for Grave Spell',
+        validTargets: [
+          { id: 'escape_prompt_cost_1', label: 'Card One', description: 'Instant', imageUrl: undefined },
+          { id: 'escape_prompt_cost_2', label: 'Card Two', description: 'Sorcery', imageUrl: undefined },
+          { id: 'escape_prompt_cost_3', label: 'Card Three', description: 'Creature - Human', imageUrl: undefined },
+        ],
+        graveyardCastExileAsCost: true,
+        abilityId: 'escape',
+        manaCost: '{2}{G}',
+      },
+    } as any);
+
+    const zones = (game.state as any).zones?.[playerId];
+    expect((zones?.graveyard || []).map((card: any) => card.id).sort()).toEqual(['escape_prompt_1', 'escape_prompt_cost_1', 'escape_prompt_cost_2', 'escape_prompt_cost_3']);
+    expect((zones?.exile || []).map((card: any) => card.id)).toEqual([]);
+    expect((game.state as any).stack || []).toHaveLength(0);
+    const steps = ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId);
+    expect(steps).toHaveLength(1);
+    expect(String((steps[0] as any)?.id || '')).toBe('queued_escape_exile_1');
+    expect((steps[0] as any)?.graveyardCastExileAsCost).toBe(true);
   });
 
   it('replay applies recorded escape exile choices before moving the spell to the stack', () => {

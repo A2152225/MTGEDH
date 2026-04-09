@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
@@ -115,6 +115,12 @@ describe('Crew, level-up, and outlast generic ability routing (integration)', ()
     expect(step.crewAbility).toBe(true);
     expect(step.crewPower).toBe(2);
     expect((step.validTargets || []).map((entry: any) => String(entry?.id))).toEqual(['crewer_1']);
+
+    const queuedCrewActivation = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
+    expect(queuedCrewActivation?.payload?.permanentId).toBe('vehicle_1');
+    expect(queuedCrewActivation?.payload?.queuedResolutionStep?.type).toBe('target_selection');
+    expect(Boolean(queuedCrewActivation?.payload?.queuedResolutionStep?.crewAbility)).toBe(true);
+    expect(queuedCrewActivation?.payload?.queuedResolutionStep?.validTargets?.[0]?.id).toBe('crewer_1');
 
     await handlers['submitResolutionResponse']({ gameId, stepId: step.id, selections: ['crewer_1'] });
 

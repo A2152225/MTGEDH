@@ -125,6 +125,12 @@ describe('Reconfigure generic ability routing (integration)', () => {
     expect(step.validTargets).toHaveLength(1);
     expect(step.validTargets[0]?.id).toBe('target_1');
 
+    const queuedAttachActivation = [...getEvents(persistentGameId)].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
+    expect(queuedAttachActivation?.payload?.permanentId).toBe('reconfig_1');
+    expect(queuedAttachActivation?.payload?.queuedResolutionStep?.type).toBe('target_selection');
+    expect(queuedAttachActivation?.payload?.queuedResolutionStep?.abilityType).toBe('reconfigure_attach');
+    expect(queuedAttachActivation?.payload?.queuedResolutionStep?.validTargets?.[0]?.id).toBe('target_1');
+
     await handlers['submitResolutionResponse']({ gameId: persistentGameId, stepId: step.id, selections: ['target_1'] });
 
     const paymentStep = ResolutionQueueManager.getQueue(persistentGameId).steps[0] as any;

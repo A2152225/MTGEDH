@@ -481,6 +481,26 @@ function persistQueuedBattlefieldAbilityStepActivation(params: {
   }
 }
 
+function persistQueuedGraveyardAbilityStepActivation(params: {
+  gameId: string;
+  game: any;
+  playerId: string;
+  cardId: string;
+  abilityId: string;
+  queuedStep: Record<string, any>;
+}): void {
+  try {
+    appendEvent(params.gameId, (params.game as any).seq ?? 0, 'activateGraveyardAbility', {
+      playerId: params.playerId,
+      cardId: params.cardId,
+      abilityId: params.abilityId,
+      queuedResolutionStep: params.queuedStep,
+    });
+  } catch (e) {
+    debugWarn(1, 'appendEvent(activateGraveyardAbility:queued-step) failed:', e);
+  }
+}
+
 // ============================================================================
 // Tap/Untap Ability Text Parsing
 // ============================================================================
@@ -2037,7 +2057,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
         if (!existing) {
           const discardTypeLabel = discardCost.discardTypeRestriction ? `${discardCost.discardTypeRestriction} ` : '';
-          ResolutionQueueManager.addStep(gameId, {
+          const discardStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.DISCARD_SELECTION,
             playerId: pid as PlayerID,
             sourceId: cardId,
@@ -2058,6 +2078,36 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
             discardTypeRestriction: discardCost.discardTypeRestriction || undefined,
           } as any);
+
+          persistQueuedGraveyardAbilityStepActivation({
+            gameId,
+            game,
+            playerId: String(pid),
+            cardId: String(cardId),
+            abilityId: String(abilityId),
+            queuedStep: {
+              id: String((discardStep as any).id || ''),
+              type: ResolutionStepType.DISCARD_SELECTION,
+              playerId: pid,
+              sourceId: cardId,
+              sourceName: cardName,
+              sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+              description: `${cardName}: Discard ${discardCost.discardCount} ${discardTypeLabel}card${discardCost.discardCount === 1 ? '' : 's'} to cast it using ${abilityId}.`,
+              mandatory: false,
+              hand: eligibleHand,
+              discardCount: discardCost.discardCount,
+              currentHandSize: eligibleHand.length,
+              maxHandSize: Math.max(7, eligibleHand.length),
+              reason: 'activation_cost',
+              graveyardCastDiscardAsCost: true,
+              cardId,
+              abilityId,
+              cardName,
+              manaCost: recordedManaCost || undefined,
+              lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+              discardTypeRestriction: discardCost.discardTypeRestriction || undefined,
+            },
+          });
         }
 
         broadcastGame(io, game, gameId);
@@ -2086,7 +2136,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           );
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const exileStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.GRAVEYARD_SELECTION,
             playerId: pid as PlayerID,
             sourceId: cardId,
@@ -2112,6 +2162,41 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             manaCost: recordedManaCost || undefined,
             lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
           } as any);
+
+          persistQueuedGraveyardAbilityStepActivation({
+            gameId,
+            game,
+            playerId: String(pid),
+            cardId: String(cardId),
+            abilityId: String(abilityId),
+            queuedStep: {
+              id: String((exileStep as any).id || ''),
+              type: ResolutionStepType.GRAVEYARD_SELECTION,
+              playerId: pid,
+              sourceId: cardId,
+              sourceName: cardName,
+              sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+              description: `${cardName}: Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard to cast it using ${abilityId}.`,
+              mandatory: false,
+              targetPlayerId: pid,
+              minTargets: exileCost.exileCount,
+              maxTargets: exileCost.exileCount,
+              destination: 'exile',
+              cardId,
+              cardName,
+              title: `Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} for ${cardName}`,
+              validTargets: eligibleGraveyardCards.map((graveyardCard: any) => ({
+                id: graveyardCard.id,
+                label: graveyardCard.name || 'Card',
+                description: graveyardCard.type_line || 'Card',
+                imageUrl: graveyardCard.image_uris?.small || graveyardCard.image_uris?.normal,
+              })),
+              graveyardCastExileAsCost: true,
+              abilityId,
+              manaCost: recordedManaCost || undefined,
+              lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+            },
+          });
         }
 
         broadcastGame(io, game, gameId);
@@ -2348,7 +2433,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           .find((s: any) => (s as any)?.tapCreaturesCost === true && String((s as any)?.cardId || '') === String(cardId));
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const tapCostStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.TARGET_SELECTION,
             playerId: pid as PlayerID,
             sourceName: cardName,
@@ -2372,6 +2457,39 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
             creatureType,
             requiredCount: tapCount,
           } as any);
+
+          persistQueuedGraveyardAbilityStepActivation({
+            gameId,
+            game,
+            playerId: String(pid),
+            cardId: String(cardId),
+            abilityId: String(abilityId),
+            queuedStep: {
+              id: String((tapCostStep as any).id || ''),
+              type: ResolutionStepType.TARGET_SELECTION,
+              playerId: pid,
+              sourceName: cardName,
+              sourceId: cardId,
+              sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+              description: `Tap ${tapCount} untapped ${creatureType}${tapCount > 1 ? 's' : ''} you control to return ${cardName} from your graveyard to your hand.`,
+              mandatory: false,
+              validTargets: untappedCreatures.map((c: any) => ({
+                id: c.id,
+                label: c.card?.name || 'Creature',
+                description: c.card?.type_line || 'Creature',
+                imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+              })),
+              targetTypes: ['tap_cost'],
+              minTargets: tapCount,
+              maxTargets: tapCount,
+              targetDescription: `untapped ${creatureType}${tapCount > 1 ? 's' : ''} you control`,
+              tapCreaturesCost: true,
+              cardId,
+              abilityId,
+              creatureType,
+              requiredCount: tapCount,
+            },
+          });
         }
         
         broadcastGame(io, game, gameId);
@@ -4753,7 +4871,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityType || (s as any)?.abilityId || '') === 'equip' && String((s as any)?.equipmentId || (s as any)?.permanentId || s?.sourceId) === String(permanentId));
 
       if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
+        const equipStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as PlayerID,
           sourceId: permanentId,
@@ -4784,6 +4902,53 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           equipType,
           targetsOpponentCreatures: false,
         } as any);
+
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+
+        persistQueuedBattlefieldAbilityStepActivation({
+          gameId,
+          game,
+          playerId: String(pid),
+          permanentId: String(permanentId),
+          abilityId: String(abilityId),
+          cardName,
+          abilityText: activatedAbilityText,
+          activatedAbilityText,
+          queuedStep: {
+            id: String((equipStep as any).id || ''),
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: pid,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+            description: `Choose a creature to equip ${cardName} to (${equipType ? `equip ${equipType} creature ` : ''}${equipCost}).`,
+            mandatory: false,
+            validTargets: validTargets.map((c: any) => ({
+              id: c.id,
+              label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+              description: c.card?.type_line || 'Creature',
+              imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+            })),
+            targetTypes: ['creature'],
+            minTargets: 1,
+            maxTargets: 1,
+            targetDescription: equipType ? `${equipType} creature you control` : 'creature you control',
+            battlefieldAbilityTargetSelection: true,
+            equipmentId: permanentId,
+            permanentId,
+            equipmentName: cardName,
+            cardName,
+            abilityId: 'equip',
+            abilityText: activatedAbilityText,
+            activatedAbilityText,
+            abilityType: 'equip',
+            equipCost,
+            equipType,
+            targetsOpponentCreatures: false,
+          },
+        });
       }
 
       debug(2, `[activateBattlefieldAbility] Equip ability on ${cardName}: queued TARGET_SELECTION (cost=${equipCost}, type=${equipType || 'any'})`);
@@ -4819,7 +4984,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityType || (s as any)?.abilityId || '') === 'fortify' && String((s as any)?.fortificationId || (s as any)?.permanentId || s?.sourceId) === String(permanentId));
 
       if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
+        const fortifyStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as PlayerID,
           sourceId: permanentId,
@@ -4848,6 +5013,51 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           abilityType: 'fortify',
           fortifyCost,
         } as any);
+
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+
+        persistQueuedBattlefieldAbilityStepActivation({
+          gameId,
+          game,
+          playerId: String(pid),
+          permanentId: String(permanentId),
+          abilityId: String(abilityId),
+          cardName,
+          abilityText: activatedAbilityText,
+          activatedAbilityText,
+          queuedStep: {
+            id: String((fortifyStep as any).id || ''),
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: pid,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+            description: `Choose a land to fortify ${cardName} to (${fortifyCost}).`,
+            mandatory: false,
+            validTargets: validTargets.map((land: any) => ({
+              id: land.id,
+              label: land.card?.name || 'Land',
+              description: land.card?.type_line || 'Land',
+              imageUrl: land.card?.image_uris?.small || land.card?.image_uris?.normal,
+            })),
+            targetTypes: ['land'],
+            minTargets: 1,
+            maxTargets: 1,
+            targetDescription: 'land you control',
+            battlefieldAbilityTargetSelection: true,
+            fortificationId: permanentId,
+            permanentId,
+            fortificationName: cardName,
+            cardName,
+            abilityId: 'fortify',
+            abilityText: activatedAbilityText,
+            activatedAbilityText,
+            abilityType: 'fortify',
+            fortifyCost,
+          },
+        });
       }
 
       debug(2, `[activateBattlefieldAbility] Fortify ability on ${cardName}: queued TARGET_SELECTION (cost=${fortifyCost})`);
@@ -4882,7 +5092,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityType || '') === 'reconfigure_attach' && String((s as any)?.reconfigureId || (s as any)?.permanentId || s?.sourceId) === String(permanentId));
 
       if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
+        const reconfigureStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as PlayerID,
           sourceId: permanentId,
@@ -4912,6 +5122,52 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           reconfigureCost,
           targetsOpponentCreatures: false,
         } as any);
+
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+
+        persistQueuedBattlefieldAbilityStepActivation({
+          gameId,
+          game,
+          playerId: String(pid),
+          permanentId: String(permanentId),
+          abilityId: String(abilityId),
+          cardName,
+          abilityText: 'Attach to target creature you control',
+          activatedAbilityText,
+          queuedStep: {
+            id: String((reconfigureStep as any).id || ''),
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: pid,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+            description: `Choose a creature to attach ${cardName} to (Reconfigure ${reconfigureCost}).`,
+            mandatory: false,
+            validTargets: validTargets.map((c: any) => ({
+              id: c.id,
+              label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+              description: c.card?.type_line || 'Creature',
+              imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+            })),
+            targetTypes: ['creature'],
+            minTargets: 1,
+            maxTargets: 1,
+            targetDescription: 'another creature you control',
+            battlefieldAbilityTargetSelection: true,
+            reconfigureId: permanentId,
+            permanentId,
+            reconfigureName: cardName,
+            cardName,
+            abilityId,
+            abilityText: 'Attach to target creature you control',
+            activatedAbilityText,
+            abilityType: 'reconfigure_attach',
+            reconfigureCost,
+            targetsOpponentCreatures: false,
+          },
+        });
       }
 
       debug(2, `[activateBattlefieldAbility] Reconfigure attach ability on ${cardName}: queued TARGET_SELECTION (cost=${reconfigureCost})`);
@@ -5069,7 +5325,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.battlefieldAbilityTargetSelection === true && String((s as any)?.abilityId || '') === String(abilityId) && String(s?.sourceId) === String(permanentId));
 
       if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
+        const crewStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as PlayerID,
           sourceId: permanentId,
@@ -5947,7 +6203,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && (s as any)?.crewAbility === true && String(s?.sourceId) === String(permanentId));
 
       if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
+        const crewStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: pid as PlayerID,
           sourceId: permanentId,
@@ -5971,6 +6227,43 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           vehicleId: permanentId,
           crewPower,
         } as any);
+
+        if (typeof game.bumpSeq === "function") {
+          game.bumpSeq();
+        }
+
+        persistQueuedBattlefieldAbilityStepActivation({
+          gameId,
+          game,
+          playerId: String(pid),
+          permanentId: String(permanentId),
+          abilityId: String(abilityId),
+          cardName,
+          activatedAbilityText: String(crewAbilityText || '').trim(),
+          queuedStep: {
+            id: String((crewStep as any).id || ''),
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: pid,
+            sourceId: permanentId,
+            sourceName: cardName,
+            sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
+            description: `Crew ${crewPower} — Tap any number of untapped creatures you control with total power ${crewPower} or more.`,
+            mandatory: false,
+            validTargets: validCrewers.map((c: any) => ({
+              id: c.id,
+              label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+              description: c.card?.type_line || 'Creature',
+              imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
+            })),
+            targetTypes: ['crew_creature'],
+            minTargets: 1,
+            maxTargets: validCrewers.length,
+            targetDescription: 'creatures you control to crew',
+            crewAbility: true,
+            vehicleId: permanentId,
+            crewPower,
+          },
+        });
       }
 
       debug(2, `[activateBattlefieldAbility] Crew ability on ${cardName}: queued TARGET_SELECTION (need power ${crewPower})`);

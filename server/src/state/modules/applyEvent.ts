@@ -5795,6 +5795,32 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const pid = (e as any).playerId;
         const abilityType = (e as any).abilityType ?? (e as any).abilityId;
         try {
+          const rawQueuedStep = (e as any).queuedResolutionStep;
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const queuedStepType = String((rawQueuedStep as any)?.type || '').trim();
+          if (replayGameId && rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) && queuedStepType) {
+            const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
+            const queuedStepId = String((rawQueuedStep as any)?.id || '').trim();
+            const alreadyPresent = Boolean(
+              (queue?.activeStep && String((queue.activeStep as any)?.id || '') === queuedStepId) ||
+              (Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === queuedStepId))
+            );
+
+            if (!alreadyPresent) {
+              ResolutionQueueManager.addStep(replayGameId, {
+                ...(rawQueuedStep as any),
+                ...(queuedStepId ? { id: queuedStepId } : {}),
+                type: queuedStepType as any,
+                playerId: String((rawQueuedStep as any).playerId || pid || '') as any,
+                description: String((rawQueuedStep as any).description || ''),
+                mandatory: (rawQueuedStep as any).mandatory !== false,
+              } as any);
+            }
+
+            ctx.bumpSeq();
+            break;
+          }
+
           if (cardId && pid && ['flashback', 'jump-start', 'retrace', 'escape'].includes(String(abilityType))) {
             const zones = ctx.state.zones || {};
             const z = zones[pid];

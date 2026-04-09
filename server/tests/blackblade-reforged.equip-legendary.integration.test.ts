@@ -129,6 +129,12 @@ describe('Blackblade Reforged legendary equip (integration)', () => {
     expect(step.equipCost).toBe('{3}');
     expect(step.validTargets.map((target: any) => target.id)).toEqual(['commander_1']);
 
+    const queuedEquipActivation = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'activateBattlefieldAbility') as any;
+    expect(queuedEquipActivation?.payload?.permanentId).toBe('blackblade_1');
+    expect(queuedEquipActivation?.payload?.queuedResolutionStep?.type).toBe('target_selection');
+    expect(queuedEquipActivation?.payload?.queuedResolutionStep?.abilityType).toBe('equip');
+    expect(queuedEquipActivation?.payload?.queuedResolutionStep?.validTargets?.[0]?.id).toBe('commander_1');
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: step.id,

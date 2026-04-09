@@ -9,6 +9,83 @@ function addPlayer(game: any, id: PlayerID, name: string) {
 }
 
 describe('queued battlefield prompt replay semantics', () => {
+  it('replays queued equip battlefield activations before target selection resolves', () => {
+    const gameId = 't_activate_equip_prompt_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'equipment_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'equipment_card_1',
+          name: 'Test Sword',
+          type_line: 'Artifact - Equipment',
+          oracle_text: 'Equip {2}',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'equipment_1',
+      abilityId: 'equipment_card_1-equip-0',
+      cardName: 'Test Sword',
+      abilityText: 'Equip {2}',
+      activatedAbilityText: 'Equip {2}',
+      queuedResolutionStep: {
+        id: 'queued_equip_1',
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: p1,
+        sourceId: 'equipment_1',
+        sourceName: 'Test Sword',
+        description: 'Choose a creature to equip Test Sword to ({2}).',
+        mandatory: false,
+        validTargets: [
+          {
+            id: 'creature_1',
+            label: 'Silvercoat Lion (2/2)',
+            description: 'Creature - Cat',
+            imageUrl: undefined,
+          },
+        ],
+        targetTypes: ['creature'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'creature you control',
+        battlefieldAbilityTargetSelection: true,
+        equipmentId: 'equipment_1',
+        permanentId: 'equipment_1',
+        equipmentName: 'Test Sword',
+        cardName: 'Test Sword',
+        abilityId: 'equip',
+        abilityText: 'Equip {2}',
+        activatedAbilityText: 'Equip {2}',
+        abilityType: 'equip',
+        equipCost: '{2}',
+        equipType: null,
+        targetsOpponentCreatures: false,
+      },
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(String(queue.steps[0]?.id || '')).toBe('queued_equip_1');
+    expect(queue.steps[0]?.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect((queue.steps[0] as any)?.abilityType).toBe('equip');
+    expect((queue.steps[0] as any)?.equipmentId).toBe('equipment_1');
+    expect((queue.steps[0] as any)?.validTargets).toHaveLength(1);
+    expect((game.state as any).stack || []).toHaveLength(0);
+  });
+
   it('replays queued fight-target battlefield activations before target selection resolves', () => {
     const gameId = 't_activate_fight_prompt_replay';
     ResolutionQueueManager.removeQueue(gameId);
@@ -148,6 +225,74 @@ describe('queued battlefield prompt replay semantics', () => {
       excludeSource: false,
     });
     expect((queue.steps[0] as any)?.targetCount).toBe(1);
+    expect((game.state as any).stack || []).toHaveLength(0);
+  });
+
+  it('replays queued crew battlefield activations before creature selection resolves', () => {
+    const gameId = 't_activate_crew_prompt_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'vehicle_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'vehicle_card_1',
+          name: 'Sky Skiff',
+          type_line: 'Artifact - Vehicle',
+          oracle_text: 'Crew 2',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'vehicle_1',
+      abilityId: 'vehicle_card_1-crew-0',
+      cardName: 'Sky Skiff',
+      activatedAbilityText: 'Crew 2',
+      queuedResolutionStep: {
+        id: 'queued_crew_1',
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: p1,
+        sourceId: 'vehicle_1',
+        sourceName: 'Sky Skiff',
+        description: 'Crew 2 — Tap any number of untapped creatures you control with total power 2 or more.',
+        mandatory: false,
+        validTargets: [
+          {
+            id: 'crewer_1',
+            label: 'Skilled Pilot (2/2)',
+            description: 'Creature - Human Pilot',
+            imageUrl: undefined,
+          },
+        ],
+        targetTypes: ['crew_creature'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'creatures you control to crew',
+        crewAbility: true,
+        vehicleId: 'vehicle_1',
+        crewPower: 2,
+      },
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(String(queue.steps[0]?.id || '')).toBe('queued_crew_1');
+    expect(queue.steps[0]?.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect(Boolean((queue.steps[0] as any)?.crewAbility)).toBe(true);
+    expect((queue.steps[0] as any)?.vehicleId).toBe('vehicle_1');
+    expect((queue.steps[0] as any)?.crewPower).toBe(2);
+    expect((queue.steps[0] as any)?.validTargets).toHaveLength(1);
     expect((game.state as any).stack || []).toHaveLength(0);
   });
 });
