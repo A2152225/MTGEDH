@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -115,6 +115,107 @@ describe('choose pile from split choice (integration)', () => {
     expect((queue.steps[0] as any).type).toBe('two_pile_split');
     expect((queue.steps[0] as any).playerId).toBe(p2);
     expect((queue.steps[0] as any).choosePileFromSplitChoice).toBe(true);
+
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'resolveTopOfStackPrompt' &&
+      event.payload?.queuedResolutionStep?.type === ResolutionStepType.TWO_PILE_SPLIT
+    ) as any;
+    expect(promptEvent).toBeDefined();
+
+    const replayGameId = `${gameId}_choose_player_replay`;
+    createGameIfNotExists(replayGameId, 'commander', 40);
+    const replayGame = ensureGame(replayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+    (replayGame.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    ResolutionQueueManager.removeQueue(replayGameId);
+    replayGame.applyEvent({ type: 'resolveTopOfStackPrompt', ...(promptEvent.payload || {}) } as any);
+    const replayQueue = ResolutionQueueManager.getQueue(replayGameId);
+    expect(replayQueue.steps).toHaveLength(1);
+    expect((replayQueue.steps[0] as any).type).toBe(ResolutionStepType.TWO_PILE_SPLIT);
+    expect((replayQueue.steps[0] as any).playerId).toBe(p2);
+  });
+
+  it('persists and replays the choose-pile prompt after a two-pile split is submitted', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1' as any;
+    const p2 = 'p2' as any;
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.TWO_PILE_SPLIT,
+      playerId: p2,
+      description: 'Source: Separate the revealed cards into two piles',
+      mandatory: true,
+      sourceName: 'Source',
+      items: [
+        { id: 'c1', label: 'Card 1' },
+        { id: 'c2', label: 'Card 2' },
+        { id: 'c3', label: 'Card 3' },
+      ],
+      minPerPile: 0,
+      choosePileFromSplitChoice: true,
+      choosePileFromSplitChooserPlayerId: p1,
+      choosePileFromSplitSourceName: 'Source',
+      choosePileFromSplitItems: [
+        { id: 'c1', name: 'Card 1' },
+        { id: 'c2', name: 'Card 2' },
+        { id: 'c3', name: 'Card 3' },
+      ],
+      choosePileFromSplitOriginalOrder: ['c1', 'c2', 'c3'],
+      choosePileFromSplitChosenAction: 'move_cards',
+      choosePileFromSplitChosenDestination: 'hand',
+      choosePileFromSplitOtherDestination: 'library',
+      choosePileFromSplitMovePlayerId: p1,
+      choosePileFromSplitChoiceDescription: 'Source: Choose a pile',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p2, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: step.id,
+      selections: { pileA: ['c1', 'c3'], pileB: ['c2'] },
+    });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect((queue.steps[0] as any).choosePileFromSplitChoice).toBe(true);
+    expect((queue.steps[0] as any).choosePileFromSplitPileA).toEqual(['c1', 'c3']);
+    expect((queue.steps[0] as any).choosePileFromSplitPileB).toEqual(['c2']);
+
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'resolveTopOfStackPrompt' &&
+      event.payload?.queuedResolutionStep?.choosePileFromSplitChoice === true
+    ) as any;
+    expect(promptEvent).toBeDefined();
+
+    const replayGameId = `${gameId}_split_replay`;
+    createGameIfNotExists(replayGameId, 'commander', 40);
+    const replayGame = ensureGame(replayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+    (replayGame.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    ResolutionQueueManager.removeQueue(replayGameId);
+    replayGame.applyEvent({ type: 'resolveTopOfStackPrompt', ...(promptEvent.payload || {}) } as any);
+    const replayQueue = ResolutionQueueManager.getQueue(replayGameId);
+    expect(replayQueue.steps).toHaveLength(1);
+    expect((replayQueue.steps[0] as any).choosePileFromSplitChoice).toBe(true);
+    expect((replayQueue.steps[0] as any).choosePileFromSplitPileA).toEqual(['c1', 'c3']);
+    expect((replayQueue.steps[0] as any).choosePileFromSplitPileB).toEqual(['c2']);
   });
 
   it('moves the chosen pile to hand and the other pile to library', async () => {
@@ -174,6 +275,36 @@ describe('choose pile from split choice (integration)', () => {
 
     expect(((game.state as any).zones[p1].hand || []).map((c: any) => c.id)).toEqual(['c1', 'c3']);
     expect(((game.state as any).zones[p1].library || []).map((c: any) => c.id)).toEqual(['c2']);
+
+    const resolveEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'choosePileFromSplitResolve') as any;
+    expect(resolveEvent).toBeDefined();
+    expect(resolveEvent.payload).toMatchObject({
+      action: 'move_cards',
+      movePlayerId: p1,
+      chosenDestination: 'hand',
+      otherDestination: 'library',
+    });
+    expect((resolveEvent.payload?.chosenCards || []).map((card: any) => card.id)).toEqual(['c1', 'c3']);
+    expect((resolveEvent.payload?.otherCards || []).map((card: any) => card.id)).toEqual(['c2']);
+
+    const replayGameId = `${gameId}_move_replay`;
+    createGameIfNotExists(replayGameId, 'commander', 40);
+    const replayGame = ensureGame(replayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+    (replayGame.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (replayGame.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+    replayGame.applyEvent({ type: 'choosePileFromSplitResolve', ...(resolveEvent.payload || {}) } as any);
+    expect(((replayGame.state as any).zones[p1].hand || []).map((c: any) => c.id)).toEqual(['c1', 'c3']);
+    expect(((replayGame.state as any).zones[p1].library || []).map((c: any) => c.id)).toEqual(['c2']);
   });
 
   it('sacrifices the chosen pile of permanents', async () => {
@@ -221,5 +352,29 @@ describe('choose pile from split choice (integration)', () => {
     await handlers['submitResolutionResponse']({ gameId, stepId: step.id, selections: 'pileB' });
 
     expect(((game.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual(['perm1', 'perm3']);
+
+    const resolveEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'choosePileFromSplitResolve') as any;
+    expect(resolveEvent).toBeDefined();
+    expect(resolveEvent.payload).toEqual({
+      action: 'sacrifice_permanents',
+      targetPlayerId: p1,
+      permanentIds: ['perm2'],
+    });
+
+    const replayGameId = `${gameId}_sac_replay`;
+    createGameIfNotExists(replayGameId, 'commander', 40);
+    const replayGame = ensureGame(replayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+    (replayGame.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (replayGame.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
+    };
+    (replayGame.state as any).battlefield = [
+      { id: 'perm1', controller: p1, owner: p1, card: { name: 'Perm 1', type_line: 'Creature' } },
+      { id: 'perm2', controller: p1, owner: p1, card: { name: 'Perm 2', type_line: 'Artifact' } },
+      { id: 'perm3', controller: p1, owner: p1, card: { name: 'Perm 3', type_line: 'Enchantment' } },
+    ];
+    replayGame.applyEvent({ type: 'choosePileFromSplitResolve', ...(resolveEvent.payload || {}) } as any);
+    expect(((replayGame.state as any).battlefield || []).map((perm: any) => perm.id)).toEqual(['perm1', 'perm3']);
   });
 });

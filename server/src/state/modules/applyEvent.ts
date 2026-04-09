@@ -170,6 +170,11 @@ import { moveKynaiosLandFromHandToBattlefield } from "../resolution/handlers/kyn
 import { applyTriggerOrderToStack } from "../resolution/handlers/triggerOrder.js";
 import { executeTriggeredAbilityEffectWithOracleIR } from "../../../../rules-engine/src/triggeredAbilities.js";
 import { applyDamageToPermanentWithCounterEffects } from "./counter-common-effects.js";
+import {
+  markDungeonCompleted,
+  normalizeDungeonProgress,
+} from "./dungeons.js";
+import { applyAutomaticDungeonRoomEffect } from "./dungeon-effects.js";
 
 /* -------- Helpers ---------- */
 
@@ -8427,6 +8432,109 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(sacrificeWhenYouDoResolve): failed', err);
+        }
+        break;
+      }
+
+      case "choosePileFromSplitResolve": {
+        try {
+          const action = String((e as any).action || '').trim();
+          if (action === 'move_cards') {
+            const movePlayerId = String((e as any).movePlayerId || '').trim();
+            const chosenDestination = String((e as any).chosenDestination || '').trim();
+            const otherDestination = String((e as any).otherDestination || '').trim();
+            const chosenCards = Array.isArray((e as any).chosenCards)
+              ? ((e as any).chosenCards as any[]).map((card: any) => ({ ...card }))
+              : [];
+            const otherCards = Array.isArray((e as any).otherCards)
+              ? ((e as any).otherCards as any[]).map((card: any) => ({ ...card }))
+              : [];
+            if (!movePlayerId || !chosenDestination || !otherDestination) break;
+
+            const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
+            const z = (zones[movePlayerId] = zones[movePlayerId] || {
+              library: [],
+              libraryCount: 0,
+              hand: [],
+              handCount: 0,
+              graveyard: [],
+              graveyardCount: 0,
+              exile: [],
+              exileCount: 0,
+            });
+
+            const chosenZone: any[] = Array.isArray((z as any)[chosenDestination]) ? (z as any)[chosenDestination] : [];
+            const otherZone: any[] = Array.isArray((z as any)[otherDestination]) ? (z as any)[otherDestination] : [];
+
+            for (const card of chosenCards) chosenZone.push({ ...card, zone: chosenDestination });
+            for (const card of otherCards) otherZone.push({ ...card, zone: otherDestination });
+
+            (z as any)[chosenDestination] = chosenZone;
+            (z as any)[otherDestination] = otherZone;
+            if (chosenDestination === 'hand') z.handCount = chosenZone.length;
+            if (chosenDestination === 'library') z.libraryCount = chosenZone.length;
+            if (otherDestination === 'hand') z.handCount = otherZone.length;
+            if (otherDestination === 'library') z.libraryCount = otherZone.length;
+          } else if (action === 'sacrifice_permanents') {
+            const permanentIds = Array.isArray((e as any).permanentIds)
+              ? ((e as any).permanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+              : [];
+            for (const permanentId of permanentIds) {
+              const stillOnBattlefield = Array.isArray(ctx.state?.battlefield)
+                ? (ctx.state.battlefield as any[]).some((entry: any) => entry && String(entry.id || '') === permanentId)
+                : false;
+              if (!stillOnBattlefield) continue;
+              movePermanentToGraveyard(ctx as any, permanentId, true);
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(choosePileFromSplitResolve): failed', err);
+        }
+        break;
+      }
+
+      case "ventureChooseDungeonResolve": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          if (!playerId) break;
+
+          const stateAny = ctx.state as any;
+          stateAny.dungeonProgress = stateAny.dungeonProgress || {};
+          const normalizedProgress = normalizeDungeonProgress(e);
+          if (!normalizedProgress) break;
+          stateAny.dungeonProgress[playerId] = normalizedProgress;
+          applyAutomaticDungeonRoomEffect(ctx as any, playerId as any, normalizedProgress);
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(ventureChooseDungeonResolve): failed', err);
+        }
+        break;
+      }
+
+      case "ventureChooseRoomResolve": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          if (!playerId) break;
+
+          const stateAny = ctx.state as any;
+          stateAny.dungeonProgress = stateAny.dungeonProgress || {};
+          const normalizedProgress = normalizeDungeonProgress(e);
+          if (!normalizedProgress) break;
+          applyAutomaticDungeonRoomEffect(ctx as any, playerId as any, normalizedProgress);
+
+          if ((e as any).completed === true) {
+            markDungeonCompleted(stateAny, playerId, String(normalizedProgress.dungeonName || '').trim());
+            delete stateAny.dungeonProgress[playerId];
+          } else {
+            stateAny.dungeonProgress[playerId] = normalizedProgress;
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(ventureChooseRoomResolve): failed', err);
         }
         break;
       }

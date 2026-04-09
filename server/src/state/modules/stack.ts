@@ -72,6 +72,14 @@ import {
   getMutatedPermanentAbilities,
   getMutatedPermanentCharacteristics,
 } from "../../../../rules-engine/src/keywordAbilities/mutate.js";
+import {
+  advanceDungeonProgress,
+  createDungeonProgress,
+  getDungeonNameById,
+  markDungeonCompleted,
+  normalizeDungeonProgress,
+} from "./dungeons.js";
+import { applyAutomaticDungeonRoomEffect, buildDungeonRoomPromptStep } from "./dungeon-effects.js";
 
 function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
   if (!Array.isArray(cards) || !cardId) return 0;
@@ -189,6 +197,115 @@ function appendQueuedResolutionPromptEvent(
   } catch (err) {
     debugWarn(1, '[resolveTopOfStack] appendEvent(resolveTopOfStackPrompt) failed:', err);
   }
+}
+
+function resolveVentureProgress(
+  ctx: GameContext,
+  playerId: PlayerID,
+  sourceName: string,
+  sourceId: string,
+  mode: 'dungeon' | 'undercity',
+): void {
+  const stateAny = (ctx as any).state as any;
+  stateAny.dungeonProgress = stateAny.dungeonProgress || {};
+  const progress = normalizeDungeonProgress(stateAny.dungeonProgress[playerId]);
+
+  if (!progress) {
+    if (mode === 'undercity') {
+      const undercityProgress = createDungeonProgress('undercity');
+      if (undercityProgress) {
+        stateAny.dungeonProgress[playerId] = undercityProgress;
+        applyAutomaticDungeonRoomEffect(ctx, playerId, undercityProgress);
+        const promptStep = buildDungeonRoomPromptStep(ctx, playerId, undercityProgress, sourceId);
+        if (promptStep) {
+          queueResolveTopOfStackPrompt(ctx, promptStep);
+        }
+      }
+      return;
+    }
+
+    queueResolveTopOfStackPrompt(ctx, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose a dungeon to enter',
+      mandatory: true,
+      sourceId: sourceId || undefined,
+      sourceName: String(sourceName || 'Venture').trim() || 'Venture',
+      options: [
+        { id: 'lost_mine', label: getDungeonNameById('lost_mine') },
+        { id: 'mad_mage', label: getDungeonNameById('mad_mage') },
+        { id: 'tomb', label: getDungeonNameById('tomb') },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseDungeon: true,
+    } as any);
+    return;
+  }
+
+  const advancement = advanceDungeonProgress(progress);
+  if (advancement.choiceRequired.length > 1) {
+    queueResolveTopOfStackPrompt(ctx, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: `Choose the next room in ${progress.dungeonName}`,
+      mandatory: true,
+      sourceId: sourceId || undefined,
+      sourceName: String(sourceName || 'Venture').trim() || 'Venture',
+      options: advancement.choiceRequired.map((room) => ({
+        id: room.id,
+        label: `${room.name} - ${room.effect}`,
+      })),
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: progress.dungeonId,
+      ventureDungeonName: progress.dungeonName,
+      ventureCurrentRoomId: progress.currentRoomId,
+      ventureCurrentRoomName: progress.currentRoomName,
+      ventureRoomPath: [...progress.roomPath],
+    } as any);
+    return;
+  }
+
+  if (!advancement.progress) {
+    return;
+  }
+
+  applyAutomaticDungeonRoomEffect(ctx, playerId, advancement.progress);
+  const promptStep = buildDungeonRoomPromptStep(ctx, playerId, advancement.progress, sourceId);
+  if (promptStep) {
+    queueResolveTopOfStackPrompt(ctx, promptStep);
+  }
+
+  if (advancement.completed) {
+    markDungeonCompleted(stateAny, String(playerId), String(advancement.progress.dungeonName || getDungeonNameById(progress.dungeonId)).trim());
+    delete stateAny.dungeonProgress[playerId];
+    return;
+  }
+
+  stateAny.dungeonProgress[playerId] = advancement.progress;
+}
+
+function queueInitiativeVentureTrigger(
+  ctx: GameContext,
+  controller: PlayerID,
+  sourceId: string,
+): void {
+  const stateAny = (ctx as any).state as any;
+  stateAny.stack = stateAny.stack || [];
+  stateAny.stack.push({
+    id: uid('initiative_trigger'),
+    type: 'triggered_ability',
+    controller,
+    sourceId,
+    sourceName: 'The Initiative',
+    description: 'Venture into Undercity.',
+    effect: 'Venture into Undercity.',
+    triggerType: 'initiative',
+    mandatory: true,
+    initiativeVentureTrigger: true,
+  });
 }
 
 function getNextEndStepFireTurnNumber(state: any): number {
@@ -4863,6 +4980,13 @@ export function executeTriggerEffect(
   if (!state) return;
 
   let desc = String(description || "").replace(/[’]/g, "'").toLowerCase();
+  const triggerSourceId = String(
+    (triggerItem as any)?.id ||
+    (triggerItem as any)?.sourceId ||
+    (triggerItem as any)?.source ||
+    (triggerItem as any)?.permanentId ||
+    ''
+  ).trim();
   const sourceNameLower = String(sourceName || '').toLowerCase();
   const triggerSourceNameLower = String((triggerItem as any)?.sourceName || (triggerItem as any)?.card?.name || '').toLowerCase();
   const isKynaiosEffect =
@@ -5047,12 +5171,26 @@ export function executeTriggerEffect(
   // ===== GENERIC ORACLE-TEXT HOOKS =====
   // These are common stateful effects referenced by intervening-if clauses.
   // They are intentionally lightweight and run before other pattern matching.
+  let initiativeTriggeredThisEffect = false;
+
   if (desc.includes('become the monarch') || desc.includes('you become the monarch')) {
     (state as any).monarch = controller;
   }
 
   if (desc.includes('take the initiative') || desc.includes('you take the initiative')) {
     (state as any).initiative = controller;
+    initiativeTriggeredThisEffect = true;
+    queueInitiativeVentureTrigger(ctx, controller, triggerSourceId);
+  }
+
+  if (!initiativeTriggeredThisEffect && /\bventure into undercity\b/.test(desc)) {
+    resolveVentureProgress(ctx, controller, sourceName, triggerSourceId, 'undercity');
+    return;
+  }
+
+  if (/\bventure into the dungeon\b/.test(desc)) {
+    resolveVentureProgress(ctx, controller, sourceName, triggerSourceId, 'dungeon');
+    return;
   }
 
   if (desc.includes("you get the city's blessing")) {
@@ -13879,6 +14017,16 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         debug(2, `[resolveTopOfStack] Spell ${card.name || 'unnamed'} resolved and moved to graveyard for ${controller}`);
       }
+    }
+
+    const spellSourceId = String((item as any).id || (card as any)?.id || '').trim();
+    if (oracleTextLower.includes('take the initiative') || oracleTextLower.includes('you take the initiative')) {
+      (state as any).initiative = controller;
+      queueInitiativeVentureTrigger(ctx, controller, spellSourceId);
+    } else if (oracleTextLower.includes('venture into undercity')) {
+      resolveVentureProgress(ctx, controller as PlayerID, effectiveCard.name || 'Spell', spellSourceId, 'undercity');
+    } else if (oracleTextLower.includes('venture into the dungeon')) {
+      resolveVentureProgress(ctx, controller as PlayerID, effectiveCard.name || 'Spell', spellSourceId, 'dungeon');
     }
   }
   

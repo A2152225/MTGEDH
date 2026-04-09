@@ -91,6 +91,14 @@ import {
   getManaAbilitiesForPermanent,
   getManaMultiplier,
 } from "../state/modules/mana-abilities.js";
+import {
+  advanceDungeonProgress,
+  createDungeonProgress,
+  getDungeonNameById,
+  markDungeonCompleted,
+  normalizeDungeonProgress,
+} from "../state/modules/dungeons.js";
+import { applyAutomaticDungeonRoomEffect, buildDungeonRoomPromptStep } from "../state/modules/dungeon-effects.js";
 
 type ResolutionPaymentItem = {
   permanentId: string;
@@ -21009,7 +21017,7 @@ async function handleTwoPileSplitResponse(
       .filter(Boolean)
       .join(', ') || '(empty)';
 
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: chooserPlayerId as PlayerID,
       description: String(stepData.choosePileFromSplitChoiceDescription || `${sourceName}: Choose a pile`),
@@ -21035,6 +21043,12 @@ async function handleTwoPileSplitResponse(
       choosePileFromSplitPileA: pileA,
       choosePileFromSplitPileB: pileB,
     } as any);
+
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId: chooserPlayerId,
+      sourceId: String(stepData.sourceId || step.sourceId || '').trim(),
+      queuedResolutionStep,
+    });
 
     const splitMessage = String(stepData.choosePileFromSplitSplitMessage || '');
     if (splitMessage) {
@@ -23577,7 +23591,7 @@ async function handleOptionChoiceResponse(
       return;
     }
 
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.TWO_PILE_SPLIT,
       playerId: chosenOpponentId as PlayerID,
       description: String(stepData.choosePlayerForTwoPileSplitDescription || `${sourceName}: Separate the items into two piles`),
@@ -23599,6 +23613,12 @@ async function handleOptionChoiceResponse(
       choosePileFromSplitChatMessage: stepData.choosePileFromSplitChatMessage,
       choosePileFromSplitSplitMessage: `${sourceName}: ${getPlayerName(game, chosenOpponentId)} separated the cards into two piles.`,
     } as any);
+
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId: chosenOpponentId,
+      sourceId: String(step.sourceId || '').trim(),
+      queuedResolutionStep,
+    });
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -24289,10 +24309,10 @@ async function handleOptionChoiceResponse(
   if (stepData?.ventureIntoDungeon === true) {
     const stateAny = game.state as any;
     stateAny.dungeonProgress = stateAny.dungeonProgress || {};
-    const prog = stateAny.dungeonProgress[playerId];
+    const progress = normalizeDungeonProgress(stateAny.dungeonProgress[playerId]);
 
-    if (!prog) {
-      ResolutionQueueManager.addStep(gameId, {
+    if (!progress) {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.OPTION_CHOICE,
         playerId: playerId as PlayerID,
         description: 'Choose a dungeon to enter',
@@ -24307,97 +24327,82 @@ async function handleOptionChoiceResponse(
         maxSelections: 1,
         ventureChooseDungeon: true,
       } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: String(playerId || '').trim(),
+        sourceId: String((stepData as any)?.sourceId || step.sourceId || '').trim(),
+        queuedResolutionStep,
+      });
       return;
     }
 
-    prog.roomIndex = (prog.roomIndex || 0) + 1;
+    const advancement = advanceDungeonProgress(progress);
+    if (advancement.choiceRequired.length > 1) {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: playerId as PlayerID,
+        description: `Choose the next room in ${progress.dungeonName}`,
+        mandatory: true,
+        sourceName: String(stepData.ventureIntoDungeonSourceName || step.sourceName || 'Venture'),
+        options: advancement.choiceRequired.map((room) => ({
+          id: room.id,
+          label: `${room.name} - ${room.effect}`,
+        })),
+        minSelections: 1,
+        maxSelections: 1,
+        ventureChooseRoom: true,
+        ventureDungeonId: progress.dungeonId,
+        ventureDungeonName: progress.dungeonName,
+        ventureCurrentRoomId: progress.currentRoomId,
+        ventureCurrentRoomName: progress.currentRoomName,
+        ventureRoomPath: [...progress.roomPath],
+      } as any);
 
-    // Minimal dungeon completion tracking (AFR dungeons): when reaching the final room, mark completion.
-    // Room counts (number of rooms): Lost Mine = 4, Tomb = 4, Mad Mage = 7.
-    try {
-      const roomCounts: Record<string, number> = { lost_mine: 4, tomb: 4, mad_mage: 7 };
-      const roomCount = roomCounts[String(prog.dungeonId || '')] || 4;
-      const lastRoomIndex = Math.max(0, roomCount - 1);
-      if (prog.roomIndex >= lastRoomIndex) {
-        stateAny.completedDungeons = stateAny.completedDungeons || {};
-        stateAny.completedDungeons[playerId] = (stateAny.completedDungeons[playerId] || 0) + 1;
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: String(playerId || '').trim(),
+        sourceId: String((stepData as any)?.sourceId || step.sourceId || '').trim(),
+        queuedResolutionStep,
+      });
+      return;
+    }
 
-        stateAny.completedDungeonThisTurn = stateAny.completedDungeonThisTurn || {};
-        stateAny.completedDungeonThisTurn[playerId] = true;
+    if (!advancement.progress) {
+      return;
+    }
 
-        // Back-compat per-turn alias.
-        stateAny.dungeonCompletedThisTurn = stateAny.dungeonCompletedThisTurn || {};
-        stateAny.dungeonCompletedThisTurn[playerId] = true;
+    applyAutomaticDungeonRoomEffect(game as any, playerId as PlayerID, advancement.progress);
+    const promptStep = buildDungeonRoomPromptStep(game as any, playerId as PlayerID, advancement.progress, String((stepData as any)?.sourceId || step.sourceId || '').trim());
+    if (promptStep) {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, promptStep as any);
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: String(playerId || '').trim(),
+        sourceId: String((promptStep as any)?.sourceId || (stepData as any)?.sourceId || step.sourceId || '').trim(),
+        queuedResolutionStep,
+      });
+    }
 
-        // Back-compat flags used by older evaluator logic.
-        stateAny.completedDungeon = stateAny.completedDungeon || {};
-        stateAny.completedDungeon[playerId] = true;
+    if (advancement.completed) {
+      markDungeonCompleted(stateAny, String(playerId), String(advancement.progress.dungeonName || progress.dungeonName).trim());
+      delete stateAny.dungeonProgress[playerId];
 
-        // Back-compat alias.
-        stateAny.dungeonCompleted = stateAny.dungeonCompleted || {};
-        stateAny.dungeonCompleted[playerId] = true;
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} completed ${advancement.progress.dungeonName || 'a dungeon'}.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
 
-        // Name-based completion evidence used by intervening-if clauses like
-        // "if you haven't completed Tomb of Annihilation".
-        try {
-          const dungeonName = String(prog.dungeonName || '').trim();
-          if (dungeonName) {
-            const nameLower = dungeonName.toLowerCase();
-            const pidKey = String(playerId);
-
-            // Array-style aliases.
-            stateAny.completedDungeonNameList = stateAny.completedDungeonNameList || {};
-            stateAny.completedDungeonNames = stateAny.completedDungeonNames || {};
-            stateAny.completedDungeonsByName = stateAny.completedDungeonsByName || {};
-            stateAny.completedDungeonNameList[pidKey] = Array.isArray(stateAny.completedDungeonNameList[pidKey])
-              ? stateAny.completedDungeonNameList[pidKey]
-              : [];
-            stateAny.completedDungeonNames[pidKey] = Array.isArray(stateAny.completedDungeonNames[pidKey])
-              ? stateAny.completedDungeonNames[pidKey]
-              : [];
-            stateAny.completedDungeonsByName[pidKey] = Array.isArray(stateAny.completedDungeonsByName[pidKey])
-              ? stateAny.completedDungeonsByName[pidKey]
-              : [];
-            stateAny.completedDungeonNameList[pidKey].push(dungeonName);
-            stateAny.completedDungeonNames[pidKey].push(dungeonName);
-            stateAny.completedDungeonsByName[pidKey].push(dungeonName);
-
-            // Map-style aliases.
-            stateAny.completedDungeonNamesMap = stateAny.completedDungeonNamesMap || {};
-            stateAny.completedDungeonsByNameMap = stateAny.completedDungeonsByNameMap || {};
-            stateAny.completedDungeonNamesMap[pidKey] =
-              stateAny.completedDungeonNamesMap[pidKey] && typeof stateAny.completedDungeonNamesMap[pidKey] === 'object'
-                ? stateAny.completedDungeonNamesMap[pidKey]
-                : {};
-            stateAny.completedDungeonsByNameMap[pidKey] =
-              stateAny.completedDungeonsByNameMap[pidKey] && typeof stateAny.completedDungeonsByNameMap[pidKey] === 'object'
-                ? stateAny.completedDungeonsByNameMap[pidKey]
-                : {};
-            stateAny.completedDungeonNamesMap[pidKey][nameLower] = true;
-            stateAny.completedDungeonsByNameMap[pidKey][nameLower] =
-              (stateAny.completedDungeonsByNameMap[pidKey][nameLower] || 0) + 1;
-          }
-        } catch {}
-
-        delete stateAny.dungeonProgress[playerId];
-
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `${getPlayerName(game, playerId)} completed ${prog.dungeonName || 'a dungeon'}.`,
-          ts: Date.now(),
-        });
-        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-        return;
-      }
-    } catch {}
+    stateAny.dungeonProgress[playerId] = advancement.progress;
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${getPlayerName(game, playerId)} ventured further into ${prog.dungeonName || 'a dungeon'} (room ${prog.roomIndex}).`,
+      message: `${getPlayerName(game, playerId)} ventured into ${advancement.progress.currentRoomName} in ${advancement.progress.dungeonName}.`,
       ts: Date.now(),
     });
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
@@ -24406,21 +24411,122 @@ async function handleOptionChoiceResponse(
 
   if (stepData?.ventureChooseDungeon === true) {
     const choiceId = extractId(selectedOption);
+    const normalizedChoiceId = String(choiceId || 'lost_mine').trim() || 'lost_mine';
     const stateAny = game.state as any;
     stateAny.dungeonProgress = stateAny.dungeonProgress || {};
 
-    const dungeonName =
-      choiceId === 'mad_mage' ? 'Dungeon of the Mad Mage' :
-      choiceId === 'tomb' ? 'Tomb of Annihilation' :
-      'Lost Mine of Phandelver';
+    const dungeonName = getDungeonNameById(normalizedChoiceId);
+    const dungeonProgress = createDungeonProgress(normalizedChoiceId);
 
-    stateAny.dungeonProgress[playerId] = { dungeonId: choiceId || 'lost_mine', dungeonName, roomIndex: 0 };
+    if (!dungeonProgress) {
+      return;
+    }
+
+    stateAny.dungeonProgress[playerId] = dungeonProgress;
+    applyAutomaticDungeonRoomEffect(game as any, playerId as PlayerID, dungeonProgress);
+    const promptStep = buildDungeonRoomPromptStep(game as any, playerId as PlayerID, dungeonProgress, String(step.sourceId || '').trim());
+    if (promptStep) {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, promptStep as any);
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: String(playerId || '').trim(),
+        sourceId: String((promptStep as any)?.sourceId || step.sourceId || '').trim(),
+        queuedResolutionStep,
+      });
+    }
+
+    try {
+      appendEvent(
+        gameId,
+        Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
+        'ventureChooseDungeonResolve',
+        {
+          playerId: String(playerId || '').trim(),
+          dungeonId: normalizedChoiceId,
+          dungeonName,
+          roomIndex: dungeonProgress.roomIndex,
+          currentRoomId: dungeonProgress.currentRoomId,
+          currentRoomName: dungeonProgress.currentRoomName,
+          currentRoomEffect: dungeonProgress.currentRoomEffect,
+          roomPath: [...dungeonProgress.roomPath],
+        },
+      );
+    } catch (err) {
+      debugWarn(1, '[resolution] appendEvent(ventureChooseDungeonResolve) failed:', err);
+    }
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
       message: `${getPlayerName(game, playerId)} entered ${dungeonName}.`,
+      ts: Date.now(),
+    });
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
+  }
+
+  if (stepData?.ventureChooseRoom === true) {
+    const choiceId = String(extractId(selectedOption) || '').trim().toLowerCase();
+    const stateAny = game.state as any;
+    stateAny.dungeonProgress = stateAny.dungeonProgress || {};
+
+    const progress = normalizeDungeonProgress(stateAny.dungeonProgress[playerId]);
+    if (!progress || !choiceId) {
+      return;
+    }
+
+    const advancement = advanceDungeonProgress(progress, choiceId);
+    if (!advancement.progress || advancement.choiceRequired.length > 0) {
+      return;
+    }
+
+    applyAutomaticDungeonRoomEffect(game as any, playerId as PlayerID, advancement.progress);
+    const promptStep = buildDungeonRoomPromptStep(game as any, playerId as PlayerID, advancement.progress, String(step.sourceId || '').trim());
+    if (promptStep) {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, promptStep as any);
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: String(playerId || '').trim(),
+        sourceId: String((promptStep as any)?.sourceId || step.sourceId || '').trim(),
+        queuedResolutionStep,
+      });
+    }
+
+    const completed = advancement.completed;
+    if (completed) {
+      markDungeonCompleted(stateAny, String(playerId), String(advancement.progress.dungeonName || progress.dungeonName).trim());
+      delete stateAny.dungeonProgress[playerId];
+    } else {
+      stateAny.dungeonProgress[playerId] = advancement.progress;
+    }
+
+    try {
+      appendEvent(
+        gameId,
+        Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
+        'ventureChooseRoomResolve',
+        {
+          playerId: String(playerId || '').trim(),
+          dungeonId: advancement.progress.dungeonId,
+          dungeonName: advancement.progress.dungeonName,
+          roomIndex: advancement.progress.roomIndex,
+          currentRoomId: advancement.progress.currentRoomId,
+          currentRoomName: advancement.progress.currentRoomName,
+          currentRoomEffect: advancement.progress.currentRoomEffect,
+          roomPath: [...advancement.progress.roomPath],
+          completed,
+        },
+      );
+    } catch (err) {
+      debugWarn(1, '[resolution] appendEvent(ventureChooseRoomResolve) failed:', err);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: completed
+        ? `${getPlayerName(game, playerId)} completed ${advancement.progress.dungeonName}.`
+        : `${getPlayerName(game, playerId)} ventured into ${advancement.progress.currentRoomName} in ${advancement.progress.dungeonName}.`,
       ts: Date.now(),
     });
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
@@ -24735,6 +24841,19 @@ async function handleOptionChoiceResponse(
       if (chosenDestination === 'library') z.libraryCount = chosenZone.length;
       if (otherDestination === 'hand') z.handCount = otherZone.length;
       if (otherDestination === 'library') z.libraryCount = otherZone.length;
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'choosePileFromSplitResolve', {
+          action: 'move_cards',
+          movePlayerId,
+          chosenDestination,
+          otherDestination,
+          chosenCards: chosenCards.map((card: any) => ({ ...card })),
+          otherCards: otherCards.map((card: any) => ({ ...card })),
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist choosePileFromSplitResolve(move_cards):', err);
+      }
     } else if (action === 'sacrifice_permanents') {
       const targetPlayerId = String(stepData.choosePileFromSplitTargetPlayerId || playerId);
       const toSacrifice = choiceId === 'pileA' ? pileA : pileB;
@@ -24765,6 +24884,16 @@ async function handleOptionChoiceResponse(
         } catch {
           // ignore
         }
+      }
+
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'choosePileFromSplitResolve', {
+          action: 'sacrifice_permanents',
+          targetPlayerId,
+          permanentIds: toSacrifice,
+        });
+      } catch (err) {
+        debugWarn(1, '[Resolution] Failed to persist choosePileFromSplitResolve(sacrifice_permanents):', err);
       }
 
       io.to(gameId).emit('chat', {

@@ -4703,6 +4703,22 @@ export function nextStep(ctx: GameContext) {
           const delayedUpkeepReturns = dequeuePendingUpkeepGraveyardReturnTriggers(ctx, turnPlayer);
           pushTriggersToStack(delayedUpkeepReturns, 'upkeep', 'upkeep');
 
+          const initiativeHolder = String(((ctx as any).state as any)?.initiative || '').trim();
+          if (initiativeHolder && initiativeHolder === String(turnPlayer)) {
+            ((ctx as any).state as any).stack = ((ctx as any).state as any).stack || [];
+            ((ctx as any).state as any).stack.push({
+              id: uid('initiative_trigger'),
+              type: 'triggered_ability',
+              controller: turnPlayer,
+              sourceName: 'The Initiative',
+              description: 'Venture into Undercity.',
+              effect: 'Venture into Undercity.',
+              triggerType: 'upkeep',
+              mandatory: true,
+              initiativeVentureTrigger: true,
+            });
+          }
+
           // FIRST: Auto-process cumulative upkeep mana effects (e.g., Braid of Fire)
           // This must happen BEFORE triggers are collected, because Braid of Fire adds mana
           // as part of cumulative upkeep, not as a separate trigger

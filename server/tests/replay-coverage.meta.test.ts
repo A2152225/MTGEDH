@@ -35,6 +35,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'cascadeResolve',
   'castSpellContinuation',
   'changePermanentControl',
+  'choosePileFromSplitResolve',
   'clashResolve',
   'cleanupDiscard',
   'colorChoice',
@@ -98,6 +99,8 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'targetSelectionTapUntapPrompt',
   'triggerOrderResponse',
   'untapPermanent',
+  'ventureChooseDungeonResolve',
+  'ventureChooseRoomResolve',
   'voteSubmit',
   'exchangeTextBoxes',
 ]);
