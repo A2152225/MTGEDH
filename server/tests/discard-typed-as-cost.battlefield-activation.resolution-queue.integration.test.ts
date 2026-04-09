@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -372,6 +372,14 @@ describe('Discard typed card as activation cost via Resolution Queue (integratio
     expect((targetStep.validTargets as any[]).some((target: any) => String(target.id) === 'g_creature_target')).toBe(true);
     expect((targetStep.validTargets as any[]).some((target: any) => String(target.id) === 'g_noncreature_other')).toBe(false);
     expect(Number((game.state as any).manaPool?.[p1]?.black ?? -1)).toBe(0);
+
+    const queuedActivation = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'activateBattlefieldAbility' &&
+      String(event.payload?.queuedResolutionStep?.id || '') === String(targetStep.id)
+    ) as any;
+    expect(queuedActivation?.payload?.discardedCardIds).toEqual(['h_creature_cost']);
+    expect(queuedActivation?.payload?.queuedResolutionStep?.type).toBe('target_selection');
+    expect(queuedActivation?.payload?.queuedResolutionStep?.battlefieldAbilityTargetSelection).toBe(true);
 
     await handlers['submitResolutionResponse']({
       gameId,

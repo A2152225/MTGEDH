@@ -2409,6 +2409,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();
           const playerId = String((e as any).playerId || '').trim();
+          let stateMutated = false;
           const rawQueuedStep = (e as any).queuedResolutionStep;
           const rawQueuedSteps = Array.isArray((e as any).queuedResolutionSteps)
             ? ((e as any).queuedResolutionSteps as any[]).filter((step) => step && typeof step === 'object' && !Array.isArray(step))
@@ -2416,6 +2417,74 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           const queuedStepsToReplay = rawQueuedSteps.length > 0
             ? rawQueuedSteps
             : (rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) ? [rawQueuedStep] : []);
+
+          const pendingCascadeEntry = (e as any).pendingCascadeEntry && typeof (e as any).pendingCascadeEntry === 'object' && !Array.isArray((e as any).pendingCascadeEntry)
+            ? { ...((e as any).pendingCascadeEntry as Record<string, any>) }
+            : undefined;
+          const cascadeLibraryAfter = Array.isArray((e as any).libraryAfter)
+            ? cloneLibraryCards((e as any).libraryAfter as any[])
+            : undefined;
+
+          if (playerId && (pendingCascadeEntry || cascadeLibraryAfter)) {
+            const stateAny = ctx.state as any;
+            const zones = stateAny.zones = stateAny.zones || {};
+            const z = zones[playerId] = zones[playerId] || {
+              hand: [],
+              handCount: 0,
+              library: [],
+              libraryCount: 0,
+              graveyard: [],
+              graveyardCount: 0,
+              exile: [],
+              exileCount: 0,
+            };
+
+            if (cascadeLibraryAfter) {
+              z.library = cloneLibraryCards(cascadeLibraryAfter);
+              z.libraryCount = cascadeLibraryAfter.length;
+              if (ctx.libraries?.set) {
+                ctx.libraries.set(playerId as any, cloneLibraryCards(cascadeLibraryAfter));
+              }
+              stateMutated = true;
+            }
+
+            if (pendingCascadeEntry) {
+              stateAny.pendingCascade = stateAny.pendingCascade || {};
+              const playerQueue = Array.isArray(stateAny.pendingCascade[playerId]) ? stateAny.pendingCascade[playerId] : [];
+              const normalizedEntry: any = {
+                ...pendingCascadeEntry,
+                hitCard: pendingCascadeEntry.hitCard && typeof pendingCascadeEntry.hitCard === 'object'
+                  ? { ...(pendingCascadeEntry.hitCard as any) }
+                  : pendingCascadeEntry.hitCard,
+                exiledCards: Array.isArray(pendingCascadeEntry.exiledCards)
+                  ? (pendingCascadeEntry.exiledCards as any[]).map((card: any) => ({ ...card }))
+                  : [],
+                awaiting: pendingCascadeEntry.awaiting === true,
+              };
+
+              const effectId = String(normalizedEntry.effectId || '').trim();
+              const sourceCardId = String(normalizedEntry.sourceCardId || '').trim();
+              const sourceName = String(normalizedEntry.sourceName || '').trim();
+              const instance = Number(normalizedEntry.instance || 0);
+              const existingIndex = playerQueue.findIndex((entry: any) => {
+                if (!entry || typeof entry !== 'object') return false;
+                if (effectId && String(entry.effectId || '').trim() === effectId) return true;
+                if (sourceCardId && String(entry.sourceCardId || '').trim() === sourceCardId) {
+                  return instance <= 0 || Number(entry.instance || 0) === instance;
+                }
+                return Boolean(sourceName) && String(entry.sourceName || '').trim() === sourceName;
+              });
+
+              if (existingIndex >= 0) {
+                playerQueue[existingIndex] = normalizedEntry;
+              } else {
+                playerQueue.unshift(normalizedEntry);
+              }
+
+              stateAny.pendingCascade[playerId] = playerQueue;
+              stateMutated = true;
+            }
+          }
 
           if (replayGameId && queuedStepsToReplay.length > 0) {
             const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
@@ -2438,9 +2507,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   description: String((queuedStep as any).description || ''),
                   mandatory: (queuedStep as any).mandatory !== false,
                 } as any);
+                stateMutated = true;
               }
             }
+          }
 
+          if (stateMutated) {
             ctx.bumpSeq();
           }
         } catch (err) {
@@ -9534,6 +9606,70 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, "applyEvent(optionChoice): failed", err);
+        }
+        break;
+      }
+
+      case "putCardFromHandOntoBattlefield": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const cardId = String((e as any).cardId || '').trim();
+          const permanentId = String((e as any).permanentId || '').trim();
+          const tappedAndAttacking = (e as any).tappedAndAttacking === true;
+          const cardSnapshot = (e as any).card && typeof (e as any).card === 'object' && !Array.isArray((e as any).card)
+            ? { ...((e as any).card as any) }
+            : null;
+
+          if (!playerId || !permanentId) break;
+
+          const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
+          const z = zones[playerId] = zones[playerId] || {
+            hand: [],
+            handCount: 0,
+            library: [],
+            libraryCount: 0,
+            graveyard: [],
+            graveyardCount: 0,
+            exile: [],
+            exileCount: 0,
+          };
+
+          let card: any = null;
+          if (Array.isArray(z.hand)) {
+            const handIndex = (z.hand as any[]).findIndex((entry: any) => entry && String(entry.id || '') === cardId);
+            if (handIndex !== -1) {
+              [card] = (z.hand as any[]).splice(handIndex, 1);
+              z.handCount = (z.hand as any[]).length;
+            }
+          }
+
+          if (!card && cardSnapshot) {
+            card = { ...cardSnapshot };
+          }
+
+          const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : ((ctx.state as any).battlefield = []);
+          const existingPermanent = battlefield.find((perm: any) => perm && String(perm.id || '') === permanentId);
+
+          if (!existingPermanent && card) {
+            const typeLine = String(card.type_line || '').toLowerCase();
+            const isCreature = typeLine.includes('creature');
+            battlefield.push({
+              id: permanentId,
+              controller: playerId,
+              owner: playerId,
+              tapped: tappedAndAttacking,
+              counters: {},
+              basePower: isCreature ? parsePT(card.power) : undefined,
+              baseToughness: isCreature ? parsePT(card.toughness) : undefined,
+              summoningSickness: isCreature && !tappedAndAttacking,
+              isAttacking: tappedAndAttacking,
+              card: { ...card, zone: 'battlefield' },
+            } as any);
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(putCardFromHandOntoBattlefield): failed', err);
         }
         break;
       }

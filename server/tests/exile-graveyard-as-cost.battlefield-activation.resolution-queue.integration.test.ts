@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -253,5 +253,87 @@ describe('Exile-from-graveyard-as-activation-cost via Resolution Queue (integrat
     expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
 
     expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
+  });
+
+  it('persists queued target selection after graveyard-exile costs resolve into a targeted activation', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).stack = [];
+
+    const p1 = 'p1';
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+
+    (game.state as any).battlefield = [
+      {
+        id: 'src_3',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          name: 'Targeting Relic',
+          type_line: 'Artifact',
+          oracle_text: 'Pay 2 life, Exile a card from your graveyard: Return target creature card from your graveyard to your hand.',
+          image_uris: { small: 'https://example.com/targeting-relic.jpg' },
+        },
+      },
+    ];
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        graveyard: [
+          { id: 'g_cost', name: 'Spent Resource', type_line: 'Instant', zone: 'graveyard' },
+          { id: 'g_target', name: 'Dead Creature', type_line: 'Creature', zone: 'graveyard' },
+        ],
+        exile: [],
+        handCount: 0,
+        graveyardCount: 2,
+        exileCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({ gameId, permanentId: 'src_3', abilityId: 'src_3-ability-0' });
+
+    let queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    const exileStep = queue.steps[0] as any;
+    expect(exileStep.type).toBe('graveyard_selection');
+    expect(exileStep.graveyardExileAbilityAsCost).toBe(true);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: exileStep.id,
+      selections: ['g_cost'],
+    });
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    const targetStep = queue.steps.find((step: any) => (step as any).battlefieldAbilityTargetSelection === true) as any;
+    expect(targetStep).toBeDefined();
+    expect(targetStep.type).toBe('target_selection');
+    expect(targetStep.targetTypes).toContain('graveyard_creature_card');
+    expect((targetStep.validTargets as any[]).map((target: any) => String(target.id))).toEqual(['g_target']);
+
+    const queuedActivation = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'activateBattlefieldAbility' &&
+      String(event.payload?.queuedResolutionStep?.id || '') === String(targetStep.id)
+    ) as any;
+    expect(queuedActivation?.payload?.exiledCardIdsFromGraveyardForCost).toEqual(['g_cost']);
+    expect(queuedActivation?.payload?.lifePaidForCost).toBe(2);
+    expect(queuedActivation?.payload?.queuedResolutionStep?.battlefieldAbilityTargetSelection).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -148,6 +148,19 @@ describe('sacrifice another permanent for benefit (integration)', () => {
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any).type).toBe(ResolutionStepType.TARGET_SELECTION);
     expect(((queue.steps[0] as any).validTargets || []).map((t: any) => t.id)).toEqual(['other_perm']);
+
+    const promptEvent = getEvents(gameId).find((event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt') as any;
+    expect(promptEvent).toBeDefined();
+    expect(promptEvent.payload).toMatchObject({
+      playerId: p1,
+      sourceId: 'source_perm',
+      queuedResolutionStep: {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: p1,
+        sacrificeAnotherPermanentForBenefitChoice: true,
+        sacrificeAnotherPermanentForBenefitStage: 'select_sacrifice',
+      },
+    });
 
     await handlers['submitResolutionResponse']({ gameId, stepId: (queue.steps[0] as any).id, selections: ['other_perm'] });
 

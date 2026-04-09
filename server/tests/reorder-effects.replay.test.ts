@@ -104,6 +104,75 @@ describe('reorder effect replay semantics', () => {
     expect(ResolutionQueueManager.getStepsForPlayer(gameId, p1)).toHaveLength(0);
   });
 
+  it('replays surveil follow-up exile prompts after surveil completion', () => {
+    const gameId = 't_surveil_followup_prompt_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+    initZones(game, p1);
+    initZones(game, p2);
+
+    game.importDeckResolved(p1, [
+      { id: 'c1', name: 'Card 1', zone: 'library' },
+      { id: 'c2', name: 'Card 2', zone: 'library' },
+    ] as any);
+    (game.state as any).pendingSurveil = { [p1]: { count: 2, queued: true } };
+    (game.state as any).zones[p2].graveyard = [{ id: 'g_opponent', name: 'Dead Card', zone: 'graveyard' }];
+    (game.state as any).zones[p2].graveyardCount = 1;
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.SURVEIL,
+      playerId: p1,
+      description: 'Test Walker: Surveil 2',
+      mandatory: true,
+      sourceId: 'walker_1',
+      sourceName: 'Test Walker',
+      cards: [
+        { id: 'c1', name: 'Card 1' },
+        { id: 'c2', name: 'Card 2' },
+      ],
+      surveilCount: 2,
+    } as any);
+
+    game.applyEvent({
+      type: 'surveilResolve',
+      playerId: p1,
+      toGraveyard: [{ id: 'c1', name: 'Card 1' }],
+      keepTopOrder: [{ id: 'c2', name: 'Card 2' }],
+    } as any);
+
+    game.applyEvent({
+      type: 'resolveTopOfStackPrompt',
+      playerId: p1,
+      sourceId: 'walker_1',
+      queuedResolutionStep: {
+        id: 'queued_surveil_followup_1',
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: p1,
+        sourceId: 'walker_1',
+        sourceName: 'Test Walker',
+        description: 'Test Walker: Exile a card from a graveyard',
+        mandatory: true,
+        action: 'exile_graveyard_card',
+        validTargets: [
+          { id: 'c1', label: 'Card 1', description: 'card', zone: 'graveyard', owner: p1 },
+          { id: 'g_opponent', label: 'Dead Card', description: 'card', zone: 'graveyard', owner: p2 },
+        ],
+        minTargets: 1,
+        maxTargets: 1,
+      },
+    } as any);
+
+    expect((game as any).libraries.get(p1)?.map((card: any) => card.id)).toEqual(['c2']);
+    expect((game.state as any).zones[p1].graveyard.map((card: any) => card.id)).toEqual(['c1']);
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect((queue.steps[0] as any)?.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect((queue.steps[0] as any)?.action).toBe('exile_graveyard_card');
+  });
+
   it('replays ponder-style completion by restoring hand and library state', () => {
     const gameId = 't_ponder_effect_resolve_replay';
     const game = createInitialGameState(gameId);

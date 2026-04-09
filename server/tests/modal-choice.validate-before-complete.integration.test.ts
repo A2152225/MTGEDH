@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -125,5 +125,74 @@ describe('MODAL_CHOICE validate-before-complete (integration)', () => {
     await handlers['submitResolutionResponse']({ gameId, stepId, selections: 'c1' });
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+  });
+
+  it('persists hand-to-battlefield moves and queued enters choices for Greymond-style cards', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [
+          {
+            id: 'greymond_card',
+            name: 'Greymond, Avacyn\'s Stalwart',
+            type_line: 'Legendary Creature — Human Noble',
+            power: '5',
+            toughness: '5',
+            oracle_text: 'As Greymond enters, choose two abilities from among first strike, vigilance, and lifelink.',
+          },
+        ],
+        handCount: 1,
+      },
+    };
+    (game.state as any).battlefield = [];
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.MODAL_CHOICE,
+      playerId: p1 as any,
+      description: 'Put a creature from hand onto the battlefield',
+      mandatory: true,
+      minSelections: 1,
+      maxSelections: 1,
+      options: [
+        { id: 'greymond_card', label: 'Greymond, Avacyn\'s Stalwart' },
+      ],
+      putFromHandData: {
+        tappedAndAttacking: false,
+        validCardIds: ['greymond_card'],
+      },
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId, stepId: String((step as any).id), selections: 'greymond_card' });
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(1);
+    expect(battlefield[0]?.card?.name).toBe('Greymond, Avacyn\'s Stalwart');
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect((queue.steps[0] as any).type).toBe(ResolutionStepType.OPTION_CHOICE);
+    expect((queue.steps[0] as any).permanentId).toBe(String(battlefield[0]?.id || ''));
+
+    const putEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'putCardFromHandOntoBattlefield') as any;
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'resolveTopOfStackPrompt') as any;
+    expect(putEvent?.payload?.cardId).toBe('greymond_card');
+    expect(putEvent?.payload?.permanentId).toBe(String(battlefield[0]?.id || ''));
+    expect(promptEvent?.payload?.queuedResolutionStep?.type).toBe(ResolutionStepType.OPTION_CHOICE);
+    expect(promptEvent?.payload?.queuedResolutionStep?.permanentId).toBe(String(battlefield[0]?.id || ''));
   });
 });

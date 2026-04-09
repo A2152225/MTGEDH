@@ -136,6 +136,12 @@ describe('after sacrifice followup target selection (integration)', () => {
       'target_walker',
     ]);
 
+    const sacrificeEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'sacrificePermanent') as any;
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'resolveTopOfStackPrompt') as any;
+    expect(sacrificeEvent?.payload?.permanentId).toBe('sacrifice_me');
+    expect(promptEvent?.payload?.queuedResolutionStep?.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect(promptEvent?.payload?.queuedResolutionStep?.action).toBe('destroy_target_creature_or_planeswalker');
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: (queue.steps[0] as any).id,
@@ -144,6 +150,54 @@ describe('after sacrifice followup target selection (integration)', () => {
 
     expect(((game.state as any).battlefield || []).map((permanent: any) => permanent.id)).toEqual(['target_creature']);
     expect(((game.state as any).zones[p1].graveyard || []).map((card: any) => card.name)).toEqual(['Disposable Creature']);
+
+    const replayGameId = `${gameId}_generic_replay`;
+    createGameIfNotExists(replayGameId, 'commander', 40);
+    const replayGame = ensureGame(replayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+
+    (replayGame.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (replayGame.state as any).battlefield = [
+      {
+        id: 'sacrifice_me',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Disposable Creature', type_line: 'Creature — Test' },
+      },
+      {
+        id: 'target_creature',
+        controller: p2,
+        owner: p2,
+        card: { name: 'Target Creature', type_line: 'Creature — Test' },
+      },
+      {
+        id: 'target_walker',
+        controller: p2,
+        owner: p2,
+        card: { name: 'Target Walker', type_line: 'Legendary Planeswalker — Test' },
+        loyalty: 4,
+      },
+    ];
+    (replayGame.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
+    };
+
+    ResolutionQueueManager.removeQueue(replayGameId);
+    replayGame.applyEvent({ type: 'sacrificePermanent', ...(sacrificeEvent?.payload || {}) } as any);
+    replayGame.applyEvent({ type: 'resolveTopOfStackPrompt', ...(promptEvent?.payload || {}) } as any);
+
+    expect(((replayGame.state as any).battlefield || []).map((permanent: any) => permanent.id)).toEqual([
+      'target_creature',
+      'target_walker',
+    ]);
+    expect(((replayGame.state as any).zones[p1].graveyard || []).map((card: any) => card.name)).toEqual(['Disposable Creature']);
+    const replayQueue = ResolutionQueueManager.getQueue(replayGameId);
+    expect(replayQueue.steps).toHaveLength(1);
+    expect((replayQueue.steps[0] as any).action).toBe('destroy_target_creature_or_planeswalker');
   });
 
   it('persists and replays sacrifice-when-you-do reflexive target selection', async () => {

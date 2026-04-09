@@ -9,6 +9,76 @@ function addPlayer(game: any, id: PlayerID, name: string) {
 }
 
 describe('pending-effect prompt replay semantics', () => {
+  it('replays queued cascade prompts together with the consumed library snapshot', () => {
+    const gameId = 't_pending_effect_prompt_replay_cascade';
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    game.applyEvent({
+      type: 'resolveTopOfStackPrompt',
+      playerId: p1,
+      sourceId: 'bloodbraid_elf',
+      libraryAfter: [],
+      pendingCascadeEntry: {
+        sourceName: 'Bloodbraid Elf',
+        sourceCardId: 'bloodbraid_elf',
+        manaValue: 4,
+        instance: 1,
+        awaiting: true,
+        effectId: 'cascade_1',
+        hitCard: {
+          id: 'lightning_bolt',
+          name: 'Lightning Bolt',
+          type_line: 'Instant',
+          oracle_text: 'Deal 3 damage to any target.',
+          mana_cost: '{R}',
+          cmc: 1,
+        },
+        exiledCards: [
+          { id: 'forest_1', name: 'Forest', type_line: 'Basic Land — Forest' },
+          { id: 'lightning_bolt', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Deal 3 damage to any target.', mana_cost: '{R}', cmc: 1 },
+        ],
+      },
+      queuedResolutionStep: {
+        id: 'queued_pending_cascade_1',
+        type: ResolutionStepType.CASCADE,
+        playerId: p1,
+        sourceId: 'bloodbraid_elf',
+        sourceName: 'Bloodbraid Elf',
+        description: 'Cascade - Cast Lightning Bolt?',
+        mandatory: true,
+        cascadeNumber: 1,
+        totalCascades: 1,
+        manaValue: 4,
+        effectId: 'cascade_1',
+        hitCard: {
+          id: 'lightning_bolt',
+          name: 'Lightning Bolt',
+          type_line: 'Instant',
+          oracle_text: 'Deal 3 damage to any target.',
+          mana_cost: '{R}',
+          cmc: 1,
+        },
+        exiledCards: [
+          { id: 'forest_1', name: 'Forest', type_line: 'Basic Land — Forest' },
+          { id: 'lightning_bolt', name: 'Lightning Bolt', type_line: 'Instant', oracle_text: 'Deal 3 damage to any target.', mana_cost: '{R}', cmc: 1 },
+        ],
+      },
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect((queue.steps[0] as any)?.type).toBe(ResolutionStepType.CASCADE);
+    expect(String((queue.steps[0] as any)?.effectId || '')).toBe('cascade_1');
+    expect((game as any).libraries.get(p1)?.map((card: any) => card.id)).toEqual([]);
+    expect((game.state as any).pendingCascade?.[p1]).toHaveLength(1);
+    expect((game.state as any).pendingCascade[p1][0].awaiting).toBe(true);
+    expect((game.state as any).pendingCascade[p1][0].hitCard?.id).toBe('lightning_bolt');
+  });
+
   it('replays queued Ponder-style prompts', () => {
     const gameId = 't_pending_effect_prompt_replay_ponder';
     ResolutionQueueManager.removeQueue(gameId);
@@ -142,5 +212,93 @@ describe('pending-effect prompt replay semantics', () => {
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any)?.type).toBe(ResolutionStepType.DANCE_WITH_CALAMITY);
     expect(String((queue.steps[0] as any)?.effectId || '')).toBe('dance_1');
+  });
+
+  it('replays queued follow-up cast-from-exile prompts created from option responses', () => {
+    const gameId = 't_pending_effect_prompt_replay_cast_from_exile_followup';
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    game.applyEvent({
+      type: 'resolveTopOfStackPrompt',
+      playerId: p1,
+      sourceId: 'dance_source_1',
+      queuedResolutionStep: {
+        id: 'queued_cast_from_exile_followup_1',
+        type: ResolutionStepType.OPTION_CHOICE,
+        playerId: p1,
+        sourceId: 'dance_source_1',
+        sourceName: 'Dance with Calamity',
+        description: 'Dance with Calamity: You may cast Spell B from exile without paying its mana cost.',
+        mandatory: false,
+        options: [
+          { id: 'cast', label: 'Cast Spell B' },
+          { id: 'decline', label: 'Decline' },
+        ],
+        minSelections: 1,
+        maxSelections: 1,
+        castFromExileCardId: 'spell_b',
+        castFromExileCard: { id: 'spell_b', name: 'Spell B', type_line: 'Instant' },
+        castFromExileDeclineDestination: 'exile',
+        castFromExileQueueCardIds: ['spell_a', 'spell_b'],
+        castFromExileQueueCards: [
+          { id: 'spell_a', name: 'Spell A', type_line: 'Sorcery' },
+          { id: 'spell_b', name: 'Spell B', type_line: 'Instant' },
+        ],
+        castFromExileQueueIndex: 1,
+      },
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect((queue.steps[0] as any)?.type).toBe(ResolutionStepType.OPTION_CHOICE);
+    expect((queue.steps[0] as any)?.castFromExileCardId).toBe('spell_b');
+  });
+
+  it('replays queued sacrifice-for-benefit target prompts created from option responses', () => {
+    const gameId = 't_pending_effect_prompt_replay_sacrifice_followup';
+    ResolutionQueueManager.removeQueue(gameId);
+
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    game.applyEvent({
+      type: 'resolveTopOfStackPrompt',
+      playerId: p1,
+      sourceId: 'source_perm',
+      queuedResolutionStep: {
+        id: 'queued_sacrifice_followup_1',
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: p1,
+        sourceId: 'source_perm',
+        sourceName: 'Source Walker',
+        description: 'Choose a permanent to sacrifice',
+        mandatory: true,
+        validTargets: [
+          { id: 'other_perm', label: 'Treasure Token', description: 'Artifact' },
+        ],
+        targetTypes: ['sacrifice_target'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'a permanent you control',
+        sacrificeAnotherPermanentForBenefitChoice: true,
+        sacrificeAnotherPermanentForBenefitStage: 'select_sacrifice',
+        sacrificeAnotherPermanentForBenefitController: p1,
+        sacrificeAnotherPermanentForBenefitSourceName: 'Source Walker',
+        sacrificeAnotherPermanentForBenefitSourcePermanentId: 'source_perm',
+        sacrificeAnotherPermanentForBenefitLifeGain: 3,
+        sacrificeAnotherPermanentForBenefitDrawCount: 1,
+      },
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect((queue.steps[0] as any)?.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect((queue.steps[0] as any)?.sacrificeAnotherPermanentForBenefitChoice).toBe(true);
+    expect((queue.steps[0] as any)?.sacrificeAnotherPermanentForBenefitStage).toBe('select_sacrifice');
   });
 });

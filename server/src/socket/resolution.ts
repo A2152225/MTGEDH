@@ -126,6 +126,7 @@ function appendQueuedResolutionPromptEvent(
     sourceId?: string;
     queuedResolutionStep?: any;
     queuedResolutionSteps?: any[];
+    additionalPayload?: Record<string, any>;
   },
 ): void {
   const queuedResolutionSteps = Array.isArray(options.queuedResolutionSteps)
@@ -134,6 +135,10 @@ function appendQueuedResolutionPromptEvent(
   const queuedResolutionStep =
     options.queuedResolutionStep && typeof options.queuedResolutionStep === 'object' && !Array.isArray(options.queuedResolutionStep)
       ? options.queuedResolutionStep
+      : undefined;
+  const additionalPayload =
+    options.additionalPayload && typeof options.additionalPayload === 'object' && !Array.isArray(options.additionalPayload)
+      ? options.additionalPayload
       : undefined;
 
   if (!gameId || queuedResolutionSteps.length === 0 && !queuedResolutionStep) {
@@ -148,6 +153,7 @@ function appendQueuedResolutionPromptEvent(
       {
         playerId: String(options.playerId || '').trim(),
         sourceId: String(options.sourceId || '').trim(),
+        ...(additionalPayload || {}),
         ...(queuedResolutionSteps.length > 0 ? { queuedResolutionSteps } : { queuedResolutionStep }),
       },
     );
@@ -8381,7 +8387,7 @@ async function handleStepResponse(
             break;
           }
 
-          ResolutionQueueManager.addStep(gameId, {
+          const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.TARGET_SELECTION,
             playerId: controllerId as any,
             sourceId: permanentId,
@@ -8406,6 +8412,22 @@ async function handleStepResponse(
             tapCostPreferTokens: targets.length > 0 && targets.every((target: any) => Boolean(target?.isToken)),
             tapCostPreferNonTokens: targets.length > 0 && targets.every((target: any) => !target?.isToken),
           } as any);
+
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+              playerId: controllerId,
+              permanentId,
+              abilityId: abilityId || undefined,
+              cardName,
+              abilityText,
+              activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+              tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
+              lifePaidForCost: Number.isFinite(lifeToPayForCost) && lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+              queuedResolutionStep,
+            });
+          } catch {
+            // ignore persistence failures
+          }
 
           if (typeof game.bumpSeq === 'function') game.bumpSeq();
           broadcastGame(io, game, gameId);
@@ -12470,7 +12492,7 @@ async function handleDiscardResponse(
           return;
         }
 
-        ResolutionQueueManager.addStep(gameId, {
+        const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: controllerId as any,
           sourceId: permanentId,
@@ -12493,6 +12515,23 @@ async function handleDiscardResponse(
           discardedCardIdsForCost: selections.map((id: any) => String(id)).filter(Boolean),
           lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
         } as any);
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: controllerId,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName,
+            abilityText,
+            activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim() || `${manaCost}: ${abilityText}`,
+            tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
+            discardedCardIds: selections.map((id: any) => String(id)).filter(Boolean),
+            lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+            queuedResolutionStep,
+          });
+        } catch {
+          // ignore persistence failures
+        }
 
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
         broadcastGame(io, game, gameId);
@@ -14298,7 +14337,7 @@ async function handleTargetSelectionResponse(
         )
       );
       if (hasTargetingManaCost) {
-        ResolutionQueueManager.addStep(gameId, {
+        const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: controllerId as PlayerID,
           sourceId: permanentId,
@@ -14327,6 +14366,21 @@ async function handleTargetSelectionResponse(
           reconfigureCost: stepAny?.reconfigureCost,
           tappedPermanentsForCost,
         } as any);
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: controllerId,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName,
+            abilityText,
+            activatedAbilityText: activatedAbilityText || undefined,
+            tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
+            queuedResolutionStep,
+          });
+        } catch {
+          // ignore persistence failures
+        }
 
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
         broadcastGame(io, game, gameId);
@@ -16088,6 +16142,18 @@ async function handleTargetSelectionResponse(
           soldier.counters['+1/+1'] = (soldier.counters['+1/+1'] || 0) + 1;
           boostedSoldiers.push(soldier.card?.name || 'Soldier');
           debug(2, `[Resolution] SOLDIER Military Program: Added +1/+1 counter to ${soldier.card?.name || soldier.id}`);
+
+          try {
+            await appendEvent(gameId, (game as any).seq ?? 0, 'counterTargetChosen', {
+              playerId: pid,
+              sourceName: 'SOLDIER Military Program',
+              targetId: String(soldier.id || soldierId),
+              targetName: String(soldier.card?.name || 'Soldier'),
+              counterType: '+1/+1',
+            });
+          } catch (e) {
+            debugWarn(1, '[Resolution] appendEvent(counterTargetChosen) failed for SOLDIER Military Program follow-up:', e);
+          }
         }
       }
       
@@ -16526,6 +16592,7 @@ function handleUpkeepSacrificeResponse(
   const sourceToSacrifice = stepData.sourceToSacrifice;
   const creatures = stepData.creatures || [];
   const allowSourceSacrifice: boolean = stepData.allowSourceSacrifice !== false;
+  let sacrificedPermanentId: string | undefined;
   
   const battlefield = game.state?.battlefield || [];
   const zones = game.state?.zones || {};
@@ -16544,6 +16611,7 @@ function handleUpkeepSacrificeResponse(
       const [sacrificed] = battlefield.splice(creatureIdx, 1);
       const creatureName = sacrificed.card?.name || 'Creature';
       const owner = sacrificed.owner || pid;
+      sacrificedPermanentId = String(sacrificed.id || creatureId);
       
       // Move to graveyard (tokens cease to exist instead)
       if (!sacrificed.isToken) {
@@ -16571,6 +16639,7 @@ function handleUpkeepSacrificeResponse(
         const [sacrificed] = battlefield.splice(sourceIdx, 1);
         const artifactName = sacrificed.card?.name || sourceName;
         const owner = sacrificed.owner || pid;
+        sacrificedPermanentId = String(sacrificed.id || sourceId);
         
         // Move to graveyard
         if (!sacrificed.isToken) {
@@ -16611,6 +16680,16 @@ function handleUpkeepSacrificeResponse(
     game.bumpSeq();
   }
 
+  if (sacrificedPermanentId) {
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'sacrificePermanent', {
+        permanentId: sacrificedPermanentId,
+      });
+    } catch {
+      // ignore persistence failures
+    }
+  }
+
   if ((stepData as any).afterSacrificeFollowupTargetSelection === true) {
     const battlefieldNow = game.state?.battlefield || [];
     const followupTargetTypes: string[] = Array.isArray((stepData as any).afterSacrificeFollowupTargetTypes)
@@ -16642,7 +16721,7 @@ function handleUpkeepSacrificeResponse(
       }));
 
     if (validTargets.length > 0) {
-      ResolutionQueueManager.addStep(gameId, {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: pid as any,
         description: followupDescription,
@@ -16656,6 +16735,12 @@ function handleUpkeepSacrificeResponse(
         targetDescription: followupTargetDescription,
         action: followupAction,
       } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: pid,
+        sourceId: String(step.sourceId || '').trim(),
+        queuedResolutionStep,
+      });
     }
   }
 }
@@ -18317,7 +18402,7 @@ function handleSurveilResponse(
 
     if (allGyCards.length > 0) {
       const followUpSourceName = String((surveilStep as any).followUpSourceName || step.sourceName || 'Effect');
-      ResolutionQueueManager.addStep(gameId, {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: pid as any,
         description: `${followUpSourceName}: Exile a card from a graveyard`,
@@ -18335,6 +18420,12 @@ function handleSurveilResponse(
           owner: c.owner,
         })),
       } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: pid,
+        sourceId: String((surveilStep as any).sourceId || step.sourceId || '').trim(),
+        queuedResolutionStep,
+      });
     }
   }
   
@@ -20431,7 +20522,7 @@ export async function processPendingCascades(
       };
       
       // Add to resolution queue
-      ResolutionQueueManager.addStep(gameId, {
+      const step = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.CASCADE,
         playerId,
         description: `Cascade - Cast ${hitCard.name}?`,
@@ -20444,6 +20535,25 @@ export async function processPendingCascades(
         hitCard: hitRef,
         exiledCards: exiledRefs,
         effectId: entry.effectId,
+      });
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId,
+        sourceId: String(entry.sourceCardId || '').trim(),
+        queuedResolutionStep: step,
+        additionalPayload: {
+          libraryAfter: cloneCascadeLibrary(lib),
+          pendingCascadeEntry: {
+            sourceName: entry.sourceName || 'Cascade',
+            sourceCardId: entry.sourceCardId,
+            manaValue: entry.manaValue,
+            instance: entry.instance || 1,
+            awaiting: true,
+            effectId: entry.effectId,
+            hitCard: hitCard ? { ...hitCard } : null,
+            exiledCards: exiled.map((card: any) => ({ ...card })),
+          },
+        },
       });
     }
   } catch (err) {
@@ -23824,7 +23934,7 @@ async function handleOptionChoiceResponse(
         const nextIndex = queueIndex + 1;
         const next = queueCards[nextIndex];
         if (next && nextIndex < queueCards.length) {
-          ResolutionQueueManager.addStep(gameId, {
+          const queuedStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.OPTION_CHOICE,
             playerId: playerId as any,
             description: `${sourceName}: You may cast ${next?.name || 'that card'} from exile without paying its mana cost.`,
@@ -23845,6 +23955,12 @@ async function handleOptionChoiceResponse(
             castFromExileQueueCards: queueCards,
             castFromExileQueueIndex: nextIndex,
           } as any);
+
+          appendQueuedResolutionPromptEvent(game, gameId, {
+            playerId,
+            sourceId: String((step as any).sourceId || '').trim(),
+            queuedResolutionStep: queuedStep,
+          });
         }
       }
     } catch (err) {
@@ -23962,7 +24078,7 @@ async function handleOptionChoiceResponse(
         return;
       }
 
-      ResolutionQueueManager.addStep(gameId, {
+      const queuedStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: controllerId as PlayerID,
         description: `Choose a permanent to sacrifice`,
@@ -23982,6 +24098,12 @@ async function handleOptionChoiceResponse(
         sacrificeAnotherPermanentForBenefitLifeGain: lifeGain,
         sacrificeAnotherPermanentForBenefitDrawCount: drawCount,
       } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: controllerId,
+        sourceId: String(sourcePermanentId || '').trim(),
+        queuedResolutionStep: queuedStep,
+      });
 
       return;
     }
@@ -26170,7 +26292,7 @@ async function handleGraveyardSelectionResponse(
           return;
         }
 
-        ResolutionQueueManager.addStep(gameId, {
+        const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: controllerId as any,
           sourceId: permanentId,
@@ -26195,6 +26317,23 @@ async function handleGraveyardSelectionResponse(
             : undefined,
           lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
         } as any);
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: controllerId,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName: sourceName,
+            abilityText,
+            activatedAbilityText,
+            tappedPermanents: tappedPermanentsForCost.length > 0 ? tappedPermanentsForCost : undefined,
+            exiledCardIdsFromGraveyardForCost: movedCardIds,
+            lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+            queuedResolutionStep,
+          });
+        } catch {
+          // ignore persistence failures
+        }
 
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
         broadcastGame(io, game, gameId);
@@ -26416,6 +26555,8 @@ async function handleModalChoiceResponse(
     const fromAmongPattern = /as .+? enters(?:,| the battlefield,?)?\s*choose\s+(\w+)\s+(?:abilities?|options?)\s+from\s+among\s+([^.]+)/i;
     const fromAmongMatch = oracleText.match(fromAmongPattern);
     
+    let queuedResolutionStep: any;
+
     if (fromAmongMatch) {
       const numWord = fromAmongMatch[1].toLowerCase();
       const numMap: Record<string, number> = {
@@ -26433,7 +26574,7 @@ async function handleModalChoiceResponse(
         debug(2, `[Resolution] Detected "As enters" choice for ${card.name}: choose ${choiceCount} from ${options.join(', ')}`);
         
         // Add resolution step for the choice
-        ResolutionQueueManager.addStep(gameId, {
+        queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.OPTION_CHOICE,
           playerId: pid,
           description: `Choose ${choiceCount} for ${card.name}: ${options.join(', ')}`,
@@ -26447,6 +26588,26 @@ async function handleModalChoiceResponse(
           permanentId: newPermanent.id,
         } as any);
       }
+    }
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'putCardFromHandOntoBattlefield', {
+        playerId: pid,
+        cardId: String(card.id || selectedId || '').trim(),
+        permanentId: String(newPermanent.id || '').trim(),
+        tappedAndAttacking,
+        card: { ...card },
+      });
+    } catch {
+      // ignore persistence failures
+    }
+
+    if (queuedResolutionStep) {
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: pid,
+        sourceId: String(newPermanent.id || '').trim(),
+        queuedResolutionStep,
+      });
     }
     
     if (typeof game.bumpSeq === "function") {
@@ -26594,6 +26755,9 @@ async function handleSoldierProgramChoice(
   
   const battlefield = game.state.battlefield || [];
   const actionMessages: string[] = [];
+  const createdTokenEventPayloads: any[] = [];
+  const counterTargetPayloads: any[] = [];
+  let queuedResolutionStep: any;
   
   // Card text specifies "up to two Soldiers"
   const MAX_SOLDIERS_FOR_COUNTERS = 2;
@@ -26606,7 +26770,7 @@ async function handleSoldierProgramChoice(
     if (choiceId === 'create_token' || choiceId === 'both') {
       // Create a 1/1 white Soldier creature token
       // SOLDIER Military Program says: "Create a 1/1 white Soldier creature token"
-      createToken(
+      const createdTokenIds = createToken(
         {
           state: game.state,
           bumpSeq: () => game.bumpSeq?.(),
@@ -26623,6 +26787,27 @@ async function handleSoldierProgramChoice(
           typeLine: 'Token Creature — Soldier',
         }
       );
+
+      for (const tokenId of Array.isArray(createdTokenIds) ? createdTokenIds : []) {
+        const tokenPermanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(tokenId));
+        if (!tokenPermanent) continue;
+        createdTokenEventPayloads.push({
+          effectType: 'createToken',
+          controllerId: playerId,
+          tokenData: {
+            id: String(tokenPermanent.id || tokenId),
+            name: String(tokenPermanent.card?.name || 'Soldier'),
+            typeLine: String(tokenPermanent.card?.type_line || 'Token Creature — Soldier'),
+            power: Number(tokenPermanent.basePower ?? tokenPermanent.card?.power ?? 1),
+            toughness: Number(tokenPermanent.baseToughness ?? tokenPermanent.card?.toughness ?? 1),
+            colors: Array.isArray(tokenPermanent.card?.colors) ? [...tokenPermanent.card.colors] : ['W'],
+            abilities: Array.isArray(tokenPermanent.card?.keywords) ? [...tokenPermanent.card.keywords] : [],
+            hasHaste: Array.isArray(tokenPermanent.card?.keywords)
+              ? tokenPermanent.card.keywords.some((keyword: any) => String(keyword || '').toLowerCase() === 'haste')
+              : false,
+          },
+        });
+      }
       
       actionMessages.push('created a 1/1 white Soldier creature token');
       debug(2, `[Resolution] SOLDIER Military Program: Created white Soldier token for ${playerId}`);
@@ -26648,6 +26833,13 @@ async function handleSoldierProgramChoice(
       for (const soldier of soldiers) {
         soldier.counters = soldier.counters || {};
         soldier.counters['+1/+1'] = (soldier.counters['+1/+1'] || 0) + 1;
+        counterTargetPayloads.push({
+          playerId,
+          sourceName: 'SOLDIER Military Program',
+          targetId: String(soldier.id || ''),
+          targetName: String(soldier.card?.name || 'Soldier'),
+          counterType: '+1/+1',
+        });
         debug(2, `[Resolution] SOLDIER Military Program: Added +1/+1 counter to ${soldier.card?.name || soldier.id}`);
       }
       actionMessages.push(`put a +1/+1 counter on ${soldiers.length} Soldier${soldiers.length > 1 ? 's' : ''}`);
@@ -26656,7 +26848,7 @@ async function handleSoldierProgramChoice(
       debug(2, `[Resolution] SOLDIER Military Program: ${soldiers.length} Soldiers available, prompting player to select up to ${MAX_SOLDIERS_FOR_COUNTERS}`);
       
       // Create a target selection step for selecting up to 2 Soldiers
-      ResolutionQueueManager.addStep(gameId, {
+      queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: playerId,
         description: `SOLDIER Military Program: Choose up to ${MAX_SOLDIERS_FOR_COUNTERS} Soldiers to get +1/+1 counters`,
@@ -26682,6 +26874,30 @@ async function handleSoldierProgramChoice(
       
       // Don't add to actionMessages yet - that will happen after selection
     }
+  }
+
+  for (const payload of createdTokenEventPayloads) {
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'executeEffect', payload);
+    } catch (e) {
+      debugWarn(1, '[Resolution] appendEvent(executeEffect/createToken) failed for SOLDIER Military Program:', e);
+    }
+  }
+
+  for (const payload of counterTargetPayloads) {
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'counterTargetChosen', payload);
+    } catch (e) {
+      debugWarn(1, '[Resolution] appendEvent(counterTargetChosen) failed for SOLDIER Military Program:', e);
+    }
+  }
+
+  if (queuedResolutionStep) {
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId,
+      sourceId: String(triggerData?.sourceId || '').trim(),
+      queuedResolutionStep,
+    });
   }
   
   if (actionMessages.length > 0) {

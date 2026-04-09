@@ -356,4 +356,95 @@ describe('queued battlefield prompt replay semantics', () => {
     expect((queue.steps[0] as any)?.tappedPermanentsForCost).toEqual(['mana_creature_1']);
     expect((game.state as any).stack || []).toHaveLength(0);
   });
+
+  it('replays queued activation payment prompts after battlefield target selection resolves', () => {
+    const gameId = 't_activate_battlefield_payment_prompt_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'equipment_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'equipment_card_1',
+          name: 'Test Sword',
+          type_line: 'Artifact - Equipment',
+          oracle_text: 'Equip {3}',
+          zone: 'battlefield',
+        },
+      },
+      {
+        id: 'creature_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'creature_card_1',
+          name: 'Silvercoat Lion',
+          type_line: 'Creature - Cat',
+          oracle_text: '',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'equipment_1',
+      abilityId: 'equipment_card_1-equip-0',
+      cardName: 'Test Sword',
+      abilityText: 'Equip {3}',
+      activatedAbilityText: 'Equip {3}',
+      queuedResolutionStep: {
+        id: 'queued_payment_1',
+        type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+        playerId: p1,
+        sourceId: 'equipment_1',
+        sourceName: 'Test Sword',
+        description: 'Choose how to pay {3} for Test Sword.',
+        mandatory: true,
+        activationPaymentChoice: true,
+        activationPaymentContext: 'battlefield_targeted',
+        confirmLabel: 'Pay and Activate',
+        permanentId: 'equipment_1',
+        abilityId: 'equipment_card_1-equip-0',
+        cardName: 'Test Sword',
+        manaCost: '{3}',
+        abilityText: 'Equip {3}',
+        activatedAbilityText: 'Equip {3}',
+        targetIds: ['creature_1'],
+        validTargets: [
+          {
+            id: 'creature_1',
+            label: 'Silvercoat Lion (2/2)',
+            description: 'Creature - Cat',
+            imageUrl: undefined,
+          },
+        ],
+        targetTypes: ['creature'],
+        minTargets: 1,
+        maxTargets: 1,
+        targetDescription: 'creature you control',
+        abilityType: 'equip',
+        equipCost: '{3}',
+      },
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(String(queue.steps[0]?.id || '')).toBe('queued_payment_1');
+    expect(queue.steps[0]?.type).toBe(ResolutionStepType.MANA_PAYMENT_CHOICE);
+    expect((queue.steps[0] as any)?.activationPaymentChoice).toBe(true);
+    expect((queue.steps[0] as any)?.manaCost).toBe('{3}');
+    expect((queue.steps[0] as any)?.targetIds).toEqual(['creature_1']);
+    expect((game.state as any).stack || []).toHaveLength(0);
+  });
 });
