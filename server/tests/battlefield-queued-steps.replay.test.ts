@@ -295,4 +295,65 @@ describe('queued battlefield prompt replay semantics', () => {
     expect((queue.steps[0] as any)?.validTargets).toHaveLength(1);
     expect((game.state as any).stack || []).toHaveLength(0);
   });
+
+  it('replays queued mana-color battlefield activations before color choice resolves', () => {
+    const gameId = 't_activate_mana_color_prompt_replay';
+    ResolutionQueueManager.removeQueue(gameId);
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'mana_creature_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'mana_creature_card_1',
+          name: 'Mana Bear',
+          type_line: 'Creature — Bear Druid',
+          oracle_text: '{T}: Add one mana of any color.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'mana_creature_1',
+      abilityId: 'native_any',
+      cardName: 'Mana Bear',
+      tappedPermanents: ['mana_creature_1'],
+      queuedResolutionStep: {
+        id: 'queued_mana_choice_1',
+        type: ResolutionStepType.MANA_COLOR_SELECTION,
+        playerId: p1,
+        sourceId: 'mana_creature_1',
+        sourceName: 'Mana Bear',
+        description: 'Choose a color for Mana Bear\'s mana.',
+        mandatory: true,
+        selectionKind: 'any_color',
+        permanentId: 'mana_creature_1',
+        cardName: 'Mana Bear',
+        amount: 1,
+        abilityId: 'native_any',
+        tappedPermanentsForCost: ['mana_creature_1'],
+      },
+    } as any);
+
+    const permanent = (game.state as any).battlefield.find((entry: any) => entry.id === 'mana_creature_1');
+    expect(Boolean(permanent?.tapped)).toBe(true);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps).toHaveLength(1);
+    expect(String(queue.steps[0]?.id || '')).toBe('queued_mana_choice_1');
+    expect(queue.steps[0]?.type).toBe(ResolutionStepType.MANA_COLOR_SELECTION);
+    expect((queue.steps[0] as any)?.selectionKind).toBe('any_color');
+    expect((queue.steps[0] as any)?.amount).toBe(1);
+    expect((queue.steps[0] as any)?.tappedPermanentsForCost).toEqual(['mana_creature_1']);
+    expect((game.state as any).stack || []).toHaveLength(0);
+  });
 });

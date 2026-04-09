@@ -227,6 +227,28 @@ function clearReplayDanceWithCalamitySteps(gameId: string, playerId: string, eff
   }
 }
 
+function clearReplayQueuedSteps(gameId: string, predicate: (step: any) => boolean): void {
+  if (!gameId) return;
+
+  try {
+    const queue = ResolutionQueueManager.getQueue(gameId) as any;
+    const activeStepMatched = predicate(queue?.activeStep);
+    const beforeCount = Array.isArray(queue?.steps) ? queue.steps.length : 0;
+
+    if (activeStepMatched) {
+      queue.activeStep = undefined;
+    }
+    if (Array.isArray(queue?.steps) && beforeCount > 0) {
+      queue.steps = queue.steps.filter((step: any) => !predicate(step));
+    }
+    if (activeStepMatched || beforeCount !== (Array.isArray(queue?.steps) ? queue.steps.length : 0)) {
+      queue.seq = Number(queue?.seq || 0) + 1;
+    }
+  } catch {
+    // best-effort only
+  }
+}
+
 function ensureReplayPlayerZones(stateAny: any, playerId: string): any {
   const zones = stateAny.zones = stateAny.zones || {};
   return (zones[playerId] = zones[playerId] || {
@@ -2379,6 +2401,142 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(castSpellContinuation): failed', err);
+        }
+        break;
+      }
+
+      case "resolveTopOfStackPrompt": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const rawQueuedStep = (e as any).queuedResolutionStep;
+          const rawQueuedSteps = Array.isArray((e as any).queuedResolutionSteps)
+            ? ((e as any).queuedResolutionSteps as any[]).filter((step) => step && typeof step === 'object' && !Array.isArray(step))
+            : [];
+          const queuedStepsToReplay = rawQueuedSteps.length > 0
+            ? rawQueuedSteps
+            : (rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) ? [rawQueuedStep] : []);
+
+          if (replayGameId && queuedStepsToReplay.length > 0) {
+            const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
+            for (const queuedStep of queuedStepsToReplay) {
+              const queuedStepId = String((queuedStep as any)?.id || '').trim();
+              const queuedStepType = String((queuedStep as any)?.type || '').trim();
+              if (!queuedStepType) continue;
+
+              const alreadyPresent = Boolean(
+                (queue?.activeStep && String((queue.activeStep as any)?.id || '') === queuedStepId) ||
+                (Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === queuedStepId))
+              );
+
+              if (!alreadyPresent) {
+                ResolutionQueueManager.addStep(replayGameId, {
+                  ...(queuedStep as any),
+                  ...(queuedStepId ? { id: queuedStepId } : {}),
+                  type: queuedStepType as any,
+                  playerId: String((queuedStep as any).playerId || playerId || '') as any,
+                  description: String((queuedStep as any).description || ''),
+                  mandatory: (queuedStep as any).mandatory !== false,
+                } as any);
+              }
+            }
+
+            ctx.bumpSeq();
+          }
+        } catch (err) {
+          debugWarn(1, 'applyEvent(resolveTopOfStackPrompt): failed', err);
+        }
+        break;
+      }
+
+      case "targetSelectionWardPrompt": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const rawQueuedStep = (e as any).queuedResolutionStep;
+          const rawQueuedSteps = Array.isArray((e as any).queuedResolutionSteps)
+            ? ((e as any).queuedResolutionSteps as any[]).filter((step) => step && typeof step === 'object' && !Array.isArray(step))
+            : [];
+          const queuedStepsToReplay = rawQueuedSteps.length > 0
+            ? rawQueuedSteps
+            : (rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) ? [rawQueuedStep] : []);
+
+          const targets = Array.isArray((e as any).targets)
+            ? ((e as any).targets as any[]).map((targetId: any) => String(targetId || '').trim()).filter(Boolean)
+            : [];
+
+          if (sourceId && Array.isArray((ctx.state as any).stack)) {
+            const stackItem = ((ctx.state as any).stack as any[]).find((item: any) => item && String(item.id || '') === sourceId);
+            if (stackItem && targets.length > 0) {
+              stackItem.targets = [...targets];
+            }
+          }
+
+          if (replayGameId && queuedStepsToReplay.length > 0) {
+            const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
+            for (const queuedStep of queuedStepsToReplay) {
+              const queuedStepId = String((queuedStep as any)?.id || '').trim();
+              const queuedStepType = String((queuedStep as any)?.type || '').trim();
+              if (!queuedStepType) continue;
+
+              const alreadyPresent = Boolean(
+                (queue?.activeStep && String((queue.activeStep as any)?.id || '') === queuedStepId) ||
+                (Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === queuedStepId))
+              );
+
+              if (!alreadyPresent) {
+                ResolutionQueueManager.addStep(replayGameId, {
+                  ...(queuedStep as any),
+                  ...(queuedStepId ? { id: queuedStepId } : {}),
+                  type: queuedStepType as any,
+                  playerId: String((queuedStep as any).playerId || playerId || '') as any,
+                  description: String((queuedStep as any).description || ''),
+                  mandatory: (queuedStep as any).mandatory !== false,
+                } as any);
+              }
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(targetSelectionWardPrompt): failed', err);
+        }
+        break;
+      }
+
+      case "targetSelectionTapUntapPrompt": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const rawQueuedStep = (e as any).queuedResolutionStep;
+          if (!replayGameId || !rawQueuedStep || typeof rawQueuedStep !== 'object' || Array.isArray(rawQueuedStep)) {
+            ctx.bumpSeq();
+            break;
+          }
+
+          const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
+          const queuedStepId = String((rawQueuedStep as any)?.id || '').trim();
+          const queuedStepType = String((rawQueuedStep as any)?.type || '').trim();
+          const alreadyPresent = Boolean(
+            (queue?.activeStep && String((queue.activeStep as any)?.id || '') === queuedStepId) ||
+            (Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === queuedStepId))
+          );
+
+          if (!alreadyPresent && queuedStepType) {
+            ResolutionQueueManager.addStep(replayGameId, {
+              ...(rawQueuedStep as any),
+              ...(queuedStepId ? { id: queuedStepId } : {}),
+              type: queuedStepType as any,
+              playerId: String((rawQueuedStep as any).playerId || playerId || '') as any,
+              description: String((rawQueuedStep as any).description || ''),
+              mandatory: (rawQueuedStep as any).mandatory !== false,
+            } as any);
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(targetSelectionTapUntapPrompt): failed', err);
         }
         break;
       }
@@ -4641,12 +4799,175 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "spellBottomRevealUntilNonlandResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        const choice = String((e as any).choice || 'no').trim().toLowerCase();
+        const triggeringStackItemId = String((e as any).triggeringStackItemId || '').trim();
+        const spellOwnerId = String((e as any).spellOwnerId || playerId || '').trim();
+        const revealPlayerId = String((e as any).revealFromLibraryPlayerId || playerId || '').trim();
+        const ownerLibraryAfter = Array.isArray((e as any).ownerLibraryAfter)
+          ? cloneLibraryCards((e as any).ownerLibraryAfter as any[])
+          : undefined;
+        const revealLibraryAfter = Array.isArray((e as any).revealLibraryAfter)
+          ? cloneLibraryCards((e as any).revealLibraryAfter as any[])
+          : undefined;
+        const rawQueuedStep = (e as any).queuedResolutionStep;
+
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.spellBottomRevealUntilNonlandChoice === true &&
+                triggeringStackItemId.length > 0 &&
+                String((step as any)?.triggeringStackItemId || '').trim() === triggeringStackItemId
+              );
+            });
+          }
+
+          if (choice === 'yes') {
+            if (triggeringStackItemId) {
+              ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
+              const stackIndex = (ctx.state.stack as any[]).findIndex((item: any) => String(item?.id || '') === triggeringStackItemId);
+              if (stackIndex !== -1) {
+                (ctx.state.stack as any[]).splice(stackIndex, 1);
+              }
+            }
+
+            if (spellOwnerId && ownerLibraryAfter) {
+              const ownerZones = ensureReplayPlayerZones(ctx.state as any, spellOwnerId);
+              ownerZones.library = cloneLibraryCards(ownerLibraryAfter);
+              ownerZones.libraryCount = ownerLibraryAfter.length;
+              ctx.libraries.set(spellOwnerId as any, cloneLibraryCards(ownerLibraryAfter));
+            }
+
+            if (revealPlayerId && revealLibraryAfter) {
+              const revealZones = ensureReplayPlayerZones(ctx.state as any, revealPlayerId);
+              revealZones.library = cloneLibraryCards(revealLibraryAfter);
+              revealZones.libraryCount = revealLibraryAfter.length;
+              ctx.libraries.set(revealPlayerId as any, cloneLibraryCards(revealLibraryAfter));
+            }
+
+            const replayGameId = String((ctx as any).gameId || '').trim();
+            const queuedStepType = String((rawQueuedStep as any)?.type || '').trim();
+            if (replayGameId && rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) && queuedStepType) {
+              const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
+              const queuedStepId = String((rawQueuedStep as any)?.id || '').trim();
+              const alreadyPresent = Boolean(
+                (queue?.activeStep && String((queue.activeStep as any)?.id || '') === queuedStepId) ||
+                (Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === queuedStepId))
+              );
+
+              if (!alreadyPresent) {
+                ResolutionQueueManager.addStep(replayGameId, {
+                  ...(rawQueuedStep as any),
+                  ...(queuedStepId ? { id: queuedStepId } : {}),
+                  type: queuedStepType as any,
+                  playerId: String((rawQueuedStep as any).playerId || revealPlayerId || playerId || '') as any,
+                  description: String((rawQueuedStep as any).description || ''),
+                  mandatory: (rawQueuedStep as any).mandatory !== false,
+                } as any);
+              }
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(spellBottomRevealUntilNonlandResolve): failed", err);
+        }
+        break;
+      }
+
+      case "castRevealedFromLibraryResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        const cardId = String((e as any).cardId || '').trim();
+        const libraryAfter = Array.isArray((e as any).libraryAfter)
+          ? cloneLibraryCards((e as any).libraryAfter as any[])
+          : undefined;
+        const stackItem = (e as any).stackItem && typeof (e as any).stackItem === 'object' && !Array.isArray((e as any).stackItem)
+          ? { ...(e as any).stackItem }
+          : undefined;
+
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.castRevealedFromLibraryChoice === true &&
+                cardId.length > 0 &&
+                String((step as any)?.castRevealedFromLibraryCard?.id || '').trim() === cardId
+              );
+            });
+          }
+
+          if (playerId && libraryAfter) {
+            const playerZones = ensureReplayPlayerZones(ctx.state as any, playerId);
+            playerZones.library = cloneLibraryCards(libraryAfter);
+            playerZones.libraryCount = libraryAfter.length;
+            ctx.libraries.set(playerId as any, cloneLibraryCards(libraryAfter));
+          }
+
+          if (stackItem) {
+            ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
+            const stackItemId = String((stackItem as any).id || '').trim();
+            const alreadyPresent = stackItemId.length > 0 && (ctx.state.stack as any[]).some((item: any) => String(item?.id || '').trim() === stackItemId);
+            if (!alreadyPresent) {
+              (ctx.state.stack as any[]).push(stackItem as any);
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, "applyEvent(castRevealedFromLibraryResolve): failed", err);
+        }
+        break;
+      }
+
       case "activateManaAbility": {
         // Mana ability activation: tap permanent, add mana
         const permId = (e as any).permanentId;
         const manaColor = (e as any).manaColor;
         const playerId = (e as any).playerId != null ? String((e as any).playerId) : '';
         try {
+          const rawQueuedStep = (e as any).queuedResolutionStep;
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const queuedStepType = String((rawQueuedStep as any)?.type || '').trim();
+          if (replayGameId && rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) && queuedStepType) {
+            const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
+            const queuedStepId = String((rawQueuedStep as any)?.id || '').trim();
+            const alreadyPresent = Boolean(
+              (queue?.activeStep && String((queue.activeStep as any)?.id || '') === queuedStepId) ||
+              (Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === queuedStepId))
+            );
+
+            if (!alreadyPresent) {
+              ResolutionQueueManager.addStep(replayGameId, {
+                ...(rawQueuedStep as any),
+                ...(queuedStepId ? { id: queuedStepId } : {}),
+                type: queuedStepType as any,
+                playerId: String((rawQueuedStep as any).playerId || playerId || '') as any,
+                description: String((rawQueuedStep as any).description || ''),
+                mandatory: (rawQueuedStep as any).mandatory !== false,
+              } as any);
+            }
+          }
+
           // Replay-stable per-turn tracking for intervening-if templates like
           // "if you haven't added mana with this ability this turn".
           try {

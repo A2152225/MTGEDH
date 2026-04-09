@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerInteractionHandlers } from '../src/socket/interaction.js';
@@ -59,6 +59,7 @@ describe('Cryptolith Rite granted native_any mana choice (integration)', () => {
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(gameId);
     games.delete(gameId as any);
+    deleteGame(gameId);
   });
 
   it('queues color selection for granted native_any and adds the chosen color', async () => {
@@ -114,6 +115,14 @@ describe('Cryptolith Rite granted native_any mana choice (integration)', () => {
     expect(step.type).toBe('mana_color_selection');
     expect(step.selectionKind).toBe('any_color');
     expect(step.amount).toBe(1);
+
+    const activationEvent = [...getEvents(gameId)].reverse().find(
+      (event: any) => event.type === 'activateBattlefieldAbility' && String((event as any)?.payload?.queuedResolutionStep?.type || '') === 'mana_color_selection'
+    ) as any;
+    expect(activationEvent?.payload?.permanentId).toBe('bear_1');
+    expect(activationEvent?.payload?.tappedPermanents).toEqual(['bear_1']);
+    expect(activationEvent?.payload?.queuedResolutionStep?.selectionKind).toBe('any_color');
+    expect(String(activationEvent?.payload?.queuedResolutionStep?.id || '')).toBe(String(step.id || ''));
 
     await handlers['submitResolutionResponse']({
       gameId,

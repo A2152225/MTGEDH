@@ -25,7 +25,7 @@ import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequi
 import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
-import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
+import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
 import { extractModalModesFromOracleText } from "../utils/oraclePromptContext.js";
 import { enqueueEdictCreatureSacrificeStep } from "./sacrifice-resolution.js";
 import { emitPendingDamageTriggers as emitPendingDamageTriggersImpl } from "./damage-triggers.js";
@@ -8039,7 +8039,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           if (trigger.replacementEffect?.kind === 'bottom_spell_reveal_until_nonland') {
             markSpellCastTriggerTriggeredThisTurn(game, trigger);
 
-            ResolutionQueueManager.addStep(gameId, {
+            const queuedRevealChoiceStep = createResolutionStep({
               type: ResolutionStepType.OPTION_CHOICE,
               playerId: playerId as any,
               description: `${trigger.cardName}: Put ${cardInHand.name} on the bottom of its owner's library and reveal until a nonland card?`,
@@ -8063,6 +8063,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               revealSourcePermanentId: trigger.permanentId,
               revealSourceCardName: trigger.cardName,
             } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId: String(cardInHand?.id || ''),
+              queuedResolutionStep: queuedRevealChoiceStep,
+            });
+
+            ResolutionQueueManager.addStep(gameId, queuedRevealChoiceStep as any);
             continue;
           }
           

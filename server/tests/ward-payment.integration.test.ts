@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, deleteGame, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -47,6 +47,7 @@ describe('ward mana payment flow', () => {
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(gameId);
     games.delete(gameId as any);
+    deleteGame(gameId);
   });
 
   it('queues mana ward payment without requiring floating mana and allows untapped lands to pay it', async () => {
@@ -141,6 +142,15 @@ describe('ward mana payment flow', () => {
     const wardStep = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).wardPayment === true) as any;
     expect(wardStep).toBeDefined();
     expect(wardStep.wardCost).toBe('{1}');
+
+    const persistedWardPromptEvent = [...getEvents(gameId)].reverse().find(
+      (event: any) => event.type === 'targetSelectionWardPrompt'
+    ) as any;
+    expect(String(persistedWardPromptEvent?.payload?.sourceId || '')).toBe(String((wardStep as any)?.wardTriggeredBy || ''));
+    expect(persistedWardPromptEvent?.payload?.targets).toEqual(['ward_creature']);
+    expect(persistedWardPromptEvent?.payload?.queuedResolutionStep?.type).toBe('mana_payment_choice');
+    expect(persistedWardPromptEvent?.payload?.queuedResolutionStep?.wardPayment).toBe(true);
+    expect(String(persistedWardPromptEvent?.payload?.queuedResolutionStep?.id || '')).toBe(String(wardStep.id || ''));
 
     const insufficientManaError = emitted.find((event) => event.event === 'error' && event.payload?.code === 'INSUFFICIENT_MANA');
     expect(insufficientManaError).toBeUndefined();

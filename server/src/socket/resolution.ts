@@ -11,6 +11,7 @@ import {
   ResolutionQueueEvent,
   ResolutionStepStatus,
   ResolutionStepType,
+  createResolutionStep,
   type ResolutionStep,
   type ResolutionStepResponse,
   type TargetSelectionStep,
@@ -9179,23 +9180,7 @@ async function handleStepResponse(
         debugWarn(1, '[Resolution] activateBattlefieldAbility (mana color selection evidence) failed:', e);
       }
 
-      try {
-        const manaColor = selectionKind === 'distribution'
-          ? 'MULTI'
-          : (typeof (response.selections as any) === 'string' ? String(response.selections) : undefined);
-        appendEvent(gameId, (game as any).seq ?? 0, 'activateManaAbility', {
-          playerId: pid,
-          permanentId,
-          abilityId,
-          manaColor,
-          addedMana,
-          lifeLost: Number.isFinite(Number(stepData.manaLifeLossAmount || 0)) && Number(stepData.manaLifeLossAmount || 0) > 0
-            ? Number(stepData.manaLifeLossAmount || 0)
-            : undefined,
-        });
-      } catch (e) {
-        debugWarn(1, 'appendEvent(activateManaAbility) failed:', e);
-      }
+      let orchardQueuedResolutionStep: ResolutionStep | undefined;
 
       // Forbidden Orchard uses the any-color mana path, so its target-opponent trigger
       // must be queued here after the mana color has been chosen.
@@ -9206,7 +9191,7 @@ async function handleStepResponse(
         );
 
         if (opponents.length > 0) {
-          ResolutionQueueManager.addStep(gameId, {
+          orchardQueuedResolutionStep = createResolutionStep({
             type: ResolutionStepType.OPTION_CHOICE,
             playerId: pid as PlayerID,
             sourceId: permanentId,
@@ -9224,6 +9209,29 @@ async function handleStepResponse(
             cardName: 'Forbidden Orchard',
           } as any);
         }
+      }
+
+      try {
+        const manaColor = selectionKind === 'distribution'
+          ? 'MULTI'
+          : (typeof (response.selections as any) === 'string' ? String(response.selections) : undefined);
+        appendEvent(gameId, (game as any).seq ?? 0, 'activateManaAbility', {
+          playerId: pid,
+          permanentId,
+          abilityId,
+          manaColor,
+          addedMana,
+          lifeLost: Number.isFinite(Number(stepData.manaLifeLossAmount || 0)) && Number(stepData.manaLifeLossAmount || 0) > 0
+            ? Number(stepData.manaLifeLossAmount || 0)
+            : undefined,
+          queuedResolutionStep: orchardQueuedResolutionStep,
+        });
+      } catch (e) {
+        debugWarn(1, 'appendEvent(activateManaAbility) failed:', e);
+      }
+
+      if (orchardQueuedResolutionStep) {
+        ResolutionQueueManager.addStep(gameId, orchardQueuedResolutionStep as any);
       }
 
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
@@ -14937,6 +14945,13 @@ async function handleTargetSelectionResponse(
       if (!casterId) return;
 
       const battlefield = game.state?.battlefield || [];
+      const queuedWardSteps: ResolutionStep[] = [];
+
+      const queueWardStep = (stepConfig: Record<string, unknown>) => {
+        const queuedStep = createResolutionStep(stepConfig as any);
+        queuedWardSteps.push(queuedStep as any);
+        return queuedStep;
+      };
 
     const parseBlightN = (cost: string): number | null => {
       const m = String(cost || '').match(/\bblight\s*(\d+)\b/i);
@@ -15009,7 +15024,7 @@ async function handleTargetSelectionResponse(
           return;
         }
 
-        ResolutionQueueManager.addStep(gameId, {
+        queueWardStep({
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: casterId as any,
           status: ResolutionStepStatus.PENDING,
@@ -15039,7 +15054,7 @@ async function handleTargetSelectionResponse(
 
       // ---- Mana ward costs (Ward {2} / Ward—{1}{U}) ----
       if (/\{[^}]+\}/.test(normalizedWardCost)) {
-        ResolutionQueueManager.addStep(gameId, {
+        queueWardStep({
           type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: casterId as any,
           status: ResolutionStepStatus.PENDING,
@@ -15108,7 +15123,7 @@ async function handleTargetSelectionResponse(
           return;
         }
 
-        ResolutionQueueManager.addStep(gameId, {
+        queueWardStep({
           type: ResolutionStepType.OPTION_CHOICE,
           playerId: casterId as any,
           status: ResolutionStepStatus.PENDING,
@@ -15170,7 +15185,7 @@ async function handleTargetSelectionResponse(
           return;
         }
 
-        ResolutionQueueManager.addStep(gameId, {
+        queueWardStep({
           type: ResolutionStepType.OPTION_CHOICE,
           playerId: casterId as any,
           status: ResolutionStepStatus.PENDING,
@@ -15246,7 +15261,7 @@ async function handleTargetSelectionResponse(
           return;
         }
 
-        ResolutionQueueManager.addStep(gameId, {
+        queueWardStep({
           type: ResolutionStepType.OPTION_CHOICE,
           playerId: casterId as any,
           status: ResolutionStepStatus.PENDING,
@@ -15291,6 +15306,36 @@ async function handleTargetSelectionResponse(
         return;
       }
       }
+
+      if (queuedWardSteps.length > 0) {
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'targetSelectionWardPrompt', {
+            playerId: casterId,
+            sourceId,
+            targets: Array.isArray((stackItem as any)?.targets)
+              ? (stackItem as any).targets.map((targetId: any) => String(targetId))
+              : selections.map((targetId: string) => String(targetId)),
+            ...(queuedWardSteps.length === 1
+              ? { queuedResolutionStep: { ...(queuedWardSteps[0] as any) } }
+              : { queuedResolutionSteps: queuedWardSteps.map((queuedStep: any) => ({ ...(queuedStep as any) })) }),
+          });
+        } catch (err) {
+          debugWarn(1, '[Resolution] appendEvent(targetSelectionWardPrompt) failed:', err);
+        }
+
+        for (const queuedWardStep of queuedWardSteps) {
+          ResolutionQueueManager.addStep(gameId, queuedWardStep as any);
+        }
+
+        if (!spellCastContext) {
+          if (typeof game.bumpSeq === 'function') {
+            game.bumpSeq();
+          }
+
+          broadcastGame(io, game, gameId);
+          return;
+        }
+    }
     }
   }
 
@@ -15658,7 +15703,7 @@ async function handleTargetSelectionResponse(
     const targetPerm = battlefield.find((p: any) => p.id === targetId);
     const targetName = targetPerm?.card?.name || 'Permanent';
     // Enqueue follow-up option choice for tap/untap decision
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedTapUntapDecisionStep = createResolutionStep({
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: pid as any,
       description: `${step.sourceName || 'Ability'}: Tap or untap ${targetName}`,
@@ -15674,6 +15719,20 @@ async function handleTargetSelectionResponse(
       action: 'tap_or_untap_decision',
       targetId,
     } as any);
+
+    try {
+      appendEvent(gameId, (game as any).seq ?? 0, 'targetSelectionTapUntapPrompt', {
+        playerId: pid,
+        sourceId: String(step.sourceId || '').trim() || undefined,
+        queuedResolutionStep: {
+          ...(queuedTapUntapDecisionStep as any),
+        },
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(targetSelectionTapUntapPrompt) failed:', err);
+    }
+
+    ResolutionQueueManager.addStep(gameId, queuedTapUntapDecisionStep as any);
     return;
   }
   
@@ -21449,8 +21508,19 @@ async function handleOptionChoiceResponse(
     const triggeringStackItemId = String(stepData.triggeringStackItemId || '');
     const triggeringSpellCard = stepData.triggeringSpellCard || null;
     const sourceName = String(stepData.sourceName || step.sourceName || 'Ability');
+    const resolvedStepId = String((step as any)?.id || '').trim();
+
+    const snapshotLibraryCards = (cards: any[]) =>
+      (Array.isArray(cards) ? cards : []).map((card: any) => ({ ...card, zone: 'library' }));
 
     if (choiceId !== 'yes') {
+      appendEvent(gameId, (game as any).seq ?? 0, 'spellBottomRevealUntilNonlandResolve', {
+        playerId,
+        resolvedStepId,
+        choice: 'no',
+        triggeringStackItemId,
+      });
+
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -21466,6 +21536,13 @@ async function handleOptionChoiceResponse(
     const stackItem = stackIndex >= 0 ? stackItems[stackIndex] : null;
 
     if (!stackItem || !triggeringSpellCard) {
+      appendEvent(gameId, (game as any).seq ?? 0, 'spellBottomRevealUntilNonlandResolve', {
+        playerId,
+        resolvedStepId,
+        choice: 'yes',
+        triggeringStackItemId,
+      });
+
       debugWarn(2, `[Resolution] Spell-bottom reveal trigger: stack item ${triggeringStackItemId} no longer exists`);
       return;
     }
@@ -21527,6 +21604,17 @@ async function handleOptionChoiceResponse(
 
     if (!hitCard) {
       bottomRandom(revealedCards);
+      appendEvent(gameId, (game as any).seq ?? 0, 'spellBottomRevealUntilNonlandResolve', {
+        playerId,
+        resolvedStepId,
+        choice: 'yes',
+        triggeringStackItemId,
+        spellOwnerId: spellOwner,
+        revealFromLibraryPlayerId: controllerId,
+        ownerLibraryAfter: snapshotLibraryCards(ownerLibrary),
+        revealLibraryAfter: snapshotLibraryCards(revealLibrary),
+      });
+
       if (typeof (game as any).bumpSeq === 'function') {
         (game as any).bumpSeq();
       }
@@ -21534,7 +21622,7 @@ async function handleOptionChoiceResponse(
     }
 
     const nonHitCards = revealedCards.filter((card: any) => String(card?.id || '') !== String(hitCard?.id || ''));
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedRevealCastChoiceStep = createResolutionStep({
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: controllerId as any,
       description: `${sourceName}: Cast ${hitCard.name} without paying its mana cost?`,
@@ -21552,6 +21640,20 @@ async function handleOptionChoiceResponse(
       castRevealedFromLibraryOtherCards: nonHitCards,
       castRevealedFromLibraryPlayerId: controllerId,
     } as any);
+
+    appendEvent(gameId, (game as any).seq ?? 0, 'spellBottomRevealUntilNonlandResolve', {
+      playerId,
+      resolvedStepId,
+      choice: 'yes',
+      triggeringStackItemId,
+      spellOwnerId: spellOwner,
+      revealFromLibraryPlayerId: controllerId,
+      ownerLibraryAfter: snapshotLibraryCards(ownerLibrary),
+      revealLibraryAfter: snapshotLibraryCards(revealLibrary),
+      queuedResolutionStep: queuedRevealCastChoiceStep,
+    });
+
+    ResolutionQueueManager.addStep(gameId, queuedRevealCastChoiceStep as any);
 
     if (typeof (game as any).bumpSeq === 'function') {
       (game as any).bumpSeq();
@@ -21600,9 +21702,12 @@ async function handleOptionChoiceResponse(
       ? [...stepData.castRevealedFromLibraryOtherCards]
       : [];
     const sourceName = String(stepData.sourceName || step.sourceName || 'Ability');
+    const resolvedStepId = String((step as any)?.id || '').trim();
     const lib = (game as any).libraries?.get(controllerId) || [];
     const zones = game.state.zones = game.state.zones || {};
     const z = zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, libraryCount: 0, graveyard: [], graveyardCount: 0 };
+    const snapshotLibraryCards = (cards: any[]) =>
+      (Array.isArray(cards) ? cards : []).map((card: any) => ({ ...card, zone: 'library' }));
 
     const bottomRandom = (cards: any[]) => {
       const randomized = [...cards];
@@ -21616,9 +21721,10 @@ async function handleOptionChoiceResponse(
       z.libraryCount = lib.length;
     };
 
+    let revealedCastStackItem: any | undefined;
+
     if (choiceId === 'cast') {
-      game.state.stack = game.state.stack || [];
-      game.state.stack.push({
+      revealedCastStackItem = {
         id: uid('reveal_cast_spell'),
         type: 'spell',
         card: { ...hitCard, zone: 'stack' },
@@ -21626,7 +21732,9 @@ async function handleOptionChoiceResponse(
         targets: [],
         castFromHand: false,
         castWithoutPayingManaCost: true,
-      });
+      };
+      game.state.stack = game.state.stack || [];
+      game.state.stack.push(revealedCastStackItem);
       bottomRandom(otherCards);
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
@@ -21647,6 +21755,16 @@ async function handleOptionChoiceResponse(
     }
 
     (game as any).libraries?.set?.(controllerId, lib);
+    appendEvent(gameId, (game as any).seq ?? 0, 'castRevealedFromLibraryResolve', {
+      playerId: controllerId,
+      resolvedStepId,
+      choice: choiceId === 'cast' ? 'cast' : 'decline',
+      sourceName,
+      cardId: String(hitCard?.id || ''),
+      libraryAfter: snapshotLibraryCards(lib),
+      stackItem: revealedCastStackItem,
+    });
+
     if (typeof (game as any).bumpSeq === 'function') {
       (game as any).bumpSeq();
     }

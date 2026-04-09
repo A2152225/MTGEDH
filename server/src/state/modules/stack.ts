@@ -57,7 +57,7 @@ import { queueMayAbilityStep } from '../../socket/may-ability-prompts.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { broadcastGame, consumeManaFromPool, getEffectivePower, getOrInitManaPool, parseManaCost } from '../../socket/util.js';
 import { getSavedMayAbilityTriggerDecision, getSavedTriggerShortcutPreference } from "../../socket/trigger-shortcuts.js";
-import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
+import { ResolutionQueueManager, ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
 import type { ChoiceOption } from "../../../../rules-engine/src/choiceEvents.js";
 import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser.js";
 import type { OracleEffectStep, OraclePlayerSelector, OracleQuantity } from "../../../../rules-engine/src/oracleIR.js";
@@ -136,6 +136,28 @@ function repairReplayCardSourceZones(ctxOrState: any, playerId: PlayerID, cardId
     graveyard,
     library,
   };
+}
+
+function queueResolveTopOfStackPrompt(
+  ctx: GameContext,
+  config: CreateResolutionStepConfig,
+): void {
+  const gameId = String((ctx as any).gameId || 'unknown');
+  const step = ResolutionQueueManager.addStep(gameId, config);
+
+  if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) {
+    return;
+  }
+
+  try {
+    appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0), 'resolveTopOfStackPrompt', {
+      playerId: String((step as any).playerId || (config as any).playerId || '').trim(),
+      sourceId: String((step as any).sourceId || (config as any).sourceId || '').trim(),
+      queuedResolutionStep: step,
+    });
+  } catch (err) {
+    debugWarn(1, '[resolveTopOfStack] appendEvent(resolveTopOfStackPrompt) failed:', err);
+  }
 }
 
 function getNextEndStepFireTurnNumber(state: any): number {
@@ -10424,7 +10446,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         }
         
         if (options.length > 0) {
-          ResolutionQueueManager.addStep(gameId, {
+          queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.MODAL_CHOICE,
             playerId: triggerController as PlayerID,
             description: `${sourceName}: ${canChooseBoth ? 'Choose one or both' : 'Choose one'}`,
@@ -10473,7 +10495,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             image: p.card?.image_uris?.small || p.card?.image_uris?.normal,
           }));
         if (validTargets.length > 0) {
-          ResolutionQueueManager.addStep(gameId, {
+          queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.TARGET_SELECTION,
             playerId: triggerController as PlayerID,
             description: `${sourceName}: Destroy target artifact or enchantment`,
@@ -10504,7 +10526,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           image: p.card?.image_uris?.small || p.card?.image_uris?.normal,
         }));
         if (validTargets.length > 0) {
-          ResolutionQueueManager.addStep(gameId, {
+          queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.TARGET_SELECTION,
             playerId: triggerController as PlayerID,
             description: `${sourceName}: Tap or untap target permanent`,
@@ -10539,7 +10561,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         // Create appropriate resolution step based on target type
         if (targetType === 'player') {
           // Target player selection
-          ResolutionQueueManager.addStep(gameId, {
+          queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.PLAYER_CHOICE,
             playerId: triggerController as PlayerID,
             description: `${sourceName}: Choose target player`,
@@ -10621,7 +10643,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         const maxSelectionCount = Math.min(validTargets.length, requestedMaxSelectionCount);
 
         if (validTargets.length >= minSelectionCount) {
-          ResolutionQueueManager.addStep(gameId, {
+          queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.GRAVEYARD_SELECTION,
             playerId: triggerController as PlayerID,
             sourceId: String(sourceId || (item as any).id || ''),
@@ -10683,7 +10705,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           }));
 
         if (validTargets.length > 0) {
-          ResolutionQueueManager.addStep(gameId, {
+          queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.TARGET_SELECTION,
             playerId: triggerController as PlayerID,
             description: `${sourceName}: Choose target ${targetType}`,

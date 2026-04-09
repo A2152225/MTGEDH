@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -58,6 +58,7 @@ describe('spell-cast reveal/cast queue flow (integration)', () => {
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(gameId);
     games.delete(gameId as any);
+    deleteGame(gameId);
   });
 
   it('moves the triggering spell to the bottom, reveals until a nonland, and offers a free cast', async () => {
@@ -132,10 +133,24 @@ describe('spell-cast reveal/cast queue flow (integration)', () => {
     const secondStep = queueAfterFirst.steps.find((s: any) => (s as any).castRevealedFromLibraryChoice === true);
     expect(secondStep).toBeDefined();
 
+    const revealResolveEvent = [...getEvents(gameId)].reverse().find(
+      (event: any) => event.type === 'spellBottomRevealUntilNonlandResolve'
+    ) as any;
+    expect(revealResolveEvent?.payload?.choice).toBe('yes');
+    expect(revealResolveEvent?.payload?.queuedResolutionStep?.castRevealedFromLibraryChoice).toBe(true);
+    expect(revealResolveEvent?.payload?.queuedResolutionStep?.castRevealedFromLibraryCard?.id).toBe('hit_1');
+    expect(String(revealResolveEvent?.payload?.queuedResolutionStep?.id || '')).toBe(String((secondStep as any)?.id || ''));
+
     await handlers['submitResolutionResponse']({ gameId, stepId: String((secondStep as any).id), selections: 'cast' });
 
     const stackNames = ((game.state as any).stack || []).map((item: any) => item.card?.name);
     expect(stackNames).toContain('Lightning Bolt');
+
+    const castResolveEvent = [...getEvents(gameId)].reverse().find(
+      (event: any) => event.type === 'castRevealedFromLibraryResolve'
+    ) as any;
+    expect(castResolveEvent?.payload?.choice).toBe('cast');
+    expect(castResolveEvent?.payload?.stackItem?.card?.name).toBe('Lightning Bolt');
 
     const libraryIds = new Set(((game as any).libraries.get(p1) || []).map((card: any) => card.id));
     expect(libraryIds.has('land_1')).toBe(true);

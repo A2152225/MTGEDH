@@ -23,7 +23,7 @@ import {
 } from "../state/modules/mana-abilities";
 import { canPayManaCost, getAvailableMana } from "../state/modules/mana-check.js";
 import { exchangePermanentOracleText, parseWordNumber } from "../state/utils";
-import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
+import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
 import { parseUpgradeAbilities as parseCreatureUpgradeAbilities } from "../../../rules-engine/src/creatureUpgradeAbilities";
 import { isAIPlayer } from "./ai.js";
 import { getActivatedAbilityConfig } from "../../../rules-engine/src/cards/activatedAbilityCards.js";
@@ -6918,7 +6918,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         const allowedColors = Array.isArray(manaProduction.colors)
           ? manaProduction.colors.filter((color) => ['W', 'U', 'B', 'R', 'G'].includes(String(color || '').toUpperCase()))
           : [];
-        ResolutionQueueManager.addStep(gameId, {
+        const queuedManaChoiceStep = createResolutionStep({
           type: ResolutionStepType.MANA_COLOR_SELECTION,
           playerId: pid as PlayerID,
           sourceId: permanentId,
@@ -6936,6 +6936,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           manaLifeLossAmount: manaLifeEffect.amount > 0 ? manaLifeEffect.amount : undefined,
           manaLifeLossIsDamage: manaLifeEffect.amount > 0 ? manaLifeEffect.isDamage : undefined,
         } as any);
+
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: pid,
+            permanentId,
+            abilityId,
+            cardName,
+            tappedPermanents: [permanentId],
+            queuedResolutionStep: queuedManaChoiceStep,
+          });
+        } catch (err) {
+          debugWarn(1, '[activateBattlefieldAbility] appendEvent(any-color mana queued step) failed:', err);
+        }
+
+        ResolutionQueueManager.addStep(gameId, queuedManaChoiceStep as any);
         
         broadcastGame(io, game, gameId);
         return;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -58,6 +58,7 @@ describe('OPTION_CHOICE forbidden orchard validate-before-complete (integration)
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(gameId);
     games.delete(gameId as any);
+    deleteGame(gameId);
   });
 
   it('does not consume the step on invalid opponent selection', async () => {
@@ -175,6 +176,16 @@ describe('OPTION_CHOICE forbidden orchard validate-before-complete (integration)
     const queueAfterMana = ResolutionQueueManager.getQueue(gameId);
     const orchardStep = queueAfterMana.steps.find((s: any) => s.type === 'option_choice' && (s as any).forbiddenOrchardTargetChoice === true);
     expect(orchardStep).toBeDefined();
+
+    const manaEvent = [...getEvents(gameId)].reverse().find(
+      (event: any) => event.type === 'activateManaAbility' && Boolean((event as any)?.payload?.queuedResolutionStep?.forbiddenOrchardTargetChoice)
+    ) as any;
+    expect(manaEvent?.payload?.queuedResolutionStep?.type).toBe('option_choice');
+    expect(manaEvent?.payload?.queuedResolutionStep?.sourceName).toBe('Forbidden Orchard');
+    expect(manaEvent?.payload?.queuedResolutionStep?.options).toEqual([
+      { id: p2, label: 'P2' },
+    ]);
+    expect(String(manaEvent?.payload?.queuedResolutionStep?.id || '')).toBe(String((orchardStep as any)?.id || ''));
 
     const promptEvent = emitted.find(
       (entry) =>
