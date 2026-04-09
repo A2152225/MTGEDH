@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { initializePriorityResolutionHandler, registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -119,6 +119,12 @@ describe('Gift cast choice flow', () => {
     const giftStep = ResolutionQueueManager.getQueue(targetingGameId).steps[0] as any;
     expect(giftStep.type).toBe('option_choice');
     expect(giftStep.giftCastChoice).toBe(true);
+
+    const queuedCastEvent = [...getEvents(targetingGameId)].reverse().find((event: any) => event.type === 'castSpellContinuation') as any;
+    expect(queuedCastEvent?.payload?.cardId).toBe('long_river_pull_1');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('option_choice');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.giftCastChoice).toBe(true);
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.giftCardId).toBe('long_river_pull_1');
 
     await handlers['submitResolutionResponse']({
       gameId: targetingGameId,

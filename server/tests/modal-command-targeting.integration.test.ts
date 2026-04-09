@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -143,6 +143,12 @@ describe('modal command targeting (integration)', () => {
       .find((step: any) => step.type === 'mode_selection' && String((step as any).sourceId || '') === 'prismari_command_1') as any;
     expect(modeStep).toBeDefined();
 
+    const queuedCastEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'castSpellContinuation') as any;
+    expect(queuedCastEvent?.payload?.cardId).toBe('prismari_command_1');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('mode_selection');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.modeSelectionPurpose).toBe('modalSpell');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.sourceId).toBe('prismari_command_1');
+
     emitted.length = 0;
     await handlers['submitResolutionResponse']({
       gameId,
@@ -155,6 +161,13 @@ describe('modal command targeting (integration)', () => {
 
     emitted.length = 0;
     await handlers['castSpellFromHand'](continueEvent?.payload);
+
+    const queuedTargetEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'castSpellContinuation' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
+    expect(queuedTargetEvent?.payload?.cardId).toBe('prismari_command_1');
+    expect(queuedTargetEvent?.payload?.pendingSpellCast?.cardId).toBe('prismari_command_1');
+    expect(queuedTargetEvent?.payload?.queuedResolutionSteps).toHaveLength(2);
+    expect(String(queuedTargetEvent?.payload?.queuedResolutionSteps?.[0]?.targetDescription || '').toLowerCase()).toContain('any target');
+    expect(String(queuedTargetEvent?.payload?.queuedResolutionSteps?.[1]?.targetDescription || '').toLowerCase()).toContain('target artifact');
 
     let queue = ResolutionQueueManager.getQueue(gameId);
     let targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Prismari Command');
@@ -184,6 +197,12 @@ describe('modal command targeting (integration)', () => {
     queue = ResolutionQueueManager.getQueue(gameId);
     const paymentStep = queue.steps.find((step: any) => step.type === 'mana_payment_choice' && (step as any).spellPaymentRequired === true) as any;
     expect(paymentStep).toBeDefined();
+    const paymentContinuationEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'castSpellContinuation' && String((event as any)?.payload?.queuedResolutionStep?.type || '') === 'mana_payment_choice') as any;
+    expect(paymentContinuationEvent?.payload?.cardId).toBe('prismari_command_1');
+    expect(paymentContinuationEvent?.payload?.effectId).toBe(String(paymentStep.effectId || ''));
+    expect(paymentContinuationEvent?.payload?.pendingSpellCast?.targets).toEqual([opponentId, 'sol_ring_1']);
+    expect(paymentContinuationEvent?.payload?.queuedResolutionStep?.spellPaymentRequired).toBe(true);
+    expect(paymentContinuationEvent?.payload?.queuedResolutionStep?.targets).toEqual([opponentId, 'sol_ring_1']);
     expect(paymentStep.targets).toEqual([opponentId, 'sol_ring_1']);
 
     emitted.length = 0;

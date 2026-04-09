@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -123,5 +123,14 @@ describe('MUTATE_TARGET_SELECTION validate-before-complete (integration)', () =>
 
     const followup = queueAfterOk.steps.find((s: any) => s.type === 'mana_payment_choice');
     expect(followup).toBeDefined();
+
+    const queuedCastEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'castSpellContinuation') as any;
+    expect(queuedCastEvent?.payload?.cardId).toBe('card_mutate');
+    expect(queuedCastEvent?.payload?.effectId).toBe(effectId);
+    expect(queuedCastEvent?.payload?.pendingSpellCast?.mutateTarget).toBe(validTargetId);
+    expect(queuedCastEvent?.payload?.pendingSpellCast?.forcedAlternateCostId).toBe('mutate');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('mana_payment_choice');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.effectId).toBe(effectId);
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.targets).toEqual([validTargetId]);
   });
 });

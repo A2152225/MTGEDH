@@ -12997,7 +12997,7 @@ async function handleTargetSelectionResponse(
       );
 
     if (!existingPaymentStep) {
-      ResolutionQueueManager.addStep(gameId, {
+      const paymentStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.MANA_PAYMENT_CHOICE,
         playerId: payerId as any,
         sourceId: pendingCast.cardId,
@@ -13018,6 +13018,18 @@ async function handleTargetSelectionResponse(
         convokeOptions: pendingCast.convokeOptions,
         forcedAlternateCostId: pendingCast.forcedAlternateCostId,
       } as any);
+
+      appendCastSpellContinuationEvent(gameId, game, {
+        playerId: payerId,
+        cardId: pendingCast.cardId,
+        effectId,
+        pendingSpellCast: {
+          ...(pendingCast || {}),
+        },
+        queuedResolutionStep: {
+          ...(paymentStep as any),
+        },
+      });
     }
 
     pendingCast.pendingPaymentAfterAdditionalCost = false;
@@ -16245,7 +16257,7 @@ async function handleTargetSelectionResponse(
         );
 
       if (!existingPaymentStep) {
-        ResolutionQueueManager.addStep(gameId, {
+        const paymentStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: pid as any,
           sourceId: cardId,
@@ -16266,6 +16278,18 @@ async function handleTargetSelectionResponse(
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
         } as any);
+
+        appendCastSpellContinuationEvent(gameId, game, {
+          playerId: pid,
+          cardId,
+          effectId,
+          pendingSpellCast: {
+            ...(pendingCast || {}),
+          },
+          queuedResolutionStep: {
+            ...(paymentStep as any),
+          },
+        });
       }
       
       debug(2, `[Resolution] Spell target selection complete for ${cardName}, requesting payment`);
@@ -22954,7 +22978,7 @@ async function handleOptionChoiceResponse(
         );
 
       if (!existingPaymentStep) {
-        ResolutionQueueManager.addStep(gameId, {
+        const paymentStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MANA_PAYMENT_CHOICE,
           playerId: playerId as any,
           sourceId: pendingCast.cardId,
@@ -22975,6 +22999,18 @@ async function handleOptionChoiceResponse(
           convokeOptions: pendingCast.convokeOptions,
           forcedAlternateCostId: pendingCast.forcedAlternateCostId,
         } as any);
+
+        appendCastSpellContinuationEvent(gameId, game, {
+          playerId,
+          cardId: pendingCast.cardId,
+          effectId,
+          pendingSpellCast: {
+            ...(pendingCast || {}),
+          },
+          queuedResolutionStep: {
+            ...(paymentStep as any),
+          },
+        });
       }
 
       pendingCast.pendingPaymentAfterAdditionalCost = false;
@@ -23018,7 +23054,7 @@ async function handleOptionChoiceResponse(
     pendingCast.additionalCostPaid = false;
     pendingCast.additionalCostMethod = 'blight';
 
-    ResolutionQueueManager.addStep(gameId, {
+    const blightTargetStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.TARGET_SELECTION,
       playerId: playerId as any,
       description: `Additional cost for ${pendingCast.cardName}: Blight ${blightN}`,
@@ -23041,6 +23077,18 @@ async function handleOptionChoiceResponse(
       keywordBlightEffectId: effectId,
       keywordBlightOptional: false,
     } as any);
+
+    appendCastSpellContinuationEvent(gameId, game, {
+      playerId,
+      cardId: pendingCast.cardId,
+      effectId,
+      pendingSpellCast: {
+        ...(pendingCast || {}),
+      },
+      queuedResolutionStep: {
+        ...(blightTargetStep as any),
+      },
+    });
 
     debug(2, `[Resolution] Enqueued blight payment step for additional-cost choice (effectId=${effectId})`);
     return;
@@ -25076,7 +25124,7 @@ async function handleMutateTargetSelectionResponse(
     );
 
   if (!existingPaymentStep) {
-    ResolutionQueueManager.addStep(gameId, {
+    const paymentStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.MANA_PAYMENT_CHOICE,
       playerId: pid as any,
       sourceId: cardId,
@@ -25099,6 +25147,18 @@ async function handleMutateTargetSelectionResponse(
       convokeOptions: pendingCast.convokeOptions,
       forcedAlternateCostId: 'mutate',
     } as any);
+
+    appendCastSpellContinuationEvent(gameId, game, {
+      playerId: pid,
+      cardId,
+      effectId,
+      pendingSpellCast: {
+        ...(pendingCast || {}),
+      },
+      queuedResolutionStep: {
+        ...(paymentStep as any),
+      },
+    });
   }
 
   if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();

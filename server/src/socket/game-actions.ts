@@ -636,6 +636,18 @@ function findPendingSpellCastStep(gameId: string, playerId: string, cardId: stri
     });
 }
 
+function persistQueuedSpellCastStepContinuation(
+  gameId: string,
+  game: any,
+  payload: Record<string, unknown>
+): void {
+  try {
+    appendEvent(gameId, (game as any).seq ?? 0, 'castSpellContinuation', payload);
+  } catch (err) {
+    debugWarn(1, '[game-actions] appendEvent(castSpellContinuation queued-step) failed:', err);
+  }
+}
+
 async function restoreSuspendedLibrarySearchStep(
   io: Server,
   socket: Socket,
@@ -3001,7 +3013,7 @@ export async function requestCastSpellForSocket(
           .find((step: any) => step?.type === ResolutionStepType.OPTION_CHOICE && step?.giftCastChoice === true && String(step?.giftCardId || '') === String(cardId));
 
         if (!existingGiftChoice) {
-          ResolutionQueueManager.addStep(gameId, {
+          const giftChoiceStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.OPTION_CHOICE,
             playerId: playerId as any,
             sourceId: String(cardId),
@@ -3026,6 +3038,14 @@ export async function requestCastSpellForSocket(
             giftFaceIndex: selectedFaceIndex,
             giftFromZone: castSourceZone,
           } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            queuedResolutionStep: {
+              ...(giftChoiceStep as any),
+            },
+          });
         }
 
         debug(2, `[requestCastSpell] Queued Gift choice for ${cardName}`);
@@ -3069,7 +3089,7 @@ export async function requestCastSpellForSocket(
         .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'overload');
 
       if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
+        const overloadModeStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MODE_SELECTION,
           playerId: playerId as any,
           sourceId: cardId,
@@ -3101,6 +3121,14 @@ export async function requestCastSpellForSocket(
             skipPriorityCheck: true,
           },
         } as any);
+
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId,
+          cardId,
+          queuedResolutionStep: {
+            ...(overloadModeStep as any),
+          },
+        });
       }
 
       debug(2, `[requestCastSpell] Queued overload mode selection for ${cardName}`);
@@ -3168,7 +3196,7 @@ export async function requestCastSpellForSocket(
           .find((s: any) => s?.type === ResolutionStepType.OPTION_CHOICE && (s as any)?.mutateCastModeChoice === true && String((s as any)?.mutateCardId || '') === String(cardId));
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const mutateModeStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.OPTION_CHOICE,
             playerId: playerId as any,
             sourceId: String(cardId),
@@ -3188,6 +3216,14 @@ export async function requestCastSpellForSocket(
             mutateFaceIndex: selectedFaceIndex,
             mutateCost,
           } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            queuedResolutionStep: {
+              ...(mutateModeStep as any),
+            },
+          });
         }
 
         debug(2, `[requestCastSpell] Queued mutate casting-mode choice for ${cardName}`);
@@ -3203,7 +3239,7 @@ export async function requestCastSpellForSocket(
         .find((step: any) => step?.type === ResolutionStepType.X_VALUE_SELECTION && step?.spellCastXSelection === true && String(step?.spellCardId || '') === String(cardId));
 
       if (!existingXStep) {
-        ResolutionQueueManager.addStep(gameId, {
+        const xSelectionStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.X_VALUE_SELECTION,
           playerId: playerId as any,
           description: `Choose X for ${cardName}.`,
@@ -3222,6 +3258,14 @@ export async function requestCastSpellForSocket(
           spellCastWithoutPayingManaCost: isFreeCast,
           spellBypassExilePermissionCheck: bypassExilePermissionCheck,
         } as any);
+
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId,
+          cardId,
+          queuedResolutionStep: {
+            ...(xSelectionStep as any),
+          },
+        });
       }
 
       debug(2, `[requestCastSpell] Queued X_VALUE_SELECTION for ${cardName}`);
@@ -3239,7 +3283,7 @@ export async function requestCastSpellForSocket(
         );
 
       if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
+        const additionalCostModeStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MODE_SELECTION,
           playerId: playerId as any,
           sourceId: cardId,
@@ -3264,6 +3308,14 @@ export async function requestCastSpellForSocket(
             skipPriorityCheck: true,
           },
         } as any);
+
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId,
+          cardId,
+          queuedResolutionStep: {
+            ...(additionalCostModeStep as any),
+          },
+        });
       }
 
       debug(2, `[requestCastSpell] Queued ${additionalCostModeInfo.purpose} selection for ${cardName}`);
@@ -3277,7 +3329,7 @@ export async function requestCastSpellForSocket(
         .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'modalSpell');
 
       if (!existing) {
-        ResolutionQueueManager.addStep(gameId, {
+        const modalSpellStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.MODE_SELECTION,
           playerId: playerId as any,
           sourceId: cardId,
@@ -3305,6 +3357,14 @@ export async function requestCastSpellForSocket(
             skipPriorityCheck: true,
           },
         } as any);
+
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId,
+          cardId,
+          queuedResolutionStep: {
+            ...(modalSpellStep as any),
+          },
+        });
       }
 
       debug(2, `[requestCastSpell] Queued modal selection for ${cardName}`);
@@ -3372,7 +3432,7 @@ export async function requestCastSpellForSocket(
         ...(options?.librarySearchStepToResume ? { librarySearchStepToResume: options.librarySearchStepToResume } : {}),
       };
 
-      ResolutionQueueManager.addStep(gameId, {
+      const mutateTargetStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.MUTATE_TARGET_SELECTION,
         playerId: playerId as any,
         sourceId: effectId,
@@ -3402,6 +3462,18 @@ export async function requestCastSpellForSocket(
           };
         }),
       } as any);
+
+      persistQueuedSpellCastStepContinuation(gameId, game, {
+        playerId,
+        cardId,
+        effectId,
+        pendingSpellCast: {
+          ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+        },
+        queuedResolutionStep: {
+          ...(mutateTargetStep as any),
+        },
+      });
 
       debug(2, `[requestCastSpell] Added MUTATE_TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${valid.length} valid targets)`);
       return;
@@ -3511,6 +3583,7 @@ export async function requestCastSpellForSocket(
           ...(options?.librarySearchStepToResume ? { librarySearchStepToResume: options.librarySearchStepToResume } : {}),
         };
 
+        const preTargetQueuedSteps: any[] = [];
         const additionalCost = detectAdditionalCost(oracleText);
         if (additionalCost?.type === 'blight') {
           const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
@@ -3546,7 +3619,7 @@ export async function requestCastSpellForSocket(
             pendingCast.additionalCostMethod = 'none';
 
             if (blightOrPayCost) {
-              ResolutionQueueManager.addStep(gameId, {
+              const blightChoiceStep = ResolutionQueueManager.addStep(gameId, {
                 type: ResolutionStepType.OPTION_CHOICE,
                 playerId: playerId as PlayerID,
                 description: `Additional cost for ${cardName}: Choose how to pay`,
@@ -3574,6 +3647,7 @@ export async function requestCastSpellForSocket(
                 spellAdditionalCostBlightN: blightN,
                 spellAdditionalCostOrPay: blightOrPayCost,
               } as any);
+              preTargetQueuedSteps.push({ ...(blightChoiceStep as any) });
             } else {
               if (validBlightTargets.length === 0) {
                 if (blightIsOptional) {
@@ -3588,7 +3662,7 @@ export async function requestCastSpellForSocket(
                   return;
                 }
               } else {
-                ResolutionQueueManager.addStep(gameId, {
+                const blightTargetStep = ResolutionQueueManager.addStep(gameId, {
                   type: ResolutionStepType.TARGET_SELECTION,
                   playerId: playerId as PlayerID,
                   description: `Additional cost for ${cardName}: Blight ${blightN}${blightIsOptional ? ' (optional)' : ''}`,
@@ -3609,14 +3683,16 @@ export async function requestCastSpellForSocket(
                   keywordBlightEffectId: effectId,
                   keywordBlightOptional: blightIsOptional,
                 } as any);
+                preTargetQueuedSteps.push({ ...(blightTargetStep as any) });
               }
             }
           }
         }
 
         if (multiTargetClauses.length > 1) {
+          const targetSteps: any[] = [];
           for (const clause of multiTargetClauses) {
-            ResolutionQueueManager.addStep(gameId, {
+            const targetStep = ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.TARGET_SELECTION,
               playerId: playerId as PlayerID,
               description: `Choose ${clause.targetDescription} for ${cardName}`,
@@ -3656,13 +3732,24 @@ export async function requestCastSpellForSocket(
                 xValue: chosenXValue,
               },
             });
+            targetSteps.push({ ...(targetStep as any) });
           }
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            effectId,
+            pendingSpellCast: {
+              ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+            },
+            queuedResolutionSteps: [...preTargetQueuedSteps, ...targetSteps],
+          });
 
           debug(2, `[requestCastSpell] Added ${multiTargetClauses.length} TARGET_SELECTION steps to Resolution Queue for ${cardName} (effectId: ${effectId})`);
         } else {
           const targetDescription = spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
 
-          ResolutionQueueManager.addStep(gameId, {
+          const targetStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.TARGET_SELECTION,
             playerId: playerId as PlayerID,
             description: `Choose ${targetDescription} for ${cardName}`,
@@ -3705,6 +3792,64 @@ export async function requestCastSpellForSocket(
               bypassExilePermissionCheck,
               xValue: chosenXValue,
             },
+          });
+
+          const serializedTargetStep = {
+            id: String((targetStep as any)?.id || ''),
+            type: ResolutionStepType.TARGET_SELECTION,
+            playerId: playerId as PlayerID,
+            description: `Choose ${targetDescription} for ${cardName}`,
+            mandatory: true,
+            sourceId: effectId,
+            sourceName: cardName,
+            sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+            validTargets: validTargetList.map((t: any) => {
+              const isPlayerTarget = t.kind === 'player';
+              const isStackTarget = t.kind === 'stack';
+              return {
+                id: t.id,
+                label: t.name,
+                description: t.kind,
+                imageUrl: t.imageUrl,
+                type: isPlayerTarget ? 'player' : (isStackTarget ? 'card' : 'permanent'),
+                controller: t.controller,
+                typeLine: t.typeLine,
+                life: t.life,
+                isOpponent: t.isOpponent,
+              };
+            }),
+            targetTypes: [isAura ? 'aura_target' : 'spell_target'],
+            minTargets: requiredMinTargets,
+            maxTargets: requiredMaxTargets,
+            targetDescription,
+            spellCastContext: {
+              cardId,
+              cardName,
+              manaCost: resolvedManaCost,
+              rawManaCost: manaCost,
+              entwineCost,
+              playerId,
+              faceIndex: selectedFaceIndex,
+              effectId,
+              oracleText,
+              imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              forcedAlternateCostId: options?.forcedAlternateCostId,
+              castWithoutPayingManaCost: isFreeCast,
+              bypassExilePermissionCheck,
+              xValue: chosenXValue,
+            },
+          };
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            effectId,
+            pendingSpellCast: {
+              ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+            },
+            ...(preTargetQueuedSteps.length > 0
+              ? { queuedResolutionSteps: [...preTargetQueuedSteps, serializedTargetStep] }
+              : { queuedResolutionStep: serializedTargetStep }),
           });
 
           debug(2, `[requestCastSpell] Added TARGET_SELECTION step to Resolution Queue for ${cardName} (effectId: ${effectId}, ${validTargetList.length} valid targets)`);
@@ -3795,7 +3940,7 @@ export async function requestCastSpellForSocket(
       pendingCast.additionalCostMethod = 'none';
 
       if (blightOrPayCost) {
-        ResolutionQueueManager.addStep(gameId, {
+        const blightChoiceStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.OPTION_CHOICE,
           playerId: playerId as PlayerID,
           description: `Additional cost for ${cardName}: Choose how to pay`,
@@ -3823,6 +3968,17 @@ export async function requestCastSpellForSocket(
           spellAdditionalCostBlightN: blightN,
           spellAdditionalCostOrPay: blightOrPayCost,
         } as any);
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId,
+          cardId,
+          effectId,
+          pendingSpellCast: {
+            ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+          },
+          queuedResolutionStep: {
+            ...(blightChoiceStep as any),
+          },
+        });
         debug(2, `[requestCastSpell] Queued Blight additional-cost choice for no-target spell ${cardName}`);
         return;
       }
@@ -3840,7 +3996,7 @@ export async function requestCastSpellForSocket(
           return;
         }
       } else {
-        ResolutionQueueManager.addStep(gameId, {
+        const blightTargetStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: playerId as PlayerID,
           description: `Additional cost for ${cardName}: Blight ${blightN}${blightIsOptional ? ' (optional)' : ''}`,
@@ -3861,6 +4017,17 @@ export async function requestCastSpellForSocket(
           keywordBlightEffectId: effectId,
           keywordBlightOptional: blightIsOptional,
         } as any);
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId,
+          cardId,
+          effectId,
+          pendingSpellCast: {
+            ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+          },
+          queuedResolutionStep: {
+            ...(blightTargetStep as any),
+          },
+        });
         debug(2, `[requestCastSpell] Queued Blight additional-cost target selection for no-target spell ${cardName}`);
         return;
       }
@@ -3875,7 +4042,7 @@ export async function requestCastSpellForSocket(
       );
 
     if (!existingPaymentStep) {
-      ResolutionQueueManager.addStep(gameId, {
+      const paymentStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.MANA_PAYMENT_CHOICE,
         playerId: playerId as any,
         sourceId: cardId,
@@ -3896,6 +4063,18 @@ export async function requestCastSpellForSocket(
         convokeOptions: convokeOptions.availableCreatures.length > 0 ? convokeOptions : undefined,
         forcedAlternateCostId: options?.forcedAlternateCostId,
       } as any);
+
+      persistQueuedSpellCastStepContinuation(gameId, game, {
+        playerId,
+        cardId,
+        effectId,
+        pendingSpellCast: {
+          ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+        },
+        queuedResolutionStep: {
+          ...(paymentStep as any),
+        },
+      });
     }
 
     debug(2, `[requestCastSpell] No targets needed, queued spell payment step for ${cardName}`);
@@ -4808,7 +4987,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           .find((s: any) => s?.type === ResolutionStepType.OPTION_CHOICE && (s as any)?.forceOfWillExileChoice === true && String(s.sourceId || '') === String(cardId));
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const forceAltCostStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.OPTION_CHOICE,
             playerId: playerId as any,
             sourceId: cardId,
@@ -4843,6 +5022,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               skipPriorityCheck: true,
             },
           } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            queuedResolutionStep: {
+              ...(forceAltCostStep as any),
+            },
+          });
         }
 
         debug(2, `[castSpellFromHand] Queued Force-of-Will alternate-cost prompt for ${cardInHand.name}`);
@@ -4969,7 +5156,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'abundantChoice');
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const abundantChoiceStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MODE_SELECTION,
             playerId: playerId as any,
             sourceId: cardId,
@@ -5004,6 +5191,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               convokeTappedCreatures,
             },
           } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            queuedResolutionStep: {
+              ...(abundantChoiceStep as any),
+            },
+          });
         }
 
         debug(2, `[castSpellFromHand] Queued land/nonland choice for ${cardInHand.name} (Abundant Harvest style)`);
@@ -5032,7 +5227,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           );
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const additionalCostModeStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MODE_SELECTION,
             playerId: playerId as any,
             sourceId: cardId,
@@ -5058,6 +5253,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               convokeTappedCreatures,
             },
           } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            queuedResolutionStep: {
+              ...(additionalCostModeStep as any),
+            },
+          });
         }
 
         debug(2, `[castSpellFromHand] Queued ${additionalCostModeInfo.purpose} mode selection for ${cardInHand.name}`);
@@ -5070,7 +5273,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'modalSpell');
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const modalSpellStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MODE_SELECTION,
             playerId: playerId as any,
             sourceId: cardId,
@@ -5099,6 +5302,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               convokeTappedCreatures,
             },
           } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            queuedResolutionStep: {
+              ...(modalSpellStep as any),
+            },
+          });
         }
 
         debug(2, `[castSpellFromHand] Queued modal selection for ${cardInHand.name}`);
@@ -5124,7 +5335,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'overload');
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const overloadModeStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.MODE_SELECTION,
             playerId: playerId as any,
             sourceId: cardId,
@@ -5157,6 +5368,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               convokeTappedCreatures,
             },
           } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            queuedResolutionStep: {
+              ...(overloadModeStep as any),
+            },
+          });
         }
 
         debug(2, `[castSpellFromHand] Queued overload mode selection for ${cardInHand.name}`);
@@ -5187,7 +5406,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           .find((s: any) => s?.type === ResolutionStepType.LIFE_PAYMENT && String((s as any)?.cardId || '') === String(cardId));
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const lifePaymentStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.LIFE_PAYMENT,
             playerId: playerId as any,
             sourceId: cardId,
@@ -5201,6 +5420,14 @@ export function registerGameActions(io: Server, socket: Socket) {
             minPayment,
             maxPayment: maxPayable,
           } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            queuedResolutionStep: {
+              ...(lifePaymentStep as any),
+            },
+          });
         }
 
         debug(2, `[castSpellFromHand] Queued life payment (${minPayment}-${maxPayable}) for ${cardInHand.name}`);
@@ -5306,7 +5533,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             );
 
           if (!existing) {
-            ResolutionQueueManager.addStep(gameId, {
+            const bargainStep = ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
               playerId: playerId as any,
               sourceId: cardId,
@@ -5336,6 +5563,14 @@ export function registerGameActions(io: Server, socket: Socket) {
                 convokeTappedCreatures,
               },
             } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: {
+                ...(bargainStep as any),
+              },
+            });
           }
 
           debug(2, `[castSpellFromHand] Queued Bargain (optional) prompt for ${cardInHand.name}`);
@@ -5370,7 +5605,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           .find((s: any) => (s as any)?.type === ResolutionStepType.GRAVEYARD_SELECTION && String((s as any)?.effectId || '') === String(effectId));
 
         if (!existing) {
-          ResolutionQueueManager.addStep(gameId, {
+          const collectEvidenceStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.GRAVEYARD_SELECTION,
             playerId: playerId as any,
             sourceId: effectId,
@@ -5399,6 +5634,14 @@ export function registerGameActions(io: Server, socket: Socket) {
               convokeTappedCreatures,
             },
           } as any);
+
+          persistQueuedSpellCastStepContinuation(gameId, game, {
+            playerId,
+            cardId,
+            queuedResolutionStep: {
+              ...(collectEvidenceStep as any),
+            },
+          });
         }
 
         debug(2, `[castSpellFromHand] Queued collect evidence ${required} prompt for ${cardInHand.name}`);
@@ -5423,7 +5666,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             .find((s: any) => s?.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.costType || '') === 'discard');
 
           if (!existing) {
-            ResolutionQueueManager.addStep(gameId, {
+            const discardCostStep = ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
               playerId: playerId as any,
               sourceId: cardId,
@@ -5452,6 +5695,14 @@ export function registerGameActions(io: Server, socket: Socket) {
                 convokeTappedCreatures,
               },
             } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: {
+                ...(discardCostStep as any),
+              },
+            });
           }
 
           debug(2, `[castSpellFromHand] Queued discard of ${additionalCost.amount} card(s) for ${cardInHand.name}`);
@@ -5479,7 +5730,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             .find((s: any) => s?.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.costType || '') === 'sacrifice');
 
           if (!existing) {
-            ResolutionQueueManager.addStep(gameId, {
+            const sacrificeCostStep = ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
               playerId: playerId as any,
               sourceId: cardId,
@@ -5509,6 +5760,14 @@ export function registerGameActions(io: Server, socket: Socket) {
                 convokeTappedCreatures,
               },
             } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: {
+                ...(sacrificeCostStep as any),
+              },
+            });
           }
 
           debug(2, `[castSpellFromHand] Queued sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
@@ -5559,7 +5818,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             .find((s: any) => s?.type === ResolutionStepType.SQUAD_COST_PAYMENT && String((s as any)?.sourceId || '') === String(cardId));
 
           if (!existing) {
-            ResolutionQueueManager.addStep(gameId, {
+            const squadCostStep = ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.SQUAD_COST_PAYMENT,
               playerId: playerId as any,
               sourceId: cardId,
@@ -5580,6 +5839,14 @@ export function registerGameActions(io: Server, socket: Socket) {
                 convokeTappedCreatures,
               },
             } as any);
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: {
+                ...(squadCostStep as any),
+              },
+            });
           }
 
           debug(2, `[castSpellFromHand] Queued squad payment for ${cardInHand.name} (cost: ${additionalCost.cost})`);
@@ -5747,7 +6014,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         };
         
         // Use Resolution Queue for Aura target selection
-        ResolutionQueueManager.addStep(gameId, {
+        const auraTargetStep = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId: playerId as PlayerID,
           description: `Choose target for ${cardInHand.name}`,
@@ -5774,6 +6041,18 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectId,
             oracleText: cardInHand.oracle_text || '',
             imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+          },
+        });
+
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId,
+          cardId,
+          effectId,
+          pendingSpellCast: {
+            ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+          },
+          queuedResolutionStep: {
+            ...(auraTargetStep as any),
           },
         });
         
@@ -5989,7 +6268,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             }
             
             // Use Resolution Queue for per-opponent target selection
-            ResolutionQueueManager.addStep(gameId, {
+            const perOpponentTargetStep = ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.TARGET_SELECTION,
               playerId: playerId as PlayerID,
               description: `Choose targets for ${cardInHand.name}`,
@@ -6033,14 +6312,27 @@ export function registerGameActions(io: Server, socket: Socket) {
                 imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
               },
             });
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              effectId,
+              pendingSpellCast: {
+                ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+              },
+              queuedResolutionStep: {
+                ...(perOpponentTargetStep as any),
+              },
+            });
             
             debug(2, `[castSpellFromHand] Added TARGET_SELECTION step for per-opponent targets for ${cardInHand.name} (${opponents.length} opponents, ${requiredMinTargets}-${requiredMaxTargets} targets each)`);
             return; // Wait for target selection via Resolution Queue
           }
           
           if (multiTargetClauses.length > 1) {
+            const targetSteps: any[] = [];
             for (const clause of multiTargetClauses) {
-              ResolutionQueueManager.addStep(gameId, {
+              const targetStep = ResolutionQueueManager.addStep(gameId, {
                 type: ResolutionStepType.TARGET_SELECTION,
                 playerId: playerId as PlayerID,
                 description: `Choose ${clause.targetDescription} for ${cardInHand.name}`,
@@ -6068,11 +6360,22 @@ export function registerGameActions(io: Server, socket: Socket) {
                   imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
                 },
               });
+              targetSteps.push({ ...(targetStep as any) });
             }
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              effectId,
+              pendingSpellCast: {
+                ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+              },
+              queuedResolutionSteps: targetSteps,
+            });
 
             debug(2, `[castSpellFromHand] Added ${multiTargetClauses.length} TARGET_SELECTION steps for ${cardInHand.name}`);
           } else {
-            ResolutionQueueManager.addStep(gameId, {
+            const targetStep = ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.TARGET_SELECTION,
               playerId: playerId as PlayerID,
               description: `Choose ${targetDescription} for ${cardInHand.name}`,
@@ -6099,6 +6402,18 @@ export function registerGameActions(io: Server, socket: Socket) {
                 effectId,
                 oracleText,
                 imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              },
+            });
+
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              effectId,
+              pendingSpellCast: {
+                ...((game.state as any).pendingSpellCasts?.[effectId] || {}),
+              },
+              queuedResolutionStep: {
+                ...(targetStep as any),
               },
             });
             

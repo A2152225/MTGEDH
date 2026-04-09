@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -253,6 +253,12 @@ describe('Overload mode selection (integration)', () => {
       .find((step: any) => step.type === 'mode_selection' && String((step as any).sourceId || '') === 'cyclonic_rift_1') as any;
     expect(modeStep).toBeDefined();
     expect(modeStep.modeSelectionPurpose).toBe('overload');
+
+    const queuedCastEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'castSpellContinuation') as any;
+    expect(queuedCastEvent?.payload?.cardId).toBe('cyclonic_rift_1');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('mode_selection');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.modeSelectionPurpose).toBe('overload');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.sourceId).toBe('cyclonic_rift_1');
     expect(
       ResolutionQueueManager
         .getQueue(gameId)

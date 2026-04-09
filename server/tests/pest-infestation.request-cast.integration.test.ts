@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
@@ -155,6 +155,12 @@ describe('Pest Infestation request-cast flow', () => {
     expect(xStep).toBeDefined();
     expect(xStep.spellCastXSelection).toBe(true);
     expect(xStep.xCount).toBe(2);
+
+    const queuedCastEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'castSpellContinuation') as any;
+    expect(queuedCastEvent?.payload?.cardId).toBe('pest_infestation_1');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('x_value_selection');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.spellCastXSelection).toBe(true);
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.spellCardId).toBe('pest_infestation_1');
 
     await handlers['submitResolutionResponse']({
       gameId,

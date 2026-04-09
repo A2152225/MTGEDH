@@ -2311,6 +2311,51 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const cardId = String((e as any).cardId || '').trim();
 
         try {
+          const rawQueuedStep = (e as any).queuedResolutionStep;
+          const rawQueuedSteps = Array.isArray((e as any).queuedResolutionSteps)
+            ? ((e as any).queuedResolutionSteps as any[]).filter((step) => step && typeof step === 'object' && !Array.isArray(step))
+            : [];
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const pendingSpellCast = (e as any).pendingSpellCast;
+          const pendingEffectId = String((e as any).effectId || (pendingSpellCast as any)?.effectId || '').trim();
+          const queuedStepsToReplay = rawQueuedSteps.length > 0
+            ? rawQueuedSteps
+            : (rawQueuedStep && typeof rawQueuedStep === 'object' && !Array.isArray(rawQueuedStep) ? [rawQueuedStep] : []);
+          const hasQueuedStepsToReplay = replayGameId
+            && queuedStepsToReplay.length > 0
+            && queuedStepsToReplay.every((step: any) => String(step?.type || '').trim().length > 0);
+          if (hasQueuedStepsToReplay) {
+            if (pendingEffectId && pendingSpellCast && typeof pendingSpellCast === 'object' && !Array.isArray(pendingSpellCast)) {
+              const stateAny = ctx.state as any;
+              stateAny.pendingSpellCasts = stateAny.pendingSpellCasts || {};
+              stateAny.pendingSpellCasts[pendingEffectId] = { ...(pendingSpellCast as any) };
+            }
+
+            const queue = ResolutionQueueManager.getQueue(replayGameId) as any;
+            for (const queuedStep of queuedStepsToReplay) {
+              const queuedStepType = String((queuedStep as any)?.type || '').trim();
+              const queuedStepId = String((queuedStep as any)?.id || '').trim();
+              const alreadyPresent = Boolean(
+                (queue?.activeStep && String((queue.activeStep as any)?.id || '') === queuedStepId) ||
+                (Array.isArray(queue?.steps) && queue.steps.some((step: any) => String((step as any)?.id || '') === queuedStepId))
+              );
+
+              if (!alreadyPresent) {
+                ResolutionQueueManager.addStep(replayGameId, {
+                  ...(queuedStep as any),
+                  ...(queuedStepId ? { id: queuedStepId } : {}),
+                  type: queuedStepType as any,
+                  playerId: String((queuedStep as any).playerId || playerId || '') as any,
+                  description: String((queuedStep as any).description || ''),
+                  mandatory: (queuedStep as any).mandatory !== false,
+                } as any);
+              }
+            }
+
+            ctx.bumpSeq();
+            break;
+          }
+
           if (playerId && (e as any).lifePaid != null) {
             applyRecordedLifePayment(ctx, playerId, (e as any).lifePaid);
           }

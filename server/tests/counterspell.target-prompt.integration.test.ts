@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createGameIfNotExists, initDb } from '../src/db/index.js';
+import { createGameIfNotExists, getEvents, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -45,8 +45,9 @@ describe('Counterspell target prompt metadata (integration)', () => {
   });
 
   it('shows the target spell name and image instead of the raw stack id', async () => {
-    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
-    const game = ensureGame(gameId);
+    const testGameId = `${gameId}_${Math.random().toString(36).slice(2, 10)}`;
+    createGameIfNotExists(testGameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(testGameId);
     if (!game) throw new Error('ensureGame returned undefined');
 
     (game.state as any).players = [
@@ -100,12 +101,12 @@ describe('Counterspell target prompt metadata (integration)', () => {
     ];
 
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
-    const { socket, handlers } = createMockSocket(p1, gameId, emitted);
+    const { socket, handlers } = createMockSocket(p1, testGameId, emitted);
     const io = createNoopIo();
 
     registerGameActions(io as any, socket as any);
 
-    await handlers['requestCastSpell']({ gameId, cardId: 'counterspell_1' });
+    await handlers['requestCastSpell']({ gameId: testGameId, cardId: 'counterspell_1' });
 
     const prompt = emitted.find((event) => event.event === 'resolutionStepPrompt');
     expect(prompt?.payload?.step?.type).toBe('target_selection');
@@ -116,5 +117,12 @@ describe('Counterspell target prompt metadata (integration)', () => {
     expect(stackTarget?.imageUrl).toBe('https://example.com/lightning-bolt.jpg');
     expect(stackTarget?.type).toBe('card');
     expect(stackTarget?.description).toBe('stack');
+
+    const queuedCastEvent = [...getEvents(testGameId)].reverse().find((event) => event.type === 'castSpellContinuation') as any;
+    expect(queuedCastEvent?.payload?.cardId).toBe('counterspell_1');
+    expect(queuedCastEvent?.payload?.pendingSpellCast?.cardId).toBe('counterspell_1');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('target_selection');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.spellCastContext?.cardId).toBe('counterspell_1');
+    expect(queuedCastEvent?.payload?.queuedResolutionStep?.validTargets?.[0]?.id).toBe('stack_spell_1');
   });
 });
