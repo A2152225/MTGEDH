@@ -13366,6 +13366,16 @@ async function handleTargetSelectionResponse(
       ts: Date.now(),
     });
 
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'retargetAbilityCopyResolve', {
+        playerId: pid,
+        stackItemId: copyStackItemId,
+        targets: copiedItem.targets,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist retargetAbilityCopyResolve event:', err);
+    }
+
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
     broadcastGame(io, game, gameId);
     return;
@@ -15611,6 +15621,16 @@ async function handleTargetSelectionResponse(
       message: `${sourceName}: ${getPlayerName(game, controllerId)} attached ${equipment.card?.name || 'an Equipment'} to ${targetPermanent.card?.name || targetName}.`,
       ts: Date.now(),
     });
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'equipPermanent', {
+        playerId: controllerId,
+        equipmentId,
+        targetCreatureId: targetPermanentId,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] Failed to persist equipPermanent event for attachEquipmentToPermanent:', err);
+    }
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
@@ -24159,7 +24179,7 @@ async function handleOptionChoiceResponse(
         return;
       }
 
-      ResolutionQueueManager.addStep(gameId, {
+      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: controllerId as PlayerID,
         description: `Choose a ${subtype} to sacrifice`,
@@ -24180,6 +24200,12 @@ async function handleOptionChoiceResponse(
         sacrificeWhenYouDoSourceName: sourceName,
         sacrificeWhenYouDoSourcePermanentId: sourcePermanentId,
       } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: controllerId,
+        sourceId: String(sourcePermanentId || '').trim(),
+        queuedResolutionStep: queuedResolutionStep,
+      });
 
       return;
     }
@@ -24232,7 +24258,7 @@ async function handleOptionChoiceResponse(
       return;
     }
 
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.TARGET_SELECTION,
       playerId: controllerId as PlayerID,
       description: `Choose an Equipment you control to attach`,
@@ -24249,6 +24275,12 @@ async function handleOptionChoiceResponse(
       attachEquipmentToPermanentSourceName: sourceName,
       attachEquipmentToPermanentTargetName: targetName,
     } as any);
+
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId: controllerId,
+      sourceId: String(targetPermanentId || '').trim(),
+      queuedResolutionStep,
+    });
 
     return;
   }
@@ -24452,7 +24484,7 @@ async function handleOptionChoiceResponse(
       return;
     }
 
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.TARGET_SELECTION,
       playerId: playerId as PlayerID,
       description: `Choose ${targetDescription} for the copied ability`,
@@ -24467,6 +24499,12 @@ async function handleOptionChoiceResponse(
       retargetAbilityCopyTargetSelection: true,
       retargetAbilityCopyStackItemId: copyStackItemId,
     } as any);
+
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId,
+      sourceId: String(copyStackItemId || '').trim(),
+      queuedResolutionStep,
+    });
 
     return;
   }
@@ -24795,7 +24833,7 @@ async function handleOptionChoiceResponse(
       return;
     }
 
-    ResolutionQueueManager.addStep(gameId, {
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.DISCARD_SELECTION,
       playerId: controllerId,
       description: `${sourceName}: Discard 1 card`,
@@ -24814,6 +24852,12 @@ async function handleOptionChoiceResponse(
       })),
       afterDiscardDrawCount: drawCount,
     } as any);
+
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId: controllerId,
+      sourceId: String(step.sourceId || '').trim(),
+      queuedResolutionStep,
+    });
 
     if (typeof (game as any).bumpSeq === 'function') {
       (game as any).bumpSeq();

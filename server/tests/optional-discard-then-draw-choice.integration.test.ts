@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
@@ -149,5 +149,50 @@ describe('optional discard then draw choice (integration)', () => {
     expect((queue.steps[0] as any).type).toBe('discard_selection');
     expect((queue.steps[0] as any).afterDiscardDrawCount).toBe(1);
     expect(((queue.steps[0] as any).hand || []).map((c: any) => c.id)).toEqual(['card_1', 'card_2']);
+
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'resolveTopOfStackPrompt' &&
+      event.payload?.queuedResolutionStep?.type === ResolutionStepType.DISCARD_SELECTION
+    ) as any;
+    expect(promptEvent).toBeDefined();
+    expect(promptEvent.payload?.queuedResolutionStep).toMatchObject({
+      type: ResolutionStepType.DISCARD_SELECTION,
+      sourceName: 'Source',
+      afterDiscardDrawCount: 1,
+    });
+
+    const replayGameId = `${gameId}_replay`;
+    createGameIfNotExists(replayGameId, 'commander', 40);
+    const replayGame = ensureGame(replayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+
+    (replayGame.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (replayGame.state as any).zones = {
+      [p1]: {
+        hand: [
+          { id: 'card_1', name: 'Card One', type_line: 'Instant' },
+          { id: 'card_2', name: 'Card Two', type_line: 'Sorcery' },
+        ],
+        handCount: 2,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 0,
+      },
+    };
+
+    ResolutionQueueManager.removeQueue(replayGameId);
+    replayGame.applyEvent({
+      type: 'resolveTopOfStackPrompt',
+      ...(promptEvent.payload || {}),
+    } as any);
+
+    const replayQueue = ResolutionQueueManager.getQueue(replayGameId);
+    expect(replayQueue.steps).toHaveLength(1);
+    expect((replayQueue.steps[0] as any)).toMatchObject({
+      type: ResolutionStepType.DISCARD_SELECTION,
+      sourceName: 'Source',
+      afterDiscardDrawCount: 1,
+    });
+    expect(((replayQueue.steps[0] as any).hand || []).map((c: any) => c.id)).toEqual(['card_1', 'card_2']);
   });
 });

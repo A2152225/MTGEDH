@@ -9610,6 +9610,50 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "retargetAbilityCopyResolve": {
+        try {
+          const stackItemId = String((e as any).stackItemId || '').trim();
+          const targets = Array.isArray((e as any).targets)
+            ? ((e as any).targets as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+          if (!stackItemId || targets.length === 0) break;
+
+          const stack = Array.isArray(ctx.state?.stack) ? ctx.state.stack : [];
+          const copiedItem = stack.find((item: any) => item && String(item.id || '') === stackItemId);
+          if (!copiedItem) break;
+
+          copiedItem.targets = [...targets];
+
+          const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+          if (String((copiedItem as any).abilityType || '') === 'equip' && (copiedItem as any).equipParams) {
+            const nextTargetId = String(copiedItem.targets[0] || '').trim();
+            const validTarget = Array.isArray((copiedItem as any).copyRetargetValidTargets)
+              ? (copiedItem as any).copyRetargetValidTargets.find((target: any) => String(target?.id || '') === nextTargetId)
+              : battlefield.find((target: any) => target && String(target.id || '') === nextTargetId);
+            (copiedItem as any).equipParams = {
+              ...((copiedItem as any).equipParams || {}),
+              targetCreatureId: nextTargetId,
+              targetCreatureName: String(validTarget?.name || validTarget?.card?.name || (copiedItem as any).equipParams?.targetCreatureName || 'Creature'),
+            };
+          } else if (String((copiedItem as any).abilityType || '') === 'reconfigure_attach' && (copiedItem as any).reconfigureParams) {
+            const nextTargetId = String(copiedItem.targets[0] || '').trim();
+            const validTarget = Array.isArray((copiedItem as any).copyRetargetValidTargets)
+              ? (copiedItem as any).copyRetargetValidTargets.find((target: any) => String(target?.id || '') === nextTargetId)
+              : battlefield.find((target: any) => target && String(target.id || '') === nextTargetId);
+            (copiedItem as any).reconfigureParams = {
+              ...((copiedItem as any).reconfigureParams || {}),
+              targetCreatureId: nextTargetId,
+              targetCreatureName: String(validTarget?.name || validTarget?.card?.name || (copiedItem as any).reconfigureParams?.targetCreatureName || 'Creature'),
+            };
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(retargetAbilityCopyResolve): failed', err);
+        }
+        break;
+      }
+
       case "putCardFromHandOntoBattlefield": {
         try {
           const playerId = String((e as any).playerId || '').trim();

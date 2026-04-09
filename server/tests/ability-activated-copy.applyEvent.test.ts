@@ -514,4 +514,62 @@ describe('ability-activated copy retarget metadata via applyEvent', () => {
     });
     expect(item.copyRetargetTargetDescription).toBe('creature you control');
   });
+
+  it('replay retargetAbilityCopyResolve updates copied ability targets and equip params', () => {
+    const ctx: any = {
+      state: {
+        battlefield: [
+          {
+            id: 'creature_1',
+            controller: 'p1',
+            card: { name: 'Silvercoat Lion', type_line: 'Creature — Cat' },
+          },
+          {
+            id: 'creature_2',
+            controller: 'p1',
+            card: { name: 'Runeclaw Bear', type_line: 'Creature — Bear' },
+          },
+        ],
+        stack: [
+          {
+            id: 'copy_1',
+            type: 'ability',
+            controller: 'p1',
+            source: 'equipment_1',
+            sourceName: 'Test Sword',
+            description: 'Equip {0}',
+            abilityType: 'equip',
+            targets: ['creature_1'],
+            copyRetargetValidTargets: [
+              { id: 'creature_1', name: 'Silvercoat Lion', type: 'permanent', controller: 'p1' },
+              { id: 'creature_2', name: 'Runeclaw Bear', type: 'permanent', controller: 'p1' },
+            ],
+            equipParams: {
+              equipmentId: 'equipment_1',
+              targetCreatureId: 'creature_1',
+              equipmentName: 'Test Sword',
+              targetCreatureName: 'Silvercoat Lion',
+            },
+          },
+        ],
+      },
+      bumpSeq() {},
+    };
+
+    applyEvent(ctx, {
+      type: 'retargetAbilityCopyResolve',
+      playerId: 'p1',
+      stackItemId: 'copy_1',
+      targets: ['creature_2'],
+    } as any);
+
+    const item = ctx.state.stack[0];
+    expect(item.targets).toEqual(['creature_2']);
+    expect(item.equipParams).toEqual({
+      equipmentId: 'equipment_1',
+      targetCreatureId: 'creature_2',
+      equipmentName: 'Test Sword',
+      targetCreatureName: 'Runeclaw Bear',
+    });
+  });
 });

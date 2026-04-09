@@ -380,4 +380,156 @@ describe('after sacrifice followup target selection (integration)', () => {
       targetDescription: 'any target',
     });
   });
+
+  it('persists and replays the sacrifice-when-you-do ask-stage follow-up sacrifice prompt', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1' as any;
+    const p2 = 'p2' as any;
+    (game.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).battlefield = [
+      {
+        id: 'source_perm',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Blood Rite', type_line: 'Artifact' },
+      },
+      {
+        id: 'vampire_1',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Test Vampire', type_line: 'Creature — Vampire' },
+      },
+      {
+        id: 'vampire_2',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Other Vampire', type_line: 'Creature — Vampire' },
+      },
+    ];
+    (game.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
+    };
+
+    const step = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId: p1,
+      description: 'Blood Rite: You may sacrifice a Vampire',
+      mandatory: false,
+      sourceId: 'source_perm',
+      sourceName: 'Blood Rite',
+      options: [
+        { id: 'sac', label: 'Sacrifice a Vampire' },
+        { id: 'decline', label: 'Decline' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      sacrificeWhenYouDo: true,
+      sacrificeWhenYouDoStage: 'ask',
+      sacrificeWhenYouDoSubtype: 'Vampire',
+      sacrificeWhenYouDoDamage: 2,
+      sacrificeWhenYouDoLifeGain: 2,
+      sacrificeWhenYouDoController: p1,
+      sacrificeWhenYouDoSourceName: 'Blood Rite',
+      sacrificeWhenYouDoSourcePermanentId: 'source_perm',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted, gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: step.id,
+      selections: ['sac'],
+    });
+
+    const liveQueue = ResolutionQueueManager.getQueue(gameId);
+    expect(liveQueue.steps).toHaveLength(1);
+    expect((liveQueue.steps[0] as any)).toMatchObject({
+      type: ResolutionStepType.TARGET_SELECTION,
+      sourceId: 'source_perm',
+      sacrificeWhenYouDo: true,
+      sacrificeWhenYouDoStage: 'select_sacrifice',
+      targetDescription: 'Vampire you control',
+    });
+    expect(((liveQueue.steps[0] as any).validTargets || []).map((target: any) => target.id)).toEqual([
+      'vampire_1',
+      'vampire_2',
+    ]);
+
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'resolveTopOfStackPrompt' &&
+      event.payload?.queuedResolutionStep?.sacrificeWhenYouDoStage === 'select_sacrifice'
+    ) as any;
+    expect(promptEvent).toBeDefined();
+    expect(promptEvent.payload?.queuedResolutionStep).toMatchObject({
+      type: ResolutionStepType.TARGET_SELECTION,
+      sourceId: 'source_perm',
+      sacrificeWhenYouDo: true,
+      sacrificeWhenYouDoStage: 'select_sacrifice',
+      targetDescription: 'Vampire you control',
+    });
+
+    const replayGameId = `${gameId}_ask_stage_replay`;
+    createGameIfNotExists(replayGameId, 'commander', 40);
+    const replayGame = ensureGame(replayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+
+    (replayGame.state as any).players = [
+      { id: p1, name: 'P1', spectator: false, life: 40 },
+      { id: p2, name: 'P2', spectator: false, life: 40 },
+    ];
+    (replayGame.state as any).battlefield = [
+      {
+        id: 'source_perm',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Blood Rite', type_line: 'Artifact' },
+      },
+      {
+        id: 'vampire_1',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Test Vampire', type_line: 'Creature — Vampire' },
+      },
+      {
+        id: 'vampire_2',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Other Vampire', type_line: 'Creature — Vampire' },
+      },
+    ];
+    (replayGame.state as any).zones = {
+      [p1]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
+      [p2]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, libraryCount: 0, exile: [], exileCount: 0 },
+    };
+
+    ResolutionQueueManager.removeQueue(replayGameId);
+    replayGame.applyEvent({
+      type: 'resolveTopOfStackPrompt',
+      ...(promptEvent.payload || {}),
+    } as any);
+
+    const replayQueue = ResolutionQueueManager.getQueue(replayGameId);
+    expect(replayQueue.steps).toHaveLength(1);
+    expect((replayQueue.steps[0] as any)).toMatchObject({
+      type: ResolutionStepType.TARGET_SELECTION,
+      sourceId: 'source_perm',
+      sacrificeWhenYouDo: true,
+      sacrificeWhenYouDoStage: 'select_sacrifice',
+      targetDescription: 'Vampire you control',
+    });
+    expect(((replayQueue.steps[0] as any).validTargets || []).map((target: any) => target.id)).toEqual([
+      'vampire_1',
+      'vampire_2',
+    ]);
+  });
 });

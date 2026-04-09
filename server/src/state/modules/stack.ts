@@ -1585,7 +1585,7 @@ function queueAbilityCopyRetargetPrompt(
     return;
   }
 
-  ResolutionQueueManager.addStep(gameId, {
+  queueResolveTopOfStackPrompt(ctx, {
     type: ResolutionStepType.OPTION_CHOICE,
     playerId: controller,
     description: `${sourceName}: You may choose new targets for the copy.`,

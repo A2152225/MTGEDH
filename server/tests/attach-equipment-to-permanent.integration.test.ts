@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -118,6 +118,17 @@ describe('attach equipment to permanent (integration)', () => {
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any).attachEquipmentToPermanentSelectEquipment).toBe(true);
 
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      event.type === 'resolveTopOfStackPrompt' &&
+      event.payload?.queuedResolutionStep?.attachEquipmentToPermanentSelectEquipment === true
+    ) as any;
+    expect(promptEvent).toBeDefined();
+    expect(promptEvent.payload?.queuedResolutionStep).toMatchObject({
+      type: ResolutionStepType.TARGET_SELECTION,
+      attachEquipmentToPermanentSelectEquipment: true,
+      attachEquipmentToPermanentTargetPermanentId: 'new_target',
+    });
+
     await handlers['submitResolutionResponse']({ gameId, stepId: (queue.steps[0] as any).id, selections: ['equip_1'] });
 
     const battlefield = (game.state as any).battlefield || [];
@@ -130,5 +141,74 @@ describe('attach equipment to permanent (integration)', () => {
     expect(equipment.attachedTo).toBe('new_target');
     expect(newTarget.attachedEquipment || []).toEqual(['equip_1']);
     expect(newTarget.isEquipped).toBe(true);
+
+    const equipEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'equipPermanent') as any;
+    expect(equipEvent).toBeDefined();
+    expect(equipEvent.payload).toEqual({
+      playerId: p1,
+      equipmentId: 'equip_1',
+      targetCreatureId: 'new_target',
+    });
+
+    const replayGameId = `${gameId}_replay`;
+    createGameIfNotExists(replayGameId, 'commander', 40);
+    const replayGame = ensureGame(replayGameId);
+    if (!replayGame) throw new Error('ensureGame returned undefined');
+
+    (replayGame.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (replayGame.state as any).battlefield = [
+      {
+        id: 'old_target',
+        controller: p1,
+        owner: p1,
+        attachedEquipment: ['equip_1'],
+        isEquipped: true,
+        card: { name: 'Old Creature', type_line: 'Creature — Test' },
+      },
+      {
+        id: 'new_target',
+        controller: p1,
+        owner: p1,
+        attachedEquipment: [],
+        isEquipped: false,
+        card: { name: 'Kor Soldier', type_line: 'Token Creature — Kor Soldier' },
+      },
+      {
+        id: 'equip_1',
+        controller: p1,
+        owner: p1,
+        attachedTo: 'old_target',
+        card: { name: 'Sword of Testing', type_line: 'Artifact — Equipment' },
+      },
+    ];
+
+    ResolutionQueueManager.removeQueue(replayGameId);
+    replayGame.applyEvent({
+      type: 'resolveTopOfStackPrompt',
+      ...(promptEvent.payload || {}),
+    } as any);
+
+    const replayQueue = ResolutionQueueManager.getQueue(replayGameId);
+    expect(replayQueue.steps).toHaveLength(1);
+    expect((replayQueue.steps[0] as any)).toMatchObject({
+      type: ResolutionStepType.TARGET_SELECTION,
+      attachEquipmentToPermanentSelectEquipment: true,
+      attachEquipmentToPermanentTargetPermanentId: 'new_target',
+    });
+
+    replayGame.applyEvent({
+      type: 'equipPermanent',
+      ...(equipEvent.payload || {}),
+    } as any);
+
+    const replayBattlefield = (replayGame.state as any).battlefield || [];
+    const replayOldTarget = replayBattlefield.find((perm: any) => perm.id === 'old_target');
+    const replayNewTarget = replayBattlefield.find((perm: any) => perm.id === 'new_target');
+    const replayEquipment = replayBattlefield.find((perm: any) => perm.id === 'equip_1');
+    expect(replayOldTarget.attachedEquipment || []).toEqual([]);
+    expect(replayOldTarget.isEquipped).toBe(false);
+    expect(replayEquipment.attachedTo).toBe('new_target');
+    expect(replayNewTarget.attachedEquipment || []).toEqual(['equip_1']);
+    expect(replayNewTarget.isEquipped).toBe(true);
   });
 });

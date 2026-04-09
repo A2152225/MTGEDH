@@ -323,6 +323,13 @@ describe('ability-activated copy triggers (integration)', () => {
       .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopy === true);
     expect(retargetChoiceStep).toBeDefined();
 
+    const retargetChoicePromptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      String(event?.type || '') === 'resolveTopOfStackPrompt' &&
+      event?.payload?.queuedResolutionStep?.retargetAbilityCopy === true
+    ) as any;
+    expect(retargetChoicePromptEvent).toBeDefined();
+    expect(retargetChoicePromptEvent?.payload?.queuedResolutionStep?.sourceId).toBe(String((game.state as any).stack[1]?.id || ''));
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: String((retargetChoiceStep as any).id),
@@ -335,6 +342,13 @@ describe('ability-activated copy triggers (integration)', () => {
       .steps.find((queuedStep: any) => (queuedStep as any).retargetAbilityCopyTargetSelection === true);
     expect(retargetTargetStep).toBeDefined();
 
+    const retargetTargetPromptEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      String(event?.type || '') === 'resolveTopOfStackPrompt' &&
+      event?.payload?.queuedResolutionStep?.retargetAbilityCopyTargetSelection === true
+    ) as any;
+    expect(retargetTargetPromptEvent).toBeDefined();
+    expect(retargetTargetPromptEvent?.payload?.queuedResolutionStep?.sourceId).toBe(String((game.state as any).stack[1]?.id || ''));
+
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: String((retargetTargetStep as any).id),
@@ -346,6 +360,16 @@ describe('ability-activated copy triggers (integration)', () => {
     const copiedAbility = (game.state as any).stack[1];
     expect(copiedAbility.copiedFromStackItemId).toBe(originalAbility.id);
     expect(copiedAbility.targets).toEqual(['creature_2']);
+
+    const retargetResolveEvent = [...getEvents(gameId)].reverse().find((event: any) =>
+      String(event?.type || '') === 'retargetAbilityCopyResolve'
+    ) as any;
+    expect(retargetResolveEvent).toBeDefined();
+    expect(retargetResolveEvent?.payload).toMatchObject({
+      playerId,
+      stackItemId: String(copiedAbility.id || ''),
+      targets: ['creature_2'],
+    });
   });
 
   it('consumes colored mana and copies the ability for Kurkesh', async () => {
