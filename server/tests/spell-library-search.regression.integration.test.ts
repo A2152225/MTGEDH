@@ -267,4 +267,97 @@ describe('spell library search regressions', () => {
     expect(searchSteps).toEqual([]);
     expect(((game as any).libraries.get(playerId) || []).map((card: any) => card.id)).toEqual(['basic_forest', 'spell_bottom']);
   });
+
+  it('queues follow-up bottom-order prompts directly after library search resolution without pending staging', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+    (game as any).gameId = gameId;
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 4,
+      },
+    };
+    (game.state as any).battlefield = [];
+    (game as any).libraries = new Map([
+      [playerId, [
+        { id: 'chosen_card', name: 'Chosen Card', type_line: 'Instant', oracle_text: '', image_uris: { normal: 'chosen.png' } },
+        { id: 'rest_1', name: 'Rest 1', type_line: 'Instant', oracle_text: '', image_uris: { normal: 'rest1.png' } },
+        { id: 'rest_2', name: 'Rest 2', type_line: 'Sorcery', oracle_text: '', image_uris: { normal: 'rest2.png' } },
+        { id: 'base_1', name: 'Base 1', type_line: 'Land', oracle_text: '', image_uris: { normal: 'base1.png' } },
+      ]],
+    ]);
+
+    const queuedSearch = ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.LIBRARY_SEARCH,
+      playerId,
+      description: 'Impulse Variant: Choose a card to put into your hand',
+      mandatory: false,
+      sourceId: 'impulse_like_source',
+      sourceName: 'Impulse Variant',
+      availableCards: [
+        { id: 'chosen_card', name: 'Chosen Card', type_line: 'Instant', image_uris: { normal: 'chosen.png' } },
+      ],
+      nonSelectableCards: [
+        { id: 'rest_1', name: 'Rest 1', type_line: 'Instant', image_uris: { normal: 'rest1.png' } },
+        { id: 'rest_2', name: 'Rest 2', type_line: 'Sorcery', image_uris: { normal: 'rest2.png' } },
+      ],
+      destination: 'hand',
+      shuffleAfter: false,
+      remainderDestination: 'bottom',
+      remainderRandomOrder: false,
+      remainderPlayerChoosesOrder: true,
+      persistLibrarySearchResolve: true,
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(queuedSearch.id),
+      selections: ['chosen_card'],
+    });
+
+    const queuedSteps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as PlayerID);
+    expect(queuedSteps).toHaveLength(1);
+    expect((queuedSteps[0] as any)?.type).toBe(ResolutionStepType.BOTTOM_ORDER);
+    expect((queuedSteps[0] as any)?.effectId).toBe('impulse_like_source:rest_1:rest_2');
+    expect(((queuedSteps[0] as any)?.cards || []).map((card: any) => card.id)).toEqual(['rest_1', 'rest_2']);
+    expect((game.state as any).pendingBottomOrder).toBeUndefined();
+
+    const hand = (game.state as any).zones?.[playerId]?.hand || [];
+    expect(hand.map((card: any) => card.id)).toEqual(['chosen_card']);
+    expect(((game as any).libraries.get(playerId) || []).map((card: any) => card.id)).toEqual(['base_1']);
+
+    const resolvedEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'librarySearchResolve') as any;
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent.payload?.selectedCardIds).toEqual(['chosen_card']);
+    expect(resolvedEvent.payload?.pendingBottomOrder).toBeUndefined();
+
+    const promptEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'resolveTopOfStackPrompt') as any;
+    expect(promptEvent).toBeDefined();
+    expect(promptEvent.payload).toMatchObject({
+      playerId,
+      sourceId: 'impulse_like_source',
+      queuedResolutionStep: {
+        type: ResolutionStepType.BOTTOM_ORDER,
+        playerId,
+        effectId: 'impulse_like_source:rest_1:rest_2',
+      },
+    });
+  });
 });

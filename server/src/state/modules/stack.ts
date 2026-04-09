@@ -145,15 +145,46 @@ function queueResolveTopOfStackPrompt(
   const gameId = String((ctx as any).gameId || 'unknown');
   const step = ResolutionQueueManager.addStep(gameId, config);
 
+  appendQueuedResolutionPromptEvent(ctx, {
+    playerId: String((step as any).playerId || (config as any).playerId || '').trim(),
+    sourceId: String((step as any).sourceId || (config as any).sourceId || '').trim(),
+    queuedResolutionStep: step,
+  });
+}
+
+function appendQueuedResolutionPromptEvent(
+  ctx: GameContext,
+  options: {
+    playerId?: string;
+    sourceId?: string;
+    queuedResolutionStep?: any;
+    queuedResolutionSteps?: any[];
+  },
+): void {
+  const gameId = String((ctx as any).gameId || 'unknown');
+  const queuedResolutionSteps = Array.isArray(options.queuedResolutionSteps)
+    ? options.queuedResolutionSteps.filter((step) => step && typeof step === 'object' && !Array.isArray(step))
+    : [];
+  const queuedResolutionStep =
+    options.queuedResolutionStep && typeof options.queuedResolutionStep === 'object' && !Array.isArray(options.queuedResolutionStep)
+      ? options.queuedResolutionStep
+      : undefined;
+
   if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) {
+    return;
+  }
+
+  if (!queuedResolutionStep && queuedResolutionSteps.length === 0) {
     return;
   }
 
   try {
     appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0), 'resolveTopOfStackPrompt', {
-      playerId: String((step as any).playerId || (config as any).playerId || '').trim(),
-      sourceId: String((step as any).sourceId || (config as any).sourceId || '').trim(),
-      queuedResolutionStep: step,
+      playerId: String(options.playerId || '').trim(),
+      sourceId: String(options.sourceId || '').trim(),
+      ...(queuedResolutionSteps.length > 0
+        ? { queuedResolutionSteps }
+        : { queuedResolutionStep }),
     });
   } catch (err) {
     debugWarn(1, '[resolveTopOfStack] appendEvent(resolveTopOfStackPrompt) failed:', err);
@@ -10154,7 +10185,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         return;
       } else if (!(ctx as any).isReplaying) {
         const gameId = (ctx as any).gameId || 'unknown';
-        ResolutionQueueManager.addStep(gameId, {
+        queueResolveTopOfStackPrompt(ctx, {
           type: ResolutionStepType.OPTION_CHOICE,
           playerId: triggerController as PlayerID,
           description: `You may: ${effectText || sourceName}`,
@@ -10211,7 +10242,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           // Add resolution step to the queue
           const gameId = (ctx as any).gameId || 'unknown';
           
-          ResolutionQueueManager.addStep(gameId, {
+          queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE,
             playerId: triggerController as PlayerID,
             description: `${sourceName}: Return a land you control to its owner's hand`,
@@ -10228,7 +10259,7 @@ export function resolveTopOfStack(ctx: GameContext) {
               imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
             })),
             stackItemId: item.id,
-          });
+          } as any);
           
           debug(2, `[resolveTopOfStack] Bounce land trigger: added resolution step for ${triggerController} to return a land`);
           
@@ -10280,7 +10311,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         // Add resolution step to the queue for player to choose which card to exile
         const gameId = (ctx as any).gameId || 'unknown';
         
-        ResolutionQueueManager.addStep(gameId, {
+        queueResolveTopOfStackPrompt(ctx, {
           type: ResolutionStepType.HIDEAWAY_CHOICE,
           playerId: triggerController as PlayerID,
           description: `${sourceName}: Choose a card to exile face down (Hideaway)`,
@@ -10343,7 +10374,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             // Store the effect description for resolution
             const effectDescription = effectText;
             
-            ResolutionQueueManager.addStep(gameId, {
+            queueResolveTopOfStackPrompt(ctx, {
               type: ResolutionStepType.TARGET_SELECTION,
               playerId: triggerController as PlayerID,
               description: `${sourceName}: Choose target creature`,
@@ -11151,7 +11182,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     const colorChoicePattern = /as .+? enters(?: the battlefield)?,?\s+(?:you may\s+)?choose a colou?r/i;
     if (colorChoicePattern.test(oracleText) && !isReplaying) {
       if (!newPermanent.chosenColor) {
-        ResolutionQueueManager.addStep(gameId, {
+        queueResolveTopOfStackPrompt(ctx, {
           type: ResolutionStepType.COLOR_CHOICE,
           playerId: controller as PlayerID,
           description: `Choose a color for ${effectiveCard.name}`,
@@ -11161,7 +11192,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
           colors: ['white', 'blue', 'black', 'red', 'green'],
           permanentId: newPermId,
-        });
+        } as any);
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires color choice, added resolution step`);
       }
     }
@@ -11171,7 +11202,7 @@ export function resolveTopOfStack(ctx: GameContext) {
     const creatureTypePattern = /as .+? enters(?: the battlefield)?,?\s+choose a creature type/i;
     if (creatureTypePattern.test(oracleText) && !isReplaying) {
       if (!newPermanent.chosenCreatureType) {
-        ResolutionQueueManager.addStep(gameId, {
+        queueResolveTopOfStackPrompt(ctx, {
           type: ResolutionStepType.CREATURE_TYPE_CHOICE,
           playerId: controller as PlayerID,
           description: `Choose a creature type for ${effectiveCard.name}`,
@@ -11180,7 +11211,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           sourceName: effectiveCard.name || 'Permanent',
           sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
           permanentId: newPermId,
-        });
+        } as any);
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires creature type choice, added resolution step`);
       }
     }
@@ -11201,7 +11232,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           debugWarn(1, `[resolveTopOfStack] Failed to build card-name candidates for ${effectiveCard.name}:`, error);
         }
 
-        ResolutionQueueManager.addStep(gameId, {
+        queueResolveTopOfStackPrompt(ctx, {
           type: ResolutionStepType.CARD_NAME_CHOICE,
           playerId: controller as PlayerID,
           description: `Choose a card name for ${effectiveCard.name}`,
@@ -11213,7 +11244,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           reason: cardNameChoiceReason,
           restrictionText: cardNameChoiceCriteria.restrictionText,
           ...(candidateNames && candidateNames.length > 0 ? { candidateNames } : {}),
-        });
+        } as any);
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires card name choice, added resolution step`);
       }
     }
@@ -11230,7 +11261,7 @@ export function resolveTopOfStack(ctx: GameContext) {
           ? allPlayers.filter((p: any) => p.id !== controller)
           : allPlayers;
         
-        ResolutionQueueManager.addStep(gameId, {
+        queueResolveTopOfStackPrompt(ctx, {
           type: ResolutionStepType.PLAYER_CHOICE,
           playerId: controller as PlayerID,
           description: opponentOnly 
@@ -11246,7 +11277,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             name: p.name || `Player ${p.seat}`,
           })),
           opponentOnly: opponentOnly,
-        });
+        } as any);
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires ${opponentOnly ? 'opponent' : 'player'} choice, added resolution step`);
       }
     }
@@ -11322,7 +11353,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         
         // Only add step if we successfully parsed options
         if (options.length >= 2) {
-          ResolutionQueueManager.addStep(gameId, {
+          queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.OPTION_CHOICE,
             playerId: controller as PlayerID,
             description: `Choose ${minSelections === maxSelections ? minSelections : `${minSelections}-${maxSelections}`} for ${effectiveCard.name}: ${options.join(', ')}`,
@@ -11338,7 +11369,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             })),
             minSelections: minSelections,
             maxSelections: maxSelections,
-          });
+          } as any);
           debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires option choice (${options.join('/')}, choose ${minSelections}), added resolution step`);
         }
       }
@@ -11368,19 +11399,19 @@ export function resolveTopOfStack(ctx: GameContext) {
         const isReplaying = !!(ctx as any).isReplaying;
         if (!isReplaying) {
           // Add resolution step for devour selection
-          ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.DEVOUR_SELECTION,
-          playerId: controller as PlayerID,
-          description: `Devour ${devourValue}: Choose any number of creatures to sacrifice`,
-          mandatory: false, // Optional - can sacrifice 0
-          sourceId: newPermId,
-          sourceName: effectiveCard.name || 'Creature',
-          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
-          devourValue: devourValue,
-          creatureId: newPermId,
-          creatureName: effectiveCard.name || 'Creature',
-          availableCreatures: availableCreatures,
-        });
+          queueResolveTopOfStackPrompt(ctx, {
+            type: ResolutionStepType.DEVOUR_SELECTION,
+            playerId: controller as PlayerID,
+            description: `Devour ${devourValue}: Choose any number of creatures to sacrifice`,
+            mandatory: false,
+            sourceId: newPermId,
+            sourceName: effectiveCard.name || 'Creature',
+            sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+            devourValue: devourValue,
+            creatureId: newPermId,
+            creatureName: effectiveCard.name || 'Creature',
+            availableCreatures: availableCreatures,
+          } as any);
         
         debug(2, `[resolveTopOfStack] ${effectiveCard.name} has Devour ${devourValue}, created selection step with ${availableCreatures.length} available creatures`);
         } else {
@@ -11755,7 +11786,7 @@ export function resolveTopOfStack(ctx: GameContext) {
       // Add to resolution queue and return (spell stays on stack until color is chosen)
       debug(2, `[resolveTopOfStack] ${effectiveCard.name} requires color choice, adding resolution step`);
       
-      ResolutionQueueManager.addStep(gameId, {
+      queueResolveTopOfStackPrompt(ctx, {
         type: ResolutionStepType.COLOR_CHOICE,
         playerId: controller as PlayerID,
         description: `Choose a color for ${effectiveCard.name}`,
@@ -11766,7 +11797,7 @@ export function resolveTopOfStack(ctx: GameContext) {
         colors: ['white', 'blue', 'black', 'red', 'green'],
         spellId: card?.id, // Mark this as a spell color choice (not permanent ETB)
         oracleText: oracleText, // Include oracle text for effect application later
-      });
+      } as any);
 
       state.stack = state.stack || [];
       state.stack.push(item as any);
@@ -11859,7 +11890,7 @@ export function resolveTopOfStack(ctx: GameContext) {
             debugWarn(1, `[resolveTopOfStack] Failed to gather Academic Probation card-name candidates:`, err);
           }
 
-          ResolutionQueueManager.addStep(gameId, {
+          queueResolveTopOfStackPrompt(ctx, {
             type: ResolutionStepType.CARD_NAME_CHOICE,
             playerId: controller as PlayerID,
             description: `Choose a nonland card name for ${effectiveCard.name}`,
@@ -12066,7 +12097,8 @@ export function resolveTopOfStack(ctx: GameContext) {
           effect,
           controller,
           effectiveCard.name || 'spell',
-          String((item as any).source || (item as any).permanentId || '')
+          String((item as any).source || (item as any).permanentId || ''),
+          String((item as any).id || (card as any)?.id || '')
         );
       }
       
@@ -13557,34 +13589,61 @@ export function resolveTopOfStack(ctx: GameContext) {
     // Pattern: "Look at the top N cards of your library, then put them back in any order"
     if (isPonderStyleSpell(effectiveCard.name, oracleTextLower)) {
       const ponderConfig = getPonderConfig(effectiveCard.name, oracleTextLower);
-      
-      // Set up pending ponder - the socket layer will send the peek prompt
-      (state as any).pendingPonder = (state as any).pendingPonder || {};
-      (state as any).pendingPonder[controller] = {
-        effectId: uid("ponder"),
-        cardCount: ponderConfig.cardCount,
-        cardName: effectiveCard.name || 'Ponder',
-        variant: ponderConfig.variant,
-        canShuffle: ponderConfig.canShuffle,
-        drawAfter: ponderConfig.drawAfter,
-        pickToHand: ponderConfig.pickToHand,
+
+      const effectId = uid("ponder");
+      const lib = (ctx as any).libraries?.get?.(controller) || [];
+      const actualCount = Math.min(ponderConfig.cardCount || 3, Array.isArray(lib) ? lib.length : 0);
+      const cards = Array.isArray(lib) ? lib.slice(0, actualCount) : [];
+
+      queueResolveTopOfStackPrompt(ctx, {
+        type: ResolutionStepType.PONDER_EFFECT,
+        playerId: controller as PlayerID,
+        description: `Ponder: ${effectiveCard.name || 'Look at top cards'}`,
+        cards,
+        variant: ponderConfig.variant || 'ponder',
+        cardCount: actualCount,
+        drawAfter: ponderConfig.drawAfter || false,
+        mayShuffleAfter: ponderConfig.canShuffle !== false,
         targetPlayerId: controller,
-        imageUrl: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
-      };
-      debug(2, `[resolveTopOfStack] Ponder-style spell ${effectiveCard.name} set up pending effect (variant: ${ponderConfig.variant}, cards: ${ponderConfig.cardCount})`);
+        sourceId: effectId,
+        sourceName: effectiveCard.name || 'Ponder',
+        effectId,
+      } as any);
+      debug(2, `[resolveTopOfStack] Ponder-style spell ${effectiveCard.name} queued direct prompt (variant: ${ponderConfig.variant}, cards: ${actualCount})`);
     }
 
     if (isLimDulsVaultSpell(effectiveCard.name, oracleTextLower)) {
       const currentLife = Number((state as any).life?.[controller] ?? state.startingLife ?? 40);
-      (state as any).pendingLimDulsVault = (state as any).pendingLimDulsVault || {};
-      (state as any).pendingLimDulsVault[controller] = {
-        effectId: uid('lim_duls_vault'),
-        sourceName: effectiveCard.name || "Lim-Dul's Vault",
-        sourceImage: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
-        totalLifePaid: 0,
-        currentLife,
-      };
-      debug(2, `[resolveTopOfStack] ${effectiveCard.name} set up pending Lim-Dul's Vault prompt`);
+      const effectId = uid('lim_duls_vault');
+      const lib = (ctx as any).libraries?.get?.(controller) || [];
+      const actualCount = Math.min(5, Array.isArray(lib) ? lib.length : 0);
+      if (actualCount > 0) {
+        const cards = lib.slice(0, actualCount).map((card: any) => ({
+          id: card.id,
+          name: card.name,
+          type_line: card.type_line,
+          oracle_text: card.oracle_text,
+          image_uris: card.image_uris,
+          imageUrl: card.image_uris?.normal || card.image_uris?.small,
+          mana_cost: card.mana_cost,
+          cmc: card.cmc,
+        }));
+
+        queueResolveTopOfStackPrompt(ctx, {
+          type: ResolutionStepType.LIM_DULS_VAULT,
+          playerId: controller as PlayerID,
+          description: "Lim-Dul's Vault: Reorder these cards, then either pay 1 life to put them on the bottom or keep them as your final five.",
+          mandatory: true,
+          sourceId: effectId,
+          sourceName: effectiveCard.name || "Lim-Dul's Vault",
+          sourceImage: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
+          cards,
+          effectId,
+          currentLife,
+          totalLifePaid: 0,
+        } as any);
+        debug(2, `[resolveTopOfStack] ${effectiveCard.name} queued direct Lim-Dul's Vault prompt`);
+      }
     }
 
     if (isDanceWithCalamitySpell(effectiveCard.name, oracleTextLower)) {
@@ -13592,17 +13651,22 @@ export function resolveTopOfStack(ctx: GameContext) {
         (ctx as any).shuffleLibrary(controller);
       }
 
-      (state as any).pendingDanceWithCalamity = (state as any).pendingDanceWithCalamity || {};
-      (state as any).pendingDanceWithCalamity[controller] = {
-        effectId: uid('dance_with_calamity'),
+      const effectId = uid('dance_with_calamity');
+      const lib = (ctx as any).libraries?.get?.(controller) || [];
+      queueResolveTopOfStackPrompt(ctx, {
+        type: ResolutionStepType.DANCE_WITH_CALAMITY,
+        playerId: controller as PlayerID,
+        description: `${effectiveCard.name || 'Dance with Calamity'}: Exile the top card, or stop and cast spells from among the exiled cards.`,
+        mandatory: true,
+        sourceId: effectId,
         sourceName: effectiveCard.name || 'Dance with Calamity',
         sourceImage: effectiveCard.image_uris?.normal || effectiveCard.image_uris?.small,
+        effectId,
         exiledCards: [],
         totalManaValue: 0,
-        stage: 'exile',
-        queued: false,
-      };
-      debug(2, `[resolveTopOfStack] ${effectiveCard.name} set up pending Dance with Calamity prompt`);
+        canContinue: Array.isArray(lib) && lib.length > 0,
+      } as any);
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name} queued direct Dance with Calamity prompt`);
     }
 
     // Handle Genesis Wave: Reveal top X, you may put any number of permanents with MV <= X onto battlefield, rest to graveyard
@@ -13636,49 +13700,49 @@ export function resolveTopOfStack(ctx: GameContext) {
         const isReplaying = !!(ctx as any).isReplaying;
         if (!isReplaying) {
           // Add resolution step using the generic LIBRARY_SEARCH type with Genesis Wave parameters
-          ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.LIBRARY_SEARCH,
-          playerId: controller as PlayerID,
-          description: `Genesis Wave (X=${xVal}): Choose any number of permanents to put onto the battlefield`,
-          mandatory: false, // Optional - player may choose 0 permanents
-          sourceId: item.id,
-          sourceName: 'Genesis Wave',
-          sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
-          searchCriteria: `Permanent cards with mana value ${xVal} or less`,
-          minSelections: 0,
-          maxSelections: eligiblePermanents.length,
-          destination: 'battlefield' as const,
-          reveal: true,
-          shuffleAfter: false,
-          remainderDestination: 'graveyard' as const, // Genesis Wave: rest go to graveyard
-          remainderRandomOrder: false,
-          availableCards: eligiblePermanents.map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            type_line: c.type_line,
-            oracle_text: c.oracle_text,
-            image_uris: c.image_uris,  // Include full image_uris object for battlefield placement
-            imageUrl: c.image_uris?.normal || c.image_uris?.small,
-            mana_cost: c.mana_cost,
-            cmc: c.cmc,
-            power: c.power,
-            toughness: c.toughness,
-            loyalty: c.loyalty,
-            colors: c.colors,
-          })),
-          nonSelectableCards: notEligible.map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            type_line: c.type_line,
-            oracle_text: c.oracle_text,
-            image_uris: c.image_uris,  // Include full image_uris object
-            imageUrl: c.image_uris?.normal || c.image_uris?.small,
-            mana_cost: c.mana_cost,
-            cmc: c.cmc,
-          })),
-          contextValue: xVal, // Store X value for display/reference
-          entersTapped: false,
-        });
+          queueResolveTopOfStackPrompt(ctx, {
+            type: ResolutionStepType.LIBRARY_SEARCH,
+            playerId: controller as PlayerID,
+            description: `Genesis Wave (X=${xVal}): Choose any number of permanents to put onto the battlefield`,
+            mandatory: false, // Optional - player may choose 0 permanents
+            sourceId: item.id,
+            sourceName: 'Genesis Wave',
+            sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+            searchCriteria: `Permanent cards with mana value ${xVal} or less`,
+            minSelections: 0,
+            maxSelections: eligiblePermanents.length,
+            destination: 'battlefield' as const,
+            reveal: true,
+            shuffleAfter: false,
+            remainderDestination: 'graveyard' as const, // Genesis Wave: rest go to graveyard
+            remainderRandomOrder: false,
+            availableCards: eligiblePermanents.map((c: any) => ({
+              id: c.id,
+              name: c.name,
+              type_line: c.type_line,
+              oracle_text: c.oracle_text,
+              image_uris: c.image_uris,  // Include full image_uris object for battlefield placement
+              imageUrl: c.image_uris?.normal || c.image_uris?.small,
+              mana_cost: c.mana_cost,
+              cmc: c.cmc,
+              power: c.power,
+              toughness: c.toughness,
+              loyalty: c.loyalty,
+              colors: c.colors,
+            })),
+            nonSelectableCards: notEligible.map((c: any) => ({
+              id: c.id,
+              name: c.name,
+              type_line: c.type_line,
+              oracle_text: c.oracle_text,
+              image_uris: c.image_uris,  // Include full image_uris object
+              imageUrl: c.image_uris?.normal || c.image_uris?.small,
+              mana_cost: c.mana_cost,
+              cmc: c.cmc,
+            })),
+            contextValue: xVal, // Store X value for display/reference
+            entersTapped: false,
+          });
         
         debug(2, `[resolveTopOfStack] Genesis Wave: Created LIBRARY_SEARCH step for ${eligiblePermanents.length} eligible permanents (X=${xVal})`);
         } else {
@@ -13852,7 +13916,8 @@ function executeSpellEffect(
   effect: EngineEffect,
   caster: PlayerID,
   spellName: string,
-  sourcePermanentId?: string
+  sourcePermanentId?: string,
+  sourceId?: string,
 ): void {
   const { state } = ctx;
   
@@ -14241,20 +14306,25 @@ function executeSpellEffect(
     case 'QueueScry': {
       const playerId = (effect as any).playerId as PlayerID;
       const count = Math.max(0, Number((effect as any).count ?? 0));
-      const sourceId = (effect as any).sourceId as string | undefined;
+      const stepSourceId = String((effect as any).sourceId || sourceId || '').trim() || undefined;
       const gameId = (ctx as any).gameId;
       const isReplaying = !!(ctx as any).isReplaying;
       if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
       try {
-        ResolutionQueueManager.addStep(gameId, {
+        const step = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.SCRY,
           playerId,
           description: `${spellName}: Scry ${count}`,
           mandatory: true,
-          sourceId,
+          sourceId: stepSourceId,
           sourceName: spellName,
           scryCount: count,
         } as any);
+        appendQueuedResolutionPromptEvent(ctx, {
+          playerId,
+          sourceId: stepSourceId || String((step as any)?.sourceId || '').trim(),
+          queuedResolutionStep: step,
+        });
         debug(2, `[resolveSpell] ${spellName} queued scry ${count} for ${playerId}`);
       } catch (err) {
         debugWarn(1, `[resolveSpell] ${spellName} queue scry failed:`, err);
@@ -14264,20 +14334,25 @@ function executeSpellEffect(
     case 'QueueSurveil': {
       const playerId = (effect as any).playerId as PlayerID;
       const count = Math.max(0, Number((effect as any).count ?? 0));
-      const sourceId = (effect as any).sourceId as string | undefined;
+      const stepSourceId = String((effect as any).sourceId || sourceId || '').trim() || undefined;
       const gameId = (ctx as any).gameId;
       const isReplaying = !!(ctx as any).isReplaying;
       if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
       try {
-        ResolutionQueueManager.addStep(gameId, {
+        const step = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.SURVEIL,
           playerId,
           description: `${spellName}: Surveil ${count}`,
           mandatory: true,
-          sourceId,
+          sourceId: stepSourceId,
           sourceName: spellName,
           surveilCount: count,
         } as any);
+        appendQueuedResolutionPromptEvent(ctx, {
+          playerId,
+          sourceId: stepSourceId || String((step as any)?.sourceId || '').trim(),
+          queuedResolutionStep: step,
+        });
         debug(2, `[resolveSpell] ${spellName} queued surveil ${count} for ${playerId}`);
       } catch (err) {
         debugWarn(1, `[resolveSpell] ${spellName} queue surveil failed:`, err);
@@ -14287,6 +14362,7 @@ function executeSpellEffect(
     case 'QueueBlight': {
       const playerId = (effect as any).playerId as PlayerID;
       const count = Math.max(0, Number((effect as any).count ?? 0));
+      const stepSourceId = String((effect as any).sourceId || sourceId || '').trim() || undefined;
       const gameId = (ctx as any).gameId;
       const isReplaying = !!(ctx as any).isReplaying;
       if (!playerId || count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
@@ -14308,11 +14384,12 @@ function executeSpellEffect(
       }
 
       try {
-        ResolutionQueueManager.addStep(gameId, {
+        const step = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.TARGET_SELECTION,
           playerId,
           description: `${spellName}: Blight ${count} — choose a creature you control to put ${count} -1/-1 counter${count === 1 ? '' : 's'} on it.`,
           mandatory: true,
+          sourceId: stepSourceId,
           sourceName: spellName,
           validTargets,
           targetTypes: ['creature'],
@@ -14327,6 +14404,11 @@ function executeSpellEffect(
           keywordBlightN: count,
           keywordBlightSourceName: `${spellName}: Blight ${count}`,
         } as any);
+        appendQueuedResolutionPromptEvent(ctx, {
+          playerId,
+          sourceId: stepSourceId || String((step as any)?.sourceId || '').trim(),
+          queuedResolutionStep: step,
+        });
         debug(2, `[resolveSpell] ${spellName} queued blight ${count} for ${playerId}`);
       } catch (err) {
         debugWarn(1, `[resolveSpell] ${spellName} queue blight failed:`, err);
@@ -14335,6 +14417,7 @@ function executeSpellEffect(
     }
     case 'QueueBlightEachOpponent': {
       const count = Math.max(0, Number((effect as any).count ?? 0));
+      const stepSourceId = String((effect as any).sourceId || sourceId || '').trim() || undefined;
       const gameId = (ctx as any).gameId;
       const isReplaying = !!(ctx as any).isReplaying;
       if (count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
@@ -14372,6 +14455,7 @@ function executeSpellEffect(
           playerId: pr.id,
           description: `${spellName}: Blight ${count} — choose a creature you control to put ${count} -1/-1 counter${count === 1 ? '' : 's'} on it.`,
           mandatory: true,
+          sourceId: stepSourceId,
           sourceName: spellName,
           validTargets,
           targetTypes: ['creature'],
@@ -14394,7 +14478,12 @@ function executeSpellEffect(
       }
 
       try {
-        ResolutionQueueManager.addStepsWithAPNAP(gameId, configs as any, turnOrder as any, activePlayerId as any);
+        const steps = ResolutionQueueManager.addStepsWithAPNAP(gameId, configs as any, turnOrder as any, activePlayerId as any);
+        appendQueuedResolutionPromptEvent(ctx, {
+          playerId: String((steps[0] as any)?.playerId || (configs[0] as any)?.playerId || '').trim(),
+          sourceId: stepSourceId || String((steps[0] as any)?.sourceId || '').trim(),
+          queuedResolutionSteps: steps as any[],
+        });
         debug(2, `[resolveSpell] ${spellName} queued blight ${count} for ${configs.length} opponent(s)`);
       } catch (err) {
         debugWarn(1, `[resolveSpell] ${spellName} queue blight(each opponent) failed:`, err);
@@ -14404,6 +14493,7 @@ function executeSpellEffect(
     }
     case 'QueueBlightEachPlayer': {
       const count = Math.max(0, Number((effect as any).count ?? 0));
+      const stepSourceId = String((effect as any).sourceId || sourceId || '').trim() || undefined;
       const gameId = (ctx as any).gameId;
       const isReplaying = !!(ctx as any).isReplaying;
       if (count <= 0 || !gameId || gameId === 'unknown' || isReplaying) break;
@@ -14440,6 +14530,7 @@ function executeSpellEffect(
           playerId: pr.id,
           description: `${spellName}: Blight ${count} — choose a creature you control to put ${count} -1/-1 counter${count === 1 ? '' : 's'} on it.`,
           mandatory: true,
+          sourceId: stepSourceId,
           sourceName: spellName,
           validTargets,
           targetTypes: ['creature'],
@@ -14462,7 +14553,12 @@ function executeSpellEffect(
       }
 
       try {
-        ResolutionQueueManager.addStepsWithAPNAP(gameId, configs as any, turnOrder as any, activePlayerId as any);
+        const steps = ResolutionQueueManager.addStepsWithAPNAP(gameId, configs as any, turnOrder as any, activePlayerId as any);
+        appendQueuedResolutionPromptEvent(ctx, {
+          playerId: String((steps[0] as any)?.playerId || (configs[0] as any)?.playerId || '').trim(),
+          sourceId: stepSourceId || String((steps[0] as any)?.sourceId || '').trim(),
+          queuedResolutionSteps: steps as any[],
+        });
         debug(2, `[resolveSpell] ${spellName} queued blight ${count} for ${configs.length} player(s)`);
       } catch (err) {
         debugWarn(1, `[resolveSpell] ${spellName} queue blight(each player) failed:`, err);

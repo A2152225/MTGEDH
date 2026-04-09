@@ -6,6 +6,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
+import { appendEvent } from "../db/index.js";
 import { 
   ResolutionQueueManager, 
   ResolutionQueueEvent,
@@ -49,7 +50,6 @@ import {
   chooseAISpellPaymentSelections,
   chooseAITargetSelectionsForChoiceStep,
 } from "./ai.js";
-import { appendEvent } from "../db/index.js";
 import type { PlayerID } from "../../../shared/src/types.js";
 import { isShockLand } from "./land-helpers.js";
 import type { GameContext } from "../state/context.js";
@@ -116,6 +116,44 @@ function cloneZoneCardsForEvent(cards: any[], zone: 'hand' | 'library' | 'gravey
 
 function cloneExileStateForEvent(cards: any[]): any[] {
   return cloneZoneCardsForEvent(cards, 'exile');
+}
+
+function appendQueuedResolutionPromptEvent(
+  game: any,
+  gameId: string,
+  options: {
+    playerId?: string;
+    sourceId?: string;
+    queuedResolutionStep?: any;
+    queuedResolutionSteps?: any[];
+  },
+): void {
+  const queuedResolutionSteps = Array.isArray(options.queuedResolutionSteps)
+    ? options.queuedResolutionSteps.filter((step) => step && typeof step === 'object' && !Array.isArray(step))
+    : [];
+  const queuedResolutionStep =
+    options.queuedResolutionStep && typeof options.queuedResolutionStep === 'object' && !Array.isArray(options.queuedResolutionStep)
+      ? options.queuedResolutionStep
+      : undefined;
+
+  if (!gameId || queuedResolutionSteps.length === 0 && !queuedResolutionStep) {
+    return;
+  }
+
+  try {
+    appendEvent(
+      gameId,
+      Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
+      'resolveTopOfStackPrompt',
+      {
+        playerId: String(options.playerId || '').trim(),
+        sourceId: String(options.sourceId || '').trim(),
+        ...(queuedResolutionSteps.length > 0 ? { queuedResolutionSteps } : { queuedResolutionStep }),
+      },
+    );
+  } catch (err) {
+    debugWarn(1, '[resolution] appendEvent(resolveTopOfStackPrompt) failed:', err);
+  }
 }
 
 function hasPendingSpellCastForPlayer(game: any, playerId: string): boolean {
@@ -19427,7 +19465,7 @@ async function handleLibrarySearchResponse(
           ...cardsToOrder.map((card: any) => String(card?.id || '')).filter(Boolean),
         ].join(':');
 
-        pendingBottomOrderEntry = {
+        const queuedBottomOrderStep = {
           effectId: bottomOrderEffectId,
           sourceId: (step as any).sourceId,
           sourceName,
@@ -19435,27 +19473,17 @@ async function handleLibrarySearchResponse(
           cards: cardsToOrder.map((card: any) => ({ ...card, zone: 'library' })),
           shuffleAfter: shuffleAfterBottomOrder,
           description: `${sourceName}: Put the rest on the bottom of your library in any order.`,
-          queued: true,
-        };
-
-        const stateAny = game.state as any;
-        stateAny.pendingBottomOrder = stateAny.pendingBottomOrder || {};
-        const pendingList = Array.isArray(stateAny.pendingBottomOrder[pid]) ? stateAny.pendingBottomOrder[pid] : [];
-        pendingList.push({ ...pendingBottomOrderEntry });
-        stateAny.pendingBottomOrder[pid] = pendingList;
-
-        ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.BOTTOM_ORDER,
           playerId: pid as any,
-          description: pendingBottomOrderEntry.description,
           mandatory: true,
-          sourceId: (step as any).sourceId,
-          sourceName,
-          sourceImage: (step as any).sourceImage,
-          cards: pendingBottomOrderEntry.cards,
-          shuffleAfter: shuffleAfterBottomOrder,
-          effectId: bottomOrderEffectId,
-        } as any);
+        };
+
+        const queuedStep = ResolutionQueueManager.addStep(gameId, queuedBottomOrderStep as any);
+        appendQueuedResolutionPromptEvent(game, gameId, {
+          playerId: pid,
+          sourceId: String((step as any).sourceId || '').trim(),
+          queuedResolutionStep: queuedStep,
+        });
       }
 
       debug(2, `[Resolution] ${sourceName}: Queued bottom_order for ${unselectedCards.length} remainder card(s)`);
@@ -20611,7 +20639,7 @@ export function processPendingProliferate(
       }
       
       // Add to resolution queue
-      ResolutionQueueManager.addStep(gameId, {
+      const step = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.PROLIFERATE,
         playerId,
         description: 'Choose permanents and/or players to proliferate',
@@ -20620,6 +20648,12 @@ export function processPendingProliferate(
         sourceName: effect.sourceName || 'Proliferate',
         proliferateId: effect.id,
         availableTargets,
+      });
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId,
+        sourceId: String(effect.sourceId || effect.id || '').trim(),
+        queuedResolutionStep: step,
       });
     }
   } catch (err) {
@@ -20911,7 +20945,7 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
       
       debug(2, `[processPendingPonder] Migrating ponder for player ${playerId}, ${actualCount} cards`);
       
-      ResolutionQueueManager.addStep(gameId, {
+      const step = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.PONDER_EFFECT,
         playerId: playerId as string,
         description: `Ponder: ${cardName || 'Look at top cards'}`,
@@ -20923,6 +20957,12 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
         targetPlayerId: targetPid,
         sourceName: cardName,
         effectId,
+      });
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: playerId as string,
+        sourceId: String(effectId || '').trim(),
+        queuedResolutionStep: step,
       });
 
       data.queued = true;
@@ -20998,7 +21038,7 @@ export function processPendingLimDulsVault(io: Server, game: any, gameId: string
       }));
       const currentLife = Number((game.state as any)?.life?.[playerId] ?? (game.state as any)?.startingLife ?? 40);
 
-      ResolutionQueueManager.addStep(gameId, {
+      const step = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.LIM_DULS_VAULT,
         playerId: playerId as string,
         description: "Lim-Dul's Vault: Reorder these cards, then either pay 1 life to put them on the bottom or keep them as your final five.",
@@ -21011,6 +21051,12 @@ export function processPendingLimDulsVault(io: Server, game: any, gameId: string
         currentLife,
         totalLifePaid: Number(entry.totalLifePaid || 0),
       } as any);
+
+      appendQueuedResolutionPromptEvent(game, gameId, {
+        playerId: playerId as string,
+        sourceId: String(entry.effectId || '').trim(),
+        queuedResolutionStep: step,
+      });
 
       entry.currentLife = currentLife;
       entry.queued = true;
@@ -21046,7 +21092,7 @@ export function processPendingDanceWithCalamity(io: Server, game: any, gameId: s
           ? ((game as any).libraries.get(playerId) as any[])
           : [];
 
-        ResolutionQueueManager.addStep(gameId, {
+        const step = ResolutionQueueManager.addStep(gameId, {
           type: ResolutionStepType.DANCE_WITH_CALAMITY,
           playerId: playerId as string,
           description: `${sourceName}: Exile the top card, or stop and cast spells from among the exiled cards.`,
@@ -21059,6 +21105,12 @@ export function processPendingDanceWithCalamity(io: Server, game: any, gameId: s
           totalManaValue,
           canContinue: library.length > 0 && totalManaValue <= 13,
         } as any);
+
+        appendQueuedResolutionPromptEvent(game, gameId, {
+          playerId: playerId as string,
+          sourceId: effectId,
+          queuedResolutionStep: step,
+        });
 
         entry.queued = true;
         continue;
@@ -21882,6 +21934,24 @@ async function handleOptionChoiceResponse(
     const shouldResolve = !response.cancelled && choiceId === 'yes';
     const deferredTriggeredAbilityItem = stepData?.deferredTriggeredAbilityItem;
     const sourceName = String(stepData?.sourceName || step.sourceName || 'Ability');
+
+    try {
+      await appendEvent(gameId, (game as any).seq ?? 0, 'optionalTriggeredAbilityChoice', {
+        playerId,
+        sourceId: String(stepData?.sourceId || step.sourceId || '').trim(),
+        sourceName,
+        resolvedStepId: String(step.id || '').trim(),
+        choice: shouldResolve ? 'yes' : 'no',
+        deferredTriggeredAbilityItem: deferredTriggeredAbilityItem && typeof deferredTriggeredAbilityItem === 'object'
+          ? {
+              ...(deferredTriggeredAbilityItem as any),
+              optionalTriggeredAbilityDecisionApplied: true,
+            }
+          : undefined,
+      });
+    } catch (err) {
+      debugWarn(1, '[Resolution] appendEvent(optionalTriggeredAbilityChoice) failed:', err);
+    }
 
     if (!shouldResolve) {
       debug(2, `[Resolution] Declined deferred optional triggered ability for ${sourceName}`);

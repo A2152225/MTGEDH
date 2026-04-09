@@ -258,4 +258,54 @@ describe('reorder effect replay semantics', () => {
     expect((queuedSteps[0] as any)?.effectId).toBe('impulse_like_source:rest_1:rest_2');
     expect((game.state as any).pendingBottomOrder[p1][0].queued).toBe(true);
   });
+
+  it('replays queue-first bottom-order prompts persisted separately from library search resolution', () => {
+    const gameId = 't_library_search_bottom_order_queue_first_replay';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    initZones(game, p1);
+
+    game.applyEvent({
+      type: 'librarySearchResolve',
+      playerId: p1,
+      sourceId: 'impulse_like_source',
+      sourceName: 'Impulse Variant',
+      selectedCardIds: ['chosen_card'],
+      selectedCards: [{ id: 'chosen_card', name: 'Chosen Card', type_line: 'Instant' }],
+      destination: 'hand',
+      libraryAfter: [{ id: 'base_1', name: 'Base 1', zone: 'library' }],
+    } as any);
+
+    game.applyEvent({
+      type: 'resolveTopOfStackPrompt',
+      playerId: p1,
+      sourceId: 'impulse_like_source',
+      queuedResolutionStep: {
+        id: 'queued_bottom_order_prompt_1',
+        type: ResolutionStepType.BOTTOM_ORDER,
+        playerId: p1,
+        sourceId: 'impulse_like_source',
+        sourceName: 'Impulse Variant',
+        description: 'Impulse Variant: Put the rest on the bottom of your library in any order.',
+        mandatory: true,
+        effectId: 'impulse_like_source:rest_1:rest_2',
+        cards: [
+          { id: 'rest_1', name: 'Rest 1', zone: 'library' },
+          { id: 'rest_2', name: 'Rest 2', zone: 'library' },
+        ],
+        shuffleAfter: true,
+      },
+    } as any);
+
+    expect((game.state as any).pendingBottomOrder).toBeUndefined();
+    expect((game.state as any).zones[p1].hand.map((card: any) => card.id)).toEqual(['chosen_card']);
+    expect((game as any).libraries.get(p1)?.map((card: any) => card.id)).toEqual(['base_1']);
+
+    const queuedSteps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
+    expect(queuedSteps).toHaveLength(1);
+    expect(String((queuedSteps[0] as any)?.id || '')).toBe('queued_bottom_order_prompt_1');
+    expect((queuedSteps[0] as any)?.type).toBe(ResolutionStepType.BOTTOM_ORDER);
+    expect((queuedSteps[0] as any)?.effectId).toBe('impulse_like_source:rest_1:rest_2');
+  });
 });

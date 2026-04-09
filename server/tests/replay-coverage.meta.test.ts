@@ -66,6 +66,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'mulliganPutToBottom',
   'opponentMayPayResolve',
   'optionChoice',
+  'optionalTriggeredAbilityChoice',
   'playerChoice',
   'playerSelection',
   'playOpeningHandCards',

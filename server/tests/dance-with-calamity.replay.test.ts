@@ -29,7 +29,7 @@ function initZones(game: any, playerId: PlayerID) {
 }
 
 describe('Dance with Calamity live/replay semantics', () => {
-  it('resolving the spell creates a pending push-your-luck prompt that rehydrates into the resolution queue', () => {
+  it('resolving the spell queues the initial push-your-luck prompt directly without pending staging', () => {
     const gameId = 't_dance_with_calamity_live_init';
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -61,16 +61,14 @@ describe('Dance with Calamity live/replay semantics', () => {
     ResolutionQueueManager.removeQueue(gameId);
     resolveTopOfStack(game as any);
 
-    expect((game.state as any).pendingDanceWithCalamity?.[p1]?.effectId).toBeTruthy();
-
-    processPendingDanceWithCalamity({} as any, game, gameId);
-
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
     expect(steps).toHaveLength(1);
     expect(steps[0]?.type).toBe(ResolutionStepType.DANCE_WITH_CALAMITY);
     expect((steps[0] as any)?.exiledCards).toEqual([]);
     expect((steps[0] as any)?.totalManaValue).toBe(0);
     expect((steps[0] as any)?.canContinue).toBe(true);
+    expect((steps[0] as any)?.effectId).toBeTruthy();
+    expect((game.state as any).pendingDanceWithCalamity).toBeUndefined();
   });
 
   it('replays a continue decision by moving the card to exile, updating library state, and rebuilding the next prompt', () => {

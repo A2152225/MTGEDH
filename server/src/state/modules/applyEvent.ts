@@ -2449,6 +2449,55 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "optionalTriggeredAbilityChoice": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const sourceId = String((e as any).sourceId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const choice = String((e as any).choice || 'no').trim().toLowerCase();
+          const deferredTriggeredAbilityItem = (e as any).deferredTriggeredAbilityItem;
+          const sourceName = String((e as any).sourceName || 'Ability').trim() || 'Ability';
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) {
+                return true;
+              }
+
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.optionalTriggeredAbilityPrompt === true &&
+                sourceId.length > 0 &&
+                String((step as any)?.sourceId || '').trim() === sourceId
+              );
+            });
+          }
+
+          if (choice !== 'yes') {
+            ctx.bumpSeq();
+            break;
+          }
+
+          if (!deferredTriggeredAbilityItem || typeof deferredTriggeredAbilityItem !== 'object') {
+            debugWarn(1, `applyEvent(optionalTriggeredAbilityChoice): missing deferred trigger payload for ${sourceName}`);
+            break;
+          }
+
+          ctx.state.stack = Array.isArray(ctx.state.stack) ? ctx.state.stack : [];
+          (ctx.state.stack as any[]).push({
+            ...(deferredTriggeredAbilityItem as any),
+            optionalTriggeredAbilityDecisionApplied: true,
+          });
+
+          resolveTopOfStack(ctx as any);
+        } catch (err) {
+          debugWarn(1, 'applyEvent(optionalTriggeredAbilityChoice): failed', err);
+        }
+        break;
+      }
+
       case "targetSelectionWardPrompt": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();

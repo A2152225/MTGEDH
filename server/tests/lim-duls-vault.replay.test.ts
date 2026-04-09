@@ -29,7 +29,7 @@ function initZones(game: any, playerId: PlayerID) {
 }
 
 describe("Lim-Dul's Vault live/replay semantics", () => {
-  it('resolving the spell creates a pending vault prompt that can be rehydrated into the resolution queue', () => {
+  it('resolving the spell queues the initial vault prompt directly without pending staging', () => {
     const gameId = 't_lim_duls_vault_live_init';
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -63,14 +63,12 @@ describe("Lim-Dul's Vault live/replay semantics", () => {
     ResolutionQueueManager.removeQueue(gameId);
     resolveTopOfStack(game as any);
 
-    expect((game.state as any).pendingLimDulsVault?.[p1]?.effectId).toBeTruthy();
-
-    processPendingLimDulsVault({} as any, game, gameId);
-
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
     expect(steps).toHaveLength(1);
     expect(steps[0]?.type).toBe(ResolutionStepType.LIM_DULS_VAULT);
     expect((steps[0] as any)?.cards?.map((card: any) => card.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect((steps[0] as any)?.effectId).toBeTruthy();
+    expect((game.state as any).pendingLimDulsVault).toBeUndefined();
   });
 
   it('replays a continue decision by updating life/library and rebuilding the next vault prompt', () => {
