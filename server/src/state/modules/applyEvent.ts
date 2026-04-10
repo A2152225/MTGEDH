@@ -258,6 +258,56 @@ function clearReplayQueuedSteps(gameId: string, predicate: (step: any) => boolea
   }
 }
 
+function matchesDungeonRoomPenaltyChoiceStep(step: any, event: any): boolean {
+  const stepChoice = step?.dungeonRoomPenaltyChoice;
+  if (!stepChoice || !event) return false;
+
+  return (
+    String(step?.playerId || '').trim() === String(event?.playerId || '').trim() &&
+    String(step?.sourceId || '').trim() === String(event?.sourceId || '').trim() &&
+    String(stepChoice?.dungeonId || '').trim() === String(event?.dungeonId || '').trim() &&
+    String(stepChoice?.roomId || '').trim() === String(event?.currentRoomId || '').trim()
+  );
+}
+
+function matchesDungeonRoomPaymentStep(step: any, event: any): boolean {
+  const stepPayment = step?.dungeonRoomPayment;
+  const eventPayment = event?.dungeonRoomPayment;
+  if (!stepPayment || !eventPayment) return false;
+
+  return (
+    String(step?.playerId || '').trim() === String(event?.playerId || '').trim() &&
+    String(step?.sourceId || '').trim() === String(event?.sourceId || '').trim() &&
+    String(stepPayment?.dungeonId || '').trim() === String(eventPayment?.dungeonId || '').trim() &&
+    String(stepPayment?.roomId || '').trim() === String(eventPayment?.roomId || '').trim() &&
+    String(stepPayment?.paymentType || '').trim() === String(eventPayment?.paymentType || '').trim()
+  );
+}
+
+function matchesDungeonRoomFreeCastChoiceStep(step: any, event: any): boolean {
+  const stepChoice = step?.dungeonRoomFreeCastFromHandChoice;
+  if (!stepChoice || !event) return false;
+
+  return (
+    String(step?.playerId || '').trim() === String(event?.playerId || '').trim() &&
+    String(step?.sourceId || '').trim() === String(event?.sourceId || '').trim() &&
+    String(stepChoice?.dungeonId || '').trim() === String(event?.dungeonId || '').trim() &&
+    String(stepChoice?.roomId || '').trim() === String(event?.currentRoomId || '').trim()
+  );
+}
+
+function matchesDungeonRoomThroneChoiceStep(step: any, event: any): boolean {
+  const stepChoice = step?.dungeonRoomThroneChoice;
+  if (!stepChoice || !event) return false;
+
+  return (
+    String(step?.playerId || '').trim() === String(event?.playerId || '').trim() &&
+    String(step?.sourceId || '').trim() === String(event?.sourceId || '').trim() &&
+    String(stepChoice?.dungeonId || '').trim() === String(event?.dungeonId || '').trim() &&
+    String(stepChoice?.roomId || '').trim() === String(event?.currentRoomId || '').trim()
+  );
+}
+
 function ensureReplayPlayerZones(stateAny: any, playerId: string): any {
   const zones = stateAny.zones = stateAny.zones || {};
   return (zones[playerId] = zones[playerId] || {
@@ -3952,6 +4002,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ? ((e as any).cardIds as any[]).map((id: any) => String(id || '').trim()).filter(Boolean)
           : [];
         const destination = String((e as any).destination || 'graveyard').toLowerCase() === 'exile' ? 'exile' : 'graveyard';
+        const replayGameId = String((ctx as any).gameId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
         const exileTag = (e as any).exileTag as
           | {
               exiledWithSourceId?: string;
@@ -3962,6 +4014,14 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         if (!pid || cardIds.length === 0) break;
 
         try {
+          if (replayGameId && (resolvedStepId || (e as any).dungeonRoomPayment)) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return matchesDungeonRoomPaymentStep(step, e as any);
+            });
+          }
+
           const zones = ctx.state.zones || {};
           const z = zones[pid];
           if (!z || !Array.isArray(z.hand)) break;
@@ -4170,6 +4230,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         const permId = (e as any).permanentId;
         if (!permId) break;
         try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          if (replayGameId && (resolvedStepId || (e as any).dungeonRoomPayment)) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return matchesDungeonRoomPaymentStep(step, e as any);
+            });
+          }
+
           try {
             const battlefield = ctx.state.battlefield || [];
             const perm = battlefield.find((p: any) => p?.id === permId);
@@ -8499,6 +8569,131 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "dungeonRoomPenaltyChoiceResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const choice = String((e as any).choice || '').trim().toLowerCase();
+
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return matchesDungeonRoomPenaltyChoiceStep(step, e as any);
+            });
+          }
+
+          if (choice === 'lose_life') {
+            applyDungeonTargetPlayerEffect(ctx as any, String((e as any).playerId || '').trim() as any, {
+              dungeonId: String((e as any).dungeonId || '').trim(),
+              roomId: String((e as any).currentRoomId || '').trim(),
+              amount: Number((e as any).amount || 0),
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(dungeonRoomPenaltyChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "dungeonRoomFreeCastChoiceResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return matchesDungeonRoomFreeCastChoiceStep(step, e as any);
+            });
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(dungeonRoomFreeCastChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "dungeonRoomThroneResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const selectedCard = (e as any).selectedCard;
+          const createdPermanentId = String((e as any).createdPermanentId || '').trim();
+          const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+          const turnApplied = Number((e as any).turnApplied || 0);
+          const sourceName = String((e as any).sourceName || 'Throne of the Dead Three').trim() || 'Throne of the Dead Three';
+
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return matchesDungeonRoomThroneChoiceStep(step, e as any);
+            });
+          }
+
+          if (playerId) {
+            const zones = ctx.state.zones = ctx.state.zones || {};
+            const z = zones[playerId] = zones[playerId] || {
+              hand: [],
+              handCount: 0,
+              libraryCount: 0,
+              graveyard: [],
+              graveyardCount: 0,
+              exile: [],
+              exileCount: 0,
+            };
+            z.libraryCount = libraryAfter.length;
+            if (ctx.libraries?.set) {
+              ctx.libraries.set(playerId, cloneLibraryCards(libraryAfter));
+            }
+          }
+
+          if (playerId && selectedCard && createdPermanentId) {
+            ctx.state.battlefield = ctx.state.battlefield || [];
+            const existingPermanent = (ctx.state.battlefield as any[]).find((permanent: any) => String(permanent?.id || '') === createdPermanentId);
+            if (!existingPermanent) {
+              const typeLine = String(selectedCard?.type_line || '');
+              const isCreature = typeLine.toLowerCase().includes('creature');
+              const rawPower = selectedCard?.power;
+              const rawToughness = selectedCard?.toughness;
+              const power = Number.isFinite(Number(rawPower)) ? Number(rawPower) : undefined;
+              const toughness = Number.isFinite(Number(rawToughness)) ? Number(rawToughness) : undefined;
+
+              (ctx.state.battlefield as any[]).push({
+                id: createdPermanentId,
+                controller: playerId,
+                owner: playerId,
+                tapped: false,
+                counters: { '+1/+1': 3 },
+                ...(power != null ? { basePower: power } : {}),
+                ...(toughness != null ? { baseToughness: toughness } : {}),
+                summoningSickness: isCreature,
+                grantedAbilities: ['Hexproof'],
+                untilNextTurnGrants: [{
+                  controllerId: playerId,
+                  turnApplied,
+                  grantedAbilities: ['Hexproof'],
+                  sourceName,
+                  kind: 'hexproof',
+                }],
+                card: { ...selectedCard, zone: 'battlefield' },
+              } as any);
+            }
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(dungeonRoomThroneResolve): failed', err);
+        }
+        break;
+      }
+
       case "ventureChooseDungeonResolve": {
         try {
           const playerId = String((e as any).playerId || '').trim();
@@ -8603,6 +8798,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               roomId: String((e as any).currentRoomId || '').trim(),
               amount: Number((e as any).amount || 0),
               counterType: String((e as any).counterType || '').trim() || undefined,
+              powerDelta: Number((e as any).powerDelta || 0),
+              toughnessDelta: Number((e as any).toughnessDelta || 0),
+              grantText: String((e as any).grantText || '').trim() || undefined,
+              sourceName: String((e as any).sourceName || '').trim() || undefined,
             },
           );
 
@@ -8677,6 +8876,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 const tokenId = tokenData.id || `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                 const typeLine = String(tokenData.typeLine || '');
                 const isCreature = typeLine.toLowerCase().includes('creature');
+                const rawPower = tokenData.power;
+                const rawToughness = tokenData.toughness;
+                const power = Number.isFinite(Number(rawPower)) ? Number(rawPower) : undefined;
+                const toughness = Number.isFinite(Number(rawToughness)) ? Number(rawToughness) : undefined;
                 
                 // Check if token already exists (replay idempotency)
                 const existingToken = ctx.state.battlefield.find((p: any) => p.id === tokenId);
@@ -8691,16 +8894,16 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   owner: controllerId,
                   tapped: false,
                   counters: {},
-                  basePower: tokenData.power,
-                  baseToughness: tokenData.toughness,
+                  ...(power != null ? { basePower: power } : {}),
+                  ...(toughness != null ? { baseToughness: toughness } : {}),
                   summoningSickness: isCreature && !tokenData.hasHaste,
                   isToken: true,
                   card: {
                     id: tokenId,
                     name: tokenData.name,
                     type_line: typeLine,
-                    power: String(tokenData.power),
-                    toughness: String(tokenData.toughness),
+                    ...(power != null ? { power: String(power) } : {}),
+                    ...(toughness != null ? { toughness: String(toughness) } : {}),
                     colors: tokenData.colors || [],
                     oracle_text: tokenData.abilities?.join(', ') || '',
                     keywords: tokenData.abilities || [],
@@ -8708,6 +8911,88 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   },
                 } as any);
                 debug(2, `[applyEvent] Created token: ${tokenData.name} for ${controllerId}`);
+              }
+              break;
+            }
+            case 'dungeonExileCards': {
+              const zones = ctx.state.zones = ctx.state.zones || {};
+              const z = zones[controllerId] = zones[controllerId] || {
+                hand: [],
+                handCount: 0,
+                libraryCount: 0,
+                graveyard: [],
+                graveyardCount: 0,
+                exile: [],
+                exileCount: 0,
+              };
+              const exiledCards = Array.isArray((e as any).exiledCards) ? (e as any).exiledCards as any[] : [];
+              const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+              z.exile = Array.isArray(z.exile) ? z.exile : [];
+              for (const card of exiledCards) {
+                if (!card || !String(card.id || '').trim()) continue;
+                if ((z.exile as any[]).some((existing: any) => String(existing?.id || '') === String(card.id))) {
+                  continue;
+                }
+                (z.exile as any[]).push({ ...card, zone: 'exile' });
+              }
+              z.exileCount = (z.exile as any[]).length;
+              z.libraryCount = libraryAfter.length;
+              if (ctx.libraries?.set) {
+                ctx.libraries.set(controllerId, cloneLibraryCards(libraryAfter));
+              }
+              if ((e as any).grantPlayableFromExile === true) {
+                const stateAny = ctx.state as any;
+                stateAny.playableFromExile = stateAny.playableFromExile || {};
+                const entry = (stateAny.playableFromExile[controllerId] = stateAny.playableFromExile[controllerId] || {});
+                for (const card of exiledCards) {
+                  entry[String(card?.id || '')] = true;
+                }
+              }
+              break;
+            }
+            case 'dungeonDrawCards': {
+              const zones = ctx.state.zones = ctx.state.zones || {};
+              const z = zones[controllerId] = zones[controllerId] || {
+                hand: [],
+                handCount: 0,
+                libraryCount: 0,
+                graveyard: [],
+                graveyardCount: 0,
+                exile: [],
+                exileCount: 0,
+              };
+              const drawnCards = Array.isArray((e as any).drawnCards) ? (e as any).drawnCards as any[] : [];
+              const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+              z.hand = Array.isArray(z.hand) ? z.hand : [];
+              for (const card of drawnCards) {
+                if (!card || !String(card.id || '').trim()) continue;
+                if ((z.hand as any[]).some((existing: any) => String(existing?.id || '') === String(card.id))) {
+                  continue;
+                }
+                (z.hand as any[]).push({ ...card, zone: 'hand' });
+              }
+              z.handCount = (z.hand as any[]).length;
+              z.libraryCount = libraryAfter.length;
+              if (ctx.libraries?.set) {
+                ctx.libraries.set(controllerId, cloneLibraryCards(libraryAfter));
+              }
+              break;
+            }
+            case 'dungeonSetLibrary': {
+              const zones = ctx.state.zones = ctx.state.zones || {};
+              const z = zones[controllerId] = zones[controllerId] || {
+                hand: [],
+                handCount: 0,
+                libraryCount: 0,
+                graveyard: [],
+                graveyardCount: 0,
+                exile: [],
+                exileCount: 0,
+              };
+              const libraryAfter = cloneLibraryCards((e as any).libraryAfter as any[]);
+              z.libraryCount = libraryAfter.length;
+              if (ctx.libraries?.set) {
+                ctx.libraries.set(controllerId, cloneLibraryCards(libraryAfter));
               }
               break;
             }

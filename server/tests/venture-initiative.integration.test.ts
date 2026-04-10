@@ -60,7 +60,17 @@ describe('venture and initiative support (integration)', () => {
   const ventureForgeChoiceGameId = 'test_venture_forge_choice_integration';
   const ventureTrapChoiceGameId = 'test_venture_trap_choice_integration';
   const ventureArenaChoiceGameId = 'test_venture_arena_choice_integration';
+  const ventureVeilsChoiceGameId = 'test_venture_veils_choice_integration';
+  const ventureSandfallChoiceGameId = 'test_venture_sandfall_choice_integration';
+  const ventureOublietteChoiceGameId = 'test_venture_oubliette_choice_integration';
+  const ventureStashChoiceGameId = 'test_venture_stash_choice_integration';
+  const ventureFungiChoiceGameId = 'test_venture_fungi_choice_integration';
+  const ventureRunestoneChoiceGameId = 'test_venture_runestone_choice_integration';
   const ventureAutoRoomGameId = 'test_venture_auto_room_integration';
+  const ventureCradleAutoRoomGameId = 'test_venture_cradle_auto_room_integration';
+  const ventureTwistedChoiceGameId = 'test_venture_twisted_choice_integration';
+  const ventureMadWizardAutoRoomGameId = 'test_venture_mad_wizard_auto_room_integration';
+  const ventureThroneAutoRoomGameId = 'test_venture_throne_auto_room_integration';
   const initiativeTakeGameId = 'test_initiative_take_integration';
   const initiativeAdvanceGameId = 'test_initiative_advance_integration';
   const initiativeUpkeepGameId = 'test_initiative_upkeep_integration';
@@ -82,7 +92,17 @@ describe('venture and initiative support (integration)', () => {
       ventureForgeChoiceGameId,
       ventureTrapChoiceGameId,
       ventureArenaChoiceGameId,
+      ventureVeilsChoiceGameId,
+      ventureSandfallChoiceGameId,
+      ventureOublietteChoiceGameId,
+      ventureStashChoiceGameId,
+      ventureFungiChoiceGameId,
+      ventureRunestoneChoiceGameId,
       ventureAutoRoomGameId,
+      ventureCradleAutoRoomGameId,
+      ventureTwistedChoiceGameId,
+      ventureMadWizardAutoRoomGameId,
+      ventureThroneAutoRoomGameId,
       initiativeTakeGameId,
       initiativeAdvanceGameId,
       initiativeUpkeepGameId,
@@ -392,6 +412,658 @@ describe('venture and initiative support (integration)', () => {
         ventureCurrentRoomId: 'secret_entrance',
       },
     });
+  });
+
+  it('creates and persists a replay-safe Treasure token when choosing Stash', async () => {
+    createGameIfNotExists(ventureStashChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureStashChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).battlefield = [];
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'undercity',
+        dungeonName: 'Undercity',
+        roomIndex: 1,
+        currentRoomId: 'lost_well',
+        currentRoomName: 'Lost Well',
+        currentRoomEffect: 'Scry 2.',
+        roomPath: ['secret_entrance', 'lost_well'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureStashChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Undercity',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'arena', label: 'Arena - Goad target creature.' },
+        { id: 'stash', label: 'Stash - Create a Treasure token.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'undercity',
+      ventureCurrentRoomId: 'lost_well',
+      ventureRoomPath: ['secret_entrance', 'lost_well'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureStashChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureStashChoiceGameId, stepId: step.id, selections: 'stash' });
+
+    expect(((game.state as any).dungeonProgress || {})[playerId]).toMatchObject({
+      dungeonId: 'undercity',
+      currentRoomId: 'stash',
+      roomPath: ['secret_entrance', 'lost_well', 'stash'],
+    });
+
+    const treasureTokens = ((game.state as any).battlefield || []).filter((permanent: any) => {
+      return permanent?.isToken === true && String(permanent?.card?.type_line || '').includes('Treasure');
+    });
+    expect(treasureTokens).toHaveLength(1);
+
+    const tokenEvent = [...getEvents(ventureStashChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'executeEffect'
+        && String(event?.payload?.effectType || '') === 'createToken'
+        && String(event?.payload?.tokenData?.typeLine || '').includes('Treasure')
+    ) as any;
+    expect(tokenEvent).toBeDefined();
+    expect(tokenEvent.payload).toMatchObject({
+      controllerId: playerId,
+      tokenData: {
+        id: treasureTokens[0].id,
+        name: 'Treasure',
+        typeLine: 'Token Artifact — Treasure',
+      },
+    });
+  });
+
+  it('queues Veils of Fear discard payment for players with cards and auto-applies life loss for players without a hand', async () => {
+    createGameIfNotExists(ventureVeilsChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureVeilsChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const discardCardId = 'veils_hand_card_1';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, p2: 40 };
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: discardCardId,
+            name: 'Island',
+            type_line: 'Basic Land — Island',
+            image_uris: {},
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      p2: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'tomb',
+        dungeonName: 'Tomb of Annihilation',
+        roomIndex: 0,
+        currentRoomId: 'trapped_entry',
+        currentRoomName: 'Trapped Entry',
+        currentRoomEffect: 'Each player loses 1 life.',
+        roomPath: ['trapped_entry'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureVeilsChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Tomb of Annihilation',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'veils_of_fear', label: 'Veils of Fear - Each player loses 2 life unless they discard a card.' },
+        { id: 'oubliette', label: 'Oubliette - Discard a card and sacrifice a creature, an artifact, and a land.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'tomb',
+      ventureCurrentRoomId: 'trapped_entry',
+      ventureRoomPath: ['trapped_entry'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureVeilsChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureVeilsChoiceGameId, stepId: step.id, selections: 'veils_of_fear' });
+
+    expect(((game.state as any).life || {}).p2).toBe(38);
+    const penaltyChoiceStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureVeilsChoiceGameId));
+    expect((penaltyChoiceStep as any)?.dungeonRoomPenaltyChoice).toMatchObject({
+      dungeonId: 'tomb',
+      roomId: 'veils_of_fear',
+      paymentType: 'discard',
+      amount: 2,
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureVeilsChoiceGameId,
+      stepId: (penaltyChoiceStep as any).id,
+      selections: 'discard_card',
+    });
+
+    const discardStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureVeilsChoiceGameId));
+    expect((discardStep as any)?.type).toBe(ResolutionStepType.DISCARD_SELECTION);
+    expect((discardStep as any)?.dungeonRoomPayment).toMatchObject({
+      dungeonId: 'tomb',
+      roomId: 'veils_of_fear',
+      paymentType: 'discard',
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureVeilsChoiceGameId,
+      stepId: (discardStep as any).id,
+      selections: [discardCardId],
+    });
+
+    expect(((game.state as any).zones?.[playerId]?.hand || []).map((card: any) => card.id)).not.toContain(discardCardId);
+    expect(((game.state as any).zones?.[playerId]?.graveyard || []).map((card: any) => card.id)).toContain(discardCardId);
+    expect(((game.state as any).life || {})[playerId]).toBe(40);
+
+    const choiceEvent = [...getEvents(ventureVeilsChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'dungeonRoomPenaltyChoiceResolve'
+    ) as any;
+    expect(choiceEvent?.payload?.choice).toBe('discard');
+
+    const discardEvent = [...getEvents(ventureVeilsChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'discardEffect'
+    ) as any;
+    expect(discardEvent?.payload?.dungeonRoomPayment).toMatchObject({
+      dungeonId: 'tomb',
+      roomId: 'veils_of_fear',
+      paymentType: 'discard',
+    });
+  });
+
+  it('queues Sandfall Cell sacrifice payment for players with valid permanents and auto-applies life loss otherwise', async () => {
+    createGameIfNotExists(ventureSandfallChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureSandfallChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const creatureId = 'sandfall_creature_1';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).life = { [playerId]: 40, p2: 40 };
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+      p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: creatureId,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'sandfall_creature_card_1',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature — Bear',
+          power: '2',
+          toughness: '2',
+          image_uris: {},
+        },
+      },
+      {
+        id: 'sandfall_enchantment_1',
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: {
+          id: 'sandfall_enchantment_card_1',
+          name: 'Pacifism',
+          type_line: 'Enchantment — Aura',
+          image_uris: {},
+        },
+      },
+    ];
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'tomb',
+        dungeonName: 'Tomb of Annihilation',
+        roomIndex: 1,
+        currentRoomId: 'veils_of_fear',
+        currentRoomName: 'Veils of Fear',
+        currentRoomEffect: 'Each player loses 2 life unless they discard a card.',
+        roomPath: ['trapped_entry', 'veils_of_fear'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureSandfallChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Tomb of Annihilation',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'sandfall_cell', label: 'Sandfall Cell - Each player loses 2 life unless they sacrifice a creature, artifact, or land.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'tomb',
+      ventureCurrentRoomId: 'veils_of_fear',
+      ventureRoomPath: ['trapped_entry', 'veils_of_fear'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureSandfallChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureSandfallChoiceGameId, stepId: step.id, selections: 'sandfall_cell' });
+
+    expect(((game.state as any).life || {}).p2).toBe(38);
+    const penaltyChoiceStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureSandfallChoiceGameId));
+    expect((penaltyChoiceStep as any)?.dungeonRoomPenaltyChoice).toMatchObject({
+      dungeonId: 'tomb',
+      roomId: 'sandfall_cell',
+      paymentType: 'sacrifice',
+      amount: 2,
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureSandfallChoiceGameId,
+      stepId: (penaltyChoiceStep as any).id,
+      selections: 'sacrifice_permanent',
+    });
+
+    const sacrificeStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureSandfallChoiceGameId));
+    expect((sacrificeStep as any)?.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect((sacrificeStep as any)?.dungeonRoomPayment).toMatchObject({
+      dungeonId: 'tomb',
+      roomId: 'sandfall_cell',
+      paymentType: 'sacrifice',
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureSandfallChoiceGameId,
+      stepId: (sacrificeStep as any).id,
+      selections: [creatureId],
+    });
+
+    expect(((game.state as any).battlefield || []).some((permanent: any) => permanent.id === creatureId)).toBe(false);
+    expect(((game.state as any).zones?.[playerId]?.graveyard || []).map((card: any) => card.name)).toContain('Runeclaw Bear');
+    expect(((game.state as any).life || {})[playerId]).toBe(40);
+
+    const sacrificeEvent = [...getEvents(ventureSandfallChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'sacrificePermanent'
+    ) as any;
+    expect(sacrificeEvent?.payload?.dungeonRoomPayment).toMatchObject({
+      dungeonId: 'tomb',
+      roomId: 'sandfall_cell',
+      paymentType: 'sacrifice',
+    });
+  });
+
+  it('queues Oubliette as sequential discard and sacrifice payments', async () => {
+    createGameIfNotExists(ventureOublietteChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureOublietteChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const discardCardId = 'oubliette_hand_card_1';
+    const creatureId = 'oubliette_creature_1';
+    const artifactId = 'oubliette_artifact_1';
+    const landId = 'oubliette_land_1';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: discardCardId,
+            name: 'Swamp',
+            type_line: 'Basic Land — Swamp',
+            image_uris: {},
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+      p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: creatureId,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: { id: 'oubliette_creature_card_1', name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2', image_uris: {} },
+      },
+      {
+        id: artifactId,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: { id: 'oubliette_artifact_card_1', name: 'Sol Ring', type_line: 'Artifact', image_uris: {} },
+      },
+      {
+        id: landId,
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: { id: 'oubliette_land_card_1', name: 'Wastes', type_line: 'Basic Land', image_uris: {} },
+      },
+    ];
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'tomb',
+        dungeonName: 'Tomb of Annihilation',
+        roomIndex: 0,
+        currentRoomId: 'trapped_entry',
+        currentRoomName: 'Trapped Entry',
+        currentRoomEffect: 'Each player loses 1 life.',
+        roomPath: ['trapped_entry'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureOublietteChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Tomb of Annihilation',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'veils_of_fear', label: 'Veils of Fear - Each player loses 2 life unless they discard a card.' },
+        { id: 'oubliette', label: 'Oubliette - Discard a card and sacrifice a creature, an artifact, and a land.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'tomb',
+      ventureCurrentRoomId: 'trapped_entry',
+      ventureRoomPath: ['trapped_entry'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureOublietteChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureOublietteChoiceGameId, stepId: step.id, selections: 'oubliette' });
+
+    expect(ResolutionQueueManager.getQueue(ventureOublietteChoiceGameId).steps).toHaveLength(4);
+
+    let queuedStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureOublietteChoiceGameId));
+    expect((queuedStep as any)?.type).toBe(ResolutionStepType.DISCARD_SELECTION);
+    await handlers['submitResolutionResponse']({
+      gameId: ventureOublietteChoiceGameId,
+      stepId: (queuedStep as any).id,
+      selections: [discardCardId],
+    });
+
+    queuedStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureOublietteChoiceGameId));
+    expect((queuedStep as any)?.description).toContain('Sacrifice a creature');
+    await handlers['submitResolutionResponse']({
+      gameId: ventureOublietteChoiceGameId,
+      stepId: (queuedStep as any).id,
+      selections: [creatureId],
+    });
+
+    queuedStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureOublietteChoiceGameId));
+    expect((queuedStep as any)?.description).toContain('Sacrifice an artifact');
+    await handlers['submitResolutionResponse']({
+      gameId: ventureOublietteChoiceGameId,
+      stepId: (queuedStep as any).id,
+      selections: [artifactId],
+    });
+
+    queuedStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureOublietteChoiceGameId));
+    expect((queuedStep as any)?.description).toContain('Sacrifice a land');
+    await handlers['submitResolutionResponse']({
+      gameId: ventureOublietteChoiceGameId,
+      stepId: (queuedStep as any).id,
+      selections: [landId],
+    });
+
+    expect(((game.state as any).zones?.[playerId]?.hand || []).map((card: any) => card.id)).not.toContain(discardCardId);
+    expect(((game.state as any).battlefield || []).some((permanent: any) => [creatureId, artifactId, landId].includes(permanent.id))).toBe(false);
+    expect(((game.state as any).zones?.[playerId]?.graveyard || []).map((card: any) => card.name)).toEqual(
+      expect.arrayContaining(['Swamp', 'Grizzly Bears', 'Sol Ring', 'Wastes']),
+    );
+
+    const discardEvents = getEvents(ventureOublietteChoiceGameId).filter(
+      (event: any) => String(event?.type || '') === 'discardEffect'
+    );
+    const sacrificeEvents = getEvents(ventureOublietteChoiceGameId).filter(
+      (event: any) => String(event?.type || '') === 'sacrificePermanent'
+    );
+    expect(discardEvents).toHaveLength(1);
+    expect(sacrificeEvents).toHaveLength(3);
+  });
+
+  it('queues and persists Fungi Cavern target-creature resolution after choosing the room', async () => {
+    createGameIfNotExists(ventureFungiChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureFungiChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const targetCreatureId = 'fungi_target_1';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnNumber = 6;
+    (game.state as any).battlefield = [
+      {
+        id: targetCreatureId,
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: {
+          id: 'fungi_target_card_1',
+          name: 'Runeclaw Bear',
+          type_line: 'Creature — Bear',
+          power: '2',
+          toughness: '2',
+          image_uris: {},
+        },
+      },
+    ];
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'lost_mine',
+        dungeonName: 'Lost Mine of Phandelver',
+        roomIndex: 1,
+        currentRoomId: 'mine_tunnels',
+        currentRoomName: 'Mine Tunnels',
+        currentRoomEffect: 'Create a Treasure token.',
+        roomPath: ['cave_entrance', 'mine_tunnels'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureFungiChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Lost Mine of Phandelver',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'dark_pool', label: 'Dark Pool - Each opponent loses 1 life and you gain 1 life.' },
+        { id: 'fungi_cavern', label: 'Fungi Cavern - Target creature gets -4/-0 until your next turn.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'lost_mine',
+      ventureCurrentRoomId: 'mine_tunnels',
+      ventureRoomPath: ['cave_entrance', 'mine_tunnels'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureFungiChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureFungiChoiceGameId, stepId: step.id, selections: 'fungi_cavern' });
+
+    const queue = ResolutionQueueManager.getQueue(ventureFungiChoiceGameId);
+    const queuedTargetStep = getQueuedOrActiveStep(queue);
+    expect((queuedTargetStep as any)?.dungeonTargetCreatureEffect).toMatchObject({
+      dungeonId: 'lost_mine',
+      roomId: 'fungi_cavern',
+      powerDelta: -4,
+      toughnessDelta: 0,
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureFungiChoiceGameId,
+      stepId: (queuedTargetStep as any).id,
+      selections: [targetCreatureId],
+    });
+
+    const targetCreature = ((game.state as any).battlefield || []).find((permanent: any) => permanent.id === targetCreatureId) as any;
+    expect(Array.isArray(targetCreature?.untilNextTurnPtMods) ? targetCreature.untilNextTurnPtMods : []).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ power: -4, toughness: 0, controllerId: playerId, turnApplied: 6 }),
+      ]),
+    );
+
+    const resolveEvent = [...getEvents(ventureFungiChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'dungeonTargetCreatureResolve'
+    ) as any;
+    expect(resolveEvent?.payload).toMatchObject({
+      playerId,
+      selectedPermanentId: targetCreatureId,
+      dungeonId: 'lost_mine',
+      currentRoomId: 'fungi_cavern',
+      powerDelta: -4,
+      toughnessDelta: 0,
+    });
+  });
+
+  it('exiles the top two cards for Runestone Caverns and marks them playable from exile', async () => {
+    createGameIfNotExists(ventureRunestoneChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureRunestoneChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const runestoneCardA = {
+      id: 'runestone_top_1',
+      name: 'Opt',
+      type_line: 'Instant',
+      mana_cost: '{U}',
+      oracle_text: 'Scry 1. Draw a card.',
+      image_uris: {},
+    };
+    const runestoneCardB = {
+      id: 'runestone_top_2',
+      name: 'Island',
+      type_line: 'Basic Land — Island',
+      image_uris: {},
+    };
+    const runestoneCardC = {
+      id: 'runestone_top_3',
+      name: 'Swamp',
+      type_line: 'Basic Land — Swamp',
+      image_uris: {},
+    };
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 3 },
+      p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+    };
+    game.libraries.set(playerId, [runestoneCardA, runestoneCardB, runestoneCardC]);
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'mad_mage',
+        dungeonName: 'Dungeon of the Mad Mage',
+        roomIndex: 2,
+        currentRoomId: 'lost_level',
+        currentRoomName: 'Lost Level',
+        currentRoomEffect: 'Scry 2.',
+        roomPath: ['yawning_portal', 'dungeon_level', 'lost_level'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureRunestoneChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Dungeon of the Mad Mage',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'runestone_caverns', label: 'Runestone Caverns - Exile the top two cards of your library. You may play them.' },
+        { id: 'muirals_graveyard', label: "Muiral's Graveyard - Create two 1/1 black Skeleton creature tokens." },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'mad_mage',
+      ventureCurrentRoomId: 'lost_level',
+      ventureRoomPath: ['yawning_portal', 'dungeon_level', 'lost_level'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureRunestoneChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureRunestoneChoiceGameId, stepId: step.id, selections: 'runestone_caverns' });
+
+    expect((((game.state as any).zones?.[playerId]?.exile || []) as any[]).map((card: any) => card.id)).toEqual(['runestone_top_1', 'runestone_top_2']);
+    expect(Array.isArray(game.libraries.get(playerId)) ? game.libraries.get(playerId).map((card: any) => card.id) : []).toEqual(['runestone_top_3']);
+    expect((game.state as any).playableFromExile?.[playerId]?.runestone_top_1).toBe(true);
+    expect((game.state as any).playableFromExile?.[playerId]?.runestone_top_2).toBe(true);
+
+    const executeEffectEvent = [...getEvents(ventureRunestoneChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'executeEffect'
+        && String(event?.payload?.effectType || '') === 'dungeonExileCards'
+    ) as any;
+    expect(executeEffectEvent?.payload?.exiledCards).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'runestone_top_1', name: 'Opt' }),
+        expect.objectContaining({ id: 'runestone_top_2', name: 'Island' }),
+      ]),
+    );
   });
 
   it('persists and replays the chosen next room after a branch-room choice is answered', async () => {
@@ -708,6 +1380,375 @@ describe('venture and initiative support (integration)', () => {
       amount: 2,
       counterType: '+1/+1',
     });
+  });
+
+  it('creates and persists a replay-safe Atropal token on an automatic room transition', () => {
+    createGameIfNotExists(ventureCradleAutoRoomGameId, 'commander', 40);
+    const game = ensureGame(ventureCradleAutoRoomGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    (game as any).gameId = ventureCradleAutoRoomGameId;
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).battlefield = [];
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'tomb',
+        dungeonName: 'Tomb of Annihilation',
+        roomIndex: 1,
+        currentRoomId: 'oubliette',
+        currentRoomName: 'Oubliette',
+        currentRoomEffect: 'Discard a card and sacrifice a creature, an artifact, and a land.',
+        roomPath: ['trapped_entry', 'oubliette'],
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'trigger_venture_cradle_1',
+        type: 'triggered_ability',
+        controller: playerId,
+        sourceName: 'Test Venture Trigger',
+        description: 'Venture into the dungeon.',
+      },
+    ];
+
+    game.resolveTopOfStack();
+
+    expect((((game.state as any).dungeonProgress || {})[playerId])).toBeUndefined();
+    expect((((game.state as any).completedDungeons || {})[playerId])).toBe(1);
+
+    const atropal = ((game.state as any).battlefield || []).find((permanent: any) => String(permanent?.card?.name || '') === 'The Atropal');
+    expect(atropal).toBeDefined();
+    expect(String((atropal as any)?.card?.type_line || '')).toContain('Legendary Creature — God Horror');
+    expect(Array.isArray((atropal as any)?.card?.keywords) ? (atropal as any).card.keywords : []).toContain('Deathtouch');
+
+    const tokenEvent = [...getEvents(ventureCradleAutoRoomGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'executeEffect'
+        && String(event?.payload?.effectType || '') === 'createToken'
+        && String(event?.payload?.tokenData?.name || '') === 'The Atropal'
+    ) as any;
+    expect(tokenEvent).toBeDefined();
+    expect(tokenEvent.payload).toMatchObject({
+      controllerId: playerId,
+      tokenData: {
+        id: (atropal as any).id,
+        name: 'The Atropal',
+        typeLine: 'Token Legendary Creature — God Horror',
+        power: 4,
+        toughness: 4,
+      },
+    });
+  });
+
+  it('draws three cards for Mad Wizard\'s Lair and lets you free-cast one of the revealed spells', async () => {
+    createGameIfNotExists(ventureMadWizardAutoRoomGameId, 'commander', 40);
+    const game = ensureGame(ventureMadWizardAutoRoomGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const spellCard = {
+      id: 'mad_wizard_draw_1',
+      name: 'Opt',
+      type_line: 'Instant',
+      mana_cost: '{U}',
+      oracle_text: 'Scry 1. Draw a card.',
+      image_uris: {},
+    };
+    const landCard = {
+      id: 'mad_wizard_draw_2',
+      name: 'Island',
+      type_line: 'Basic Land — Island',
+      image_uris: {},
+    };
+    const secondSpellCard = {
+      id: 'mad_wizard_draw_3',
+      name: 'Negate',
+      type_line: 'Instant',
+      mana_cost: '{1}{U}',
+      oracle_text: 'Counter target noncreature spell.',
+      image_uris: {},
+    };
+
+    (game as any).gameId = ventureMadWizardAutoRoomGameId;
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).phase = 'MAIN1';
+    (game.state as any).priority = playerId;
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 3 },
+      p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+    };
+    game.libraries.set(playerId, [spellCard, landCard, secondSpellCard]);
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'mad_mage',
+        dungeonName: 'Dungeon of the Mad Mage',
+        roomIndex: 3,
+        currentRoomId: 'deep_mines',
+        currentRoomName: 'Deep Mines',
+        currentRoomEffect: 'Scry 3.',
+        roomPath: ['yawning_portal', 'dungeon_level', 'lost_level', 'deep_mines'],
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'trigger_venture_mad_wizard_1',
+        type: 'triggered_ability',
+        controller: playerId,
+        sourceName: 'Test Venture Trigger',
+        description: 'Venture into the dungeon.',
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureMadWizardAutoRoomGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    game.resolveTopOfStack();
+
+    expect((((game.state as any).zones?.[playerId]?.hand || []) as any[]).map((card: any) => card.id)).toEqual([
+      'mad_wizard_draw_1',
+      'mad_wizard_draw_2',
+      'mad_wizard_draw_3',
+    ]);
+
+    const castChoiceStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureMadWizardAutoRoomGameId));
+    expect((castChoiceStep as any)?.dungeonRoomFreeCastFromHandChoice).toMatchObject({
+      dungeonId: 'mad_mage',
+      roomId: 'mad_wizards_lair',
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureMadWizardAutoRoomGameId,
+      stepId: (castChoiceStep as any).id,
+      selections: 'mad_wizard_draw_1',
+    });
+
+    const pendingSpellCasts = Object.values(((game.state as any).pendingSpellCasts || {})) as any[];
+    const queue = ResolutionQueueManager.getQueue(ventureMadWizardAutoRoomGameId);
+    const queuedOrActiveCastStep = getQueuedOrActiveStep(queue);
+    const castStarted = Array.isArray((game.state as any).stack)
+      ? (game.state as any).stack.some((item: any) => String(item?.card?.id || '') === 'mad_wizard_draw_1')
+      : false;
+    const pendingCastExists = pendingSpellCasts.some((entry: any) => String(entry?.cardId || '') === 'mad_wizard_draw_1');
+    const queuedCastStepExists = Array.isArray(queue?.steps)
+      ? queue.steps.some((queuedStep: any) => String(queuedStep?.spellCardId || queuedStep?.cardId || queuedStep?.spellCastContext?.cardId || '') === 'mad_wizard_draw_1')
+      : false;
+    const activeCastStepExists = String(
+      (queuedOrActiveCastStep as any)?.spellCardId ||
+      (queuedOrActiveCastStep as any)?.cardId ||
+      (queuedOrActiveCastStep as any)?.spellCastContext?.cardId ||
+      '',
+    ) === 'mad_wizard_draw_1';
+    expect(castStarted || pendingCastExists || queuedCastStepExists || activeCastStepExists).toBe(true);
+
+    const drawEffectEvent = [...getEvents(ventureMadWizardAutoRoomGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'executeEffect'
+        && String(event?.payload?.effectType || '') === 'dungeonDrawCards'
+    ) as any;
+    expect(drawEffectEvent?.payload?.drawnCards).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'mad_wizard_draw_1', name: 'Opt' }),
+        expect.objectContaining({ id: 'mad_wizard_draw_2', name: 'Island' }),
+        expect.objectContaining({ id: 'mad_wizard_draw_3', name: 'Negate' }),
+      ]),
+    );
+
+    const freeCastChoiceEvent = [...getEvents(ventureMadWizardAutoRoomGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'dungeonRoomFreeCastChoiceResolve'
+    ) as any;
+    expect(freeCastChoiceEvent?.payload?.choice).toBe('cast');
+  });
+
+  it('queues and resolves Throne of the Dead Three by putting a revealed creature onto the battlefield with counters and hexproof', async () => {
+    createGameIfNotExists(ventureThroneAutoRoomGameId, 'commander', 40);
+    const game = ensureGame(ventureThroneAutoRoomGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const chosenCreature = {
+      id: 'throne_top_1',
+      name: 'Hill Giant',
+      type_line: 'Creature — Giant',
+      mana_cost: '{3}{R}',
+      power: '3',
+      toughness: '3',
+      image_uris: {},
+    };
+    const fillerCards = Array.from({ length: 9 }, (_, index) => ({
+      id: `throne_fill_${index + 1}`,
+      name: `Filler ${index + 1}`,
+      type_line: index % 2 === 0 ? 'Instant' : 'Basic Land — Plains',
+      image_uris: {},
+    }));
+
+    (game as any).gameId = ventureThroneAutoRoomGameId;
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnNumber = 7;
+    (game.state as any).zones = {
+      [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 10 },
+      p2: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, libraryCount: 0 },
+    };
+    game.libraries.set(playerId, [chosenCreature, ...fillerCards]);
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'undercity',
+        dungeonName: 'Undercity',
+        roomIndex: 3,
+        currentRoomId: 'archives',
+        currentRoomName: 'Archives',
+        currentRoomEffect: 'Draw a card.',
+        roomPath: ['secret_entrance', 'forge', 'trap', 'archives'],
+      },
+    };
+    (game.state as any).stack = [
+      {
+        id: 'trigger_venture_throne_1',
+        type: 'triggered_ability',
+        controller: playerId,
+        sourceName: 'Test Venture Trigger',
+        description: 'Venture into the dungeon.',
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureThroneAutoRoomGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    game.resolveTopOfStack();
+
+    const throneStep = getQueuedOrActiveStep(ResolutionQueueManager.getQueue(ventureThroneAutoRoomGameId));
+    expect((throneStep as any)?.dungeonRoomThroneChoice).toMatchObject({
+      dungeonId: 'undercity',
+      roomId: 'throne_of_the_dead_three',
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureThroneAutoRoomGameId,
+      stepId: (throneStep as any).id,
+      selections: 'throne_top_1',
+    });
+
+    const battlefieldPermanent = ((game.state as any).battlefield || []).find((permanent: any) => String(permanent?.card?.name || '') === 'Hill Giant') as any;
+    expect(battlefieldPermanent).toBeDefined();
+    expect((battlefieldPermanent?.counters || {})['+1/+1']).toBe(3);
+    expect(
+      Array.isArray(battlefieldPermanent?.grantedAbilities)
+        ? battlefieldPermanent.grantedAbilities.map((ability: any) => String(ability).toLowerCase())
+        : [],
+    ).toContain('hexproof');
+    expect(Array.isArray(battlefieldPermanent?.untilNextTurnGrants) ? battlefieldPermanent.untilNextTurnGrants : []).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ controllerId: playerId, turnApplied: 7, kind: 'hexproof' }),
+      ]),
+    );
+
+    const throneResolveEvent = [...getEvents(ventureThroneAutoRoomGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'dungeonRoomThroneResolve'
+    ) as any;
+    expect(throneResolveEvent?.payload?.selectedCard).toMatchObject({ id: 'throne_top_1', name: 'Hill Giant' });
+  });
+
+  it('queues and persists Twisted Caverns target-creature resolution after choosing the room', async () => {
+    createGameIfNotExists(ventureTwistedChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureTwistedChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const targetCreatureId = 'twisted_target_1';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnNumber = 5;
+    (game.state as any).battlefield = [
+      {
+        id: targetCreatureId,
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: {
+          id: 'twisted_target_card_1',
+          name: 'Hill Giant',
+          type_line: 'Creature — Giant',
+          power: '3',
+          toughness: '3',
+          image_uris: {},
+        },
+      },
+    ];
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'mad_mage',
+        dungeonName: 'Dungeon of the Mad Mage',
+        roomIndex: 1,
+        currentRoomId: 'dungeon_level',
+        currentRoomName: 'Dungeon Level',
+        currentRoomEffect: 'Scry 1.',
+        roomPath: ['yawning_portal', 'dungeon_level'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureTwistedChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Dungeon of the Mad Mage',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'goblin_bazaar', label: 'Goblin Bazaar - Create a Treasure token.' },
+        { id: 'twisted_caverns', label: "Twisted Caverns - Target creature can't attack until your next turn." },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'mad_mage',
+      ventureCurrentRoomId: 'dungeon_level',
+      ventureRoomPath: ['yawning_portal', 'dungeon_level'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureTwistedChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureTwistedChoiceGameId, stepId: step.id, selections: 'twisted_caverns' });
+
+    const queue = ResolutionQueueManager.getQueue(ventureTwistedChoiceGameId);
+    const queuedTargetStep = getQueuedOrActiveStep(queue);
+    expect((queuedTargetStep as any)?.dungeonTargetCreatureEffect).toMatchObject({
+      dungeonId: 'mad_mage',
+      roomId: 'twisted_caverns',
+      grantText: "This creature can't attack (until your next turn)",
+    });
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureTwistedChoiceGameId,
+      stepId: (queuedTargetStep as any).id,
+      selections: [targetCreatureId],
+    });
+
+    const targetCreature = ((game.state as any).battlefield || []).find((permanent: any) => permanent.id === targetCreatureId) as any;
+    expect(
+      Array.isArray(targetCreature?.grantedAbilities)
+        ? targetCreature.grantedAbilities.map((ability: any) => String(ability).toLowerCase())
+        : [],
+    ).toContain("this creature can't attack (until your next turn)");
+    expect(Array.isArray(targetCreature?.untilNextTurnGrants) ? targetCreature.untilNextTurnGrants : []).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ controllerId: playerId, turnApplied: 5, kind: 'cant_attack' }),
+      ]),
+    );
   });
 
   it('queues and persists Arena target-creature resolution after choosing the room', async () => {

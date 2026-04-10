@@ -13,6 +13,7 @@ import {
   ResolutionStepStatus,
   ResolutionStepType,
   createResolutionStep,
+  type CreateResolutionStepConfig,
   type ResolutionStep,
   type ResolutionStepResponse,
   type TargetSelectionStep,
@@ -100,9 +101,11 @@ import {
 } from "../state/modules/dungeons.js";
 import {
   applyAutomaticDungeonRoomEffect,
+  applyAutomaticDungeonRoomTokenEffects,
+  buildDungeonRoomPenaltyFollowUpStep,
   applyDungeonTargetCreatureEffect,
   applyDungeonTargetPlayerEffect,
-  buildDungeonRoomPromptStep,
+  buildDungeonRoomPromptSteps,
 } from "../state/modules/dungeon-effects.js";
 
 type ResolutionPaymentItem = {
@@ -173,6 +176,77 @@ function appendQueuedResolutionPromptEvent(
   } catch (err) {
     debugWarn(1, '[resolution] appendEvent(resolveTopOfStackPrompt) failed:', err);
   }
+}
+
+function appendDungeonRoomExecuteEffectEvents(
+  game: any,
+  gameId: string,
+  effectPayloads: any[],
+): void {
+  if (!Array.isArray(effectPayloads) || effectPayloads.length === 0 || (game as any)?.isReplaying) {
+    return;
+  }
+
+  for (const payload of effectPayloads) {
+    try {
+      appendEvent(
+        gameId,
+        Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
+        'executeEffect',
+        payload,
+      );
+    } catch (err) {
+      debugWarn(1, '[resolution] appendEvent(executeEffect/createToken) failed for dungeon room:', err);
+    }
+  }
+}
+
+function queueDungeonRoomPromptSteps(
+  game: any,
+  gameId: string,
+  promptSteps: CreateResolutionStepConfig[],
+  fallbackPlayerId: string,
+  sourceId?: string,
+): void {
+  if (!Array.isArray(promptSteps) || promptSteps.length === 0) {
+    return;
+  }
+
+  if (promptSteps.length === 1) {
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, promptSteps[0] as any);
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId: String((queuedResolutionStep as any)?.playerId || fallbackPlayerId || '').trim(),
+      sourceId: String((queuedResolutionStep as any)?.sourceId || sourceId || '').trim(),
+      queuedResolutionStep,
+    });
+    return;
+  }
+
+  const players = Array.isArray(game.state?.players) ? game.state.players : [];
+  const turnOrder = players
+    .filter((player: any) => player && player.spectator !== true && player.hasLost !== true && String(player.id || '').trim())
+    .map((player: any) => String(player.id));
+  const activePlayerId = String(
+    game.state?.turnPlayer ||
+    game.state?.activePlayer ||
+    game.state?.activePlayerId ||
+    turnOrder[0] ||
+    fallbackPlayerId ||
+    '',
+  );
+
+  const queuedResolutionSteps = ResolutionQueueManager.addStepsWithAPNAP(
+    gameId,
+    promptSteps as any,
+    turnOrder as any,
+    activePlayerId as any,
+  );
+
+  appendQueuedResolutionPromptEvent(game, gameId, {
+    playerId: String((queuedResolutionSteps[0] as any)?.playerId || fallbackPlayerId || '').trim(),
+    sourceId: String((queuedResolutionSteps[0] as any)?.sourceId || sourceId || '').trim(),
+    queuedResolutionSteps: queuedResolutionSteps as any[],
+  });
 }
 
 function hasPendingSpellCastForPlayer(game: any, playerId: string): boolean {
@@ -11962,6 +12036,9 @@ async function handleDiscardResponse(
   const hand = discardStep.hand || [];
   const discardCount = discardStep.discardCount;
   const destination: 'graveyard' | 'exile' = discardStep.destination === 'exile' ? 'exile' : 'graveyard';
+  const dungeonRoomPayment = discardStep.dungeonRoomPayment && typeof discardStep.dungeonRoomPayment === 'object'
+    ? { ...(discardStep.dungeonRoomPayment as Record<string, any>) }
+    : undefined;
   
   // Validate selection count matches required discard count
   if (discardCount && selections.length !== discardCount) {
@@ -12178,6 +12255,13 @@ async function handleDiscardResponse(
         cardIds: selections.map((cardId: any) => String(cardId)).filter(Boolean),
         destination,
         ...(exileTag ? { exileTag } : {}),
+        ...(dungeonRoomPayment
+          ? {
+              resolvedStepId: String(step.id || '').trim(),
+              sourceId: String(step.sourceId || '').trim(),
+              dungeonRoomPayment,
+            }
+          : {}),
       });
     } catch {
       // ignore persistence failures
@@ -13273,6 +13357,51 @@ async function handleTargetSelectionResponse(
   // These are enqueued as TARGET_SELECTION steps with crewAbility metadata.
   // ========================================================================
   const stepAny = step as any;
+  if (stepAny?.dungeonRoomPayment?.paymentType === 'sacrifice') {
+    const controllerId = String(pid || '').trim();
+    const sourceName = String(stepAny?.dungeonRoomPayment?.sourceName || step.sourceName || 'Dungeon').trim() || 'Dungeon';
+    const ctx = {
+      state: game.state,
+      libraries: (game as any).libraries,
+      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
+      rng: (game as any).rng,
+      gameId,
+    } as unknown as GameContext;
+
+    const sacrificedNames: string[] = [];
+    for (const permanentId of selections) {
+      const sacrificedName = sacrificePermanent(ctx, String(permanentId), controllerId);
+      if (sacrificedName) {
+        sacrificedNames.push(sacrificedName);
+      }
+      try {
+        await appendEvent(gameId, (game as any).seq ?? 0, 'sacrificePermanent', {
+          permanentId: String(permanentId),
+          playerId: controllerId,
+          resolvedStepId: String(step.id || '').trim(),
+          sourceId: String(step.sourceId || '').trim(),
+          dungeonRoomPayment: { ...(stepAny.dungeonRoomPayment as Record<string, any>) },
+        });
+      } catch (err) {
+        debugWarn(1, '[resolution] appendEvent(sacrificePermanent) failed for dungeon room payment:', err);
+      }
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, controllerId)} sacrifices ${sacrificedNames.join(', ') || 'a permanent'} for ${sourceName}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (stepAny?.dungeonTargetCreatureEffect) {
     const selectedPermanentId = String(selections[0] || '').trim();
     if (!selectedPermanentId) {
@@ -13290,6 +13419,9 @@ async function handleTargetSelectionResponse(
       currentRoomId: String(effectData?.roomId || '').trim(),
       amount: Number(effectData?.amount || 0),
       counterType: String(effectData?.counterType || '').trim() || undefined,
+      powerDelta: Number(effectData?.powerDelta || 0),
+      toughnessDelta: Number(effectData?.toughnessDelta || 0),
+      grantText: String(effectData?.grantText || '').trim() || undefined,
       goadedByPlayerId: String(pid || '').trim() || undefined,
     };
 
@@ -13325,9 +13457,21 @@ async function handleTargetSelectionResponse(
         ? (applied
             ? `${targetName} gets two +1/+1 counters from ${String(step.sourceName || 'Forge')}.`
             : `${getPlayerName(game, pid)} chose ${targetName} for ${String(step.sourceName || 'Forge')}.`)
-        : (applied
-            ? `${targetName} is goaded by ${getPlayerName(game, pid)} from ${String(step.sourceName || 'Arena')}.`
-            : `${getPlayerName(game, pid)} chose ${targetName} for ${String(step.sourceName || 'Arena')}.`),
+        : roomId === 'storeroom'
+          ? (applied
+              ? `${targetName} gets a +1/+1 counter from ${String(step.sourceName || 'Storeroom')}.`
+              : `${getPlayerName(game, pid)} chose ${targetName} for ${String(step.sourceName || 'Storeroom')}.`)
+          : roomId === 'fungi_cavern'
+            ? (applied
+                ? `${targetName} gets -4/-0 until your next turn from ${String(step.sourceName || 'Fungi Cavern')}.`
+                : `${getPlayerName(game, pid)} chose ${targetName} for ${String(step.sourceName || 'Fungi Cavern')}.`)
+            : roomId === 'twisted_caverns'
+              ? (applied
+                  ? `${targetName} can't attack until your next turn because of ${String(step.sourceName || 'Twisted Caverns')}.`
+                  : `${getPlayerName(game, pid)} chose ${targetName} for ${String(step.sourceName || 'Twisted Caverns')}.`)
+              : (applied
+                  ? `${targetName} is goaded by ${getPlayerName(game, pid)} from ${String(step.sourceName || 'Arena')}.`
+                  : `${getPlayerName(game, pid)} chose ${targetName} for ${String(step.sourceName || 'Arena')}.`),
       ts: Date.now(),
     });
 
@@ -24425,6 +24569,301 @@ async function handleOptionChoiceResponse(
     return;
   }
 
+  if (stepData?.dungeonRoomPenaltyChoice) {
+    const choiceData = stepData.dungeonRoomPenaltyChoice as any;
+    const choiceId = String(extractId(selectedOption) || '').trim().toLowerCase();
+    const affectedPlayerId = String(step.playerId || playerId || '').trim();
+    const sourceId = String(step.sourceId || '').trim();
+    const sourceName = String(choiceData.sourceName || step.sourceName || 'Dungeon').trim() || 'Dungeon';
+    const dungeonId = String(choiceData.dungeonId || '').trim();
+    const roomId = String(choiceData.roomId || '').trim();
+    const amount = Math.max(0, Number(choiceData.amount || 0));
+    const paymentType = String(choiceData.paymentType || '').trim().toLowerCase();
+    const wantsToPay =
+      (paymentType === 'discard' && choiceId === 'discard_card') ||
+      (paymentType === 'sacrifice' && choiceId === 'sacrifice_permanent');
+
+    const appendChoiceResolveEvent = async (choice: 'discard' | 'sacrifice' | 'lose_life') => {
+      try {
+        await appendEvent(
+          gameId,
+          Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
+          'dungeonRoomPenaltyChoiceResolve',
+          {
+            playerId: affectedPlayerId,
+            resolvedStepId: String(step.id || '').trim(),
+            sourceId,
+            sourceName,
+            dungeonId,
+            currentRoomId: roomId,
+            amount,
+            choice,
+          },
+        );
+      } catch (err) {
+        debugWarn(1, '[resolution] appendEvent(dungeonRoomPenaltyChoiceResolve) failed:', err);
+      }
+    };
+
+    if (!wantsToPay) {
+      applyDungeonTargetPlayerEffect(game as any, affectedPlayerId as PlayerID, {
+        dungeonId,
+        roomId,
+        amount,
+      });
+      await appendChoiceResolveEvent('lose_life');
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, affectedPlayerId)} loses ${amount} life because of ${sourceName}.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    const followUpStep = buildDungeonRoomPenaltyFollowUpStep(
+      game as any,
+      affectedPlayerId as PlayerID,
+      {
+        dungeonId,
+        roomId,
+        amount,
+        paymentType: paymentType as 'discard' | 'sacrifice',
+        sourceName,
+      },
+      sourceId,
+    );
+
+    if (!followUpStep) {
+      applyDungeonTargetPlayerEffect(game as any, affectedPlayerId as PlayerID, {
+        dungeonId,
+        roomId,
+        amount,
+      });
+      await appendChoiceResolveEvent('lose_life');
+
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, affectedPlayerId)} loses ${amount} life because of ${sourceName}.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    await appendChoiceResolveEvent(paymentType === 'discard' ? 'discard' : 'sacrifice');
+
+    const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, followUpStep as any);
+    appendQueuedResolutionPromptEvent(game, gameId, {
+      playerId: affectedPlayerId,
+      sourceId: String((queuedResolutionStep as any)?.sourceId || sourceId || '').trim(),
+      queuedResolutionStep,
+    });
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: paymentType === 'discard'
+        ? `${getPlayerName(game, affectedPlayerId)} chose to discard a card for ${sourceName}.`
+        : `${getPlayerName(game, affectedPlayerId)} chose to sacrifice a permanent for ${sourceName}.`,
+      ts: Date.now(),
+    });
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
+  }
+
+  if (stepData?.dungeonRoomFreeCastFromHandChoice) {
+    const choiceData = stepData.dungeonRoomFreeCastFromHandChoice as any;
+    const chosenId = String(extractId(selectedOption) || 'decline').trim();
+    const sourceId = String(step.sourceId || '').trim();
+    const sourceName = String(choiceData.sourceName || step.sourceName || 'Dungeon').trim() || 'Dungeon';
+    const dungeonId = String(choiceData.dungeonId || '').trim();
+    const roomId = String(choiceData.roomId || '').trim();
+
+    try {
+      await appendEvent(
+        gameId,
+        Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
+        'dungeonRoomFreeCastChoiceResolve',
+        {
+          playerId,
+          resolvedStepId: String(step.id || '').trim(),
+          sourceId,
+          sourceName,
+          dungeonId,
+          currentRoomId: roomId,
+          choice: chosenId === 'decline' ? 'decline' : 'cast',
+          chosenCardId: chosenId === 'decline' ? undefined : chosenId,
+        },
+      );
+    } catch (err) {
+      debugWarn(1, '[resolution] appendEvent(dungeonRoomFreeCastChoiceResolve) failed:', err);
+    }
+
+    if (chosenId === 'decline') {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} keeps the revealed cards from ${sourceName}.`,
+        ts: Date.now(),
+      });
+      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+      return;
+    }
+
+    const fakeSocket: any = {
+      data: { playerId, spectator: false },
+      emit: (event: string, payload: unknown) => {
+        emitToPlayer(io, playerId as any, event as any, payload);
+      },
+    };
+
+    await requestCastSpellForSocket(
+      io,
+      fakeSocket,
+      { gameId, cardId: chosenId },
+      {
+        skipPriorityCheck: true,
+        forcedAlternateCostId: 'free',
+        castWithoutPayingManaCost: true,
+      },
+    );
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} casts a revealed card from ${sourceName} without paying its mana cost.`,
+      ts: Date.now(),
+    });
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
+  }
+
+  if (stepData?.dungeonRoomThroneChoice) {
+    const choiceData = stepData.dungeonRoomThroneChoice as any;
+    const chosenId = String(extractId(selectedOption) || '').trim();
+    const sourceId = String(step.sourceId || '').trim();
+    const sourceName = String(choiceData.sourceName || step.sourceName || 'Throne of the Dead Three').trim() || 'Throne of the Dead Three';
+    const dungeonId = String(choiceData.dungeonId || '').trim();
+    const roomId = String(choiceData.roomId || '').trim();
+    const revealedCards = Array.isArray(choiceData.revealedCards) ? choiceData.revealedCards as any[] : [];
+    const chosenCard = revealedCards.find((card: any) => String(card?.id || '') === chosenId);
+    if (!chosenCard) {
+      debugWarn(2, '[resolution] dungeonRoomThroneChoice: selected card was not among revealed cards');
+      return;
+    }
+
+    const state = game.state || {};
+    const zones = state.zones = state.zones || {};
+    const z = zones[playerId] = zones[playerId] || {
+      hand: [],
+      handCount: 0,
+      libraryCount: 0,
+      graveyard: [],
+      graveyardCount: 0,
+      exile: [],
+      exileCount: 0,
+    };
+    const lib: any[] = Array.isArray((game as any).libraries?.get?.(playerId)) ? (game as any).libraries.get(playerId) : [];
+    const libraryIndex = lib.findIndex((card: any) => String(card?.id || '') === chosenId);
+    if (libraryIndex === -1) {
+      debugWarn(2, '[resolution] dungeonRoomThroneChoice: selected card is no longer in the library');
+      return;
+    }
+
+    const [libraryCard] = lib.splice(libraryIndex, 1);
+    const random = typeof (game as any).rng === 'function' ? (game as any).rng.bind(game) : Math.random;
+    for (let index = lib.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(random() * (index + 1));
+      [lib[index], lib[swapIndex]] = [lib[swapIndex], lib[index]];
+    }
+    z.libraryCount = lib.length;
+    (game as any).libraries?.set?.(playerId, lib);
+
+    const { uid, parsePT, cardManaValue } = await import('../state/utils.js');
+    const { applyCounterModifications } = await import('../state/modules/counters_tokens.js');
+    const { getETBTriggersForPermanent } = await import('../state/modules/triggered-abilities.js');
+    const { triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped } = await import('../state/modules/stack.js');
+    const battlefield = state.battlefield = state.battlefield || [];
+    const createdPermanentId = await putCardOntoBattlefield(
+      libraryCard,
+      String(playerId),
+      false,
+      state,
+      battlefield,
+      uid,
+      parsePT,
+      cardManaValue,
+      applyCounterModifications,
+      getETBTriggersForPermanent,
+      triggerETBEffectsForPermanent,
+      detectEntersWithCounters,
+      creatureWillHaveHaste,
+      checkPermanentEntersTapped,
+      game,
+      io,
+      gameId,
+    );
+
+    const permanent = battlefield.find((entry: any) => String(entry?.id || '') === createdPermanentId) as any;
+    if (permanent) {
+      permanent.counters = permanent.counters || {};
+      permanent.counters['+1/+1'] = (permanent.counters['+1/+1'] || 0) + 3;
+      permanent.grantedAbilities = Array.isArray(permanent.grantedAbilities) ? permanent.grantedAbilities : [];
+      if (!permanent.grantedAbilities.includes('Hexproof')) {
+        permanent.grantedAbilities.push('Hexproof');
+      }
+      permanent.untilNextTurnGrants = Array.isArray(permanent.untilNextTurnGrants) ? permanent.untilNextTurnGrants : [];
+      permanent.untilNextTurnGrants.push({
+        controllerId: String(playerId),
+        turnApplied: Number(state.turnNumber || 0),
+        grantedAbilities: ['Hexproof'],
+        sourceName,
+        kind: 'hexproof',
+      });
+    }
+
+    try {
+      await appendEvent(
+        gameId,
+        Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
+        'dungeonRoomThroneResolve',
+        {
+          playerId,
+          resolvedStepId: String(step.id || '').trim(),
+          sourceId,
+          sourceName,
+          dungeonId,
+          currentRoomId: roomId,
+          selectedCard: { ...libraryCard },
+          createdPermanentId,
+          turnApplied: Number(state.turnNumber || 0),
+          libraryAfter: cloneLibraryStateForEvent(lib),
+        },
+      );
+    } catch (err) {
+      debugWarn(1, '[resolution] appendEvent(dungeonRoomThroneResolve) failed:', err);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, playerId)} puts ${libraryCard?.name || 'a creature'} onto the battlefield from ${sourceName}.`,
+      ts: Date.now(),
+    });
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    return;
+  }
+
   // ===== GENERIC: Venture into the dungeon =====
   if (stepData?.ventureIntoDungeon === true) {
     const stateAny = game.state as any;
@@ -24491,15 +24930,11 @@ async function handleOptionChoiceResponse(
     }
 
     applyAutomaticDungeonRoomEffect(game as any, playerId as PlayerID, advancement.progress);
-    const promptStep = buildDungeonRoomPromptStep(game as any, playerId as PlayerID, advancement.progress, String((stepData as any)?.sourceId || step.sourceId || '').trim());
-    if (promptStep) {
-      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, promptStep as any);
-      appendQueuedResolutionPromptEvent(game, gameId, {
-        playerId: String(playerId || '').trim(),
-        sourceId: String((promptStep as any)?.sourceId || (stepData as any)?.sourceId || step.sourceId || '').trim(),
-        queuedResolutionStep,
-      });
-    }
+    const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(game as any, playerId as PlayerID, advancement.progress);
+    const roomSourceId = String((stepData as any)?.sourceId || step.sourceId || '').trim();
+    const promptSteps = buildDungeonRoomPromptSteps(game as any, playerId as PlayerID, advancement.progress, roomSourceId);
+    queueDungeonRoomPromptSteps(game, gameId, promptSteps, String(playerId || '').trim(), roomSourceId);
+    appendDungeonRoomExecuteEffectEvents(game, gameId, tokenEffectPayloads);
 
     if (advancement.completed) {
       markDungeonCompleted(stateAny, String(playerId), String(advancement.progress.dungeonName || progress.dungeonName).trim());
@@ -24544,15 +24979,10 @@ async function handleOptionChoiceResponse(
 
     stateAny.dungeonProgress[playerId] = dungeonProgress;
     applyAutomaticDungeonRoomEffect(game as any, playerId as PlayerID, dungeonProgress);
-    const promptStep = buildDungeonRoomPromptStep(game as any, playerId as PlayerID, dungeonProgress, String(step.sourceId || '').trim());
-    if (promptStep) {
-      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, promptStep as any);
-      appendQueuedResolutionPromptEvent(game, gameId, {
-        playerId: String(playerId || '').trim(),
-        sourceId: String((promptStep as any)?.sourceId || step.sourceId || '').trim(),
-        queuedResolutionStep,
-      });
-    }
+    const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(game as any, playerId as PlayerID, dungeonProgress);
+    const roomSourceId = String(step.sourceId || '').trim();
+    const promptSteps = buildDungeonRoomPromptSteps(game as any, playerId as PlayerID, dungeonProgress, roomSourceId);
+    queueDungeonRoomPromptSteps(game, gameId, promptSteps, String(playerId || '').trim(), roomSourceId);
 
     try {
       appendEvent(
@@ -24573,6 +25003,8 @@ async function handleOptionChoiceResponse(
     } catch (err) {
       debugWarn(1, '[resolution] appendEvent(ventureChooseDungeonResolve) failed:', err);
     }
+
+    appendDungeonRoomExecuteEffectEvents(game, gameId, tokenEffectPayloads);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -24601,15 +25033,10 @@ async function handleOptionChoiceResponse(
     }
 
     applyAutomaticDungeonRoomEffect(game as any, playerId as PlayerID, advancement.progress);
-    const promptStep = buildDungeonRoomPromptStep(game as any, playerId as PlayerID, advancement.progress, String(step.sourceId || '').trim());
-    if (promptStep) {
-      const queuedResolutionStep = ResolutionQueueManager.addStep(gameId, promptStep as any);
-      appendQueuedResolutionPromptEvent(game, gameId, {
-        playerId: String(playerId || '').trim(),
-        sourceId: String((promptStep as any)?.sourceId || step.sourceId || '').trim(),
-        queuedResolutionStep,
-      });
-    }
+    const tokenEffectPayloads = applyAutomaticDungeonRoomTokenEffects(game as any, playerId as PlayerID, advancement.progress);
+    const roomSourceId = String(step.sourceId || '').trim();
+    const promptSteps = buildDungeonRoomPromptSteps(game as any, playerId as PlayerID, advancement.progress, roomSourceId);
+    queueDungeonRoomPromptSteps(game, gameId, promptSteps, String(playerId || '').trim(), roomSourceId);
 
     const completed = advancement.completed;
     if (completed) {
@@ -24639,6 +25066,8 @@ async function handleOptionChoiceResponse(
     } catch (err) {
       debugWarn(1, '[resolution] appendEvent(ventureChooseRoomResolve) failed:', err);
     }
+
+    appendDungeonRoomExecuteEffectEvents(game, gameId, tokenEffectPayloads);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,

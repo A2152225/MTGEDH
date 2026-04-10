@@ -689,7 +689,7 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
       // best-effort only
     }
     
-    const zones = (ctx as any).zones?.[playerId];
+    const zones = ((ctx as any).zones || ctx.state?.zones)?.[playerId];
     if (zones) {
       zones.graveyard = zones.graveyard || [];
       zones.graveyard.push({ ...permanent.card, zone: "graveyard" });
