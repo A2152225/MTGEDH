@@ -57,6 +57,9 @@ describe('venture and initiative support (integration)', () => {
   const ventureChoiceScryGameId = 'test_venture_choice_scry_integration';
   const ventureBranchPromptGameId = 'test_venture_branch_prompt_integration';
   const ventureBranchChoiceGameId = 'test_venture_branch_choice_integration';
+  const ventureForgeChoiceGameId = 'test_venture_forge_choice_integration';
+  const ventureTrapChoiceGameId = 'test_venture_trap_choice_integration';
+  const ventureArenaChoiceGameId = 'test_venture_arena_choice_integration';
   const ventureAutoRoomGameId = 'test_venture_auto_room_integration';
   const initiativeTakeGameId = 'test_initiative_take_integration';
   const initiativeAdvanceGameId = 'test_initiative_advance_integration';
@@ -76,6 +79,9 @@ describe('venture and initiative support (integration)', () => {
       ventureChoiceScryGameId,
       ventureBranchPromptGameId,
       ventureBranchChoiceGameId,
+      ventureForgeChoiceGameId,
+      ventureTrapChoiceGameId,
+      ventureArenaChoiceGameId,
       ventureAutoRoomGameId,
       initiativeTakeGameId,
       initiativeAdvanceGameId,
@@ -496,12 +502,345 @@ describe('venture and initiative support (integration)', () => {
     expect((replayQueuedScryStep as any)?.type).toBe(ResolutionStepType.SCRY);
   });
 
+  it('queues and persists Trap target-player resolution after choosing the room', async () => {
+    createGameIfNotExists(ventureTrapChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureTrapChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const targetPlayerId = 'p2';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: targetPlayerId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'undercity',
+        dungeonName: 'Undercity',
+        roomIndex: 1,
+        currentRoomId: 'forge',
+        currentRoomName: 'Forge',
+        currentRoomEffect: 'Put two +1/+1 counters on target creature.',
+        roomPath: ['secret_entrance', 'forge'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureTrapChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Undercity',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'trap', label: 'Trap! - Target player loses 5 life.' },
+        { id: 'arena', label: 'Arena - Goad target creature.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'undercity',
+      ventureCurrentRoomId: 'forge',
+      ventureRoomPath: ['secret_entrance', 'forge'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureTrapChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureTrapChoiceGameId, stepId: step.id, selections: 'trap' });
+
+    expect(((game.state as any).dungeonProgress || {})[playerId]).toMatchObject({
+      dungeonId: 'undercity',
+      dungeonName: 'Undercity',
+      roomIndex: 2,
+      currentRoomId: 'trap',
+      currentRoomName: 'Trap!',
+      roomPath: ['secret_entrance', 'forge', 'trap'],
+    });
+
+    const queue = ResolutionQueueManager.getQueue(ventureTrapChoiceGameId);
+    const queuedPlayerChoice = getQueuedOrActiveStep(queue);
+    expect(queuedPlayerChoice).toBeDefined();
+    expect((queuedPlayerChoice as any)?.type).toBe(ResolutionStepType.PLAYER_CHOICE);
+    expect((queuedPlayerChoice as any)?.dungeonTargetPlayerEffect).toMatchObject({
+      dungeonId: 'undercity',
+      roomId: 'trap',
+      amount: 5,
+    });
+
+    const promptEvent = [...getEvents(ventureTrapChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt'
+        && String(event?.payload?.queuedResolutionStep?.type || '') === String(ResolutionStepType.PLAYER_CHOICE)
+        && event?.payload?.queuedResolutionStep?.dungeonTargetPlayerEffect != null
+    ) as any;
+    expect(promptEvent).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureTrapChoiceGameId,
+      stepId: (queuedPlayerChoice as any).id,
+      selections: targetPlayerId,
+    });
+
+    expect((((game.state as any).life || {})[targetPlayerId] ?? (game.state as any).players?.find((p: any) => p.id === targetPlayerId)?.life)).toBe(35);
+
+    const resolveEvent = [...getEvents(ventureTrapChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'dungeonTargetPlayerResolve'
+    ) as any;
+    expect(resolveEvent).toBeDefined();
+    expect(resolveEvent.payload).toMatchObject({
+      playerId,
+      selectedPlayerId: targetPlayerId,
+      resolvedStepId: (queuedPlayerChoice as any).id,
+      dungeonId: 'undercity',
+      currentRoomId: 'trap',
+      amount: 5,
+    });
+  });
+
+  it('queues and persists Forge target-creature resolution after choosing the room', async () => {
+    createGameIfNotExists(ventureForgeChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureForgeChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const targetCreatureId = 'forge_target_1';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).battlefield = [
+      {
+        id: targetCreatureId,
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: {
+          id: 'forge_target_card_1',
+          name: 'Silvercoat Lion',
+          type_line: 'Creature — Cat',
+          power: '2',
+          toughness: '2',
+          image_uris: {},
+        },
+      },
+    ];
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'undercity',
+        dungeonName: 'Undercity',
+        roomIndex: 0,
+        currentRoomId: 'secret_entrance',
+        currentRoomName: 'Secret Entrance',
+        currentRoomEffect: 'Search your library for a basic land card, reveal it, put it into your hand, then shuffle.',
+        roomPath: ['secret_entrance'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureForgeChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Undercity',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'forge', label: 'Forge - Put two +1/+1 counters on target creature.' },
+        { id: 'lost_well', label: 'Lost Well - Scry 2.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'undercity',
+      ventureCurrentRoomId: 'secret_entrance',
+      ventureRoomPath: ['secret_entrance'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureForgeChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureForgeChoiceGameId, stepId: step.id, selections: 'forge' });
+
+    expect(((game.state as any).dungeonProgress || {})[playerId]).toMatchObject({
+      dungeonId: 'undercity',
+      currentRoomId: 'forge',
+      roomPath: ['secret_entrance', 'forge'],
+    });
+
+    const queue = ResolutionQueueManager.getQueue(ventureForgeChoiceGameId);
+    const queuedTargetStep = getQueuedOrActiveStep(queue);
+    expect(queuedTargetStep).toBeDefined();
+    expect((queuedTargetStep as any)?.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect((queuedTargetStep as any)?.dungeonTargetCreatureEffect).toMatchObject({
+      dungeonId: 'undercity',
+      roomId: 'forge',
+      amount: 2,
+      counterType: '+1/+1',
+    });
+
+    const promptEvent = [...getEvents(ventureForgeChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt'
+        && String(event?.payload?.queuedResolutionStep?.type || '') === String(ResolutionStepType.TARGET_SELECTION)
+        && event?.payload?.queuedResolutionStep?.dungeonTargetCreatureEffect?.roomId === 'forge'
+    ) as any;
+    expect(promptEvent).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureForgeChoiceGameId,
+      stepId: (queuedTargetStep as any).id,
+      selections: [targetCreatureId],
+    });
+
+    const targetCreature = ((game.state as any).battlefield || []).find((permanent: any) => permanent.id === targetCreatureId);
+    expect((targetCreature as any)?.counters?.['+1/+1']).toBe(2);
+
+    const resolveEvent = [...getEvents(ventureForgeChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'dungeonTargetCreatureResolve'
+    ) as any;
+    expect(resolveEvent).toBeDefined();
+    expect(resolveEvent.payload).toMatchObject({
+      playerId,
+      selectedPermanentId: targetCreatureId,
+      resolvedStepId: (queuedTargetStep as any).id,
+      dungeonId: 'undercity',
+      currentRoomId: 'forge',
+      amount: 2,
+      counterType: '+1/+1',
+    });
+  });
+
+  it('queues and persists Arena target-creature resolution after choosing the room', async () => {
+    createGameIfNotExists(ventureArenaChoiceGameId, 'commander', 40);
+    const game = ensureGame(ventureArenaChoiceGameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const playerId = 'p1';
+    const targetCreatureId = 'arena_target_1';
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: 'p2', name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnNumber = 3;
+    (game.state as any).battlefield = [
+      {
+        id: targetCreatureId,
+        controller: 'p2',
+        owner: 'p2',
+        tapped: false,
+        card: {
+          id: 'arena_target_card_1',
+          name: 'Hill Giant',
+          type_line: 'Creature — Giant',
+          power: '3',
+          toughness: '3',
+          image_uris: {},
+        },
+      },
+    ];
+    (game.state as any).dungeonProgress = {
+      [playerId]: {
+        dungeonId: 'undercity',
+        dungeonName: 'Undercity',
+        roomIndex: 1,
+        currentRoomId: 'forge',
+        currentRoomName: 'Forge',
+        currentRoomEffect: 'Put two +1/+1 counters on target creature.',
+        roomPath: ['secret_entrance', 'forge'],
+      },
+    };
+
+    const step = ResolutionQueueManager.addStep(ventureArenaChoiceGameId, {
+      type: ResolutionStepType.OPTION_CHOICE,
+      playerId,
+      description: 'Choose the next room in Undercity',
+      mandatory: true,
+      sourceName: 'Test Venture',
+      options: [
+        { id: 'trap', label: 'Trap! - Target player loses 5 life.' },
+        { id: 'arena', label: 'Arena - Goad target creature.' },
+      ],
+      minSelections: 1,
+      maxSelections: 1,
+      ventureChooseRoom: true,
+      ventureDungeonId: 'undercity',
+      ventureCurrentRoomId: 'forge',
+      ventureRoomPath: ['secret_entrance', 'forge'],
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted, ventureArenaChoiceGameId);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['submitResolutionResponse']({ gameId: ventureArenaChoiceGameId, stepId: step.id, selections: 'arena' });
+
+    expect(((game.state as any).dungeonProgress || {})[playerId]).toMatchObject({
+      dungeonId: 'undercity',
+      currentRoomId: 'arena',
+      roomPath: ['secret_entrance', 'forge', 'arena'],
+    });
+
+    const queue = ResolutionQueueManager.getQueue(ventureArenaChoiceGameId);
+    const queuedTargetStep = getQueuedOrActiveStep(queue);
+    expect(queuedTargetStep).toBeDefined();
+    expect((queuedTargetStep as any)?.type).toBe(ResolutionStepType.TARGET_SELECTION);
+    expect((queuedTargetStep as any)?.dungeonTargetCreatureEffect).toMatchObject({
+      dungeonId: 'undercity',
+      roomId: 'arena',
+    });
+
+    const promptEvent = [...getEvents(ventureArenaChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt'
+        && String(event?.payload?.queuedResolutionStep?.type || '') === String(ResolutionStepType.TARGET_SELECTION)
+        && event?.payload?.queuedResolutionStep?.dungeonTargetCreatureEffect?.roomId === 'arena'
+    ) as any;
+    expect(promptEvent).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId: ventureArenaChoiceGameId,
+      stepId: (queuedTargetStep as any).id,
+      selections: [targetCreatureId],
+    });
+
+    const targetCreature = ((game.state as any).battlefield || []).find((permanent: any) => permanent.id === targetCreatureId) as any;
+    expect(Array.isArray(targetCreature?.goadedBy) ? targetCreature.goadedBy : []).toContain(playerId);
+    expect((targetCreature?.goadedUntil || {})[playerId]).toBe(4);
+
+    const resolveEvent = [...getEvents(ventureArenaChoiceGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'dungeonTargetCreatureResolve'
+    ) as any;
+    expect(resolveEvent).toBeDefined();
+    expect(resolveEvent.payload).toMatchObject({
+      playerId,
+      selectedPermanentId: targetCreatureId,
+      resolvedStepId: (queuedTargetStep as any).id,
+      dungeonId: 'undercity',
+      currentRoomId: 'arena',
+      goadedByPlayerId: playerId,
+    });
+  });
+
   it('taking the initiative pushes an Undercity trigger and enters Undercity when no dungeon is active', () => {
     createGameIfNotExists(initiativeTakeGameId, 'commander', 40);
     const game = ensureGame(initiativeTakeGameId);
     if (!game) throw new Error('ensureGame returned undefined');
 
     (game.state as any).players = [{ id: 'p1', name: 'P1', spectator: false, life: 40 }];
+    game.libraries.set('p1' as any, [
+      {
+        id: 'basic_land_1',
+        name: 'Plains',
+        type_line: 'Basic Land — Plains',
+        oracle_text: '',
+      } as any,
+      {
+        id: 'spell_1',
+        name: 'Opt',
+        type_line: 'Instant',
+        oracle_text: 'Scry 1. Draw a card.',
+      } as any,
+    ]);
     (game.state as any).stack = [
       {
         id: 'trigger_initiative_1',
@@ -528,6 +867,45 @@ describe('venture and initiative support (integration)', () => {
       currentRoomName: 'Secret Entrance',
       roomPath: ['secret_entrance'],
     });
+
+    const queue = ResolutionQueueManager.getQueue(initiativeTakeGameId);
+    const queuedSearchStep = getQueuedOrActiveStep(queue);
+    expect(queuedSearchStep).toBeDefined();
+    expect((queuedSearchStep as any)?.type).toBe(ResolutionStepType.LIBRARY_SEARCH);
+    expect((queuedSearchStep as any)?.searchCriteria).toBe('a basic land card');
+
+    const promptEvent = [...getEvents(initiativeTakeGameId)].reverse().find(
+      (event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt'
+        && String(event?.payload?.queuedResolutionStep?.type || '') === String(ResolutionStepType.LIBRARY_SEARCH)
+    ) as any;
+    expect(promptEvent).toBeDefined();
+    expect(promptEvent.payload).toMatchObject({
+      playerId: 'p1',
+      queuedResolutionStep: {
+        type: ResolutionStepType.LIBRARY_SEARCH,
+        playerId: 'p1',
+        searchCriteria: 'a basic land card',
+      },
+    });
+
+    const replayGame = createInitialGameState(`${initiativeTakeGameId}_replay`);
+    replayGame.applyEvent({ type: 'join', playerId: 'p1', name: 'P1' } as any);
+    replayGame.applyEvent({
+      type: 'ventureChooseDungeonResolve',
+      playerId: 'p1',
+      dungeonId: 'undercity',
+      dungeonName: 'Undercity',
+      roomIndex: 0,
+      currentRoomId: 'secret_entrance',
+      currentRoomName: 'Secret Entrance',
+      currentRoomEffect: 'Search your library for a basic land card, reveal it, put it into your hand, then shuffle.',
+      roomPath: ['secret_entrance'],
+    } as any);
+    replayGame.applyEvent({ type: 'resolveTopOfStackPrompt', ...(promptEvent.payload || {}) } as any);
+    const replayQueue = ResolutionQueueManager.getQueue(`${initiativeTakeGameId}_replay`);
+    const replayQueuedSearchStep = getQueuedOrActiveStep(replayQueue);
+    expect(replayQueuedSearchStep).toBeDefined();
+    expect((replayQueuedSearchStep as any)?.type).toBe(ResolutionStepType.LIBRARY_SEARCH);
   });
 
   it('taking the initiative while in another dungeon advances that dungeon instead of starting Undercity', () => {

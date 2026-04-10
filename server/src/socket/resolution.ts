@@ -98,7 +98,12 @@ import {
   markDungeonCompleted,
   normalizeDungeonProgress,
 } from "../state/modules/dungeons.js";
-import { applyAutomaticDungeonRoomEffect, buildDungeonRoomPromptStep } from "../state/modules/dungeon-effects.js";
+import {
+  applyAutomaticDungeonRoomEffect,
+  applyDungeonTargetCreatureEffect,
+  applyDungeonTargetPlayerEffect,
+  buildDungeonRoomPromptStep,
+} from "../state/modules/dungeon-effects.js";
 
 type ResolutionPaymentItem = {
   permanentId: string;
@@ -13268,6 +13273,71 @@ async function handleTargetSelectionResponse(
   // These are enqueued as TARGET_SELECTION steps with crewAbility metadata.
   // ========================================================================
   const stepAny = step as any;
+  if (stepAny?.dungeonTargetCreatureEffect) {
+    const selectedPermanentId = String(selections[0] || '').trim();
+    if (!selectedPermanentId) {
+      return;
+    }
+
+    const effectData = stepAny.dungeonTargetCreatureEffect;
+    const resolvePayload = {
+      playerId: String(pid || '').trim(),
+      selectedPermanentId,
+      resolvedStepId: String(step.id || '').trim(),
+      sourceId: String(step.sourceId || '').trim(),
+      sourceName: String(step.sourceName || '').trim(),
+      dungeonId: String(effectData?.dungeonId || '').trim(),
+      currentRoomId: String(effectData?.roomId || '').trim(),
+      amount: Number(effectData?.amount || 0),
+      counterType: String(effectData?.counterType || '').trim() || undefined,
+      goadedByPlayerId: String(pid || '').trim() || undefined,
+    };
+
+    let applied = false;
+    if (typeof (game as any).applyEvent === 'function') {
+      (game as any).applyEvent({ type: 'dungeonTargetCreatureResolve', ...resolvePayload } as any);
+      applied = true;
+    } else {
+      applied = applyDungeonTargetCreatureEffect(game as any, selectedPermanentId, pid as PlayerID, effectData);
+    }
+
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const targetPermanent = battlefield.find((permanent: any) => String(permanent?.id || '') === selectedPermanentId);
+    const targetName = String(targetPermanent?.card?.name || 'target creature');
+
+    try {
+      await appendEvent(
+        gameId,
+        Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
+        'dungeonTargetCreatureResolve',
+        resolvePayload,
+      );
+    } catch (err) {
+      debugWarn(1, '[resolution] appendEvent(dungeonTargetCreatureResolve) failed:', err);
+    }
+
+    const roomId = String(effectData?.roomId || '').trim().toLowerCase();
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: roomId === 'forge'
+        ? (applied
+            ? `${targetName} gets two +1/+1 counters from ${String(step.sourceName || 'Forge')}.`
+            : `${getPlayerName(game, pid)} chose ${targetName} for ${String(step.sourceName || 'Forge')}.`)
+        : (applied
+            ? `${targetName} is goaded by ${getPlayerName(game, pid)} from ${String(step.sourceName || 'Arena')}.`
+            : `${getPlayerName(game, pid)} chose ${targetName} for ${String(step.sourceName || 'Arena')}.`),
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function' && typeof (game as any).applyEvent !== 'function') {
+      (game as any).bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (stepAny?.targetedTriggeredAbility === true) {
     const triggerTargets = selections.map((value: any) => String(value)).filter(Boolean);
     const sourceName = String(stepAny?.targetedTriggeredAbilitySourceName || step.sourceName || stepAny?.triggerItem?.sourceName || 'Triggered ability');
@@ -21480,6 +21550,47 @@ async function handlePlayerChoiceResponse(
   }
   
   debug(2, `[Resolution] Player choice response: selected player ${selectedPlayerId}`);
+
+  if (stepData?.dungeonTargetPlayerEffect) {
+    const effectData = stepData.dungeonTargetPlayerEffect;
+    const ctx = (game as any).ctx || game;
+    const applied = applyDungeonTargetPlayerEffect(ctx as any, selectedPlayerId as PlayerID, effectData);
+
+    try {
+      appendEvent(
+        gameId,
+        Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
+        'dungeonTargetPlayerResolve',
+        {
+          playerId: String(response.playerId || '').trim(),
+          selectedPlayerId: String(selectedPlayerId || '').trim(),
+          resolvedStepId: String(step.id || '').trim(),
+          sourceId: String(step.sourceId || '').trim(),
+          sourceName: String(step.sourceName || '').trim(),
+          dungeonId: String(effectData?.dungeonId || '').trim(),
+          currentRoomId: String(effectData?.roomId || '').trim(),
+          amount: Number(effectData?.amount || 0),
+        },
+      );
+    } catch (err) {
+      debugWarn(1, '[resolution] appendEvent(dungeonTargetPlayerResolve) failed:', err);
+    }
+
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: applied
+        ? `${getPlayerName(game, selectedPlayerId)} loses ${Number(effectData?.amount || 0) || 5} life from ${String(step.sourceName || 'Trap!')}.`
+        : `${getPlayerName(game, response.playerId)} chose ${getPlayerName(game, selectedPlayerId)} for ${String(step.sourceName || 'Trap!')}.`,
+      ts: Date.now(),
+    });
+
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    return;
+  }
   
   // Check if this is an ETB permanent choice (Xantcha, Curses, etc.)
   if (stepData.permanentId) {
@@ -21610,6 +21721,15 @@ async function executeTargetedTriggerEffect(
     } else {
       debug(2, `[executeTargetedTriggerEffect] ${sourceName}: Target player's graveyard is empty`);
     }
+  }
+
+  if (desc.includes('target player') && desc.includes('loses 5 life')) {
+    applyDungeonTargetPlayerEffect(ctx as any, targetPlayerId as PlayerID, {
+      dungeonId: 'undercity',
+      roomId: 'trap',
+      amount: 5,
+    });
+    return;
   }
   
   // Add more targeted effect patterns here as needed

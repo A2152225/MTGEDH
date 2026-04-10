@@ -174,7 +174,11 @@ import {
   markDungeonCompleted,
   normalizeDungeonProgress,
 } from "./dungeons.js";
-import { applyAutomaticDungeonRoomEffect } from "./dungeon-effects.js";
+import {
+  applyAutomaticDungeonRoomEffect,
+  applyDungeonTargetCreatureEffect,
+  applyDungeonTargetPlayerEffect,
+} from "./dungeon-effects.js";
 
 /* -------- Helpers ---------- */
 
@@ -8535,6 +8539,76 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(ventureChooseRoomResolve): failed', err);
+        }
+        break;
+      }
+
+      case "dungeonTargetPlayerResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const selectedPlayerId = String((e as any).selectedPlayerId || '').trim();
+
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return (
+                (step as any)?.dungeonTargetPlayerEffect != null &&
+                String(step?.playerId || '').trim() === String((e as any).playerId || '').trim() &&
+                String((step as any)?.dungeonTargetPlayerEffect?.dungeonId || '').trim() === String((e as any).dungeonId || '').trim() &&
+                String((step as any)?.dungeonTargetPlayerEffect?.roomId || '').trim() === String((e as any).currentRoomId || '').trim()
+              );
+            });
+          }
+
+          applyDungeonTargetPlayerEffect(ctx as any, selectedPlayerId as any, {
+            dungeonId: String((e as any).dungeonId || '').trim(),
+            roomId: String((e as any).currentRoomId || '').trim(),
+            amount: Number((e as any).amount || 0),
+          });
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(dungeonTargetPlayerResolve): failed', err);
+        }
+        break;
+      }
+
+      case "dungeonTargetCreatureResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const selectedPermanentId = String((e as any).selectedPermanentId || '').trim();
+
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return (
+                (step as any)?.dungeonTargetCreatureEffect != null &&
+                String(step?.playerId || '').trim() === String((e as any).playerId || '').trim() &&
+                String((step as any)?.dungeonTargetCreatureEffect?.dungeonId || '').trim() === String((e as any).dungeonId || '').trim() &&
+                String((step as any)?.dungeonTargetCreatureEffect?.roomId || '').trim() === String((e as any).currentRoomId || '').trim()
+              );
+            });
+          }
+
+          applyDungeonTargetCreatureEffect(
+            ctx as any,
+            selectedPermanentId,
+            String((e as any).goadedByPlayerId || (e as any).playerId || '').trim() as any,
+            {
+              dungeonId: String((e as any).dungeonId || '').trim(),
+              roomId: String((e as any).currentRoomId || '').trim(),
+              amount: Number((e as any).amount || 0),
+              counterType: String((e as any).counterType || '').trim() || undefined,
+            },
+          );
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(dungeonTargetCreatureResolve): failed', err);
         }
         break;
       }
