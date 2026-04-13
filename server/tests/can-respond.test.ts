@@ -158,6 +158,48 @@ describe('canCastAnySpell', () => {
     expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
   });
 
+  it('should return true when the top card of the library is an instant and a card allows casting it', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      },
+      battlefield: [
+        {
+          id: 'future_sight',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Future Sight',
+            type_line: 'Enchantment',
+            oracle_text: 'Play with the top card of your library revealed. You may play the top card of your library.',
+          },
+        },
+      ],
+      manaPool: {
+        p1: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      stack: [],
+    });
+
+    (ctx as any).libraries = new Map([
+      ['p1', [
+        {
+          id: 'opt_top',
+          name: 'Opt',
+          type_line: 'Instant',
+          mana_cost: '{U}',
+          oracle_text: 'Scry 1. Draw a card.',
+        },
+      ]],
+    ]);
+
+    expect(canCastAnySpell(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return false when spell requires a creature target but no creatures exist', () => {
     const ctx = createTestContext({
       players: [{ id: 'p1' }, { id: 'p2' }],
@@ -418,6 +460,43 @@ describe('canPlayLand', () => {
       ['p1', [
         { id: 'opt_top', name: 'Opt', type_line: 'Instant' },
         { id: 'forest_bottom', name: 'Forest', type_line: 'Basic Land - Forest' },
+      ]],
+    ]);
+
+    expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('does not treat cast-only top-library permission as permission to play a land', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'melek',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Melek, Izzet Paragon',
+            type_line: 'Legendary Creature — Weird Wizard',
+            oracle_text: 'Play with the top card of your library revealed. You may cast instant and sorcery spells from the top of your library.',
+          },
+        },
+      ],
+      landsPlayedThisTurn: { p1: 0 },
+      zones: {
+        p1: {
+          hand: [],
+          handCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+          libraryCount: 1,
+        },
+      },
+    });
+
+    (ctx as any).libraries = new Map([
+      ['p1', [
+        { id: 'forest_top', name: 'Forest', type_line: 'Basic Land - Forest' },
       ]],
     ]);
 
@@ -1495,6 +1574,103 @@ describe('canAct', () => {
     
     expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
   });
+
+      it('should return true when a sorcery-speed spell is castable from the top of the library in main phase', () => {
+        const ctx = createTestContext({
+          zones: {
+            p1: {
+              hand: [],
+              graveyard: [],
+              exile: [],
+              handCount: 0,
+              graveyardCount: 0,
+              exileCount: 0,
+              libraryCount: 1,
+            },
+          },
+          battlefield: [
+            {
+              id: 'future_sight',
+              controller: 'p1',
+              tapped: false,
+              card: {
+                name: 'Future Sight',
+                type_line: 'Enchantment',
+                oracle_text: 'Play with the top card of your library revealed. You may play the top card of your library.',
+              },
+            },
+          ],
+          manaPool: {
+            p1: { white: 0, blue: 0, black: 0, red: 0, green: 1, colorless: 1 },
+          },
+          step: 'MAIN1',
+          stack: [],
+          turnPlayer: 'p1',
+          priority: 'p1',
+        });
+
+        (ctx as any).libraries = new Map([
+          ['p1', [
+            {
+              id: 'bears_top',
+              name: 'Grizzly Bears',
+              type_line: 'Creature — Bear',
+              mana_cost: '{1}{G}',
+              oracle_text: '',
+            },
+          ]],
+        ]);
+
+        expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+      });
+
+      it('should not claim a top-library land is playable during main phase when the effect only allows casting spells', () => {
+        const ctx = createTestContext({
+          zones: {
+            p1: {
+              hand: [],
+              graveyard: [],
+              exile: [],
+              handCount: 0,
+              graveyardCount: 0,
+              exileCount: 0,
+              libraryCount: 1,
+            },
+          },
+          battlefield: [
+            {
+              id: 'melek',
+              controller: 'p1',
+              tapped: false,
+              card: {
+                name: 'Melek, Izzet Paragon',
+                type_line: 'Legendary Creature — Weird Wizard',
+                oracle_text: 'Play with the top card of your library revealed. You may cast instant and sorcery spells from the top of your library.',
+              },
+            },
+          ],
+          manaPool: {
+            p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+          },
+          step: 'MAIN1',
+          stack: [],
+          turnPlayer: 'p1',
+          priority: 'p1',
+        });
+
+        (ctx as any).libraries = new Map([
+          ['p1', [
+            {
+              id: 'forest_top',
+              name: 'Forest',
+              type_line: 'Basic Land - Forest',
+              oracle_text: '',
+            },
+          ]],
+        ]);
+
+        expect(canAct(ctx, 'p1' as PlayerID)).toBe(false);
+      });
 
   it('should honor numeric playable-from-exile entries in main phase', () => {
     const ctx = createTestContext({

@@ -19,7 +19,7 @@ import type { PlayerID } from "../../../../shared/src";
 import { parseManaCost, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana } from "./mana-check";
 import { hasPayableAlternateCost } from "./alternate-costs";
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
-import { calculateMaxLandsPerTurn, getActiveAbilityConditions } from "./game-state-effects";
+import { calculateMaxLandsPerTurn, canCastFromTop, canPlayLandsFromTop, getActiveAbilityConditions } from "./game-state-effects";
 import { detectActivatedAbilityConditionRequirement } from "./activated-ability-conditions";
 import { creatureHasHaste } from "../../socket/game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
@@ -106,6 +106,57 @@ export function getHandCastEvaluationCards(card: any): any[] {
   }
 
   return [card];
+}
+
+function getTopLibraryCard(ctx: GameContext, playerId: PlayerID): any | null {
+  const libraries = (ctx as any).libraries;
+  if (!libraries || typeof libraries.get !== 'function') {
+    return null;
+  }
+
+  const library = libraries.get(playerId);
+  if (!Array.isArray(library) || library.length === 0) {
+    return null;
+  }
+
+  return library[0] ?? null;
+}
+
+function hasGenericTopLibraryLandPermission(ctx: GameContext, playerId: PlayerID): boolean {
+  const battlefield = ctx.state?.battlefield || [];
+  return battlefield.some((perm: any) => {
+    if (perm?.controller !== playerId) return false;
+    const oracleText = String(perm?.card?.oracle_text || '').toLowerCase();
+    return oracleText.includes('play lands from the top of your library')
+      || oracleText.includes('you may play the top card of your library');
+  });
+}
+
+function hasGenericTopLibrarySpellPermission(ctx: GameContext, playerId: PlayerID): boolean {
+  const battlefield = ctx.state?.battlefield || [];
+  return battlefield.some((perm: any) => {
+    if (perm?.controller !== playerId) return false;
+    const oracleText = String(perm?.card?.oracle_text || '').toLowerCase();
+    return oracleText.includes('you may cast the top card of your library')
+      || oracleText.includes('you may cast spells from the top of your library')
+      || oracleText.includes('you may play the top card of your library');
+  });
+}
+
+function canPlayTopLibraryLand(ctx: GameContext, playerId: PlayerID, card: any): boolean {
+  if (!card || typeof card === 'string') return false;
+  if (!isLandTypeLine(card?.type_line || card?.typeLine)) return false;
+
+  const topLandPermission = canPlayLandsFromTop(ctx, playerId);
+  return topLandPermission.canPlay || hasGenericTopLibraryLandPermission(ctx, playerId);
+}
+
+function canCastTopLibrarySpell(ctx: GameContext, playerId: PlayerID, card: any): boolean {
+  if (!card || typeof card === 'string') return false;
+
+  const typeLine = String(card?.type_line || card?.typeLine || '');
+  const topSpellPermission = canCastFromTop(ctx, playerId, typeLine);
+  return topSpellPermission.canCast || hasGenericTopLibrarySpellPermission(ctx, playerId);
 }
 
 /**
@@ -754,6 +805,37 @@ export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
               if (hasValidTargetsForSpell(state, playerId, card)) {
                 return true;
               }
+            }
+          }
+        }
+      }
+    }
+
+    const topCard = getTopLibraryCard(ctx, playerId);
+    if (topCard && typeof topCard !== 'string') {
+      if (!ignoredCards[topCard.id]) {
+        for (const castCard of getHandCastEvaluationCards(topCard)) {
+          if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
+            continue;
+          }
+
+          if (!hasFlashOrInstant(castCard)) continue;
+          if (!canCastTopLibrarySpell(ctx, playerId, castCard)) continue;
+
+          const manaCost = castCard.mana_cost || '';
+          const parsedCost = parseManaCost(manaCost);
+          const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
+          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+
+          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
+            if (hasValidTargetsForSpell(state, playerId, castCard)) {
+              return true;
+            }
+          }
+
+          if (hasPayableAlternateCost(ctx, playerId, castCard)) {
+            if (hasValidTargetsForSpell(state, playerId, castCard)) {
+              return true;
             }
           }
         }
@@ -1436,22 +1518,9 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
       }
     }
     
-    // Check for "play from top of library" effects (Experimental Frenzy, Future Sight, etc.)
-    if (hasPlayFromTopOfLibraryEffect(ctx, playerId)) {
-      // Library is stored in ctx.libraries Map, not in zones
-      const libraries = (ctx as any).libraries;
-      if (libraries && typeof libraries.get === 'function') {
-        const library = libraries.get(playerId);
-        if (Array.isArray(library) && library.length > 0) {
-          const topCard = library[0];
-          if (topCard && typeof topCard !== "string") {
-            const typeLine = (topCard.type_line || "").toLowerCase();
-            if (typeLine.includes("land")) {
-              return true; // Can play land from top of library
-            }
-          }
-        }
-      }
+    const topCard = getTopLibraryCard(ctx, playerId);
+    if (topCard && canPlayTopLibraryLand(ctx, playerId, topCard)) {
+      return true;
     }
     
     return false;
@@ -2328,6 +2397,56 @@ function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
               if (hasValidTargetsForSpell(state, playerId, card)) {
                 return true;
               }
+            }
+          }
+        }
+      }
+    }
+
+    const topCard = getTopLibraryCard(ctx, playerId);
+    if (topCard && typeof topCard !== 'string') {
+      if (!ignoredCards[topCard.id]) {
+        for (const castCard of getHandCastEvaluationCards(topCard)) {
+          if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
+            continue;
+          }
+
+          const typeLine = (castCard.type_line || '').toLowerCase();
+          const oracleText = (castCard.oracle_text || '').toLowerCase();
+
+          const isSorcerySpeed =
+            typeLine.includes('creature') ||
+            typeLine.includes('sorcery') ||
+            typeLine.includes('artifact') ||
+            typeLine.includes('enchantment') ||
+            typeLine.includes('planeswalker') ||
+            typeLine.includes('battle');
+
+          if (typeLine.includes('instant') || oracleText.includes('flash')) {
+            continue;
+          }
+
+          if (isLandTypeLine(typeLine)) {
+            continue;
+          }
+
+          if (!isSorcerySpeed) continue;
+          if (!canCastTopLibrarySpell(ctx, playerId, castCard)) continue;
+
+          const manaCost = castCard.mana_cost || '';
+          const parsedCost = parseManaCost(manaCost);
+          const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
+          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+
+          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
+            if (hasValidTargetsForSpell(state, playerId, castCard)) {
+              return true;
+            }
+          }
+
+          if (hasPayableAlternateCost(ctx, playerId, castCard)) {
+            if (hasValidTargetsForSpell(state, playerId, castCard)) {
+              return true;
             }
           }
         }
