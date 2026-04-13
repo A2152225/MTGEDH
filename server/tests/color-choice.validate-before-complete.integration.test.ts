@@ -107,4 +107,47 @@ describe('COLOR_CHOICE validate-before-complete (integration)', () => {
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
   });
+
+  it('allows a non-mandatory color choice step to be cancelled', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+
+    const permanentId = 'perm_optional';
+    (game.state as any).battlefield = [{ id: permanentId, controllerId: p1, name: 'Optional Test Permanent' }];
+
+    ResolutionQueueManager.addStep(gameId, {
+      type: ResolutionStepType.COLOR_CHOICE,
+      playerId: p1 as any,
+      description: 'You may choose a color',
+      mandatory: false,
+      permanentId,
+      cardName: 'Optional Test Permanent',
+    } as any);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'color_choice');
+    expect(step).toBeDefined();
+
+    const stepId = String((step as any).id);
+
+    await handlers['cancelResolutionStep']({ gameId, stepId });
+
+    expect(emitted.some(e => e.event === 'resolutionStepCancelled' && e.payload?.stepId === stepId)).toBe(true);
+
+    const queueAfterCancel = ResolutionQueueManager.getQueue(gameId);
+    expect(queueAfterCancel.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+  });
 });

@@ -88,68 +88,6 @@ export class RulesBridge {
    * Forward rules engine events to Socket.IO clients
    */
   private setupEventForwarding(): void {
-    // Spell events
-    this.onEvent(RulesEngineEvent.SPELL_CAST, (event) => {
-      this.io.to(this.gameId).emit('spellCast', {
-        gameId: this.gameId,
-        spell: event.data.spell,
-        caster: event.data.caster,
-        timestamp: event.timestamp,
-      });
-    });
-    
-    this.onEvent(RulesEngineEvent.SPELL_RESOLVED, (event) => {
-      this.io.to(this.gameId).emit('spellResolved', {
-        gameId: this.gameId,
-        spell: event.data.spell,
-        timestamp: event.timestamp,
-      });
-    });
-    
-    // Combat events
-    this.onEvent(RulesEngineEvent.ATTACKERS_DECLARED, (event) => {
-      this.io.to(this.gameId).emit('attackersDeclared', {
-        gameId: this.gameId,
-        attackers: event.data.attackers,
-        defender: event.data.defender,
-        timestamp: event.timestamp,
-      });
-    });
-    
-    this.onEvent(RulesEngineEvent.BLOCKERS_DECLARED, (event) => {
-      this.io.to(this.gameId).emit('blockersDeclared', {
-        gameId: this.gameId,
-        blockers: event.data.blockers,
-        timestamp: event.timestamp,
-      });
-    });
-    
-    this.onEvent(RulesEngineEvent.DAMAGE_DEALT, (event) => {
-      this.io.to(this.gameId).emit('damageDealt', {
-        gameId: this.gameId,
-        damage: event.data,
-        timestamp: event.timestamp,
-      });
-    });
-    
-    // Game state events
-    this.onEvent(RulesEngineEvent.PRIORITY_PASSED, (event) => {
-      this.io.to(this.gameId).emit('priorityPassed', {
-        gameId: this.gameId,
-        from: event.data.from,
-        to: event.data.to,
-        timestamp: event.timestamp,
-      });
-    });
-    
-    this.onEvent(RulesEngineEvent.STATE_BASED_ACTIONS, (event) => {
-      this.io.to(this.gameId).emit('stateBasedActions', {
-        gameId: this.gameId,
-        actions: event.data.actions,
-        timestamp: event.timestamp,
-      });
-    });
-    
     // Win/loss events - DISABLED until rules engine properly validates win conditions
     // The rules engine currently fires spurious PLAYER_WON events on routine actions
     // like land plays. We disable these handlers to prevent "X wins the game!" spam.

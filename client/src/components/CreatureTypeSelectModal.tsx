@@ -21,6 +21,7 @@ interface CreatureTypeSelectModalProps {
   cardName?: string;
   onSelect: (creatureType: string) => void;
   onCancel: () => void;
+  canCancel?: boolean;
   allowCustom?: boolean;
 }
 
@@ -31,6 +32,7 @@ export function CreatureTypeSelectModal({
   cardName,
   onSelect,
   onCancel,
+  canCancel = true,
   allowCustom = true,
 }: CreatureTypeSelectModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -79,7 +81,7 @@ export function CreatureTypeSelectModal({
       } else if (selectedType || (showCustomInput && customType.trim())) {
         handleConfirm();
       }
-    } else if (e.key === 'Escape') {
+    } else if (e.key === 'Escape' && canCancel) {
       onCancel();
     }
   };
@@ -99,7 +101,7 @@ export function CreatureTypeSelectModal({
         zIndex: 10001,
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
+        if (canCancel && e.target === e.currentTarget) onCancel();
       }}
     >
       <div
@@ -290,20 +292,22 @@ export function CreatureTypeSelectModal({
             marginTop: 16,
           }}
         >
-          <button
-            onClick={onCancel}
-            style={{
-              padding: '10px 20px',
-              borderRadius: 6,
-              border: '1px solid #4a4a6a',
-              backgroundColor: 'transparent',
-              color: '#fff',
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
-          >
-            Cancel
-          </button>
+          {canCancel && (
+            <button
+              onClick={onCancel}
+              style={{
+                padding: '10px 20px',
+                borderRadius: 6,
+                border: '1px solid #4a4a6a',
+                backgroundColor: 'transparent',
+                color: '#fff',
+                cursor: 'pointer',
+                fontSize: 14,
+              }}
+            >
+              Cancel
+            </button>
+          )}
           <button
             onClick={handleConfirm}
             disabled={!selectedType && (!showCustomInput || !customType.trim())}

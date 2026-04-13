@@ -202,7 +202,6 @@ describe('cancelResolutionStep authorization (integration)', () => {
     const io = createMockIo(emitted, [socket]);
     registerResolutionHandlers(io as any, socket as any);
 
-    expect(() => handlers['getResolutionQueue'](undefined as any)).not.toThrow();
     expect(() => handlers['getMyNextResolutionStep'](undefined as any)).not.toThrow();
     expect(() => handlers['cancelResolutionStep'](undefined as any)).not.toThrow();
     await expect(Promise.resolve().then(() => handlers['submitResolutionResponse'](undefined as any))).resolves.toBeUndefined();

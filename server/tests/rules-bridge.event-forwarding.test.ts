@@ -97,18 +97,7 @@ describe('RulesBridge event forwarding', () => {
       timestamp: 11,
       data: { spell: { id: 'spell_a' }, caster: 'player_a' },
     });
-    expect(emitted).toEqual([
-      {
-        room: 'game_A',
-        event: 'spellCast',
-        payload: {
-          gameId: 'game_A',
-          spell: { id: 'spell_a' },
-          caster: 'player_a',
-          timestamp: 11,
-        },
-      },
-    ]);
+    expect(emitted).toEqual([]);
 
     emitRulesEvent(RulesEngineEvent.CHOICE_REQUIRED, {
       type: RulesEngineEvent.CHOICE_REQUIRED,
@@ -148,6 +137,25 @@ describe('RulesBridge event forwarding', () => {
       }),
     );
     expect(emitted.some((entry) => entry.event === 'rulesChoiceRequired')).toBe(false);
+
+    emitRulesEvent(RulesEngineEvent.CARD_DRAWN, {
+      type: RulesEngineEvent.CARD_DRAWN,
+      gameId: 'game_A',
+      timestamp: 14,
+      data: { playerId: 'player_a' },
+    });
+
+    expect(emitted).toEqual([
+      {
+        room: 'game_A',
+        event: 'cardDrawn',
+        payload: {
+          gameId: 'game_A',
+          playerId: 'player_a',
+          timestamp: 14,
+        },
+      },
+    ]);
   });
 
   it('removes all shared rules-engine listeners on dispose', async () => {

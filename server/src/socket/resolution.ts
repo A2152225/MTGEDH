@@ -81,7 +81,6 @@ import { buildTapTriggeredStackItem, getTapTriggers, serializeTapTriggeredStackI
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import { clearMayCallback, clearMayCallbacks, consumeMayCallback, queueMayAbilityStep } from './may-ability-prompts.js';
 import { consumeOptionalPaymentCallback, getOptionalPaymentValidationFailure, isOptionalPaymentPayChoice, isOptionalPaymentPromptStep, queueOptionalPaymentStep, queueShockLandPaymentStep } from './optional-payment-prompts.js';
-import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
 import {
@@ -167,10 +166,11 @@ function appendQueuedResolutionPromptEvent(
       Number((game as any)?.seq?.value ?? (game as any)?.seq ?? (game as any)?.state?.seq ?? 0),
       'resolveTopOfStackPrompt',
       {
-        playerId: String(options.playerId || '').trim(),
-        sourceId: String(options.sourceId || '').trim(),
+        ...(options.playerId ? { playerId: String(options.playerId) } : {}),
+        ...(options.sourceId ? { sourceId: String(options.sourceId) } : {}),
+        ...(queuedResolutionStep ? { queuedResolutionStep } : {}),
+        ...(queuedResolutionSteps.length > 0 ? { queuedResolutionSteps } : {}),
         ...(additionalPayload || {}),
-        ...(queuedResolutionSteps.length > 0 ? { queuedResolutionSteps } : { queuedResolutionStep }),
       },
     );
   } catch (err) {
@@ -1447,18 +1447,6 @@ function pushTapTriggerOntoStack(
     appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeTapTriggeredStackItem(stackItem));
   } catch (err) {
     debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility tap trigger) failed:', err);
-  }
-
-  if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, trigger.controllerId, trigger.cardName, trigger.mandatory)) {
-    io.to(gameId).emit('triggeredAbility', {
-      gameId,
-      triggerId,
-      playerId: trigger.controllerId,
-      sourcePermanentId: trigger.permanentId,
-      sourceName: trigger.cardName,
-      description: trigger.description,
-      triggerType: 'tap',
-    });
   }
 
   io.to(gameId).emit('chat', {
@@ -3270,36 +3258,6 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
   // =========================================================================
   
   /**
-   * Get all pending resolution steps for a game
-   */
-  socket.on("getResolutionQueue", (payload?: { gameId?: unknown }) => {
-    const gameId = payload?.gameId;
-    const pid = socket.data.playerId as string | undefined;
-
-    if (!gameId || typeof gameId !== 'string') return;
-    if (!pid || ((socket.data as any)?.gameId && (socket.data as any)?.gameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
-      socket.emit?.('error', { code: 'NOT_IN_GAME', message: 'Not in game.' });
-      return;
-    }
-    
-    const summary = ResolutionQueueManager.getPendingSummary(gameId);
-    const queue = ResolutionQueueManager.getQueue(gameId);
-    
-    // Filter steps to only show player's own steps (for privacy)
-    const visibleSteps = pid 
-      ? queue.steps.filter(s => s.playerId === pid)
-      : [];
-    
-    socket.emit("resolutionQueueState", {
-      gameId,
-      hasPending: summary.hasPending,
-      pendingCount: summary.pendingCount,
-      pendingTypes: summary.pendingTypes,
-      seq: queue.seq,
-    });
-  });
-  
-  /**
    * Get the next resolution step for the current player
    */
   socket.on("getMyNextResolutionStep", async (payload?: { gameId?: unknown }) => {
@@ -3440,11 +3398,18 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
     }
 
     // Disallow cancelling mandatory steps via submitResolutionResponse.
-    // (A malicious client could otherwise bypass mandatory resolution by sending cancelled=true.)
-    // Mirror the exception used by cancelResolutionStep for in-progress spell-cast target selection.
+    // Allow the queue-native spell/ability payment variants through because the live client
+    // submits cancelled=true for those flows instead of using cancelResolutionStep.
     const isCancellableMandatoryStep =
-      step.type === ResolutionStepType.TARGET_SELECTION &&
-      Boolean((step as any)?.spellCastContext?.effectId);
+      (step.type === ResolutionStepType.TARGET_SELECTION &&
+        Boolean((step as any)?.spellCastContext?.effectId)) ||
+      (step.type === ResolutionStepType.MANA_PAYMENT_CHOICE && (
+        (step as any)?.spellPaymentRequired === true ||
+        (step as any)?.activationPaymentChoice === true ||
+        (step as any)?.wardPayment === true ||
+        (step as any)?.phyrexianManaChoice === true ||
+        (step as any)?.sacrificeUnlessPayChoice === true
+      ));
 
     if (cancelled && step.mandatory && !isCancellableMandatoryStep) {
       socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
@@ -18376,9 +18341,6 @@ async function handleCascadeResponse(
   }
 
   await processPendingCascades(io, game, gameId);
-  
-  // Emit cascade complete
-  io.to(gameId).emit("cascadeComplete", { gameId, effectId });
   
   if (typeof game.bumpSeq === "function") {
     game.bumpSeq();

@@ -50,13 +50,6 @@ export interface ClientToServerEvents {
   importDeck: (payload: { gameId: GameID; list: string; deckName?: string; save?: boolean }) => void;
   useSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
   getImportedDeckCandidates: (payload: { gameId: GameID }) => void;
-  
-  // saved deck CRUD
-  saveDeck: (payload: { gameId: GameID; name: string; list: string; cacheCards?: boolean }) => void;
-  listSavedDecks: (payload: { gameId: GameID }) => void;
-  getSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
-  renameSavedDeck: (payload: { gameId: GameID; deckId: string; name: string }) => void;
-  deleteSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
 
   // commander & commander selection
   // NOTE: commanderIds is optional and supported by server; clients that have resolved IDs (from importedCandidates)
@@ -92,14 +85,6 @@ export interface ClientToServerEvents {
   dumpImportedDeckBuffer: (payload: { gameId: GameID }) => void;
 
   // ===== PRIORITY / INTERACTION EVENTS =====
-
-  // Choice event response (new unified system)
-  respondToChoice: (payload: {
-    gameId: GameID;
-    eventId: string;
-    selections: string[] | number | boolean;
-    cancelled: boolean;
-  }) => void;
   
   // Automation control
   setAutoPass: (payload: { gameId: GameID; enabled: boolean; syncOnly?: boolean }) => void;
@@ -107,6 +92,9 @@ export interface ClientToServerEvents {
   claimPriority: (payload: { gameId: GameID }) => void;
   setStop: (payload: { gameId: GameID; phase: string; enabled: boolean }) => void;
   checkCanRespond: (payload: { gameId: GameID }) => void;
+  setTriggerShortcut: (payload: { gameId: GameID; cardName: string; preference: string; triggerDescription?: string }) => void;
+  yieldToTriggerSource: (payload: { gameId: GameID; sourceId: string; sourceName?: string }) => void;
+  unyieldToTriggerSource: (payload: { gameId: GameID; sourceId: string }) => void;
   
   // ===== IGNORED CARDS FOR AUTO-PASS =====
   // Add a card to the ignore list (auto-pass will skip these cards when checking abilities)
@@ -132,6 +120,7 @@ export interface ClientToServerEvents {
   // Combat declarations
   declareAttackers: (payload: { gameId: GameID; attackers: Array<{ attackerId?: string; creatureId?: string; defendingPlayer?: PlayerID; targetPlayerId?: string; targetPermanentId?: string }> }) => void;
   declareBlockers: (payload: { gameId: GameID; blockers: Array<{ blockerId: string; attackerId: string }> }) => void;
+  combatPreviewAttackers: (payload: { gameId: GameID; targets: Record<string, string> }) => void;
   
   // Combat damage assignment (for complex blocking scenarios)
   assignCombatDamage: (payload: {
@@ -165,46 +154,6 @@ export interface ClientToServerEvents {
   // Commander zone choice
   commanderZoneChoice: (payload: { gameId: GameID; commanderId: string; moveToCommandZone: boolean }) => void;
   
-  // ===== JOIN FORCES / TEMPTING OFFER EVENTS =====
-  
-  // Initiate a Join Forces effect (e.g., Minds Aglow, Collective Voyage)
-  initiateJoinForces: (payload: {
-    gameId: GameID;
-    cardName: string;
-    effectDescription: string;
-    cardImageUrl?: string;
-  }) => void;
-  
-  // Submit contribution to a Join Forces effect
-  contributeJoinForces: (payload: {
-    gameId: GameID;
-    joinForcesId: string;
-    amount: number;
-  }) => void;
-  
-  // Initiate a Tempting Offer effect (e.g., Tempt with Discovery)
-  initiateTemptingOffer: (payload: {
-    gameId: GameID;
-    cardName: string;
-    effectDescription: string;
-    cardImageUrl?: string;
-  }) => void;
-  
-  // Respond to a Tempting Offer (accept or decline)
-  respondTemptingOffer: (payload: {
-    gameId: GameID;
-    temptingOfferId: string;
-    accept: boolean;
-  }) => void;
-  
-  // Respond to a Kynaios and Tiro style choice (play land or draw/decline)
-  kynaiosChoiceResponse: (payload: {
-    gameId: GameID;
-    sourceController: PlayerID;
-    choice: 'play_land' | 'draw_card' | 'decline';
-    landCardId?: string;  // Optional but should be provided when choice is 'play_land'
-  }) => void;
-
   // ===== GAME MANAGEMENT EVENTS =====
   
   // Leave a game (disconnect cleanly)
@@ -250,15 +199,6 @@ export interface ClientToServerEvents {
   
   // Play a land from hand
   playLand: (payload: { gameId: GameID; cardId: string; selectedFace?: number; fromZone?: 'hand' | 'graveyard' | 'exile' }) => void;
-  
-  // Remove a permanent from battlefield
-  removePermanent: (payload: { gameId: GameID; permanentId: string; destination?: string }) => void;
-  
-  // Update counters on a permanent (supports both single counter and deltas object)
-  updateCounters: (payload: { gameId: GameID; permanentId: string; counterType?: string; delta?: number; deltas?: Record<string, number> }) => void;
-  
-  // Update multiple counters at once
-  updateCountersBulk: (payload: { gameId: GameID; permanentId: string; counters?: Record<string, number>; updates?: Record<string, number> }) => void;
 
   // ===== TRIGGER HANDLING EVENTS =====
 
@@ -266,36 +206,12 @@ export interface ClientToServerEvents {
   sacrificeUnlessPayChoice: (payload: { gameId: GameID; permanentId: string; pay?: boolean; payMana?: boolean }) => void;
 
   // ===== LIBRARY SEARCH EVENTS =====
-  
-  // Confirm library search selection
-  librarySearchSelect: (payload: { gameId: GameID; selectedCardIds: string[]; moveTo: string; targetPlayerId?: string; splitAssignments?: { toBattlefield: string[]; toHand: string[] } }) => void;
-  
+
   // Cancel library search
   librarySearchCancel: (payload: { gameId: GameID }) => void;
 
-  // ===== TARGETING EVENTS =====
-  // NOTE: These legacy handlers are deprecated. Spell casting target selection now uses
-  // the Resolution Queue system with TARGET_SELECTION step type and submitResolutionResponse.
-  // These remain for backward compatibility with older planeswalker ability flows and
-  // per-opponent targeting.
-  
-  /**
-   * @deprecated Use submitResolutionResponse with TARGET_SELECTION step instead.
-   * Legacy handler for confirming target selection.
-   */
-  targetSelectionConfirm: (payload: { gameId: GameID; cardId: string; targets: string[]; effectId?: string }) => void;
-  
-  /**
-   * @deprecated Use cancelResolutionStep instead.
-   * Legacy handler for cancelling target selection.
-   */
-  targetSelectionCancel: (payload: { gameId: GameID; cardId: string; effectId?: string }) => void;
-
   // ===== OPENING HAND ACTIONS =====
-  
-  // Play cards from opening hand (e.g., Leylines)
-  playOpeningHandCards: (payload: { gameId: GameID; cardIds: string[] }) => void;
-  
+
   // Skip opening hand actions
   skipOpeningHandActions: (payload: { gameId: GameID }) => void;
 
@@ -370,30 +286,6 @@ export interface ClientToServerEvents {
   confirmSurveil: (payload: { gameId: GameID; toGraveyard: Array<{ id: string }>; keepTopOrder: Array<{ id: string }> }) => void;
 
   // ===== PONDER-STYLE EFFECTS =====
-  // Cascade prompt - controller chooses whether to cast the revealed card
-  cascadePrompt: (payload: {
-    gameId: GameID;
-    effectId: string;
-    playerId: PlayerID;
-    sourceName: string;
-    cascadeNumber: number;
-    totalCascades: number;
-    hitCard: KnownCardRef;
-    exiledCards: KnownCardRef[];
-  }) => void;
-  
-  // Cascade resolution acknowledgement (close modal on client)
-  cascadeComplete: (payload: { gameId: GameID; effectId: string }) => void;
-  
-  // ===== PONDER-STYLE EFFECTS =====
-  
-  // Confirm Spy Network effect (look at target, then reorder own library)
-  confirmSpyNetwork: (payload: {
-    gameId: GameID;
-    effectId: string;
-    newLibraryOrder: string[];  // Your library cards in new order (top first)
-  }) => void;
-
   // ===== MULLIGAN EVENTS =====
   
   // Put cards to bottom after mulligan
@@ -403,9 +295,6 @@ export interface ClientToServerEvents {
   cleanupDiscard: (payload: { gameId: GameID; cardIds: string[] }) => void;
 
   // ===== CREATURE TYPE SELECTION =====
-  
-  // Creature type selected (for Morophon, Cavern of Souls, etc.)
-  creatureTypeSelected: (payload: { gameId: GameID; permanentId?: string; confirmId?: string; creatureType: string }) => void;
 
   // ===== SACRIFICE SELECTION =====
   
@@ -533,9 +422,41 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   // connection / state
   joined: (payload: { you: PlayerID; seatToken?: string; gameId: GameID }) => void;
+  nameInUse: (payload: {
+    gameId: GameID;
+    playerName: string;
+    options: Array<{
+      action: 'reconnect' | 'newName' | 'cancel';
+      fixedPlayerId?: PlayerID;
+    }>;
+    meta?: {
+      isConnected?: boolean;
+    };
+  }) => void;
   state: (payload: { view: any }) => void;
   stateDiff: (payload: { diff: any }) => void;
   priority: (payload: { player: PlayerID | null }) => void;
+  gameOver: (payload: {
+    gameId: GameID;
+    type: 'victory' | 'defeat' | 'eliminated' | 'draw';
+    winnerId?: PlayerID;
+    winnerName?: string;
+    loserId?: PlayerID;
+    loserName?: string;
+    message?: string;
+  }) => void;
+  playerEliminated: (payload: {
+    gameId: GameID;
+    playerId: PlayerID;
+    playerName: string;
+    reason?: string;
+  }) => void;
+  playerConceded: (payload: {
+    gameId: GameID;
+    playerId: PlayerID;
+    playerName: string;
+    message?: string;
+  }) => void;
 
   // chat
   chat: (msg: ChatMsg) => void;
@@ -634,14 +555,20 @@ export interface ServerToClientEvents {
     cardName: string;
     reason: string;  // e.g., "targeted by opponent's spell"
   }) => void;
-  
-  // Combat state updates
-  combatState: (payload: {
+
+  // Auto-pass toggle confirmation for the acting player
+  autoPassToggled: (payload: {
     gameId: GameID;
-    phase: 'declareAttackers' | 'declareBlockers' | 'combatDamage' | 'endCombat';
-    attackers?: Array<{ permanentId: string; defendingPlayer: PlayerID }>;
-    blockers?: Array<{ permanentId: string; blocking: string[] }>;
-    damageAssignments?: Array<{ sourceId: string; targetId: string; damage: number }>;
+    playerId: PlayerID;
+    enabled: boolean;
+    success: boolean;
+  }) => void;
+
+  // Live UI preview for attacker allocation during declare attackers
+  combatPreviewAttackers: (payload: {
+    gameId: GameID;
+    attackerPlayerId: PlayerID;
+    targets: Record<string, string>;
   }) => void;
   
   // Game log / action feed
@@ -672,188 +599,25 @@ export interface ServerToClientEvents {
       mandatory?: boolean;
     }>;
   }) => void;
-  
-  // Triggered ability notification
-  triggeredAbility: (payload: {
+
+  // Batch trigger resolution summary for the resolving player
+  triggersResolved: (payload: {
     gameId: GameID;
-    triggerId: string;
     playerId: PlayerID;
-    sourcePermanentId: string;
-    sourceName: string;
-    triggerType: string;
-    description: string;
-    mandatory: boolean;
-    value?: number;
-  }) => void;
-  
-  // Payment required - sent after targets are selected (or if no targets needed)
-  // MTG Rule 601.2h: Pay costs after all other choices are made
-  paymentRequired: (payload: {
-    gameId: GameID;
-    cardId: string;
-    cardName: string;
-    manaCost: string;
-    effectId: string;
-    targets?: string[];  // Targets already selected
-    imageUrl?: string;
-    costReduction?: { amount: number; source: string }[];
-    convokeOptions?: { permanentId: string; name: string; colors: string[] }[];
-  }) => void;
-  
-  // ===== JOIN FORCES / TEMPTING OFFER EVENTS =====
-  
-  // Join Forces request - prompts all players to contribute mana
-  joinForcesRequest: (payload: {
-    gameId: GameID;
-    id: string;
-    initiator: PlayerID;
-    initiatorName: string;
-    cardName: string;
-    effectDescription: string;
-    cardImageUrl?: string;
-    players: PlayerID[];
-    timeoutMs: number;
-  }) => void;
-  
-  // Join Forces contribution update
-  joinForcesUpdate: (payload: {
-    gameId: GameID;
-    id: string;
-    playerId: PlayerID;
-    playerName: string;
-    contribution: number;
-    responded: PlayerID[];
-    contributions: Record<PlayerID, number>;
-    totalContributions: number;
-  }) => void;
-  
-  // Join Forces completed
-  joinForcesComplete: (payload: {
-    gameId: GameID;
-    id: string;
-    cardName: string;
-    contributions: Record<PlayerID, number>;
-    totalContributions: number;
-    initiator: PlayerID;
-  }) => void;
-  
-  // ===== PONDER-STYLE EFFECTS =====
-  
-  // Spy Network request - look at target player's info, then reorder own library
-  spyNetworkRequest: (payload: {
-    gameId: GameID;
-    effectId: string;
-    playerId: PlayerID;           // Player making the decision (caster)
-    targetPlayerId: PlayerID;     // Whose info is being spied on
-    targetPlayerName: string;
-    cardName: string;
-    cardImageUrl?: string;
-    // Target's revealed info
-    targetHand: KnownCardRef[];
-    targetTopCard: KnownCardRef | null;
-    targetFaceDownCreatures: KnownCardRef[];
-    // Caster's cards to reorder
-    yourTopCards: KnownCardRef[];
-    timeoutMs?: number;
-  }) => void;
-  
-  // Spy Network completed
-  spyNetworkComplete: (payload: {
-    gameId: GameID;
-    effectId: string;
-    playerId: PlayerID;
-    cardName: string;
-  }) => void;
-  
-  // Tempting Offer request - prompts opponents to accept or decline
-  temptingOfferRequest: (payload: {
-    gameId: GameID;
-    id: string;
-    initiator: PlayerID;
-    initiatorName: string;
-    cardName: string;
-    effectDescription: string;
-    cardImageUrl?: string;
-    opponents: PlayerID[];
-    timeoutMs: number;
-  }) => void;
-  
-  // Tempting Offer response update
-  temptingOfferUpdate: (payload: {
-    gameId: GameID;
-    id: string;
-    playerId: PlayerID;
-    playerName: string;
-    accepted: boolean;
-    responded: PlayerID[];
-    acceptedBy: PlayerID[];
-  }) => void;
-  
-  // Tempting Offer completed
-  temptingOfferComplete: (payload: {
-    gameId: GameID;
-    id: string;
-    cardName: string;
-    acceptedBy: PlayerID[];
-    initiator: PlayerID;
-    initiatorBonusCount: number; // How many times the initiator gets the effect (1 + acceptedBy.length)
-  }) => void;
-  
-  // ===== KYNAIOS AND TIRO STYLE CHOICE (Multi-player land/draw) =====
-  
-  // Kynaios and Tiro choice - prompts each player to play a land or draw a card
-  kynaiosChoice: (payload: {
-    gameId: GameID;
-    sourceController: PlayerID;
-    sourceName: string;
-    isController: boolean;  // Whether this player is the source controller
-    canPlayLand: boolean;   // Whether this player has lands in hand
-    landsInHand: Array<{ id: string; name: string; imageUrl?: string }>;
-    options: Array<'play_land' | 'draw_card' | 'decline'>;
+    totalCount: number;
+    sources: Array<{
+      sourceKey: string;
+      sourceName: string;
+      count: number;
+      effect: string;
+      imageUrl?: string;
+    }>;
   }) => void;
 
-  // ===== CHOICE EVENTS (Enhanced Decision System) =====
+  // Explicit notification that the player currently has no pending resolution step
+  noResolutionStep: (payload: { gameId?: GameID }) => void;
   
-  // Generic choice event for all player decisions
-  choiceEvent: (payload: {
-    gameId: GameID;
-    event: {
-      id: string;
-      type: string; // ChoiceEventType from rules-engine
-      playerId: PlayerID;
-      sourceId?: string;
-      sourceName?: string;
-      sourceImage?: string;
-      description: string;
-      mandatory: boolean;
-      timestamp: number;
-      timeoutMs?: number;
-      // Type-specific fields
-      options?: Array<{ id: string; label: string; description?: string; imageUrl?: string; disabled?: boolean }>;
-      minSelections?: number;
-      maxSelections?: number;
-      // For targets
-      validTargets?: Array<{ id: string; label: string; imageUrl?: string }>;
-      targetTypes?: string[];
-      // For X value
-      minX?: number;
-      maxX?: number;
-      // For discard
-      discardCount?: number;
-      currentHandSize?: number;
-      maxHandSize?: number;
-      // For combat damage
-      attackerPower?: number;
-      hasTrample?: boolean;
-      blockers?: Array<{ id: string; name: string; toughness: number; existingDamage: number; lethalDamage: number }>;
-      // For zone movement notifications
-      zone?: string;
-      reason?: string;
-      // For win effects
-      winningPlayerId?: PlayerID;
-      winReason?: string;
-    };
-  }) => void;
+  // ===== CHOICE EVENTS (Enhanced Decision System) =====
   
   // Choice response acknowledgment
   choiceResponse: (payload: {

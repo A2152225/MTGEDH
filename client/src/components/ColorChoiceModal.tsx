@@ -22,6 +22,7 @@ export interface ColorChoiceModalProps {
   reason: string;
   cardImageUrl?: string;
   colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
+  canCancel?: boolean;
   onConfirm: (selectedColor: 'white' | 'blue' | 'black' | 'red' | 'green') => void;
   onCancel: () => void;
 }
@@ -82,6 +83,7 @@ export function ColorChoiceModal({
   reason,
   cardImageUrl,
   colors = ['white', 'blue', 'black', 'red', 'green'],
+  canCancel = true,
   onConfirm,
   onCancel,
 }: ColorChoiceModalProps) {
@@ -267,20 +269,22 @@ export function ColorChoiceModal({
 
         {/* Action buttons */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
-          <button
-            onClick={onCancel}
-            style={{
-              padding: '10px 20px',
-              borderRadius: 8,
-              border: '1px solid #555',
-              backgroundColor: 'transparent',
-              color: '#aaa',
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
-          >
-            Cancel
-          </button>
+          {canCancel && (
+            <button
+              onClick={onCancel}
+              style={{
+                padding: '10px 20px',
+                borderRadius: 8,
+                border: '1px solid #555',
+                backgroundColor: 'transparent',
+                color: '#aaa',
+                cursor: 'pointer',
+                fontSize: 14,
+              }}
+            >
+              Cancel
+            </button>
+          )}
           <button
             onClick={handleConfirm}
             disabled={!selectedColor}

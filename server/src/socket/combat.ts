@@ -17,7 +17,6 @@ import { creatureHasHaste, permanentHasKeyword } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
-import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 
 function persistTriggeredAbilityPush(
@@ -82,24 +81,22 @@ export function resolveAttackTriggerManaPaymentChoice(
 
     // Consume mana
     consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[attackTriggerPayment:${cardName}]`);
-    broadcastManaPoolUpdate(io, gameId, playerId, pool as any, `Paid ${manaCost} for ${cardName}`, game);
+    const battlefield = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
+    const permanent = battlefield.find((p: any) => String(p?.id || '') === String(permanentId || ''));
+    const cardFaces = Array.isArray(permanent?.card?.card_faces) ? permanent.card.card_faces : [];
+    const shouldTransform =
+      Boolean(permanent) &&
+      cardFaces.length >= 2 &&
+      /transform/i.test(String(effect || ''));
 
-    // Execute the effect (e.g., transform Casal)
-    const battlefield = game.state?.battlefield || [];
-    const permanent = battlefield.find((p: any) => p?.id === permanentId);
+    if (shouldTransform) {
+      const frontFaceName = String(cardFaces[0]?.name || '').trim().toLowerCase();
+      const currentFaceName = String(permanent?.card?.name || '').trim().toLowerCase();
+      const wasTransformed = Boolean(frontFaceName) && currentFaceName !== frontFaceName;
+      const newFaceIndex = wasTransformed ? 0 : 1;
+      const newFace = cardFaces[newFaceIndex];
 
-    if (permanent && effect && effect.toLowerCase().includes("transform")) {
-      // Handle transform
-      const cardFaces = (permanent.card as any)?.card_faces;
-      if (Array.isArray(cardFaces) && cardFaces.length >= 2) {
-        const wasTransformed = (permanent as any).transformed;
-        (permanent as any).transformed = !wasTransformed;
-
-        // Get the new face
-        const newFaceIndex = wasTransformed ? 0 : 1;
-        const newFace = cardFaces[newFaceIndex];
-
-        // Update permanent's visible card data
+      if (newFace) {
         permanent.card = {
           ...permanent.card,
           name: newFace.name,
@@ -111,50 +108,47 @@ export function resolveAttackTriggerManaPaymentChoice(
           colors: newFace.colors,
         } as any;
 
-        // Check if this is Casal transforming to Pathbreaker Owlbear
-        const newName = newFace.name || "";
-        if (newName.toLowerCase().includes("pathbreaker owlbear")) {
-          // Apply the buff: other legendary creatures get +2/+2 and trample until end of turn
+        const newName = String(newFace.name || '');
+        if (newName.toLowerCase().includes('pathbreaker owlbear')) {
           const legendaryCreatures = battlefield.filter(
             (p: any) =>
               p?.controller === playerId &&
-              p?.id !== permanentId && // Exclude Casal herself
-              (p?.card?.type_line || "").toLowerCase().includes("legendary") &&
-              (p?.card?.type_line || "").toLowerCase().includes("creature")
+              p?.id !== permanentId &&
+              String(p?.card?.type_line || '').toLowerCase().includes('legendary') &&
+              String(p?.card?.type_line || '').toLowerCase().includes('creature')
           );
 
           for (const creature of legendaryCreatures) {
-            // Add temporary buff modifier
-            const existingModifiers = creature.modifiers || [];
+            const existingModifiers = Array.isArray(creature.modifiers) ? creature.modifiers : [];
             creature.modifiers = [
               ...existingModifiers,
               {
-                type: "pt_buff",
+                type: 'pt_buff',
                 sourceId: permanentId,
                 power: 2,
                 toughness: 2,
-                keywords: ["Trample"],
-                duration: "end_of_turn",
+                keywords: ['Trample'],
+                duration: 'end_of_turn',
                 appliedAt: Date.now(),
               } as any,
             ];
           }
 
           if (legendaryCreatures.length > 0) {
-            io.to(gameId).emit("chat", {
+            io.to(gameId).emit('chat', {
               id: `m_${Date.now()}`,
               gameId,
-              from: "system",
-              message: `🐻 ${newName}: ${legendaryCreatures.length} legendary creature${legendaryCreatures.length > 1 ? "s" : ""} get +2/+2 and gain trample until end of turn!`,
+              from: 'system',
+              message: `🐻 ${newName}: ${legendaryCreatures.length} legendary creature${legendaryCreatures.length > 1 ? 's' : ''} get +2/+2 and gain trample until end of turn!`,
               ts: Date.now(),
             });
           }
         }
 
-        io.to(gameId).emit("chat", {
+        io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
-          from: "system",
+          from: 'system',
           message: `💰 ${getPlayerName(game, playerId)} paid ${manaCost}. ${cardName} transforms into ${newFace.name}!`,
           ts: Date.now(),
         });
@@ -337,20 +331,6 @@ function processTapTriggersForAttackers(
           appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeTapTriggeredStackItem(stackItem));
         } catch (err) {
           debugWarn(1, '[combat] appendEvent(pushTriggeredAbility tap trigger) failed:', err);
-        }
-        
-        // Notify players about the trigger
-        if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, triggerControllerId, trigger.cardName, trigger.mandatory)) {
-          io.to(gameId).emit("triggeredAbility", {
-            gameId,
-            triggerId,
-            playerId: triggerControllerId,
-            sourcePermanentId: trigger.permanentId,
-            sourceName: trigger.cardName,
-            triggerType: 'tap',
-            description: trigger.description,
-            mandatory: trigger.mandatory,
-          });
         }
         
         debug(2, `[combat] Tap trigger: ${trigger.cardName} - ${trigger.description}`);
@@ -2078,21 +2058,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                   ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : {}),
                   ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : {}),
                 }, `attack ${trigger.triggerType || 'trigger'}`);
-                
-                // Notify players about the trigger
-                if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, triggerControllerId, trigger.cardName, trigger.mandatory)) {
-                  io.to(gameId).emit("triggeredAbility", {
-                    gameId,
-                    triggerId,
-                    playerId: triggerControllerId,
-                    sourcePermanentId: trigger.permanentId,
-                    sourceName: trigger.cardName,
-                    triggerType: trigger.triggerType,
-                    description: trigger.description,
-                    mandatory: trigger.mandatory,
-                  });
-                }
-                
+
                 io.to(gameId).emit("chat", {
                   id: `m_${Date.now()}`,
                   gameId,
@@ -2158,16 +2124,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       broadcastGame(io, game, gameId);
-      
-      // Emit combat state update for UI
-      io.to(gameId).emit("combatStateUpdated", {
-        gameId,
-        phase: "declareAttackers",
-        attackers: (attackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>).map(a => ({
-          permanentId: a.creatureId,
-          defending: a.targetPlayerId || a.targetPermanentId,
-        })),
-      });
 
       debug(2, `[combat] Player ${playerId} declared ${attackerCount} attackers in game ${gameId}`);
 
@@ -2603,21 +2559,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
                 mandatory: trigger.mandatory,
                 ...(typeof trigger.value !== 'undefined' ? { value: trigger.value } : {}),
               }, 'block trigger');
-              
-              // Notify players about the trigger
-              if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, triggerControllerId, trigger.cardName, trigger.mandatory)) {
-                io.to(gameId).emit("triggeredAbility", {
-                  gameId,
-                  triggerId,
-                  playerId: triggerControllerId,
-                  sourcePermanentId: trigger.permanentId,
-                  sourceName: trigger.cardName,
-                  triggerType: 'blocks',
-                  description: trigger.description,
-                  mandatory: trigger.mandatory,
-                });
-              }
-              
+
               io.to(gameId).emit("chat", {
                 id: `m_${Date.now()}`,
                 gameId,
@@ -2646,16 +2588,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       broadcastGame(io, game, gameId);
-      
-      // Emit combat state update for UI
-      io.to(gameId).emit("combatStateUpdated", {
-        gameId,
-        phase: "declareBlockers",
-        blockers: (blockers as Array<{ blockerId: string; attackerId: string }>).map(b => ({
-          blockerId: b.blockerId,
-          attackerId: b.attackerId,
-        })),
-      });
 
       debug(2, `[combat] Player ${playerId} declared ${blockerCount} blockers in game ${gameId}`);
 
@@ -3137,17 +3069,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       broadcastGame(io, game, gameId);
-      
-      // Emit combat state update
-      io.to(gameId).emit("combatStateUpdated", {
-        gameId,
-        phase: "declareAttackers",
-        attackers: attackers.map(a => ({
-          permanentId: a.creatureId,
-          defending: a.targetPlayerId,
-        })),
-        combatControl,
-      });
 
       debug(2, `[combat] Player ${playerId} declared ${attackers.length} controlled attackers in game ${gameId}`);
       
@@ -3383,17 +3304,6 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       }
 
       broadcastGame(io, game, gameId);
-      
-      // Emit combat state update
-      io.to(gameId).emit("combatStateUpdated", {
-        gameId,
-        phase: "declareBlockers",
-        blockers: blockers.map(b => ({
-          blockerId: b.blockerId,
-          attackerId: b.attackerId,
-        })),
-        combatControl,
-      });
 
       debug(2, `[combat] Player ${playerId} declared ${blockers.length} controlled blockers in game ${gameId}`);
       

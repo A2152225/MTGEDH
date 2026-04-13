@@ -12,7 +12,8 @@ import {
   SHORTCUT_ELIGIBLE_TRIGGERS,
   isTriggerShortcutType,
   isTriggerShortcutPreferenceAllowed,
-} from "../../../shared/src";
+} from "../../../shared/src/index.js";
+
 import { requiresCreatureTypeSelection, getDominantCreatureType, isAIPlayer, applyCreatureTypeSelection } from "./creature-type";
 import { requiresColorChoice } from "./color-choice";
 import { detectETBPlayerSelection, requestPlayerSelection } from "./player-selection";
@@ -41,7 +42,6 @@ import { applyOracleIRStepsToGameState } from '../../../rules-engine/src/oracleI
 import { extractGiftInfo, resolveGiftAwareOracleText } from '../utils/gift.js';
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from '../state/modules/triggers/ability-activated.js';
 
-// Import land-related helpers from modularized module
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import {
   SHOCK_LANDS,
@@ -8444,20 +8444,6 @@ export function registerGameActions(io: Server, socket: Socket) {
             effectData: stackItem.effectData,
           }, 'opponent spell-cast');
           
-          // Emit trigger notification
-          if (!shouldSuppressMandatoryTriggeredAbilityPrompt(game.state, trigger.controllerId, trigger.cardName, trigger.mandatory)) {
-            io.to(gameId).emit("triggeredAbility", {
-              gameId,
-              triggerId,
-              playerId: trigger.controllerId,
-              sourcePermanentId: trigger.permanentId,
-              sourceName: trigger.cardName,
-              triggerType: trigger.triggerType,
-              description: trigger.description,
-              mandatory: trigger.mandatory,
-            });
-          }
-          
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
             gameId,
@@ -8581,8 +8567,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         debug(2, `[completeCastSpell] convokeTappedCreatures:`, convokeTapped);
       }
       
-      // Retrieve targets from pending cast data before cleaning up
-      // This ensures Aura targets (stored in targetSelectionConfirm) are preserved
+      // Retrieve server-authoritative targets from pending cast data before cleaning up.
+      // This preserves previously chosen targets through the queued payment/completion path.
       let finalTargets = targets as any[] | undefined;
       if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
         const pendingCast = (game.state as any).pendingSpellCasts[effectIdStr];
@@ -8732,8 +8718,8 @@ export function registerGameActions(io: Server, socket: Socket) {
         debug(2, `[completeCastSpell] No pendingCast found for effectId: ${effectIdStr}`);
       }
       
-      // CRITICAL FIX: Clean up pendingTargets to prevent game from being blocked
-      // pendingTargets is set by targetSelectionConfirm but never cleaned up
+      // CRITICAL FIX: Clean up pendingTargets to prevent game from being blocked.
+      // Some older cast flows still populate pendingTargets before the queued completion path.
       if (effectIdStr && game.state.pendingTargets?.[effectIdStr]) {
         debug(2, `[completeCastSpell] Cleaning up pendingTargets for effectId: ${effectIdStr}`);
         delete game.state.pendingTargets[effectIdStr];
@@ -12008,86 +11994,6 @@ export function registerGameActions(io: Server, socket: Socket) {
    * 
    * Emits: costReductionInfo with { cardId: { reducedManaCost: string, reduction: number, sources: string[] } }
    */
-  socket.on("getCostReductions", async (payload?: { gameId?: unknown }) => {
-    const gameId = payload?.gameId;
-
-    try {
-      const playerId = socket.data.playerId as string | undefined;
-      if (!playerId) return;
-
-      if (!gameId || typeof gameId !== 'string') return;
-      if (!ensureInGameRoom(gameId)) return;
-
-      const game = ensureGame(gameId);
-      if (!game) return;
-
-      const zones = game.state?.zones?.[playerId];
-      if (!zones) return;
-
-      const hand = zones.hand || [];
-      const costInfo: Record<string, {
-        originalCost: string;
-        reducedCost: string;
-        genericReduction: number;
-        colorReduction: Record<string, number>;
-        sources: string[];
-      }> = {};
-
-      for (const card of hand) {
-        // Type guard: hand can contain strings (card IDs) or KnownCardRef objects
-        if (!card || typeof card === 'string') continue;
-        if (!card.id) continue;
-
-        const cardManaCost = (card as any).mana_cost || "";
-        if (!cardManaCost) continue;
-
-        const reduction = calculateCostReduction(game, playerId, card, false);
-        
-        if (reduction.generic > 0 || Object.values(reduction.colors).some(v => v > 0)) {
-          const reducedCostStr = formatManaCostWithReduction(cardManaCost, reduction);
-
-          costInfo[card.id] = {
-            originalCost: cardManaCost,
-            reducedCost: reducedCostStr,
-            genericReduction: reduction.generic,
-            colorReduction: reduction.colors,
-            sources: reduction.messages,
-          };
-        }
-      }
-
-      // Also check commanders in command zone (via game state, not game.commanders)
-      const commanderState = (game as any).state?.commandZone?.[playerId];
-      if (commanderState?.cards) {
-        const inCommandZone = commanderState.inZone || [];
-        for (const cmdCard of commanderState.cards) {
-          if (!cmdCard?.id || !inCommandZone.includes(cmdCard.id)) continue;
-
-          const cardManaCost = cmdCard.mana_cost || "";
-          if (!cardManaCost) continue;
-
-          const reduction = calculateCostReduction(game, playerId, cmdCard, false);
-          
-          if (reduction.generic > 0 || Object.values(reduction.colors).some(v => v > 0)) {
-            const reducedCostStr = formatManaCostWithReduction(cardManaCost, reduction);
-
-            costInfo[cmdCard.id] = {
-              originalCost: cardManaCost,
-              reducedCost: reducedCostStr,
-              genericReduction: reduction.generic,
-              colorReduction: reduction.colors,
-              sources: reduction.messages,
-            };
-          }
-        }
-      }
-
-      socket.emit("costReductionInfo", { gameId, costInfo });
-    } catch (err: any) {
-      debugError(1, `getCostReductions error for game ${gameId}:`, err);
-    }
-  });
-
   // Handle equip ability - prompts player to select creature to attach equipment to
   // Flow: selectTarget -> promptManaPayment -> confirmPayment -> attach
   socket.on("equipAbility", (payload?: {
@@ -12568,66 +12474,6 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       debugError(1, `castForetold error for game ${gameId}:`, err);
       socket.emit("error", { code: "CAST_FORETOLD_ERROR", message: err?.message ?? String(err) });
-    }
-  });
-
-  // Payment/targeting cancel from client casting UI.
-  // Used as a best-effort cleanup hook, especially for foretell casts (which temporarily move a card into hand).
-  socket.on('targetSelectionCancel', async (payload?: { gameId?: unknown; cardId?: unknown; effectId?: unknown }) => {
-    const gameId = payload?.gameId;
-    const cardId = payload?.cardId;
-    const effectId = payload?.effectId;
-
-    if (!gameId || typeof gameId !== 'string') return;
-    if (!cardId || typeof cardId !== 'string') return;
-    if (!(effectId === undefined || typeof effectId === 'string')) return;
-
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-
-      if (!ensureInGameRoom(gameId)) return;
-
-      const effectIdStr = effectId as string | undefined;
-      const suspendedLibrarySearchStep = effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]?.librarySearchStepToResume;
-
-      // Clean pending spell-cast state when present.
-      if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
-        delete (game.state as any).pendingSpellCasts[effectIdStr];
-      }
-      if (effectIdStr && (game.state as any).pendingTargets?.[effectIdStr]) {
-        delete (game.state as any).pendingTargets[effectIdStr];
-      }
-
-      const pendingForetell = (game.state as any).pendingForetellCasts?.[cardId];
-      if (pendingForetell && pendingForetell.playerId === playerId) {
-        const zones = game.state.zones?.[playerId];
-        if (zones && Array.isArray(zones.hand)) {
-          const handIdx = (zones.hand as any[]).findIndex((c: any) => c?.id === cardId);
-          if (handIdx !== -1) {
-            (zones.hand as any[]).splice(handIdx, 1);
-            zones.handCount = (zones.hand as any[]).length;
-          }
-        }
-
-        if (zones) {
-          zones.exile = Array.isArray((zones as any).exile) ? (zones as any).exile : [];
-          (zones.exile as any[]).push({ ...(pendingForetell.originalCard as any), zone: 'exile', faceDown: true, foretold: true });
-          (zones as any).exileCount = (zones.exile as any[]).length;
-        }
-
-        delete (game.state as any).pendingForetellCasts[cardId];
-      }
-
-      if (suspendedLibrarySearchStep) {
-        await restoreSuspendedLibrarySearchStep(io, socket, gameId, suspendedLibrarySearchStep);
-      }
-
-      broadcastGame(io, game, gameId);
-    } catch (err: any) {
-      debugError(1, `targetSelectionCancel error for game ${gameId}:`, err);
-      socket.emit('error', { code: 'TARGET_SELECTION_CANCEL_ERROR', message: err?.message ?? String(err) });
     }
   });
 
@@ -13544,57 +13390,6 @@ export function registerGameActions(io: Server, socket: Socket) {
     } catch (err: any) {
       debugError(1, `setTriggerShortcut error for game ${gameId}:`, err);
       socket.emit("error", { code: "SET_TRIGGER_SHORTCUT_ERROR", message: err?.message ?? String(err) });
-    }
-  });
-
-  /**
-   * Get a player's trigger shortcut for a specific card.
-   * Returns null if no shortcut is set (use default behavior).
-   */
-  socket.on("getTriggerShortcut", (payload?: {
-    gameId?: unknown;
-    cardName?: unknown;
-    triggerDescription?: unknown;
-  }) => {
-    const gameId = payload?.gameId;
-    const cardName = payload?.cardName;
-    const triggerDescription = payload?.triggerDescription;
-
-    if (!gameId || typeof gameId !== 'string') return;
-    if (!cardName || typeof cardName !== 'string') return;
-    if (!(triggerDescription === undefined || typeof triggerDescription === 'string')) return;
-
-    try {
-      const socketGameId = (socket.data as any)?.gameId as string | undefined;
-      if ((socketGameId && socketGameId !== gameId) || !(socket as any)?.rooms?.has?.(gameId)) {
-        socket.emit("triggerShortcutResponse", { shortcut: null });
-        return;
-      }
-
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId as string | undefined;
-
-      if (!game || !playerId) {
-        socket.emit("triggerShortcutResponse", { shortcut: null });
-        return;
-      }
-
-      const shortcuts = game.state.triggerShortcuts?.[playerId] || [];
-      const normalizedCardName = cardName.toLowerCase().trim();
-
-      const shortcut = shortcuts.find(
-        (s: any) => s.cardName === normalizedCardName &&
-                    (!triggerDescription || s.triggerDescription === triggerDescription)
-      );
-
-      socket.emit("triggerShortcutResponse", { 
-        shortcut: shortcut || null,
-        cardName: normalizedCardName 
-      });
-
-    } catch (err: any) {
-      debugError(1, `getTriggerShortcut error:`, err);
-      socket.emit("triggerShortcutResponse", { shortcut: null });
     }
   });
 

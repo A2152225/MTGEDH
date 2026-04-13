@@ -477,11 +477,11 @@ export function App() {
   // Creature type selection modal state (for Cavern of Souls, Kindred Discovery, etc.)
   const [creatureTypeModalOpen, setCreatureTypeModalOpen] = useState(false);
   const [creatureTypeModalData, setCreatureTypeModalData] = useState<{
-    confirmId: string;
-    permanentId: string;
+     permanentId?: string;
     cardName: string;
     reason: string;
-    stepId?: string;
+     stepId: string;
+     mandatory: boolean;
   } | null>(null);
   
   // Ability sacrifice selection modal state (for Ashnod's Altar, Phyrexian Altar, Mondrak, etc.)
@@ -707,12 +707,14 @@ export function App() {
   const [colorChoiceModalOpen, setColorChoiceModalOpen] = useState(false);
   const [colorChoiceModalData, setColorChoiceModalData] = useState<{
     confirmId: string;
+    stepId: string;
     permanentId?: string;
     spellId?: string;
     cardName: string;
     reason: string;
     imageUrl?: string;
     colors?: ('white' | 'blue' | 'black' | 'red' | 'green')[];
+    mandatory: boolean;
   } | null>(null);
 
   // Card Name Choice Modal state - for Pithing Needle, Nevermore, etc.
@@ -3103,6 +3105,7 @@ export function App() {
       // Handle color choice via resolution queue (Throne of Eldraine, Caged Sun, etc.)
       else if (step.type === 'color_choice') {
         setColorChoiceModalData({
+          stepId: step.id,
           confirmId: step.id,
           permanentId: (step as any).permanentId || step.sourceId,
           spellId: (step as any).spellId,
@@ -3110,6 +3113,7 @@ export function App() {
           reason: (step as any).reason || step.description || 'Choose a color',
           imageUrl: step.sourceImage,
           colors: (step as any).colors || ['white', 'blue', 'black', 'red', 'green'],
+          mandatory: step.mandatory !== false,
         });
         setColorChoiceModalOpen(true);
       }
@@ -3130,10 +3134,10 @@ export function App() {
       else if (step.type === 'creature_type_choice') {
         setCreatureTypeModalData({
           stepId: step.id,
-          confirmId: step.id,
           permanentId: (step as any).permanentId,
           cardName: (step as any).cardName || step.sourceName,
           reason: (step as any).reason || step.description,
+          mandatory: step.mandatory !== false,
         });
         setCreatureTypeModalOpen(true);
       }
@@ -5551,33 +5555,6 @@ export function App() {
                 safeView &&
                 socket.emit("shuffleHand", { gameId: safeView.id })
               }
-              onRemove={(id) =>
-                safeView &&
-                socket.emit("removePermanent", {
-                  gameId: safeView.id,
-                  permanentId: id,
-                })
-              }
-              onCounter={(id, kind, delta) =>
-                safeView &&
-                socket.emit("updateCounters", {
-                  gameId: safeView.id,
-                  permanentId: id,
-                  counterType: kind,
-                  delta,
-                })
-              }
-              onBulkCounter={(ids, deltas) => {
-                if (!safeView) return;
-                // Apply counter updates to all selected permanents
-                for (const id of ids) {
-                  socket.emit("updateCountersBulk", {
-                    gameId: safeView.id,
-                    permanentId: id,
-                    counters: deltas,
-                  });
-                }
-              }}
               onPlayLandFromHand={(cardId) =>
                 safeView &&
                 playLandWithPromptSync({ gameId: safeView.id, cardId })
@@ -7171,27 +7148,30 @@ export function App() {
         title={`Choose a Creature Type for ${creatureTypeModalData?.cardName || 'this card'}`}
         description={creatureTypeModalData?.reason}
         cardName={creatureTypeModalData?.cardName}
+        canCancel={!creatureTypeModalData?.mandatory}
         onSelect={(creatureType) => {
           if (creatureTypeModalData && safeView?.id) {
-            if (creatureTypeModalData.stepId) {
-              socket.emit("submitResolutionResponse", {
-                gameId: safeView.id,
-                stepId: creatureTypeModalData.stepId,
-                selections: creatureType,
-                cancelled: false,
-              });
-            } else {
-              socket.emit("creatureTypeSelected", {
-                gameId: safeView.id,
-                confirmId: creatureTypeModalData.confirmId,
-                creatureType,
-              });
-            }
+            socket.emit("submitResolutionResponse", {
+              gameId: safeView.id,
+              stepId: creatureTypeModalData.stepId,
+              selections: creatureType,
+              cancelled: false,
+            });
             setCreatureTypeModalOpen(false);
             setCreatureTypeModalData(null);
           }
         }}
         onCancel={() => {
+          if (creatureTypeModalData?.mandatory) {
+            return;
+          }
+
+          if (safeView?.id && creatureTypeModalData?.stepId) {
+            socket.emit('cancelResolutionStep', {
+              gameId: safeView.id,
+              stepId: creatureTypeModalData.stepId,
+            });
+          }
           setCreatureTypeModalOpen(false);
           setCreatureTypeModalData(null);
         }}
@@ -7243,11 +7223,12 @@ export function App() {
         reason={colorChoiceModalData?.reason || ''}
         cardImageUrl={colorChoiceModalData?.imageUrl}
         colors={colorChoiceModalData?.colors}
+        canCancel={!colorChoiceModalData?.mandatory}
         onConfirm={(selectedColor) => {
           if (safeView?.id && colorChoiceModalData) {
             socket.emit('submitResolutionResponse', {
               gameId: safeView.id,
-              stepId: colorChoiceModalData.confirmId,
+              stepId: colorChoiceModalData.stepId,
               selections: selectedColor,
               cancelled: false,
             });
@@ -7256,10 +7237,14 @@ export function App() {
           }
         }}
         onCancel={() => {
-          if (safeView?.id && colorChoiceModalData) {
-            socket.emit("cancelColorChoice", {
+          if (colorChoiceModalData?.mandatory) {
+            return;
+          }
+
+          if (safeView?.id && colorChoiceModalData?.stepId) {
+            socket.emit('cancelResolutionStep', {
               gameId: safeView.id,
-              confirmId: colorChoiceModalData.confirmId,
+              stepId: colorChoiceModalData.stepId,
             });
           }
           setColorChoiceModalOpen(false);

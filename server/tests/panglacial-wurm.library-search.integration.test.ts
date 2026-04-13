@@ -179,10 +179,11 @@ describe('Panglacial Wurm library-search casting (integration)', () => {
     expect((game.state as any).pendingSpellCasts?.[paymentStep.effectId]?.fromZone).toBe('library');
 
     emitted.length = 0;
-    await handlers['targetSelectionCancel']({
+    await handlers['submitResolutionResponse']({
       gameId,
-      cardId: 'pang_1',
-      effectId: String(paymentStep.effectId),
+      stepId: String(paymentStep.id),
+      selections: {},
+      cancelled: true,
     });
 
     const restoredStep = ResolutionQueueManager.getStepsForPlayer(gameId, playerId as any)[0] as any;

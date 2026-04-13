@@ -174,14 +174,11 @@ describe('game-actions in-room authorization (integration)', () => {
     expect(() => handlers['equipAbility'](undefined as any)).not.toThrow();
     expect(() => handlers['foretellCard'](undefined as any)).not.toThrow();
     expect(() => handlers['castForetold'](undefined as any)).not.toThrow();
-    expect(() => handlers['targetSelectionCancel'](undefined as any)).not.toThrow();
     expect(() => handlers['requestGraveyardTargets'](undefined as any)).not.toThrow();
     expect(() => handlers['requestOpponentSelection'](undefined as any)).not.toThrow();
     await expect(Promise.resolve().then(() => handlers['requestSacrificeSelection'](undefined as any))).resolves.toBeUndefined();
-    await expect(Promise.resolve().then(() => handlers['getCostReductions'](undefined as any))).resolves.toBeUndefined();
     expect(() => handlers['phaseOutPermanents'](undefined as any)).not.toThrow();
     expect(() => handlers['changePermanentControl'](undefined as any)).not.toThrow();
     await expect(Promise.resolve().then(() => handlers['setTriggerShortcut'](undefined as any))).resolves.toBeUndefined();
-    expect(() => handlers['getTriggerShortcut'](undefined as any)).not.toThrow();
   });
 });
