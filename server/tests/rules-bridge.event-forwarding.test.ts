@@ -145,17 +145,7 @@ describe('RulesBridge event forwarding', () => {
       data: { playerId: 'player_a' },
     });
 
-    expect(emitted).toEqual([
-      {
-        room: 'game_A',
-        event: 'cardDrawn',
-        payload: {
-          gameId: 'game_A',
-          playerId: 'player_a',
-          timestamp: 14,
-        },
-      },
-    ]);
+    expect(emitted).toEqual([]);
   });
 
   it('removes all shared rules-engine listeners on dispose', async () => {

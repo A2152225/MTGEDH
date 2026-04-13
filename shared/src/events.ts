@@ -122,34 +122,11 @@ export interface ClientToServerEvents {
   declareBlockers: (payload: { gameId: GameID; blockers: Array<{ blockerId: string; attackerId: string }> }) => void;
   combatPreviewAttackers: (payload: { gameId: GameID; targets: Record<string, string> }) => void;
   
-  // Combat damage assignment (for complex blocking scenarios)
-  assignCombatDamage: (payload: {
-    gameId: GameID;
-    attackerId: string;
-    damageAssignments: Array<{ targetId: string; damage: number }>;
-  }) => void;
-  
-  // Blocker ordering (for multiple blockers)
-  orderBlockers: (payload: {
-    gameId: GameID;
-    attackerId: string;
-    blockerOrder: string[]; // Ordered list of blocker IDs
-  }) => void;
-  
   exchangeTextBoxes: (payload: {
     gameId: GameID;
     sourcePermanentId: string;
     targetPermanentId: string;
   }) => void;
-  
-  // Cleanup step discard selection
-  discardToHandSize: (payload: { gameId: GameID; cardIds: string[] }) => void;
-  
-  // Trigger ordering (accepts either triggerOrder or orderedTriggerIds for backwards compatibility)
-  orderTriggers: (payload: { gameId: GameID; triggerOrder?: string[]; orderedTriggerIds?: string[] }) => void;
-  
-  // Replacement effect choice
-  chooseReplacementEffect: (payload: { gameId: GameID; effectId: string }) => void;
   
   // Commander zone choice
   commanderZoneChoice: (payload: { gameId: GameID; commanderId: string; moveToCommandZone: boolean }) => void;
@@ -194,9 +171,6 @@ export interface ClientToServerEvents {
     convokeTappedCreatures?: string[];
   }) => void;
   
-  // Resolve a cascade decision (cast the revealed card or decline)
-  resolveCascade: (payload: { gameId: GameID; effectId: string; cast: boolean }) => void;
-  
   // Play a land from hand
   playLand: (payload: { gameId: GameID; cardId: string; selectedFace?: number; fromZone?: 'hand' | 'graveyard' | 'exile' }) => void;
 
@@ -206,9 +180,6 @@ export interface ClientToServerEvents {
   sacrificeUnlessPayChoice: (payload: { gameId: GameID; permanentId: string; pay?: boolean; payMana?: boolean }) => void;
 
   // ===== LIBRARY SEARCH EVENTS =====
-
-  // Cancel library search
-  librarySearchCancel: (payload: { gameId: GameID }) => void;
 
   // ===== OPENING HAND ACTIONS =====
 
@@ -365,13 +336,6 @@ export interface ClientToServerEvents {
   // Activate ability on battlefield permanent
   activateBattlefieldAbility: (payload: { gameId: GameID; permanentId: string; abilityId: string; xValue?: number }) => void;
   
-  // Select mana color when tapping a creature for any color mana (e.g., Cryptolith Rite)
-  manaColorSelect: (payload: { 
-    gameId: GameID; 
-    permanentId: string; 
-    selectedColor: 'W' | 'U' | 'B' | 'R' | 'G';
-  }) => void;
-
   // ===== DECK MANAGEMENT EXTENDED =====
   
   // Cache a saved deck's cards
@@ -617,62 +581,6 @@ export interface ServerToClientEvents {
   // Explicit notification that the player currently has no pending resolution step
   noResolutionStep: (payload: { gameId?: GameID }) => void;
   
-  // ===== CHOICE EVENTS (Enhanced Decision System) =====
-  
-  // Choice response acknowledgment
-  choiceResponse: (payload: {
-    gameId: GameID;
-    eventId: string;
-    playerId: PlayerID;
-    selection: any;
-    success: boolean;
-    error?: string;
-  }) => void;
-  
-  // Copy ceases to exist notification (Rule 704.5e)
-  copyCeasesToExist: (payload: {
-    gameId: GameID;
-    copyId: string;
-    copyName: string;
-    copyType: 'spell' | 'card';
-    zone: string;
-    originalName?: string;
-    controllerId: PlayerID;
-  }) => void;
-  
-  // Token ceases to exist notification (Rule 704.5d)
-  tokenCeasesToExist: (payload: {
-    gameId: GameID;
-    tokenIds: string[];
-    tokenNames: string[];
-    zone: string;
-    controllerId: PlayerID;
-  }) => void;
-  
-  // Win effect notification (Rule 104.2b)
-  winEffectTriggered: (payload: {
-    gameId: GameID;
-    winningPlayerId: PlayerID;
-    winReason: string;
-    sourceId: string;
-    sourceName: string;
-    blockedBy?: string; // If win was prevented by Platinum Angel, etc.
-  }) => void;
-  
-  // Replacement effect choice required
-  replacementEffectChoice: (payload: {
-    gameId: GameID;
-    choosingPlayerId: PlayerID;
-    affectedPlayerId: PlayerID;
-    affectedEvent: string;
-    effects: Array<{
-      id: string;
-      sourceId: string;
-      sourceName: string;
-      description: string;
-    }>;
-  }) => void;
-  
   // Mana pool update notification
   manaPoolUpdate: (payload: {
     gameId: GameID;
@@ -700,18 +608,6 @@ export interface ServerToClientEvents {
     totalMana: number;
     /** Reason for the update */
     reason?: string;
-  }) => void;
-  
-  // Mana color choice prompt (for creatures with "any color" mana abilities)
-  manaColorChoice: (payload: {
-    gameId: GameID;
-    permanentId: string;
-    cardName: string;
-    availableColors: string[];
-    grantedBy?: string; // ID of the permanent granting the ability (e.g., Cryptolith Rite)
-    totalAmount?: number;
-    isAnyColor?: boolean;
-    message?: string;
   }) => void;
 
   // ===== REPLAY VIEWER EVENTS (SERVER -> CLIENT) =====

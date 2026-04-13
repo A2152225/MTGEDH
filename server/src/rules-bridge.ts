@@ -159,59 +159,22 @@ export class RulesBridge {
     });
 
     this.onEvent(RulesEngineEvent.ORACLE_AUTOMATION_GAP_RECORDED, (event) => {
-      this.io.to(this.gameId).emit('oracleAutomationGapRecorded', {
-        gameId: this.gameId,
-        sourceId: event.data?.sourceId,
-        sourceName: event.data?.sourceName,
-        controllerId: event.data?.controllerId,
-        count: event.data?.count || 0,
-        records: event.data?.records || [],
-        timestamp: event.timestamp,
-      });
     });
 
     this.onEvent(RulesEngineEvent.CARD_DRAWN, (event) => {
-      this.io.to(this.gameId).emit('cardDrawn', {
-        gameId: this.gameId,
-        playerId: event.data.playerId,
-        timestamp: event.timestamp,
-      });
     });
     
     this.onEvent(RulesEngineEvent.PERMANENT_DESTROYED, (event) => {
-      this.io.to(this.gameId).emit('permanentDestroyed', {
-        gameId: this.gameId,
-        permanent: event.data.permanent,
-        timestamp: event.timestamp,
-      });
     });
     
     // Phase and step events
     this.onEvent(RulesEngineEvent.PHASE_STARTED, (event) => {
-      this.io.to(this.gameId).emit('phaseStarted', {
-        gameId: this.gameId,
-        phase: event.data.phase,
-        step: event.data.step,
-        timestamp: event.timestamp,
-      });
     });
     
     this.onEvent(RulesEngineEvent.STEP_STARTED, (event) => {
-      this.io.to(this.gameId).emit('stepStarted', {
-        gameId: this.gameId,
-        step: event.data.step,
-        phase: event.data.phase,
-        timestamp: event.timestamp,
-      });
     });
     
     this.onEvent(RulesEngineEvent.TURN_STARTED, (event) => {
-      this.io.to(this.gameId).emit('turnStarted', {
-        gameId: this.gameId,
-        turn: event.data.turn,
-        activePlayer: event.data.activePlayer,
-        timestamp: event.timestamp,
-      });
     });
     
     // Mulligan events
