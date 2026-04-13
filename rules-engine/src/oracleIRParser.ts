@@ -73,7 +73,13 @@ import {
   pruneForetellReminderAbilities,
   pruneMorphReminderAbilities,
   pruneRedundantAttackRequirementAbilities,
+  pruneRedundantArtifactTokenReminderUnknownAbilities,
+  pruneRedundantCrewReminderAbilities,
+  pruneRedundantSpellCantBeCounteredAbilities,
+  expandFutureSpellEffectUnknownAbilities,
+  pruneRedundantTriggerRestrictionUnknownAbilities,
   pruneRedundantScryReminderUnknownAbilities,
+  pruneRedundantStillLandUnknownAbilities,
   expandPayManaUnknownAbilities,
   expandSimpleConditionalUnknownAbilities,
   expandTapMatchingPermanentCountAbilities,
@@ -1252,6 +1258,12 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneForetellReminderAbilities(abilities);
   abilities = pruneMorphReminderAbilities(abilities);
   abilities = pruneRedundantAttackRequirementAbilities(abilities);
+  abilities = pruneRedundantCrewReminderAbilities(abilities);
+  abilities = pruneRedundantArtifactTokenReminderUnknownAbilities(abilities);
+  abilities = pruneRedundantSpellCantBeCounteredAbilities(abilities);
+  abilities = expandFutureSpellEffectUnknownAbilities(abilities);
+  abilities = pruneRedundantTriggerRestrictionUnknownAbilities(abilities);
+  abilities = pruneRedundantStillLandUnknownAbilities(abilities);
   abilities = pruneRedundantScryReminderUnknownAbilities(abilities);
   abilities = expandScavengeKeywordAbilities(abilities);
   abilities = expandTypecyclingKeywordAbilities(abilities);

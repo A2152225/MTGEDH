@@ -308,6 +308,7 @@ describe('shock land and request-cast regressions (integration)', () => {
       .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
     expect(paymentStep).toBeDefined();
 
+    emitted.length = 0;
     await handlers['submitResolutionResponse']({
       gameId: targetedCastGameId,
       stepId: String(paymentStep.id),
@@ -319,11 +320,7 @@ describe('shock land and request-cast regressions (integration)', () => {
       },
     });
 
-    const continueEvent = emitted.find(event => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.effectId).toBeDefined();
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
     await new Promise(resolve => setTimeout(resolve, 0));
 
     const noPriorityError = emitted.find(event => event.event === 'error' && event.payload?.code === 'NO_PRIORITY');
@@ -420,6 +417,7 @@ describe('shock land and request-cast regressions (integration)', () => {
       .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
     expect(paymentStep).toBeDefined();
 
+    emitted.length = 0;
     await handlers['submitResolutionResponse']({
       gameId: artifactCastGameId,
       stepId: String(paymentStep.id),
@@ -431,11 +429,7 @@ describe('shock land and request-cast regressions (integration)', () => {
       },
     });
 
-    const continueEvent = emitted.find(event => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('runechanters_pike_1');
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const castError = emitted.find(event => event.event === 'error');
     expect(castError).toBeUndefined();
@@ -456,7 +450,6 @@ describe('shock land and request-cast regressions (integration)', () => {
     createGameIfNotExists(artifactCastGameId, 'commander', 40, undefined, playerId);
     const game = ensureGame(artifactCastGameId);
     if (!game) throw new Error('ensureGame returned undefined');
-
     (game.state as any).players = [
       { id: playerId, name: 'P1', spectator: false, life: 40 },
       { id: opponentId, name: 'P2', spectator: false, life: 40 },
@@ -535,20 +528,6 @@ describe('shock land and request-cast regressions (integration)', () => {
       .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
     expect(paymentStep).toBeDefined();
 
-    await handlers['submitResolutionResponse']({
-      gameId: artifactCastGameId,
-      stepId: String(paymentStep.id),
-      selections: {
-        payment: [
-          { permanentId: 'training_center_1', mana: 'U', count: 1 },
-          { permanentId: 'homeward_path_1', mana: 'C', count: 1 },
-        ],
-      },
-    });
-
-    const continueEvent = emitted.find(event => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('runechanters_pike_1');
-
     const syncRulesBridgeSpy = vi.spyOn(GameManager as any, 'syncRulesBridge').mockReturnValue({
       validateAction: () => ({ legal: false, reason: 'bridge drift' }),
       executeAction: () => ({ success: true }),
@@ -556,10 +535,21 @@ describe('shock land and request-cast regressions (integration)', () => {
 
     try {
       emitted.length = 0;
-      await handlers['completeCastSpell'](continueEvent?.payload);
+      await handlers['submitResolutionResponse']({
+        gameId: artifactCastGameId,
+        stepId: String(paymentStep.id),
+        selections: {
+          payment: [
+            { permanentId: 'training_center_1', mana: 'U', count: 1 },
+            { permanentId: 'homeward_path_1', mana: 'C', count: 1 },
+          ],
+        },
+      });
     } finally {
       syncRulesBridgeSpy.mockRestore();
     }
+
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const castError = emitted.find(event => event.event === 'error');
     expect(castError).toBeUndefined();
@@ -713,6 +703,7 @@ describe('shock land and request-cast regressions (integration)', () => {
       .find((entry: any) => entry.type === 'mana_payment_choice' && (entry as any).spellPaymentRequired === true) as any;
     expect(paymentStep).toBeDefined();
 
+    emitted.length = 0;
     await handlers['submitResolutionResponse']({
       gameId: adventureCastGameId,
       stepId: String(paymentStep.id),
@@ -723,13 +714,9 @@ describe('shock land and request-cast regressions (integration)', () => {
       },
     });
 
-    const continueEvent = emitted.find(event => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.effectId).toBeDefined();
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
-
-    const castError = emitted.find(event => event.event === 'error');
+    const castError = emitted.find((event) => event.event === 'error');
     expect(castError).toBeUndefined();
 
     const top = ((game.state as any).stack || [])[0] as any;

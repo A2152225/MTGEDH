@@ -6,7 +6,7 @@
  */
 
 import type { ManaPool, ManaCost, ManaType } from './types/mana';
-import type { Cost, CostType } from './types/costs';
+import type { Cost, CostType, ManaPaymentRecord } from './types/costs';
 import type { CastingProcess, CastingStep } from './types/spellsAbilitiesEffects';
 import { canPayManaCost } from './types/costs';
 
@@ -152,9 +152,20 @@ export interface StackObject {
   readonly spellId: string;
   readonly cardName: string;
   readonly controllerId: string;
+  readonly ownerId?: string;
   readonly targets: readonly string[];
   readonly modes?: readonly string[];
   readonly xValue?: number;
+  readonly manaPayment?: ManaPaymentRecord;
+  readonly manaSpentTotal?: number;
+  readonly manaSpentColors?: readonly string[];
+  readonly manaSpentSymbols?: readonly string[] | Readonly<Record<string, number>>;
+  readonly cantBeCountered?: boolean;
+  readonly cantBeCounteredBySourceColors?: readonly string[];
+  readonly counterImmunity?: {
+    readonly unconditional?: boolean;
+    readonly counterSourceColors?: readonly string[];
+  };
   readonly triggerMeta?: {
     readonly effectText?: string;
     readonly sourceName?: string;
@@ -223,12 +234,18 @@ export function validateSpellTiming(
   }
 ): { valid: boolean; reason?: string } {
   const isSorcery = cardTypes.some(t => t.toLowerCase() === 'sorcery');
+  const hasFlash = cardTypes.some(t => t.toLowerCase() === 'flash');
   const isPermanent = cardTypes.some(t => 
     ['creature', 'artifact', 'enchantment', 'planeswalker'].includes(t.toLowerCase())
   );
   
   // Sorcery-speed spells (sorceries and permanent spells) need sorcery timing
   if (isSorcery || isPermanent) {
+    if (hasFlash) {
+      return context.hasPriority
+        ? { valid: true }
+        : { valid: false, reason: 'You do not have priority' };
+    }
     if (!context.hasPriority) {
       return { valid: false, reason: 'You do not have priority' };
     }

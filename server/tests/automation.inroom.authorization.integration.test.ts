@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { registerAutomationHandlers } from '../src/socket/automation.js';
+import { registerPriorityHandlers } from '../src/socket/priority.js';
 import { games } from '../src/socket/socket.js';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
@@ -30,22 +30,22 @@ function createMockSocket(data: any, emitted: Array<{ room?: string; event: stri
   return { socket, handlers };
 }
 
-describe('automation in-room authorization (integration)', () => {
+describe('priority controls in-room authorization (integration)', () => {
   const gameId = 'test_automation_inroom_auth';
 
   beforeEach(() => {
     games.delete(gameId as any);
   });
 
-  it('blocks castSpell when socket is not in the game room (guard triggers before game lookup)', async () => {
+  it('blocks setAutoPass when socket is not in the game room (guard triggers before game lookup)', async () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket({ playerId: 'p1', spectator: false, gameId }, emitted);
     // Intentionally do NOT join the room.
 
     const io = createMockIo(emitted);
-    registerAutomationHandlers(io as any, socket as any);
+    registerPriorityHandlers(io as any, socket as any);
 
-    await handlers['castSpell']({ gameId, cardId: 'c1', targets: [], modes: [], xValue: 0, manaPayment: [] });
+    handlers['setAutoPass']({ gameId, enabled: true });
 
     const err = emitted.find(e => e.event === 'error');
     expect(err?.payload?.code).toBe('NOT_IN_GAME');
@@ -56,13 +56,8 @@ describe('automation in-room authorization (integration)', () => {
     const { socket, handlers } = createMockSocket({ playerId: 'p1', spectator: false, gameId }, emitted);
 
     const io = createMockIo(emitted);
-    registerAutomationHandlers(io as any, socket as any);
+    registerPriorityHandlers(io as any, socket as any);
 
-    await expect(Promise.resolve().then(() => handlers['submitDecision'](undefined as any))).resolves.toBeUndefined();
-    await expect(Promise.resolve().then(() => handlers['castSpell'](undefined as any))).resolves.toBeUndefined();
-    await expect(Promise.resolve().then(() => handlers['activateAbility'](undefined as any))).resolves.toBeUndefined();
-    await expect(Promise.resolve().then(() => handlers['mulliganDecision'](undefined as any))).resolves.toBeUndefined();
-    await expect(Promise.resolve().then(() => handlers['mulliganBottomCards'](undefined as any))).resolves.toBeUndefined();
     expect(() => handlers['setAutoPass'](undefined as any)).not.toThrow();
     expect(() => handlers['setAutoPassForTurn'](undefined as any)).not.toThrow();
     expect(() => handlers['claimPriority'](undefined as any)).not.toThrow();
@@ -89,7 +84,7 @@ describe('automation in-room authorization (integration)', () => {
     } as any);
 
     const io = createMockIo(emitted);
-    registerAutomationHandlers(io as any, socket as any);
+    registerPriorityHandlers(io as any, socket as any);
 
     handlers['setStop']({ gameId, phase: { bad: true }, enabled: true });
     handlers['yieldToTriggerSource']({ gameId, sourceId: { bad: true } });
@@ -114,15 +109,14 @@ describe('automation in-room authorization (integration)', () => {
     } as any);
 
     const io = createMockIo(emitted);
-    registerAutomationHandlers(io as any, socket as any);
+    registerPriorityHandlers(io as any, socket as any);
 
-    await handlers['castSpell']({ gameId });
-    await handlers['activateAbility']({ gameId, permanentId: 'perm_1' });
-    await handlers['mulliganDecision']({ gameId });
-    await handlers['mulliganBottomCards']({ gameId, cardIds: 'not-array' as any });
+    handlers['yieldToTriggerSource']({ gameId });
+    handlers['ignoreCardForAutoPass']({ gameId, cardName: 'Test' });
+    handlers['unignoreCardForAutoPass']({ gameId });
 
     const invalidPayloadErrors = emitted.filter(e => e.event === 'error' && e.payload?.code === 'INVALID_PAYLOAD');
-    expect(invalidPayloadErrors.length).toBeGreaterThanOrEqual(4);
+    expect(invalidPayloadErrors.length).toBeGreaterThanOrEqual(3);
   });
 
   it('syncs auto-pass without immediately broadcasting when reconnect state is being restored', async () => {
@@ -145,7 +139,7 @@ describe('automation in-room authorization (integration)', () => {
     } as any);
 
     const io = createMockIo(emitted);
-    registerAutomationHandlers(io as any, socket as any);
+    registerPriorityHandlers(io as any, socket as any);
 
     handlers['setAutoPass']({ gameId, enabled: true, syncOnly: true });
     await Promise.resolve();

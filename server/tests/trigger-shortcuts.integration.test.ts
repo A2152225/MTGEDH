@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { registerAutomationHandlers } from '../src/socket/automation.js';
+import { registerPriorityHandlers } from '../src/socket/priority.js';
 import { games } from '../src/socket/socket.js';
 import { clearPriorityTimer, broadcastGame } from '../src/socket/util.js';
 import { createContext } from '../src/state/context.js';
@@ -122,7 +122,7 @@ describe('trigger shortcut integration', () => {
     games.delete('trigger_shortcut_broadcast');
   });
 
-  it('yieldToTriggerSource immediately re-evaluates current priority through the automation socket handler', async () => {
+  it('yieldToTriggerSource immediately re-evaluates current priority through the priority socket handler', async () => {
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
     const { ctx, game, resolveTopOfStack } = createTriggerShortcutHarness('trigger_shortcut_handler', {
       autoPassPlayers: new Set(),
@@ -132,7 +132,7 @@ describe('trigger shortcut integration', () => {
     const io = createMockIo(emitted);
     const { socket, handlers } = createMockSocket({ playerId: 'p2', spectator: false, gameId: game.gameId }, emitted);
     socket.rooms.add(game.gameId);
-    registerAutomationHandlers(io as any, socket as any);
+    registerPriorityHandlers(io as any, socket as any);
 
     handlers['yieldToTriggerSource']({
       gameId: game.gameId,

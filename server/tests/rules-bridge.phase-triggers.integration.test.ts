@@ -178,15 +178,7 @@ describe('RulesBridge phase-trigger integration', () => {
       'option_choice',
     ]);
 
-    const rulesChoiceEvents = emitted.filter((entry) => entry.event === 'rulesChoiceRequired');
-    expect(rulesChoiceEvents).toHaveLength(1);
-    expect(rulesChoiceEvents[0]?.payload).toMatchObject({
-      gameId: choiceGameId,
-      sourceName: 'Combat Mentor',
-      effectText: 'you may tap or untap target permanent.',
-      controllerId: 'p1',
-      choiceCount: 3,
-    });
+    expect(emitted.some((entry) => entry.event === 'rulesChoiceRequired')).toBe(false);
   });
 
   it('resolves Helm of the Host beginning-of-combat trigger through advanceGame', () => {

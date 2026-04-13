@@ -4306,6 +4306,298 @@ function getOracleTextForCastMode(
   return withoutOverloadClause.replace(/\btarget\b/gi, 'each');
 }
 
+type PlayLandRequestPayload = {
+  gameId?: unknown;
+  cardId?: unknown;
+  selectedFace?: unknown;
+  fromZone?: unknown;
+};
+
+export function handlePlayLandRequest(io: Server, socket: Socket, payload?: PlayLandRequestPayload): void {
+  const gameId = payload?.gameId;
+  const cardId = payload?.cardId;
+  const selectedFace = payload?.selectedFace;
+  const fromZone = payload?.fromZone;
+
+  if (!gameId || typeof gameId !== 'string') return;
+  if (!cardId || typeof cardId !== 'string') return;
+  if (!(selectedFace === undefined || typeof selectedFace === 'number')) return;
+  if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile')) return;
+
+  const ensureInGameRoom = (
+    targetGameId: string,
+    {
+      code = "NOT_IN_GAME",
+      message = "You are not in this game.",
+    }: { code?: string; message?: string } = {}
+  ): boolean => {
+    const socketGameId = (socket.data as any)?.gameId as string | undefined;
+    if (socketGameId && socketGameId !== targetGameId) {
+      socket.emit("error", { code, message });
+      return false;
+    }
+
+    if (!(socket as any)?.rooms?.has?.(targetGameId)) {
+      socket.emit("error", { code, message });
+      return false;
+    }
+
+    return true;
+  };
+
+  const selectedFaceIndex = selectedFace as number | undefined;
+
+  try {
+    const game = ensureGame(gameId);
+    const playerId = socket.data.playerId;
+    if (!game || !playerId) return;
+
+    if (!ensureInGameRoom(gameId)) return;
+
+    const landsPlayed = (game.state?.landsPlayedThisTurn?.[playerId] || 0);
+    const maxLands = calculateMaxLandsPerTurn(game as any, playerId);
+    debug(2, `[playLand] Player ${playerId} has played ${landsPlayed} lands this turn, max is ${maxLands}`);
+    if (landsPlayed >= maxLands) {
+      socket.emit("error", {
+        code: "LAND_LIMIT_REACHED",
+        message: maxLands > 1
+          ? `You have already played ${landsPlayed} land(s) this turn (max ${maxLands})`
+          : "You have already played a land this turn",
+      });
+      return;
+    }
+
+    const sourceZone = (fromZone as 'hand' | 'graveyard' | 'exile' | undefined) || 'hand';
+
+    if (sourceZone === 'graveyard') {
+      const hasConduitPermission = (game.state as any).landPlayPermissions?.[playerId]?.includes('graveyard');
+      if (!hasConduitPermission) {
+        socket.emit("error", {
+          code: "NO_PERMISSION",
+          message: "You don't have permission to play lands from your graveyard",
+        });
+        return;
+      }
+    }
+
+    if (sourceZone === 'exile') {
+      const stateAny: any = game.state as any;
+      const turnNumber = Number(stateAny?.turnNumber ?? 0);
+      const pfe = stateAny?.playableFromExile?.[playerId];
+      const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
+      const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
+      if (!pfeAllows) {
+        socket.emit("error", {
+          code: "NO_PERMISSION",
+          message: "You don't have permission to play that land from exile",
+        });
+        return;
+      }
+    }
+
+    const zones = game.state?.zones?.[playerId];
+    const zone = sourceZone === 'graveyard'
+      ? (Array.isArray(zones?.graveyard) ? zones.graveyard : [])
+      : sourceZone === 'exile'
+        ? (Array.isArray((zones as any)?.exile) ? (zones as any).exile : [])
+        : (Array.isArray(zones?.hand) ? zones.hand : []);
+    const cardInZone = zone.find((c: any) => c?.id === cardId);
+    const cardName = (cardInZone as any)?.name || "";
+    const cardImageUrl = (cardInZone as any)?.image_uris?.small || (cardInZone as any)?.image_uris?.normal;
+    if (!cardInZone) {
+      debugWarn(2, `[playLand] Card ${cardId} not found in ${sourceZone} for player ${playerId}`);
+      socket.emit("error", {
+        code: sourceZone === 'graveyard' ? "CARD_NOT_IN_GRAVEYARD" : "CARD_NOT_IN_HAND",
+        message: `Card not found in ${sourceZone}. It may have already been played or moved.`,
+      });
+      return;
+    }
+
+    let layout = (cardInZone as any)?.layout;
+    let cardFaces = (cardInZone as any)?.card_faces;
+    const isMDFC = layout === 'modal_dfc' && Array.isArray(cardFaces) && cardFaces.length >= 2;
+    let selectedFaceName: string | undefined;
+
+    if (isMDFC && selectedFaceIndex === undefined) {
+      const face0 = cardFaces[0];
+      const face1 = cardFaces[1];
+      const face0IsLand = /\bland\b/i.test(face0?.type_line || '');
+      const face1IsLand = /\bland\b/i.test(face1?.type_line || '');
+
+      if (face0IsLand && !face1IsLand) {
+        (cardInZone as any).selectedMDFCFace = 0;
+      } else if (!face0IsLand && face1IsLand) {
+        (cardInZone as any).selectedMDFCFace = 1;
+      } else if (face0IsLand && face1IsLand) {
+        const existing = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .find((s: any) => s?.type === ResolutionStepType.OPTION_CHOICE && (s as any)?.mdfcFaceChoice === true && String((s as any)?.cardId || '') === String(cardId));
+
+        if (!existing) {
+          ResolutionQueueManager.addStep(gameId, {
+            type: ResolutionStepType.OPTION_CHOICE,
+            playerId: playerId as any,
+            sourceId: cardId,
+            sourceName: cardName,
+            sourceImage: cardImageUrl,
+            description: `${cardName} is a Modal Double-Faced Card. Choose which land to play.`,
+            mandatory: true,
+            minSelections: 1,
+            maxSelections: 1,
+            cardId,
+            cardName,
+            fromZone: sourceZone,
+            mdfcFaceChoice: true,
+            options: [
+              {
+                id: '0',
+                label: face0.name,
+                description: [face0.type_line, face0.oracle_text].filter(Boolean).join(' - '),
+                imageUrl: face0.image_uris?.small || face0.image_uris?.normal,
+              },
+              {
+                id: '1',
+                label: face1.name,
+                description: [face1.type_line, face1.oracle_text].filter(Boolean).join(' - '),
+                imageUrl: face1.image_uris?.small || face1.image_uris?.normal,
+              },
+            ],
+          } as any);
+        }
+
+        debug(2, `[playLand] Queued MDFC face selection for ${cardName}`);
+        return;
+      } else {
+        socket.emit("error", {
+          code: "NOT_A_LAND",
+          message: `Neither side of ${cardName} is a land.`,
+        });
+        return;
+      }
+    }
+
+    if (isMDFC && selectedFaceIndex !== undefined) {
+      const selectedCardFace = cardFaces[selectedFaceIndex];
+      if (selectedCardFace) {
+        (cardInZone as any).name = selectedCardFace.name;
+        (cardInZone as any).type_line = selectedCardFace.type_line;
+        (cardInZone as any).oracle_text = selectedCardFace.oracle_text;
+        (cardInZone as any).mana_cost = selectedCardFace.mana_cost;
+        if (selectedCardFace.image_uris) {
+          (cardInZone as any).image_uris = selectedCardFace.image_uris;
+        }
+        (cardInZone as any).selectedMDFCFace = selectedFaceIndex;
+        selectedFaceName = String(selectedCardFace.name || `Face ${selectedFaceIndex}`);
+        debug(2, `[playLand] Playing MDFC ${cardName} as ${selectedFaceName} (face ${selectedFaceIndex})`);
+      }
+    }
+
+    const typeLine = (cardInZone as any)?.type_line || "";
+    const cardOracleText = (cardInZone as any)?.oracle_text || "";
+    layout = (cardInZone as any)?.layout;
+    cardFaces = (cardInZone as any)?.card_faces;
+
+    if (/\(transforms from [^)]+\)/i.test(cardOracleText)) {
+      debugWarn(2, `[playLand] Card ${cardName} is a transform back face and cannot be played from hand`);
+      socket.emit("error", {
+        code: "TRANSFORM_BACK_FACE",
+        message: `${cardName || "This card"} is a transform back face and cannot be played from your hand. Only the front face of a transform card can be played.`,
+      });
+      return;
+    }
+
+    let isLand = false;
+
+    if ((layout === 'transform' || layout === 'double_faced_token') && Array.isArray(cardFaces) && cardFaces.length >= 2) {
+      const frontFace = cardFaces[0];
+      const frontTypeLine = frontFace?.type_line || "";
+      isLand = /\bland\b/i.test(frontTypeLine);
+
+      if (!isLand) {
+        debugWarn(2, `[playLand] Transform card ${cardName} front face is not a land. Front face type: ${frontTypeLine}`);
+        socket.emit("error", {
+          code: "NOT_A_LAND",
+          message: `${cardName || "This card"} must be cast as a spell, not played as a land. Its back face transforms into a land.`,
+        });
+        return;
+      }
+    } else {
+      isLand = /\bland\b/i.test(typeLine);
+    }
+
+    if (!isLand) {
+      debugWarn(2, `[playLand] Card ${cardName} (${cardId}) is not a land. Type line: ${typeLine}`);
+      socket.emit("error", {
+        code: "NOT_A_LAND",
+        message: `${cardName || "This card"} is not a land and cannot be played with playLand.`,
+      });
+      return;
+    }
+
+    const bridge = (GameManager as any).syncRulesBridge?.(gameId, game.state)
+      || (GameManager as any).getRulesBridge(gameId);
+
+    if (bridge) {
+      const validation = bridge.validateAction({
+        type: 'playLand',
+        playerId,
+        cardId,
+      });
+
+      if (!validation.legal) {
+        socket.emit("error", {
+          code: "INVALID_ACTION",
+          message: validation.reason || "Cannot play land",
+        });
+        return;
+      }
+
+      const result = bridge.executeAction({
+        type: 'playLand',
+        playerId,
+        cardId,
+      });
+
+      if (!result.success) {
+        socket.emit("error", {
+          code: "EXECUTION_ERROR",
+          message: result.error || "Failed to play land",
+        });
+        return;
+      }
+    }
+
+    clearHumanAutoPassPauseOnAction(game as any, playerId, 'playLand');
+
+    try {
+      if (typeof game.playLand === 'function') {
+        game.playLand(playerId, cardId);
+      }
+    } catch (e) {
+      debugWarn(1, 'Legacy playLand failed:', e);
+    }
+
+    suppressAutomationOnNextBroadcast(game as any, LAND_PLAY_AUTOMATION_SUPPRESSION_MS);
+    finalizePlayedLand(io, game, gameId, String(playerId), cardId, cardInZone, sourceZone);
+
+    if (selectedFaceName) {
+      io.to(gameId).emit('chat', {
+        id: `m_${Date.now()}`,
+        gameId,
+        from: 'system',
+        message: `${getPlayerName(game, playerId)} plays ${selectedFaceName} (from ${cardName}).`,
+        ts: Date.now(),
+      });
+    }
+  } catch (err: any) {
+    debugError(1, `playLand error for game ${gameId}:`, err);
+    socket.emit("error", {
+      code: "PLAY_LAND_ERROR",
+      message: err?.message ?? String(err),
+    });
+  }
+}
+
 export function registerGameActions(io: Server, socket: Socket) {
   const ensureInGameRoom = (
     gameId: string,
@@ -4329,290 +4621,8 @@ export function registerGameActions(io: Server, socket: Socket) {
   };
 
   // Play land from hand
-  socket.on("playLand", (payload?: {
-    gameId?: unknown;
-    cardId?: unknown;
-    selectedFace?: unknown;
-    fromZone?: unknown;
-  }) => {
-    const gameId = payload?.gameId;
-    const cardId = payload?.cardId;
-    const selectedFace = payload?.selectedFace;
-    const fromZone = payload?.fromZone;
-
-    if (!gameId || typeof gameId !== 'string') return;
-    if (!cardId || typeof cardId !== 'string') return;
-    if (!(selectedFace === undefined || typeof selectedFace === 'number')) return;
-    if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile')) return;
-
-    const selectedFaceIndex = selectedFace as number | undefined;
-
-    try {
-      const game = ensureGame(gameId);
-      const playerId = socket.data.playerId;
-      if (!game || !playerId) return;
-
-      if (!ensureInGameRoom(gameId)) return;
-
-      // Check land-per-turn limit (before rules engine validation)
-      // Default max is 1, but effects like Exploration, Azusa, Rites of Flourishing can increase it
-      const landsPlayed = (game.state?.landsPlayedThisTurn?.[playerId] || 0);
-      // Dynamically calculate max lands per turn from battlefield effects
-      // This ensures we always have the current value from Exploration, Azusa, Ghirapur Orrery, etc.
-      const maxLands = calculateMaxLandsPerTurn(game as any, playerId);
-      debug(2, `[playLand] Player ${playerId} has played ${landsPlayed} lands this turn, max is ${maxLands}`);
-      if (landsPlayed >= maxLands) {
-        socket.emit("error", {
-          code: "LAND_LIMIT_REACHED",
-          message: maxLands > 1 
-            ? `You have already played ${landsPlayed} land(s) this turn (max ${maxLands})`
-            : "You have already played a land this turn",
-        });
-        return;
-      }
-
-      // Determine which zone to check based on fromZone parameter
-      const sourceZone = (fromZone as 'hand' | 'graveyard' | 'exile' | undefined) || 'hand';
-      
-      // Check if player has permission to play from graveyard
-      if (sourceZone === 'graveyard') {
-        const hasConduitPermission = (game.state as any).landPlayPermissions?.[playerId]?.includes('graveyard');
-        if (!hasConduitPermission) {
-          socket.emit("error", {
-            code: "NO_PERMISSION",
-            message: "You don't have permission to play lands from your graveyard",
-          });
-          return;
-        }
-      }
-
-      // Check if player has permission to play from exile (impulse draw effects)
-      if (sourceZone === 'exile') {
-        const stateAny: any = game.state as any;
-        const turnNumber = Number(stateAny?.turnNumber ?? 0);
-        const pfe = stateAny?.playableFromExile?.[playerId];
-        const entry = Array.isArray(pfe) ? (pfe.includes(cardId) ? true : undefined) : pfe?.[cardId];
-        const pfeAllows = typeof entry === 'number' ? entry >= turnNumber : Boolean(entry);
-        if (!pfeAllows) {
-          socket.emit("error", {
-            code: "NO_PERMISSION",
-            message: "You don't have permission to play that land from exile",
-          });
-          return;
-        }
-      }
-
-      // Find the card in the specified zone
-      const zones = game.state?.zones?.[playerId];
-      const zone = sourceZone === 'graveyard'
-        ? (Array.isArray(zones?.graveyard) ? zones.graveyard : [])
-        : sourceZone === 'exile'
-          ? (Array.isArray((zones as any)?.exile) ? (zones as any).exile : [])
-          : (Array.isArray(zones?.hand) ? zones.hand : []);
-      const cardInZone = zone.find((c: any) => c?.id === cardId);
-      const cardName = (cardInZone as any)?.name || "";
-      const cardImageUrl = (cardInZone as any)?.image_uris?.small || (cardInZone as any)?.image_uris?.normal;
-      if (!cardInZone) {
-        debugWarn(2, `[playLand] Card ${cardId} not found in ${sourceZone} for player ${playerId}`);
-        socket.emit("error", {
-          code: sourceZone === 'graveyard' ? "CARD_NOT_IN_GRAVEYARD" : "CARD_NOT_IN_HAND",
-          message: `Card not found in ${sourceZone}. It may have already been played or moved.`,
-        });
-        return;
-      }
-      
-      // Check if this is a Modal Double-Faced Card (MDFC) like Blightstep Pathway
-      let layout = (cardInZone as any)?.layout;
-      let cardFaces = (cardInZone as any)?.card_faces;
-      const isMDFC = layout === 'modal_dfc' && Array.isArray(cardFaces) && cardFaces.length >= 2;
-      
-      // If MDFC and no face selected yet, prompt the player to choose
-      if (isMDFC && selectedFaceIndex === undefined) {
-        // Check if both faces are lands (some MDFCs have spell on one side)
-        const face0 = cardFaces[0];
-        const face1 = cardFaces[1];
-        const face0IsLand = /\bland\b/i.test(face0?.type_line || '');
-        const face1IsLand = /\bland\b/i.test(face1?.type_line || '');
-        
-        // If only one face is a land, auto-select it
-        if (face0IsLand && !face1IsLand) {
-          // Use front face (it's a land)
-          (cardInZone as any).selectedMDFCFace = 0;
-        } else if (!face0IsLand && face1IsLand) {
-          // Use back face (it's a land)
-          (cardInZone as any).selectedMDFCFace = 1;
-        } else if (face0IsLand && face1IsLand) {
-          // Both are lands - prompt user to choose
-          const existing = ResolutionQueueManager
-            .getStepsForPlayer(gameId, playerId as any)
-            .find((s: any) => s?.type === ResolutionStepType.OPTION_CHOICE && (s as any)?.mdfcFaceChoice === true && String((s as any)?.cardId || '') === String(cardId));
-
-          if (!existing) {
-            ResolutionQueueManager.addStep(gameId, {
-              type: ResolutionStepType.OPTION_CHOICE,
-              playerId: playerId as any,
-              sourceId: cardId,
-              sourceName: cardName,
-              sourceImage: cardImageUrl,
-              description: `${cardName} is a Modal Double-Faced Card. Choose which land to play.`,
-              mandatory: true,
-              minSelections: 1,
-              maxSelections: 1,
-              cardId,
-              cardName,
-              fromZone: sourceZone,
-              mdfcFaceChoice: true,
-              options: [
-                {
-                  id: '0',
-                  label: face0.name,
-                  description: [face0.type_line, face0.oracle_text].filter(Boolean).join(' - '),
-                  imageUrl: face0.image_uris?.small || face0.image_uris?.normal,
-                },
-                {
-                  id: '1',
-                  label: face1.name,
-                  description: [face1.type_line, face1.oracle_text].filter(Boolean).join(' - '),
-                  imageUrl: face1.image_uris?.small || face1.image_uris?.normal,
-                },
-              ],
-            } as any);
-          }
-
-          debug(2, `[playLand] Queued MDFC face selection for ${cardName}`);
-          return; // Wait for face selection via Resolution Queue
-        } else {
-          // Neither face is a land - shouldn't happen in playLand flow
-          socket.emit("error", {
-            code: "NOT_A_LAND",
-            message: `Neither side of ${cardName} is a land.`,
-          });
-          return;
-        }
-      }
-      
-      // If a face was selected for MDFC, apply that face's properties
-      if (isMDFC && selectedFaceIndex !== undefined) {
-        const selectedCardFace = cardFaces[selectedFaceIndex];
-        if (selectedCardFace) {
-          // Update the card to use the selected face's properties
-          (cardInZone as any).name = selectedCardFace.name;
-          (cardInZone as any).type_line = selectedCardFace.type_line;
-          (cardInZone as any).oracle_text = selectedCardFace.oracle_text;
-          (cardInZone as any).mana_cost = selectedCardFace.mana_cost;
-          if (selectedCardFace.image_uris) {
-            (cardInZone as any).image_uris = selectedCardFace.image_uris;
-          }
-          (cardInZone as any).selectedMDFCFace = selectedFaceIndex;
-          debug(2, `[playLand] Playing MDFC ${cardName} as ${selectedCardFace.name} (face ${selectedFaceIndex})`);
-        }
-      }
-      
-      // Validate that the card is actually a land (check type_line)
-      // For double-faced cards (transform), check the current front face, not the entire type_line
-      const typeLine = (cardInZone as any)?.type_line || "";
-      const cardOracleText = (cardInZone as any)?.oracle_text || "";
-      layout = (cardInZone as any)?.layout;
-      cardFaces = (cardInZone as any)?.card_faces;
-      
-      // Check if this is a transform back face (should not be playable from hand)
-      // Transform back faces have "(Transforms from [Name])" in oracle text
-      if (/\(transforms from [^)]+\)/i.test(cardOracleText)) {
-        debugWarn(2, `[playLand] Card ${cardName} is a transform back face and cannot be played from hand`);
-        socket.emit("error", {
-          code: "TRANSFORM_BACK_FACE",
-          message: `${cardName || "This card"} is a transform back face and cannot be played from your hand. Only the front face of a transform card can be played.`,
-        });
-        return;
-      }
-      
-      let isLand = false;
-      
-      // For transform cards (like Growing Rites of Itlimoc), check the FRONT face only
-      if ((layout === 'transform' || layout === 'double_faced_token') && Array.isArray(cardFaces) && cardFaces.length >= 2) {
-        // Check front face (index 0) - this is what you play from hand
-        const frontFace = cardFaces[0];
-        const frontTypeLine = frontFace?.type_line || "";
-        isLand = /\bland\b/i.test(frontTypeLine);
-        
-        if (!isLand) {
-          debugWarn(2, `[playLand] Transform card ${cardName} front face is not a land. Front face type: ${frontTypeLine}`);
-          socket.emit("error", {
-            code: "NOT_A_LAND",
-            message: `${cardName || "This card"} must be cast as a spell, not played as a land. Its back face transforms into a land.`,
-          });
-          return;
-        }
-      } else {
-        // Regular card or MDFC - check type_line normally
-        isLand = /\bland\b/i.test(typeLine);
-      }
-      
-      if (!isLand) {
-        debugWarn(2, `[playLand] Card ${cardName} (${cardId}) is not a land. Type line: ${typeLine}`);
-        socket.emit("error", {
-          code: "NOT_A_LAND",
-          message: `${cardName || "This card"} is not a land and cannot be played with playLand.`,
-        });
-        return;
-      }
-
-      // Get RulesBridge for validation
-      const bridge = (GameManager as any).syncRulesBridge?.(gameId, game.state)
-        || (GameManager as any).getRulesBridge(gameId);
-      
-      if (bridge) {
-        // Validate through rules engine
-        const validation = bridge.validateAction({
-          type: 'playLand',
-          playerId,
-          cardId,
-        });
-        
-        if (!validation.legal) {
-          socket.emit("error", {
-            code: "INVALID_ACTION",
-            message: validation.reason || "Cannot play land",
-          });
-          return;
-        }
-        
-        // Execute through rules engine (this will emit events)
-        const result = bridge.executeAction({
-          type: 'playLand',
-          playerId,
-          cardId,
-        });
-        
-        if (!result.success) {
-          socket.emit("error", {
-            code: "EXECUTION_ERROR",
-            message: result.error || "Failed to play land",
-          });
-          return;
-        }
-      }
-      
-      clearHumanAutoPassPauseOnAction(game as any, playerId, 'playLand');
-
-      // Also update legacy game state (for backward compatibility during migration)
-      try {
-        if (typeof game.playLand === 'function') {
-          game.playLand(playerId, cardId);
-        }
-      } catch (e) {
-        debugWarn(1, 'Legacy playLand failed:', e);
-      }
-      
-      suppressAutomationOnNextBroadcast(game as any, LAND_PLAY_AUTOMATION_SUPPRESSION_MS);
-      finalizePlayedLand(io, game, gameId, String(playerId), cardId, cardInZone, sourceZone);
-    } catch (err: any) {
-      debugError(1, `playLand error for game ${gameId}:`, err);
-      socket.emit("error", {
-        code: "PLAY_LAND_ERROR",
-        message: err?.message ?? String(err),
-      });
-    }
+  socket.on("playLand", (payload?: PlayLandRequestPayload) => {
+    handlePlayLandRequest(io, socket, payload);
   });
 
   // =====================================================================
@@ -4621,16 +4631,19 @@ export function registerGameActions(io: Server, socket: Socket) {
   // This handler checks if targets are needed and requests them first,
   // then triggers payment after targets are selected.
   // =====================================================================
-  socket.on("requestCastSpell", async (payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown }) => {
+  socket.on("requestCastSpell", async (payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fromZone?: unknown }) => {
     const gameId = payload?.gameId;
     const cardId = payload?.cardId;
     const faceIndex = payload?.faceIndex;
+    const fromZone = payload?.fromZone;
 
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardId || typeof cardId !== 'string') return;
     if (!(faceIndex === undefined || typeof faceIndex === 'number')) return;
+    if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'exile' || fromZone === 'graveyard' || fromZone === 'library')) return;
 
     const castFaceIndex = faceIndex as number | undefined;
+    const castFromZone = fromZone as 'hand' | 'exile' | 'graveyard' | 'library' | undefined;
 
     try {
       const game = ensureGame(gameId);
@@ -4664,6 +4677,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         gameId,
         cardId,
         faceIndex: castFaceIndex,
+        fromZone: castFromZone,
       });
 
       clearHumanAutoPassPauseOnAction(game as any, playerId, 'requestCastSpell');
@@ -5009,7 +5023,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             forceRequiresLifePayment: forceInfo.requiresLifePayment === true,
             forceLifePaymentAmount: forceInfo.requiresLifePayment === true ? 1 : 0,
             forceAlternateCostId: alternateCostId,
-            // Continuation args are server-only; the Resolution handler will emit castSpellFromHandContinue.
+            // Continuation args are server-only; the Resolution handler resumes the cast directly.
             forceCastArgs: {
               cardId,
               targets,
@@ -7793,6 +7807,51 @@ export function registerGameActions(io: Server, socket: Socket) {
       
       // Persist the event to DB with full card data for reliable replay after server restart
       try {
+        const persistedCastStackItem = Array.isArray(game.state.stack) && game.state.stack.length > 0
+          ? game.state.stack[game.state.stack.length - 1]
+          : undefined;
+        const persistedCastMetadata = (() => {
+          const stackItem: any = persistedCastStackItem;
+          if (!stackItem) return {};
+
+          const manaPayment = stackItem.manaPayment ?? stackItem.card?.manaPayment;
+          const manaSpentColors = Array.isArray(stackItem.manaSpentColors)
+            ? stackItem.manaSpentColors.slice()
+            : (Array.isArray(stackItem.card?.manaSpentColors) ? stackItem.card.manaSpentColors.slice() : undefined);
+          const manaColorsSpent = Array.isArray(stackItem.manaColorsSpent)
+            ? stackItem.manaColorsSpent.slice()
+            : (Array.isArray(stackItem.card?.manaColorsSpent) ? stackItem.card.manaColorsSpent.slice() : undefined);
+          const cantBeCounteredBySourceColors = Array.isArray(stackItem.cantBeCounteredBySourceColors)
+            ? stackItem.cantBeCounteredBySourceColors.slice()
+            : (Array.isArray(stackItem.card?.cantBeCounteredBySourceColors)
+              ? stackItem.card.cantBeCounteredBySourceColors.slice()
+              : undefined);
+          const counterImmunity = stackItem.counterImmunity ?? stackItem.card?.counterImmunity;
+          const entersBattlefieldWithCounters =
+            stackItem.entersBattlefieldWithCounters ?? stackItem.card?.entersBattlefieldWithCounters;
+
+          return {
+            ...(manaPayment && typeof manaPayment === 'object'
+              ? { manaPayment: Array.isArray(manaPayment) ? manaPayment.slice() : { ...manaPayment } }
+              : {}),
+            ...(manaSpentColors && manaSpentColors.length > 0 ? { manaSpentColors } : {}),
+            ...(manaColorsSpent && manaColorsSpent.length > 0 ? { manaColorsSpent } : {}),
+            ...(stackItem.cantBeCountered === true || stackItem.card?.cantBeCountered === true
+              ? { cantBeCountered: true }
+              : {}),
+            ...(cantBeCounteredBySourceColors && cantBeCounteredBySourceColors.length > 0
+              ? { cantBeCounteredBySourceColors }
+              : {}),
+            ...(counterImmunity === true
+              ? { counterImmunity: true }
+              : (counterImmunity && typeof counterImmunity === 'object'
+                ? { counterImmunity: Array.isArray(counterImmunity) ? counterImmunity.slice() : { ...counterImmunity } }
+                : {})),
+            ...(entersBattlefieldWithCounters && typeof entersBattlefieldWithCounters === 'object'
+              ? { entersBattlefieldWithCounters: { ...entersBattlefieldWithCounters } }
+              : {}),
+          };
+        })();
         appendEvent(gameId, (game as any).seq ?? 0, "castSpell", { 
           playerId, 
           cardId, 
@@ -7871,6 +7930,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               }
             : {}),
           ...(manaFromTreasureSpent === true ? { manaFromTreasureSpent: true } : {}),
+          ...persistedCastMetadata,
         });
       } catch (e) {
         debugWarn(1, 'appendEvent(castSpell) failed:', e);
@@ -9722,7 +9782,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         // Capture the top spell before it resolves
         const stackBefore = game.state?.stack || [];
         const topItem = stackBefore.length > 0 ? stackBefore[stackBefore.length - 1] : null;
-        
+
         if (typeof (game as any).resolveTopOfStack === 'function') {
           (game as any).resolveTopOfStack();
           debug(2, `[nextStep] Stack resolved for game ${gameId}`);
@@ -9743,19 +9803,19 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: "Top of stack resolved.",
           ts: Date.now(),
         });
-        
+
         // Process any cascade triggers
         await processPendingCascades(io, game, gameId);
-        
+
         // Process any pending scry effects
         processPendingScry(io, game, gameId);
 
         // Process any pending surveil effects
         processPendingSurveil(io, game, gameId);
-        
+
         // Process any pending proliferate effects
         processPendingProliferate(io, game, gameId);
-        
+
         // Process any pending ponder effects
         processPendingPonder(io, game, gameId);
 
@@ -9775,9 +9835,9 @@ export function registerGameActions(io: Server, socket: Socket) {
           (game as any).nextStep();
           flushPendingDamageTriggersAfterStepAdvance(io, game as any, gameId);
           debug(2, `[nextStep] All players passed priority - advanced to next step for game ${gameId}`);
-          
+
           appendEvent(gameId, (game as any).seq || 0, 'nextStep', { reason: 'allPlayersPassed' });
-          
+
           const newStep = (game.state as any)?.step || 'unknown';
           io.to(gameId).emit("chat", {
             id: `m_${Date.now()}`,
@@ -9794,7 +9854,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       }
 
       broadcastGame(io, game, gameId);
-      
+
       // Check for pending damage triggers
       checkAndEmitDamageTriggers(io, game, gameId);
     } catch (err: any) {
@@ -9836,7 +9896,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       // Debug logging
       try {
-        debug(1, 
+        debug(1,
           `[skipToPhase] request from player=${playerId} game=${gameId} turnPlayer=${turnPlayer} currentPhase=${currentPhase} currentStep=${currentStep} targetPhase=${targetPhase} targetStep=${targetStep}`
         );
       } catch {
@@ -9877,7 +9937,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       // phase, and wait for them to resolve before continuing.
       // This applies to: UPKEEP, BEGIN_COMBAT, and END_STEP
       // ========================================================================
-      const currentPhaseOrder = ['untap', 'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers', 
+      const currentPhaseOrder = ['untap', 'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers',
                                  'declare_blockers', 'combat_damage', 'end_combat', 'main2', 'end_step', 'cleanup'];
       const currentStepNormalized = currentStep.toLowerCase().replace(/_/g, '');
       const targetStepNormalized = targetStep.toLowerCase().replace(/_/g, '');
@@ -9891,7 +9951,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           debugWarn(1, `[skipToPhase] appendEvent(pushTriggeredAbility ${reason}) failed:`, err);
         }
       };
-      
+
       // Helper function to stop at a specific phase and process triggers
       const stopAtPhaseForTriggers = (
         stopPhase: string,
@@ -9947,21 +10007,21 @@ export function registerGameActions(io: Server, socket: Socket) {
         if (filteredTriggers.length === 0) return;
 
         debug(2, `[skipToPhase] STOPPING at ${stopStep}: Found ${filteredTriggers.length} trigger(s) that must resolve first`);
-        
+
         // Stop at this phase instead of going directly to target
         (game.state as any).phase = stopPhase;
         (game.state as any).step = stopStep;
-        
+
         // Store the intended target so we can continue after triggers resolve
         (game.state as any).pendingPhaseSkip = {
           targetPhase,
           targetStep,
           requestedBy: playerId,
         };
-        
+
         // Process the triggers
         (game.state as any).stack = (game.state as any).stack || [];
-        
+
         // Group triggers by controller for APNAP ordering
         const triggersByController = new Map<string, typeof triggers>();
         const triggerItemsByController = new Map<string, Array<{
@@ -9976,20 +10036,20 @@ export function registerGameActions(io: Server, socket: Socket) {
           existing.push(trigger);
           triggersByController.set(controller, existing);
         }
-        
+
         // Get player order for APNAP
-        const players = Array.isArray((game.state as any).players) 
-          ? (game.state as any).players.map((p: any) => p.id) 
+        const players = Array.isArray((game.state as any).players)
+          ? (game.state as any).players.map((p: any) => p.id)
           : [];
         const orderedPlayers = [turnPlayer, ...players.filter((p: string) => p !== turnPlayer)];
-        
+
         // Process triggers in APNAP order
         for (const playerId of orderedPlayers) {
           if (!playerId) continue;
 
           const playerTriggers = triggersByController.get(playerId) || [];
           if (playerTriggers.length === 0) continue;
-          
+
           // If multiple triggers, use Resolution Queue for ordering
           if (playerTriggers.length > 1) {
             const triggerItems = playerTriggers.map((trigger: any) => {
@@ -10005,7 +10065,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               };
             });
             triggerItemsByController.set(String(playerId), triggerItems);
-            
+
             // Add all triggers to the stack first
             for (const item of triggerItems) {
               const stackItem = {
@@ -10033,7 +10093,7 @@ export function registerGameActions(io: Server, socket: Socket) {
                 triggeringPlayer: turnPlayer,
               }, `${triggerType} skip trigger`);
             }
-            
+
             // Add Resolution Queue step for trigger ordering
             ResolutionQueueManager.addStep(gameId, {
               type: ResolutionStepType.TRIGGER_ORDER,
@@ -10048,7 +10108,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               })),
               requireAll: true,
             });
-            
+
             debug(2, `[skipToPhase] Added TRIGGER_ORDER step for ${playerId} with ${triggerItems.length} triggers`);
           } else {
             // Single trigger - push directly to stack
@@ -10080,15 +10140,15 @@ export function registerGameActions(io: Server, socket: Socket) {
             }, `${triggerType} skip trigger`);
           }
         }
-        
+
         // Give priority to active player
         (game.state as any).priority = turnPlayer;
-        
+
         debug(2, `[skipToPhase] Set phase to ${stopStep} with ${filteredTriggers.length} trigger(s). Will continue to ${targetStep} after resolution.`);
-        
+
         // Broadcast the updated game state
         broadcastGame(io, game, gameId);
-        
+
         // Append skipToPhase event
         try {
           const triggerOrderRequests = orderedPlayers

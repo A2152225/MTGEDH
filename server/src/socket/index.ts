@@ -15,7 +15,6 @@ import { registerCombatHandlers } from "./combat.js";
 import { registerTriggerHandlers } from "./triggers.js";
 import { registerOpeningHandHandlers } from "./opening-hand.js";
 import { registerUndoHandlers } from "./undo.js";
-import { registerAutomationHandlers } from "./automation.js";
 import { registerGameManagementHandlers } from "./game-management.js";
 import { registerRandomnessHandlers } from "./randomness.js";
 import { registerReplayHandlers } from "./replay.js";
@@ -144,7 +143,6 @@ export function registerSocketHandlers(
     registerTriggerHandlers(io, socket);
     registerOpeningHandHandlers(io, socket);
     registerUndoHandlers(io, socket);
-    registerAutomationHandlers(io, socket);
     registerGameManagementHandlers(io, socket);
     registerRandomnessHandlers(io, socket);
     registerReplayHandlers(io, socket);

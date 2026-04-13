@@ -224,6 +224,7 @@ describe('mana payment choice selection flow', () => {
     expect(paymentStep).toBeDefined();
     expect(paymentStep.manaCost).toBe('{1}');
 
+    emitted.length = 0;
     await handlers['submitResolutionResponse']({
       gameId: spellGameId,
       stepId: String(paymentStep.id),
@@ -232,11 +233,7 @@ describe('mana payment choice selection flow', () => {
       },
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('bauble_1');
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const castError = emitted.find((event) => event.event === 'error');
     expect(castError).toBeUndefined();
@@ -352,6 +349,7 @@ describe('mana payment choice selection flow', () => {
     expect(paymentStep).toBeDefined();
     expect(paymentStep.manaCost).toBe('{4}');
 
+    emitted.length = 0;
     await handlers['submitResolutionResponse']({
       gameId: altarSpellGameId,
       stepId: String(paymentStep.id),
@@ -363,11 +361,7 @@ describe('mana payment choice selection flow', () => {
       },
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('archive_1');
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const castError = emitted.find((event) => event.event === 'error');
     expect(castError).toBeUndefined();
@@ -553,6 +547,7 @@ describe('mana payment choice selection flow', () => {
     expect(paymentStep).toBeDefined();
     expect(paymentStep.manaCost).toBe('{2}{G}');
 
+    emitted.length = 0;
     await handlers['submitResolutionResponse']({
       gameId: reflectedSpellGameId,
       stepId: String(paymentStep.id),
@@ -564,11 +559,7 @@ describe('mana payment choice selection flow', () => {
       },
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('visionary_1');
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const castError = emitted.find((event) => event.event === 'error');
     expect(castError).toBeUndefined();

@@ -655,12 +655,7 @@ describe('Mutate trigger targeting (integration)', () => {
       selections: { payment: [] },
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.effectId).toBeDefined();
-    expect(continueEvent?.payload?.alternateCostId).toBe('free');
-
-    emitted.length = 0;
-    await handlers.completeCastSpell(continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const graveyardIds = ((((game.state as any).zones?.[playerId]?.graveyard) || []) as any[]).map((card: any) => String(card?.id || ''));

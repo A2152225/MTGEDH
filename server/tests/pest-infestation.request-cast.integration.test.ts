@@ -188,6 +188,7 @@ describe('Pest Infestation request-cast flow', () => {
     expect(paymentStep.manaCost).toBe('{4}{G}');
     expect(paymentStep.xValue).toBe(2);
 
+    emitted.length = 0;
     await handlers['submitResolutionResponse']({
       gameId,
       stepId: String(paymentStep.id),
@@ -202,11 +203,7 @@ describe('Pest Infestation request-cast flow', () => {
       },
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('pest_infestation_1');
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const castError = emitted.find((event) => event.event === 'error');

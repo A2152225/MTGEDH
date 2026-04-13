@@ -21,8 +21,12 @@ import {
   PendingDecision,
   DecisionOption,
   DecisionResult,
+  SelectionFilter,
 } from './AutomationService';
 import { canPermanentAttack, canPermanentBlock } from './actions/combat';
+import { getColorsFromObject } from './oracleIRExecutorManaUtils';
+import { canTargetPermanent } from './permanentTargeting';
+import { canTargetPlayer } from './playerProtection';
 import { hasPermanentType } from './permanentTypeUtils';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
@@ -246,6 +250,13 @@ export class DecisionManager {
     gameState: GameState
   ): ValidationResult {
     const targets = Array.isArray(selection) ? selection : [selection];
+    const sourceInfo = this.getDecisionTargetingSourceInfo(decision, gameState);
+    const allowedTargetIds = new Set(
+      (decision.options || [])
+        .filter((option: DecisionOption) => !option.disabled)
+        .map((option: DecisionOption) => String(option.id || '').trim())
+        .filter(Boolean)
+    );
     
     // Check count requirements
     if (decision.minSelections && targets.length < decision.minSelections) {
@@ -265,7 +276,27 @@ export class DecisionManager {
     // Validate each target exists and is valid type
     const targetTypes = decision.targetTypes || [];
     for (const targetId of targets) {
-      const isValidTarget = this.isValidTarget(targetId, targetTypes, gameState);
+      if (allowedTargetIds.size > 0 && !allowedTargetIds.has(String(targetId || '').trim())) {
+        return {
+          valid: false,
+          error: 'Invalid target: target was not offered as a valid option',
+        };
+      }
+
+      const filterResult = this.matchesTargetSelectionFilters(
+        String(targetId || '').trim(),
+        decision.filters || [],
+        gameState,
+        sourceInfo,
+      );
+      if (!filterResult.valid) {
+        return {
+          valid: false,
+          error: `Invalid target: ${filterResult.reason}`,
+        };
+      }
+
+      const isValidTarget = this.isValidTarget(targetId, targetTypes, gameState, sourceInfo);
       if (!isValidTarget.valid) {
         return {
           valid: false,
@@ -283,12 +314,52 @@ export class DecisionManager {
   private isValidTarget(
     targetId: string,
     targetTypes: string[],
-    gameState: GameState
+    gameState: GameState,
+    sourceInfo: {
+      controllerId: string;
+      colors?: readonly string[];
+      objectType: 'spell' | 'ability';
+      typeName?: string;
+    }
   ): { valid: boolean; reason?: string } {
     // Check if it's a player
     const player = gameState.players.find(p => p.id === targetId);
     if (player) {
       if (targetTypes.includes('player') || targetTypes.includes('opponent')) {
+        if (targetTypes.includes('opponent') && !targetTypes.includes('player') && targetId === sourceInfo.controllerId) {
+          return { valid: false, reason: 'Target must be: opponent' };
+        }
+
+        const unrestrictedResult = canTargetPlayer(
+          gameState,
+          targetId,
+          sourceInfo.controllerId,
+          undefined,
+          sourceInfo.typeName,
+        );
+        if (!unrestrictedResult.canTarget) {
+          return {
+            valid: false,
+            reason: unrestrictedResult.reason || 'Player cannot be targeted by this effect',
+          };
+        }
+
+        for (const colorName of this.getTargetingColorNames(sourceInfo.colors)) {
+          const result = canTargetPlayer(
+            gameState,
+            targetId,
+            sourceInfo.controllerId,
+            colorName,
+            sourceInfo.typeName,
+          );
+          if (!result.canTarget) {
+            return {
+              valid: false,
+              reason: result.reason || 'Player cannot be targeted by this effect',
+            };
+          }
+        }
+
         return { valid: true };
       }
       return { valid: false, reason: 'Players cannot be targeted by this effect' };
@@ -302,12 +373,26 @@ export class DecisionManager {
     if (permanent) {
       // Check type matching
       if (targetTypes.length === 0 || targetTypes.includes('permanent')) {
-        return { valid: true };
+        const targetingResult = canTargetPermanent(permanent, {
+          controllerId: sourceInfo.controllerId,
+          colors: sourceInfo.colors,
+          objectType: sourceInfo.objectType,
+        });
+        return targetingResult.canTarget
+          ? { valid: true }
+          : { valid: false, reason: targetingResult.reason || 'Permanent cannot be targeted by this effect' };
       }
       
       for (const type of targetTypes) {
         if (this.matchesPermanentTargetType(permanent, type)) {
-          return { valid: true };
+          const targetingResult = canTargetPermanent(permanent, {
+            controllerId: sourceInfo.controllerId,
+            colors: sourceInfo.colors,
+            objectType: sourceInfo.objectType,
+          });
+          return targetingResult.canTarget
+            ? { valid: true }
+            : { valid: false, reason: targetingResult.reason || 'Permanent cannot be targeted by this effect' };
         }
       }
       
@@ -325,8 +410,285 @@ export class DecisionManager {
       }
       return { valid: false, reason: 'Spells cannot be targeted by this effect' };
     }
+
+    const zoneCardTarget = this.findTargetCardInZones(gameState, targetId);
+    if (zoneCardTarget) {
+      if (targetTypes.length === 0 || targetTypes.includes('card')) {
+        return { valid: true };
+      }
+
+      for (const type of targetTypes) {
+        if (this.matchesCardLikeTargetType(zoneCardTarget.card, type)) {
+          return { valid: true };
+        }
+      }
+
+      return {
+        valid: false,
+        reason: `Target must be: ${targetTypes.join(' or ')}`,
+      };
+    }
     
     return { valid: false, reason: 'Target not found' };
+  }
+
+  private matchesTargetSelectionFilters(
+    targetId: string,
+    filters: SelectionFilter[],
+    gameState: GameState,
+    sourceInfo: {
+      controllerId: string;
+      colors?: readonly string[];
+      objectType: 'spell' | 'ability';
+      typeName?: string;
+    }
+  ): { valid: boolean; reason?: string } {
+    if (!Array.isArray(filters) || filters.length === 0) {
+      return { valid: true };
+    }
+
+    const normalizedTargetId = String(targetId || '').trim();
+    const player = gameState.players.find(p => p.id === normalizedTargetId);
+    const permanent = this.getProcessedBattlefield(gameState).find(
+      (entry: BattlefieldPermanent) => String(entry?.id || '').trim() === normalizedTargetId
+    );
+    const stackItem = (gameState.stack || []).find((item: any) => String(item?.id || '').trim() === normalizedTargetId);
+    const zoneCardTarget = this.findTargetCardInZones(gameState, normalizedTargetId);
+
+    for (const filter of filters) {
+      const values = Array.isArray(filter.value) ? filter.value : [filter.value];
+
+      if (filter.type === 'controller') {
+        const expected = String(values[0] || '').trim().toLowerCase();
+        const targetControllerId = player
+          ? normalizedTargetId
+          : String(
+              (permanent as any)?.controller ||
+                (permanent as any)?.controllerId ||
+                (stackItem as any)?.controller ||
+                (stackItem as any)?.controllerId ||
+                zoneCardTarget?.ownerId ||
+                ''
+            ).trim();
+
+        if ((expected === 'self' || expected === 'you') && targetControllerId !== sourceInfo.controllerId) {
+          return { valid: false, reason: 'target must be controlled by you' };
+        }
+
+        if (expected === 'opponent' && (!targetControllerId || targetControllerId === sourceInfo.controllerId)) {
+          return { valid: false, reason: 'target must be controlled by an opponent' };
+        }
+
+        continue;
+      }
+
+      if (filter.type === 'zone') {
+        const normalizedExpectedZones = values
+          .map(value => this.normalizeZoneFilterValue(value))
+          .filter((value: string | undefined): value is string => Boolean(value));
+        const actualZone = this.normalizeZoneFilterValue(zoneCardTarget?.zone);
+
+        if (normalizedExpectedZones.length > 0 && !actualZone) {
+          return { valid: false, reason: `target must be in ${normalizedExpectedZones.join(' or ')}` };
+        }
+
+        if (normalizedExpectedZones.length > 0 && actualZone && !normalizedExpectedZones.includes(actualZone)) {
+          return { valid: false, reason: `target must be in ${normalizedExpectedZones.join(' or ')}` };
+        }
+
+        continue;
+      }
+
+      const cardLike = permanent || zoneCardTarget?.card;
+      if (filter.type !== 'custom' || !cardLike) {
+        continue;
+      }
+
+      for (const rawValue of values) {
+        const value = String(rawValue || '').trim().toLowerCase();
+        if (!value) continue;
+
+        if (value === 'nonland' && this.matchesCardLikeTargetType(cardLike, 'land')) {
+          return { valid: false, reason: 'target cannot be a land' };
+        }
+        if (value === 'noncreature' && this.matchesCardLikeTargetType(cardLike, 'creature')) {
+          return { valid: false, reason: 'target cannot be a creature' };
+        }
+        if (value === 'nonartifact' && this.matchesCardLikeTargetType(cardLike, 'artifact')) {
+          return { valid: false, reason: 'target cannot be an artifact' };
+        }
+        if (value === 'nonenchantment' && this.matchesCardLikeTargetType(cardLike, 'enchantment')) {
+          return { valid: false, reason: 'target cannot be an enchantment' };
+        }
+        if (value === 'nonplaneswalker' && this.matchesCardLikeTargetType(cardLike, 'planeswalker')) {
+          return { valid: false, reason: 'target cannot be a planeswalker' };
+        }
+        if (value === 'attacking' && !Boolean((permanent as any)?.attacking)) {
+          return { valid: false, reason: 'target must be attacking' };
+        }
+        if (value === 'blocking' && (!Array.isArray((permanent as any)?.blocking) || (permanent as any).blocking.length === 0)) {
+          return { valid: false, reason: 'target must be blocking' };
+        }
+        if (value === 'blocked' && (!Array.isArray((permanent as any)?.blockedBy) || (permanent as any).blockedBy.length === 0)) {
+          return { valid: false, reason: 'target must be blocked' };
+        }
+        if (
+          value === 'unblocked' &&
+          (!Boolean((permanent as any)?.attacking) || (Array.isArray((permanent as any)?.blockedBy) && (permanent as any).blockedBy.length > 0))
+        ) {
+          return { valid: false, reason: 'target must be unblocked' };
+        }
+        if (value === 'tapped' && !permanent) {
+          return { valid: false, reason: 'target must be tapped' };
+        }
+        if (value === 'tapped' && !Boolean((permanent as any).tapped)) {
+          return { valid: false, reason: 'target must be tapped' };
+        }
+        if (value === 'untapped' && !permanent) {
+          return { valid: false, reason: 'target must be untapped' };
+        }
+        if (value === 'untapped' && Boolean((permanent as any).tapped)) {
+          return { valid: false, reason: 'target must be untapped' };
+        }
+      }
+    }
+
+    return { valid: true };
+  }
+
+  private normalizeSourceColors(value: unknown): readonly string[] | undefined {
+    const rawValues = Array.isArray(value)
+      ? value
+      : value === undefined || value === null
+        ? []
+        : [value];
+    const out: string[] = [];
+    const seen = new Set<string>();
+
+    for (const raw of rawValues) {
+      const parts = String(raw || '')
+        .split(/(?:,|\/|\bor\b|\band\b)+/i)
+        .map(part => part.trim())
+        .filter(Boolean);
+
+      for (const part of parts) {
+        const lower = part.toLowerCase();
+        const normalized =
+          lower === 'w' || lower === 'white'
+            ? 'W'
+            : lower === 'u' || lower === 'blue'
+              ? 'U'
+              : lower === 'b' || lower === 'black'
+                ? 'B'
+                : lower === 'r' || lower === 'red'
+                  ? 'R'
+                  : lower === 'g' || lower === 'green'
+                    ? 'G'
+                    : ['W', 'U', 'B', 'R', 'G'].includes(part.toUpperCase())
+                      ? part.toUpperCase()
+                      : undefined;
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        out.push(normalized);
+      }
+    }
+
+    return out.length > 0 ? out : undefined;
+  }
+
+  private getTargetingColorNames(colors: readonly string[] | undefined): readonly string[] {
+    const out: string[] = [];
+
+    for (const color of colors || []) {
+      const colorName = color === 'W'
+        ? 'white'
+        : color === 'U'
+          ? 'blue'
+          : color === 'B'
+            ? 'black'
+            : color === 'R'
+              ? 'red'
+              : color === 'G'
+                ? 'green'
+                : undefined;
+      if (colorName) {
+        out.push(colorName);
+      }
+    }
+
+    return out;
+  }
+
+  private getSourceTypeName(sourceObject: any): string | undefined {
+    const typeLine = String(
+      sourceObject?.card?.type_line ||
+      sourceObject?.card?.cardType ||
+      sourceObject?.type_line ||
+      sourceObject?.cardType ||
+      ''
+    ).toLowerCase();
+    if (typeLine.includes('instant')) return 'instant';
+    if (typeLine.includes('sorcery')) return 'sorcery';
+    if (typeLine.includes('creature')) return 'creature';
+    if (typeLine.includes('artifact')) return 'artifact';
+    if (typeLine.includes('enchantment')) return 'enchantment';
+    if (typeLine.includes('planeswalker')) return 'planeswalker';
+    if (typeLine.includes('battle')) return 'battle';
+    if (typeLine.includes('land')) return 'land';
+    return undefined;
+  }
+
+  private findDecisionSourceObject(decision: PendingDecision, gameState: GameState): any {
+    const sourceId = String(decision.sourceId || '').trim();
+    if (!sourceId) return undefined;
+
+    const stackMatch = (gameState.stack || []).find((item: any) => String(item?.id || '').trim() === sourceId);
+    if (stackMatch) return stackMatch;
+
+    const battlefieldMatch = this.getProcessedBattlefield(gameState).find(
+      (permanent: BattlefieldPermanent) => String(permanent?.id || '').trim() === sourceId
+    ) as any;
+    if (battlefieldMatch) return battlefieldMatch;
+
+    for (const player of gameState.players || []) {
+      for (const zoneName of ['hand', 'graveyard', 'exile', 'library', 'commandZone'] as const) {
+        const zone = (player as any)?.[zoneName];
+        if (!Array.isArray(zone)) continue;
+        const match = zone.find((card: any) => String(card?.id || card?.cardId || '').trim() === sourceId);
+        if (match) return match;
+      }
+    }
+
+    for (const zone of Object.values((gameState as any)?.commandZone || {})) {
+      if (!Array.isArray(zone)) continue;
+      const match = zone.find((card: any) => String(card?.id || card?.cardId || '').trim() === sourceId);
+      if (match) return match;
+    }
+
+    return undefined;
+  }
+
+  private getDecisionTargetingSourceInfo(
+    decision: PendingDecision,
+    gameState: GameState
+  ): { controllerId: string; colors?: readonly string[]; objectType: 'spell' | 'ability'; typeName?: string } {
+    const sourceObject = this.findDecisionSourceObject(decision, gameState);
+    const sourceControllerId = String(
+      (sourceObject as any)?.controllerId ||
+      (sourceObject as any)?.controller ||
+      decision.playerId ||
+      ''
+    ).trim() || decision.playerId;
+    const colors = this.normalizeSourceColors(getColorsFromObject(sourceObject));
+    const objectType = String((sourceObject as any)?.type || '').trim() === 'spell' ? 'spell' : 'ability';
+    const typeName = this.getSourceTypeName(sourceObject);
+
+    return {
+      controllerId: sourceControllerId,
+      ...(colors ? { colors } : {}),
+      objectType,
+      ...(typeName ? { typeName } : {}),
+    };
   }
   
   /**
@@ -541,6 +903,78 @@ export class DecisionManager {
 
   private matchesPermanentTargetType(permanent: BattlefieldPermanent, type: string): boolean {
     return hasPermanentType(permanent, type);
+  }
+
+  private matchesCardLikeTargetType(cardLike: any, type: string): boolean {
+    const normalizedType = String(type || '').trim().toLowerCase();
+    if (!normalizedType) return false;
+    if (normalizedType === 'card') return true;
+
+    const typeLine = String(
+      cardLike?.card?.type_line ||
+      cardLike?.type_line ||
+      cardLike?.cardType ||
+      ''
+    ).toLowerCase();
+
+    if (normalizedType === 'permanent') {
+      return ['artifact', 'battle', 'creature', 'enchantment', 'land', 'planeswalker'].some(candidate =>
+        typeLine.includes(candidate)
+      );
+    }
+
+    if ((cardLike as any)?.card) {
+      return hasPermanentType(cardLike as BattlefieldPermanent, normalizedType);
+    }
+
+    return typeLine.includes(normalizedType);
+  }
+
+  private normalizeZoneFilterValue(value: unknown): string | undefined {
+    const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (!normalized) return undefined;
+    if (normalized === 'commandzone' || normalized === 'command_zone') return 'commandzone';
+    return normalized;
+  }
+
+  private findTargetCardInZones(
+    gameState: GameState,
+    targetId: string,
+  ): { card: any; zone: 'graveyard' | 'hand' | 'exile' | 'library' | 'commandZone'; ownerId: string } | undefined {
+    const normalizedTargetId = String(targetId || '').trim();
+    if (!normalizedTargetId) return undefined;
+
+    for (const player of gameState.players || []) {
+      const playerId = String((player as any)?.id || '').trim();
+      if (!playerId) continue;
+
+      for (const zoneName of ['hand', 'graveyard', 'exile', 'library', 'commandZone'] as const) {
+        const zone = (player as any)?.[zoneName];
+        if (!Array.isArray(zone)) continue;
+        const match = zone.find((card: any) => String(card?.id || card?.cardId || '').trim() === normalizedTargetId);
+        if (match) {
+          return {
+            card: match,
+            zone: zoneName,
+            ownerId: playerId,
+          };
+        }
+      }
+    }
+
+    for (const [playerId, zone] of Object.entries((gameState as any)?.commandZone || {})) {
+      if (!Array.isArray(zone)) continue;
+      const match = zone.find((card: any) => String(card?.id || card?.cardId || '').trim() === normalizedTargetId);
+      if (match) {
+        return {
+          card: match,
+          zone: 'commandZone',
+          ownerId: String(playerId || '').trim(),
+        };
+      }
+    }
+
+    return undefined;
   }
   
   /**

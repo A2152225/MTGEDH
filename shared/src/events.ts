@@ -91,11 +91,8 @@ export interface ClientToServerEvents {
   dumpLibrary: (payload: { gameId: GameID }) => void;
   dumpImportedDeckBuffer: (payload: { gameId: GameID }) => void;
 
-  // ===== MTG ONLINE-STYLE AUTOMATION EVENTS =====
-  
-  // Decision responses (targets, modes, X values, etc.)
-  submitDecision: (payload: { gameId: GameID; decisionId: string; selection: any }) => void;
-  
+  // ===== PRIORITY / INTERACTION EVENTS =====
+
   // Choice event response (new unified system)
   respondToChoice: (payload: {
     gameId: GameID;
@@ -105,7 +102,7 @@ export interface ClientToServerEvents {
   }) => void;
   
   // Automation control
-  setAutoPass: (payload: { gameId: GameID; enabled: boolean }) => void;
+  setAutoPass: (payload: { gameId: GameID; enabled: boolean; syncOnly?: boolean }) => void;
   setAutoPassForTurn: (payload: { gameId: GameID; enabled: boolean }) => void;
   claimPriority: (payload: { gameId: GameID }) => void;
   setStop: (payload: { gameId: GameID; phase: string; enabled: boolean }) => void;
@@ -150,34 +147,11 @@ export interface ClientToServerEvents {
     blockerOrder: string[]; // Ordered list of blocker IDs
   }) => void;
   
-  // Spell casting with targets/modes
-  castSpell: (payload: { 
-    gameId: GameID; 
-    cardId: string; 
-    targets?: string[]; 
-    modes?: string[]; 
-    xValue?: number;
-    manaPayment?: Array<{ permanentId: string; manaColor: string }>;
-  }) => void;
-  
-  // Activate ability
-  activateAbility: (payload: {
-    gameId: GameID;
-    permanentId: string;
-    abilityIndex: number;
-    targets?: string[];
-    manaPayment?: Array<{ permanentId: string; manaColor: string }>;
-    xValue?: number;
-  }) => void;
   exchangeTextBoxes: (payload: {
     gameId: GameID;
     sourcePermanentId: string;
     targetPermanentId: string;
   }) => void;
-  
-  // Mulligan
-  mulliganDecision: (payload: { gameId: GameID; keep: boolean }) => void;
-  mulliganBottomCards: (payload: { gameId: GameID; cardIds: string[] }) => void;
   
   // Cleanup step discard selection
   discardToHandSize: (payload: { gameId: GameID; cardIds: string[] }) => void;
@@ -615,45 +589,26 @@ export interface ServerToClientEvents {
     timestamp: number;
   }) => void;
 
-  // ===== MTG ONLINE-STYLE AUTOMATION EVENTS =====
-  
-  // Decision prompts (requires player input)
-  pendingDecision: (payload: {
-    gameId: GameID;
-    decision: {
-      id: string;
-      type: string;
-      playerId: PlayerID;
-      sourceId?: string;
-      sourceName?: string;
-      description: string;
-      options?: Array<{ id: string; label: string; description?: string; imageUrl?: string; disabled?: boolean }>;
-      minSelections?: number;
-      maxSelections?: number;
-      targetTypes?: string[];
-      minX?: number;
-      maxX?: number;
-      mandatory: boolean;
-      timeoutMs?: number;
-    };
-  }) => void;
-  
-  // Decision resolved (for other clients to sync)
-  decisionResolved: (payload: { gameId: GameID; decisionId: string; playerId: PlayerID; selection: any }) => void;
-  
-  // Automation status updates
-  automationStatus: (payload: {
-    gameId: GameID;
-    status: 'running' | 'waiting_for_decision' | 'waiting_for_priority' | 'paused' | 'completed';
-    priorityPlayer?: PlayerID;
-    pendingDecisionCount?: number;
-  }) => void;
-  
   // Can respond check response
   canRespondResponse: (payload: {
     canRespond: boolean;
     canAct: boolean;
     reason?: string;
+  }) => void;
+
+  // Mulligan status updates from the rules bridge
+  mulliganDecision: (payload: {
+    gameId: GameID;
+    playerId: PlayerID;
+    kept: boolean;
+    newHandSize: number;
+    timestamp: number;
+  }) => void;
+  mulliganCompleted: (payload: {
+    gameId: GameID;
+    playerId: PlayerID;
+    mulliganCount: number;
+    timestamp: number;
   }) => void;
   
   // ===== IGNORED CARDS FOR AUTO-PASS =====
@@ -664,8 +619,10 @@ export interface ServerToClientEvents {
     playerId: PlayerID;
     ignoredCards: Array<{
       permanentId: string;
+      cardId?: string;
       cardName: string;
       imageUrl?: string;
+      zone?: string;
     }>;
   }) => void;
   

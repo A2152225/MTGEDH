@@ -150,13 +150,7 @@ describe('Overload mode selection (integration)', () => {
       selections: 'normal',
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('vandalblast_1');
-    expect(continueEvent?.payload?.selectedCastMode).toBe('normal');
-    expect(continueEvent?.payload?.alternateCostId).toBeUndefined();
-
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.some((step: any) => step.type === 'mode_selection' && String((step as any).sourceId || '') === 'vandalblast_1')).toBe(false);
@@ -273,14 +267,7 @@ describe('Overload mode selection (integration)', () => {
       selections: 'overload',
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('cyclonic_rift_1');
-    expect(continueEvent?.payload?.selectedCastMode).toBe('overload');
-    expect(continueEvent?.payload?.alternateCostId).toBe('overload');
-    expect(continueEvent?.payload?.skipPriorityCheck).toBe(true);
-
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.some((step: any) => step.type === 'mode_selection' && String((step as any).sourceId || '') === 'cyclonic_rift_1')).toBe(false);

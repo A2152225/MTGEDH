@@ -21,6 +21,7 @@ import { ResolutionQueueManager } from './state/resolution/index.js';
 export class RulesBridge {
   private gameId: string;
   private io: Server;
+  private subscriptions: Array<{ eventType: RulesEngineEvent; listener: (event: RulesEvent) => void }> = [];
   
   constructor(gameId: string, io: Server) {
     this.gameId = gameId;
@@ -63,13 +64,32 @@ export class RulesBridge {
       return { success: false, error: error.message };
     }
   }
+
+  dispose(): void {
+    for (const subscription of this.subscriptions) {
+      rulesEngine.off(subscription.eventType, subscription.listener);
+    }
+    this.subscriptions = [];
+  }
+
+  private onEvent(eventType: RulesEngineEvent, handler: (event: RulesEvent) => void): void {
+    const listener = (event: RulesEvent) => {
+      if (event.gameId !== this.gameId) {
+        return;
+      }
+      handler(event);
+    };
+
+    this.subscriptions.push({ eventType, listener });
+    rulesEngine.on(eventType, listener);
+  }
   
   /**
    * Forward rules engine events to Socket.IO clients
    */
   private setupEventForwarding(): void {
     // Spell events
-    rulesEngine.on(RulesEngineEvent.SPELL_CAST, (event) => {
+    this.onEvent(RulesEngineEvent.SPELL_CAST, (event) => {
       this.io.to(this.gameId).emit('spellCast', {
         gameId: this.gameId,
         spell: event.data.spell,
@@ -78,7 +98,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.SPELL_RESOLVED, (event) => {
+    this.onEvent(RulesEngineEvent.SPELL_RESOLVED, (event) => {
       this.io.to(this.gameId).emit('spellResolved', {
         gameId: this.gameId,
         spell: event.data.spell,
@@ -87,7 +107,7 @@ export class RulesBridge {
     });
     
     // Combat events
-    rulesEngine.on(RulesEngineEvent.ATTACKERS_DECLARED, (event) => {
+    this.onEvent(RulesEngineEvent.ATTACKERS_DECLARED, (event) => {
       this.io.to(this.gameId).emit('attackersDeclared', {
         gameId: this.gameId,
         attackers: event.data.attackers,
@@ -96,7 +116,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.BLOCKERS_DECLARED, (event) => {
+    this.onEvent(RulesEngineEvent.BLOCKERS_DECLARED, (event) => {
       this.io.to(this.gameId).emit('blockersDeclared', {
         gameId: this.gameId,
         blockers: event.data.blockers,
@@ -104,7 +124,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.DAMAGE_DEALT, (event) => {
+    this.onEvent(RulesEngineEvent.DAMAGE_DEALT, (event) => {
       this.io.to(this.gameId).emit('damageDealt', {
         gameId: this.gameId,
         damage: event.data,
@@ -113,7 +133,7 @@ export class RulesBridge {
     });
     
     // Game state events
-    rulesEngine.on(RulesEngineEvent.PRIORITY_PASSED, (event) => {
+    this.onEvent(RulesEngineEvent.PRIORITY_PASSED, (event) => {
       this.io.to(this.gameId).emit('priorityPassed', {
         gameId: this.gameId,
         from: event.data.from,
@@ -122,7 +142,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.STATE_BASED_ACTIONS, (event) => {
+    this.onEvent(RulesEngineEvent.STATE_BASED_ACTIONS, (event) => {
       this.io.to(this.gameId).emit('stateBasedActions', {
         gameId: this.gameId,
         actions: event.data.actions,
@@ -179,11 +199,7 @@ export class RulesBridge {
     // });
     
     // Card events
-    rulesEngine.on(RulesEngineEvent.CHOICE_REQUIRED, (event) => {
-      if (event.gameId !== this.gameId) {
-        return;
-      }
-
+    this.onEvent(RulesEngineEvent.CHOICE_REQUIRED, (event) => {
       const choiceEvents = Array.isArray(event.data?.choiceEvents) ? event.data.choiceEvents : [];
       const choiceGroupId = String(
         event.data?.stackObjectId || event.data?.sourceId || `rules-choice-${event.timestamp}`
@@ -202,24 +218,9 @@ export class RulesBridge {
           rulesTriggerEventData: event.data?.triggerEventData,
         });
       });
-
-      this.io.to(this.gameId).emit('rulesChoiceRequired', {
-        gameId: this.gameId,
-        choiceGroupId,
-        sourceId: event.data?.sourceId,
-        sourceName: event.data?.sourceName,
-        effectText: event.data?.effectText,
-        controllerId: event.data?.controllerId,
-        choiceCount: choiceEvents.length,
-        timestamp: event.timestamp,
-      });
     });
 
-    rulesEngine.on(RulesEngineEvent.ORACLE_AUTOMATION_GAP_RECORDED, (event) => {
-      if (event.gameId !== this.gameId) {
-        return;
-      }
-
+    this.onEvent(RulesEngineEvent.ORACLE_AUTOMATION_GAP_RECORDED, (event) => {
       this.io.to(this.gameId).emit('oracleAutomationGapRecorded', {
         gameId: this.gameId,
         sourceId: event.data?.sourceId,
@@ -231,7 +232,7 @@ export class RulesBridge {
       });
     });
 
-    rulesEngine.on(RulesEngineEvent.CARD_DRAWN, (event) => {
+    this.onEvent(RulesEngineEvent.CARD_DRAWN, (event) => {
       this.io.to(this.gameId).emit('cardDrawn', {
         gameId: this.gameId,
         playerId: event.data.playerId,
@@ -239,7 +240,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.PERMANENT_DESTROYED, (event) => {
+    this.onEvent(RulesEngineEvent.PERMANENT_DESTROYED, (event) => {
       this.io.to(this.gameId).emit('permanentDestroyed', {
         gameId: this.gameId,
         permanent: event.data.permanent,
@@ -248,7 +249,7 @@ export class RulesBridge {
     });
     
     // Phase and step events
-    rulesEngine.on(RulesEngineEvent.PHASE_STARTED, (event) => {
+    this.onEvent(RulesEngineEvent.PHASE_STARTED, (event) => {
       this.io.to(this.gameId).emit('phaseStarted', {
         gameId: this.gameId,
         phase: event.data.phase,
@@ -257,7 +258,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.STEP_STARTED, (event) => {
+    this.onEvent(RulesEngineEvent.STEP_STARTED, (event) => {
       this.io.to(this.gameId).emit('stepStarted', {
         gameId: this.gameId,
         step: event.data.step,
@@ -266,7 +267,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.TURN_STARTED, (event) => {
+    this.onEvent(RulesEngineEvent.TURN_STARTED, (event) => {
       this.io.to(this.gameId).emit('turnStarted', {
         gameId: this.gameId,
         turn: event.data.turn,
@@ -276,7 +277,7 @@ export class RulesBridge {
     });
     
     // Mulligan events
-    rulesEngine.on(RulesEngineEvent.MULLIGAN_DECISION, (event) => {
+    this.onEvent(RulesEngineEvent.MULLIGAN_DECISION, (event) => {
       this.io.to(this.gameId).emit('mulliganDecision', {
         gameId: this.gameId,
         playerId: event.data.playerId,
@@ -286,7 +287,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.MULLIGAN_COMPLETED, (event) => {
+    this.onEvent(RulesEngineEvent.MULLIGAN_COMPLETED, (event) => {
       this.io.to(this.gameId).emit('mulliganCompleted', {
         gameId: this.gameId,
         playerId: event.data.playerId,
@@ -296,7 +297,7 @@ export class RulesBridge {
     });
     
     // Fetch land and tutor events
-    rulesEngine.on(RulesEngineEvent.PERMANENT_SACRIFICED, (event) => {
+    this.onEvent(RulesEngineEvent.PERMANENT_SACRIFICED, (event) => {
       this.io.to(this.gameId).emit('permanentSacrificed', {
         gameId: this.gameId,
         permanentId: event.data.permanentId,
@@ -306,7 +307,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.LIBRARY_SEARCHED, (event) => {
+    this.onEvent(RulesEngineEvent.LIBRARY_SEARCHED, (event) => {
       this.io.to(this.gameId).emit('librarySearched', {
         gameId: this.gameId,
         playerId: event.data.playerId,
@@ -316,7 +317,7 @@ export class RulesBridge {
       });
     });
     
-    rulesEngine.on(RulesEngineEvent.LIBRARY_SHUFFLED, (event) => {
+    this.onEvent(RulesEngineEvent.LIBRARY_SHUFFLED, (event) => {
       this.io.to(this.gameId).emit('libraryShuffled', {
         gameId: this.gameId,
         playerId: event.data.playerId,

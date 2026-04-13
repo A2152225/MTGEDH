@@ -63,7 +63,7 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers, resolveDa
 import { getTokenImageUrls } from "../services/tokens.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
 import { executeTriggerEffect, triggerETBEffectsForToken } from "../state/modules/stack.js";
-import { creatureHasHaste, formatManaCostWithReduction, getSpellModeAdditionalCost, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
+import { creatureHasHaste, formatManaCostWithReduction, getSpellModeAdditionalCost, handlePlayLandRequest, registerGameActions, requestCastSpellForSocket } from "./game-actions.js";
 import { buildOraclePromptContext, getOracleTextFromResolutionStep } from "../utils/oraclePromptContext.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { movePermanentToExile } from "../state/modules/counters_tokens.js";
@@ -862,6 +862,27 @@ function createSyntheticAIGameActionSocket(gameId: string, playerId: string): { 
   return { socket, handlers };
 }
 
+function createForwardingGameActionSocket(
+  io: Server,
+  gameId: string,
+  playerId: string,
+): { socket: any; handlers: Map<string, (...args: any[]) => any> } {
+  const handlers = new Map<string, (...args: any[]) => any>();
+  const socket: any = {
+    data: { gameId, playerId },
+    rooms: new Set([gameId]),
+    emit: (event: string, payload: any) => {
+      emitToPlayer(io, playerId as any, event as any, payload);
+    },
+    on: (event: string, handler: (...args: any[]) => any) => {
+      handlers.set(event, handler);
+      return socket;
+    },
+  };
+
+  return { socket, handlers };
+}
+
 async function resumeAISpellCastAfterPayment(
   io: Server,
   gameId: string,
@@ -893,6 +914,110 @@ async function resumeAISpellCastAfterPayment(
     xValue: payload.xValue,
     alternateCostId: payload.alternateCostId,
     convokeTappedCreatures: payload.convokeTappedCreatures,
+  });
+}
+
+async function resumePlayerSpellCastAfterPayment(
+  io: Server,
+  gameId: string,
+  playerId: string,
+  payload: {
+    cardId: string;
+    effectId?: string;
+    targets?: any[];
+    payment?: any[];
+    xValue?: number;
+    alternateCostId?: string;
+    convokeTappedCreatures?: string[];
+  },
+): Promise<void> {
+  const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);
+  registerGameActions(io, socket as any);
+
+  const completeCastSpell = handlers.get('completeCastSpell');
+  if (typeof completeCastSpell !== 'function') {
+    throw new Error('Synthetic player socket missing completeCastSpell handler');
+  }
+
+  await completeCastSpell({
+    gameId,
+    cardId: payload.cardId,
+    effectId: payload.effectId,
+    targets: payload.targets,
+    payment: payload.payment,
+    xValue: payload.xValue,
+    alternateCostId: payload.alternateCostId,
+    convokeTappedCreatures: payload.convokeTappedCreatures,
+  });
+}
+
+async function resumePlayerCastSpellFromHand(
+  io: Server,
+  gameId: string,
+  playerId: string,
+  payload: {
+    cardId: string;
+    faceIndex?: number;
+    targets?: unknown;
+    payment?: unknown;
+    skipInteractivePrompts?: boolean;
+    skipPriorityCheck?: boolean;
+    xValue?: number;
+    alternateCostId?: string;
+    selectedCastMode?: 'normal' | 'overload';
+    convokeTappedCreatures?: string[];
+    fromZone?: 'hand' | 'exile' | 'graveyard' | 'library';
+    bypassExilePermissionCheck?: boolean;
+  },
+): Promise<void> {
+  const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);
+  registerGameActions(io, socket as any);
+
+  const castSpellFromHand = handlers.get('castSpellFromHand');
+  if (typeof castSpellFromHand !== 'function') {
+    throw new Error('Synthetic player socket missing castSpellFromHand handler');
+  }
+
+  await castSpellFromHand({
+    gameId,
+    cardId: payload.cardId,
+    faceIndex: payload.faceIndex,
+    targets: payload.targets,
+    payment: payload.payment,
+    skipInteractivePrompts: payload.skipInteractivePrompts,
+    skipPriorityCheck: payload.skipPriorityCheck,
+    xValue: payload.xValue,
+    alternateCostId: payload.alternateCostId,
+    selectedCastMode: payload.selectedCastMode,
+    convokeTappedCreatures: payload.convokeTappedCreatures,
+    fromZone: payload.fromZone,
+    bypassExilePermissionCheck: payload.bypassExilePermissionCheck,
+  });
+}
+
+async function restartPlayerCastRequest(
+  io: Server,
+  gameId: string,
+  playerId: string,
+  payload: {
+    cardId: string;
+    faceIndex?: number;
+    fromZone?: 'hand' | 'exile' | 'graveyard' | 'library';
+  },
+): Promise<void> {
+  const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);
+  registerGameActions(io, socket as any);
+
+  const requestCastSpell = handlers.get('requestCastSpell');
+  if (typeof requestCastSpell !== 'function') {
+    throw new Error('Synthetic player socket missing requestCastSpell handler');
+  }
+
+  await requestCastSpell({
+    gameId,
+    cardId: payload.cardId,
+    faceIndex: payload.faceIndex,
+    fromZone: payload.fromZone,
   });
 }
 
@@ -9018,8 +9143,7 @@ async function handleStepResponse(
         ts: Date.now(),
       });
 
-      // Continue cast flow via the generic castSpellFromHandContinue event.
-      // Prefer using the original continuation args captured on the step.
+      // Continue the cast flow server-side using the original continuation args captured on the step.
       const castArgs = (stepData?.castSpellFromHandArgs || {}) as any;
       const basePayment = Array.isArray(castArgs.payment) ? castArgs.payment : [];
       const mergedPayment = [
@@ -9027,8 +9151,7 @@ async function handleStepResponse(
         { lifePayment },
       ];
 
-      emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-        gameId,
+      await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
         cardId,
         payment: mergedPayment,
         targets: castArgs.targets,
@@ -9037,11 +9160,6 @@ async function handleStepResponse(
         skipInteractivePrompts: castArgs.skipInteractivePrompts,
         convokeTappedCreatures: castArgs.convokeTappedCreatures,
       });
-
-      if (typeof (game as any).bumpSeq === 'function') {
-        (game as any).bumpSeq();
-      }
-      broadcastGame(io, game, gameId);
       break;
     }
 
@@ -10053,23 +10171,17 @@ async function handleStepResponse(
           ? selections.convokeTappedCreatures.map((x: any) => String(x))
           : undefined;
 
-        // Hand off to the existing completion pipeline via the client.
-        // The client will emit completeCastSpell when effectId is present.
-        emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-          gameId,
+        await resumePlayerSpellCastAfterPayment(io, gameId, String(pid), {
           cardId,
+          effectId,
           payment,
           targets,
-          effectId,
           xValue,
           alternateCostId,
           convokeTappedCreatures,
         });
 
-        debug(2, `[Resolution] Spell payment complete for ${cardName}; resuming cast completion (effectId='${effectId}')`);
-
-        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-        broadcastGame(io, game, gameId);
+        debug(2, `[Resolution] Spell payment complete for ${cardName}; completed cast server-side (effectId='${effectId}')`);
         break;
       }
 
@@ -10496,8 +10608,7 @@ async function handleStepResponse(
             ts: Date.now(),
           });
 
-          emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-            gameId,
+          await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
             cardId,
             faceIndex: castArgs.faceIndex,
             fromZone: castArgs.fromZone,
@@ -10507,9 +10618,6 @@ async function handleStepResponse(
             alternateCostId: castArgs.alternateCostId,
             convokeTappedCreatures: castArgs.convokeTappedCreatures,
           });
-
-          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-          broadcastGame(io, game, gameId);
           break;
         }
 
@@ -10532,8 +10640,7 @@ async function handleStepResponse(
             ts: Date.now(),
           });
 
-          emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-            gameId,
+          await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
             cardId,
             faceIndex: castArgs.faceIndex,
             fromZone: castArgs.fromZone,
@@ -10543,9 +10650,6 @@ async function handleStepResponse(
             alternateCostId: castArgs.alternateCostId,
             convokeTappedCreatures: castArgs.convokeTappedCreatures,
           });
-
-          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-          broadcastGame(io, game, gameId);
           break;
         }
 
@@ -10583,8 +10687,7 @@ async function handleStepResponse(
 
             // Resume the original cast attempt with overload selected.
             // The cost/payment UI will be requested by the normal cast flow.
-            emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-              gameId,
+            await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
               cardId,
               faceIndex: castArgs.faceIndex,
               fromZone: castArgs.fromZone,
@@ -10596,9 +10699,6 @@ async function handleStepResponse(
               skipPriorityCheck: castArgs.skipPriorityCheck === true,
               convokeTappedCreatures: castArgs.convokeTappedCreatures,
             });
-
-            if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-            broadcastGame(io, game, gameId);
             break;
           }
 
@@ -10623,8 +10723,7 @@ async function handleStepResponse(
             ts: Date.now(),
           });
 
-          emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-            gameId,
+          await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
             cardId,
             faceIndex: castArgs.faceIndex,
             fromZone: castArgs.fromZone,
@@ -10636,15 +10735,11 @@ async function handleStepResponse(
             skipPriorityCheck: castArgs.skipPriorityCheck === true,
             convokeTappedCreatures: castArgs.convokeTappedCreatures,
           });
-
-          if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-          broadcastGame(io, game, gameId);
           break;
         }
 
         // Unknown purpose: just continue the cast attempt.
-        emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-          gameId,
+        await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
           cardId,
           faceIndex: castArgs.faceIndex,
           fromZone: castArgs.fromZone,
@@ -10655,9 +10750,6 @@ async function handleStepResponse(
           skipPriorityCheck: castArgs.skipPriorityCheck === true,
           convokeTappedCreatures: castArgs.convokeTappedCreatures,
         });
-
-        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-        broadcastGame(io, game, gameId);
         break;
       }
 
@@ -11481,8 +11573,7 @@ async function handleStepResponse(
         const alreadyMarked = basePayment.some((p: any) => p && p.bargainResolved === true);
         const paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, { bargainResolved: true, wasBargained: false }];
 
-        emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-          gameId,
+        await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
           cardId,
           payment: paymentWithMarker,
           targets: castArgs?.targets,
@@ -11490,9 +11581,6 @@ async function handleStepResponse(
           alternateCostId: castArgs?.alternateCostId,
           convokeTappedCreatures: castArgs?.convokeTappedCreatures,
         });
-
-        if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-        broadcastGame(io, game, gameId);
         break;
       }
 
@@ -11583,8 +11671,7 @@ async function handleStepResponse(
             },
       });
 
-      emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-        gameId,
+      await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
         cardId,
         payment: paymentWithMarker,
         targets: castArgs?.targets,
@@ -11592,9 +11679,6 @@ async function handleStepResponse(
         alternateCostId: castArgs?.alternateCostId,
         convokeTappedCreatures: castArgs?.convokeTappedCreatures,
       });
-
-      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-      broadcastGame(io, game, gameId);
       break;
     }
 
@@ -11650,8 +11734,7 @@ async function handleStepResponse(
       const alreadyMarked = basePayment.some((p: any) => p && p.additionalCostPaid === true);
       const paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, { additionalCostPaid: true }];
 
-      emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-        gameId,
+      await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
         cardId,
         payment: paymentWithMarker,
         targets: castArgs?.targets,
@@ -11659,9 +11742,6 @@ async function handleStepResponse(
         alternateCostId: castArgs?.alternateCostId,
         convokeTappedCreatures: castArgs?.convokeTappedCreatures,
       });
-
-      if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
-      broadcastGame(io, game, gameId);
       break;
     }
 
@@ -21949,16 +22029,14 @@ async function handleOptionChoiceResponse(
       ts: Date.now(),
     });
 
-    emitToPlayer(io, playerId as any, 'castSpellFromHandContinue', {
-      gameId,
-      cardId,
-      restartCastRequest: true,
-      faceIndex,
-      fromZone,
-    });
-
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
+
+    await restartPlayerCastRequest(io, gameId, String(playerId), {
+      cardId,
+      faceIndex,
+      fromZone: fromZone === 'exile' || fromZone === 'graveyard' || fromZone === 'library' ? fromZone : 'hand',
+    });
     return;
   }
 
@@ -22124,11 +22202,14 @@ async function handleOptionChoiceResponse(
   if (stepData.mdfcFaceChoice === true) {
     const choiceId = extractId(selectedOption);
     const selectedFace = choiceId == null ? NaN : Number(choiceId);
-    const options = Array.isArray(stepData.options) ? stepData.options : [];
-    const selected = options.find((option: any) => String(option?.id || '') === String(choiceId || ''));
     const cardId = String(stepData.cardId || stepData.sourceId || '');
-    const cardName = String(stepData.cardName || stepData.sourceName || 'MDFC');
-    const faceName = String(selected?.label || `Face ${selectedFace}`);
+    const responderSocket = Array.from((io as any)?.sockets?.sockets?.values?.() || []).find(
+      (candidate: any) => candidate?.data?.playerId === playerId && candidate?.rooms?.has?.(gameId)
+    ) || {
+      data: { playerId, gameId },
+      rooms: new Set([gameId]),
+      emit: (event: string, payload: any) => emitToPlayer(io, playerId as any, event as any, payload),
+    };
 
     if (!Number.isInteger(selectedFace) || selectedFace < 0) {
       emitToPlayer(io, playerId as any, 'error', {
@@ -22138,18 +22219,11 @@ async function handleOptionChoiceResponse(
       return;
     }
 
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${getPlayerName(game, playerId)} plays ${faceName} (from ${cardName}).`,
-      ts: Date.now(),
-    });
-
-    emitToPlayer(io, playerId as any, 'mdfcFaceSelectionComplete', {
+    handlePlayLandRequest(io, responderSocket as any, {
       gameId,
       cardId,
       selectedFace,
+      fromZone: stepData.fromZone === 'graveyard' || stepData.fromZone === 'exile' ? stepData.fromZone : 'hand',
     });
     return;
   }
@@ -22851,8 +22925,7 @@ async function handleOptionChoiceResponse(
     });
 
     const castArgs = (stepData?.forceCastArgs || {}) as any;
-    emitToPlayer(io, playerId as any, 'castSpellFromHandContinue', {
-      gameId,
+    await resumePlayerCastSpellFromHand(io, gameId, String(playerId), {
       cardId: spellCardId,
       payment: castArgs.payment,
       targets: castArgs.targets,
@@ -22862,12 +22935,6 @@ async function handleOptionChoiceResponse(
       skipInteractivePrompts: true,
       skipPriorityCheck: true,
     });
-
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-
-    broadcastGame(io, game, gameId);
     return;
   }
 
@@ -26270,8 +26337,7 @@ async function handleGraveyardSelectionResponse(
          ? basePayment
          : [...basePayment, { collectEvidenceResolved: true, collectEvidenceDeclined: true, evidenceCollected: false }];
 
-       emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-         gameId,
+       await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
          cardId: String(castArgs.cardId),
          targets: castArgs.targets,
          payment: paymentWithMarker,
@@ -26279,6 +26345,7 @@ async function handleGraveyardSelectionResponse(
          alternateCostId: castArgs.alternateCostId,
          convokeTappedCreatures: castArgs.convokeTappedCreatures,
        });
+       return;
      }
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
@@ -27132,8 +27199,7 @@ async function handleGraveyardSelectionResponse(
     };
     const paymentWithMarker = alreadyMarked ? basePayment : [...basePayment, evidenceMarker];
 
-    emitToPlayer(io, pid as any, 'castSpellFromHandContinue', {
-      gameId,
+    await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
       cardId: String(castArgs.cardId),
       targets: castArgs.targets,
       payment: paymentWithMarker,
@@ -27141,6 +27207,7 @@ async function handleGraveyardSelectionResponse(
       alternateCostId: castArgs.alternateCostId,
       convokeTappedCreatures: castArgs.convokeTappedCreatures,
     });
+    return;
   }
 
   if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();

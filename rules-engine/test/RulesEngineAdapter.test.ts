@@ -361,6 +361,161 @@ describe('RulesEngineAdapter', () => {
       expect(validation.legal).toBe(false);
       expect(validation.reason).toContain('main phase');
     });
+
+    it('should allow the next creature spell this turn to be cast as though it had flash', () => {
+      const stateWithFutureSpellEffect: any = {
+        ...testGameState,
+        phase: 'beginning' as any,
+        activePlayerIndex: 1,
+        priorityPlayerIndex: 0,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'lion-1', name: 'Savannah Lions', type_line: 'Creature - Cat', mana_cost: '{W}' }],
+              }
+            : p
+        ),
+        futureSpellEffects: [
+          {
+            id: 'future-creature-flash',
+            controllerId: 'player1',
+            duration: 'this_turn',
+            scope: 'next_qualifying_spell',
+            cardTypes: ['creature'],
+            timingPermission: 'as_though_flash',
+          },
+        ],
+      };
+
+      adapter.initializeGame('test-game', stateWithFutureSpellEffect);
+      const validation = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'lion-1',
+        manaCost: '{W}',
+      });
+
+      expect(validation.legal).toBe(true);
+    });
+
+    it("should reject a blue spell that targets an Autumn's Veil-protected creature", () => {
+      const protectedState: any = {
+        ...testGameState,
+        priorityPlayerIndex: 1,
+        battlefield: [
+          {
+            id: 'veiled-creature',
+            controller: 'player1',
+            owner: 'player1',
+            name: 'Runeclaw Bear',
+            cardType: 'Creature — Bear',
+            type_line: 'Creature — Bear',
+            power: 2,
+            toughness: 2,
+            card: {
+              id: 'veiled-creature-card',
+              name: 'Runeclaw Bear',
+              type_line: 'Creature — Bear',
+              power: 2,
+              toughness: 2,
+            },
+            temporaryEffects: [
+              {
+                id: 'autumns-veil-targeting',
+                description: "can't be the targets of blue or black spells this turn",
+                expiresAt: 'end_of_turn',
+                sourceName: "Autumn's Veil",
+              },
+            ],
+          },
+        ],
+        players: testGameState.players.map((player: any) =>
+          player.id === 'player2'
+            ? {
+                ...player,
+                hand: [{ id: 'blue-doom', name: 'Blue Doom', type_line: 'Instant', mana_cost: '{U}', colors: ['U'] }],
+                manaPool: { white: 0, blue: 2, black: 0, red: 0, green: 0, colorless: 0 },
+              }
+            : player
+        ),
+      };
+
+      adapter.initializeGame('test-game', protectedState);
+      const validation = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player2',
+        cardId: 'blue-doom',
+        manaCost: '{U}',
+        targets: ['veiled-creature'],
+      });
+
+      expect(validation.legal).toBe(false);
+      expect(validation.reason).toContain('Illegal target veiled-creature');
+    });
+
+    it('should reject an activated ability that targets an opposing hexproof creature', () => {
+      const stateWithHexproofTarget: any = {
+        ...testGameState,
+        priorityPlayerIndex: 1,
+        battlefield: [
+          {
+            id: 'hexproof-creature',
+            controller: 'player1',
+            owner: 'player1',
+            name: 'Gladecover Scout',
+            cardType: 'Creature — Elf Scout',
+            type_line: 'Creature — Elf Scout',
+            power: 1,
+            toughness: 1,
+            card: {
+              id: 'hexproof-creature-card',
+              name: 'Gladecover Scout',
+              type_line: 'Creature — Elf Scout',
+              oracle_text: 'Hexproof',
+              power: 1,
+              toughness: 1,
+            },
+          },
+          {
+            id: 'pinger-source',
+            controller: 'player2',
+            owner: 'player2',
+            name: 'Prodigal Pyromancer',
+            cardType: 'Creature — Human Wizard',
+            type_line: 'Creature — Human Wizard',
+            power: 1,
+            toughness: 1,
+            card: {
+              id: 'pinger-source-card',
+              name: 'Prodigal Pyromancer',
+              type_line: 'Creature — Human Wizard',
+              oracle_text: '{T}: Prodigal Pyromancer deals 1 damage to any target.',
+              mana_cost: '{2}{R}',
+              colors: ['R'],
+            },
+          },
+        ],
+      };
+
+      adapter.initializeGame('test-game', stateWithHexproofTarget);
+      const validation = adapter.validateAction('test-game', {
+        type: 'activateAbility',
+        playerId: 'player2',
+        ability: {
+          id: 'pinger-source-ability',
+          sourceId: 'pinger-source',
+          sourceName: 'Prodigal Pyromancer',
+          sourceZone: 'battlefield',
+          controllerId: 'player2',
+          effect: 'Prodigal Pyromancer deals 1 damage to any target.',
+          targets: ['hexproof-creature'],
+        },
+      });
+
+      expect(validation.legal).toBe(false);
+      expect(validation.reason).toContain('Illegal target hexproof-creature');
+    });
     
     it('should validate attacker declaration in correct step', () => {
       // Set game to declare attackers step
@@ -476,6 +631,240 @@ describe('RulesEngineAdapter', () => {
       const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
       expect(stackObjects).toHaveLength(1);
       expect(stackObjects[0].cardName).toBe('Opt');
+    });
+
+    it('should preserve mana-spent and counter-immunity metadata on the stack object', () => {
+      const stateWithHand: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'opt-meta', name: 'Opt', type_line: 'Instant', oracle_text: 'Draw a card.' }],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithHand);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'opt-meta',
+        manaCost: '{U}',
+        targets: [],
+        manaPayment: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+        manaSpentColors: ['blue'],
+        manaSpentTotal: 1,
+        counterImmunity: { counterSourceColors: ['blue', 'black'] },
+      });
+
+      expect(result.log).toContain('player1 announces Opt');
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].manaPayment).toEqual({
+        white: 0,
+        blue: 1,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 0,
+        generic: 0,
+      });
+      expect(stackObjects[0].manaSpentColors).toEqual(['U']);
+      expect(stackObjects[0].manaSpentTotal).toBe(1);
+      expect(stackObjects[0].cantBeCounteredBySourceColors).toEqual(['U', 'B']);
+      expect(stackObjects[0].counterImmunity).toEqual({ counterSourceColors: ['U', 'B'] });
+      expect(stackObjects[0].card.manaPayment).toEqual({
+        white: 0,
+        blue: 1,
+        black: 0,
+        red: 0,
+        green: 0,
+        colorless: 0,
+        generic: 0,
+      });
+      expect(stackObjects[0].card.counterImmunity).toEqual({ counterSourceColors: ['U', 'B'] });
+    });
+
+    it('should consume a Savage Summoning-style future spell effect on the next creature spell', () => {
+      const stateWithFutureSpellEffect: any = {
+        ...testGameState,
+        phase: 'beginning' as any,
+        activePlayerIndex: 1,
+        priorityPlayerIndex: 0,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [
+                  {
+                    id: 'creature-future-1',
+                    name: 'Savannah Lions',
+                    type_line: 'Creature - Cat',
+                    mana_cost: '{W}',
+                    oracle_text: '',
+                  },
+                ],
+              }
+            : p
+        ),
+        futureSpellEffects: [
+          {
+            id: 'future-creature-bundle',
+            controllerId: 'player1',
+            duration: 'this_turn',
+            scope: 'next_qualifying_spell',
+            cardTypes: ['creature'],
+            timingPermission: 'as_though_flash',
+            counterImmunity: { unconditional: true },
+            castedPermanentEntersWithCounters: { '+1/+1': 1 },
+          },
+        ],
+      };
+
+      adapter.initializeGame('test-game', stateWithFutureSpellEffect);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'creature-future-1',
+        manaCost: '{W}',
+        targets: [],
+      });
+
+      expect(result.log).toContain('player1 announces Savannah Lions');
+      expect((result.next as any).futureSpellEffects || []).toEqual([]);
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].cantBeCountered).toBe(true);
+      expect(stackObjects[0].counterImmunity).toEqual({ unconditional: true });
+      expect(stackObjects[0].entersBattlefieldWithCounters).toEqual({ '+1/+1': 1 });
+      expect(stackObjects[0].card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 1 });
+    });
+
+    it('should infer uncounterable metadata from a tapped Cavern of Souls for a matching creature spell', () => {
+      const stateWithCavern: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        battlefield: [
+          {
+            id: 'cavern-1',
+            controller: 'player1',
+            owner: 'player1',
+            chosenCreatureType: 'Elf',
+            card: {
+              name: 'Cavern of Souls',
+              type_line: 'Land',
+            },
+          },
+        ],
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'elf-spell', name: 'Elvish Test', type_line: 'Creature — Elf', oracle_text: '' }],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithCavern);
+      adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'elf-spell',
+        manaCost: '{U}',
+        targets: [],
+        tappedPermanents: ['cavern-1'],
+      });
+
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].cantBeCountered).toBe(true);
+      expect(stackObjects[0].counterImmunity).toEqual({ unconditional: true });
+    });
+
+    it('should infer uncounterable metadata from a tapped Delighted Halfling for a legendary spell', () => {
+      const stateWithHalfling: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        battlefield: [
+          {
+            id: 'halfling-1',
+            controller: 'player1',
+            owner: 'player1',
+            card: {
+              name: 'Delighted Halfling',
+              type_line: 'Creature — Halfling Citizen',
+            },
+          },
+        ],
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'legend-spell', name: 'Legend Test', type_line: 'Legendary Creature — Elf', oracle_text: '' }],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithHalfling);
+      adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'legend-spell',
+        manaCost: '{U}',
+        targets: [],
+        tappedPermanents: ['halfling-1'],
+      });
+
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].cantBeCountered).toBe(true);
+      expect(stackObjects[0].counterImmunity).toEqual({ unconditional: true });
+    });
+
+    it('should infer uncounterable metadata from a tapped Boseiju for an instant or sorcery spell', () => {
+      const stateWithBoseiju: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        battlefield: [
+          {
+            id: 'boseiju-1',
+            controller: 'player1',
+            owner: 'player1',
+            card: {
+              name: 'Boseiju, Who Shelters All',
+              type_line: 'Legendary Land',
+            },
+          },
+        ],
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                hand: [{ id: 'instant-spell', name: 'Instant Test', type_line: 'Instant', oracle_text: '' }],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithBoseiju);
+      adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        cardId: 'instant-spell',
+        manaCost: '{U}',
+        targets: [],
+        tappedPermanents: ['boseiju-1'],
+      });
+
+      const stackObjects = ((adapter as any).stacks.get('test-game')?.objects || []) as any[];
+      expect(stackObjects).toHaveLength(1);
+      expect(stackObjects[0].cantBeCountered).toBe(true);
+      expect(stackObjects[0].counterImmunity).toEqual({ unconditional: true });
     });
 
     it('returns a buyback spell to hand after resolution when the buyback cost is paid', () => {
@@ -752,6 +1141,66 @@ describe('RulesEngineAdapter', () => {
       const player3 = resolveResult.next.players.find(p => p.id === 'player3');
       expect(player2?.life).toBe(40);
       expect(player3?.life).toBe(39);
+    });
+
+    it("should reject a blue targeted creature spell before it reaches the stack when Autumn's Veil made the target illegal", () => {
+      const protectedState: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        battlefield: [
+          {
+            id: 'veiled-creature',
+            controller: 'player1',
+            owner: 'player1',
+            name: 'Runeclaw Bear',
+            cardType: 'Creature — Bear',
+            type_line: 'Creature — Bear',
+            power: 2,
+            toughness: 2,
+            card: {
+              id: 'veiled-creature-card',
+              name: 'Runeclaw Bear',
+              type_line: 'Creature — Bear',
+              power: 2,
+              toughness: 2,
+            },
+            temporaryEffects: [
+              {
+                id: 'autumns-veil-targeting',
+                description: "can't be the targets of blue or black spells this turn",
+                expiresAt: 'end_of_turn',
+                sourceName: "Autumn's Veil",
+              },
+            ],
+          },
+        ],
+        players: testGameState.players.map((player: any) =>
+          player.id === 'player2'
+            ? {
+                ...player,
+                hand: [{ id: 'blue-destroy', name: 'Blue Doom', type_line: 'Instant', mana_cost: '{U}', colors: ['U'] }],
+                manaPool: { white: 0, blue: 5, black: 0, red: 0, green: 0, colorless: 0 },
+              }
+            : player
+        ),
+        priorityPlayerIndex: 1,
+      };
+
+      adapter.initializeGame('test-game', protectedState);
+      const castResult = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player2',
+        cardId: 'blue-destroy',
+        cardName: 'Blue Doom',
+        cardTypes: ['instant'],
+        manaCost: '{U}',
+        targets: ['veiled-creature'],
+        oracleText: 'Destroy target creature.',
+      });
+      expect(castResult.log[0]).toContain('Action rejected: Illegal target veiled-creature');
+      expect(((castResult.next.battlefield || []) as any[]).map((perm: any) => perm.id)).toContain('veiled-creature');
+      expect(((castResult.next.players.find((player) => player.id === 'player2') as any)?.graveyard || []).map((card: any) => card.id)).not.toContain('blue-destroy');
+      expect((((adapter as any).stacks.get('test-game')?.objects || []) as any[])).toHaveLength(0);
     });
 
     it('should not resolve target_opponent spell effect when stack targets include multiple opponents', () => {
@@ -2923,7 +3372,7 @@ describe('RulesEngineAdapter', () => {
       });
 
       const player1 = activateResult.next.players.find(p => p.id === 'player1') as any;
-      expect(activateResult.log).toContain('Can only activate during your upkeep');
+      expect(activateResult.log).toContain('Action rejected: Can only activate during your upkeep');
       expect((player1.hand || []).some((card: any) => card.id === 'forecast-card')).toBe(true);
       expect(player1.manaPool.white).toBe(1);
       expect(player1.manaPool.colorless).toBe(2);

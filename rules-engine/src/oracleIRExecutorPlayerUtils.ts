@@ -661,6 +661,17 @@ export function resolvePlayersFromDamageTarget(
 ): readonly PlayerID[] {
   if (target.kind !== 'raw') return [];
 
+  const normalizeId = (value: unknown): PlayerID | undefined => {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const normalized = String(value).trim();
+    return normalized ? (normalized as PlayerID) : undefined;
+  };
+  const allPlayerIds = new Set(
+    (state.players || [])
+      .map((player: any) => normalizeId(player?.id))
+      .filter((id: PlayerID | undefined): id is PlayerID => Boolean(id))
+  );
+
   const t = String(target.text || '')
     .replace(/\u2019/g, "'")
     .toLowerCase()
@@ -670,6 +681,13 @@ export function resolvePlayersFromDamageTarget(
   if (!t) return [];
 
   if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
+  if (t === 'any target') {
+    const targetPlayerId = normalizeId(ctx.selectorContext?.targetPlayerId);
+    if (targetPlayerId && allPlayerIds.has(targetPlayerId)) return [targetPlayerId];
+
+    const targetOpponentId = normalizeId(ctx.selectorContext?.targetOpponentId);
+    if (targetOpponentId && allPlayerIds.has(targetOpponentId)) return [targetOpponentId];
+  }
   if (t === 'target player') return resolvePlayers(state, { kind: 'target_player' }, ctx);
   if (t === 'target opponent') return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
   if (

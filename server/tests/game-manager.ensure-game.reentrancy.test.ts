@@ -4,8 +4,10 @@ const createInitialGameStateMock = vi.fn();
 const getEventsMock = vi.fn();
 const gameExistsInDbMock = vi.fn();
 const bridgeInitializeMock = vi.fn();
+const bridgeDisposeMock = vi.fn();
 const createRulesBridgeMock = vi.fn(() => ({
   initialize: bridgeInitializeMock,
+  dispose: bridgeDisposeMock,
 }));
 
 vi.mock('../src/state/index.js', () => ({
@@ -29,6 +31,7 @@ describe('GameManager.ensureGame replay reentrancy', () => {
     getEventsMock.mockReset();
     gameExistsInDbMock.mockReset();
     bridgeInitializeMock.mockReset();
+    bridgeDisposeMock.mockReset();
     createRulesBridgeMock.mockClear();
     gameExistsInDbMock.mockReturnValue(true);
     getEventsMock.mockReturnValue([{ type: 'test_event' }]);
@@ -87,5 +90,44 @@ describe('GameManager.ensureGame replay reentrancy', () => {
     expect(createRulesBridgeMock).toHaveBeenCalledTimes(1);
     expect(bridgeInitializeMock).toHaveBeenCalledTimes(2);
     expect(bridgeInitializeMock).toHaveBeenLastCalledWith(updatedState);
+  });
+
+  it('disposes a game RulesBridge when deleting the game', async () => {
+    createInitialGameStateMock.mockImplementation((gameId: string) => ({
+      gameId,
+      state: { players: [{ id: 'p1' }] },
+      seq: 0,
+      replay: () => {},
+    }));
+
+    const { GameManager } = await import('../src/GameManager.js');
+    GameManager.clearAllGames();
+    GameManager.setIOServer({} as any);
+
+    GameManager.ensureGame('game_rules_bridge_delete');
+    expect(createRulesBridgeMock).toHaveBeenCalledTimes(1);
+
+    expect(GameManager.deleteGame('game_rules_bridge_delete')).toBe(true);
+    expect(bridgeDisposeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('disposes all active RulesBridges when clearing the manager', async () => {
+    createInitialGameStateMock.mockImplementation((gameId: string) => ({
+      gameId,
+      state: { players: [{ id: 'p1' }] },
+      seq: 0,
+      replay: () => {},
+    }));
+
+    const { GameManager } = await import('../src/GameManager.js');
+    GameManager.clearAllGames();
+    GameManager.setIOServer({} as any);
+
+    GameManager.ensureGame('game_rules_bridge_clear_1');
+    GameManager.ensureGame('game_rules_bridge_clear_2');
+    expect(createRulesBridgeMock).toHaveBeenCalledTimes(2);
+
+    GameManager.clearAllGames();
+    expect(bridgeDisposeMock).toHaveBeenCalledTimes(2);
   });
 });

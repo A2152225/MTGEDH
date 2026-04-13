@@ -452,6 +452,19 @@ class GameManagerClass {
   private rulesBridges: Map<string, RulesBridge> = new Map();
   private ioServer: any = null;
 
+  private disposeRulesBridge(gameId: string): void {
+    const bridge = this.rulesBridges.get(gameId);
+    if (!bridge) return;
+
+    try {
+      bridge.dispose?.();
+    } catch (e) {
+      debugWarn(1, `[GameManager] RulesBridge dispose failed for ${gameId}:`, e);
+    } finally {
+      this.rulesBridges.delete(gameId);
+    }
+  }
+
   /**
    * Set the Socket.IO server instance for rules engine integration
    */
@@ -799,10 +812,14 @@ class GameManagerClass {
 
   deleteGame(gameId: string): boolean {
     // also remove persisted row? intentionally don't delete DB row here to preserve event history.
+    this.disposeRulesBridge(gameId);
     return this.games.delete(gameId);
   }
 
   clearAllGames(): void {
+    for (const gameId of this.rulesBridges.keys()) {
+      this.disposeRulesBridge(gameId);
+    }
     this.games.clear();
   }
 }

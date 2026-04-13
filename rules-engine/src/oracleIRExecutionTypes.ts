@@ -37,6 +37,10 @@ export interface OracleIRSelectorContext {
 }
 
 export interface OracleIRExecutionEventHint {
+  /** Whether the resolving source is a spell or an ability. */
+  readonly sourceObjectType?: 'spell' | 'ability';
+  /** Best-effort source spell colors for counterspell-style source-sensitive legality checks. */
+  readonly sourceColors?: readonly string[];
   /** Best-effort single target player from trigger/ability resolution context. */
   readonly targetPlayerId?: PlayerID;
   /** Best-effort single target opponent from trigger/ability resolution context. */
@@ -91,6 +95,10 @@ export interface OracleIRExecutionContext {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;
+  /** Whether the resolving source is a spell or an ability. */
+  readonly sourceObjectType?: 'spell' | 'ability';
+  /** Colors of the resolving source spell when relevant to source-sensitive checks. */
+  readonly sourceColors?: readonly string[];
   /** Deterministic die-roll override for tests or pre-resolved event context. */
   readonly dieRollResult?: number;
   /** Source provenance for the resolving object when known. */

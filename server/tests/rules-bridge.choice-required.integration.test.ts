@@ -227,16 +227,7 @@ describe('RulesBridge choice-required integration', () => {
     const optionStep = queue.steps[2] as any;
     expect(optionStep.options.map((option: any) => option.id)).toEqual(['tap', 'untap']);
 
-    const rulesChoiceEvents = emitted.filter((entry) => entry.event === 'rulesChoiceRequired');
-    expect(rulesChoiceEvents).toHaveLength(1);
-    expect(rulesChoiceEvents[0]?.payload).toMatchObject({
-      gameId,
-      choiceGroupId: 'stack-trigger-reejerey-choice',
-      sourceName: 'Merrow Reejerey',
-      effectText: 'You may tap or untap target permanent.',
-      controllerId: 'p1',
-      choiceCount: 3,
-    });
+    expect(emitted.some((entry) => entry.event === 'rulesChoiceRequired')).toBe(false);
   });
 
   it('executes the grouped trigger on the authoritative game state after all queue responses resolve', async () => {
@@ -584,8 +575,7 @@ describe('RulesBridge choice-required integration', () => {
       'option_choice',
     ]);
 
-    const rulesChoiceEvents = emitted.filter((entry) => entry.event === 'rulesChoiceRequired');
-    expect(rulesChoiceEvents.some((entry) => entry.payload?.sourceName === 'Merrow Reejerey')).toBe(true);
+    expect(emitted.some((entry) => entry.event === 'rulesChoiceRequired')).toBe(false);
     expect(queue.steps[1] && (queue.steps[1] as any).validTargets.some((target: any) => target.id === 'nykthos-shrine-to-nyx')).toBe(true);
   });
 

@@ -54,6 +54,8 @@ import {
   applyImpulseExileTopStep,
   applyModifyExilePermissionsStep,
 } from './oracleIRExecutorExileStepHandlers';
+import { applyGrantFutureSpellEffectStep } from './oracleIRExecutorFutureSpellStepHandlers';
+import { getStateGrantedCounterImmunityForSpell } from './futureSpellEffects';
 import { applyGoadStep } from './oracleIRExecutorGoadStepHandlers';
 import {
   applyInvestigateStep,
@@ -113,11 +115,217 @@ import {
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
 import { applySkipNextDrawStep } from './oracleIRExecutorTurnStepHandlers';
 import { stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
+import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import type {
   OracleIRExecutionContext,
   OracleIRExecutionOptions,
   OracleIRExecutionResult,
 } from './oracleIRExecutionTypes';
+
+const COUNTER_IMMUNITY_COLOR_SYMBOLS: Record<string, string> = {
+  white: 'W',
+  blue: 'U',
+  black: 'B',
+  red: 'R',
+  green: 'G',
+};
+
+function normalizeCounterImmunityText(value: unknown): string {
+  return String(value || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.;:,]+$/g, '')
+    .trim();
+}
+
+function normalizeCounterImmunityColors(value: unknown): readonly string[] {
+  const rawValues = Array.isArray(value)
+    ? value
+    : value === undefined || value === null
+      ? []
+      : [value];
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of rawValues) {
+    const parts = String(raw || '')
+      .split(/(?:,|\/|\bor\b|\band\b)+/i)
+      .map(part => part.trim())
+      .filter(Boolean);
+
+    for (const part of parts) {
+      const lower = part.toLowerCase();
+      const normalized = ['W', 'U', 'B', 'R', 'G'].includes(part.toUpperCase())
+        ? part.toUpperCase()
+        : COUNTER_IMMUNITY_COLOR_SYMBOLS[lower];
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+    }
+  }
+
+  return out;
+}
+
+function getCardLikeOracleText(value: any): string {
+  return String(
+    value?.card?.oracle_text ||
+    value?.card?.oracleText ||
+    value?.card?.rulesText ||
+    value?.oracle_text ||
+    value?.oracleText ||
+    value?.rulesText ||
+    value?.abilityText ||
+    ''
+  ).replace(/\u2019/g, "'");
+}
+
+function getCardLikeTypeLineLower(value: any): string {
+  return String(
+    value?.card?.type_line ||
+    value?.card?.cardType ||
+    value?.type_line ||
+    value?.cardType ||
+    ''
+  )
+    .toLowerCase()
+    .trim();
+}
+
+function matchesCounterImmunityWord(value: string, word: string): boolean {
+  const escapedWord = String(word || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escapedWord}\\b`, 'i').test(value);
+}
+
+function spellMatchesCounterImmunityQualifier(stackItem: any, qualifierRaw: string): boolean {
+  const qualifier = normalizeCounterImmunityText(qualifierRaw);
+  if (!qualifier) return false;
+
+  const spellCard = stackItem?.card || stackItem;
+  const colorSymbol = COUNTER_IMMUNITY_COLOR_SYMBOLS[qualifier];
+  if (colorSymbol) {
+    return getColorsFromObject(spellCard)
+      .map(color => String(color || '').trim().toUpperCase())
+      .includes(colorSymbol);
+  }
+
+  const typeLineLower = getCardLikeTypeLineLower(spellCard);
+  if (!typeLineLower) return false;
+  return matchesCounterImmunityWord(typeLineLower, qualifier);
+}
+
+function getStackItemCounterImmunityMetadata(stackItem: any): {
+  readonly unconditional: boolean;
+  readonly counterSourceColors: readonly string[];
+} {
+  const rawCounterImmunity = stackItem?.counterImmunity ?? stackItem?.card?.counterImmunity;
+  const counterSourceColors = (() => {
+    const direct = normalizeCounterImmunityColors(
+      stackItem?.cantBeCounteredBySourceColors ?? stackItem?.card?.cantBeCounteredBySourceColors
+    );
+    if (direct.length > 0) return direct;
+
+    if (Array.isArray(rawCounterImmunity)) {
+      return normalizeCounterImmunityColors(rawCounterImmunity);
+    }
+
+    if (rawCounterImmunity && typeof rawCounterImmunity === 'object') {
+      return normalizeCounterImmunityColors(
+        (rawCounterImmunity as any)?.counterSourceColors ??
+          (rawCounterImmunity as any)?.sourceColors ??
+          (rawCounterImmunity as any)?.onlyAgainstSourceColors ??
+          (rawCounterImmunity as any)?.cantBeCounteredBySourceColors
+      );
+    }
+
+    return [];
+  })();
+
+  return {
+    unconditional:
+      Boolean(stackItem?.cantBeCountered || stackItem?.card?.cantBeCountered) ||
+      rawCounterImmunity === true ||
+      Boolean((rawCounterImmunity as any)?.unconditional) ||
+      Boolean((rawCounterImmunity as any)?.cantBeCountered),
+    counterSourceColors,
+  };
+}
+
+function getCounterSourceColors(ctx?: OracleIRExecutionContext): readonly string[] {
+  return normalizeCounterImmunityColors(ctx?.sourceColors);
+}
+
+function battlefieldGrantsCounterImmunity(state: GameState, stackItem: any): boolean {
+  const spellController = String(
+    stackItem?.controller || stackItem?.controllerId || stackItem?.owner || stackItem?.ownerId || ''
+  ).trim();
+  if (!spellController) return false;
+
+  const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+  return battlefield.some((source: any) => {
+    const sourceController = String(source?.controller || source?.controllerId || source?.ownerId || source?.owner || '').trim();
+    const oracleText = getCardLikeOracleText(source);
+    if (!oracleText) return false;
+
+    const lines = oracleText
+      .split(/\r?\n+/)
+      .map(line => normalizeCounterImmunityText(line))
+      .filter(Boolean);
+
+    return lines.some((line) => {
+      if (/^spells can(?:not|'t) be countered$/i.test(line)) return true;
+
+      if (/^spells you control can(?:not|'t) be countered$/i.test(line)) {
+        return spellController === sourceController;
+      }
+
+      const controllerQualifiedMatch = line.match(/^(.+?) spells you control can(?:not|'t) be countered$/i);
+      if (controllerQualifiedMatch) {
+        return spellController === sourceController && spellMatchesCounterImmunityQualifier(stackItem, String(controllerQualifiedMatch[1] || ''));
+      }
+
+      const globalQualifiedMatch = line.match(/^(.+?) spells can(?:not|'t) be countered$/i);
+      if (globalQualifiedMatch) {
+        return spellMatchesCounterImmunityQualifier(stackItem, String(globalQualifiedMatch[1] || ''));
+      }
+
+      return false;
+    });
+  });
+}
+
+function spellCanBeCountered(state: GameState, stackItem: any, ctx?: OracleIRExecutionContext): boolean {
+  const stackCounterImmunity = getStackItemCounterImmunityMetadata(stackItem);
+  const stateCounterImmunity = getStateGrantedCounterImmunityForSpell(state, stackItem);
+  const counterImmunity = {
+    unconditional: Boolean(stackCounterImmunity.unconditional) || Boolean(stateCounterImmunity?.unconditional),
+    counterSourceColors: Array.from(
+      new Set([
+        ...(stackCounterImmunity.counterSourceColors || []),
+        ...(stateCounterImmunity?.counterSourceColors || []),
+      ])
+    ),
+  };
+  if (counterImmunity.unconditional) {
+    return false;
+  }
+
+  if (counterImmunity.counterSourceColors.length > 0) {
+    const counterSourceColors = getCounterSourceColors(ctx);
+    if (counterSourceColors.some(color => counterImmunity.counterSourceColors.includes(color))) {
+      return false;
+    }
+  }
+
+  const oracleText = normalizeCounterImmunityText(getCardLikeOracleText(stackItem));
+  if (oracleText.includes("this spell can't be countered") || oracleText.includes('this spell cannot be countered')) {
+    return false;
+  }
+
+  return !battlefieldGrantsCounterImmunity(state, stackItem);
+}
 
 type RecurseExecutor = (
   state: GameState,
@@ -146,7 +354,12 @@ function applyCounterSpellStep(
   const directTargetId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
   const candidateSpells = stackItems.filter(item => {
     const itemId = String((item as any)?.id || '').trim();
-    return String((item as any)?.type || '').trim() === 'spell' && itemId && itemId !== String(ctx.sourceId || '').trim();
+    return (
+      String((item as any)?.type || '').trim() === 'spell' &&
+      itemId &&
+      itemId !== String(ctx.sourceId || '').trim() &&
+      spellCanBeCountered(state, item, ctx)
+    );
   });
 
   let targetSpell = directTargetId
@@ -196,7 +409,13 @@ function applyCounterSpellStep(
   }
 
   const targetSpellId = String((targetSpell as any)?.id || '').trim();
-  const ownerId = String((targetSpell as any)?.owner || (targetSpell as any)?.controller || '').trim();
+  const ownerId = String(
+    (targetSpell as any)?.owner ||
+      (targetSpell as any)?.ownerId ||
+      (targetSpell as any)?.controller ||
+      (targetSpell as any)?.controllerId ||
+      ''
+  ).trim();
   if (!targetSpellId || !ownerId) {
     return {
       applied: false,
@@ -441,6 +660,11 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'grant_exile_permission': {
         const result = applyGrantExilePermissionStep(nextState, step, currentCtx);
+        applyHandledStepResult(step, result);
+        break;
+      }
+      case 'grant_future_spell_effect': {
+        const result = applyGrantFutureSpellEffectStep(nextState, step, currentCtx);
         applyHandledStepResult(step, result);
         break;
       }

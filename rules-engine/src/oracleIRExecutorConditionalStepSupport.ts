@@ -882,6 +882,15 @@ export function resolveConditionalReferenceAmount(params: {
   if (!sourceRef) return null;
 
   const raw = String(condition.raw || '').trim().toLowerCase();
+  if (
+    raw === "the result is equal to this vehicle's mana value" ||
+    raw === "the result is equal to this permanent's mana value"
+  ) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const rolled = Number((nextState as any)?.lastDieRollByPlayer?.[controllerId]);
+    return Number.isFinite(rolled) ? rolled : null;
+  }
+
   const manaSpentMatch = raw.match(/^([a-z0-9]+)\s+or\s+more\s+mana\s+was\s+spent\s+to\s+cast\s+that\s+spell$/i);
   if (!manaSpentMatch) return null;
 

@@ -6,7 +6,10 @@ import {
   createTargetSelectionEvent,
   type ChoiceEvent,
 } from './choiceEvents';
+import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import { parseOracleTextToIR } from './oracleIRParser';
+import { canTargetPermanent } from './permanentTargeting';
+import { canTargetPlayer } from './playerProtection';
 import { type TriggerEventData, buildTriggerEventDataFromPayloads } from './triggeredAbilitiesEventData';
 import type { TriggeredAbility } from './triggeredAbilities';
 
@@ -292,8 +295,179 @@ function getTriggerSourceImage(state: GameState, sourceId: string | undefined): 
   return images?.small || images?.normal || undefined;
 }
 
-function buildPermanentTargetChoiceOptions(state: GameState): readonly { id: string; name: string; imageUrl?: string }[] {
+function normalizeSourceColors(value: unknown): readonly string[] | undefined {
+  const rawValues = Array.isArray(value)
+    ? value
+    : value === undefined || value === null
+      ? []
+      : [value];
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of rawValues) {
+    const parts = String(raw || '')
+      .split(/(?:,|\/|\bor\b|\band\b)+/i)
+      .map(part => part.trim())
+      .filter(Boolean);
+
+    for (const part of parts) {
+      const lower = part.toLowerCase();
+      const normalized =
+        lower === 'w' || lower === 'white'
+          ? 'W'
+          : lower === 'u' || lower === 'blue'
+            ? 'U'
+            : lower === 'b' || lower === 'black'
+              ? 'B'
+              : lower === 'r' || lower === 'red'
+                ? 'R'
+                : lower === 'g' || lower === 'green'
+                  ? 'G'
+                  : ['W', 'U', 'B', 'R', 'G'].includes(part.toUpperCase())
+                    ? part.toUpperCase()
+                    : undefined;
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+    }
+  }
+
+  return out.length > 0 ? out : undefined;
+}
+
+function getSourceTypeName(sourceObject: any, fallbackType?: string): string | undefined {
+  const typeLine = String(
+    sourceObject?.card?.type_line ||
+    sourceObject?.card?.cardType ||
+    sourceObject?.type_line ||
+    sourceObject?.cardType ||
+    fallbackType ||
+    ''
+  ).toLowerCase();
+  if (typeLine.includes('instant')) return 'instant';
+  if (typeLine.includes('sorcery')) return 'sorcery';
+  if (typeLine.includes('creature')) return 'creature';
+  if (typeLine.includes('artifact')) return 'artifact';
+  if (typeLine.includes('enchantment')) return 'enchantment';
+  if (typeLine.includes('planeswalker')) return 'planeswalker';
+  if (typeLine.includes('battle')) return 'battle';
+  if (typeLine.includes('land')) return 'land';
+  return undefined;
+}
+
+function findChoiceSourceObject(
+  state: GameState,
+  sourceId: string | undefined,
+): any {
+  const normalizedSourceId = normalizeTriggerContextId(sourceId);
+  if (!normalizedSourceId) return undefined;
+
+  const battlefieldMatch = ((state.battlefield || []) as any[]).find(
+    perm => normalizeTriggerContextId(perm?.id) === normalizedSourceId
+  );
+  if (battlefieldMatch) return battlefieldMatch;
+
+  const stackMatch = ((state.stack || []) as any[]).find(
+    item => normalizeTriggerContextId(item?.id) === normalizedSourceId
+  );
+  if (stackMatch) return stackMatch;
+
+  for (const player of state.players || []) {
+    for (const zoneName of ['graveyard', 'hand', 'exile', 'library', 'commandZone'] as const) {
+      const zone = Array.isArray((player as any)?.[zoneName]) ? (player as any)[zoneName] : [];
+      const match = zone.find((card: any) => normalizeTriggerContextId(card?.id) === normalizedSourceId);
+      if (match) return match;
+    }
+  }
+
+  for (const zone of Object.values((state as any)?.commandZone || {})) {
+    if (!Array.isArray(zone)) continue;
+    const match = zone.find((card: any) => normalizeTriggerContextId(card?.id) === normalizedSourceId);
+    if (match) return match;
+  }
+
+  return undefined;
+}
+
+function buildTriggerChoiceSourceInfo(
+  state: GameState,
+  ability: Pick<TriggeredAbility, 'controllerId' | 'sourceId'>,
+  eventData?: TriggerEventData,
+): {
+  readonly controllerId: string;
+  readonly colors?: readonly string[];
+  readonly objectType: 'ability';
+  readonly typeName?: string;
+} {
+  const sourceObject = findChoiceSourceObject(state, eventData?.sourceId ?? ability.sourceId);
+  const colors = normalizeSourceColors(eventData?.sourceColors ?? getColorsFromObject(sourceObject));
+  const typeName = getSourceTypeName(sourceObject, eventData?.spellType);
+
+  return {
+    controllerId: ability.controllerId,
+    ...(colors ? { colors } : {}),
+    objectType: 'ability',
+    ...(typeName ? { typeName } : {}),
+  };
+}
+
+function sourceCanTargetPlayer(
+  state: GameState,
+  playerId: string,
+  sourceInfo: {
+    readonly controllerId: string;
+    readonly colors?: readonly string[];
+    readonly typeName?: string;
+  }
+): boolean {
+  const unrestrictedResult = canTargetPlayer(
+    state,
+    playerId,
+    sourceInfo.controllerId,
+    undefined,
+    sourceInfo.typeName,
+  );
+  if (!unrestrictedResult.canTarget) return false;
+
+  const colorNames: string[] = [];
+  for (const color of sourceInfo.colors || []) {
+    const colorName = color === 'W'
+      ? 'white'
+      : color === 'U'
+        ? 'blue'
+        : color === 'B'
+          ? 'black'
+          : color === 'R'
+            ? 'red'
+            : color === 'G'
+              ? 'green'
+              : undefined;
+    if (colorName) {
+      colorNames.push(colorName);
+    }
+  }
+
+  return colorNames.every(colorName =>
+    canTargetPlayer(state, playerId, sourceInfo.controllerId, colorName, sourceInfo.typeName).canTarget
+  );
+}
+
+function buildPermanentTargetChoiceOptions(
+  state: GameState,
+  sourceInfo: {
+    readonly controllerId: string;
+    readonly colors?: readonly string[];
+    readonly objectType: 'ability';
+  },
+): readonly { id: string; name: string; imageUrl?: string }[] {
   return ((state.battlefield || []) as any[])
+    .filter((perm: any) =>
+      canTargetPermanent(perm, {
+        controllerId: sourceInfo.controllerId,
+        colors: sourceInfo.colors,
+        objectType: sourceInfo.objectType,
+      }).canTarget
+    )
     .map((perm: any) => {
       const id = normalizeTriggerContextId(perm?.id);
       if (!id) return undefined;
@@ -312,7 +486,12 @@ function buildPermanentTargetChoiceOptions(state: GameState): readonly { id: str
 function buildFilteredPermanentTargetChoiceOptions(
   state: GameState,
   controllerId: string,
-  filter: 'any' | 'creature_you_control'
+  filter: 'any' | 'creature_you_control',
+  sourceInfo: {
+    readonly controllerId: string;
+    readonly colors?: readonly string[];
+    readonly objectType: 'ability';
+  },
 ): readonly { id: string; name: string; imageUrl?: string }[] {
   const normalizedControllerId = normalizeTriggerContextId(controllerId);
   return ((state.battlefield || []) as any[])
@@ -323,6 +502,13 @@ function buildFilteredPermanentTargetChoiceOptions(
       const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
       return permControllerId === normalizedControllerId && /\bcreature\b/i.test(typeLine);
     })
+    .filter((perm: any) =>
+      canTargetPermanent(perm, {
+        controllerId: sourceInfo.controllerId,
+        colors: sourceInfo.colors,
+        objectType: sourceInfo.objectType,
+      }).canTarget
+    )
     .map((perm: any) => {
       const id = normalizeTriggerContextId(perm?.id);
       if (!id) return undefined;
@@ -339,13 +525,19 @@ function buildFilteredPermanentTargetChoiceOptions(
 function buildPlayerTargetChoiceOptions(
   state: GameState,
   controllerId: string,
-  mode: 'player' | 'opponent'
+  mode: 'player' | 'opponent',
+  sourceInfo: {
+    readonly controllerId: string;
+    readonly colors?: readonly string[];
+    readonly typeName?: string;
+  },
 ): readonly { id: string; name: string }[] {
   return ((state.players || []) as any[])
     .map((player: any) => {
       const id = normalizeTriggerContextId(player?.id);
       if (!id) return undefined;
       if (mode === 'opponent' && id === controllerId) return undefined;
+      if (!sourceCanTargetPlayer(state, id, sourceInfo)) return undefined;
       return {
         id,
         name: String(player?.name || id).trim() || id,
@@ -385,6 +577,7 @@ export function buildTriggeredAbilityChoiceEvents(
   const choiceEvents: ChoiceEvent[] = [];
   const unresolvedPlayerTargets = getUnresolvedPlayerTargetKinds(steps as any[]);
   const unresolvedChooseModeSteps = getUnresolvedChooseModeSteps(steps as any[]);
+  const sourceInfo = buildTriggerChoiceSourceInfo(state, ability, enrichedEventData);
 
   if (ability.optional || steps.some(step => Boolean((step as any).optional))) {
     choiceEvents.push(
@@ -400,7 +593,7 @@ export function buildTriggeredAbilityChoiceEvents(
   }
 
   if (unresolvedPlayerTargets.needsOpponentTarget && !enrichedEventData?.targetOpponentId) {
-    const validTargets = buildPlayerTargetChoiceOptions(state, ability.controllerId, 'opponent');
+    const validTargets = buildPlayerTargetChoiceOptions(state, ability.controllerId, 'opponent', sourceInfo);
     if (validTargets.length > 0) {
       choiceEvents.push(
         createTargetSelectionEvent(
@@ -419,7 +612,7 @@ export function buildTriggeredAbilityChoiceEvents(
   }
 
   if (unresolvedPlayerTargets.needsPlayerTarget && !enrichedEventData?.targetPlayerId) {
-    const validTargets = buildPlayerTargetChoiceOptions(state, ability.controllerId, 'player');
+    const validTargets = buildPlayerTargetChoiceOptions(state, ability.controllerId, 'player', sourceInfo);
     if (validTargets.length > 0) {
       choiceEvents.push(
         createTargetSelectionEvent(
@@ -463,9 +656,9 @@ export function buildTriggeredAbilityChoiceEvents(
     if (step.kind === 'attach' && !enrichedEventData?.targetPermanentId) {
       const targetRaw = String((step.to as any)?.text || (step.to as any)?.raw || '').trim().toLowerCase();
       const validTargets = /^target creature you control$/i.test(targetRaw)
-        ? buildFilteredPermanentTargetChoiceOptions(state, ability.controllerId, 'creature_you_control')
+        ? buildFilteredPermanentTargetChoiceOptions(state, ability.controllerId, 'creature_you_control', sourceInfo)
         : /^target creature$/i.test(targetRaw)
-          ? buildFilteredPermanentTargetChoiceOptions(state, ability.controllerId, 'any').filter(option => {
+          ? buildFilteredPermanentTargetChoiceOptions(state, ability.controllerId, 'any', sourceInfo).filter(option => {
               const permanent = ((state.battlefield || []) as any[]).find(
                 perm => normalizeTriggerContextId(perm?.id) === option.id
               ) as any;
@@ -494,7 +687,7 @@ export function buildTriggeredAbilityChoiceEvents(
     if (step.kind !== 'tap_or_untap') continue;
 
     if (!enrichedEventData?.targetPermanentId) {
-      const validTargets = buildPermanentTargetChoiceOptions(state);
+      const validTargets = buildPermanentTargetChoiceOptions(state, sourceInfo);
       if (validTargets.length > 0) {
         choiceEvents.push(
           createTargetSelectionEvent(

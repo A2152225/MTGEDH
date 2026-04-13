@@ -2,9 +2,11 @@ import type { GameState } from '../../shared/src';
 import type { OracleIRExecutionEventHint } from './oracleIRExecutor';
 
 export interface TriggerEventData {
+  readonly sourceObjectType?: 'spell' | 'ability';
   readonly sourceId?: string;
   readonly sourceControllerId?: string;
   readonly sourceOwnerId?: string;
+  readonly sourceColors?: readonly string[];
   readonly sourceIsToken?: boolean;
   readonly sourceIsFaceDown?: boolean;
   readonly sourceRenowned?: boolean;
@@ -15,6 +17,7 @@ export interface TriggerEventData {
   readonly targetId?: string;
   readonly targetControllerId?: string;
   readonly targetPermanentId?: string;
+  readonly targetSpellId?: string;
   readonly chosenObjectIds?: readonly string[];
   readonly targetPlayerId?: string;
   readonly targetOpponentId?: string;
@@ -296,6 +299,7 @@ export function buildTriggerEventDataFromPayloads(
   const targetPermanentId =
     scalarString('targetPermanentId') ??
     (targetPlayerId || targetOpponentId ? undefined : singleton(targetIds));
+  const targetSpellId = scalarString('targetSpellId');
   const targetId = scalarString('targetId') ?? targetPlayerId ?? targetOpponentId;
   const hand = collectIds('hand');
   const handAtBeginningOfTurn = collectIds('handAtBeginningOfTurn');
@@ -306,8 +310,14 @@ export function buildTriggerEventDataFromPayloads(
     rawUnlessPaysLifeChoice === 'pay' || rawUnlessPaysLifeChoice === 'decline'
       ? rawUnlessPaysLifeChoice
       : undefined;
+  const rawSourceObjectType = scalarString('sourceObjectType');
+  const sourceObjectType =
+    rawSourceObjectType === 'spell' || rawSourceObjectType === 'ability'
+      ? rawSourceObjectType
+      : undefined;
 
   return {
+    sourceObjectType,
     sourceId,
     sourceControllerId: normalizedSourceControllerId,
     sourceOwnerId: scalarString('sourceOwnerId') ?? scalarString('ownerId') ?? scalarString('owner'),
@@ -327,6 +337,7 @@ export function buildTriggerEventDataFromPayloads(
     targetId,
     targetControllerId: scalarString('targetControllerId'),
     targetPermanentId,
+    targetSpellId,
     chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,
     selectedModeIds: selectedModeIds.length > 0 ? selectedModeIds : undefined,
     targetPlayerId,
@@ -488,6 +499,7 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
   const normalizedTargetPlayerId = normalizeId(eventData.targetPlayerId);
   const normalizedRawTargetOpponentId = normalizeId(eventData.targetOpponentId);
   const normalizedTargetPermanentId = normalizeId(eventData.targetPermanentId);
+  const normalizedTargetSpellId = normalizeId(eventData.targetSpellId);
 
   const isOpponentId = (id: string | undefined): boolean => {
     if (!id) return false;
@@ -507,10 +519,55 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
     return out.length > 0 ? out : undefined;
   };
 
+  const normalizeSourceColors = (value: unknown): readonly string[] | undefined => {
+    const rawValues = Array.isArray(value)
+      ? value
+      : value === undefined || value === null
+        ? []
+        : [value];
+    const out: string[] = [];
+    const seen = new Set<string>();
+
+    for (const raw of rawValues) {
+      const parts = String(raw || '')
+        .split(/(?:,|\/|\bor\b|\band\b)+/i)
+        .map(part => part.trim())
+        .filter(Boolean);
+
+      for (const part of parts) {
+        const lower = part.toLowerCase();
+        const normalized =
+          lower === 'w' || lower === 'white'
+            ? 'W'
+            : lower === 'u' || lower === 'blue'
+              ? 'U'
+              : lower === 'b' || lower === 'black'
+                ? 'B'
+                : lower === 'r' || lower === 'red'
+                  ? 'R'
+                  : lower === 'g' || lower === 'green'
+                    ? 'G'
+                    : undefined;
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        out.push(normalized);
+      }
+    }
+
+    return out.length > 0 ? out : undefined;
+  };
+
+  const normalizeSourceObjectType = (value: unknown): 'spell' | 'ability' | undefined => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'spell' || normalized === 'ability' ? normalized : undefined;
+  };
+
   const dedupeOpponents = (ids: readonly string[] | undefined): readonly string[] | undefined =>
     dedupe((ids || []).filter(id => isOpponentId(id)));
 
   const normalizedChosenObjectIds = dedupe(eventData.chosenObjectIds);
+  const normalizedSourceObjectType = normalizeSourceObjectType(eventData.sourceObjectType);
+  const normalizedSourceColors = normalizeSourceColors(eventData.sourceColors);
 
   const singleton = (ids: readonly string[] | undefined): string | undefined =>
     Array.isArray(ids) && ids.length === 1 ? ids[0] : undefined;
@@ -524,9 +581,12 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
       singleton(dedupedOpponentsDealtDamage);
 
   const hint: OracleIRExecutionEventHint = {
+    sourceObjectType: normalizedSourceObjectType,
+    sourceColors: normalizedSourceColors,
     targetPlayerId: normalizedTargetPlayerId,
     targetOpponentId,
     targetPermanentId: normalizedTargetPermanentId,
+    targetSpellId: normalizedTargetSpellId,
     chosenObjectIds: normalizedChosenObjectIds,
     tapOrUntapChoice: eventData.tapOrUntapChoice,
     unlessPaysLifeChoice: eventData.unlessPaysLifeChoice,
@@ -548,9 +608,12 @@ export function buildOracleIRExecutionEventHintFromTriggerData(
   };
 
   if (
+    !hint.sourceObjectType &&
     !hint.targetPlayerId &&
     !hint.targetOpponentId &&
     !hint.targetPermanentId &&
+    !hint.targetSpellId &&
+    !hint.sourceColors &&
     !hint.chosenObjectIds &&
     !hint.tapOrUntapChoice &&
     !hint.unlessPaysLifeChoice &&

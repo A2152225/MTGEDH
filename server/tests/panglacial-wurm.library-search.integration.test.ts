@@ -222,11 +222,7 @@ describe('Panglacial Wurm library-search casting (integration)', () => {
       cancelled: false,
     });
 
-    const continueEvent = emitted.find((entry) => entry.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.effectId).toBeDefined();
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
+    expect(emitted.some((entry) => entry.event === 'castSpellFromHandContinue')).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const stackItem = (((game.state as any).stack || []) as any[]).find((entry: any) => entry.card?.id === 'pang_1');

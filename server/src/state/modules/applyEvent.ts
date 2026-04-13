@@ -2307,6 +2307,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             }
 
             // Mana/payment metadata
+            if ((e as any).manaPayment && typeof (e as any).manaPayment === 'object') {
+              const manaPayment = (e as any).manaPayment;
+              applyToStackItem('manaPayment', Array.isArray(manaPayment) ? manaPayment.slice() : { ...manaPayment });
+            }
             if (typeof (e as any).manaSpentTotal === 'number') {
               applyToStackItem('manaSpentTotal', (e as any).manaSpentTotal);
             }
@@ -2330,14 +2334,52 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             if (typeof (e as any).convergeValue === 'number') {
               applyToStackItem('convergeValue', (e as any).convergeValue);
             }
+            if (Array.isArray((e as any).manaSpentColors)) {
+              applyToStackItem('manaSpentColors', (e as any).manaSpentColors.slice());
+              applyToStackItem('manaColorsSpent', (e as any).manaSpentColors.slice());
+            }
             if (Array.isArray((e as any).manaColorsSpent)) {
               applyToStackItem('manaColorsSpent', (e as any).manaColorsSpent.slice());
+              if (!Array.isArray((e as any).manaSpentColors)) {
+                applyToStackItem('manaSpentColors', (e as any).manaColorsSpent.slice());
+              }
             }
             if (Array.isArray((e as any).convokeTappedCreatures)) {
               applyToStackItem('convokeTappedCreatures', (e as any).convokeTappedCreatures.slice());
             }
             if (typeof (e as any).manaFromCreaturesSpent === 'number') {
               applyToStackItem('manaFromCreaturesSpent', (e as any).manaFromCreaturesSpent);
+            }
+            if ((e as any).cantBeCountered === true) {
+              applyToStackItem('cantBeCountered', true);
+            }
+            if (Array.isArray((e as any).cantBeCounteredBySourceColors)) {
+              applyToStackItem('cantBeCounteredBySourceColors', (e as any).cantBeCounteredBySourceColors.slice());
+            }
+            const rawCounterImmunity = (e as any).counterImmunity;
+            if (rawCounterImmunity !== undefined) {
+              if (rawCounterImmunity === true) {
+                applyToStackItem('counterImmunity', { unconditional: true });
+                applyToStackItem('cantBeCountered', true);
+              } else if (Array.isArray(rawCounterImmunity)) {
+                applyToStackItem('counterImmunity', rawCounterImmunity.slice());
+              } else if (rawCounterImmunity && typeof rawCounterImmunity === 'object') {
+                applyToStackItem('counterImmunity', { ...rawCounterImmunity });
+                if ((rawCounterImmunity as any).unconditional === true || (rawCounterImmunity as any).cantBeCountered === true) {
+                  applyToStackItem('cantBeCountered', true);
+                }
+                const sourceColors =
+                  (rawCounterImmunity as any).counterSourceColors ??
+                  (rawCounterImmunity as any).sourceColors ??
+                  (rawCounterImmunity as any).onlyAgainstSourceColors ??
+                  (rawCounterImmunity as any).cantBeCounteredBySourceColors;
+                if (!Array.isArray((e as any).cantBeCounteredBySourceColors) && Array.isArray(sourceColors)) {
+                  applyToStackItem('cantBeCounteredBySourceColors', sourceColors.slice());
+                }
+              }
+            }
+            if ((e as any).entersBattlefieldWithCounters && typeof (e as any).entersBattlefieldWithCounters === 'object') {
+              applyToStackItem('entersBattlefieldWithCounters', { ...(e as any).entersBattlefieldWithCounters });
             }
 
             // Positive-only evidence flags

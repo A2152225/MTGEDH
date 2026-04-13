@@ -156,11 +156,7 @@ describe('modal command targeting (integration)', () => {
       selections: ['mode_1', 'mode_4'],
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('prismari_command_1');
-
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const queuedTargetEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'castSpellContinuation' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
     expect(queuedTargetEvent?.payload?.cardId).toBe('prismari_command_1');
@@ -170,7 +166,7 @@ describe('modal command targeting (integration)', () => {
     expect(String(queuedTargetEvent?.payload?.queuedResolutionSteps?.[1]?.targetDescription || '').toLowerCase()).toContain('target artifact');
 
     let queue = ResolutionQueueManager.getQueue(gameId);
-    let targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Prismari Command');
+    let targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Prismari Command') as any[];
     expect(targetSteps.length).toBe(2);
     expect(String(targetSteps[0]?.targetDescription || '').toLowerCase()).toContain('any target');
     expect(targetSteps.some((step: any) => String(step.targetDescription || '').toLowerCase().includes('target artifact'))).toBe(true);
@@ -183,7 +179,7 @@ describe('modal command targeting (integration)', () => {
     });
 
     queue = ResolutionQueueManager.getQueue(gameId);
-    targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Prismari Command');
+    targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Prismari Command') as any[];
     expect(targetSteps.length).toBe(1);
     expect(String(targetSteps[0]?.targetDescription || '').toLowerCase()).toContain('target artifact');
     expect(queue.steps.some((step: any) => step.type === 'mana_payment_choice' && (step as any).spellPaymentRequired === true)).toBe(false);
@@ -313,14 +309,10 @@ describe('modal command targeting (integration)', () => {
       selections: ['mode_1', 'mode_2'],
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('grab_the_reins_1');
-
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Grab the Reins');
+    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Grab the Reins') as any[];
     expect(targetSteps.length).toBe(2);
     expect(targetSteps.some((step: any) => String(step.targetDescription || '').toLowerCase().includes('target creature'))).toBe(true);
     expect(targetSteps.some((step: any) => String(step.targetDescription || '').toLowerCase().includes('any target'))).toBe(true);
@@ -454,14 +446,10 @@ describe('modal command targeting (integration)', () => {
       selections: ['spree_1'],
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('explosive_derailment_1');
-
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Explosive Derailment');
+    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Explosive Derailment') as any[];
     expect(targetSteps.length).toBe(1);
     expect(String(targetSteps[0]?.targetDescription || '').toLowerCase()).toContain('target artifact');
     expect(String(targetSteps[0]?.targetDescription || '').toLowerCase()).not.toContain('target creature');
@@ -575,14 +563,10 @@ describe('modal command targeting (integration)', () => {
       selections: ['mode_2', 'mode_3'],
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('collective_defiance_1');
-
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     let queue = ResolutionQueueManager.getQueue(gameId);
-    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Collective Defiance');
+    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Collective Defiance') as any[];
     expect(targetSteps.length).toBe(2);
     expect(targetSteps.some((step: any) => String(step.targetDescription || '').toLowerCase().includes('target creature'))).toBe(true);
     expect(targetSteps.some((step: any) => {
@@ -866,14 +850,10 @@ describe('modal command targeting (integration)', () => {
       selections: ['tiered_2'],
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('restoration_magic_1');
-
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
-    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Restoration Magic');
+    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === 'Restoration Magic') as any[];
     expect(targetSteps.length).toBe(0);
     expect(Array.isArray((game.state as any).stack)).toBe(true);
     expect((game.state as any).stack.length).toBe(1);
@@ -999,14 +979,10 @@ describe('modal command targeting (integration)', () => {
       selections: ['tiered_1'],
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('cloud_limit_break_1');
-
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     let queue = ResolutionQueueManager.getQueue(gameId);
-    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === "Cloud's Limit Break");
+    const targetSteps = queue.steps.filter((step: any) => step.type === 'target_selection' && String((step as any).sourceName || '') === "Cloud's Limit Break") as any[];
     expect(targetSteps.length).toBe(1);
     expect(String(targetSteps[0]?.targetDescription || '').toLowerCase()).toContain('tapped creature');
 

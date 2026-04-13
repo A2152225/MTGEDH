@@ -188,6 +188,467 @@ describe('Oracle IR Executor', () => {
     expect((result.state.stack || []).map((item: any) => item.id)).toEqual(['spell-a', 'spell-b']);
   });
 
+  it("does not counter a spell whose oracle text says it can't be countered", () => {
+    const ir = parseOracleTextToIR('Counter target spell.', 'Counterspell');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'spell-card-1',
+            name: 'Abrupt Decay',
+            type_line: 'Instant',
+            oracle_text: "This spell can't be countered.\nDestroy target nonland permanent with mana value 3 or less.",
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Counterspell',
+      targetSpellId: 'spell-1',
+    });
+
+    expect(result.appliedSteps).toHaveLength(0);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect((result.state.stack || []).map((item: any) => item.id)).toEqual(['spell-1']);
+    expect(((result.state.players.find(p => p.id === 'p2') as any)?.graveyard || []).map((entry: any) => entry.id)).toEqual([]);
+  });
+
+  it('does not counter a spell flagged with explicit counter-immunity metadata', () => {
+    const ir = parseOracleTextToIR('Counter target spell.', 'Counterspell');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          cantBeCountered: true,
+          card: {
+            id: 'spell-card-1',
+            name: 'Protected Ritual',
+            type_line: 'Instant',
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Counterspell',
+      targetSpellId: 'spell-1',
+      sourceColors: ['U'],
+    });
+
+    expect(result.appliedSteps).toHaveLength(0);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect((result.state.stack || []).map((item: any) => item.id)).toEqual(['spell-1']);
+  });
+
+  it('does not counter a spell protected against blue or black countering sources when the counterspell is blue', () => {
+    const ir = parseOracleTextToIR('Counter target spell.', 'Counterspell');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          counterImmunity: { counterSourceColors: ['U', 'B'] },
+          card: {
+            id: 'spell-card-1',
+            name: 'Veiled Spell',
+            type_line: 'Instant',
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Counterspell',
+      targetSpellId: 'spell-1',
+      sourceColors: ['U'],
+    });
+
+    expect(result.appliedSteps).toHaveLength(0);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect((result.state.stack || []).map((item: any) => item.id)).toEqual(['spell-1']);
+  });
+
+  it('still counters a spell when source-color counter-immunity does not match the counterspell', () => {
+    const ir = parseOracleTextToIR('Counter target spell.', 'Counterspell');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          cantBeCounteredBySourceColors: ['U', 'B'],
+          card: {
+            id: 'spell-card-1',
+            name: 'Veiled Spell',
+            type_line: 'Instant',
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Red Blast',
+      targetSpellId: 'spell-1',
+      sourceColors: ['R'],
+    });
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect((result.state.stack || []).map((item: any) => item.id)).toEqual([]);
+    expect(((result.state.players.find(p => p.id === 'p2') as any)?.graveyard || []).map((entry: any) => entry.id)).toEqual(['spell-card-1']);
+  });
+
+  it("does not counter a spell while Autumn's Veil is active this turn", () => {
+    const veilIr = parseOracleTextToIR(
+      "Spells you control can't be countered by blue or black spells this turn, and creatures you control can't be the targets of blue or black spells this turn.",
+      "Autumn's Veil",
+    );
+    const counterIr = parseOracleTextToIR('Counter target spell.', 'Counterspell');
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-1',
+          type: 'spell',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'spell-card-1',
+            name: 'Lead the Stampede',
+            type_line: 'Sorcery',
+          },
+        } as any,
+      ],
+    });
+
+    const veilResult = applyOracleIRStepsToGameState(start, veilIr.abilities[0]?.steps ?? [], {
+      controllerId: 'p1',
+      sourceName: "Autumn's Veil",
+    });
+    const counterResult = applyOracleIRStepsToGameState(
+      veilResult.state,
+      counterIr.abilities[0]?.steps ?? [],
+      {
+        controllerId: 'p2',
+        sourceName: 'Counterspell',
+        targetSpellId: 'spell-1',
+        sourceColors: ['U'],
+      },
+    );
+
+    expect(((veilResult.state as any).futureSpellEffects || [])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          controllerId: 'p1',
+          scope: 'all_qualifying_spells',
+          counterImmunity: { counterSourceColors: ['U', 'B'] },
+        }),
+      ]),
+    );
+    expect(counterResult.appliedSteps).toHaveLength(0);
+    expect(counterResult.skippedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect((counterResult.state.stack || []).map((item: any) => item.id)).toEqual(['spell-1']);
+  });
+
+  it("does not apply a blue targeted creature spell while Autumn's Veil target protection is active", () => {
+    const veilIr = parseOracleTextToIR(
+      "Spells you control can't be countered by blue or black spells this turn, and creatures you control can't be the targets of blue or black spells this turn.",
+      "Autumn's Veil",
+    );
+    const destroyIr = parseOracleTextToIR('Destroy target creature.', 'Blue Doom');
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'creature-1',
+          controller: 'p1',
+          owner: 'p1',
+          card: {
+            id: 'creature-card-1',
+            name: 'Grizzly Bears',
+            type_line: 'Creature — Bear',
+            power: 2,
+            toughness: 2,
+          },
+        } as any,
+      ],
+    });
+
+    const veilResult = applyOracleIRStepsToGameState(start, veilIr.abilities[0]?.steps ?? [], {
+      controllerId: 'p1',
+      sourceName: "Autumn's Veil",
+      sourceObjectType: 'spell',
+      sourceColors: ['G'],
+    });
+    const destroyResult = applyOracleIRStepsToGameState(
+      veilResult.state,
+      destroyIr.abilities[0]?.steps ?? [],
+      {
+        controllerId: 'p2',
+        sourceName: 'Blue Doom',
+        sourceObjectType: 'spell',
+        sourceColors: ['U'],
+        targetCreatureId: 'creature-1',
+      },
+    );
+
+    expect(destroyResult.appliedSteps).toHaveLength(0);
+    expect(destroyResult.skippedSteps.map(step => step.kind)).toEqual(['destroy']);
+    expect((destroyResult.state.battlefield || []).map((perm: any) => perm.id)).toContain('creature-1');
+  });
+
+  it("does not counter a spell while a battlefield source says spells can't be countered", () => {
+    const ir = parseOracleTextToIR('Counter target spell.', 'Counterspell');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'lier-source',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Lier, Disciple of the Drowned',
+          cardType: 'Legendary Creature — Human Wizard',
+          type_line: 'Legendary Creature — Human Wizard',
+          oracle_text: "Spells can't be countered.\nEach instant and sorcery card in your graveyard has flashback.",
+          power: 3,
+          toughness: 4,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          card: { id: 'spell-card-1', name: 'Cultivate', type_line: 'Sorcery', mana_cost: '{2}{G}' },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Counterspell',
+      targetSpellId: 'spell-1',
+    });
+
+    expect(result.appliedSteps).toHaveLength(0);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect((result.state.stack || []).map((item: any) => item.id)).toEqual(['spell-1']);
+  });
+
+  it("does not counter a green spell protected by 'green spells you control can't be countered'", () => {
+    const ir = parseOracleTextToIR('Counter target spell.', 'Counterspell');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'shepherd-source',
+          ownerId: 'p2',
+          controller: 'p2',
+          name: 'Allosaurus Shepherd',
+          cardType: 'Creature — Elf Shaman',
+          type_line: 'Creature — Elf Shaman',
+          oracle_text: "This spell can't be countered.\nGreen spells you control can't be countered.",
+          power: 1,
+          toughness: 1,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'spell-card-1',
+            name: 'Llanowar Elves',
+            type_line: 'Creature — Elf Druid',
+            mana_cost: '{G}',
+            colors: ['G'],
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Counterspell',
+      targetSpellId: 'spell-1',
+    });
+
+    expect(result.appliedSteps).toHaveLength(0);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect((result.state.stack || []).map((item: any) => item.id)).toEqual(['spell-1']);
+  });
+
+  it('still counters a nonmatching spell when battlefield protection is color-qualified', () => {
+    const ir = parseOracleTextToIR('Counter target spell.', 'Counterspell');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'shepherd-source',
+          ownerId: 'p2',
+          controller: 'p2',
+          name: 'Allosaurus Shepherd',
+          cardType: 'Creature — Elf Shaman',
+          type_line: 'Creature — Elf Shaman',
+          oracle_text: "This spell can't be countered.\nGreen spells you control can't be countered.",
+          power: 1,
+          toughness: 1,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'spell-card-1',
+            name: 'Opt',
+            type_line: 'Instant',
+            mana_cost: '{U}',
+            colors: ['U'],
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Counterspell',
+      targetSpellId: 'spell-1',
+    });
+
+    expect(result.appliedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect((result.state.stack || []).map((item: any) => item.id)).toEqual([]);
+    expect(((result.state.players.find(p => p.id === 'p2') as any)?.graveyard || []).map((entry: any) => entry.id)).toEqual(['spell-card-1']);
+  });
+
+  it("does not counter a subtype-qualified spell while a battlefield source says that subtype's spells can't be countered", () => {
+    const ir = parseOracleTextToIR('Counter target spell.', 'Counterspell');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'root-sliver-source',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Root Sliver',
+          cardType: 'Creature — Sliver',
+          type_line: 'Creature — Sliver',
+          oracle_text: "This spell can't be countered.\nSliver spells can't be countered.",
+          power: 2,
+          toughness: 2,
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      stack: [
+        {
+          id: 'spell-1',
+          type: 'spell',
+          controller: 'p2',
+          owner: 'p2',
+          card: {
+            id: 'spell-card-1',
+            name: 'Two-Headed Sliver',
+            type_line: 'Creature — Sliver',
+            mana_cost: '{1}{R}',
+            colors: ['R'],
+          },
+        } as any,
+      ],
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      sourceName: 'Counterspell',
+      targetSpellId: 'spell-1',
+    });
+
+    expect(result.appliedSteps).toHaveLength(0);
+    expect(result.skippedSteps.map(step => step.kind)).toEqual(['counter_spell']);
+    expect((result.state.stack || []).map((item: any) => item.id)).toEqual(['spell-1']);
+  });
+
   it('applies Force Spike by countering the target spell when its controller declines to pay', () => {
     const ir = parseOracleTextToIR('Counter target spell unless its controller pays {1}.', 'Force Spike');
     const steps = ir.abilities[0]?.steps ?? [];
@@ -8570,6 +9031,81 @@ describe('Oracle IR Executor', () => {
     expect(p1.life).toBe(40);
     expect(p2.life).toBe(37);
     expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+  });
+
+  it('applies deal_damage to any target via target_player selector context binding', () => {
+    const ir = parseOracleTextToIR('Deal 3 damage to any target.', 'Lightning Bolt');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      selectorContext: { targetPlayerId: 'p2' as any },
+    });
+
+    expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(37);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+    expect(result.automationGaps).toHaveLength(0);
+  });
+
+  it('applies deal_damage to any target via direct planeswalker binding', () => {
+    const ir = parseOracleTextToIR('Deal 3 damage to any target.', 'Lightning Bolt');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const start = makeState({
+      players: [
+        { id: 'p1', name: 'P1', seat: 0, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+        { id: 'p2', name: 'P2', seat: 1, life: 40, library: [], hand: [], graveyard: [], exile: [] } as any,
+      ],
+      battlefield: [
+        {
+          id: 'pw1',
+          controller: 'p2',
+          owner: 'p2',
+          loyalty: 5,
+          counters: { loyalty: 5 },
+          card: { id: 'pw1-card', name: 'Test Walker', type_line: 'Planeswalker - Test' },
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+
+    const result = applyOracleIRStepsToGameState(start, steps, {
+      controllerId: 'p1',
+      targetPermanentId: 'pw1',
+    });
+
+    const walker = (result.state.battlefield || []).find((permanent: any) => permanent.id === 'pw1') as any;
+    expect(walker?.loyalty ?? walker?.counters?.loyalty).toBe(2);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+    expect(result.automationGaps).toHaveLength(0);
   });
 
   it('applies deal_damage to "that player" via target_player selector context binding', () => {
@@ -20949,6 +21485,28 @@ describe('Oracle IR Executor', () => {
     const steps = ir.abilities[0]?.steps ?? [];
 
     const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+        {
+          id: 'p2',
+          name: 'P2',
+          seat: 1,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [],
+          exile: [],
+        },
+      ] as any,
       lastDieRollByPlayer: { p1: 4 } as any,
       battlefield: [
         {
@@ -20964,12 +21522,14 @@ describe('Oracle IR Executor', () => {
       controllerId: 'p1',
       sourceId: 'rex-vehicle',
       sourceName: 'Captain Rex Nebula',
+      selectorContext: { targetPlayerId: 'p2' as any },
     });
 
     expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
-    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(false);
-    expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('that much damage to any target'))).toBe(true);
+    expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
+    expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('that much damage to any target'))).toBe(false);
     expect((result.state.battlefield as any[])).toHaveLength(0);
+    expect((result.state.players.find(p => p.id === 'p2') as any)?.life).toBe(36);
   });
 
   it('applies subtype-wide sacrifice text like "all Dragons you control"', () => {

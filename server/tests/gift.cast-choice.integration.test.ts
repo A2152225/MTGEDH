@@ -132,15 +132,7 @@ describe('Gift cast choice flow', () => {
       selections: 'gift:p2',
     });
 
-    const continueEvent = emitted.find((entry) => entry.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.restartCastRequest).toBe(true);
-
-    await handlers['requestCastSpell']({
-      gameId: targetingGameId,
-      cardId: 'long_river_pull_1',
-      fromZone: continueEvent?.payload?.fromZone,
-      faceIndex: continueEvent?.payload?.faceIndex,
-    });
+    expect(emitted.some((entry) => entry.event === 'castSpellFromHandContinue')).toBe(false);
 
     const targetStep = ResolutionQueueManager.getQueue(targetingGameId).steps.find((step: any) => step.type === 'target_selection') as any;
     expect(targetStep).toBeDefined();
@@ -204,8 +196,7 @@ describe('Gift cast choice flow', () => {
       selections: 'gift:p2',
     });
 
-    const restartEvent = emitted.find((entry) => entry.event === 'castSpellFromHandContinue');
-    await handlers['requestCastSpell']({ gameId: stackGameId, cardId: 'archival_whorl_1', fromZone: restartEvent?.payload?.fromZone });
+    expect(emitted.some((entry) => entry.event === 'castSpellFromHandContinue')).toBe(false);
 
     const paymentStep = ResolutionQueueManager.getQueue(stackGameId).steps.find((step: any) => step.type === 'mana_payment_choice' && (step as any).spellPaymentRequired === true) as any;
     expect(paymentStep).toBeDefined();
@@ -222,11 +213,7 @@ describe('Gift cast choice flow', () => {
       },
     });
 
-    const completeEvent = emitted.find((entry) => entry.event === 'castSpellFromHandContinue');
-    expect(completeEvent?.payload?.effectId).toBeDefined();
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](completeEvent?.payload);
+    expect(emitted.some((entry) => entry.event === 'castSpellFromHandContinue')).toBe(false);
 
     const castError = emitted.find((entry) => entry.event === 'error');
     expect(castError).toBeUndefined();

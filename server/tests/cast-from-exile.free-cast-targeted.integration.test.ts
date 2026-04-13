@@ -168,12 +168,7 @@ describe('generic cast-from-exile targeted free casts (integration)', () => {
       cancelled: false,
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.effectId).toBeDefined();
-    expect(continueEvent?.payload?.alternateCostId).toBe('free');
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const noPermissionError = emitted.find((event) => event.event === 'error' && event.payload?.code === 'NO_PERMISSION');

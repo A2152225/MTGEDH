@@ -64,12 +64,17 @@ describe('Resolution FORCE alternate cost (Force of Will / Negation style)', () 
     (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
     (game.state as any).startingLife = 40;
     (game.state as any).life = { [p1]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
     (game.state as any).zones = {
       [p1]: {
         hand: [
-          { id: 'spell_1', name: 'Force of Will', colors: ['U'] },
-          { id: 'blue_1', name: 'Ponder', colors: ['U'] },
-          { id: 'red_1', name: 'Lightning Bolt', colors: ['R'] },
+          { id: 'spell_1', name: 'Force of Will', type_line: 'Instant', colors: ['U'] },
+          { id: 'blue_1', name: 'Ponder', type_line: 'Instant', colors: ['U'] },
+          { id: 'red_1', name: 'Lightning Bolt', type_line: 'Instant', colors: ['R'] },
         ],
         handCount: 3,
         exile: [],
@@ -110,21 +115,18 @@ describe('Resolution FORCE alternate cost (Force of Will / Negation style)', () 
     await handlers['submitResolutionResponse']({ gameId, stepId: step.id, selections: ['blue_1'] });
 
     const zones = (game.state as any).zones[p1];
-    expect((zones.hand || []).map((c: any) => c.id)).toEqual(['spell_1', 'red_1']);
+    expect((zones.hand || []).map((c: any) => c.id)).toEqual(['red_1']);
     expect((zones.exile || []).map((c: any) => c.id)).toEqual(['blue_1']);
     expect(zones.exile[0].exiledForAlternateCost).toBe(true);
     expect(zones.exile[0].exiledForSpellCardId).toBe('spell_1');
 
     expect((game.state as any).life[p1]).toBe(39);
     expect(((game.state as any).players[0] as any).life).toBe(39);
-
-    const continueEvt = emitted.find(e => e.event === 'castSpellFromHandContinue');
-    expect(continueEvt).toBeDefined();
-    expect(continueEvt!.payload.gameId).toBe(gameId);
-    expect(continueEvt!.payload.cardId).toBe('spell_1');
-    expect(continueEvt!.payload.alternateCostId).toBe('force_of_will');
-    expect(continueEvt!.payload.skipInteractivePrompts).toBe(true);
-    expect(continueEvt!.payload.skipPriorityCheck).toBe(true);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
+    expect(emitted.find((event) => event.event === 'error')).toBeUndefined();
+    expect(Array.isArray((game.state as any).stack)).toBe(true);
+    expect((game.state as any).stack).toHaveLength(1);
+    expect(String((game.state as any).stack[0]?.card?.name || '')).toBe('Force of Will');
   });
 
   it('rejects selecting a non-blue card (no state changes)', async () => {
@@ -191,7 +193,6 @@ describe('Resolution FORCE alternate cost (Force of Will / Negation style)', () 
     expect(errEvt).toBeDefined();
     expect(errEvt!.payload.code).toBe('CANNOT_PAY_COST');
 
-    const continueEvt = emitted.find(e => e.event === 'castSpellFromHandContinue');
-    expect(continueEvt).toBeUndefined();
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
   });
 });

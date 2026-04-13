@@ -166,6 +166,7 @@ export function executeTriggeredAbilityEffectWithOracleIR(
       controllerId: (normalizeTriggerContextId(ability.controllerId) ?? ability.controllerId) as PlayerID,
       sourceId: ability.sourceId,
       sourceName: ability.sourceName,
+      sourceObjectType: 'ability',
     },
     hint
   );

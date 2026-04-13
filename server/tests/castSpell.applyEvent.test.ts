@@ -123,6 +123,65 @@ describe('castSpell via applyEvent', () => {
     expect(g.state.zones?.[p1]?.handCount).toBe(0);
   });
 
+  it('should restore replay-safe cast metadata on the stack item', () => {
+    const g = createInitialGameState('cast_metadata_apply');
+
+    const p1 = 'p1' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+
+    const cards: Array<Pick<KnownCardRef, 'id' | 'name' | 'type_line' | 'oracle_text' | 'mana_cost' | 'image_uris'>> = [
+      {
+        id: 'opt_meta_1',
+        name: 'Opt',
+        type_line: 'Instant',
+        oracle_text: 'Scry 1. Draw a card.',
+        mana_cost: '{U}',
+        image_uris: undefined,
+      },
+    ];
+
+    g.importDeckResolved(p1, cards as any);
+    g.drawCards(p1, 1);
+
+    (g.state as any).phase = GamePhase.PRECOMBAT_MAIN;
+    (g.state as any).turnPlayer = p1;
+    (g.state as any).priority = p1;
+
+    g.applyEvent({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: 'opt_meta_1',
+      targets: [],
+      manaPayment: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 0, generic: 0 },
+      manaSpentColors: ['U'],
+      cantBeCountered: true,
+      cantBeCounteredBySourceColors: ['U', 'B'],
+      counterImmunity: { counterSourceColors: ['U', 'B'] },
+      entersBattlefieldWithCounters: { '+1/+1': 1 },
+    } as any);
+
+    expect(g.state.stack.length).toBe(1);
+    const stackItem = g.state.stack[0] as any;
+    expect(stackItem.manaPayment).toEqual({
+      white: 0,
+      blue: 1,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+      generic: 0,
+    });
+    expect(stackItem.manaSpentColors).toEqual(['U']);
+    expect(stackItem.manaColorsSpent).toEqual(['U']);
+    expect(stackItem.cantBeCountered).toBe(true);
+    expect(stackItem.cantBeCounteredBySourceColors).toEqual(['U', 'B']);
+    expect(stackItem.counterImmunity).toEqual({ counterSourceColors: ['U', 'B'] });
+    expect(stackItem.entersBattlefieldWithCounters).toEqual({ '+1/+1': 1 });
+    expect(stackItem.card.counterImmunity).toEqual({ counterSourceColors: ['U', 'B'] });
+    expect(stackItem.card.entersBattlefieldWithCounters).toEqual({ '+1/+1': 1 });
+  });
+
   it('should remove a library card and preserve library provenance when replaying a library-origin cast', () => {
     const g = createInitialGameState('cast_from_library_apply');
 

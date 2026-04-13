@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { initDb, createGameIfNotExists } from '../src/db/index.js';
+import { registerGameActions } from '../src/socket/game-actions.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -34,7 +35,7 @@ function createMockIo(emitted: Array<{ room?: string; event: string; payload: an
 function createMockSocket(playerId: string, emitted: Array<{ room?: string; event: string; payload: any }>) {
   const handlers: Record<string, Function> = {};
   const socket = {
-    data: { playerId, spectator: false },
+    data: { playerId, spectator: false, gameId: undefined },
     rooms: new Set<string>(),
     on: (ev: string, fn: Function) => {
       handlers[ev] = fn;
@@ -112,5 +113,87 @@ describe('MDFC face OPTION_CHOICE validate-before-complete (integration)', () =>
     await handlers['submitResolutionResponse']({ gameId, stepId, selections: ['0'] });
     const queueAfterOk = ResolutionQueueManager.getQueue(gameId);
     expect(queueAfterOk.steps.some((s: any) => String(s.id) === stepId)).toBe(false);
+  });
+
+  it('plays the selected MDFC land face entirely server-side after the queue response', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40, isAI: false }];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).landsPlayedThisTurn = { [p1]: 0 };
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [
+          {
+            id: 'mdfc_1',
+            name: 'Riverglide Pathway // Lavaglide Pathway',
+            layout: 'modal_dfc',
+            type_line: 'Land',
+            oracle_text: '',
+            image_uris: { small: 'https://example.com/mdfc-card.jpg' },
+            card_faces: [
+              {
+                name: 'Riverglide Pathway',
+                type_line: 'Land',
+                oracle_text: '{T}: Add {U}.',
+                image_uris: { small: 'https://example.com/riverglide.jpg' },
+              },
+              {
+                name: 'Lavaglide Pathway',
+                type_line: 'Land',
+                oracle_text: '{T}: Add {R}.',
+                image_uris: { small: 'https://example.com/lavaglide.jpg' },
+              },
+            ],
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.data.gameId = gameId;
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted, [socket]);
+    registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['playLand']({ gameId, cardId: 'mdfc_1' });
+
+    let queue = ResolutionQueueManager.getQueue(gameId);
+    const step = queue.steps.find((s: any) => s.type === 'option_choice' && (s as any).mdfcFaceChoice === true);
+    expect(step).toBeDefined();
+
+    await handlers['submitResolutionResponse']({ gameId, stepId: String((step as any).id), selections: ['1'] });
+
+    queue = ResolutionQueueManager.getQueue(gameId);
+    expect(queue.steps.some((s: any) => (s as any).mdfcFaceChoice === true)).toBe(false);
+
+    const battlefield = (game.state as any).battlefield || [];
+    expect(battlefield).toHaveLength(1);
+    expect(battlefield[0]?.card?.id).toBe('mdfc_1');
+    expect(battlefield[0]?.card?.name).toBe('Lavaglide Pathway');
+    expect(((game.state as any).zones?.[p1]?.hand || [])).toHaveLength(0);
+    expect(Number((game.state as any).landsPlayedThisTurn?.[p1] || 0)).toBe(1);
+    expect(emitted.some((entry) => entry.event === 'mdfcFaceSelectionComplete')).toBe(false);
+    expect(emitted.some((entry) => entry.event === 'error')).toBe(false);
   });
 });

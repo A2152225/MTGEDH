@@ -16,6 +16,11 @@ export function buildOracleIRExecutionContext(
   base: OracleIRExecutionContext,
   hint?: OracleIRExecutionEventHint
 ): OracleIRExecutionContext {
+  const normalizeSourceObjectType = (value: unknown): 'spell' | 'ability' | undefined => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'spell' || normalized === 'ability' ? normalized : undefined;
+  };
+
   const normalizeId = (value: unknown): PlayerID | undefined => {
     if (typeof value !== 'string' && typeof value !== 'number') return undefined;
     const normalized = String(value).trim();
@@ -38,6 +43,44 @@ export function buildOracleIRExecutionContext(
     return out.length > 0 ? out : undefined;
   };
 
+  const normalizeSourceColors = (value: unknown): readonly string[] | undefined => {
+    const rawValues = Array.isArray(value)
+      ? value
+      : value === undefined || value === null
+        ? []
+        : [value];
+    const out: string[] = [];
+    const seen = new Set<string>();
+
+    for (const raw of rawValues) {
+      const parts = String(raw || '')
+        .split(/(?:,|\/|\bor\b|\band\b)+/i)
+        .map(part => part.trim())
+        .filter(Boolean);
+
+      for (const part of parts) {
+        const lower = part.toLowerCase();
+        const normalized =
+          lower === 'w' || lower === 'white'
+            ? 'W'
+            : lower === 'u' || lower === 'blue'
+              ? 'U'
+              : lower === 'b' || lower === 'black'
+                ? 'B'
+                : lower === 'r' || lower === 'red'
+                  ? 'R'
+                  : lower === 'g' || lower === 'green'
+                    ? 'G'
+                    : undefined;
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        out.push(normalized);
+      }
+    }
+
+    return out.length > 0 ? out : undefined;
+  };
+
   const normalizeSpellTypes = (value: unknown): readonly string[] | undefined => {
     if (typeof value !== 'string') return undefined;
     const lower = value.toLowerCase();
@@ -51,6 +94,8 @@ export function buildOracleIRExecutionContext(
   const hintTargetPlayerId = normalizeId(hint?.targetPlayerId);
   const hintTargetSpellId = normalizeId(hint?.targetSpellId);
   const hintTargetPermanentId = normalizeId(hint?.targetPermanentId);
+  const hintSourceObjectType = normalizeSourceObjectType(hint?.sourceObjectType);
+  const hintSourceColors = normalizeSourceColors(hint?.sourceColors);
   const hintCastFromZone = typeof hint?.castFromZone === 'string' ? hint.castFromZone.trim().toLowerCase() || undefined : undefined;
   const hintEnteredFromZone = typeof hint?.enteredFromZone === 'string' ? hint.enteredFromZone.trim().toLowerCase() || undefined : undefined;
   const hintVoteChoiceCounts =
@@ -79,6 +124,8 @@ export function buildOracleIRExecutionContext(
   const baseTargetOpponentId = normalizeId(baseSel?.targetOpponentId);
   const baseTargetPlayerId = normalizeId(baseSel?.targetPlayerId);
   const baseTargetSpellId = normalizeId(baseSel?.targetSpellId);
+  const baseSourceObjectType = normalizeSourceObjectType(base.sourceObjectType);
+  const baseSourceColors = normalizeSourceColors(base.sourceColors);
   const baseChosenMana = typeof baseSel?.chosenMana === 'string' ? baseSel.chosenMana.trim() || undefined : undefined;
   const baseChosenDungeonId = typeof baseSel?.chosenDungeonId === 'string' ? baseSel.chosenDungeonId.trim() || undefined : undefined;
   const baseChosenDungeonRoomId =
@@ -187,6 +234,8 @@ export function buildOracleIRExecutionContext(
       typeof referenceSpellManaValue === 'undefined' &&
       !hintTargetSpellId &&
       !hintTargetPermanentId &&
+      !hintSourceObjectType &&
+      !hintSourceColors &&
       !hintCastFromZone &&
       !hintEnteredFromZone &&
       !hint?.tapOrUntapChoice &&
@@ -204,6 +253,10 @@ export function buildOracleIRExecutionContext(
       return {
         ...base,
         controllerId: normalizedControllerId,
+        ...(hintSourceObjectType || baseSourceObjectType
+          ? { sourceObjectType: hintSourceObjectType ?? baseSourceObjectType }
+          : {}),
+        ...(hintSourceColors || baseSourceColors ? { sourceColors: hintSourceColors ?? baseSourceColors } : {}),
         ...(hintCastFromZone ? { castFromZone: hintCastFromZone } : {}),
         ...(hintEnteredFromZone ? { enteredFromZone: hintEnteredFromZone } : {}),
         ...(selectorContext.chosenObjectIds ? { selectorContext } : {}),
@@ -222,6 +275,10 @@ export function buildOracleIRExecutionContext(
   return {
     ...base,
     controllerId: normalizedControllerId,
+    ...(hintSourceObjectType || baseSourceObjectType
+      ? { sourceObjectType: hintSourceObjectType ?? baseSourceObjectType }
+      : {}),
+    ...(hintSourceColors || baseSourceColors ? { sourceColors: hintSourceColors ?? baseSourceColors } : {}),
     ...(hintCastFromZone ? { castFromZone: hintCastFromZone } : {}),
     ...(hintEnteredFromZone ? { enteredFromZone: hintEnteredFromZone } : {}),
     selectorContext,

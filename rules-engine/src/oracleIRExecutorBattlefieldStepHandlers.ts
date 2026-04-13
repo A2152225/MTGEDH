@@ -35,6 +35,7 @@ import {
 } from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { getCardManaValue, getCardTypeLineLower, quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { canTargetPermanent } from './permanentTargeting';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -808,12 +809,12 @@ function resolveContextualBattlefieldPermanents(
 
       if (directTargetIds.length > 0) {
         const wantedIds = new Set(directTargetIds);
-        return battlefield.filter((perm: any) => {
+        return filterIllegalDirectTargetPermanents(battlefield.filter((perm: any) => {
           const permanentId = String((perm as any)?.id || '').trim();
           if (!wantedIds.has(permanentId)) return false;
           if (excludeSource && sourceId && permanentId === sourceId) return false;
           return permanentMatchesType(perm, parsedType);
-        });
+        }), ctx);
       }
     }
   }
@@ -863,7 +864,20 @@ function resolveContextualBattlefieldPermanents(
   });
 
   if (matches.length > 0 || !parsed.tokenOnly) {
-    return matches;
+    const directTargetIds = new Set(
+      [String(ctx.targetPermanentId || '').trim(), String(ctx.targetCreatureId || '').trim()].filter(Boolean)
+    );
+    if (directTargetIds.size <= 0) return matches;
+
+    return matches.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!directTargetIds.has(permanentId)) return true;
+      return canTargetPermanent(perm, {
+        controllerId: ctx.controllerId,
+        colors: ctx.sourceColors,
+        objectType: ctx.sourceObjectType,
+      }).canTarget;
+    });
   }
 
   return battlefield.filter((perm: any) => {
@@ -980,6 +994,19 @@ function resolveDirectBattlefieldPermanents(
     return battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx));
   }
   return resolveContextualBattlefieldPermanents(battlefield, target, ctx);
+}
+
+function filterIllegalDirectTargetPermanents(
+  permanents: readonly BattlefieldPermanent[],
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] {
+  return permanents.filter((perm: any) =>
+    canTargetPermanent(perm, {
+      controllerId: ctx.controllerId,
+      colors: ctx.sourceColors,
+      objectType: ctx.sourceObjectType,
+    }).canTarget
+  );
 }
 
 function applyTemporaryEffectToPermanents(

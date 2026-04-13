@@ -16,6 +16,7 @@ import {
   clearEndOfTurnWinLossEffects,
 } from '../winEffectCards';
 import { consumeNextDrawStepSkipEffect } from '../phaseTransitionTriggers';
+import { clearFutureSpellEffects } from '../futureSpellEffects';
 import { removeExpiredShields } from '../keywordAbilities/regeneration';
 
 /**
@@ -211,7 +212,9 @@ export function executeCleanupStep(
   
   logs.push('Damage removed from all permanents');
   
-  const clearedState = clearEndOfTurnWinLossEffects({ ...state, battlefield: updatedBattlefield } as GameState);
+  const clearedState = clearFutureSpellEffects(
+    clearEndOfTurnWinLossEffects({ ...state, battlefield: updatedBattlefield } as GameState)
+  );
   const remainingRegenerationShields = removeExpiredShields(
     Array.isArray((clearedState as any).regenerationShields)
       ? ((clearedState as any).regenerationShields as any[])

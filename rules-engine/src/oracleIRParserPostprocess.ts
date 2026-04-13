@@ -2406,6 +2406,179 @@ export function pruneRedundantAttackRequirementAbilities(
   });
 }
 
+export function pruneRedundantSpellCantBeCounteredAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => {
+    if (ability.steps.length !== 1 || ability.steps[0]?.kind !== 'unknown') {
+      return true;
+    }
+
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .trim()
+      .toLowerCase();
+    return !/^this spell can(?:not|'t) be countered(?:\s*\([^)]*\))?[.)]*$/i.test(normalizedText);
+  });
+}
+
+function normalizeFutureSpellUnknownStepText(step: OracleEffectStep | undefined): string {
+  if (!step || step.kind !== 'unknown') return '';
+  return normalizeOracleText(String(step.raw || ''))
+    .replace(/\s+/g, ' ')
+    .replace(/[.;:,]+$/g, '')
+    .trim();
+}
+
+export function expandFutureSpellEffectUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const nextSteps: OracleEffectStep[] = [];
+    let changed = false;
+
+    for (let index = 0; index < ability.steps.length; index += 1) {
+      const step = ability.steps[index];
+      const normalizedStep = normalizeFutureSpellUnknownStepText(step);
+
+      if (
+        normalizedStep &&
+        /^spells you control can(?:not|'t) be countered by blue or black spells this turn, and creatures you control can(?:not|'t) be the targets? of blue or black spells this turn$/i.test(normalizedStep)
+      ) {
+        changed = true;
+        nextSteps.push({
+          kind: 'grant_future_spell_effect',
+          who: { kind: 'you' },
+          duration: 'this_turn',
+          scope: 'all_qualifying_spells',
+          counterImmunity: { counterSourceColors: ['U', 'B'] },
+          raw: "Spells you control can't be countered by blue or black spells this turn",
+        });
+        nextSteps.push({
+          kind: 'grant_temporary_ability',
+          target: { kind: 'raw', text: 'creatures you control' },
+          duration: 'this_turn',
+          effectText: ["can't be the targets of blue or black spells this turn"],
+          raw: "Creatures you control can't be the targets of blue or black spells this turn",
+        });
+        continue;
+      }
+
+      const firstSavageClause = normalizedStep;
+      const secondSavageClause = normalizeFutureSpellUnknownStepText(ability.steps[index + 1] as OracleEffectStep);
+      const thirdSavageClause = normalizeFutureSpellUnknownStepText(ability.steps[index + 2] as OracleEffectStep);
+      if (
+        firstSavageClause &&
+        secondSavageClause &&
+        thirdSavageClause &&
+        /^the next creature spell you cast this turn can be cast as though it had flash$/i.test(firstSavageClause) &&
+        /^that spell can(?:not|'t) be countered$/i.test(secondSavageClause) &&
+        /^that creature enters with an additional \+1\/\+1 counter on it$/i.test(thirdSavageClause)
+      ) {
+        changed = true;
+        nextSteps.push({
+          kind: 'grant_future_spell_effect',
+          who: { kind: 'you' },
+          duration: 'this_turn',
+          scope: 'next_qualifying_spell',
+          spellFilter: { cardTypes: ['creature'] },
+          timingPermission: 'as_though_flash',
+          counterImmunity: { unconditional: true },
+          castedPermanentEntersWithCounters: { '+1/+1': 1 },
+          raw: `${String((ability.steps[index] as any)?.raw || '').trim()}. ${String((ability.steps[index + 1] as any)?.raw || '').trim()}. ${String((ability.steps[index + 2] as any)?.raw || '').trim()}`,
+        });
+        index += 2;
+        continue;
+      }
+
+      nextSteps.push(step);
+    }
+
+    return changed ? { ...ability, steps: nextSteps } : ability;
+  });
+}
+
+function isRedundantArtifactTokenReminderUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .trim();
+  if (!normalized) return false;
+
+  return (
+    /^(?:it(?:'|’)s|it is)\s+an artifact with\s+"[^"]+"$/i.test(normalized) ||
+    /^(?:they(?:'|’)re|they are)\s+artifacts with\s+"[^"]+"$/i.test(normalized)
+  );
+}
+
+export function pruneRedundantArtifactTokenReminderUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    if (!ability.steps.some((step) => step.kind === 'create_token' || step.kind === 'investigate')) {
+      return ability;
+    }
+
+    const nextSteps = ability.steps.filter(step => !isRedundantArtifactTokenReminderUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+export function pruneRedundantCrewReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.filter((ability) => {
+    const normalizedText = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+    return !/^crew\s+\d+\s*\(tap any number of creatures you control with total power \d+ or more: this (?:vehicle|token) becomes an artifact creature until end of turn\.\)$/i.test(normalizedText);
+  });
+}
+
+function isRedundantTriggerRestrictionUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return false;
+
+  return /^this ability triggers only once each turn[.)]*$/i.test(normalized);
+}
+
+export function pruneRedundantTriggerRestrictionUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const nextSteps = ability.steps.filter(step => !isRedundantTriggerRestrictionUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
+function isRedundantStillLandUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+
+  const normalized = normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .trim();
+  if (!normalized) return false;
+
+  return /^it(?:'|’)s still a land[.)]*$/i.test(normalized);
+}
+
+export function pruneRedundantStillLandUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const nextSteps = ability.steps.filter(step => !isRedundantStillLandUnknownStep(step));
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
+  });
+}
+
 function isRedundantScryReminderUnknownStep(step: OracleEffectStep): boolean {
   if (step.kind !== 'unknown') return false;
 
@@ -3027,6 +3200,41 @@ export function expandChoiceUnknownAbilities(
   });
 }
 
+function normalizeUnknownStepText(step: OracleEffectStep | undefined): string {
+  if (step?.kind !== 'unknown') return '';
+  return normalizeOracleText(String(step.raw || ''))
+    .replace(/^then\b\s*/i, '')
+    .replace(/[.;]\s*$/g, '')
+    .trim();
+}
+
+function parseCopySpellRetargetTail(step: OracleEffectStep | undefined): string | null {
+  const normalized = normalizeUnknownStepText(step);
+  if (!normalized) return null;
+  return /^you may choose\s+(?:a new target|new targets)\s+for\s+the\s+cop(?:y|ies)$/i.test(normalized)
+    ? normalized
+    : null;
+}
+
+function appendFollowupSentence(base: string | undefined, followup: string | null): string {
+  const trimmedBase = String(base || '')
+    .trim()
+    .replace(/[.\s]+$/g, '');
+  const trimmedFollowup = String(followup || '')
+    .trim()
+    .replace(/^[.\s]+/g, '');
+
+  if (!trimmedBase) return trimmedFollowup;
+  if (!trimmedFollowup) return trimmedBase;
+  return `${trimmedBase}. ${trimmedFollowup}`;
+}
+
+function copySpellRawMentionsRetarget(raw: string | undefined): boolean {
+  return /choose\s+(?:a new target|new targets)\s+for\s+the\s+cop(?:y|ies)/i.test(
+    normalizeOracleText(String(raw || ''))
+  );
+}
+
 function parseCopySpellUnknownStep(
   step: Extract<OracleEffectStep, { kind: 'unknown' }>,
   nextStep?: OracleEffectStep
@@ -3036,22 +3244,17 @@ function parseCopySpellUnknownStep(
     .trim();
   if (!normalized) return null;
 
-  const nextNormalized =
-    nextStep?.kind === 'unknown'
-      ? normalizeOracleText(String(nextStep.raw || ''))
-          .replace(/^then\b\s*/i, '')
-          .trim()
-      : '';
+  const retargetTail = parseCopySpellRetargetTail(nextStep);
 
   if (/^copy this spell for each spell cast before it this turn$/i.test(normalized)) {
     return {
       kind: 'copy_spell',
       subject: 'this_spell',
       copies: { kind: 'spells_cast_before_this_turn' },
-      allowNewTargets: /^you may choose new targets for the copies$/i.test(nextNormalized),
+      allowNewTargets: retargetTail !== null,
       ...(step.optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
-      raw: nextNormalized ? `${normalized}. ${nextNormalized}` : normalized,
+      raw: appendFollowupSentence(normalized, retargetTail),
     };
   }
 
@@ -3061,10 +3264,11 @@ function parseCopySpellUnknownStep(
     return {
       kind: 'copy_spell',
       subject: 'this_spell',
-      allowNewTargets: /may choose\s+(?:a new target|new targets)\s+for the copy/i.test(normalized),
+      allowNewTargets:
+        /may choose\s+(?:a new target|new targets)\s+for the copy/i.test(normalized) || retargetTail !== null,
       optional: true,
       ...(step.sequence ? { sequence: step.sequence } : {}),
-      raw: normalized,
+      raw: appendFollowupSentence(normalized, retargetTail),
     };
   }
 
@@ -3074,31 +3278,67 @@ function parseCopySpellUnknownStep(
     return {
       kind: 'copy_spell',
       subject: 'this_spell',
-      allowNewTargets: /may choose\s+(?:a new target|new targets)\s+for the copy/i.test(normalized),
+      allowNewTargets:
+        /may choose\s+(?:a new target|new targets)\s+for the copy/i.test(normalized) || retargetTail !== null,
       ...(step.optional ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
-      raw: normalized,
+      raw: appendFollowupSentence(normalized, retargetTail),
     };
   }
 
   return null;
 }
 
-export function expandCopySpellUnknownAbilities(
-  abilities: readonly OracleIRAbility[]
-): OracleIRAbility[] {
-  return abilities.map((ability) => {
-    let changed = false;
-    const expandedSteps: OracleEffectStep[] = [];
+function expandCopySpellUnknownSteps(
+  steps: readonly OracleEffectStep[]
+): { steps: readonly OracleEffectStep[]; changed: boolean } {
+  let changed = false;
+  const expandedSteps: OracleEffectStep[] = [];
 
-    for (let i = 0; i < ability.steps.length; i += 1) {
-      const step = ability.steps[i];
-      if (step.kind !== 'unknown') {
+  for (let i = 0; i < steps.length; i += 1) {
+    const step = steps[i];
+    const nextStep = steps[i + 1];
+    const retargetTail = parseCopySpellRetargetTail(nextStep);
+
+    if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+      const nested = expandCopySpellUnknownSteps(step.steps);
+      if (nested.changed) {
+        changed = true;
+        expandedSteps.push({
+          ...step,
+          steps: nested.steps,
+        });
+      } else {
         expandedSteps.push(step);
-        continue;
       }
+      continue;
+    }
 
-      const nextStep = ability.steps[i + 1];
+    if (step.kind === 'choose_mode') {
+      let modeChanged = false;
+      const expandedModes = step.modes.map((mode) => {
+        const nested = expandCopySpellUnknownSteps(mode.steps);
+        if (!nested.changed) return mode;
+        modeChanged = true;
+        return {
+          ...mode,
+          steps: nested.steps,
+        };
+      });
+
+      if (modeChanged) {
+        changed = true;
+        expandedSteps.push({
+          ...step,
+          modes: expandedModes,
+        });
+      } else {
+        expandedSteps.push(step);
+      }
+      continue;
+    }
+
+    if (step.kind === 'unknown') {
       const expanded = parseCopySpellUnknownStep(step, nextStep);
       if (!expanded) {
         expandedSteps.push(step);
@@ -3107,22 +3347,40 @@ export function expandCopySpellUnknownAbilities(
 
       changed = true;
       expandedSteps.push(expanded);
-      if (
-        expanded.kind === 'copy_spell' &&
-        expanded.subject === 'this_spell' &&
-        expanded.copies?.kind === 'spells_cast_before_this_turn' &&
-        nextStep?.kind === 'unknown' &&
-        /^you may choose new targets for the copies$/i.test(
-          normalizeOracleText(String(nextStep.raw || ''))
-            .replace(/^then\b\s*/i, '')
-            .trim()
-        )
-      ) {
+      if (retargetTail !== null) {
         i += 1;
       }
+      continue;
     }
 
-    return changed ? { ...ability, steps: expandedSteps } : ability;
+    if (step.kind === 'copy_spell' && retargetTail !== null) {
+      changed = true;
+      expandedSteps.push({
+        ...step,
+        allowNewTargets: true,
+        raw: copySpellRawMentionsRetarget(step.raw)
+          ? step.raw
+          : appendFollowupSentence(step.raw, retargetTail),
+      });
+      i += 1;
+      continue;
+    }
+
+    expandedSteps.push(step);
+  }
+
+  return {
+    steps: changed ? expandedSteps : steps,
+    changed,
+  };
+}
+
+export function expandCopySpellUnknownAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const expanded = expandCopySpellUnknownSteps(ability.steps);
+    return expanded.changed ? { ...ability, steps: expanded.steps } : ability;
   });
 }
 

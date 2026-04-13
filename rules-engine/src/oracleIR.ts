@@ -258,6 +258,24 @@ export type OracleEffectStep =
       readonly raw: string;
     }
   | {
+      readonly kind: 'grant_future_spell_effect';
+      readonly who: OraclePlayerSelector;
+      readonly duration: 'this_turn';
+      readonly scope: 'all_qualifying_spells' | 'next_qualifying_spell';
+      readonly spellFilter?: {
+        readonly cardTypes?: readonly string[];
+      };
+      readonly timingPermission?: 'as_though_flash';
+      readonly counterImmunity?: {
+        readonly unconditional?: boolean;
+        readonly counterSourceColors?: readonly string[];
+      };
+      readonly castedPermanentEntersWithCounters?: Record<string, number>;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'modify_graveyard_permissions';
       readonly scope: 'last_granted_graveyard_cards';
       readonly castCost?: 'mana_cost';

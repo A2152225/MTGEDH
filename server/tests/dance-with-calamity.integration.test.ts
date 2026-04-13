@@ -186,11 +186,7 @@ describe('Dance with Calamity ordered free-cast flow (integration)', () => {
       cancelled: false,
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.alternateCostId).toBe('free');
-
-    emitted.length = 0;
-    await handlers['completeCastSpell'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const stackItem = (((game.state as any).stack || []) as any[]).find((entry: any) => entry.card?.id === 'bolt_1');

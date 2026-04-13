@@ -146,11 +146,7 @@ describe('Academic Probation', () => {
       selections: 'mode_1',
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    expect(continueEvent?.payload?.cardId).toBe('academic_probation_1');
-
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.some((step: any) => step.type === 'target_selection')).toBe(false);
@@ -247,9 +243,7 @@ describe('Academic Probation', () => {
       selections: 'mode_2',
     });
 
-    const continueEvent = emitted.find((event) => event.event === 'castSpellFromHandContinue');
-    emitted.length = 0;
-    await handlers['castSpellFromHand'](continueEvent?.payload);
+    expect(emitted.some((event) => event.event === 'castSpellFromHandContinue')).toBe(false);
 
     const queue = ResolutionQueueManager.getQueue(gameId);
     expect(queue.steps.some((step: any) => step.type === 'mode_selection' && String((step as any).sourceId || '') === 'academic_probation_1')).toBe(false);

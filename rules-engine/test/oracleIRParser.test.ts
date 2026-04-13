@@ -96,6 +96,48 @@ describe('Oracle IR Parser', () => {
       ])
     );
   });
+
+  it("parses Autumn's Veil into turn-scoped spell protection and creature targeting protection", () => {
+    const ir = parseOracleTextToIR(
+      "Spells you control can't be countered by blue or black spells this turn, and creatures you control can't be the targets of blue or black spells this turn.",
+      "Autumn's Veil",
+    );
+    const steps = ir.abilities[0]?.steps as any[];
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0]).toMatchObject({
+      kind: 'grant_future_spell_effect',
+      who: { kind: 'you' },
+      duration: 'this_turn',
+      scope: 'all_qualifying_spells',
+      counterImmunity: { counterSourceColors: ['U', 'B'] },
+    });
+    expect(steps[1]).toMatchObject({
+      kind: 'grant_temporary_ability',
+      target: { kind: 'raw', text: 'creatures you control' },
+      duration: 'this_turn',
+      effectText: ["can't be the targets of blue or black spells this turn"],
+    });
+  });
+
+  it('parses Savage Summoning into a next-creature future spell effect bundle', () => {
+    const ir = parseOracleTextToIR(
+      'Flash. The next creature spell you cast this turn can be cast as though it had flash. That spell can\'t be countered. That creature enters with an additional +1/+1 counter on it.',
+      'Savage Summoning',
+    );
+    const steps = ir.abilities.flatMap((ability) => ability.steps) as any[];
+    const futureSpellStep = steps.find((step) => step.kind === 'grant_future_spell_effect');
+
+    expect(futureSpellStep).toMatchObject({
+      who: { kind: 'you' },
+      duration: 'this_turn',
+      scope: 'next_qualifying_spell',
+      spellFilter: { cardTypes: ['creature'] },
+      timingPermission: 'as_though_flash',
+      counterImmunity: { unconditional: true },
+      castedPermanentEntersWithCounters: { '+1/+1': 1 },
+    });
+  });
   
   it('upgrades exile-top into impulse for "cards exiled with this creature" permission', () => {
     const text =
@@ -5245,6 +5287,114 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(ir.abilities).toEqual([]);
   });
 
+  it('prunes standalone spell-cant-be-countered text from Oracle IR', () => {
+    const ir = parseOracleTextToIR(
+      "This spell can't be countered.\nDestroy target nonland permanent with mana value 3 or less.",
+      'Abrupt Decay'
+    );
+
+    expect(ir.abilities.some((ability: any) => /can't be countered/i.test(String(ability?.text || '')))).toBe(false);
+    expect(ir.abilities.flatMap((ability: any) => ability.steps)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'destroy',
+          target: { kind: 'raw', text: 'target nonland permanent with mana value 3 or less' },
+        }),
+      ])
+    );
+  });
+
+  it('prunes token artifact reminder text from create-token steps', () => {
+    const ir = parseOracleTextToIR(
+      'Create a Treasure token. (It\'s an artifact with "{T}, Sacrifice this token: Add one mana of any color.")',
+      'Pirate Booty'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'create_token',
+        token: 'Treasure',
+      }),
+    ]);
+  });
+
+  it('prunes plural artifact reminder text from create-token steps', () => {
+    const ir = parseOracleTextToIR(
+      'Create two Treasure tokens. (They\'re artifacts with "{T}, Sacrifice this token: Add one mana of any color.")',
+      'Big Score'
+    );
+
+    expect(ir.abilities[0]?.steps.some((step: any) => /artifacts with/i.test(String(step?.raw || '')))).toBe(false);
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'create_token',
+          token: 'Treasure',
+        }),
+      ])
+    );
+  });
+
+  it('prunes clue reminder artifact text from investigate steps', () => {
+    const ir = parseOracleTextToIR(
+      'Investigate. (Create a Clue token. It\'s an artifact with "{2}, Sacrifice this token: Draw a card.")',
+      'Thraben Cluekeeper'
+    );
+
+    expect(ir.abilities[0]?.steps.some((step: any) => /artifact with/i.test(String(step?.raw || '')))).toBe(false);
+    expect(ir.abilities[0]?.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'investigate',
+        }),
+      ])
+    );
+  });
+
+  it('prunes full crew reminder-only abilities while keeping the crew keyword', () => {
+    const ir = parseOracleTextToIR(
+      'Crew 3 (Tap any number of creatures you control with total power 3 or more: This Vehicle becomes an artifact creature until end of turn.)',
+      'Capenna Express'
+    );
+
+    expect(ir.abilities).toEqual([]);
+    expect(ir.keywords).toContain('crew');
+  });
+
+  it('prunes trigger-only-once restriction text from triggered ability steps', () => {
+    const ir = parseOracleTextToIR(
+      'Whenever you sacrifice one or more other creatures, Forge Boss deals 2 damage to each opponent. This ability triggers only once each turn.',
+      'Forge Boss'
+    );
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'triggered',
+      triggerCondition: 'you sacrifice one or more other creatures',
+    });
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'deal_damage',
+        amount: { kind: 'number', value: 2 },
+        target: { kind: 'raw', text: 'each opponent' },
+      }),
+    ]);
+  });
+
+  it('prunes still-a-land reminder text from activated ability steps', () => {
+    const ir = parseOracleTextToIR(
+      '{T}: Target land you control becomes a 4/4 Elemental creature with haste until end of turn. It\'s still a land. Activate only as a sorcery.',
+      'Llanowar Loamspeaker'
+    );
+
+    expect(ir.abilities[0]).toMatchObject({
+      type: 'activated',
+      cost: '{T}',
+    });
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').includes("It's still a land"))).toBe(false);
+    expect(ir.abilities[0]?.steps.some((step: any) => String(step?.raw || '').includes('Activate only as a sorcery'))).toBe(false);
+    expect(ir.abilities[0]?.steps.length).toBeGreaterThan(0);
+  });
+
   it('prunes old scry 1 reminder fragments when a scry step is already parsed', () => {
     const ir = parseOracleTextToIR(
       'Scry 1. (Look at the top card of your library. You may put that card on the bottom.)',
@@ -7090,6 +7240,33 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       'move_zone',
       'proliferate',
       'gain_life',
+    ]);
+  });
+
+  it('parses Aid the Fallen as a choose-one-or-both modal block', () => {
+    const oracleText =
+      'Choose one or both —\n\u2022 Return target creature card from your graveyard to your hand.\n\u2022 Return target planeswalker card from your graveyard to your hand.';
+
+    const ir = parseOracleTextToIR(oracleText, 'Aid the Fallen');
+    const step = ir.abilities[0]?.steps?.[0] as any;
+
+    expect(step).toMatchObject({
+      kind: 'choose_mode',
+      minModes: 1,
+      maxModes: 2,
+      canRepeatModes: false,
+    });
+    expect(step?.modes?.map((mode: any) => mode.steps?.[0])).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'target creature card from your graveyard' },
+        to: 'hand',
+      }),
+      expect.objectContaining({
+        kind: 'move_zone',
+        what: { kind: 'raw', text: 'target planeswalker card from your graveyard' },
+        to: 'hand',
+      }),
     ]);
   });
 
@@ -9586,6 +9763,28 @@ This creature has protection from each of the exiled card's card types. (Artifac
         }),
       ]);
     });
+
+  it('merges trailing copy retarget text into graveyard copy-spell replay steps', () => {
+    const ir = parseOracleTextToIR(
+      'Exile target instant or sorcery card from a graveyard and copy it. You may cast the copy without paying its mana cost. You may choose new targets for the copy.',
+      'Psionic Ritual'
+    );
+
+    expect(ir.abilities[0]?.steps).toEqual([
+      expect.objectContaining({
+        kind: 'move_zone',
+        to: 'exile',
+        what: { kind: 'raw', text: 'target instant or sorcery card from a graveyard' },
+      }),
+      expect.objectContaining({
+        kind: 'copy_spell',
+        subject: 'last_moved_card',
+        optional: true,
+        withoutPayingManaCost: true,
+        allowNewTargets: true,
+      }),
+    ]);
+  });
 
   it("parses Wizard's Spellbook into exile, roll_die, and die-roll result branches", () => {
     const ir = parseOracleTextToIR(

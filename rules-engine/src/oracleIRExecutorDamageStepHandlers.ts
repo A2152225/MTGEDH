@@ -73,6 +73,47 @@ type DamageSourceKeywords = {
   readonly hasLifelink: boolean;
 };
 
+function resolveSinglePermanentDamageTargetId(
+  state: GameState,
+  target: Extract<OracleEffectStep, { kind: 'deal_damage' }>['target'],
+  ctx: OracleIRExecutionContext
+): string | undefined {
+  if (target.kind !== 'raw') return undefined;
+
+  const targetText = String(target.text || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.!]$/, '');
+  if (targetText !== 'any target') return undefined;
+
+  const candidateIds = [
+    String(ctx.targetPermanentId || '').trim(),
+    String(ctx.targetCreatureId || '').trim(),
+    ...(Array.isArray(ctx.selectorContext?.chosenObjectIds) && ctx.selectorContext.chosenObjectIds.length === 1
+      ? [String(ctx.selectorContext.chosenObjectIds[0] || '').trim()]
+      : []),
+  ].filter(Boolean);
+
+  if (candidateIds.length === 0) return undefined;
+
+  const battlefield = (state.battlefield || []) as any[];
+  for (const candidateId of candidateIds) {
+    const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === candidateId);
+    if (!matched) continue;
+    if (
+      hasExecutorClass(matched, 'creature') ||
+      hasExecutorClass(matched, 'planeswalker') ||
+      hasExecutorClass(matched, 'battle')
+    ) {
+      return candidateId;
+    }
+  }
+
+  return undefined;
+}
+
 function readFiniteCardStat(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
@@ -378,6 +419,30 @@ export function applyDealDamageStep(
     }
 
     return { applied: true, state: nextState, log, excessDamageDealtThisWay: 0 };
+  }
+
+  const singlePermanentId = resolveSinglePermanentDamageTargetId(nextState, step.target, ctx);
+  if (singlePermanentId) {
+    const result = applyDamageToMatchingBattlefield(
+      nextState,
+      finalAmount,
+      ctx,
+      permanent => String((permanent as any)?.id || '').trim() === singlePermanentId,
+      sourceKeywords
+    );
+    nextState = result.state;
+    if (sourceKeywords?.hasLifelink && sourceKeywords.controllerId && result.damageDealt > 0) {
+      const lifeGain = adjustLife(nextState, sourceKeywords.controllerId, result.damageDealt);
+      nextState = lifeGain.state;
+      log.push(...lifeGain.log);
+    }
+    log.push(`Dealt ${finalAmount} damage to ${singlePermanentId}`);
+    return {
+      applied: true,
+      state: nextState,
+      log,
+      excessDamageDealtThisWay: result.excessDamageDealtThisWay,
+    };
   }
 
   if ((step.target as any)?.kind === 'raw') {

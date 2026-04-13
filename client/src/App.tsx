@@ -2045,8 +2045,6 @@ export function App() {
   // Life payment request listener (for Toxic Deluge, Hatred, etc.)
   // Legacy lifePaymentRequest listener removed - now handled via Resolution Queue (life_payment).
 
-  // Life payment completion is handled via castSpellFromHandContinue.
-
 
   // Legacy MDFC face selection request listener removed - now handled via Resolution Queue (resolutionStepPrompt).
 
@@ -2086,81 +2084,6 @@ export function App() {
   // Legacy squadCostRequest listener removed - now handled via Resolution Queue (squad_cost_payment).
 
   // Legacy modeSelectionRequest listener removed - now handled via Resolution Queue (mode_selection).
-
-  // Resume castSpellFromHand after a Resolution Queue prompt (e.g. Abundant Harvest choice)
-  React.useEffect(() => {
-    const handler = (payload: any) => {
-      if (!safeView?.id || payload?.gameId !== safeView.id) return;
-      if (!payload?.cardId) return;
-
-      // If this continuation includes an effectId, it is completing an MTG-compliant cast
-      // (targets first, then payment), so route through completeCastSpell.
-      if (payload?.effectId) {
-        socket.emit('completeCastSpell', {
-          gameId: safeView.id,
-          cardId: payload.cardId,
-          faceIndex: typeof payload.faceIndex === 'number' ? payload.faceIndex : undefined,
-          targets: payload.targets,
-          payment: payload.payment,
-          effectId: payload.effectId,
-          xValue: payload.xValue,
-          alternateCostId: payload.alternateCostId,
-          selectedCastMode: payload.selectedCastMode,
-          convokeTappedCreatures: payload.convokeTappedCreatures,
-        } as any);
-      } else if (payload?.restartCastRequest === true) {
-        requestCastSpellWithPromptSync({
-          gameId: safeView.id,
-          cardId: payload.cardId,
-          faceIndex: typeof payload.faceIndex === 'number' ? payload.faceIndex : undefined,
-          fromZone: payload.fromZone === 'exile' || payload.fromZone === 'graveyard' ? payload.fromZone : undefined,
-        });
-      } else {
-        socket.emit('castSpellFromHand', {
-          gameId: safeView.id,
-          cardId: payload.cardId,
-          payment: payload.payment,
-          targets: payload.targets,
-          xValue: payload.xValue,
-          alternateCostId: payload.alternateCostId,
-          selectedCastMode: payload.selectedCastMode,
-          skipInteractivePrompts: payload.skipInteractivePrompts,
-          skipPriorityCheck: payload.skipPriorityCheck,
-          convokeTappedCreatures: payload.convokeTappedCreatures,
-          fromZone: payload.fromZone,
-          faceIndex: payload.faceIndex,
-        } as any);
-      }
-    };
-
-    socket.on('castSpellFromHandContinue', handler);
-    return () => {
-      socket.off('castSpellFromHandContinue', handler);
-    };
-  }, [safeView?.id]);
-
-  // MDFC face selection complete listener - continue playing the land
-  React.useEffect(() => {
-    const handler = (payload: {
-      gameId: string;
-      cardId: string;
-      selectedFace: number;
-      effectId?: string;
-    }) => {
-      if (payload.gameId === safeView?.id) {
-        // Re-emit playLand with the selected face
-        playLandWithPromptSync({
-          gameId: safeView.id,
-          cardId: payload.cardId,
-          selectedFace: payload.selectedFace,
-        });
-      }
-    };
-    socket.on("mdfcFaceSelectionComplete", handler);
-    return () => {
-      socket.off("mdfcFaceSelectionComplete", handler);
-    };
-  }, [safeView?.id]);
 
   // Mana pool update listener - update local mana pool state when server sends updates
   React.useEffect(() => {

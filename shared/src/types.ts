@@ -357,6 +357,22 @@ export interface SkipNextDrawStepEffect {
   remainingSkips: number;
 }
 
+export interface FutureSpellEffect {
+  id: string;
+  controllerId: PlayerID;
+  sourceId?: string;
+  sourceName?: string;
+  duration: 'this_turn';
+  scope: 'all_qualifying_spells' | 'next_qualifying_spell';
+  cardTypes?: readonly string[];
+  timingPermission?: 'as_though_flash';
+  counterImmunity?: {
+    unconditional?: boolean;
+    counterSourceColors?: readonly string[];
+  };
+  castedPermanentEntersWithCounters?: Record<string, number>;
+}
+
 /* Stack item */
 export interface StackItem {
   id: string;
@@ -550,6 +566,7 @@ export interface GameState {
     isUsed: boolean;
     expiresAtEndOfTurn: boolean;
   }>;
+  futureSpellEffects?: FutureSpellEffect[];
   dungeonProgress?: Record<PlayerID, {
     dungeonId: string;
     dungeonName: string;

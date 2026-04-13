@@ -37,7 +37,7 @@ import {
   keepHand,
 } from './types/gameFlow';
 import { ManaType, type ManaPool as RulesEngineManaPool, type ManaCost } from './types/mana';
-import { CostType } from './types/costs';
+import { CostType, type ManaPaymentRecord } from './types/costs';
 import { emptyManaPool } from './manaAbilities';
 import {
   playerHasCantLoseEffect,
@@ -63,6 +63,10 @@ import {
   DelayedTriggerTiming,
   registerDelayedTrigger,
 } from './delayedTriggeredAbilities';
+import {
+  consumeFutureSpellCastAdjustments,
+  previewFutureSpellCastAdjustments,
+} from './futureSpellEffects';
 
 /** Simple mana pool interface for checking mana availability (doesn't need restricted mana info) */
 interface SimpleManaPool {
@@ -84,6 +88,7 @@ import { consumePlayableFromExileForCard, stripPlayableFromExileTags } from './p
 import { consumePlayableFromGraveyardForCard, stripPlayableFromGraveyardTags } from './playableFromGraveyard';
 import {
   createEmptyStack,
+  getStackItems,
   pushToStack,
   popFromStack,
   isStackEmpty as checkStackEmpty,
@@ -104,6 +109,9 @@ import {
   type ActivationContext,
 } from './activatedAbilities';
 import { applyActivatedAbilityCostReductions } from './activatedAbilityCostReduction';
+import { getColorsFromObject } from './oracleIRExecutorManaUtils';
+import { canTargetPermanent } from './permanentTargeting';
+import { canTargetPlayer } from './playerProtection';
 import {
   createEmptyTriggerQueue,
   processEvent,
@@ -254,6 +262,8 @@ export class RulesEngineAdapter {
     switch (action.type) {
       case 'castSpell':
         return this.validateSpellCast(state, action);
+      case 'activateAbility':
+        return this.validateAbilityActivation(state, action);
       case 'playLand':
         return this.validatePlayLand(state, action);
       case 'declareAttackers':
@@ -449,7 +459,15 @@ export class RulesEngineAdapter {
     // If a cardId is provided, enforce the card is in the declared origin zone.
     // This prevents "cast from exile" from silently defaulting to hand casts.
     // Check timing restrictions (main phase, stack empty for sorceries, etc.)
-    const cardTypes = this.getCardTypes(action.card || action.spell || sourceCard);
+    const futureSpellAdjustments = previewFutureSpellCastAdjustments(
+      state,
+      action.playerId,
+      action.card || action.spell || sourceCard,
+    );
+    const cardTypes = this.appendFlashType(
+      this.getCardTypes(action.card || action.spell || sourceCard),
+      futureSpellAdjustments.grantsFlashTiming,
+    );
     const timingContext = this.buildTimingContext(state, action.playerId);
     const timingResult = validateSpellTiming(cardTypes, timingContext);
     
@@ -549,7 +567,105 @@ export class RulesEngineAdapter {
         return { legal: false, reason: 'Permission window to cast from graveyard has expired' };
       }
     }
+
+    const spellTargetHints = buildTriggerEventDataFromPayloads(
+      action.playerId,
+      action.targets,
+      action
+    );
+    const selectedSpellTargets =
+      Array.isArray(action.targets) && action.targets.length > 0
+        ? action.targets
+        : this.collectTargetIdsFromEventData(spellTargetHints);
+    const spellSource = {
+      ...((intrinsicGraveyardCast.entersBattlefieldTransformed
+        ? this.buildTransformedCardFace(sourceCard)
+        : sourceCard) || {}),
+      ...(action.spell || {}),
+      ...(action.card || {}),
+    };
+    const targetValidation = this.validateSelectedTargetsForSource(
+      state,
+      selectedSpellTargets,
+      this.buildTargetingSourceInfo(action.playerId, spellSource, 'spell')
+    );
+    if (!targetValidation.legal) {
+      return targetValidation;
+    }
     
+    return { legal: true };
+  }
+
+  private validateAbilityActivation(state: GameState, action: any): ActionValidation {
+    const player = state.players.find(p => p.id === action.playerId);
+    if (!player) {
+      return { legal: false, reason: 'Player not found' };
+    }
+
+    const ability: ActivatedAbility | undefined = action.ability;
+    if (!ability) {
+      return { legal: false, reason: 'Ability not found' };
+    }
+
+    const activePlayerIndex = state.activePlayerIndex ?? 0;
+    const priorityPlayerIndex = state.priorityPlayerIndex ?? activePlayerIndex;
+    const activePlayer = state.players[activePlayerIndex] || state.players[0];
+    const priorityPlayer = state.players[priorityPlayerIndex] || activePlayer;
+
+    const activationContext: ActivationContext = {
+      hasPriority: priorityPlayer?.id === action.playerId,
+      isMainPhase: state.phase === 'precombatMain' || state.phase === 'postcombatMain',
+      isOwnTurn: activePlayer?.id === action.playerId,
+      stackEmpty: checkStackEmpty(this.stacks.get((state as any).id || '') || createEmptyStack()),
+      isCombat: state.phase === 'combat',
+      isUpkeep: String((state as any).step || '').trim().toLowerCase() === 'upkeep',
+      activationsThisTurn: action.activationsThisTurn || 0,
+      sourceTapped: action.sourceTapped || false,
+    };
+
+    if (!this.canPayActivatedAbilityAdditionalCosts(state, action.playerId, ability, action)) {
+      return { legal: false, reason: 'Cannot pay required activated ability additional cost' };
+    }
+
+    const manaPool = player.manaPool || emptyManaPool();
+    const reducedCost = applyActivatedAbilityCostReductions({
+      state,
+      playerId: action.playerId,
+      ability,
+    });
+    const abilityWithReducedCost = reducedCost.manaCost && reducedCost.manaCost !== ability.manaCost
+      ? { ...ability, manaCost: reducedCost.manaCost }
+      : ability;
+    const activationResult = activateAbility(abilityWithReducedCost, manaPool, activationContext);
+    if (!activationResult.success) {
+      return {
+        legal: false,
+        reason: activationResult.error || 'Failed to activate ability',
+      };
+    }
+
+    const abilityTargetHints = buildTriggerEventDataFromPayloads(
+      action.playerId,
+      ability.targets,
+      action
+    );
+    const selectedAbilityTargets =
+      Array.isArray(ability.targets) && ability.targets.length > 0
+        ? ability.targets
+        : this.collectTargetIdsFromEventData(abilityTargetHints);
+    const targetValidation = this.validateSelectedTargetsForSource(
+      state,
+      selectedAbilityTargets,
+      this.buildTargetingSourceInfo(
+        action.playerId,
+        this.getAbilitySourceObject(state, ability, action),
+        'ability'
+      )
+    );
+    if (!targetValidation.legal) {
+      return targetValidation;
+    }
+
     return { legal: true };
   }
   
@@ -1973,6 +2089,8 @@ export class RulesEngineAdapter {
       ...(eventData.affectedPlayerIds || []),
       ...(eventData.targetPlayerId ? [eventData.targetPlayerId] : []),
       ...(eventData.targetOpponentId ? [eventData.targetOpponentId] : []),
+      ...(eventData.targetPermanentId ? [eventData.targetPermanentId] : []),
+      ...(eventData.targetSpellId ? [eventData.targetSpellId] : []),
     ];
     const out: string[] = [];
     const seen = new Set<string>();
@@ -2334,6 +2452,543 @@ export class RulesEngineAdapter {
       log: [`Priority passed from ${playerId} to ${state.players[nextPriorityIndex].id}`],
     };
   }
+
+  private getCastMetadataValue(action: any, sourceCard: any, field: string): any {
+    if (action && action[field] !== undefined) return action[field];
+    if (action?.card && action.card[field] !== undefined) return action.card[field];
+    if (sourceCard && sourceCard[field] !== undefined) return sourceCard[field];
+    return undefined;
+  }
+
+  private normalizeManaPaymentRecord(value: unknown): ManaPaymentRecord | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+
+    const source = value as Record<string, unknown>;
+    const normalized: Record<keyof ManaPaymentRecord, number> = {
+      white: 0,
+      blue: 0,
+      black: 0,
+      red: 0,
+      green: 0,
+      colorless: 0,
+      generic: 0,
+    };
+    let used = false;
+
+    for (const key of ['white', 'blue', 'black', 'red', 'green', 'colorless', 'generic'] as const) {
+      const amount = Number(source[key]);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      normalized[key] = amount;
+      used = true;
+    }
+
+    return used ? (normalized as ManaPaymentRecord) : undefined;
+  }
+
+  private normalizeColorSymbols(value: unknown): readonly string[] | undefined {
+    const rawValues = Array.isArray(value)
+      ? value
+      : value === undefined || value === null
+        ? []
+        : [value];
+    const out: string[] = [];
+    const seen = new Set<string>();
+
+    for (const raw of rawValues) {
+      const parts = String(raw || '')
+        .split(/(?:,|\/|\bor\b|\band\b)+/i)
+        .map(part => part.trim())
+        .filter(Boolean);
+
+      for (const part of parts) {
+        const lower = part.toLowerCase();
+        const normalized =
+          lower === 'w' || lower === 'white'
+            ? 'W'
+            : lower === 'u' || lower === 'blue'
+              ? 'U'
+              : lower === 'b' || lower === 'black'
+                ? 'B'
+                : lower === 'r' || lower === 'red'
+                  ? 'R'
+                  : lower === 'g' || lower === 'green'
+                    ? 'G'
+                    : undefined;
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        out.push(normalized);
+      }
+    }
+
+    return out.length > 0 ? out : undefined;
+  }
+
+  private normalizeCounterImmunityMetadata(
+    rawValue: unknown,
+    directCantBeCountered: unknown,
+    directCounterSourceColors: readonly string[] | undefined,
+  ):
+    | { readonly unconditional?: boolean; readonly counterSourceColors?: readonly string[] }
+    | undefined {
+    const unconditional =
+      Boolean(directCantBeCountered) ||
+      rawValue === true ||
+      Boolean((rawValue as any)?.unconditional) ||
+      Boolean((rawValue as any)?.cantBeCountered);
+
+    const nestedCounterSourceColors = Array.isArray(rawValue)
+      ? this.normalizeColorSymbols(rawValue)
+      : this.normalizeColorSymbols(
+          (rawValue as any)?.counterSourceColors ??
+            (rawValue as any)?.sourceColors ??
+            (rawValue as any)?.onlyAgainstSourceColors ??
+            (rawValue as any)?.cantBeCounteredBySourceColors
+        );
+    const counterSourceColors = directCounterSourceColors ?? nestedCounterSourceColors;
+
+    if (!unconditional && (!counterSourceColors || counterSourceColors.length === 0)) {
+      return undefined;
+    }
+
+    return {
+      ...(unconditional ? { unconditional: true } : {}),
+      ...(counterSourceColors && counterSourceColors.length > 0
+        ? { counterSourceColors }
+        : {}),
+    };
+  }
+
+  private buildCastSpellMetadata(action: any, sourceCard: any): Record<string, unknown> {
+    const metadata: Record<string, unknown> = {};
+
+    const manaPayment = this.normalizeManaPaymentRecord(this.getCastMetadataValue(action, sourceCard, 'manaPayment'));
+    if (manaPayment) {
+      metadata.manaPayment = manaPayment;
+    }
+
+    const manaSpentTotalValue = this.getCastMetadataValue(action, sourceCard, 'manaSpentTotal');
+    const manaSpentTotal = Number(manaSpentTotalValue);
+    if (Number.isFinite(manaSpentTotal)) {
+      metadata.manaSpentTotal = Math.max(0, manaSpentTotal);
+    }
+
+    const manaSpentColors = this.normalizeColorSymbols(this.getCastMetadataValue(action, sourceCard, 'manaSpentColors'));
+    if (manaSpentColors && manaSpentColors.length > 0) {
+      metadata.manaSpentColors = manaSpentColors;
+    }
+
+    const manaSpentSymbolsValue = this.getCastMetadataValue(action, sourceCard, 'manaSpentSymbols');
+    if (Array.isArray(manaSpentSymbolsValue)) {
+      metadata.manaSpentSymbols = [...manaSpentSymbolsValue];
+    } else if (manaSpentSymbolsValue && typeof manaSpentSymbolsValue === 'object') {
+      metadata.manaSpentSymbols = { ...(manaSpentSymbolsValue as Record<string, unknown>) };
+    }
+
+    const directCounterSourceColors = this.normalizeColorSymbols(
+      this.getCastMetadataValue(action, sourceCard, 'cantBeCounteredBySourceColors')
+    );
+    const counterImmunity = this.normalizeCounterImmunityMetadata(
+      this.getCastMetadataValue(action, sourceCard, 'counterImmunity'),
+      this.getCastMetadataValue(action, sourceCard, 'cantBeCountered'),
+      directCounterSourceColors,
+    );
+
+    if (counterImmunity?.unconditional) {
+      metadata.cantBeCountered = true;
+    }
+    if (counterImmunity?.counterSourceColors && counterImmunity.counterSourceColors.length > 0) {
+      metadata.cantBeCounteredBySourceColors = counterImmunity.counterSourceColors;
+    }
+    if (counterImmunity) {
+      metadata.counterImmunity = counterImmunity;
+    }
+
+    return metadata;
+  }
+
+  private normalizeTypePhrase(value: unknown): string {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, ' ')
+      .trim();
+  }
+
+  private typeLineContainsChosenType(typeLine: unknown, chosenType: unknown): boolean {
+    const normalizedTypeLine = this.normalizeTypePhrase(typeLine);
+    const normalizedChosenType = this.normalizeTypePhrase(chosenType);
+    if (!normalizedTypeLine || !normalizedChosenType) return false;
+    const escapedChosenType = normalizedChosenType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+    return new RegExp(`(^|\\s)${escapedChosenType}(?=$|\\s)`, 'i').test(normalizedTypeLine);
+  }
+
+  private deriveTappedSourceCounterImmunity(
+    state: GameState,
+    action: any,
+    castCard: any,
+  ):
+    | { readonly unconditional?: boolean; readonly counterSourceColors?: readonly string[] }
+    | undefined {
+    const tappedPermanentIds = Array.isArray(action?.tappedPermanents)
+      ? action.tappedPermanents.map((id: any) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (tappedPermanentIds.length === 0) return undefined;
+
+    const battlefield = Array.isArray((state as any).battlefield) ? ((state as any).battlefield as any[]) : [];
+    const battlefieldById = new Map(
+      battlefield
+        .map((permanent: any) => [String(permanent?.id || '').trim(), permanent] as const)
+        .filter(([id]) => Boolean(id))
+    );
+
+    const controllerId = String(action?.playerId || '').trim();
+    const typeLine = String(castCard?.type_line || '');
+    const typeLineLower = typeLine.toLowerCase();
+    const isLegendarySpell = /(^|[^a-z])legendary(?=$|[^a-z])/i.test(typeLineLower);
+    const isCreatureSpell = /(^|[^a-z])creature(?=$|[^a-z])/i.test(typeLineLower);
+    const isInstantOrSorcerySpell =
+      /(^|[^a-z])instant(?=$|[^a-z])/i.test(typeLineLower) ||
+      /(^|[^a-z])sorcery(?=$|[^a-z])/i.test(typeLineLower);
+
+    for (const permanentId of tappedPermanentIds) {
+      const source = battlefieldById.get(permanentId);
+      if (!source) continue;
+
+      const sourceControllerId = String(source?.controller || source?.controllerId || '').trim();
+      if (sourceControllerId && controllerId && sourceControllerId !== controllerId) continue;
+
+      const sourceName = String(source?.card?.name || source?.name || '').trim().toLowerCase();
+      if (!sourceName) continue;
+
+      if (sourceName === 'delighted halfling' && isLegendarySpell) {
+        return { unconditional: true };
+      }
+
+      if (sourceName === 'boseiju, who shelters all' && isInstantOrSorcerySpell) {
+        return { unconditional: true };
+      }
+
+      if (sourceName === 'cavern of souls' && isCreatureSpell) {
+        const chosenCreatureType = String(source?.chosenCreatureType || source?.card?.chosenCreatureType || '').trim();
+        if (chosenCreatureType && this.typeLineContainsChosenType(typeLine, chosenCreatureType)) {
+          return { unconditional: true };
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private mergeCastSpellMetadata(
+    baseMetadata: Record<string, unknown>,
+    extraCounterImmunity?: { readonly unconditional?: boolean; readonly counterSourceColors?: readonly string[] },
+  ): Record<string, unknown> {
+    if (!extraCounterImmunity) return baseMetadata;
+
+    const existingCounterSourceColors = this.normalizeColorSymbols(baseMetadata.cantBeCounteredBySourceColors);
+    const existingCounterImmunity = this.normalizeCounterImmunityMetadata(
+      baseMetadata.counterImmunity,
+      baseMetadata.cantBeCountered,
+      existingCounterSourceColors,
+    );
+
+    const mergedCounterSourceColors = Array.from(
+      new Set([
+        ...(existingCounterImmunity?.counterSourceColors || []),
+        ...(extraCounterImmunity.counterSourceColors || []),
+      ])
+    );
+    const mergedCounterImmunity = this.normalizeCounterImmunityMetadata(
+      {
+        unconditional: Boolean(existingCounterImmunity?.unconditional) || Boolean(extraCounterImmunity.unconditional),
+        counterSourceColors: mergedCounterSourceColors,
+      },
+      false,
+      mergedCounterSourceColors,
+    );
+    if (!mergedCounterImmunity) return baseMetadata;
+
+    return {
+      ...baseMetadata,
+      ...(mergedCounterImmunity.unconditional ? { cantBeCountered: true } : {}),
+      ...(mergedCounterImmunity.counterSourceColors && mergedCounterImmunity.counterSourceColors.length > 0
+        ? { cantBeCounteredBySourceColors: mergedCounterImmunity.counterSourceColors }
+        : {}),
+      counterImmunity: mergedCounterImmunity,
+    };
+  }
+
+  private appendFlashType(cardTypes: readonly string[], grantsFlashTiming: boolean): string[] {
+    const normalized = Array.isArray(cardTypes) ? [...cardTypes] : [];
+    if (!grantsFlashTiming || normalized.includes('flash')) {
+      return normalized;
+    }
+    return [...normalized, 'flash'];
+  }
+
+  private mergeEntryCounterMaps(
+    left: unknown,
+    right: Record<string, number> | undefined,
+  ): Record<string, number> | undefined {
+    const leftCounters =
+      left && typeof left === 'object' && !Array.isArray(left)
+        ? Object.fromEntries(
+            Object.entries(left as Record<string, unknown>)
+              .map(([counterName, amountRaw]) => [counterName, Number(amountRaw || 0)])
+              .filter(([counterName, amount]) => Boolean(counterName) && Number.isFinite(amount) && amount !== 0)
+          )
+        : undefined;
+    if (!leftCounters && !right) return undefined;
+    if (!leftCounters) return right ? { ...right } : undefined;
+    if (!right) return { ...leftCounters };
+
+    const merged: Record<string, number> = { ...leftCounters };
+    for (const [counterName, amount] of Object.entries(right)) {
+      const numericAmount = Number(amount || 0);
+      if (!Number.isFinite(numericAmount) || numericAmount === 0) continue;
+      merged[counterName] = (merged[counterName] || 0) + numericAmount;
+    }
+
+    return Object.keys(merged).length > 0 ? merged : undefined;
+  }
+
+  private getTargetingColorNames(colors: readonly string[] | undefined): readonly string[] {
+    const out: string[] = [];
+
+    for (const color of colors || []) {
+      const normalized = String(color || '').trim().toUpperCase();
+      const colorName = normalized === 'W'
+        ? 'white'
+        : normalized === 'U'
+          ? 'blue'
+          : normalized === 'B'
+            ? 'black'
+            : normalized === 'R'
+              ? 'red'
+              : normalized === 'G'
+                ? 'green'
+                : undefined;
+      if (colorName) {
+        out.push(colorName);
+      }
+    }
+
+    return out;
+  }
+
+  private getSourceTypeName(sourceObject: any): string | undefined {
+    const typeLine = String(
+      sourceObject?.card?.type_line ||
+      sourceObject?.card?.cardType ||
+      sourceObject?.type_line ||
+      sourceObject?.cardType ||
+      ''
+    ).toLowerCase();
+    if (typeLine.includes('instant')) return 'instant';
+    if (typeLine.includes('sorcery')) return 'sorcery';
+    if (typeLine.includes('creature')) return 'creature';
+    if (typeLine.includes('artifact')) return 'artifact';
+    if (typeLine.includes('enchantment')) return 'enchantment';
+    if (typeLine.includes('planeswalker')) return 'planeswalker';
+    if (typeLine.includes('battle')) return 'battle';
+    if (typeLine.includes('land')) return 'land';
+    return undefined;
+  }
+
+  private buildTargetingSourceInfo(
+    controllerId: string,
+    sourceObject: any,
+    objectType: 'spell' | 'ability',
+  ): {
+    readonly controllerId: string;
+    readonly colors?: readonly string[];
+    readonly objectType: 'spell' | 'ability';
+    readonly typeName?: string;
+  } {
+    const colors = this.normalizeColorSymbols(getColorsFromObject(sourceObject));
+    return {
+      controllerId: String(controllerId || '').trim(),
+      ...(colors && colors.length > 0 ? { colors } : {}),
+      objectType,
+      ...(this.getSourceTypeName(sourceObject) ? { typeName: this.getSourceTypeName(sourceObject) } : {}),
+    };
+  }
+
+  private isTargetCardPresentInState(state: GameState, targetId: string): boolean {
+    const normalizedTargetId = String(targetId || '').trim();
+    if (!normalizedTargetId) return false;
+
+    for (const entry of state.players || []) {
+      for (const zoneName of ['hand', 'graveyard', 'exile', 'library', 'commandZone'] as const) {
+        const zone = (entry as any)?.[zoneName];
+        if (!Array.isArray(zone)) continue;
+        if (zone.some((card: any) => String(card?.id || card?.cardId || '').trim() === normalizedTargetId)) {
+          return true;
+        }
+      }
+    }
+
+    for (const zone of Object.values((state as any)?.commandZone || {})) {
+      if (!Array.isArray(zone)) continue;
+      if (zone.some((card: any) => String(card?.id || card?.cardId || '').trim() === normalizedTargetId)) {
+        return true;
+      }
+    }
+
+    return getStackItems((state as any)?.stack).some(
+      (item: any) => String(item?.id || '').trim() === normalizedTargetId
+    );
+  }
+
+  private evaluateSelectedTargetLegality(
+    state: GameState,
+    targetId: string,
+    sourceInfo: {
+      readonly controllerId: string;
+      readonly colors?: readonly string[];
+      readonly objectType: 'spell' | 'ability';
+      readonly typeName?: string;
+    }
+  ): { readonly legal: boolean; readonly reason?: string } {
+    const normalizedTargetId = String(targetId || '').trim();
+    if (!normalizedTargetId) {
+      return { legal: false, reason: 'target not found' };
+    }
+
+    const battlefield = Array.isArray(state.battlefield) ? (state.battlefield as any[]) : [];
+    const permanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === normalizedTargetId);
+    if (permanent) {
+      const result = canTargetPermanent(permanent, {
+        controllerId: sourceInfo.controllerId,
+        colors: sourceInfo.colors,
+        objectType: sourceInfo.objectType,
+      });
+      return {
+        legal: result.canTarget,
+        ...(result.reason ? { reason: result.reason } : {}),
+      };
+    }
+
+    const player = (state.players || []).find((entry: any) => String(entry?.id || '').trim() === normalizedTargetId);
+    if (player) {
+      const unrestrictedResult = canTargetPlayer(
+        state,
+        normalizedTargetId,
+        sourceInfo.controllerId,
+        undefined,
+        sourceInfo.typeName,
+      );
+      if (!unrestrictedResult.canTarget) {
+        return {
+          legal: false,
+          ...(unrestrictedResult.reason ? { reason: unrestrictedResult.reason } : {}),
+        };
+      }
+
+      for (const colorName of this.getTargetingColorNames(sourceInfo.colors)) {
+        const colorResult = canTargetPlayer(
+          state,
+          normalizedTargetId,
+          sourceInfo.controllerId,
+          colorName,
+          sourceInfo.typeName,
+        );
+        if (!colorResult.canTarget) {
+          return {
+            legal: false,
+            ...(colorResult.reason ? { reason: colorResult.reason } : {}),
+          };
+        }
+      }
+
+      return { legal: true };
+    }
+
+    if (this.isTargetCardPresentInState(state, normalizedTargetId)) {
+      return { legal: true };
+    }
+
+    return { legal: false, reason: 'target not found' };
+  }
+
+  private validateSelectedTargetsForSource(
+    state: GameState,
+    targetIds: readonly unknown[] | undefined,
+    sourceInfo: {
+      readonly controllerId: string;
+      readonly colors?: readonly string[];
+      readonly objectType: 'spell' | 'ability';
+      readonly typeName?: string;
+    }
+  ): ActionValidation {
+    const normalizedTargetIds = Array.from(
+      new Set(
+        (Array.isArray(targetIds) ? targetIds : [])
+          .map((targetId: unknown) => String(targetId || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    for (const targetId of normalizedTargetIds) {
+      const legality = this.evaluateSelectedTargetLegality(state, targetId, sourceInfo);
+      if (!legality.legal) {
+        return {
+          legal: false,
+          reason: legality.reason
+            ? `Illegal target ${targetId}: ${legality.reason}`
+            : `Illegal target ${targetId}`,
+        };
+      }
+    }
+
+    return { legal: true };
+  }
+
+  private getAbilitySourceObject(state: GameState, ability: ActivatedAbility, action: any): any {
+    const sourceId = String(ability?.sourceId || action?.sourceId || '').trim();
+    const battlefield = Array.isArray(state.battlefield) ? (state.battlefield as any[]) : [];
+    const sourcePermanent = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId);
+    if (sourcePermanent) {
+      return (sourcePermanent as any).card || sourcePermanent;
+    }
+
+    const sourceZone = String(ability?.sourceZone || action?.sourceZone || '').trim().toLowerCase();
+    if (sourceId && (sourceZone === 'graveyard' || sourceZone === 'hand' || sourceZone === 'exile')) {
+      for (const player of state.players || []) {
+        const zone = (player as any)?.[sourceZone];
+        if (!Array.isArray(zone)) continue;
+        const sourceCard = zone.find((card: any) => String(card?.id || card?.cardId || '').trim() === sourceId);
+        if (sourceCard) return sourceCard;
+      }
+    }
+
+    return action?.source || ability;
+  }
+
+  private getStackSourceTypeName(stackObject: StackObject | any): string | undefined {
+    return this.getSourceTypeName((stackObject as any)?.card || stackObject);
+  }
+
+  private isStackTargetCurrentlyLegal(state: GameState, stackObject: StackObject | any, targetId: string): boolean {
+    return this.evaluateSelectedTargetLegality(
+      state,
+      targetId,
+      {
+        controllerId: String(stackObject.controllerId || '').trim(),
+        ...(this.normalizeColorSymbols(getColorsFromObject((stackObject as any).card || stackObject))
+          ? { colors: this.normalizeColorSymbols(getColorsFromObject((stackObject as any).card || stackObject)) }
+          : {}),
+        objectType: stackObject.type === 'ability' ? 'ability' : 'spell',
+        ...(this.getStackSourceTypeName(stackObject) ? { typeName: this.getStackSourceTypeName(stackObject) } : {}),
+      }
+    ).legal;
+  }
+
+  private getLegalStackTargetIds(state: GameState, stackObject: StackObject | any): readonly string[] {
+    return (Array.isArray(stackObject?.targets) ? stackObject.targets : [])
+      .map((target: any) => String(target || '').trim())
+      .filter((targetId: string) => targetId.length > 0)
+      .filter((targetId: string) => this.isStackTargetCurrentlyLegal(state, stackObject, targetId));
+  }
   
   /**
    * Cast a spell (enhanced with full spell casting system)
@@ -2387,6 +3042,20 @@ export class RulesEngineAdapter {
       modes: action.modes,
       xValue: action.xValue,
     };
+
+    const castSource =
+      intrinsicGraveyardCast.entersBattlefieldTransformed || (sourceCard as any)?.entersBattlefieldTransformed
+        ? this.buildTransformedCardFace(sourceCard)
+        : (sourceCard || {});
+    const previewCastCard = {
+      ...castSource,
+      ...(action.card || {}),
+      id: cardId || String(sourceCard?.id || action.card?.id || ''),
+      name: String(action.cardName || action.card?.name || castSource?.name || sourceCard?.name || 'Unknown Card'),
+      type_line: String(action.card?.type_line || castSource?.type_line || sourceCard?.type_line || ''),
+      oracle_text: String(action.oracleText || action.card?.oracle_text || castSource?.oracle_text || sourceCard?.oracle_text || ''),
+    } as any;
+    const futureSpellAdjustments = previewFutureSpellCastAdjustments(state, action.playerId, previewCastCard);
     
     // Prepare timing context
     const activePlayerIndex = state.activePlayerIndex ?? 0;
@@ -2400,10 +3069,12 @@ export class RulesEngineAdapter {
       hasPriority: priorityPlayer?.id === action.playerId,
     };
     
-    const derivedCardTypes =
+    const derivedCardTypes = this.appendFlashType(
       Array.isArray(action.cardTypes) && action.cardTypes.length > 0
         ? action.cardTypes
-        : this.getCardTypes(action.card || action.spell || sourceCard);
+        : this.getCardTypes(previewCastCard),
+      futureSpellAdjustments.grantsFlashTiming,
+    );
 
     // Execute spell casting
     const castResult = castSpell(
@@ -2516,18 +3187,38 @@ export class RulesEngineAdapter {
       }
     );
 
-    const castSource =
-      intrinsicGraveyardCast.entersBattlefieldTransformed || (sourceCard as any)?.entersBattlefieldTransformed
-        ? this.buildTransformedCardFace(sourceCard)
-        : (sourceCard || {});
-
-    const castCard = {
+    const futureSpellConsumption = consumeFutureSpellCastAdjustments(nextState, action.playerId, previewCastCard);
+    nextState = futureSpellConsumption.state;
+    const explicitCastSpellMetadata = this.buildCastSpellMetadata(action, sourceCard);
+    const baseCastCard = {
       ...castSource,
       ...(action.card || {}),
       id: cardId || String(sourceCard?.id || action.card?.id || ''),
       name: String(action.cardName || action.card?.name || castSource?.name || sourceCard?.name || 'Unknown Card'),
       type_line: String(action.card?.type_line || castSource?.type_line || sourceCard?.type_line || ''),
       oracle_text: String(action.oracleText || action.card?.oracle_text || castSource?.oracle_text || sourceCard?.oracle_text || spellEffectText || ''),
+    } as any;
+    let castSpellMetadata = this.mergeCastSpellMetadata(
+      explicitCastSpellMetadata,
+      futureSpellConsumption.adjustments.counterImmunity,
+    );
+    castSpellMetadata = this.mergeCastSpellMetadata(
+      castSpellMetadata,
+      this.deriveTappedSourceCounterImmunity(state, action, baseCastCard)
+    );
+    const mergedEntryCounters = this.mergeEntryCounterMaps(
+      castSpellMetadata.entersBattlefieldWithCounters,
+      futureSpellConsumption.adjustments.castedPermanentEntersWithCounters,
+    );
+    if (mergedEntryCounters) {
+      castSpellMetadata = {
+        ...castSpellMetadata,
+        entersBattlefieldWithCounters: mergedEntryCounters,
+      };
+    }
+    const castCard = {
+      ...baseCastCard,
+      ...castSpellMetadata,
     } as any;
 
     const spellStackObject: any = {
@@ -2540,6 +3231,7 @@ export class RulesEngineAdapter {
       targets: selectedSpellTargets,
       triggerMeta: spellTriggerMeta,
       card: castCard,
+      ...castSpellMetadata,
       ...(castCard?.exileInsteadOfGraveyard ? { exileInsteadOfGraveyard: true } : {}),
       ...(this.didPayBuyback(action, sourceCard, fromZone) ? { returnToHandInsteadOfGraveyard: true } : {}),
       ...(this.getReplicateCount(action) > 0 ? { replicateCount: this.getReplicateCount(action) } : {}),
@@ -3064,13 +3756,7 @@ export class RulesEngineAdapter {
       return { next: state, log: ['Stack is empty'] };
     }
     
-    // Get legal targets from game state
-    // For now, we'll assume all targets are still legal (proper implementation would check:
-    // - Permanents still on battlefield
-    // - Players still in game
-    // - Spells still on stack
-    // This is a simplified version for the initial implementation
-    const legalTargets = popResult.object.targets; // TODO: Implement proper target validation
+    const legalTargets = this.getLegalStackTargetIds(state, popResult.object);
     
     // Validate and resolve
     const resolveResult = resolveStackObject(popResult.object, legalTargets);
@@ -3126,7 +3812,7 @@ export class RulesEngineAdapter {
 
       if (!isPermanentSpell && effectText && effectText.trim().length > 0) {
         const normalizedStackTargets = Array.isArray(popResult.object.targets)
-          ? popResult.object.targets
+          ? legalTargets
               .map((id: any) => String(id || '').trim())
               .filter((id: string) => id.length > 0)
           : [];
@@ -3141,7 +3827,7 @@ export class RulesEngineAdapter {
           {
             sourceId: popResult.object.spellId,
             sourceControllerId: popResult.object.controllerId,
-            targets: popResult.object.targets,
+            targets: legalTargets,
             affectedPlayerIds: dedupedStackPlayerTargets,
             affectedOpponentIds: dedupedStackOpponentTargets,
             ...(dedupedStackPermanentTargets.length === 1
@@ -3154,10 +3840,12 @@ export class RulesEngineAdapter {
           ...(triggerMeta.triggerEventDataSnapshot || {}),
           ...normalizedEventData,
           sourceId: normalizedEventData.sourceId ?? triggerMeta.triggerEventDataSnapshot?.sourceId ?? popResult.object.spellId,
+          sourceObjectType: popResult.object.type === 'ability' ? 'ability' : 'spell',
           sourceControllerId:
             normalizedEventData.sourceControllerId ??
             triggerMeta.triggerEventDataSnapshot?.sourceControllerId ??
             popResult.object.controllerId,
+          sourceColors: getColorsFromObject(stackObjectAny.card || stackObjectAny),
           spellType:
             normalizedEventData.spellType ??
             triggerMeta.triggerEventDataSnapshot?.spellType,

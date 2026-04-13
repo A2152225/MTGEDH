@@ -1032,6 +1032,41 @@ describe('Trigger Parsing', () => {
       expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['p2', 'p3']);
     });
 
+    it('buildTriggeredAbilityChoiceEvents filters out opponents with hexproof from target-opponent prompts', () => {
+      const start = makeState({
+        battlefield: [
+          {
+            id: 'leyline-p2',
+            controller: 'p2',
+            owner: 'p2',
+            tapped: false,
+            card: {
+              id: 'leyline-p2-card',
+              name: 'Leyline of Sanctity',
+              type_line: 'Enchantment',
+              oracle_text: 'You have hexproof.',
+            },
+          },
+        ] as any,
+      });
+      const ability = {
+        id: 'filtered-target-opponent-choice-trigger',
+        sourceId: 'grim-harbinger',
+        sourceName: 'Grim Harbinger',
+        controllerId: 'p1',
+        keyword: TriggerKeyword.WHENEVER,
+        event: TriggerEvent.CREATURE_DIES,
+        effect: 'Target opponent loses 1 life.',
+        optional: false,
+      } as any;
+
+      const events = buildTriggeredAbilityChoiceEvents(start, ability);
+      const targetEvent = events[0] as any;
+
+      expect(events.map(event => event.type)).toEqual([ChoiceEventType.TARGET_SELECTION]);
+      expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['p3']);
+    });
+
     it('buildTriggeredAbilityEventDataFromChoices maps grouped opponent target responses', () => {
       const start = makeState();
 
@@ -1163,6 +1198,65 @@ describe('Trigger Parsing', () => {
       expect(events.map(event => event.type)).toEqual([ChoiceEventType.TARGET_SELECTION]);
       expect(targetEvent.targetTypes).toEqual(['permanent']);
       expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['bear']);
+    });
+
+    it('buildTriggeredAbilityChoiceEvents filters out permanents protected from the triggered ability source', () => {
+      const start = makeState({
+        battlefield: [
+          {
+            id: 'blue-rocket',
+            controller: 'p1',
+            owner: 'p1',
+            tapped: false,
+            card: {
+              id: 'blue-rocket-card',
+              name: 'Azure Rocket Harness',
+              type_line: 'Artifact - Equipment',
+              mana_cost: '{U}',
+              colors: ['U'],
+            },
+          },
+          {
+            id: 'protected-bear',
+            controller: 'p2',
+            owner: 'p2',
+            tapped: false,
+            card: {
+              id: 'protected-bear-card',
+              name: 'Protected Bear',
+              type_line: 'Creature - Bear',
+              oracle_text: 'Protection from blue',
+            },
+          },
+          {
+            id: 'target-bear',
+            controller: 'p2',
+            owner: 'p2',
+            tapped: false,
+            card: {
+              id: 'target-bear-card',
+              name: 'Target Bear',
+              type_line: 'Creature - Bear',
+            },
+          },
+        ] as any,
+      });
+      const ability = {
+        id: 'blue-rocket-choice-trigger',
+        sourceId: 'blue-rocket',
+        sourceName: 'Azure Rocket Harness',
+        controllerId: 'p1',
+        keyword: TriggerKeyword.WHEN,
+        event: TriggerEvent.ENTERS_BATTLEFIELD,
+        effect: 'Attach it to target creature.',
+        optional: false,
+      } as any;
+
+      const events = buildTriggeredAbilityChoiceEvents(start, ability);
+      const targetEvent = events[0] as any;
+
+      expect(events.map(event => event.type)).toEqual([ChoiceEventType.TARGET_SELECTION]);
+      expect(targetEvent.validTargets.map((target: any) => target.id)).toEqual(['target-bear']);
     });
 
     it('executes target-player trigger steps from grouped choice-derived execution data', () => {
