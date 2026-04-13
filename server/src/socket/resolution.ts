@@ -8626,20 +8626,6 @@ async function handleStepResponse(
         game.state.stack.push(stackItem);
         fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
-        io.to(gameId).emit('stackUpdate', {
-          gameId,
-          stack: (game.state.stack || []).map((s: any) => ({
-            id: s.id,
-            type: s.type,
-            name: s.sourceName || s.card?.name || 'Ability',
-            controller: s.controller,
-            targets: s.targets,
-            source: s.source,
-            sourceName: s.sourceName,
-            description: s.description,
-          })),
-        });
-
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -9730,20 +9716,6 @@ async function handleStepResponse(
           game.state.stack.push(stackItem);
           fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
-          io.to(gameId).emit('stackUpdate', {
-            gameId,
-            stack: (game.state.stack || []).map((s: any) => ({
-              id: s.id,
-              type: s.type,
-              name: s.sourceName || s.card?.name || 'Ability',
-              controller: s.controller,
-              targets: s.targets,
-              source: s.source,
-              sourceName: s.sourceName,
-              description: s.description,
-            })),
-          });
-
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
             gameId,
@@ -10031,20 +10003,6 @@ async function handleStepResponse(
           game.state.stack = game.state.stack || [];
           game.state.stack.push(stackItem);
           fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
-
-          io.to(gameId).emit('stackUpdate', {
-            gameId,
-            stack: (game.state.stack || []).map((s: any) => ({
-              id: s.id,
-              type: s.type,
-              name: s.sourceName || s.card?.name || 'Ability',
-              controller: s.controller,
-              targets: s.targets,
-              source: s.source,
-              sourceName: s.sourceName,
-              description: s.description,
-            })),
-          });
 
           io.to(gameId).emit('chat', {
             id: `m_${Date.now()}`,
@@ -10427,20 +10385,6 @@ async function handleStepResponse(
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
         fireBattlefieldAbilityActivatedTriggers(game, pid, permanentId, abilityText, gameId, stackItem.id);
-
-        io.to(gameId).emit('stackUpdate', {
-          gameId,
-          stack: (game.state.stack || []).map((s: any) => ({
-            id: s.id,
-            type: s.type,
-            name: s.sourceName || s.card?.name || 'Ability',
-            controller: s.controller,
-            targets: s.targets,
-            source: s.source,
-            sourceName: s.sourceName,
-            description: s.description,
-          })),
-        });
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -12694,20 +12638,6 @@ async function handleDiscardResponse(
       game.state.stack.push(stackItem);
       fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
-      io.to(gameId).emit('stackUpdate', {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
-
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -12834,20 +12764,6 @@ async function handleDiscardResponse(
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
       fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
-
-      io.to(gameId).emit('stackUpdate', {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
 
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
@@ -14096,20 +14012,6 @@ async function handleTargetSelectionResponse(
     game.state.stack.push(stackItem);
     fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
 
-    io.to(gameId).emit('stackUpdate', {
-      gameId,
-      stack: (game.state.stack || []).map((s: any) => ({
-        id: s.id,
-        type: s.type,
-        name: s.sourceName || s.card?.name || 'Ability',
-        controller: s.controller,
-        targets: s.targets,
-        source: s.source,
-        sourceName: s.sourceName,
-        description: s.description,
-      })),
-    });
-
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
@@ -14288,20 +14190,6 @@ async function handleTargetSelectionResponse(
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
     fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, gameId, stackItem.id);
-
-    io.to(gameId).emit('stackUpdate', {
-      gameId,
-      stack: (game.state.stack || []).map((s: any) => ({
-        id: s.id,
-        type: s.type,
-        name: s.sourceName || s.card?.name || 'Ability',
-        controller: s.controller,
-        targets: s.targets,
-        source: s.source,
-        sourceName: s.sourceName,
-        description: s.description,
-      })),
-    });
 
     const chosenName = String(chosenPerm?.card?.name || removeFromType || 'permanent');
     io.to(gameId).emit('chat', {
@@ -14510,20 +14398,6 @@ async function handleTargetSelectionResponse(
     game.state.stack.push(stackItem);
   fireBattlefieldAbilityActivatedTriggers(game, controllerId, sourcePermanentId, abilityText, gameId, stackItem.id);
 
-    io.to(gameId).emit('stackUpdate', {
-      gameId,
-      stack: (game.state.stack || []).map((s: any) => ({
-        id: s.id,
-        type: s.type,
-        name: s.sourceName || s.card?.name || 'Ability',
-        controller: s.controller,
-        targets: s.targets,
-        source: s.source,
-        sourceName: s.sourceName,
-        description: s.description,
-      })),
-    });
-
     const returnedName = String(chosenPerm?.card?.name || returnType || 'permanent');
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -14716,20 +14590,6 @@ async function handleTargetSelectionResponse(
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
     fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
-
-    io.to(gameId).emit('stackUpdate', {
-      gameId,
-      stack: (game.state.stack || []).map((s: any) => ({
-        id: s.id,
-        type: s.type,
-        name: s.sourceName || s.card?.name || 'Ability',
-        controller: s.controller,
-        targets: s.targets,
-        source: s.source,
-        sourceName: s.sourceName,
-        description: s.description,
-      })),
-    });
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -15248,20 +15108,6 @@ async function handleTargetSelectionResponse(
         game.state.stack = game.state.stack || [];
         game.state.stack.push(stackItem);
         fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
-
-        io.to(gameId).emit('stackUpdate', {
-          gameId,
-          stack: (game.state.stack || []).map((s: any) => ({
-            id: s.id,
-            type: s.type,
-            name: s.sourceName || s.card?.name || 'Ability',
-            controller: s.controller,
-            targets: s.targets,
-            source: s.source,
-            sourceName: s.sourceName,
-            description: s.description,
-          })),
-        });
 
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
@@ -16511,21 +16357,6 @@ async function handleTargetSelectionResponse(
     game.state.stack = game.state.stack || [];
     game.state.stack.push(stackItem);
     fireBattlefieldAbilityActivatedTriggers(game, String(pid), String(permanentId), abilityText, gameId, stackItem.id);
-    
-    // Emit stack update
-    io.to(gameId).emit("stackUpdate", {
-      gameId,
-      stack: (game.state.stack || []).map((s: any) => ({
-        id: s.id,
-        type: s.type,
-        name: s.sourceName || s.card?.name || 'Ability',
-        controller: s.controller,
-        targets: s.targets,
-        source: s.source,
-        sourceName: s.sourceName,
-        description: s.description,
-      })),
-    });
     
     // Record the event for replay/undo
     appendEvent(gameId, (game as any).seq ?? 0, "activatePlaneswalkerAbility", { 
@@ -27105,20 +26936,6 @@ async function handleGraveyardSelectionResponse(
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
       fireBattlefieldAbilityActivatedTriggers(game, controllerId, permanentId, abilityText, gameId, stackItem.id);
-
-      io.to(gameId).emit('stackUpdate', {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
 
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,

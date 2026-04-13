@@ -251,6 +251,7 @@ export function TableLayout(props: {
   onPlayerClick?: ((pid: string) => void) | undefined;
   onPlayLandFromHand?: (cardId: string) => void;
   onCastFromHand?: (cardId: string) => void;
+  onUseTopOfLibrary?: () => void;
   onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
   reasonCannotPlayLand?: (card: any) => string | null;
   reasonCannotCast?: (card: any) => string | null;
@@ -338,7 +339,7 @@ export function TableLayout(props: {
     onRemove, onCounter, onBulkCounter,
     highlightPermTargets, selectedPermTargets, onPermanentClick,
     highlightPlayerTargets, selectedPlayerTargets, onPlayerClick,
-    onPlayLandFromHand, onCastFromHand, onCastCommander, reasonCannotPlayLand, reasonCannotCast,
+    onPlayLandFromHand, onCastFromHand, onUseTopOfLibrary, onCastCommander, reasonCannotPlayLand, reasonCannotCast,
     onReorderHand, onShuffleHand,
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
@@ -1900,6 +1901,7 @@ export function TableLayout(props: {
                             }}
                             onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pb.player.id) : undefined}
                             onViewExile={onViewExile ? () => onViewExile(pb.player.id) : undefined}
+                            onUseTopOfLibrary={isYouThis ? onUseTopOfLibrary : undefined}
                             playableCards={isYouThis ? playableCards : undefined}
                             playerId={pb.player.id}
                             appearanceSettings={appearanceSettings}

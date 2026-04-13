@@ -141,6 +141,67 @@ describe('game-actions in-room authorization (integration)', () => {
     expect(perm?.phasedOut).toBe(false);
   });
 
+  it('blocks updatePermanentPos when socket is not in the game room', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).battlefield = [
+      {
+        id: 'perm_1',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Test Permanent', type_line: 'Artifact' },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, gameId }, emitted);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['updatePermanentPos']({ gameId, permanentId: 'perm_1', x: 123, y: 456, z: 7 });
+
+    const err = emitted.find(e => e.event === 'error');
+    expect(err?.payload?.code).toBe('NOT_IN_GAME');
+    expect(((game.state as any).battlefield[0] as any).posX).toBeUndefined();
+  });
+
+  it('updates permanent position for the controller in-room', async () => {
+    const p1 = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, p1);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).battlefield = [
+      {
+        id: 'perm_1',
+        controller: p1,
+        owner: p1,
+        card: { name: 'Test Permanent', type_line: 'Artifact' },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket({ playerId: p1, gameId }, emitted);
+    socket.rooms.add(gameId);
+
+    const io = createMockIo(emitted);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['updatePermanentPos']({ gameId, permanentId: 'perm_1', x: 123.2, y: 456.8, z: 7.4 });
+
+    expect(((game.state as any).battlefield[0] as any).posX).toBe(123);
+    expect(((game.state as any).battlefield[0] as any).posY).toBe(457);
+    expect(((game.state as any).battlefield[0] as any).posZ).toBe(7);
+  });
+
   it('does not throw when payload is missing (crash-safety)', async () => {
     const p1 = 'p1';
     const emitted: Array<{ room?: string; event: string; payload: any }> = [];
@@ -178,6 +239,7 @@ describe('game-actions in-room authorization (integration)', () => {
     expect(() => handlers['requestOpponentSelection'](undefined as any)).not.toThrow();
     await expect(Promise.resolve().then(() => handlers['requestSacrificeSelection'](undefined as any))).resolves.toBeUndefined();
     expect(() => handlers['phaseOutPermanents'](undefined as any)).not.toThrow();
+    expect(() => handlers['updatePermanentPos'](undefined as any)).not.toThrow();
     expect(() => handlers['changePermanentControl'](undefined as any)).not.toThrow();
     await expect(Promise.resolve().then(() => handlers['setTriggerShortcut'](undefined as any))).resolves.toBeUndefined();
   });

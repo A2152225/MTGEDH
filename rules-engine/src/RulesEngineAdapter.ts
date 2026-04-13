@@ -380,6 +380,25 @@ export class RulesEngineAdapter {
       return { legal: true };
     }
 
+    if (fromZone === 'library') {
+      const libraryArr: any[] = Array.isArray(player.library) ? player.library : [];
+      const topCard = libraryArr[0] || null;
+      if (!topCard) {
+        return { legal: false, reason: 'Library is empty' };
+      }
+      if (String(topCard?.id || topCard?.cardId || '') !== cardId) {
+        return { legal: false, reason: 'Only the top card of the library can be played' };
+      }
+
+      const typeLineLower = String(topCard?.type_line || '').toLowerCase();
+      if (!typeLineLower.includes('land')) return { legal: false, reason: 'Card is not a land' };
+      if (!this.canPlayTopLibraryLand(state, action.playerId)) {
+        return { legal: false, reason: 'No permission to play lands from the top of library' };
+      }
+
+      return { legal: true };
+    }
+
     return { legal: false, reason: `Unsupported fromZone: ${fromZone}` };
   }
   
@@ -568,6 +587,34 @@ export class RulesEngineAdapter {
       }
     }
 
+    if (fromZone === 'library') {
+      if (!cardId) {
+        return { legal: false, reason: 'Missing cardId for library cast' };
+      }
+
+      const player = state.players.find(p => p.id === action.playerId) as any;
+      if (!player) {
+        return { legal: false, reason: 'Player not found' };
+      }
+
+      const libraryArr: any[] = Array.isArray(player.library) ? player.library : [];
+      const topCard = libraryArr[0];
+      if (!topCard) {
+        return { legal: false, reason: 'Library is empty' };
+      }
+      if (String(topCard?.id || topCard?.cardId || '') !== cardId) {
+        return { legal: false, reason: 'Only the top card of the library can be cast' };
+      }
+
+      const typeLineLower = String(topCard?.type_line || '').toLowerCase();
+      if (typeLineLower.includes('land')) {
+        return { legal: false, reason: 'Cannot cast a land from library' };
+      }
+      if (!this.canCastTopLibrarySpell(state, action.playerId)) {
+        return { legal: false, reason: 'No permission to cast from the top of library' };
+      }
+    }
+
     const spellTargetHints = buildTriggerEventDataFromPayloads(
       action.playerId,
       action.targets,
@@ -699,6 +746,37 @@ export class RulesEngineAdapter {
     return types;
   }
 
+  private canPlayTopLibraryLand(state: GameState, playerId: string): boolean {
+    const stateAny: any = state as any;
+    if (stateAny.topOfLibraryEffects?.[playerId]?.canPlayLands === true) {
+      return true;
+    }
+
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    return battlefield.some((perm: any) => {
+      if (perm?.controller !== playerId) return false;
+      const oracleText = String(perm?.card?.oracle_text || perm?.oracle_text || '').toLowerCase();
+      return oracleText.includes('play lands from the top of your library')
+        || oracleText.includes('you may play the top card of your library');
+    });
+  }
+
+  private canCastTopLibrarySpell(state: GameState, playerId: string): boolean {
+    const stateAny: any = state as any;
+    if (stateAny.topOfLibraryEffects?.[playerId]?.canCast === true) {
+      return true;
+    }
+
+    const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+    return battlefield.some((perm: any) => {
+      if (perm?.controller !== playerId) return false;
+      const oracleText = String(perm?.card?.oracle_text || perm?.oracle_text || '').toLowerCase();
+      return oracleText.includes('you may cast the top card of your library')
+        || oracleText.includes('you may cast spells from the top of your library')
+        || oracleText.includes('you may play the top card of your library');
+    });
+  }
+
   private findSourceZoneCard(state: GameState, playerId: string, cardId: string, fromZone: string): any | null {
     if (!cardId) return null;
 
@@ -708,6 +786,7 @@ export class RulesEngineAdapter {
     const sourceZoneCards = (() => {
       if (fromZone === 'exile') return Array.isArray(player.exile) ? player.exile : [];
       if (fromZone === 'graveyard') return Array.isArray(player.graveyard) ? player.graveyard : [];
+      if (fromZone === 'library') return Array.isArray(player.library) ? player.library : [];
       return Array.isArray(player.hand) ? player.hand : [];
     })();
 
@@ -3115,6 +3194,15 @@ export class RulesEngineAdapter {
             kept.push(c);
           }
           next.graveyard = kept;
+        } else if (fromZone === 'library') {
+          const library: any[] = Array.isArray((p as any).library) ? [...(p as any).library] : [];
+          if (library.length > 0 && String(library[0]?.id || library[0]?.cardId || '') === cardId) {
+            library.shift();
+          } else {
+            next.library = library.filter(c => String(c?.id || c?.cardId || '') !== cardId);
+            return next;
+          }
+          next.library = library;
         }
       }
 
@@ -3341,7 +3429,7 @@ export class RulesEngineAdapter {
   }
 
   /**
-   * Play a land (special action). Supports playing from hand, exile, and graveyard.
+   * Play a land (special action). Supports playing from hand, exile, graveyard, and library.
    */
   private playLandAction(gameId: string, action: any): EngineResult<GameState> {
     const state = this.gameStates.get(gameId)!;
@@ -3361,6 +3449,7 @@ export class RulesEngineAdapter {
     const hand: any[] = Array.isArray(player.hand) ? [...player.hand] : [];
     const exile: any[] = Array.isArray(player.exile) ? [...player.exile] : [];
     const graveyard: any[] = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
+    const library: any[] = Array.isArray(player.library) ? [...player.library] : [];
 
     let card: any | null = null;
     if (fromZone === 'hand') {
@@ -3381,6 +3470,11 @@ export class RulesEngineAdapter {
         card = graveyard[idx];
         graveyard.splice(idx, 1);
       }
+    } else if (fromZone === 'library') {
+      if (library.length > 0 && String(library[0]?.id || library[0]?.cardId || '') === cardId) {
+        card = library[0];
+        library.shift();
+      }
     }
 
     if (!card) {
@@ -3396,7 +3490,9 @@ export class RulesEngineAdapter {
     const restCard =
       fromZone === 'graveyard'
         ? stripPlayableFromGraveyardTags(card)
-        : stripPlayableFromExileTags(card);
+        : fromZone === 'exile'
+          ? stripPlayableFromExileTags(card)
+          : card;
     const battlefieldPermanent: any = {
       id: cardId,
       controller: playerId,
@@ -3411,6 +3507,7 @@ export class RulesEngineAdapter {
       return {
         ...(p as any),
         hand,
+        library,
         exile,
         graveyard,
       } as any;

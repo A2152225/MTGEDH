@@ -28,7 +28,7 @@ function flipCoin(): 'heads' | 'tails' {
 export function registerRandomnessHandlers(io: Server, socket: Socket) {
   /**
    * Handle die roll requests.
-   * Broadcasts the result to all players in the game.
+  * Records the result and logs it to chat for all players in the game.
    */
   socket.on("rollDie", (payload?: { gameId?: unknown; sides?: unknown }) => {
     const gameId = payload?.gameId;
@@ -85,17 +85,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       }
       
       debug(2, `[randomness] ${playerName} rolled d${sides}: ${result}`);
-      
-      // Broadcast the result to all players
-      io.to(gameId).emit("dieRollResult", {
-        gameId,
-        playerId,
-        playerName,
-        sides,
-        result,
-        timestamp,
-      });
-      
+
       // Also send as a chat message for game log
       io.to(gameId).emit("chat", {
         id: `m_${timestamp}`,
@@ -113,7 +103,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
   
   /**
    * Handle coin flip requests.
-   * Broadcasts the result to all players in the game.
+    * Records the result and logs it to chat for all players in the game.
    */
   socket.on("flipCoin", (payload?: { gameId?: unknown }) => {
     const gameId = payload?.gameId;
@@ -147,16 +137,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       const timestamp = Date.now();
       
       debug(2, `[randomness] ${playerName} flipped a coin: ${result}`);
-      
-      // Broadcast the result to all players
-      io.to(gameId).emit("coinFlipResult", {
-        gameId,
-        playerId,
-        playerName,
-        result,
-        timestamp,
-      });
-      
+
       // Also send as a chat message for game log
       io.to(gameId).emit("chat", {
         id: `m_${timestamp}`,

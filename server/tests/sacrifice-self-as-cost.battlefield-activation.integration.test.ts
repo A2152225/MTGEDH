@@ -136,8 +136,6 @@ describe('Sacrifice self as activation cost (integration)', () => {
     expect(String(stack[0].source)).toBe('src_1');
     expect(String(stack[0].description || '').toLowerCase()).toContain('gain 3 life');
 
-    expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
-
     // Determinism: activation evidence should be persisted on activateBattlefieldAbility
     const events = getEvents(gameId);
     const activationEvents = events.filter((e) => String(e?.type) === 'activateBattlefieldAbility');

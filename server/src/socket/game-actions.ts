@@ -23,7 +23,7 @@ import { getOpponentSpellCastTriggers, type OpponentSpellCastTriggerType } from 
 import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-if";
 import { getUpkeepTriggersForPlayer, autoProcessCumulativeUpkeepMana, sacrificePermanent } from "../state/modules/upkeep-triggers";
 import { categorizeSpell, evaluateTargeting, requiresTargeting, parseTargetRequirements } from "../rules-engine/targeting";
-import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn } from "../state/modules/game-state-effects";
+import { recalculatePlayerEffects, hasMetalcraft, countArtifacts, calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment, uid, oracleTextReferencesCard } from "../state/utils";
 import { detectTutorEffect, parseSearchCriteria, type TutorInfo } from "./interaction";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../state/resolution/index.js";
@@ -71,6 +71,116 @@ function getFloatingPaymentPoolKey(permanentId: string, mana: string): string | 
   }
 
   return MANA_COLOR_NAMES[String(mana || '').toUpperCase()] || null;
+}
+
+function getPlayerLibraryCards(game: any, playerId: string): any[] {
+  return Array.isArray((game.libraries as any)?.get?.(playerId))
+    ? ((game.libraries as any).get(playerId) as any[])
+    : (Array.isArray((game.state as any)?.zones?.[playerId]?.library)
+      ? (((game.state as any).zones[playerId].library) as any[])
+      : []);
+}
+
+function getTopLibraryCard(game: any, playerId: string): any | null {
+  const library = getPlayerLibraryCards(game, playerId);
+  return library.length > 0 ? library[0] : null;
+}
+
+function hasGenericTopLibraryLandPermission(game: any, playerId: string): boolean {
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  return battlefield.some((perm: any) => {
+    if (perm?.controller !== playerId) return false;
+    const oracleText = String(perm?.card?.oracle_text || '').toLowerCase();
+    return oracleText.includes('play lands from the top of your library')
+      || oracleText.includes('you may play the top card of your library');
+  });
+}
+
+function hasGenericTopLibrarySpellPermission(game: any, playerId: string): boolean {
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  return battlefield.some((perm: any) => {
+    if (perm?.controller !== playerId) return false;
+    const oracleText = String(perm?.card?.oracle_text || '').toLowerCase();
+    return oracleText.includes('you may cast the top card of your library')
+      || oracleText.includes('you may cast spells from the top of your library')
+      || oracleText.includes('you may play the top card of your library');
+  });
+}
+
+function validateTopOfLibraryLandAccess(
+  game: any,
+  playerId: string,
+  cardId: string,
+): { ok: true } | { ok: false; code: string; message: string } {
+  const topCard = getTopLibraryCard(game, playerId);
+  if (!topCard) {
+    return {
+      ok: false,
+      code: 'CARD_NOT_IN_LIBRARY',
+      message: 'Your library is empty.',
+    };
+  }
+
+  if (String(topCard.id || '') !== String(cardId || '')) {
+    return {
+      ok: false,
+      code: 'NO_PERMISSION',
+      message: 'Only the top card of your library can be played this way.',
+    };
+  }
+
+  const topLandPermission = canPlayLandsFromTop({ state: game.state } as any, playerId);
+  if (!topLandPermission.canPlay && !hasGenericTopLibraryLandPermission(game, playerId)) {
+    return {
+      ok: false,
+      code: 'NO_PERMISSION',
+      message: "You don't have permission to play lands from the top of your library.",
+    };
+  }
+
+  return { ok: true };
+}
+
+function validateLibrarySpellCastAccess(
+  game: any,
+  playerId: string,
+  cardId: string,
+  spellTypeLine: string,
+  allowLibrarySearchCast: boolean,
+): { ok: true } | { ok: false; code: string; message: string } {
+  const library = getPlayerLibraryCards(game, playerId);
+  const cardInLibrary = library.find((card: any) => String(card?.id || '') === String(cardId || ''));
+  if (!cardInLibrary) {
+    return {
+      ok: false,
+      code: 'CARD_NOT_IN_LIBRARY',
+      message: 'Card not found in library.',
+    };
+  }
+
+  if (allowLibrarySearchCast) {
+    return { ok: true };
+  }
+
+  const topCard = library[0];
+  if (!topCard || String(topCard?.id || '') !== String(cardId || '')) {
+    return {
+      ok: false,
+      code: 'NO_PERMISSION',
+      message: 'Only the top card of your library can be cast this way.',
+    };
+  }
+
+  const topSpellPermission = canCastFromTop({ state: game.state } as any, playerId, spellTypeLine);
+  if (!topSpellPermission.canCast && !hasGenericTopLibrarySpellPermission(game, playerId)) {
+    return {
+      ok: false,
+      code: 'NO_PERMISSION',
+      message: topSpellPermission.restrictions[0] || "You don't have permission to cast that card from the top of your library.",
+    };
+  }
+
+  return { ok: true };
 }
 
 function getTappedPaymentPermanentIds(payment?: PaymentItem[]): string[] {
@@ -168,7 +278,7 @@ export function finalizePlayedLand(
   playerId: string,
   cardId: string,
   cardInZone: any,
-  sourceZone: 'hand' | 'graveyard' | 'exile' = 'hand',
+  sourceZone: 'hand' | 'graveyard' | 'exile' | 'library' = 'hand',
   eventExtras?: Record<string, unknown>,
 ): void {
   const cardName = (cardInZone as any)?.name || "";
@@ -2985,6 +3095,23 @@ export async function requestCastSpellForSocket(
       return;
     }
 
+    if (castSourceZone === 'library') {
+      const validation = validateLibrarySpellCastAccess(
+        game,
+        String(playerId),
+        String(cardId),
+        effectiveTypeLine,
+        Boolean(options?.librarySearchStepToResume),
+      );
+      if (validation.ok === false) {
+        socket.emit('error', {
+          code: validation.code,
+          message: validation.message,
+        });
+        return;
+      }
+    }
+
     // Get oracle text (possibly from card face if split/adventure)
     let oracleTextRaw = cardForCast.oracle_text || "";
     let manaCost = isFreeCast ? '{0}' : (cardForCast.mana_cost || "");
@@ -4322,7 +4449,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
   if (!gameId || typeof gameId !== 'string') return;
   if (!cardId || typeof cardId !== 'string') return;
   if (!(selectedFace === undefined || typeof selectedFace === 'number')) return;
-  if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile')) return;
+  if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile' || fromZone === 'library')) return;
 
   const ensureInGameRoom = (
     targetGameId: string,
@@ -4367,7 +4494,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       return;
     }
 
-    const sourceZone = (fromZone as 'hand' | 'graveyard' | 'exile' | undefined) || 'hand';
+    const sourceZone = (fromZone as 'hand' | 'graveyard' | 'exile' | 'library' | undefined) || 'hand';
 
     if (sourceZone === 'graveyard') {
       const hasConduitPermission = (game.state as any).landPlayPermissions?.[playerId]?.includes('graveyard');
@@ -4395,11 +4522,24 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       }
     }
 
+    if (sourceZone === 'library') {
+      const validation = validateTopOfLibraryLandAccess(game, String(playerId), String(cardId));
+      if (validation.ok === false) {
+        socket.emit('error', {
+          code: validation.code,
+          message: validation.message,
+        });
+        return;
+      }
+    }
+
     const zones = game.state?.zones?.[playerId];
     const zone = sourceZone === 'graveyard'
       ? (Array.isArray(zones?.graveyard) ? zones.graveyard : [])
       : sourceZone === 'exile'
         ? (Array.isArray((zones as any)?.exile) ? (zones as any).exile : [])
+        : sourceZone === 'library'
+          ? getPlayerLibraryCards(game, String(playerId))
         : (Array.isArray(zones?.hand) ? zones.hand : []);
     const cardInZone = zone.find((c: any) => c?.id === cardId);
     const cardName = (cardInZone as any)?.name || "";
@@ -4407,7 +4547,13 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     if (!cardInZone) {
       debugWarn(2, `[playLand] Card ${cardId} not found in ${sourceZone} for player ${playerId}`);
       socket.emit("error", {
-        code: sourceZone === 'graveyard' ? "CARD_NOT_IN_GRAVEYARD" : "CARD_NOT_IN_HAND",
+        code: sourceZone === 'graveyard'
+          ? "CARD_NOT_IN_GRAVEYARD"
+          : sourceZone === 'exile'
+            ? "CARD_NOT_IN_EXILE"
+            : sourceZone === 'library'
+              ? "CARD_NOT_IN_LIBRARY"
+              : "CARD_NOT_IN_HAND",
         message: `Card not found in ${sourceZone}. It may have already been played or moved.`,
       });
       return;
@@ -4542,6 +4688,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
         type: 'playLand',
         playerId,
         cardId,
+        fromZone: sourceZone,
       });
 
       if (!validation.legal) {
@@ -4556,6 +4703,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
         type: 'playLand',
         playerId,
         cardId,
+        fromZone: sourceZone,
       });
 
       if (!result.success) {
@@ -4715,6 +4863,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     convokeTappedCreatures?: unknown;
     fromZone?: unknown;
     bypassExilePermissionCheck?: unknown;
+    allowLibrarySearchCast?: unknown;
   }) => {
     const safeGameId = typeof payload?.gameId === 'string' ? payload.gameId : undefined;
     try {
@@ -4739,6 +4888,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         ? payload.fromZone
         : undefined;
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
+      const allowLibrarySearchCast = payload?.allowLibrarySearchCast === true;
 
       if (!gameId || typeof gameId !== 'string') return;
       if (!cardId || typeof cardId !== 'string') return;
@@ -4907,6 +5057,23 @@ export function registerGameActions(io: Server, socket: Socket) {
           message: "Lands cannot be cast as spells. Use playLand instead.",
         });
         return;
+      }
+
+      if (castSourceZone === 'library') {
+        const validation = validateLibrarySpellCastAccess(
+          game,
+          String(playerId),
+          String(cardId),
+          typeLine,
+          allowLibrarySearchCast,
+        );
+        if (validation.ok === false) {
+          socket.emit('error', {
+            code: validation.code,
+            message: validation.message,
+          });
+          return;
+        }
       }
 
       // Chosen-name cast restrictions (e.g., Meddling Mage / Nevermore)
@@ -8744,6 +8911,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         convokeTappedCreatures: convokeTapped,
         fromZone: pendingFromZone,
         bypassExilePermissionCheck: pendingBypassExilePermissionCheck,
+        allowLibrarySearchCast: Boolean(suspendedLibrarySearchStep),
       });
 
       if (suspendedLibrarySearchStep) {
@@ -10867,6 +11035,70 @@ export function registerGameActions(io: Server, socket: Socket) {
     }
   );
 
+  socket.on(
+    "updatePermanentPos",
+    (payload?: {
+      gameId?: unknown;
+      permanentId?: unknown;
+      x?: unknown;
+      y?: unknown;
+      z?: unknown;
+    }) => {
+      try {
+        const gameId = payload?.gameId;
+        const permanentId = payload?.permanentId;
+        const x = payload?.x;
+        const y = payload?.y;
+        const z = payload?.z;
+
+        if (!gameId || typeof gameId !== "string") return;
+        if (!permanentId || typeof permanentId !== "string") return;
+        if (typeof x !== "number" || !Number.isFinite(x)) return;
+        if (typeof y !== "number" || !Number.isFinite(y)) return;
+        if (!(z === undefined || (typeof z === "number" && Number.isFinite(z)))) return;
+
+        const game = ensureGame(gameId);
+        const playerId = socket.data.playerId as string | undefined;
+        const spectator = !!(
+          (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
+        );
+        if (!game || !playerId || spectator) return;
+
+        if (!ensureInGameRoom(gameId)) return;
+
+        const battlefield = Array.isArray((game.state as any)?.battlefield)
+          ? (game.state as any).battlefield
+          : [];
+        const permanent = battlefield.find(
+          (entry: any) => String(entry?.id || "") === permanentId
+        );
+        if (!permanent) return;
+
+        if (String(permanent.controller || "") !== playerId) {
+          socket.emit("error", {
+            code: "POS",
+            message: "You can only move your own permanents",
+          });
+          return;
+        }
+
+        appendGameEvent(game, gameId, "updatePermanentPos", {
+          permanentId,
+          x: Math.round(x),
+          y: Math.round(y),
+          ...(typeof z === "number" ? { z: Math.round(z) } : {}),
+        });
+        broadcastGame(io, game, gameId);
+      } catch (err: any) {
+        debugError(1, "updatePermanentPos handler error:", err);
+        socket.emit("error", {
+          code: "UPDATE_PERMANENT_POS_ERROR",
+          message: err?.message ?? String(err),
+        });
+      }
+    }
+  );
+
   // Set turn direction (+1 or -1)
   socket.on(
     "setTurnDirection",
@@ -12263,20 +12495,6 @@ export function registerGameActions(io: Server, socket: Socket) {
       } catch (e) {
         debugWarn(1, 'appendEvent(activateBattlefieldAbility equip) failed:', e);
       }
-
-      io.to(gameId).emit('stackUpdate', {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,

@@ -435,7 +435,17 @@ export function FreeField(props: {
       const isToken = (p as any).isToken === true;
 
       const counters = p.counters || {};
-      const existing = (p as any).pos || null;
+      const legacyPos = (p as any).pos;
+      const existing =
+        legacyPos && typeof legacyPos.x === 'number' && typeof legacyPos.y === 'number'
+          ? { ...legacyPos }
+          : typeof p.posX === 'number' && typeof p.posY === 'number'
+            ? {
+                x: p.posX,
+                y: p.posY,
+                ...(typeof p.posZ === 'number' ? { z: p.posZ } : {}),
+              }
+            : null;
       const pos = existing ? { ...existing } : nextAuto();
       placed.push({
         id: p.id,

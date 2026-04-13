@@ -347,6 +347,82 @@ describe('canPlayLand', () => {
 
     expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(false);
   });
+
+  it('treats library[0] as the top card when top-of-library land play is allowed', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'future_sight',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Future Sight',
+            type_line: 'Enchantment',
+            oracle_text: 'Play with the top card of your library revealed. You may play the top card of your library.',
+          },
+        },
+      ],
+      landsPlayedThisTurn: { p1: 0 },
+      zones: {
+        p1: {
+          hand: [],
+          handCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+          libraryCount: 2,
+        },
+      },
+    });
+
+    (ctx as any).libraries = new Map([
+      ['p1', [
+        { id: 'forest_top', name: 'Forest', type_line: 'Basic Land - Forest' },
+        { id: 'opt_bottom', name: 'Opt', type_line: 'Instant' },
+      ]],
+    ]);
+
+    expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('does not allow a lower library land when the top card is not a land', () => {
+    const ctx = createTestContext({
+      battlefield: [
+        {
+          id: 'future_sight',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Future Sight',
+            type_line: 'Enchantment',
+            oracle_text: 'Play with the top card of your library revealed. You may play the top card of your library.',
+          },
+        },
+      ],
+      landsPlayedThisTurn: { p1: 0 },
+      zones: {
+        p1: {
+          hand: [],
+          handCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [],
+          exileCount: 0,
+          libraryCount: 2,
+        },
+      },
+    });
+
+    (ctx as any).libraries = new Map([
+      ['p1', [
+        { id: 'opt_top', name: 'Opt', type_line: 'Instant' },
+        { id: 'forest_bottom', name: 'Forest', type_line: 'Basic Land - Forest' },
+      ]],
+    ]);
+
+    expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(false);
+  });
 });
 
 describe('canActivateAnyAbility', () => {

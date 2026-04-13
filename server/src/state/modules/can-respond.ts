@@ -1443,7 +1443,7 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
       if (libraries && typeof libraries.get === 'function') {
         const library = libraries.get(playerId);
         if (Array.isArray(library) && library.length > 0) {
-          const topCard = library[library.length - 1]; // Top of library is last element
+          const topCard = library[0];
           if (topCard && typeof topCard !== "string") {
             const typeLine = (topCard.type_line || "").toLowerCase();
             if (typeLine.includes("land")) {

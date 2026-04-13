@@ -518,6 +518,7 @@ export function App() {
     layout: string;
     faces: CardFaceOption[];
     canFuse: boolean;
+    sourceZone?: 'hand' | 'graveyard' | 'exile' | 'library';
   } | null>(null);
   
   // Deck validation state
@@ -4801,7 +4802,7 @@ export function App() {
     gameId: string;
     cardId: string;
     faceIndex?: number;
-    fromZone?: 'exile' | 'hand' | 'graveyard';
+    fromZone?: 'exile' | 'hand' | 'graveyard' | 'library';
   }) => {
     socket.emit('requestCastSpell', payload);
 
@@ -4814,7 +4815,7 @@ export function App() {
     gameId: string;
     cardId: string;
     selectedFace?: number;
-    fromZone?: 'exile' | 'hand' | 'graveyard';
+    fromZone?: 'exile' | 'hand' | 'graveyard' | 'library';
   }) => {
     socket.emit('playLand', payload);
 
@@ -4823,13 +4824,90 @@ export function App() {
     }, 0);
   }, []);
 
+  const openSplitCardChoice = React.useCallback((
+    cardId: string,
+    card: KnownCardRef,
+    sourceZone: 'hand' | 'graveyard' | 'exile' | 'library' = 'hand',
+  ) => {
+    const layout = String((card as any).layout || '');
+    const cardFaces = (card as any).card_faces as CardFace[] | undefined;
+    if (!cardFaces || cardFaces.length < 2) {
+      return;
+    }
+
+    const oracleText = String((card as any).oracle_text || '').toLowerCase();
+    const canFuse = sourceZone === 'hand' && layout === 'split' && oracleText.includes('fuse');
+    const faces: CardFaceOption[] = cardFaces.map((face, idx) => ({
+      id: `face_${idx}`,
+      name: (face as any).name || `Face ${idx + 1}`,
+      manaCost: (face as any).mana_cost ?? (face as any).manaCost,
+      typeLine: (face as any).type_line ?? (face as any).typeLine,
+      oracleText: (face as any).oracle_text ?? (face as any).oracleText,
+      imageUrl: (face as any).image_uris?.small || (face as any).image_uris?.normal || (face as any).imageUrl,
+      isDefault: layout === 'adventure' && idx === 0,
+    }));
+
+    setSplitCardData({
+      cardId,
+      cardName: card.name || 'Card',
+      layout,
+      faces,
+      canFuse,
+      sourceZone,
+    });
+    setSplitCardModalOpen(true);
+  }, []);
+
+  const handleUseTopOfLibrary = React.useCallback(() => {
+    if (!safeView || !you) return;
+
+    const libraryTop = safeView.zones?.[you]?.libraryTop as KnownCardRef | undefined;
+    if (!libraryTop || !libraryTop.id) return;
+
+    const layout = String((libraryTop as any).layout || '');
+    const cardFaces = (libraryTop as any).card_faces as CardFace[] | undefined;
+    const hasFaces = Array.isArray(cardFaces) && cardFaces.length >= 2;
+    const needsFaceChoice = hasFaces && (
+      layout === 'split'
+      || layout === 'adventure'
+      || layout === 'modal_dfc'
+    );
+
+    if (needsFaceChoice) {
+      openSplitCardChoice(libraryTop.id, libraryTop, 'library');
+      return;
+    }
+
+    const typeLine = String((libraryTop as any).type_line || (libraryTop as any).typeLine || '');
+    if (/\bland\b/i.test(typeLine)) {
+      playLandWithPromptSync({
+        gameId: safeView.id,
+        cardId: libraryTop.id,
+        fromZone: 'library',
+      });
+      return;
+    }
+
+    requestCastSpellWithPromptSync({
+      gameId: safeView.id,
+      cardId: libraryTop.id,
+      fromZone: 'library',
+    });
+  }, [openSplitCardChoice, playLandWithPromptSync, requestCastSpellWithPromptSync, safeView, you]);
+
   // Split/Adventure card choice handler
   const handleSplitCardChoose = (faceId: string, fused?: boolean) => {
     if (!splitCardData || !safeView || !you) return;
-    
+    const sourceZone = splitCardData.sourceZone || 'hand';
     const zones = safeView.zones?.[you];
-    const hand = zones?.hand || [];
-    const card = hand.find((c: any) => c?.id === splitCardData.cardId) as KnownCardRef | undefined;
+    const sourceCards = sourceZone === 'graveyard'
+      ? ((zones?.graveyard || []) as KnownCardRef[])
+      : sourceZone === 'exile'
+        ? ((((zones as any)?.exile) || []) as KnownCardRef[])
+        : sourceZone === 'library'
+          ? (zones?.libraryTop ? [zones.libraryTop as KnownCardRef] : [])
+          : ((zones?.hand || []) as KnownCardRef[]);
+    const card = sourceCards.find((c: any) => c?.id === splitCardData.cardId) as KnownCardRef | undefined;
     if (!card) {
       setSplitCardModalOpen(false);
       setSplitCardData(null);
@@ -4845,7 +4923,7 @@ export function App() {
     // Determine face index for MTG-compliant flow
     let faceIndex: number | undefined;
     
-    if (fused && cardFaces && cardFaces.length >= 2) {
+    if (fused && sourceZone === 'hand' && cardFaces && cardFaces.length >= 2) {
       // Fuse: special case - for now use legacy flow
       // TODO: Implement fuse handling in requestCastSpell
       const manaCost =
@@ -4869,12 +4947,27 @@ export function App() {
         return;
       }
     }
+
+    const selectedFace = typeof faceIndex === 'number' && Array.isArray(cardFaces)
+      ? cardFaces[faceIndex]
+      : undefined;
+    const selectedFaceTypeLine = String((selectedFace as any)?.type_line ?? (selectedFace as any)?.typeLine ?? '');
+    if (sourceZone === 'library' && /\bland\b/i.test(selectedFaceTypeLine)) {
+      playLandWithPromptSync({
+        gameId: safeView.id,
+        cardId: splitCardData.cardId,
+        selectedFace: faceIndex,
+        fromZone: 'library',
+      });
+      return;
+    }
     
     // Use MTG-compliant flow: request targets first if needed
     requestCastSpellWithPromptSync({
       gameId: safeView.id,
       cardId: splitCardData.cardId,
       faceIndex,
+      ...(sourceZone !== 'hand' ? { fromZone: sourceZone } : {}),
     });
   };
 
@@ -5578,31 +5671,7 @@ export function App() {
                 );
                 
                 if (needsFaceChoice && cardFaces) {
-                  // Check if the card has fuse ability
-                  const oracleText = ((card as any).oracle_text || '').toLowerCase();
-                  const canFuse = layout === 'split' && oracleText.includes('fuse');
-                  
-                  // Build face options
-                  const faces: CardFaceOption[] = cardFaces.map((face, idx) => ({
-                    id: `face_${idx}`,
-                    name: (face as any).name || `Face ${idx + 1}`,
-                    manaCost: (face as any).mana_cost ?? (face as any).manaCost,
-                    typeLine: (face as any).type_line ?? (face as any).typeLine,
-                    oracleText: (face as any).oracle_text ?? (face as any).oracleText,
-                    imageUrl: (face as any).image_uris?.small || (face as any).image_uris?.normal || (face as any).imageUrl,
-                    // For adventure cards, the creature (first face) is the default
-                    isDefault: layout === 'adventure' && idx === 0,
-                  }));
-                  
-                  // Show split card choice modal
-                  setSplitCardData({
-                    cardId,
-                    cardName: card.name || 'Card',
-                    layout,
-                    faces,
-                    canFuse,
-                  });
-                  setSplitCardModalOpen(true);
+                  openSplitCardChoice(cardId, card, 'hand');
                 } else {
                   // Regular card - use MTG-compliant flow: request targets first, then payment
                   // Server will check if targets are needed and respond appropriately
@@ -5612,6 +5681,7 @@ export function App() {
                   });
                 }
               }}
+              onUseTopOfLibrary={handleUseTopOfLibrary}
               onCastCommander={handleCastCommander}
               reasonCannotPlayLand={reasonCannotPlayLand}
               reasonCannotCast={reasonCannotCast}

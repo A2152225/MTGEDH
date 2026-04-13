@@ -432,7 +432,7 @@ interface CastSpellModalProps {
   battlefieldPermanents?: BattlefieldPermanent[];
   otherCardsInHand?: OtherCardInfo[];
   floatingMana?: ManaPool;
-  castFromZone?: 'hand' | 'graveyard' | 'exile' | 'command';
+  castFromZone?: 'hand' | 'graveyard' | 'exile' | 'library' | 'command';
   title?: string;
   confirmLabel?: string;
   manualFloatingManaSelection?: boolean;

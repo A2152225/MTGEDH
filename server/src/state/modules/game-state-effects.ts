@@ -1573,17 +1573,16 @@ export function getTopCardForPlayer(ctx: GameContext, playerId: string): {
     return { card: null, canSee: false, sources: [] };
   }
   
-  // Get the top card from player's library
-  const zones = ctx.state?.zones as any;
-  const playerZone = zones?.[playerId];
-  const library = playerZone?.library || [];
+  // Get the top card from the authoritative library store.
+  const library = Array.isArray((ctx as any).libraries?.get?.(playerId))
+    ? ((ctx as any).libraries.get(playerId) as any[])
+    : [];
   
   if (library.length === 0) {
     return { card: null, canSee: true, sources };
   }
   
-  // Library is typically stored bottom-to-top, so last element is top
-  const topCard = library[library.length - 1];
+  const topCard = library[0];
   
   return { card: topCard, canSee: true, sources };
 }

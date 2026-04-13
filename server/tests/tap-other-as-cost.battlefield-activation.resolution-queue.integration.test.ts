@@ -162,8 +162,6 @@ describe('Tap-other-as-activation-cost via Resolution Queue (integration)', () =
     expect(String(lastActivation?.payload?.activatedAbilityText || '').toLowerCase()).toContain('tap an untapped creature you control');
     expect((lastActivation?.payload?.tappedPermanents || []).map(String)).toContain('c_1');
 
-    // Sanity: stack update emitted.
-    expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
 
   it('supports multi-type tap-other costs (artifact creature) by requiring all types', async () => {

@@ -156,7 +156,7 @@ export interface ClientToServerEvents {
   
   // Request to cast a spell - triggers target selection if needed, then payment
   // MTG Rule 601.2: Choose targets (601.2c) before paying costs (601.2h)
-  requestCastSpell: (payload: { gameId: GameID; cardId: string; faceIndex?: number; fromZone?: 'hand' | 'graveyard' | 'exile' }) => void;
+  requestCastSpell: (payload: { gameId: GameID; cardId: string; faceIndex?: number; fromZone?: 'hand' | 'graveyard' | 'exile' | 'library' }) => void;
   
   // Complete spell cast with targets and payment (after target selection and payment)
   completeCastSpell: (payload: { 
@@ -171,8 +171,8 @@ export interface ClientToServerEvents {
     convokeTappedCreatures?: string[];
   }) => void;
   
-  // Play a land from hand
-  playLand: (payload: { gameId: GameID; cardId: string; selectedFace?: number; fromZone?: 'hand' | 'graveyard' | 'exile' }) => void;
+  // Play a land from a permitted zone
+  playLand: (payload: { gameId: GameID; cardId: string; selectedFace?: number; fromZone?: 'hand' | 'graveyard' | 'exile' | 'library' }) => void;
 
   // ===== TRIGGER HANDLING EVENTS =====
 
@@ -239,8 +239,8 @@ export interface ClientToServerEvents {
   castSpellFromHand: (payload: { gameId: GameID; cardId: string; targets?: string[]; payment?: any[]; skipInteractivePrompts?: boolean; alternateCostId?: string; xValue?: number; convokeTappedCreatures?: string[]; phyrexianChoices?: any }) => void;
 
   // ===== POSITION / UI EVENTS =====
-  
-  // Update permanent position (for 3D/drag-drop UIs)
+
+  // Update permanent position on the free-position battlefield view
   updatePermanentPos: (payload: { gameId: GameID; permanentId: string; x: number; y: number; z?: number }) => void;
 
   // ===== PHASE NAVIGATION =====
@@ -453,27 +453,6 @@ export interface ServerToClientEvents {
   deckRenamed: (payload: { gameId: GameID; deck: any }) => void;
   deckDeleted: (payload: { gameId: GameID; deckId: string }) => void;
 
-  // ===== RANDOMNESS EVENTS =====
-  
-  // Die roll result
-  dieRollResult: (payload: {
-    gameId: GameID;
-    playerId: PlayerID;
-    playerName: string;
-    sides: number;
-    result: number;
-    timestamp: number;
-  }) => void;
-  
-  // Coin flip result
-  coinFlipResult: (payload: {
-    gameId: GameID;
-    playerId: PlayerID;
-    playerName: string;
-    result: 'heads' | 'tails';
-    timestamp: number;
-  }) => void;
-
   // Can respond check response
   canRespondResponse: (payload: {
     canRespond: boolean;
@@ -542,26 +521,6 @@ export interface ServerToClientEvents {
     playerId?: PlayerID;
     details?: any;
     timestamp: number;
-  }) => void;
-  
-  // Stack updates (for visual display)
-  stackUpdate: (payload: {
-    gameId: GameID;
-    stack: Array<{
-      id: string;
-      type: 'spell' | 'ability' | 'triggered_ability';
-      name: string;
-      controller: PlayerID;
-      targets?: string[];
-      modes?: string[];
-      xValue?: number;
-      // For triggered abilities
-      source?: string;
-      sourceName?: string;
-      description?: string;
-      triggerType?: string;
-      mandatory?: boolean;
-    }>;
   }) => void;
 
   // Batch trigger resolution summary for the resolving player

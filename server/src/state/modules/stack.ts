@@ -15592,9 +15592,16 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
           (z as any).graveyardCount = gyCards.length;
           playedFromGraveyard = true;
         } else {
-          // During replay, card might not be in its expected zone anymore - this is okay
-          debug(1, `playLand: card ${cardOrId} not found in expected zone(s) for player ${playerId} (may be replay)`);
-          return;
+          const lib = ctx.libraries.get(playerId) || [];
+          if (Array.isArray(lib) && lib.length > 0 && String(lib[0]?.id || '') === String(cardOrId)) {
+            card = lib.shift();
+            ctx.libraries.set(playerId, lib);
+            z.libraryCount = lib.length;
+          } else {
+            // During replay, card might not be in its expected zone anymore - this is okay
+            debug(1, `playLand: card ${cardOrId} not found in expected zone(s) for player ${playerId} (may be replay)`);
+            return;
+          }
         }
       }
     }
@@ -15635,6 +15642,16 @@ export function playLand(ctx: GameContext, playerId: PlayerID, cardOrId: any) {
         gyCards.splice(gyIdx, 1);
         (z as any).graveyardCount = gyCards.length;
         playedFromGraveyard = true;
+      }
+    }
+
+    const lib = ctx.libraries.get(playerId) || [];
+    const libIdx = Array.isArray(lib) ? lib.findIndex((c: any) => c && c.id === card.id) : -1;
+    if (libIdx !== -1) {
+      lib.splice(libIdx, 1);
+      ctx.libraries.set(playerId, lib);
+      if (z) {
+        z.libraryCount = lib.length;
       }
     }
   }

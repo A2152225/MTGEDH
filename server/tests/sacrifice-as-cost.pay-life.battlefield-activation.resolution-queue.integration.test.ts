@@ -162,6 +162,5 @@ describe('Pay-life + sacrifice as activation cost via Resolution Queue (integrat
     expect(String(stack[0].source)).toBe('src_1');
     expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
 
-    expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
 });

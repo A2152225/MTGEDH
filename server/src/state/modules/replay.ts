@@ -342,6 +342,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       shuffleHand(ctx, (e as any).playerId);
       break;
 
+    case "updatePermanentPos":
+      updatePermanentPos(ctx, (e as any).permanentId, (e as any).x, (e as any).y, (e as any).z);
+      break;
+
     case "scryResolve":
       applyScry(ctx, (e as any).playerId, (e as any).keepTopOrder, (e as any).bottomOrder);
       break;
@@ -460,6 +464,39 @@ export function reorderHand(ctx: GameContext, playerId: PlayerID, order: number[
   for (let i = 0; i < n; i++) next[i] = hand[order[i]];
   z.hand = next as any;
   z.handCount = next.length;
+  ctx.bumpSeq();
+  return true;
+}
+
+export function updatePermanentPos(
+  ctx: GameContext,
+  permanentId: string,
+  x: number,
+  y: number,
+  z?: number,
+) {
+  const battlefield = Array.isArray((ctx.state as any)?.battlefield)
+    ? (ctx.state as any).battlefield
+    : [];
+  const permanent = battlefield.find(
+    (entry: any) => String(entry?.id || '') === String(permanentId || '')
+  );
+  if (!permanent) return false;
+
+  const pos = {
+    x: Math.round(Number(x || 0)),
+    y: Math.round(Number(y || 0)),
+    ...(typeof z === 'number' && Number.isFinite(z) ? { z: Math.round(z) } : {}),
+  };
+
+  (permanent as any).pos = pos;
+  (permanent as any).posX = pos.x;
+  (permanent as any).posY = pos.y;
+  if (typeof pos.z === 'number') {
+    (permanent as any).posZ = pos.z;
+  } else {
+    delete (permanent as any).posZ;
+  }
   ctx.bumpSeq();
   return true;
 }

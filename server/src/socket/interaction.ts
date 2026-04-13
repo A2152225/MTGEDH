@@ -5212,20 +5212,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
 
-      io.to(gameId).emit('stackUpdate', {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
-
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -5353,21 +5339,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         } as any);
       }
 
-      debug(2, `[activateBattlefieldAbility] Ability grant on ${cardName}: queued TARGET_SELECTION (ability="${abilityGranted}")`);
-      broadcastGame(io, game, gameId);
-      return;
-    }
-    
-    // Handle graveyard exile abilities (Keen-Eyed Curator, etc.)
-    // Pattern: "{1}: Exile target card from a graveyard"
-    const lowerScopedAbilityText = scopedAbilityFullText.toLowerCase();
-    const hasGraveyardExileAbility = lowerScopedAbilityText.includes("exile target card from a graveyard") ||
-      lowerScopedAbilityText.includes("exile target card from any graveyard");
-    const hasExplicitExileGraveyardAbilityId = /-exile-graveyard-(\d+)$/i.test(abilityId) || abilityId === 'exile-graveyard';
-    if (hasGraveyardExileAbility && (hasExplicitExileGraveyardAbilityId || isGenericActivatedAbilityId)) {
-      // Parse the cost
-      const costMatch = scopedAbilityFullText.match(/\{([^}]+)\}:\s*exile target card from (?:a|any) graveyard/i);
-      const cost = costMatch ? `{${costMatch[1]}}` : "{1}";
 
       // Build a flat list of all cards currently in all graveyards.
       // If there are no legal targets, don't allow the activation.
@@ -5400,6 +5371,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       }
       
       // Parse the cost and validate mana availability
+      const cost = String(scopedAbilityFullText || '').split(':')[0] || '';
       const parsedCost = parseManaCost(cost);
       const pool = getOrInitManaPool(game.state, pid);
       const manaPoolBeforePayment = snapshotInteractionManaPool(pool);
@@ -5452,40 +5424,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
-      persistQueuedBattlefieldAbilityStepActivation({
-        gameId,
-        game,
-        playerId: String(pid),
-        permanentId: String(permanentId),
-        abilityId: String(abilityId),
-        cardName,
-        abilityText: resolvedAbilityText,
-        activatedAbilityText: resolvedActivatedAbilityText,
-        tappedPermanents: tappedPermanentsForCost,
-        paymentManaDelta: calculateInteractionManaPoolDelta(manaPoolBeforePayment, pool),
-        queuedStep: {
-          id: String((targetStep as any).id || ''),
-          type: ResolutionStepType.TARGET_SELECTION,
-          playerId: pid,
-          sourceId: permanentId,
-          sourceName: cardName,
-          sourceImage: (permanent as any)?.card?.image_uris?.small || (permanent as any)?.card?.image_uris?.normal,
-          description: `Choose a card to exile from a graveyard (${cost})`,
-          mandatory: true,
-          validTargets: graveyardTargets.map((target: any) => ({ ...target })),
-          targetTypes: ['graveyard_card'],
-          minTargets: 1,
-          maxTargets: 1,
-          targetDescription: 'card in a graveyard',
-          battlefieldAbilityTargetSelection: true,
-          permanentId,
-          abilityId,
-          cardName,
-          abilityText: resolvedAbilityText,
-          activatedAbilityText: resolvedActivatedAbilityText,
-          tappedPermanentsForCost,
-        },
-      });
       broadcastGame(io, game, gameId);
       debug(2, `[activateBattlefieldAbility] Graveyard exile ability on ${cardName}: paid ${cost}, queued TARGET_SELECTION (${graveyardTargets.length} targets)`);
       return;
@@ -6815,21 +6753,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         persistAbilityActivatedTriggerPushes(gameId, game, triggeredAbilities);
       } catch {}
       
-      // Emit stack update
-      io.to(gameId).emit("stackUpdate", {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
-      
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
       }
@@ -7497,21 +7420,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         });
         persistAbilityActivatedTriggerPushes(gameId, game, triggeredAbilities);
       } catch {}
-      
-      // Emit stack update
-      io.to(gameId).emit("stackUpdate", {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
       
       if (typeof game.bumpSeq === "function") {
         game.bumpSeq();
@@ -10471,21 +10379,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           stackId: stackItem.id,
         });
         
-        // Emit stack update
-        io.to(gameId).emit("stackUpdate", {
-          gameId,
-          stack: (game.state.stack || []).map((s: any) => ({
-            id: s.id,
-            type: s.type,
-            name: s.sourceName || s.card?.name || 'Ability',
-            controller: s.controller,
-            targets: s.targets,
-            source: s.source,
-            sourceName: s.sourceName,
-            description: s.description,
-          })),
-        });
-        
         // Queue library search via Resolution Queue
         const isSplit = tutorInfo.splitDestination === true;
         const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
@@ -10537,21 +10430,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);
-      
-      // Emit stack update
-      io.to(gameId).emit("stackUpdate", {
-        gameId,
-        stack: (game.state.stack || []).map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          name: s.sourceName || s.card?.name || 'Ability',
-          controller: s.controller,
-          targets: s.targets,
-          source: s.source,
-          sourceName: s.sourceName,
-          description: s.description,
-        })),
-      });
       
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,

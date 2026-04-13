@@ -3007,6 +3007,38 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         break;
       }
 
+      case "updatePermanentPos": {
+        const permanentId = String((e as any).permanentId || '').trim();
+        if (!permanentId) break;
+
+        const battlefield = Array.isArray((ctx.state as any)?.battlefield)
+          ? (ctx.state as any).battlefield
+          : [];
+        const permanent = battlefield.find(
+          (entry: any) => String(entry?.id || '') === permanentId
+        );
+        if (!permanent) break;
+
+        const pos = {
+          x: Math.round(Number((e as any).x || 0)),
+          y: Math.round(Number((e as any).y || 0)),
+          ...(typeof (e as any).z === 'number' && Number.isFinite((e as any).z)
+            ? { z: Math.round((e as any).z) }
+            : {}),
+        };
+
+        (permanent as any).pos = pos;
+        (permanent as any).posX = pos.x;
+        (permanent as any).posY = pos.y;
+        if (typeof pos.z === 'number') {
+          (permanent as any).posZ = pos.z;
+        } else {
+          delete (permanent as any).posZ;
+        }
+        ctx.bumpSeq();
+        break;
+      }
+
       case "shuffleHand": {
         zonesShuffleHand(ctx as any, (e as any).playerId);
         break;

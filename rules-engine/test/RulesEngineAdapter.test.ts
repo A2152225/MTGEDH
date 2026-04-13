@@ -337,6 +337,104 @@ describe('RulesEngineAdapter', () => {
       expect(allowed.legal).toBe(true);
     });
 
+    it('should require top-card access and permission to play a land from library', () => {
+      const stateWithLibraryLand: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                library: [
+                  { id: 'land-top', name: 'Forest', type_line: 'Basic Land - Forest' },
+                  { id: 'land-bottom', name: 'Island', type_line: 'Basic Land - Island' },
+                ],
+              }
+            : p
+        ),
+        turn: 1,
+        landsPlayedThisTurn: { player1: 0 },
+      };
+
+      adapter.initializeGame('test-game', stateWithLibraryLand);
+      const deniedNoPermission = adapter.validateAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'land-top',
+      });
+      expect(deniedNoPermission.legal).toBe(false);
+
+      adapter.initializeGame('test-game', stateWithLibraryLand);
+      const deniedNotTop = adapter.validateAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'land-bottom',
+      });
+      expect(deniedNotTop.legal).toBe(false);
+      expect(String(deniedNotTop.reason || '').toLowerCase()).toContain('top card');
+
+      stateWithLibraryLand.topOfLibraryEffects = { player1: { canPlayLands: true } };
+      adapter.initializeGame('test-game', stateWithLibraryLand);
+      const allowed = adapter.validateAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'land-top',
+      });
+      expect(allowed.legal).toBe(true);
+    });
+
+    it('should require top-card access and permission to cast from library', () => {
+      const stateWithLibrarySpell: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                library: [
+                  { id: 'spell-top', name: 'Opt', type_line: 'Instant' },
+                  { id: 'spell-bottom', name: 'Consider', type_line: 'Instant' },
+                ],
+              }
+            : p
+        ),
+      };
+
+      adapter.initializeGame('test-game', stateWithLibrarySpell);
+      const deniedNoPermission = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'spell-top',
+        card: { name: 'Opt', type_line: 'Instant' },
+      });
+      expect(deniedNoPermission.legal).toBe(false);
+
+      adapter.initializeGame('test-game', stateWithLibrarySpell);
+      const deniedNotTop = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'spell-bottom',
+        card: { name: 'Consider', type_line: 'Instant' },
+      });
+      expect(deniedNotTop.legal).toBe(false);
+      expect(String(deniedNotTop.reason || '').toLowerCase()).toContain('top card');
+
+      stateWithLibrarySpell.topOfLibraryEffects = { player1: { canCast: true } };
+      adapter.initializeGame('test-game', stateWithLibrarySpell);
+      const allowed = adapter.validateAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'spell-top',
+        card: { name: 'Opt', type_line: 'Instant' },
+      });
+      expect(allowed.legal).toBe(true);
+    });
+
     it('should derive spell timing from the source-zone card when action card data is omitted', () => {
       const stateWithSorceryInHand: any = {
         ...testGameState,
@@ -1696,6 +1794,75 @@ describe('RulesEngineAdapter', () => {
       const p1 = result.next.players.find(p => p.id === 'player1') as any;
       expect((p1.graveyard || []).some((c: any) => c.id === 'gy1')).toBe(false);
       expect((result.next as any).playableFromGraveyard?.player1?.gy1).toBeUndefined();
+    });
+
+    it('should remove a land from library when it is played from the top of library', () => {
+      const stateWithLibraryLand: any = {
+        ...testGameState,
+        phase: 'precombatMain' as any,
+        step: 'main' as any,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                library: [
+                  { id: 'land-top', name: 'Forest', type_line: 'Basic Land - Forest' },
+                  { id: 'spell-bottom', name: 'Opt', type_line: 'Instant' },
+                ],
+              }
+            : p
+        ),
+        topOfLibraryEffects: { player1: { canPlayLands: true } },
+        turn: 1,
+        landsPlayedThisTurn: { player1: 0 },
+        battlefield: [],
+      };
+
+      adapter.initializeGame('test-game', stateWithLibraryLand);
+      const result = adapter.executeAction('test-game', {
+        type: 'playLand',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'land-top',
+      });
+
+      const p1 = result.next.players.find(p => p.id === 'player1') as any;
+      expect((p1.library || []).map((c: any) => c.id)).toEqual(['spell-bottom']);
+      expect(((result.next as any).battlefield || []).some((perm: any) => perm.id === 'land-top')).toBe(true);
+      expect((result.next as any).landsPlayedThisTurn?.player1).toBe(1);
+    });
+
+    it('should remove a spell from library when it is cast from the top of library', () => {
+      const stateWithLibrarySpell: any = {
+        ...testGameState,
+        players: testGameState.players.map(p =>
+          p.id === 'player1'
+            ? {
+                ...(p as any),
+                library: [{ id: 'spell-top', name: 'Opt', type_line: 'Instant' }],
+                manaPool: { white: 5, blue: 5, black: 0, red: 0, green: 0, colorless: 0 },
+              }
+            : p
+        ),
+        topOfLibraryEffects: { player1: { canCast: true } },
+        turn: 1,
+      };
+
+      adapter.initializeGame('test-game', stateWithLibrarySpell);
+      const result = adapter.executeAction('test-game', {
+        type: 'castSpell',
+        playerId: 'player1',
+        fromZone: 'library',
+        cardId: 'spell-top',
+        cardName: 'Opt',
+        cardTypes: ['instant'],
+        manaCost: { blue: 1 },
+        targets: [],
+      });
+
+      const p1 = result.next.players.find(p => p.id === 'player1') as any;
+      expect((p1.library || []).some((c: any) => c.id === 'spell-top')).toBe(false);
+      expect(((result.next as any).stack || []).some((item: any) => item.spellId === 'spell-top' || item.card?.id === 'spell-top')).toBe(true);
     });
 
     it('should cast a spell from graveyard using its printed mana cost when flashback metadata says mana_cost', () => {

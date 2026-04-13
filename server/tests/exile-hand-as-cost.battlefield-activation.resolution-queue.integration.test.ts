@@ -147,7 +147,5 @@ describe('Exile-from-hand-as-activation-cost via Resolution Queue (integration)'
     expect(String(stack[0].source)).toBe('src_1');
     expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
 
-    // Sanity: stack update emitted.
-    expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
 });

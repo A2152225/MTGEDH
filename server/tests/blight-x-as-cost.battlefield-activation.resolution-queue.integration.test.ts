@@ -97,6 +97,8 @@ describe('Blight X as activation cost via Resolution Queue (integration)', () =>
           name: 'Test Creature',
           type_line: 'Creature — Bear',
           oracle_text: '',
+          power: '3',
+          toughness: '3',
         },
       },
     ];
@@ -161,6 +163,5 @@ describe('Blight X as activation cost via Resolution Queue (integration)', () =>
     expect(String(stack[0].source)).toBe('src_1');
     expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
 
-    expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
 });

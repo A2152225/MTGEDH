@@ -164,6 +164,5 @@ describe('Remove-counters-from-other-permanent as activation cost via Resolution
     expect(String(stack[0].source)).toBe('src_1');
     expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
 
-    expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { initDb, createGameIfNotExists, getEvents } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -59,6 +59,7 @@ describe('Discard typed card as activation cost via Resolution Queue (integratio
   beforeEach(() => {
     ResolutionQueueManager.removeQueue(gameId);
     games.delete(gameId as any);
+    deleteGame(gameId);
   });
 
   it("enqueues DISCARD_SELECTION with filtered hand and resumes activation after discarding a creature card", async () => {
@@ -160,7 +161,6 @@ describe('Discard typed card as activation cost via Resolution Queue (integratio
     expect(String(stack[0].source)).toBe('src_1');
     expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
 
-    expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
 
   it('supports discard-as-cost that also pays life (deferred until discard selection resolves)', async () => {
@@ -257,7 +257,6 @@ describe('Discard typed card as activation cost via Resolution Queue (integratio
     expect(String(stack[0].source)).toBe('src_2');
     expect(String(stack[0].description || '').toLowerCase()).toContain('draw a card');
 
-    expect(emitted.some((e) => e.room === gameId && e.event === 'stackUpdate')).toBe(true);
   });
 
   it('queues graveyard target selection for discard-cost recursion abilities and returns the chosen card on resolution', async () => {

@@ -29,11 +29,12 @@ export function ZonesPiles(props: {
   onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
   onViewGraveyard?: () => void;
   onViewExile?: () => void;
+  onUseTopOfLibrary?: () => void;
   playableCards?: string[];
   playerId?: string;
   appearanceSettings?: AppearanceSettings;
 }) {
-  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile, playableCards = [], playerId, appearanceSettings } = props;
+  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile, onUseTopOfLibrary, playableCards = [], playerId, appearanceSettings } = props;
   // Ensure zones is never null
   const zones = zonesInput ?? SAFE_DEFAULT_ZONES;
 
@@ -259,12 +260,13 @@ export function ZonesPiles(props: {
   const libraryPlayable = !!(playerId && playableCards.includes(`library-${playerId}`));
   const graveyardPlayable = playableCards.some(id => grArr.some(card => card.id === id));
   const exilePlayable = playableCards.some(id => exArr.some(card => card.id === id));
+  const libraryAction = libraryPlayable && onUseTopOfLibrary ? onUseTopOfLibrary : undefined;
 
   return (
     <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
       {/* Command zone now rendered before Library for expected layout */}
       {isCommanderFormat && commander ? <CommandSlots /> : null}
-      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */, undefined, undefined, libraryPlayable, true)}
+      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */, libraryAction, undefined, libraryPlayable, true)}
       {/* Graveyard supports both click and double-click - double-click opens the full graveyard modal */}
       {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, undefined, onViewGraveyard, graveyardPlayable)}
       {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, false, undefined, onViewExile, exilePlayable)}

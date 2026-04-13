@@ -25,7 +25,7 @@ import { calculateCostReduction, applyCostReduction, runPostResolutionPermanentP
 import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRestrictions.js";
 import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
-import { calculateMaxLandsPerTurn } from "../state/modules/game-state-effects.js";
+import { calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects.js";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { debug, debugWarn, debugError, debugEnv } from "../utils/debug.js";
 import { BOOT_ID } from "../utils/bootId.js";
@@ -790,25 +790,23 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
     const libraries = (game as any).libraries;
     if (libraries && typeof libraries.get === 'function') {
       const library = libraries.get(playerId);
-      const battlefield = state.battlefield || [];
-      
-      const hasPlayFromTopEffect = battlefield.some((perm: any) => {
-        if (perm.controller !== playerId) return false;
-        const oracle = (perm.card?.oracle_text || "").toLowerCase();
-        return (oracle.includes("you may play") || oracle.includes("you may cast")) && 
-               (oracle.includes("top") || oracle.includes("off the top")) &&
-               (oracle.includes("library") || oracle.includes("your library"));
-      });
-      
-      if (hasPlayFromTopEffect && Array.isArray(library) && library.length > 0) {
-        const topCard = library[library.length - 1]; // Top is last element
+      if (Array.isArray(library) && library.length > 0) {
+        const topCard = library[0];
         if (topCard && typeof topCard !== "string") {
           const typeLine = (topCard.type_line || "").toLowerCase();
           const oracleText = (topCard.oracle_text || "").toLowerCase();
+          const topCtx = { state } as any;
+          const genericTopLandPermission = (state.battlefield || []).some((perm: any) => {
+            if (perm.controller !== playerId) return false;
+            const oracle = String(perm.card?.oracle_text || '').toLowerCase();
+            return oracle.includes('play lands from the top of your library')
+              || oracle.includes('you may play the top card of your library');
+          });
           
           // For lands from top of library
           if (typeLine.includes("land")) {
-            if (isMainPhase && stackIsEmpty) {
+            const topLandPermission = canPlayLandsFromTop(topCtx, playerId);
+            if ((topLandPermission.canPlay || genericTopLandPermission) && isMainPhase && stackIsEmpty && isMyTurn) {
               const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
               const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
               if (landsPlayedThisTurn < maxLandsPerTurn) {
@@ -820,12 +818,20 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             // For spells from top of library - check timing and cost
             const manaCost = topCard.mana_cost || "";
             const parsedCost = parseManaFromString(manaCost);
+            const topSpellPermission = canCastFromTop(topCtx, playerId, typeLine);
+            const genericTopSpellPermission = (state.battlefield || []).some((perm: any) => {
+              if (perm.controller !== playerId) return false;
+              const oracle = String(perm.card?.oracle_text || '').toLowerCase();
+              return oracle.includes('you may cast the top card of your library')
+                || oracle.includes('you may cast spells from the top of your library')
+                || oracle.includes('you may play the top card of your library');
+            });
             
             // Check timing (example: creature with flash from top of library)
             const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
-            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty);
+            const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
             
-            if (canCastNow && canPayManaCostWithAvailableSources(state, playerId, parsedCost)) {
+            if ((topSpellPermission.canCast || genericTopSpellPermission) && canCastNow && (canPayManaCostWithAvailableSources(state, playerId, parsedCost) || hasPayableAlternateCost(game as any, playerId, topCard))) {
               // Highlight the library zone instead of the individual card
               playableIds.push(`library-${playerId}`);
             }
