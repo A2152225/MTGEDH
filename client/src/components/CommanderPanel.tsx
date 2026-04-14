@@ -73,8 +73,12 @@ export function CommanderPanel(props: {
       // Use callback to open payment modal
       onCastCommander(c.id, c.name, c.manaCost, c.tax);
     } else {
-      // Fallback: emit directly (no payment)
-      socket.emit('castCommander', { gameId: view.id, commanderNameOrId: commanderIdOrName });
+      // Fallback: use requestCastSpell when we have an id, otherwise keep the legacy name-based route.
+      if (c.id) {
+        socket.emit('requestCastSpell', { gameId: view.id, cardId: c.id, fromZone: 'command' });
+      } else {
+        socket.emit('castCommander', { gameId: view.id, commanderNameOrId: commanderIdOrName });
+      }
     }
   };
 

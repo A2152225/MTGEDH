@@ -67,6 +67,7 @@ import { applyDayNightTransforms, ensureInitialDayNightDesignationFromBattlefiel
 import { parseCreateTokenDescriptor } from "../planeswalker/templates/utils.js";
 import { buildOpponentMayPayRecordedOutcome } from "./opponent-may-pay-utils.js";
 import { resolveGiftAwareOracleText } from "../../utils/gift.js";
+import { castCommander } from "./commander.js";
 import {
   createMutatedPermanent,
   getMutatedPermanentAbilities,
@@ -15976,6 +15977,7 @@ export function castSpell(
   let castFromExile = false;
   let castFromGraveyard = false;
   let castFromLibrary = false;
+  let castFromCommand = false;
   const explicitSourceZone = typeof cardOrId === 'object' && cardOrId
     ? String(cardOrId?.fromZone || cardOrId?.castSourceZone || cardOrId?.source || '').toLowerCase().trim()
     : '';
@@ -16042,6 +16044,8 @@ export function castSpell(
       return;
     }
     const handCards = z.hand as any[];
+    const commandZoneInfo = (state.commandZone || {})[playerId] as any;
+    const commandZoneCards = Array.isArray(commandZoneInfo?.commanderCards) ? (commandZoneInfo.commanderCards as any[]) : null;
     const libraryCards = Array.isArray((ctx as any).libraries?.get?.(playerId))
       ? (((ctx as any).libraries.get(playerId)) as any[])
       : (Array.isArray((ctx as any).libraries?.[playerId]) ? (((ctx as any).libraries[playerId]) as any[]) : null);
@@ -16071,6 +16075,15 @@ export function castSpell(
           if (libraryIdx !== -1) {
             card = libraryCards.splice(libraryIdx, 1)[0];
             castFromLibrary = true;
+          } else if (explicitSourceZone === 'command' && commandZoneCards) {
+            const commandIdx = commandZoneCards.findIndex((c: any) => c && c.id === cardOrId);
+            if (commandIdx !== -1) {
+              card = commandZoneCards[commandIdx];
+              castFromCommand = true;
+            } else {
+              debug(1, `castSpell: card ${cardOrId} not found in hand, exile, graveyard, library, or command zone for player ${playerId} (may be replay)`);
+              return;
+            }
           } else {
             debug(1, `castSpell: card ${cardOrId} not found in hand, exile, graveyard, or library for player ${playerId} (may be replay)`);
             return;
@@ -16131,6 +16144,10 @@ export function castSpell(
         libraryCards.splice(libraryIdx, 1);
         castFromLibrary = true;
       }
+    }
+
+    if (!castFromLibrary && explicitSourceZone === 'command') {
+      castFromCommand = true;
     }
 
     if (!castFromLibrary && explicitSourceZone === 'library') {
@@ -16210,6 +16227,8 @@ export function castSpell(
     ? 'graveyard'
     : castFromExile
       ? 'exile'
+      : castFromCommand || explicitSourceZone === 'command'
+        ? 'command'
       : castFromLibrary || explicitSourceZone === 'library'
         ? 'library'
         : 'hand';
@@ -16226,6 +16245,7 @@ export function castSpell(
     fromZone: castSourceZone,
     castSourceZone,
     source: castSourceZone,
+    isCommander: castSourceZone === 'command' || card?.isCommander === true,
     castFromHand: castSourceZone === 'hand',
     castFromExile: castSourceZone === 'exile',
     castFromGraveyard: castSourceZone === 'graveyard',
@@ -16237,6 +16257,7 @@ export function castSpell(
       stackItem.card.fromZone = castSourceZone;
       stackItem.card.castSourceZone = castSourceZone;
       stackItem.card.source = castSourceZone;
+      stackItem.card.isCommander = castSourceZone === 'command' || stackItem.card.isCommander === true;
       stackItem.card.castFromHand = castSourceZone === 'hand';
       stackItem.card.castFromExile = castSourceZone === 'exile';
       stackItem.card.castFromGraveyard = castSourceZone === 'graveyard';
@@ -16352,6 +16373,11 @@ export function castSpell(
   
   state.stack = state.stack || [];
   state.stack.push(stackItem as any);
+
+  if (castSourceZone === 'command' && card?.id) {
+    castCommander(ctx, playerId, String(card.id));
+  }
+
   bumpSeq();
 }
 

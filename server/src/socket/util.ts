@@ -18,14 +18,14 @@ import { GameManager } from "../GameManager.js";
 import type { GameID, PlayerID, ManaPool, RestrictedManaEntry, ManaRestrictionType } from "../../../shared/src/index.js";
 import { getActualPowerToughness, uid, cardManaValue } from "../state/utils.js";
 import { getDevotionManaAmount, getCreatureCountManaAmount, getMoxAmberAvailableColors, isMoxAmberConditionalManaSource } from "../state/modules/mana-abilities.js";
-import { canRespond, canAct, getCostAdjustmentInfo, getHandCastEvaluationCards, isCardPlayableAsLandFromHand, isTransformBackFace } from "../state/modules/can-respond.js";
+import { canRespond, canAct, getCastableCommanderCandidates, getCostAdjustmentInfo, getHandCastEvaluationCards, getPlayableLandCandidates, isTransformBackFace } from "../state/modules/can-respond.js";
 import { parseManaCost as parseManaFromString, canPayManaCostWithAvailableSources, getManaPoolFromState, getAvailableMana, getTotalManaFromPool } from "../state/modules/mana-check.js";
 import { hasPayableAlternateCost } from "../state/modules/alternate-costs.js";
 import { calculateCostReduction, applyCostReduction, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { checkSpellTimingRestriction } from "../../../rules-engine/src/castingRestrictions.js";
 import { hasValidTargetsForSpell } from "../rules-engine/target-availability.js";
 import { applyStaticAbilitiesToBattlefield } from "../../../rules-engine/src/staticAbilities.js";
-import { calculateMaxLandsPerTurn, canPlayLandsFromTop, canCastFromTop } from "../state/modules/game-state-effects.js";
+import { canCastFromTop } from "../state/modules/game-state-effects.js";
 import { movePermanentToGraveyard } from "../state/modules/counters_tokens.js";
 import { debug, debugWarn, debugError, debugEnv } from "../utils/debug.js";
 import { BOOT_ID } from "../utils/bootId.js";
@@ -425,43 +425,6 @@ export function millUntilLand(
 }
 
 /**
- * Add commander tax to a mana cost string
- * @param manaCost Original mana cost like "{2}{R}{R}"
- * @param tax Commander tax amount (increases by 2 each time)
- * @returns New mana cost with tax added like "{4}{R}{R}"
- */
-function addTaxToManaCost(manaCost: string, tax: number): string {
-  if (!tax || tax === 0) return manaCost;
-  
-  // Parse the original mana cost
-  const symbols = manaCost.match(/\{[^}]+\}/g) || [];
-  
-  // Extract generic mana (colorless/numeric symbols)
-  let genericMana = 0;
-  const coloredSymbols: string[] = [];
-  
-  for (const symbol of symbols) {
-    const innerSymbol = symbol.slice(1, -1); // Remove { and }
-    const numericValue = parseInt(innerSymbol, 10);
-    
-    if (!isNaN(numericValue)) {
-      // It's a generic/numeric mana symbol
-      genericMana += numericValue;
-    } else {
-      // It's a colored or special symbol (W, U, B, R, G, C, X, etc.)
-      coloredSymbols.push(symbol);
-    }
-  }
-  
-  // Add tax to generic mana
-  genericMana += tax;
-  
-  // Reconstruct the mana cost
-  const genericSymbol = genericMana > 0 ? `{${genericMana}}` : '';
-  return genericSymbol + coloredSymbols.join('');
-}
-
-/**
  * Get IDs of cards/permanents that the player can currently play or activate
  * This is used for UI highlighting to show players their available options
  * Includes: cards in hand, battlefield abilities, foretell cards in exile, 
@@ -593,58 +556,35 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       }
     }
     
-    // Check for playable lands in hand (during main phase with empty stack)
+    // Check for playable lands from any supported zone (during main phase with empty stack)
     if (isMainPhase && stackIsEmpty && isMyTurn) {
-      const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-      // Calculate max lands per turn dynamically from battlefield effects
-      // This accounts for Exploration, Azusa, Rites of Flourishing, etc.
-      const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
-      
-      if (landsPlayedThisTurn < maxLandsPerTurn && Array.isArray(zones.hand)) {
-        for (const card of zones.hand) {
-          if (!card || typeof card === "string") continue;
+      const playableLandCandidates = getPlayableLandCandidates({
+        state,
+        libraries: (game as any).libraries,
+      } as any, playerId);
 
-          if (isCardPlayableAsLandFromHand(card)) {
-            playableIds.push(card.id);
-          }
-        }
+      const highlightedLandIds = new Set<string>();
+      for (const candidate of playableLandCandidates) {
+        const playableId = candidate.sourceZone === 'library'
+          ? `library-${playerId}`
+          : String(candidate.card?.id || '');
+        if (!playableId || highlightedLandIds.has(playableId)) continue;
+        highlightedLandIds.add(playableId);
+        playableIds.push(playableId);
       }
     }
     
-    // Check for castable commanders from command zone
-    // Partner commanders and backgrounds should be tracked independently in inCommandZone
-    // Each commander can be cast separately while the other remains in the command zone
-    const commandZone = (state as any).commandZone?.[playerId];
-    if (commandZone) {
-      const inCommandZone = (commandZone as any).inCommandZone as string[] || [];
-      const commanderCards = (commandZone as any).commanderCards as any[] || [];
-      // Fix: Use taxById (the actual field name) instead of commanderTax
-      const taxById = (commandZone as any).taxById || {};
-      
-      if (inCommandZone.length > 0 && commanderCards.length > 0) {
-        for (const commanderId of inCommandZone) {
-          const commander = commanderCards.find((c: any) => c.id === commanderId || c.name === commanderId);
-          if (!commander) continue;
-          
-          const manaCost = commander.mana_cost || "";
-          // Fix: Use taxById with the correct commanderId key
-          const tax = taxById[commanderId] || 0;
-          const totalCost = addTaxToManaCost(manaCost, tax);
-          const parsedCost = parseManaFromString(totalCost);
-          
-          const typeLine = (commander.type_line || "").toLowerCase();
-          const oracleText = (commander.oracle_text || "").toLowerCase();
-          
-          // Check timing
-          const isInstantSpeed = typeLine.includes("instant") || oracleText.includes("flash");
-          const canCastNow = isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn);
-          
-          // Check if player can pay the cost (normal or alternate like WUBRG/Omniscience)
-          if (canCastNow && (canPayManaCostWithAvailableSources(state, playerId, parsedCost) || hasPayableAlternateCost(game as any, playerId, commander))) {
-            playableIds.push(commanderId);
-          }
-        }
-      }
+    const commanderCandidates = getCastableCommanderCandidates({
+      state,
+      libraries: (game as any).libraries,
+    } as any, playerId as any);
+    for (const candidate of commanderCandidates) {
+      const canCastNow = candidate.grantsFlash || (isMainPhase && stackIsEmpty && isMyTurn);
+      if (!canCastNow) continue;
+
+      const commanderId = String(candidate.commanderId || candidate.card?.id || '').trim();
+      if (!commanderId || playableIds.includes(commanderId)) continue;
+      playableIds.push(commanderId);
     }
     
     // Check exile zone for foretell cards and other playable cards
@@ -686,13 +626,8 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
             : Boolean(entry);
           
           if (isPlayable) {
-            // Lands from exile: highlight if the player can still play a land.
+            // Land highlighting from exile is handled by the shared land helper above.
             if (typeLine.includes('land')) {
-              const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-              const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
-              if (isMainPhase && stackIsEmpty && isMyTurn && landsPlayedThisTurn < maxLandsPerTurn) {
-                playableIds.push(card.id);
-              }
               continue;
             }
 
@@ -786,7 +721,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
       }
     }
     
-    // Check top of library if player can play from top
+    // Check top of library if player can cast spells from top
     const libraries = (game as any).libraries;
     if (libraries && typeof libraries.get === 'function') {
       const library = libraries.get(playerId);
@@ -796,18 +731,7 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
           const typeLine = (topCard.type_line || "").toLowerCase();
           const topCtx = { state } as any;
           
-          // For lands from top of library
-          if (typeLine.includes("land")) {
-            const topLandPermission = canPlayLandsFromTop(topCtx, playerId);
-            if (topLandPermission.canPlay && isMainPhase && stackIsEmpty && isMyTurn) {
-              const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-              const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx as any, playerId);
-              if (landsPlayedThisTurn < maxLandsPerTurn) {
-                // Highlight the library zone instead of the individual card
-                playableIds.push(`library-${playerId}`);
-              }
-            }
-          } else {
+          if (!typeLine.includes("land")) {
             const hasCastableTopFace = getHandCastEvaluationCards(topCard).some((castCard: any) => {
               if (!castCard || typeof castCard === 'string') return false;
 
@@ -832,7 +756,10 @@ function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
 
             if (hasCastableTopFace) {
               // Highlight the library zone instead of the individual card
-              playableIds.push(`library-${playerId}`);
+              const libraryPlayableId = `library-${playerId}`;
+              if (!playableIds.includes(libraryPlayableId)) {
+                playableIds.push(libraryPlayableId);
+              }
             }
           }
         }

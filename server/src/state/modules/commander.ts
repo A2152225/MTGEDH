@@ -287,7 +287,8 @@ export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId:
   debug(1, `[castCommander] Called with playerId: ${playerId}, commanderId: ${commanderId}`);
   
   const { commandZone, bumpSeq, state } = ctx;
-  const info = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {}, inCommandZone: [] };
+  const stateCommandZone = (state?.commandZone as any) || {};
+  const info = commandZone[playerId] ?? stateCommandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {}, inCommandZone: [] };
   
   debug(1, `[castCommander] Commander info for player ${playerId}:`, {
     commanderIds: info.commanderIds,
@@ -324,7 +325,8 @@ export function castCommander(ctx: GameContext, playerId: PlayerID, commanderId:
 
 export function moveCommanderToCZ(ctx: GameContext, playerId: PlayerID, commanderId: string) {
   const { commandZone, bumpSeq, state } = ctx;
-  const info = commandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {}, inCommandZone: [] };
+  const stateCommandZone = (state?.commandZone as any) || {};
+  const info = commandZone[playerId] ?? stateCommandZone[playerId] ?? { commanderIds: [], tax: 0, taxById: {}, inCommandZone: [] };
   
   // Only add if it's a valid commander for this player
   if (!info.commanderIds.includes(commanderId)) {

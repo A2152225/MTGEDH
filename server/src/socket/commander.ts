@@ -16,9 +16,11 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { ensureGame, broadcastGame, emitStateToSocket, parseManaCost, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, consumeManaFromPool, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, getPlayerName } from "./util";
-import { getCostAdjustmentForCard } from "../state/modules/can-respond.js";
+import { ensureGame, broadcastGame, emitStateToSocket, getManaColorName, MANA_COLORS, MANA_COLOR_NAMES, clearHumanAutoPassPauseOnAction } from "./util";
+import { requestCastSpellForSocket } from "./game-actions.js";
+import { emitResolutionStepPrompt } from "./resolution.js";
 import { getCommanderImageUris } from "../state/modules/commander.js";
+import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../../shared/src";
@@ -532,7 +534,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
   });
 
   // Cast commander from command zone
-  socket.on("castCommander", (payload?: { gameId?: unknown; commanderId?: unknown; commanderNameOrId?: unknown; payment?: unknown }) => {
+  socket.on("castCommander", async (payload?: { gameId?: unknown; commanderId?: unknown; commanderNameOrId?: unknown; payment?: unknown }) => {
     try {
       const gameId = payload?.gameId;
       const payment = payload?.payment;
@@ -568,10 +570,6 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       let commanderId: string = requestedCommanderId;
-      const paymentItems = Array.isArray(payment)
-        ? payment as Array<{ permanentId: string; mana: string; count?: number }>
-        : undefined;
-
       // In-room + matching socket.data.gameId guard to prevent cross-game mutations.
       {
         const sockAny = socket as any;
@@ -602,7 +600,7 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
       
       // Check if we're in PRE_GAME phase - spells cannot be cast during pre-game
       const phaseStr = String(game.state?.phase || "").toUpperCase().trim();
-      if (phaseStr === "" || phaseStr === "pre_game") {
+      if (phaseStr === "" || phaseStr === "PRE_GAME") {
         socket.emit("error", {
           code: "PREGAME_NO_CAST",
           message: "Cannot cast commander during pre-game. Start the game first by claiming turn and advancing to main phase.",
@@ -685,255 +683,30 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
         return;
       }
       
-      debug(2, `[castCommander] Commander is in command zone, checking priority`);
-      
-      // Check priority - only active player can cast spells during their turn
-      if (game.state.priority !== pid) {
-        debug(1, `[castCommander] Priority check failed: priority=${game.state.priority}, playerId=${pid}`);
-        socket.emit("error", {
-          code: "NO_PRIORITY",
-          message: "You don't have priority",
+      debug(2, `[castCommander] Commander is in command zone, delegating to requestCastSpellForSocket`);
+
+      const pendingSteps = ResolutionQueueManager.getStepsForPlayer(gameId, pid as any);
+      if (pendingSteps.length > 0) {
+        const nextPendingStep = pendingSteps[0] as any;
+        emitResolutionStepPrompt(socket, gameId, nextPendingStep);
+        socket.emit('error', {
+          code: 'PENDING_DECISION',
+          message: 'Finish the current pending choice before starting another cast.',
         });
         return;
       }
-      
-      debug(2, `[castCommander] Priority check passed, getting commander card details`);
-      debug(2, `[castCommander] Looking for commanderId ${commanderId} in commanderCards array:`, commanderInfo.commanderCards);
-      
-      // Get commander card details
-      const commanderCard = commanderInfo.commanderCards?.find((c: any) => c.id === commanderId);
-      if (!commanderCard) {
-        debugError(1, `[castCommander] Commander card NOT FOUND in commanderCards!`, {
-          commanderId,
-          commanderCards: commanderInfo.commanderCards,
-          commanderIds: commanderInfo.commanderIds
-        });
-        socket.emit("error", {
-          code: "COMMANDER_CARD_NOT_FOUND",
-          message: "Commander card details not found",
-        });
-        return;
-      }
-      
-      debug(2, `[castCommander] Found commander card: ${commanderCard.name}`);
-      
-      // Parse the mana cost to validate payment
-      const manaCost = commanderCard.mana_cost || "";
-      const parsedCost = parseManaCost(manaCost);
-      
-      // Calculate total mana cost including commander tax
-      // Use ?? instead of || to properly handle tax of 0
-      // IMPORTANT: Only use taxById[commanderId], NOT commanderInfo.tax (which is the TOTAL tax for ALL commanders)
-      const commanderTax = (commanderInfo as any).taxById?.[commanderId] ?? 0;
-      debug(2, `[castCommander] Commander tax for ${commanderId}: ${commanderTax} (taxById: ${(commanderInfo as any).taxById?.[commanderId]}, total tax: ${commanderInfo.tax})`);
-      
-      // Apply cost adjustments (monuments, cost reducers, taxes from opponents)
-      const costAdjustment = getCostAdjustmentForCard(game.state, pid, commanderCard);
-      debug(2, `[castCommander] Cost adjustment for ${commanderCard.name}: ${costAdjustment} (negative = reduction, positive = tax)`);
-      
-      const totalGeneric = parsedCost.generic + commanderTax + costAdjustment;
-      const totalColored = parsedCost.colors;
-      
-      // Get existing mana pool (floating mana from previous spells)
-      const existingPool = getOrInitManaPool(game.state, pid);
-      
-      // Calculate total available mana (existing pool + new payment)
-      const totalAvailable = calculateTotalAvailableMana(existingPool, paymentItems);
-      
-      // Log floating mana if any
-      const floatingMana = Object.entries(existingPool).filter(([_, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
-      if (floatingMana) {
-        debug(2, `[castCommander] Floating mana available in pool: ${floatingMana}`);
-      }
-      
-      // Calculate total required cost
-      const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
-      const totalCost = coloredCostTotal + totalGeneric;
-      
-      debug(2, `[castCommander] Validating mana payment: totalCost=${totalCost}, coloredCostTotal=${coloredCostTotal}, totalGeneric=${totalGeneric}`);
-      
-      // Validate if total available mana can pay the cost
-      if (totalCost > 0) {
-        const validationError = validateManaPayment(totalAvailable, totalColored, totalGeneric);
-        if (validationError) {
-          let errorMsg = `Insufficient mana to cast ${commanderCard.name}.`;
-          if (commanderTax > 0) {
-            errorMsg += ` (includes {${commanderTax}} commander tax)`;
-          }
-          errorMsg += ` ${validationError}`;
-          debugError(1, `[castCommander] Mana validation failed:`, { validationError, totalAvailable, totalColored, totalGeneric });
-          socket.emit("error", {
-            code: "INSUFFICIENT_MANA",
-            message: errorMsg,
-          });
-          return;
-        }
-        debug(2, `[castCommander] Mana validation passed`);
-      }
-      
-      debug(1, `[castCommander] Player ${pid} casting commander ${commanderId} (${commanderCard.name}) in game ${gameId}`);
-      debug(1, `[castCommander] Commander info before casting:`, {
-        commanderId,
-        commanderName: commanderCard.name,
-        inCommandZone: (commanderInfo as any).inCommandZone,
-        tax: (commanderInfo as any).taxById?.[commanderId] ?? 0
+
+      await requestCastSpellForSocket(io as any, socket as any, {
+        gameId,
+        cardId: commanderId,
+        fromZone: 'command',
       });
-      
-      debug(2, `[castCommander] About to process payment and cast commander`);
-      
-      // Handle mana payment: tap permanents to generate mana (adds to pool)
-      if (paymentItems && paymentItems.length > 0) {
-        debug(2, `[castCommander] Processing payment for ${commanderCard.name}:`, paymentItems);
-        
-        // Get player's battlefield
-        const zones = game.state?.zones?.[pid];
-        const battlefield = (zones as any)?.battlefield || game.state?.battlefield?.filter((p: any) => p.controller === pid) || [];
-        
-        // Process each payment item: tap the permanent and add mana to pool
-        for (const { permanentId, mana, count } of paymentItems) {
-          const manaCount = count || 1; // Default to 1 if count not specified
-          
-          // Search in global battlefield (the structure may be flat)
-          const globalBattlefield = game.state?.battlefield || [];
-          const permanent = globalBattlefield.find((p: any) => p?.id === permanentId && p?.controller === pid);
-          
-          if (!permanent) {
-            socket.emit("error", {
-              code: "PAYMENT_SOURCE_NOT_FOUND",
-              message: `Permanent ${permanentId} not found on battlefield`,
-            });
-            return;
-          }
-          
-          if ((permanent as any).tapped) {
-            socket.emit("error", {
-              code: "PAYMENT_SOURCE_TAPPED",
-              message: `${(permanent as any).card?.name || 'Permanent'} is already tapped`,
-            });
-            return;
-          }
-          
-          // Tap the permanent
-          (permanent as any).tapped = true;
-          debug(2, `[castCommander] Tapped ${(permanent as any).card?.name || permanentId} for ${manaCount}x ${mana} mana`);
-          
-          // Add mana to player's mana pool (already initialized via getOrInitManaPool above)
-          const manaColorMap: Record<string, string> = {
-            'W': 'white',
-            'U': 'blue',
-            'B': 'black',
-            'R': 'red',
-            'G': 'green',
-            'C': 'colorless',
-          };
-          
-          const poolKey = manaColorMap[mana];
-          if (poolKey) {
-            const poolBefore = (game.state.manaPool[pid] as any)[poolKey];
-            (game.state.manaPool[pid] as any)[poolKey] += manaCount;
-            debug(3, `[castCommander] Added ${manaCount}x ${mana} mana to pool: ${poolKey} ${poolBefore} -> ${(game.state.manaPool[pid] as any)[poolKey]}`);
-          } else {
-            debugWarn(1, `[castCommander] Unknown mana color: ${mana}`);
-          }
-        }
-      }
-      
-      debug(2, `[castCommander] Payment processing complete, about to consume mana from pool`);
-      
-      // Consume mana from pool to pay for the spell
-      // This uses both floating mana and newly tapped mana, leaving unspent mana for subsequent spells
-      const pool = getOrInitManaPool(game.state, pid);
-      debug(2, `[castCommander] Pool before consume:`, pool);
-      consumeManaFromPool(pool, totalColored, totalGeneric, '[castCommander]');
-      debug(2, `[castCommander] Pool after consume:`, pool);
-      
-      debug(2, `[castCommander] About to add commander to stack`);
-      
-      // Add commander to stack (simplified - real implementation would handle costs, targets, etc.)
-      try {
-        debug(2, `[castCommander] Pushing commander to stack...`);
-        if (typeof (game as any).pushStack === "function") {
-          const stackItem = {
-            id: `stack_${Date.now()}_${commanderId}`,
-            controller: pid,
-            source: 'command',
-            fromZone: 'command',
-            castSourceZone: 'command',
-            card: { ...commanderCard, zone: "stack", isCommander: true, source: 'command', fromZone: 'command', castSourceZone: 'command' },
-            targets: [],
-          };
-          debug(2, `[castCommander] Calling game.pushStack with item:`, stackItem);
-          (game as any).pushStack(stackItem);
-          debug(2, `[castCommander] Successfully pushed to stack via game.pushStack`);
-        } else {
-          // Fallback: manually add to stack
-          debug(2, `[castCommander] game.pushStack not available, using fallback`);
-          game.state.stack = game.state.stack || [];
-          game.state.stack.push({
-            id: `stack_${Date.now()}_${commanderId}`,
-            controller: pid,
-            source: 'command',
-            fromZone: 'command',
-            castSourceZone: 'command',
-            card: { ...commanderCard, zone: "stack", isCommander: true, source: 'command', fromZone: 'command', castSourceZone: 'command' },
-            targets: [],
-          } as any);
-          debug(2, `[castCommander] Successfully pushed to stack (fallback), stack length: ${game.state.stack.length}`);
-        }
-        
-        debug(2, `[castCommander] About to call game.castCommander to update tax and command zone`);
-        // Update commander tax and remove from command zone
-        if (typeof (game as any).castCommander === "function") {
-          debug(1, `[castCommander] Calling game.castCommander with playerId: ${pid}, commanderId: ${commanderId}`);
-          (game as any).castCommander(pid, commanderId);
-          debug(2, `[castCommander] Successfully called game.castCommander`);
-        } else {
-          debugWarn(1, `[castCommander] game.castCommander function not available - tax may not update correctly`);
-        }
-        
-        // Bump sequence to trigger client update
-        if (typeof (game as any).bumpSeq === "function") {
-          (game as any).bumpSeq();
-        }
-        
-        debug(1, `[castCommander] Appending event with playerId: ${pid}, commanderId: ${commanderId}`);
-        if (!commanderId) {
-          debugError(1, `[castCommander] CRITICAL: Attempting to append castCommander event with undefined commanderId!`, {
-            playerId: pid,
-            commanderId,
-            payload
-          });
-          throw new Error("Cannot persist castCommander event with undefined commanderId");
-        }
-        debug(2, `[castCommander] About to append event and broadcast`);
-        appendEvent(gameId, game.seq, "castCommander", {
-          playerId: pid,
-          commanderId,
-          cardId: commanderCard.id,
-          cardName: commanderCard.name,
-          card: commanderCard,
-          payment: paymentItems,
-        });
-        debug(2, `[castCommander] Event appended successfully`);
-        
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} cast ${commanderCard.name} from the command zone.`,
-          ts: Date.now(),
-        });
-        debug(2, `[castCommander] Chat message emitted`);
-        
-        debug(2, `[castCommander] About to broadcast game state`);
-        broadcastGame(io, game, gameId);
-        debug(1, `[castCommander] Successfully cast commander and broadcast game state`);
-      } catch (err: any) {
-        debugError(1, `[castCommander] Failed to push commander to stack:`, err);
-        socket.emit("error", {
-          code: "CAST_COMMANDER_FAILED",
-          message: err?.message ?? String(err),
-        });
+
+      clearHumanAutoPassPauseOnAction(game as any, pid, 'castCommander');
+
+      const nextQueuedStep = ResolutionQueueManager.getStepsForPlayer(gameId, pid as any)[0] as any;
+      if (nextQueuedStep) {
+        emitResolutionStepPrompt(socket, gameId, nextQueuedStep);
       }
     } catch (err: any) {
       debugError(1, `castCommander error:`, err);

@@ -2186,6 +2186,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
         // Fall back to cardId for backward compatibility with old events
         const fromZone = String((e as any).fromZone || '').toLowerCase().trim();
         let spellCardData = (e as any).card || (e as any).cardId;
+        if (fromZone === 'command' && typeof spellCardData === 'string') {
+          const commanderCard = resolveReplayCommanderCard(ctx as any, e, String(spellCardData));
+          if (commanderCard) {
+            spellCardData = commanderCard;
+          }
+        }
         if (fromZone === 'library' && typeof spellCardData === 'string') {
           const library = Array.isArray((ctx as any).libraries?.get?.((e as any).playerId))
             ? (ctx as any).libraries.get((e as any).playerId)
@@ -2264,6 +2270,9 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               }
               if (fromZoneLower === 'graveyard') {
                 applyToStackItem('castFromGraveyard', true);
+              }
+              if (fromZoneLower === 'command') {
+                applyToStackItem('isCommander', true);
               }
             }
             if ((e as any).castFromHand === true) {

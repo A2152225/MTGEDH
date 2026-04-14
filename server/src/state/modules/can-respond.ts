@@ -108,6 +108,427 @@ export function getHandCastEvaluationCards(card: any): any[] {
   return [card];
 }
 
+export type SharedSpellSourceZone = 'hand' | 'graveyard' | 'exile' | 'library';
+export type SharedSpellCandidateMode = 'main' | 'response' | 'sorcery';
+export type SharedSpellCandidatePayability = 'normal' | 'alternate' | 'assumed';
+export type SharedSpellCastMethod = 'normal' | 'flashback' | 'foretell' | 'playable_from_exile' | 'graveyard_permanent';
+export type SharedLandSourceZone = SharedSpellSourceZone;
+
+export interface SharedSpellCastCandidate {
+  card: any;
+  castCard: any;
+  sourceZone: SharedSpellSourceZone;
+  castMethod: SharedSpellCastMethod;
+  payability: SharedSpellCandidatePayability;
+  manaCost?: string;
+  cost?: ReturnType<typeof parseManaCost>;
+  grantsFlash?: boolean;
+}
+
+export interface SharedPlayableLandCandidate {
+  card: any;
+  sourceZone: SharedLandSourceZone;
+  selectedFaceIndex?: number;
+}
+
+export type SharedCommanderParsedCost = ReturnType<typeof parseManaCost> & {
+  cmc: number;
+};
+
+export interface SharedCommanderBaseCandidate {
+  card: any;
+  commanderId: string;
+  manaCost: string;
+  cost: SharedCommanderParsedCost;
+  grantsFlash: boolean;
+  isBackground: boolean;
+  commanderTax: number;
+  costAdjustment: number;
+}
+
+export interface SharedCommanderAvailabilityCandidate extends SharedCommanderBaseCandidate {
+  canPayCost: boolean;
+}
+
+export type SharedCommanderCastCandidate = SharedCommanderBaseCandidate;
+
+function getCommandZoneCommanderCards(commandZone: any): any[] {
+  if (Array.isArray(commandZone?.commanderCards)) {
+    return commandZone.commanderCards;
+  }
+
+  if (Array.isArray(commandZone?.commanders)) {
+    return commandZone.commanders;
+  }
+
+  return [];
+}
+
+function getCommandZoneCommanderIds(commandZone: any): string[] {
+  if (Array.isArray(commandZone?.inCommandZone) && commandZone.inCommandZone.length > 0) {
+    return commandZone.inCommandZone.map((entry: unknown) => String(entry || '').trim()).filter(Boolean);
+  }
+
+  if (Array.isArray(commandZone?.commanderIds)) {
+    return commandZone.commanderIds.map((entry: unknown) => String(entry || '').trim()).filter(Boolean);
+  }
+
+  return [];
+}
+
+function isCommanderAlreadyOnBattlefieldOrStack(
+  state: any,
+  playerId: PlayerID,
+  commanderId: string,
+  commander: any,
+): boolean {
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  const commanderName = String(commander?.name || '').trim();
+
+  const matchesCommander = (entry: any) => {
+    const entryCard = entry?.card || entry?.spell?.card || entry?.sourceCard || entry?.source?.card;
+    const entryCardId = String(entryCard?.id || '').trim();
+    const entryCardName = String(entryCard?.name || '').trim();
+    return (
+      entryCardId === commanderId ||
+      (commanderName.length > 0 && entryCardName === commanderName) ||
+      (entry?.isCommander === true && String(entry?.controller || '') === String(playerId || '') && entryCardName === commanderName)
+    );
+  };
+
+  return battlefield.some(matchesCommander) || stack.some(matchesCommander);
+}
+
+export function getCommandZoneCommanderCandidates(
+  ctx: GameContext,
+  playerId: PlayerID,
+): SharedCommanderAvailabilityCandidate[] {
+  try {
+    const state = ctx?.state as any;
+    if (!state) return [];
+
+    const commandZone = state.commandZone?.[playerId];
+    if (!commandZone) return [];
+
+    const commanderCards = getCommandZoneCommanderCards(commandZone);
+    const inCommandZone = getCommandZoneCommanderIds(commandZone);
+    if (commanderCards.length === 0 || inCommandZone.length === 0) {
+      return [];
+    }
+
+    const candidates: SharedCommanderAvailabilityCandidate[] = [];
+
+    for (const commanderKey of inCommandZone) {
+      const commander = commanderCards.find((card: any) => {
+        const cardId = String(card?.id || '').trim();
+        const cardName = String(card?.name || '').trim();
+        return cardId === commanderKey || cardName === commanderKey;
+      });
+      if (!commander) continue;
+
+      const commanderId = String(commander?.id || commanderKey).trim();
+      if (!commanderId) continue;
+
+      if (isCommanderAlreadyOnBattlefieldOrStack(state, playerId, commanderId, commander)) {
+        continue;
+      }
+
+      const manaCost = String(commander?.mana_cost || commander?.manaCost || '').trim();
+      if (!manaCost) continue;
+
+      const parsedCost = parseManaCost(manaCost);
+      const commanderTax = Number((commandZone as any).taxById?.[commanderId] ?? (commandZone as any).taxById?.[commanderKey] ?? 0) || 0;
+      const costAdjustment = getCostAdjustmentForCard(state, playerId, commander);
+      const adjustedCost = {
+        ...parsedCost,
+        generic: parsedCost.generic + commanderTax + costAdjustment,
+      };
+      const canPayCost = canPayManaCostWithAvailableSources(state, playerId, adjustedCost);
+
+      const typeLine = String(commander?.type_line || commander?.typeLine || '').toLowerCase();
+      const cmc = adjustedCost.generic + Object.values(adjustedCost.colors).reduce((sum, value) => sum + value, 0);
+
+      candidates.push({
+        card: commander,
+        commanderId,
+        manaCost,
+        cost: {
+          ...adjustedCost,
+          cmc,
+        },
+        grantsFlash: hasFlashOrInstant(commander),
+        isBackground: typeLine.includes('background'),
+        commanderTax,
+        costAdjustment,
+        canPayCost,
+      });
+    }
+
+    return candidates;
+  } catch (err) {
+    debugWarn(1, '[getCommandZoneCommanderCandidates] Error:', err);
+    return [];
+  }
+}
+
+export function getCastableCommanderCandidates(
+  ctx: GameContext,
+  playerId: PlayerID,
+): SharedCommanderCastCandidate[] {
+  try {
+    const state = ctx?.state as any;
+    if (!state) return [];
+
+    if (isSplitSecondLockActive(state)) {
+      return [];
+    }
+
+    return getCommandZoneCommanderCandidates(ctx, playerId)
+      .filter((candidate) => candidate.canPayCost)
+      .map(({ canPayCost: _canPayCost, ...candidate }) => candidate);
+  } catch (err) {
+    debugWarn(1, '[getCastableCommanderCandidates] Error:', err);
+    return [];
+  }
+}
+
+function isPermanentSpellType(typeLine: string): boolean {
+  return (
+    typeLine.includes('creature') ||
+    typeLine.includes('artifact') ||
+    typeLine.includes('enchantment') ||
+    typeLine.includes('planeswalker') ||
+    typeLine.includes('battle')
+  );
+}
+
+function isSorcerySpeedSpellCard(card: any): boolean {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  if (isLandTypeLine(typeLine)) return false;
+
+  return (
+    typeLine.includes('creature') ||
+    typeLine.includes('sorcery') ||
+    typeLine.includes('artifact') ||
+    typeLine.includes('enchantment') ||
+    typeLine.includes('planeswalker') ||
+    typeLine.includes('battle')
+  );
+}
+
+function spellMatchesCandidateMode(card: any, mode: SharedSpellCandidateMode, grantsFlash: boolean): boolean {
+  if (mode === 'main') {
+    return true;
+  }
+
+  const isResponseSpeed = hasFlashOrInstant(card) || grantsFlash;
+  if (mode === 'response') {
+    return isResponseSpeed;
+  }
+
+  return !isResponseSpeed && isSorcerySpeedSpellCard(card);
+}
+
+function canUseAlternateCostForSpellCandidate(sourceZone: SharedSpellSourceZone, castMethod: SharedSpellCastMethod): boolean {
+  if (sourceZone === 'hand' || sourceZone === 'library') {
+    return true;
+  }
+
+  if (sourceZone === 'exile') {
+    return castMethod !== 'foretell';
+  }
+
+  return false;
+}
+
+export function getCastableSpellCandidates(
+  ctx: GameContext,
+  playerId: PlayerID,
+  options?: {
+    mode?: SharedSpellCandidateMode;
+    skipIgnoredCards?: boolean;
+    allowAlternateCosts?: boolean;
+    allowUnknownCostFallback?: boolean;
+  },
+): SharedSpellCastCandidate[] {
+  try {
+    const { state } = ctx;
+    if (!state) return [];
+
+    if (isSplitSecondLockActive(state)) {
+      return [];
+    }
+
+    const zones = state.zones?.[playerId];
+    if (!zones) return [];
+
+    const mode = options?.mode || 'main';
+    const skipIgnoredCards = options?.skipIgnoredCards === true;
+    const allowAlternateCosts = options?.allowAlternateCosts !== false;
+    const allowUnknownCostFallback = options?.allowUnknownCostFallback !== false;
+    const ignoredCards = (state as any).ignoredCardsForAutoPass?.[playerId] || {};
+    const stateAny = state as any;
+    const currentTurn = Number(stateAny?.turnNumber ?? 0);
+    const exilePermissions = stateAny?.playableFromExile?.[playerId];
+    const canCastPermanentFromGraveyard = hasPlayFromZoneEffect(ctx, playerId, 'graveyard');
+    const candidates: SharedSpellCastCandidate[] = [];
+
+    const considerSourceCard = (card: any, sourceZone: SharedSpellSourceZone) => {
+      if (!card || typeof card === 'string') return;
+
+      const sourceCardId = String(card?.id || card?.name || '');
+      if (skipIgnoredCards && sourceCardId && ignoredCards[sourceCardId]) {
+        debug(2, `[getCastableSpellCandidates] Skipping ignored ${sourceZone} card: ${card.name || sourceCardId}`);
+        return;
+      }
+
+      for (const castCard of getHandCastEvaluationCards(card)) {
+        if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
+          continue;
+        }
+
+        const typeLine = String(castCard?.type_line || '').toLowerCase();
+        if (isLandTypeLine(typeLine)) {
+          continue;
+        }
+
+        let castMethod: SharedSpellCastMethod = 'normal';
+        let manaCost = String(castCard?.mana_cost || castCard?.manaCost || '');
+        let grantsFlash = false;
+        let unknownCostFallback = false;
+
+        if (sourceZone === 'library') {
+          const topSpellPermission = getTopLibrarySpellPermission(ctx, playerId, castCard);
+          if (!topSpellPermission.canCast) {
+            continue;
+          }
+          grantsFlash = topSpellPermission.grantsFlash === true;
+        } else if (sourceZone === 'graveyard') {
+          const flashbackInfo = hasFlashback(card);
+          if (flashbackInfo.hasIt) {
+            castMethod = 'flashback';
+            if (flashbackInfo.cost) {
+              manaCost = flashbackInfo.cost;
+            } else {
+              unknownCostFallback = true;
+            }
+          } else if (canCastPermanentFromGraveyard && isPermanentSpellType(typeLine)) {
+            castMethod = 'graveyard_permanent';
+          } else {
+            continue;
+          }
+        } else if (sourceZone === 'exile') {
+          const exileInfo = hasForetellOrCanCastFromExile(card);
+          const exileCardId = String(card?.id || castCard?.id || castCard?.name || '');
+          const playableFromExile = isCardPlayableFromExile(exilePermissions, exileCardId, currentTurn);
+
+          if (exileInfo.hasIt) {
+            if (exileInfo.cost) {
+              castMethod = 'foretell';
+              manaCost = exileInfo.cost;
+            } else {
+              castMethod = playableFromExile ? 'playable_from_exile' : 'normal';
+              manaCost = String(castCard?.mana_cost || castCard?.manaCost || '');
+            }
+          } else if (playableFromExile) {
+            castMethod = 'playable_from_exile';
+          } else {
+            continue;
+          }
+        }
+
+        if (!spellMatchesCandidateMode(castCard, mode, grantsFlash)) {
+          continue;
+        }
+
+        if (!hasValidTargetsForSpell(state, playerId, castCard)) {
+          continue;
+        }
+
+        if (unknownCostFallback) {
+          if (!allowUnknownCostFallback) {
+            continue;
+          }
+
+          candidates.push({
+            card,
+            castCard,
+            sourceZone,
+            castMethod,
+            payability: 'assumed',
+            grantsFlash,
+          });
+          continue;
+        }
+
+        const parsedCost = parseManaCost(manaCost);
+        const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
+        const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
+
+        if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
+          candidates.push({
+            card,
+            castCard,
+            sourceZone,
+            castMethod,
+            payability: 'normal',
+            manaCost,
+            cost: adjustedCost,
+            grantsFlash,
+          });
+          continue;
+        }
+
+        if (
+          allowAlternateCosts &&
+          canUseAlternateCostForSpellCandidate(sourceZone, castMethod) &&
+          hasPayableAlternateCost(ctx, playerId, castCard)
+        ) {
+          candidates.push({
+            card,
+            castCard,
+            sourceZone,
+            castMethod,
+            payability: 'alternate',
+            manaCost,
+            grantsFlash,
+          });
+        }
+      }
+    };
+
+    if (Array.isArray(zones.hand)) {
+      for (const card of zones.hand as any[]) {
+        considerSourceCard(card, 'hand');
+      }
+    }
+
+    if (Array.isArray(zones.graveyard)) {
+      for (const card of zones.graveyard as any[]) {
+        considerSourceCard(card, 'graveyard');
+      }
+    }
+
+    const exileZone = stateAny?.zones?.[playerId]?.exile ?? stateAny.exile?.[playerId];
+    if (Array.isArray(exileZone)) {
+      for (const card of exileZone as any[]) {
+        considerSourceCard(card, 'exile');
+      }
+    }
+
+    const topCard = getTopLibraryCard(ctx, playerId);
+    if (topCard && typeof topCard !== 'string') {
+      considerSourceCard(topCard, 'library');
+    }
+
+    return candidates;
+  } catch (err) {
+    debugWarn(1, '[getCastableSpellCandidates] Error:', err);
+    return [];
+  }
+}
+
 function getTopLibraryCard(ctx: GameContext, playerId: PlayerID): any | null {
   const libraries = (ctx as any).libraries;
   if (!libraries || typeof libraries.get !== 'function') {
@@ -609,230 +1030,12 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
  * or exile (foretell/impulse draw)
  */
 export function canCastAnySpell(ctx: GameContext, playerId: PlayerID): boolean {
-  try {
-    const { state } = ctx;
-    if (!state) return false;
-
-    // Split Second: players can't cast spells while a split-second spell is on the stack.
-    if (isSplitSecondLockActive(state)) return false;
-    
-    const zones = state.zones?.[playerId];
-    if (!zones) return false;
-    
-    // Get mana pool (floating + potential from untapped sources)
-    const pool = getAvailableMana(state, playerId);
-    
-    // Get ignored cards for this player (for auto-pass)
-    const ignoredCards = (state as any).ignoredCardsForAutoPass?.[playerId] || {};
-    
-    // Check each card in hand
-    if (Array.isArray(zones.hand)) {
-      for (const card of zones.hand as any[]) {
-        if (!card || typeof card === "string") continue;
-        
-        // Skip ignored cards - they shouldn't trigger auto-pass prompts
-        if (ignoredCards[card.id]) {
-          debug(2, `[canCastAnySpell] Skipping ignored card in hand: ${card.name || card.id}`);
-          continue;
-        }
-        
-        // Skip transform back faces - they can't be cast from hand
-        if (isTransformBackFace(card)) {
-          debug(2, `[canCastAnySpell] Skipping transform back face: ${card.name || 'unknown'}`);
-          continue;
-        }
-
-        for (const castCard of getHandCastEvaluationCards(card)) {
-          if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
-            continue;
-          }
-
-          if (!hasFlashOrInstant(castCard)) continue;
-
-          const manaCost = castCard.mana_cost || "";
-          const parsedCost = parseManaCost(manaCost);
-          const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
-          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-
-          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-            if (hasValidTargetsForSpell(state, playerId, castCard)) {
-              return true;
-            }
-          }
-
-          if (hasPayableAlternateCost(ctx, playerId, castCard)) {
-            if (hasValidTargetsForSpell(state, playerId, castCard)) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    
-    // Check graveyard for flashback instants
-    if (Array.isArray(zones.graveyard)) {
-      for (const card of zones.graveyard as any[]) {
-        if (!card || typeof card === "string") continue;
-
-        // Chosen-name cast restrictions apply regardless of zone
-        if (isSpellCastingProhibitedByChosenName(state, playerId, card.name || '').prohibited) {
-          continue;
-        }
-        
-        // Skip ignored cards in graveyard
-        if (ignoredCards[card.id]) {
-          debug(2, `[canCastAnySpell] Skipping ignored card in graveyard: ${card.name || card.id}`);
-          continue;
-        }
-        
-        // Check if it's an instant with flashback
-        const typeLine = (card.type_line || "").toLowerCase();
-        if (!typeLine.includes("instant")) continue;
-        
-        const flashbackInfo = hasFlashback(card);
-        if (!flashbackInfo.hasIt) continue;
-        
-        // Check if player can pay the flashback cost
-        if (flashbackInfo.cost) {
-          const parsedCost = parseManaCost(flashbackInfo.cost);
-          const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
-          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-            // Also check if the spell has valid targets (if it requires targets)
-            if (hasValidTargetsForSpell(state, playerId, card)) {
-              return true;
-            }
-          }
-        } else {
-          // If we can't parse the cost, be conservative and assume they can pay it
-          if (assumeCanPayUnknownCost(card.name, 'flashback')) {
-            // Also check if the spell has valid targets (if it requires targets)
-            if (hasValidTargetsForSpell(state, playerId, card)) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    
-    // Check exile for foretell instants or impulse draw effects
-    const stateAny = state as any;
-    const exileZone = stateAny?.zones?.[playerId]?.exile ?? stateAny.exile?.[playerId];
-    
-    if (Array.isArray(exileZone)) {
-      for (const card of exileZone as any[]) {
-        if (!card || typeof card === "string") continue;
-
-        // Chosen-name cast restrictions apply regardless of zone
-        if (isSpellCastingProhibitedByChosenName(state, playerId, card.name || '').prohibited) {
-          continue;
-        }
-        
-        // Skip ignored cards in exile
-        if (ignoredCards[card.id]) {
-          debug(2, `[canCastAnySpell] Skipping ignored card in exile: ${card.name || card.id}`);
-          continue;
-        }
-        
-        // Check if it's an instant that can be cast from exile
-        const typeLine = (card.type_line || "").toLowerCase();
-        if (!typeLine.includes("instant")) continue;
-        
-        // Check for foretell
-        const foretellInfo = hasForetellOrCanCastFromExile(card);
-        if (foretellInfo.hasIt) {
-          // Check if player can pay the foretell cost
-          if (foretellInfo.cost) {
-            const parsedCost = parseManaCost(foretellInfo.cost);
-            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
-            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-          } else {
-            // If we can't parse cost or card has "you may cast from exile", be conservative
-            if (assumeCanPayUnknownCost(card.name, 'foretell/exile')) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-          }
-        }
-        
-        // Check for impulse draw effects (playableFromExile state marker)
-        if (stateAny.playableFromExile?.[playerId]) {
-          const playableCards = stateAny.playableFromExile[playerId];
-          const cardId = card.id || card.name;
-          const currentTurn = Number(stateAny?.turnNumber ?? 0);
-          
-          // Check if this card is marked as playable from exile
-          if (isCardPlayableFromExile(playableCards, cardId, currentTurn)) {
-            // Check if player can pay the normal mana cost
-            const manaCost = card.mana_cost || "";
-            const parsedCost = parseManaCost(manaCost);
-            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
-            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-            
-            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-            
-            // Check alternate costs
-            if (hasPayableAlternateCost(ctx, playerId, card)) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    const topCard = getTopLibraryCard(ctx, playerId);
-    if (topCard && typeof topCard !== 'string') {
-      if (!ignoredCards[topCard.id]) {
-        for (const castCard of getHandCastEvaluationCards(topCard)) {
-          if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
-            continue;
-          }
-
-          const topSpellPermission = getTopLibrarySpellPermission(ctx, playerId, castCard);
-          if (!topSpellPermission.canCast) continue;
-          if (!hasFlashOrInstant(castCard) && !topSpellPermission.grantsFlash) continue;
-
-          const manaCost = castCard.mana_cost || '';
-          const parsedCost = parseManaCost(manaCost);
-          const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
-          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-
-          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-            if (hasValidTargetsForSpell(state, playerId, castCard)) {
-              return true;
-            }
-          }
-
-          if (hasPayableAlternateCost(ctx, playerId, castCard)) {
-            if (hasValidTargetsForSpell(state, playerId, castCard)) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    
-    return false;
-  } catch (err) {
-    debugWarn(1, "[canCastAnySpell] Error:", err);
-    return false; // Default to false on error
-  }
+  return getCastableSpellCandidates(ctx, playerId, {
+    mode: 'response',
+    skipIgnoredCards: true,
+    allowAlternateCosts: true,
+    allowUnknownCostFallback: true,
+  }).length > 0;
 }
 
 /**
@@ -1401,6 +1604,115 @@ export function isCardPlayableAsLandFromHand(card: any): boolean {
   return /\bland\b/i.test(String(card?.type_line || ''));
 }
 
+export function getPlayableLandFaceIndex(card: any): number | undefined {
+  const layout = String(card?.layout || '').toLowerCase();
+  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+
+  if (layout !== 'modal_dfc' || cardFaces.length === 0) {
+    return undefined;
+  }
+
+  const landFaceIndex = cardFaces.findIndex((face: any) => /\bland\b/i.test(String(face?.type_line || '')));
+  return landFaceIndex >= 0 ? landFaceIndex : undefined;
+}
+
+function hasRemainingLandPlay(ctx: GameContext, playerId: PlayerID): boolean {
+  const state = ctx.state as any;
+  const landsPlayedThisTurn = state?.landsPlayedThisTurn?.[playerId] ?? 0;
+  const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx, playerId);
+  return landsPlayedThisTurn < maxLandsPerTurn;
+}
+
+function canPlayLandFromGraveyard(ctx: GameContext, playerId: PlayerID): boolean {
+  return Array.isArray((ctx.state as any)?.landPlayPermissions?.[playerId])
+    ? (ctx.state as any).landPlayPermissions[playerId].includes('graveyard')
+    : false;
+}
+
+function isLandPlayableFromExile(state: any, playerId: PlayerID, card: any): boolean {
+  const playableCards = (state as any)?.playableFromExile?.[playerId];
+  const currentTurn = Number((state as any)?.turnNumber ?? 0);
+  const cardId = String(card?.id || card?.name || '');
+  return isCardPlayableFromExile(playableCards, cardId, currentTurn);
+}
+
+export function getPlayableLandCandidates(
+  ctx: GameContext,
+  playerId: PlayerID,
+  options?: { skipBattlefieldDuplicates?: boolean },
+): SharedPlayableLandCandidate[] {
+  try {
+    const { state } = ctx;
+    if (!state) return [];
+
+    const zones = state.zones?.[playerId];
+    if (!zones) return [];
+
+    if (!hasRemainingLandPlay(ctx, playerId)) {
+      return [];
+    }
+
+    const skipBattlefieldDuplicates = options?.skipBattlefieldDuplicates === true;
+    const battlefieldCardIds = skipBattlefieldDuplicates
+      ? new Set(
+          (Array.isArray(state.battlefield) ? state.battlefield : [])
+            .filter((permanent: any) => permanent?.controller === playerId)
+            .map((permanent: any) => String(permanent?.card?.id || ''))
+            .filter((cardId: string) => cardId.length > 0),
+        )
+      : new Set<string>();
+    const candidates: SharedPlayableLandCandidate[] = [];
+
+    const pushCandidate = (card: any, sourceZone: SharedLandSourceZone) => {
+      if (!card || typeof card === 'string') return;
+      if (!isCardPlayableAsLandFromHand(card)) return;
+
+      const cardId = String(card?.id || '');
+      if (skipBattlefieldDuplicates && cardId && battlefieldCardIds.has(cardId)) {
+        return;
+      }
+
+      candidates.push({
+        card,
+        sourceZone,
+        selectedFaceIndex: getPlayableLandFaceIndex(card),
+      });
+    };
+
+    const topCard = getTopLibraryCard(ctx, playerId);
+    if (topCard && canPlayTopLibraryLand(ctx, playerId, topCard)) {
+      pushCandidate(topCard, 'library');
+    }
+
+    if (canPlayLandFromGraveyard(ctx, playerId) && Array.isArray(zones.graveyard)) {
+      for (const card of zones.graveyard as any[]) {
+        pushCandidate(card, 'graveyard');
+      }
+    }
+
+    const exileZone = (state as any)?.zones?.[playerId]?.exile ?? (state as any)?.exile?.[playerId];
+    if (Array.isArray(exileZone)) {
+      for (const card of exileZone as any[]) {
+        if (!isLandPlayableFromExile(state, playerId, card)) {
+          continue;
+        }
+        pushCandidate(card, 'exile');
+      }
+    }
+
+    if (Array.isArray(zones.hand)) {
+      for (const card of zones.hand as any[]) {
+        pushCandidate(card, 'hand');
+      }
+    }
+
+    return candidates;
+  } catch (err) {
+    debugWarn(1, '[getPlayableLandCandidates] Error:', err);
+    return [];
+  }
+}
+
 /**
  * Check if player can play a land
  * This includes:
@@ -1425,90 +1737,30 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
       debug(2, `[canPlayLand] ${playerId}: No zones found`);
       return false;
     }
-    
-    // Check if player has already played maximum lands this turn
-    const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
-    
-    // Calculate max lands dynamically based on game state (Exploration, Azusa, etc.)
-    const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx, playerId);
-    
-    if (landsPlayedThisTurn >= maxLandsPerTurn) {
+
+    if (!hasRemainingLandPlay(ctx, playerId)) {
+      const landsPlayedThisTurn = (state.landsPlayedThisTurn as any)?.[playerId] ?? 0;
+      const maxLandsPerTurn = calculateMaxLandsPerTurn(ctx, playerId);
       debug(2, `[canPlayLand] ${playerId}: Already played max lands this turn (${landsPlayedThisTurn}/${maxLandsPerTurn})`);
-      return false; // Already played max lands
+      return false;
     }
-    
-    // Check if player has a land card in hand
-    if (Array.isArray(zones.hand)) {
-      debug(2, `[canPlayLand] ${playerId}: Checking hand with ${zones.hand.length} cards`);
-      
-      // Log first few cards in hand for debugging
-      const sampleCards = zones.hand.slice(0, 3).map((c: any) => {
-        if (!c || typeof c === "string") return `string:${c}`;
-        return `${c.name || 'unknown'}(${(c.type_line || '').substring(0, 20)})`;
-      });
-      debug(1, `[canPlayLand] ${playerId}: Sample cards in hand: [${sampleCards.join(', ')}]`);
-      
-      for (const card of zones.hand as any[]) {
-        if (!card || typeof card === "string") continue;
 
-        if (isCardPlayableAsLandFromHand(card)) {
-          debug(2, `[canPlayLand] ${playerId}: Found land in hand: ${card.name || 'unknown'} (${card.type_line || 'unknown type'}) - returning TRUE`);
-          return true; // Found a land in hand that can be played
-        }
-
-        if (isTransformBackFace(card)) {
-          debug(2, `[canPlayLand] ${playerId}: Skipping transform back face: ${card.name || 'unknown'}`);
-        }
-      }
-      debug(2, `[canPlayLand] ${playerId}: No lands found in hand of ${zones.hand.length} cards - returning FALSE`);
-    } else {
+    if (!Array.isArray(zones.hand)) {
       debug(2, `[canPlayLand] ${playerId}: zones.hand is not an array:`, typeof zones.hand, zones.hand);
-      // FALLBACK: Check handCount to see if there might be cards
       if (zones.handCount && zones.handCount > 0) {
         debugWarn(1, `[canPlayLand] ${playerId}: WARNING - handCount=${zones.handCount} but zones.hand is not an array! This is a data consistency issue.`);
-        // Return true conservatively - don't auto-pass if we're not sure
         return true;
       }
     }
-    
-    // Check if player can play lands from graveyard
-    const canPlayFromGraveyard = hasPlayFromZoneEffect(ctx, playerId, "graveyard");
-    
-    if (canPlayFromGraveyard && Array.isArray(zones.graveyard)) {
-      for (const card of zones.graveyard as any[]) {
-        if (!card || typeof card === "string") continue;
-        
-        const typeLine = (card.type_line || "").toLowerCase();
-        if (typeLine.includes("land")) {
-          return true; // Found a land in graveyard and can play it
-        }
-      }
-    }
-    
-    // Check if player can play lands from exile
-    // This covers: Aetherworks Marvel, Golos, impulse draw effects (Light Up the Stage, etc.)
-    const canPlayFromExile = hasPlayFromZoneEffect(ctx, playerId, "exile");
-    
-    if (canPlayFromExile) {
-      // Check exile zone for lands
-      const exileZone = (state as any)?.zones?.[playerId]?.exile ?? (state as any).exile?.[playerId];
-      if (Array.isArray(exileZone)) {
-        for (const card of exileZone as any[]) {
-          if (!card || typeof card === "string") continue;
-          
-          const typeLine = (card.type_line || "").toLowerCase();
-          if (typeLine.includes("land")) {
-            return true; // Found a land in exile and can play it
-          }
-        }
-      }
-    }
-    
-    const topCard = getTopLibraryCard(ctx, playerId);
-    if (topCard && canPlayTopLibraryLand(ctx, playerId, topCard)) {
+
+    const candidates = getPlayableLandCandidates(ctx, playerId);
+    if (candidates.length > 0) {
+      const firstCandidate = candidates[0];
+      debug(2, `[canPlayLand] ${playerId}: Found playable land in ${firstCandidate.sourceZone}: ${firstCandidate.card?.name || 'unknown'}`);
       return true;
     }
-    
+
+    debug(2, `[canPlayLand] ${playerId}: No playable land candidates found`);
     return false;
   } catch (err) {
     debugWarn(1, "[canPlayLand] Error:", err);
@@ -1705,70 +1957,20 @@ function canCastCommanderFromCommandZone(ctx: GameContext, playerId: PlayerID): 
   try {
     const { state } = ctx;
     if (!state) return false;
-    
-    // Get commander zone info for this player
-    const commandZone = (state as any).commandZone?.[playerId];
-    if (!commandZone) return false;
-    
-    // Get commanders that are currently in the command zone
-    const inCommandZone = (commandZone as any).inCommandZone as string[] || [];
-    const commanderCards = (commandZone as any).commanderCards as any[] || [];
-    
-    if (inCommandZone.length === 0 || commanderCards.length === 0) {
-      return false;
-    }
-    
-    // Get available mana
-    const pool = getAvailableMana(state, playerId);
-    
-    // Check each commander in the command zone
-    for (const commanderId of inCommandZone) {
-      const commander = commanderCards.find((c: any) => c.id === commanderId);
-      if (!commander) continue;
-      
-      // Parse mana cost
-      const manaCost = commander.mana_cost || "";
-      if (!manaCost) continue; // Can't cast without a mana cost
-      
-      const parsedCost = parseManaCost(manaCost);
-      
-      // Add commander tax to generic cost
-      const tax = (commandZone as any).taxById?.[commanderId] || 0;
-      
-      // Apply cost adjustments (monuments, cost reducers, taxes from opponents)
-      const costAdjustment = getCostAdjustmentForCard(state, playerId, commander);
-      
-      const totalCost = {
-        ...parsedCost,
-        generic: parsedCost.generic + tax + costAdjustment, // Tax increases cost, adjustment can reduce or increase
-      };
-      
-      // Check if player can pay the cost
-      if (canPayManaCostWithAvailableSources(state, playerId, totalCost)) {
-        // Also check if this commander has flash (can be cast at instant speed)
-        const typeLine = (commander.type_line || "").toLowerCase();
-        const oracleText = (commander.oracle_text || "").toLowerCase();
-        
-        // Creatures, artifacts, enchantments, planeswalkers are sorcery-speed by default
-        // But if they have flash, they can be cast any time
-        const hasFlash = oracleText.includes("flash");
-        const isInstant = typeLine.includes("instant");
-        
-        if (hasFlash || isInstant) {
-          // Can cast at instant speed - always valid
-          debug(2, `[canCastCommanderFromCommandZone] ${playerId}: Commander ${commander.name} has flash/instant - can cast`);
-          return true;
-        }
-        
-        // For sorcery-speed commanders, check if we're in main phase with empty stack
-        const currentStep = String((state as any).step || '').toUpperCase();
-        const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
-        const stackIsEmpty = !state.stack || state.stack.length === 0;
-        
-        if (isMainPhase && stackIsEmpty) {
-          debug(2, `[canCastCommanderFromCommandZone] ${playerId}: Commander ${commander.name} can be cast (main phase, empty stack)`);
-          return true;
-        }
+
+    const currentStep = String((state as any).step || '').toUpperCase();
+    const isMainPhase = currentStep === 'MAIN1' || currentStep === 'MAIN2' || currentStep === 'MAIN';
+    const stackIsEmpty = !state.stack || state.stack.length === 0;
+
+    for (const candidate of getCastableCommanderCandidates(ctx, playerId)) {
+      if (candidate.grantsFlash) {
+        debug(2, `[canCastCommanderFromCommandZone] ${playerId}: Commander ${candidate.card?.name} has flash/instant - can cast`);
+        return true;
+      }
+
+      if (isMainPhase && stackIsEmpty) {
+        debug(2, `[canCastCommanderFromCommandZone] ${playerId}: Commander ${candidate.card?.name} can be cast (main phase, empty stack)`);
+        return true;
       }
     }
     
@@ -2134,318 +2336,12 @@ export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
  * (creatures, sorceries, artifacts, enchantments, planeswalkers)
  */
 function canCastAnySorcerySpeed(ctx: GameContext, playerId: PlayerID): boolean {
-  try {
-    const { state } = ctx;
-    if (!state) return false;
-    
-    const zones = state.zones?.[playerId];
-    if (!zones) return false;
-    
-    // Get mana pool (including potential from untapped sources)
-    const pool = getAvailableMana(state, playerId);
-    
-    // Get ignored cards for this player (for auto-pass)
-    const ignoredCards = (state as any).ignoredCardsForAutoPass?.[playerId] || {};
-    
-    // Check each card in hand
-    if (Array.isArray(zones.hand)) {
-      for (const card of zones.hand as any[]) {
-        if (!card || typeof card === "string") continue;
-        
-        // Skip ignored cards - they shouldn't trigger auto-pass prompts
-        if (ignoredCards[card.id]) {
-          debug(2, `[canCastAnySorcerySpeed] Skipping ignored card in hand: ${card.name || card.id}`);
-          continue;
-        }
-        
-        // Skip transform back faces - they can't be cast from hand
-        if (isTransformBackFace(card)) {
-          debug(2, `[canCastAnySorcerySpeed] Skipping transform back face: ${card.name || 'unknown'}`);
-          continue;
-        }
-
-        for (const castCard of getHandCastEvaluationCards(card)) {
-          if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
-            continue;
-          }
-
-          const typeLine = (castCard.type_line || "").toLowerCase();
-          const oracleText = (castCard.oracle_text || "").toLowerCase();
-
-          const isSorcerySpeed = 
-            typeLine.includes("creature") ||
-            typeLine.includes("sorcery") ||
-            typeLine.includes("artifact") ||
-            typeLine.includes("enchantment") ||
-            typeLine.includes("planeswalker") ||
-            typeLine.includes("battle");
-
-          if (typeLine.includes("instant") || oracleText.includes("flash")) {
-            continue;
-          }
-
-          if (isLandTypeLine(typeLine)) {
-            continue;
-          }
-
-          if (!isSorcerySpeed) continue;
-
-          const manaCost = castCard.mana_cost || "";
-          const parsedCost = parseManaCost(manaCost);
-          const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
-          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-
-          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-            if (hasValidTargetsForSpell(state, playerId, castCard)) {
-              return true;
-            }
-          }
-
-          if (hasPayableAlternateCost(ctx, playerId, castCard)) {
-            if (hasValidTargetsForSpell(state, playerId, castCard)) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    
-    // Check graveyard for flashback sorceries/creatures/etc AND Station-enabled permanent casting
-    if (Array.isArray(zones.graveyard)) {
-      for (const card of zones.graveyard as any[]) {
-        if (!card || typeof card === "string") continue;
-        
-        // Skip ignored cards in graveyard
-        if (ignoredCards[card.id]) {
-          debug(2, `[canCastAnySorcerySpeed] Skipping ignored card in graveyard: ${card.name || card.id}`);
-          continue;
-        }
-        
-        const typeLine = (card.type_line || "").toLowerCase();
-        
-        // Skip instants (already checked)
-        if (typeLine.includes("instant")) continue;
-        
-        // Skip lands
-        if (typeLine.includes("land")) continue;
-        
-        // Check if it's a sorcery-speed spell
-        const isSorcerySpeed = 
-          typeLine.includes("creature") ||
-          typeLine.includes("sorcery") ||
-          typeLine.includes("artifact") ||
-          typeLine.includes("enchantment") ||
-          typeLine.includes("planeswalker") ||
-          typeLine.includes("battle");
-        
-        if (!isSorcerySpeed) continue;
-        
-        // Check for flashback (allows any spell type with flashback)
-        const flashbackInfo = hasFlashback(card);
-        if (flashbackInfo.hasIt) {
-          // Check if player can pay the flashback cost
-          if (flashbackInfo.cost) {
-            const parsedCost = parseManaCost(flashbackInfo.cost);
-            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
-            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-          } else {
-            // If we can't parse the cost, be conservative and assume they can pay it
-            if (assumeCanPayUnknownCost(card.name, 'flashback')) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-          }
-          continue; // Processed flashback, continue to next card
-        }
-        
-        // Check for Station-enabled graveyard casting (permanent spells only)
-        // Station cards grant: "you may cast a permanent spell from your graveyard"
-        // This requires checking if a Station with 8+ counters is on battlefield
-        const canCastFromGraveyard = hasPlayFromZoneEffect(ctx, playerId, "graveyard");
-        if (canCastFromGraveyard) {
-          // Station abilities restrict to "permanent spell" only
-          // Permanent spell = creature, artifact, enchantment, planeswalker, battle
-          // NOT sorcery or instant
-          const isPermanentSpell = 
-            typeLine.includes("creature") ||
-            typeLine.includes("artifact") ||
-            typeLine.includes("enchantment") ||
-            typeLine.includes("planeswalker") ||
-            typeLine.includes("battle");
-          
-          // Sorceries are NOT permanents, so block them
-          if (typeLine.includes("sorcery") && !isPermanentSpell) {
-            continue; // Skip sorceries when casting via Station ability
-          }
-          
-          if (isPermanentSpell) {
-            // Check if player can pay the normal cost
-            const manaCost = card.mana_cost || "";
-            const parsedCost = parseManaCost(manaCost);
-            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
-            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-            
-            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    // Check exile for foretell sorceries or impulse draw effects
-    const stateAny = state as any;
-    const exileZone = stateAny?.zones?.[playerId]?.exile ?? stateAny.exile?.[playerId];
-    
-    if (Array.isArray(exileZone)) {
-      for (const card of exileZone as any[]) {
-        if (!card || typeof card === "string") continue;
-        
-        const typeLine = (card.type_line || "").toLowerCase();
-        
-        // Skip instants
-        if (typeLine.includes("instant")) continue;
-        
-        // Skip lands
-        if (typeLine.includes("land")) continue;
-        
-        // Check if it's a sorcery-speed spell
-        const isSorcerySpeed = 
-          typeLine.includes("creature") ||
-          typeLine.includes("sorcery") ||
-          typeLine.includes("artifact") ||
-          typeLine.includes("enchantment") ||
-          typeLine.includes("planeswalker") ||
-          typeLine.includes("battle");
-        
-        if (!isSorcerySpeed) continue;
-        
-        // Check for foretell
-        const foretellInfo = hasForetellOrCanCastFromExile(card);
-        if (foretellInfo.hasIt) {
-          // Check if player can pay the foretell cost
-          if (foretellInfo.cost) {
-            const parsedCost = parseManaCost(foretellInfo.cost);
-            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
-            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-          } else {
-            // If we can't parse cost or card has "you may cast from exile", be conservative
-            if (assumeCanPayUnknownCost(card.name, 'foretell/exile')) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-          }
-        }
-        
-        // Check for impulse draw effects (playableFromExile state marker)
-        if (stateAny.playableFromExile?.[playerId]) {
-          const playableCards = stateAny.playableFromExile[playerId];
-          const cardId = card.id || card.name;
-          const currentTurn = Number(stateAny?.turnNumber ?? 0);
-          
-          // Check if this card is marked as playable from exile
-          if (isCardPlayableFromExile(playableCards, cardId, currentTurn)) {
-            // Check if player can pay the normal mana cost
-            const manaCost = card.mana_cost || "";
-            const parsedCost = parseManaCost(manaCost);
-            const costAdjustment = getCostAdjustmentForCard(state, playerId, card);
-            const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-            
-            if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-            
-            // Check alternate costs
-            if (hasPayableAlternateCost(ctx, playerId, card)) {
-              // Also check if the spell has valid targets (if it requires targets)
-              if (hasValidTargetsForSpell(state, playerId, card)) {
-                return true;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    const topCard = getTopLibraryCard(ctx, playerId);
-    if (topCard && typeof topCard !== 'string') {
-      if (!ignoredCards[topCard.id]) {
-        for (const castCard of getHandCastEvaluationCards(topCard)) {
-          if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
-            continue;
-          }
-
-          const typeLine = (castCard.type_line || '').toLowerCase();
-          const oracleText = (castCard.oracle_text || '').toLowerCase();
-
-          const isSorcerySpeed =
-            typeLine.includes('creature') ||
-            typeLine.includes('sorcery') ||
-            typeLine.includes('artifact') ||
-            typeLine.includes('enchantment') ||
-            typeLine.includes('planeswalker') ||
-            typeLine.includes('battle');
-
-          if (typeLine.includes('instant') || oracleText.includes('flash')) {
-            continue;
-          }
-
-          if (isLandTypeLine(typeLine)) {
-            continue;
-          }
-
-          if (!isSorcerySpeed) continue;
-          const topSpellPermission = getTopLibrarySpellPermission(ctx, playerId, castCard);
-          if (!topSpellPermission.canCast) continue;
-          if (topSpellPermission.grantsFlash) continue;
-
-          const manaCost = castCard.mana_cost || '';
-          const parsedCost = parseManaCost(manaCost);
-          const costAdjustment = getCostAdjustmentForCard(state, playerId, castCard);
-          const adjustedCost = applyCostAdjustment(parsedCost, costAdjustment);
-
-          if (canPayManaCostWithAvailableSources(state, playerId, adjustedCost)) {
-            if (hasValidTargetsForSpell(state, playerId, castCard)) {
-              return true;
-            }
-          }
-
-          if (hasPayableAlternateCost(ctx, playerId, castCard)) {
-            if (hasValidTargetsForSpell(state, playerId, castCard)) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    
-    return false;
-  } catch (err) {
-    debugWarn(1, "[canCastAnySorcerySpeed] Error:", err);
-    return false;
-  }
+  return getCastableSpellCandidates(ctx, playerId, {
+    mode: 'sorcery',
+    skipIgnoredCards: true,
+    allowAlternateCosts: true,
+    allowUnknownCostFallback: true,
+  }).length > 0;
 }
 
 /**

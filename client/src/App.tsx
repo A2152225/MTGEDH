@@ -518,7 +518,7 @@ export function App() {
     layout: string;
     faces: CardFaceOption[];
     canFuse: boolean;
-    sourceZone?: 'hand' | 'graveyard' | 'exile' | 'library';
+    sourceZone?: 'hand' | 'graveyard' | 'exile' | 'library' | 'command';
   } | null>(null);
   
   // Deck validation state
@@ -4375,61 +4375,22 @@ export function App() {
     setSpellToCast(null);
   };
 
-  // Helper to add commander tax to mana cost
-  // E.g., "{3}{W}{G}" + tax 2 => "{5}{W}{G}"
-  const addTaxToManaCost = (manaCost: string | undefined, tax: number): string => {
-    if (!manaCost) {
-      return tax > 0 ? `{${tax}}` : '';
-    }
-    if (tax <= 0) {
-      return manaCost;
-    }
-    
-    // Parse existing generic mana from cost
-    const tokens = manaCost.match(/\{[^}]+\}/g) || [];
-    let existingGeneric = 0;
-    const coloredTokens: string[] = [];
-    
-    for (const t of tokens) {
-      const sym = t.replace(/[{}]/g, '');
-      if (/^\d+$/.test(sym)) {
-        existingGeneric += parseInt(sym, 10);
-      } else {
-        coloredTokens.push(t);
-      }
-    }
-    
-    // Combine generic with tax
-    const newGeneric = existingGeneric + tax;
-    
-    // Reconstruct: generic first, then colored mana
-    if (newGeneric > 0) {
-      return `{${newGeneric}}` + coloredTokens.join('');
-    }
-    return coloredTokens.join('');
-  };
-
-  // Handle casting commander - opens payment modal
-  const handleCastCommander = (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => {
+  // Handle casting commander through the shared spell-cast request flow
+  const handleCastCommander = (commanderId: string, commanderName: string, _manaCost?: string, _tax?: number) => {
     // Defensive validation: ensure commanderId is not undefined or empty
     if (!commanderId || (typeof commanderId === 'string' && commanderId.trim() === '')) {
       console.error('[handleCastCommander] Invalid commanderId:', { commanderId, commanderName });
       alert(`Cannot cast commander: Invalid commander ID. This may be a bug - please refresh and try again.`);
       return;
     }
-    
-    // Calculate total cost including tax
-    const totalManaCost = addTaxToManaCost(manaCost, tax || 0);
-    
-    setSpellToCast({
+
+    if (!safeView) return;
+
+    requestCastSpellWithPromptSync({
+      gameId: safeView.id,
       cardId: commanderId,
-      cardName: commanderName,
-      manaCost: totalManaCost,
-      tax,
-      isCommander: true,
-      title: `Cast ${commanderName}`,
+      fromZone: 'command',
     });
-    setCastSpellModalOpen(true);
   };
 
   // Combat handlers
@@ -4802,7 +4763,7 @@ export function App() {
     gameId: string;
     cardId: string;
     faceIndex?: number;
-    fromZone?: 'exile' | 'hand' | 'graveyard' | 'library';
+    fromZone?: 'exile' | 'hand' | 'graveyard' | 'library' | 'command';
   }) => {
     socket.emit('requestCastSpell', payload);
 
@@ -4827,7 +4788,7 @@ export function App() {
   const openSplitCardChoice = React.useCallback((
     cardId: string,
     card: KnownCardRef,
-    sourceZone: 'hand' | 'graveyard' | 'exile' | 'library' = 'hand',
+    sourceZone: 'hand' | 'graveyard' | 'exile' | 'library' | 'command' = 'hand',
   ) => {
     const layout = String((card as any).layout || '');
     const cardFaces = (card as any).card_faces as CardFace[] | undefined;

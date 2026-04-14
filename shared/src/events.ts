@@ -156,7 +156,7 @@ export interface ClientToServerEvents {
   
   // Request to cast a spell - triggers target selection if needed, then payment
   // MTG Rule 601.2: Choose targets (601.2c) before paying costs (601.2h)
-  requestCastSpell: (payload: { gameId: GameID; cardId: string; faceIndex?: number; fromZone?: 'hand' | 'graveyard' | 'exile' | 'library' }) => void;
+  requestCastSpell: (payload: { gameId: GameID; cardId: string; faceIndex?: number; fromZone?: 'hand' | 'graveyard' | 'exile' | 'library' | 'command' }) => void;
   
   // Complete spell cast with targets and payment (after target selection and payment)
   completeCastSpell: (payload: { 

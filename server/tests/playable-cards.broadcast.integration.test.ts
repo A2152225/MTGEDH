@@ -129,6 +129,232 @@ describe('broadcastGame playable card refresh', () => {
     expect(stateEvent?.payload?.view?.playableCards).not.toContain('spell_1');
   });
 
+  it('highlights the library zone when the top card is a playable land from the shared land surface', () => {
+    const gameId = 'playable_cards_top_library_land';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [
+        {
+          id: 'future_sight_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Future Sight',
+            type_line: 'Enchantment',
+            oracle_text: 'Play with the top card of your library revealed. You may play the top card of your library.',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+          libraryCount: 2,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+          libraryCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0 },
+      playableCards: [],
+      canAct: true,
+      canRespond: false,
+    });
+
+    ctx.libraries.set('p1', [
+      { id: 'forest_top', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+      { id: 'opt_bottom', name: 'Opt', type_line: 'Instant', mana_cost: '{U}', oracle_text: 'Scry 1, then draw a card.' },
+    ] as any);
+    ctx.libraries.set('p2', [] as any);
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: false,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('library-p1');
+  });
+
+  it('highlights a reduced-cost commander from the shared commander surface', () => {
+    const gameId = 'playable_cards_commander_shared_surface';
+    const ctx = createContext(gameId);
+
+    Object.assign(ctx.state as any, {
+      active: true,
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      turnDirection: 1,
+      turnPlayer: 'p1',
+      priority: 'p1',
+      players: [
+        { id: 'p1', seat: 1, name: 'Player 1' },
+        { id: 'p2', seat: 2, name: 'Player 2' },
+      ],
+      stack: [],
+      battlefield: [
+        {
+          id: 'mountain_1',
+          controller: 'p1',
+          tapped: false,
+          card: { name: 'Mountain', type_line: 'Basic Land — Mountain', oracle_text: '{T}: Add {R}.' },
+        },
+        {
+          id: 'ruby_medallion_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Ruby Medallion',
+            type_line: 'Artifact',
+            oracle_text: 'Red spells you cast cost {1} less to cast.',
+          },
+        },
+      ],
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+        p2: {
+          hand: [],
+          graveyard: [],
+          library: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      life: { p1: 40, p2: 40 },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+        p2: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      landsPlayedThisTurn: { p1: 0, p2: 0 },
+      playableCards: [],
+      canAct: true,
+      canRespond: false,
+    });
+
+    (ctx.commandZone as any).p1 = {
+      commanderIds: ['cmd_red'],
+      commanderCards: [
+        {
+          id: 'cmd_red',
+          name: 'Red Commander',
+          type_line: 'Legendary Creature — Warrior',
+          mana_cost: '{1}{R}',
+          oracle_text: '',
+        },
+      ],
+      inCommandZone: ['cmd_red'],
+      taxById: { cmd_red: 0 },
+    };
+    (ctx.commandZone as any).p2 = {
+      commanderIds: [],
+      commanderCards: [],
+      inCommandZone: [],
+      taxById: {},
+    };
+    (ctx.state as any).commandZone = ctx.commandZone;
+
+    const game: any = {
+      gameId,
+      state: ctx.state,
+      inactive: ctx.inactive,
+      passesInRow: ctx.passesInRow,
+      libraries: ctx.libraries,
+      life: ctx.life,
+      commandZone: ctx.commandZone,
+      manaPool: ctx.manaPool,
+      get seq() {
+        return ctx.seq.value;
+      },
+      set seq(value: number) {
+        ctx.seq.value = value;
+      },
+      bumpSeq: ctx.bumpSeq,
+      participants: () => [{ socketId: 'sock_1', playerId: 'p1', spectator: false }],
+      viewFor: () => ({
+        ...ctx.state,
+        viewer: 'p1',
+        playableCards: [],
+        canAct: true,
+        canRespond: false,
+      }),
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const io = createMockIo(emitted);
+
+    broadcastGame(io, game, gameId);
+
+    const stateEvent = emitted.find((entry) => entry.room === 'sock_1' && entry.event === 'state');
+    expect(stateEvent).toBeDefined();
+    expect(stateEvent?.payload?.view?.playableCards).toContain('cmd_red');
+  });
+
   it('does not highlight Baeloth when Homeward Path, Training Center, and Izzet Signet only make three mana total', () => {
     const gameId = 'playable_cards_baeloth_signet';
     const ctx = createContext(gameId);

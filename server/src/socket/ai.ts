@@ -24,14 +24,14 @@ import type { PlayerID } from "../../../shared/src/types.js";
 import { categorizeSpell, evaluateTargeting, type SpellSpec, type TargetRef } from "../rules-engine/targeting.js";
 import { GameManager } from "../GameManager.js";
 import { getAvailableMana, parseManaCost, canPayManaCost, canPayManaCostWithAvailableSources, getTotalManaFromPool } from "../state/modules/mana-check.js";
-import { canAct, canPlayLand, canRespond, getHandCastEvaluationCards, hasFlashOrInstant, hasFlashback, hasForetellOrCanCastFromExile, isCardPlayableAsLandFromHand, isCardPlayableFromExile } from "../state/modules/can-respond.js";
+import { canAct, canPlayLand, canRespond, getCastableCommanderCandidates, getCastableSpellCandidates, getPlayableLandCandidates, isCardPlayableAsLandFromHand, type SharedCommanderCastCandidate, type SharedPlayableLandCandidate, type SharedSpellSourceZone } from "../state/modules/can-respond.js";
 import { canCastFromTop, canPlayLandsFromTop } from "../state/modules/game-state-effects.js";
 import { ResolutionQueueManager } from "../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../state/modules/turn.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { runSBA } from "../state/modules/counters_tokens.js";
 import { isOpeningHandBattlefieldCard } from "./opening-hand.js";
-import { finalizePlayedLand, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
+import { handlePlayLandRequest, requestCastSpellForSocket, runPostResolutionPermanentPromptChecks } from "./game-actions.js";
 import { flushPendingDamageTriggersAfterStepAdvance } from "./step-advance.js";
 
 /** AI timing delays for more natural behavior */
@@ -2942,13 +2942,10 @@ export function getAIPlayers(gameId: string): PlayerID[] {
   return gameAIs ? Array.from(gameAIs.keys()) : [];
 }
 
-type AISupportedCardSourceZone = 'hand' | 'library' | 'graveyard' | 'exile';
+type AISupportedCardSourceZone = SharedSpellSourceZone;
+type AICastRequestSourceZone = AISupportedCardSourceZone | 'command';
 
-type AIPlayableLandCandidate = {
-  card: any;
-  sourceZone: AISupportedCardSourceZone;
-  selectedFaceIndex?: number;
-};
+type AIPlayableLandCandidate = SharedPlayableLandCandidate;
 
 type AICastableSpellCandidate = {
   card: any;
@@ -2959,6 +2956,34 @@ type AICastableSpellCandidate = {
   cmc: number;
   typeLine: string;
   priority: number;
+};
+
+type AICastableCommanderCandidate = SharedCommanderCastCandidate;
+
+type AIActivatedAbilityCandidate = {
+  action: any;
+  reasoning?: string;
+  confidence?: number;
+};
+
+type AIActionCandidate =
+  | { kind: 'play_land'; priority: number; land: AIPlayableLandCandidate }
+  | { kind: 'cast_spell'; priority: number; spell: AICastableSpellCandidate }
+  | { kind: 'cast_commander'; priority: number; commander: AICastableCommanderCandidate }
+  | { kind: 'activate_ability'; priority: number; ability: AIActivatedAbilityCandidate };
+
+type AIActionSelectionMode = 'main' | 'response';
+
+type AIActionCandidateQuery = {
+  mode: AIActionSelectionMode;
+  kinds?: AIActionCandidate['kind'][];
+  willNeedToDiscard?: boolean;
+};
+
+type AICastAttemptDescriptor = {
+  card: any;
+  castCard?: any;
+  sourceZone: AICastRequestSourceZone;
 };
 
 function getAIActionContext(game: any): any {
@@ -3005,50 +3030,6 @@ function getAISourceCards(game: any, playerId: PlayerID, sourceZone: AISupported
   return Array.isArray(hand) ? hand : [];
 }
 
-function canAIPlayLandFromGraveyard(game: any, playerId: PlayerID): boolean {
-  return Array.isArray((game?.state as any)?.landPlayPermissions?.[playerId])
-    ? (game.state as any).landPlayPermissions[playerId].includes('graveyard')
-    : false;
-}
-
-function canAIPlayLandFromExile(game: any, playerId: PlayerID, cardId: string): boolean {
-  const stateAny: any = game?.state as any;
-  const currentTurn = Number(stateAny?.turnNumber ?? 0);
-  const playableCards = stateAny?.playableFromExile?.[playerId];
-  return isCardPlayableFromExile(playableCards, cardId, currentTurn);
-}
-
-function isAIResponseSpeedSpellCandidate(game: any, playerId: PlayerID, sourceZone: AISupportedCardSourceZone, castCard: any): boolean {
-  if (!castCard || typeof castCard === 'string') {
-    return false;
-  }
-
-  if (sourceZone === 'graveyard') {
-    const typeLine = String(castCard?.type_line || '').toLowerCase();
-    if (!typeLine.includes('instant')) {
-      return false;
-    }
-
-    return hasFlashback(castCard).hasIt;
-  }
-
-  if (sourceZone === 'exile') {
-    const typeLine = String(castCard?.type_line || '').toLowerCase();
-    if (!typeLine.includes('instant')) {
-      return false;
-    }
-
-    return hasForetellOrCanCastFromExile(castCard).hasIt || canAIPlayLandFromExile(game, playerId, String(castCard?.id || ''));
-  }
-
-  if (sourceZone === 'library') {
-    const topSpellPermission = canCastFromTop(getAIActionContext(game), playerId, castCard);
-    return topSpellPermission.canCast && (hasFlashOrInstant(castCard) || topSpellPermission.grantsFlash);
-  }
-
-  return hasFlashOrInstant(castCard);
-}
-
 function calculateResponseSpellPriority(card: any, game: any, playerId: PlayerID): number {
   let priority = calculateSpellPriority(card, game, playerId);
   const oracleText = String(card?.oracle_text || '').toLowerCase();
@@ -3074,6 +3055,131 @@ function calculateResponseSpellPriority(card: any, game: any, playerId: PlayerID
   return priority;
 }
 
+async function getAIActivatedAbilityCandidate(
+  game: any,
+  playerId: PlayerID,
+  willNeedToDiscard: boolean,
+): Promise<AIActivatedAbilityCandidate | null> {
+  const abilityDecision = await aiEngine.makeDecision({
+    gameState: game.state as any,
+    playerId,
+    decisionType: AIDecisionType.ACTIVATE_ABILITY,
+    options: [],
+  });
+
+  if (!abilityDecision.action?.activate) {
+    return null;
+  }
+
+  return {
+    action: abilityDecision.action,
+    reasoning: abilityDecision.reasoning,
+    confidence: abilityDecision.confidence,
+  };
+}
+
+function getAIActionCandidateKinds(query: AIActionCandidateQuery): Set<AIActionCandidate['kind']> {
+  if (Array.isArray(query.kinds) && query.kinds.length > 0) {
+    return new Set(query.kinds);
+  }
+
+  if (query.mode === 'response') {
+    return new Set<AIActionCandidate['kind']>(['activate_ability', 'cast_spell']);
+  }
+
+  return new Set<AIActionCandidate['kind']>(['play_land', 'activate_ability', 'cast_commander', 'cast_spell']);
+}
+
+async function enumerateAIActionCandidates(
+  game: any,
+  playerId: PlayerID,
+  query: AIActionCandidateQuery,
+): Promise<AIActionCandidate[]> {
+  const kinds = getAIActionCandidateKinds(query);
+  const candidates: AIActionCandidate[] = [];
+  const willNeedToDiscard = query.willNeedToDiscard === true;
+
+  if (query.mode === 'main' && kinds.has('play_land')) {
+    const landCandidate = findPlayableLand(game, playerId);
+    if (landCandidate) {
+      candidates.push({
+        kind: 'play_land',
+        priority: 1000,
+        land: landCandidate,
+      });
+    }
+  }
+
+  if (kinds.has('activate_ability')) {
+    const abilityCandidate = await getAIActivatedAbilityCandidate(game, playerId, willNeedToDiscard);
+    if (abilityCandidate) {
+      const confidenceBonus = Math.round(Number(abilityCandidate.confidence || 0) * 10);
+      const basePriority = query.mode === 'response'
+        ? 820
+        : (willNeedToDiscard ? 220 : 720);
+
+      candidates.push({
+        kind: 'activate_ability',
+        priority: basePriority + confidenceBonus,
+        ability: abilityCandidate,
+      });
+    }
+  }
+
+  if (query.mode === 'main' && kinds.has('cast_commander')) {
+    const commanderCandidate = findCastableCommander(game, playerId);
+    if (commanderCandidate) {
+      candidates.push({
+        kind: 'cast_commander',
+        priority: 650 + Math.max(0, calculateSpellPriority(commanderCandidate.card, game, playerId)),
+        commander: commanderCandidate,
+      });
+    }
+  }
+
+  if (kinds.has('cast_spell')) {
+    const spellCandidates = findCastableSpells(game, playerId, { responseOnly: query.mode === 'response' });
+    for (const spellCandidate of spellCandidates) {
+      candidates.push({
+        kind: 'cast_spell',
+        priority: (query.mode === 'response' ? 420 : 320) + Math.max(0, spellCandidate.priority),
+        spell: spellCandidate,
+      });
+    }
+  }
+
+  candidates.sort((left, right) => right.priority - left.priority);
+  return candidates;
+}
+
+function didAICastAttemptChangeControlFlow(
+  gameId: string,
+  game: any,
+  playerId: PlayerID,
+  candidate: AICastAttemptDescriptor,
+): boolean {
+  const pendingCastStatus = getAIPendingSpellCastStatus(gameId, game, playerId);
+  const stackNow = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+  const aiHasPendingSteps = ResolutionQueueManager.playerHasPendingSteps(gameId, playerId);
+  const priorityStillHeld = game.state.priority === playerId;
+
+  if (!priorityStillHeld || stackNow > 0 || aiHasPendingSteps || pendingCastStatus.effectIds.length > 0) {
+    debug(1, '[AI] Cast attempt changed control flow; stopping additional cast attempts', {
+      gameId,
+      playerId,
+      cardName: candidate.castCard?.name || candidate.card?.name,
+      sourceZone: candidate.sourceZone,
+      priority: game.state.priority,
+      stackNow,
+      aiHasPendingSteps,
+      pendingCastIds: pendingCastStatus.effectIds,
+    });
+    return true;
+  }
+
+  return false;
+}
+
 async function tryAIResponseActions(
   io: Server,
   gameId: string,
@@ -3085,64 +3191,34 @@ async function tryAIResponseActions(
     return false;
   }
 
-  const abilityDecision = await aiEngine.makeDecision({
-    gameState: game.state as any,
-    playerId,
-    decisionType: AIDecisionType.ACTIVATE_ABILITY,
-    options: [],
-  });
-
-  if (abilityDecision.action?.activate) {
-    debug(1, '[AI] Taking response-window activated ability:', abilityDecision.action.cardName);
-    await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
-    return true;
-  }
-
-  const responseSpells = findCastableSpells(game, playerId, { responseOnly: true });
-  for (const candidateSpell of responseSpells) {
-    debug(1, '[AI] Taking response-window spell action:', {
-      name: candidateSpell.castCard?.name || candidateSpell.card?.name,
-      sourceZone: candidateSpell.sourceZone,
-      priority: candidateSpell.priority,
-    });
-
-    const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell);
-    if (castProgressed) {
+  const responseCandidates = await enumerateAIActionCandidates(game, playerId, { mode: 'response' });
+  for (const candidate of responseCandidates) {
+    if (candidate.kind === 'activate_ability') {
+      debug(1, '[AI] Taking response-window activated ability:', candidate.ability.action.cardName);
+      await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action);
       return true;
     }
 
-    const pendingCastStatus = getAIPendingSpellCastStatus(gameId, game, playerId);
-    const stackNow = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
-    const aiHasPendingSteps = ResolutionQueueManager.playerHasPendingSteps(gameId, playerId);
-    const priorityStillHeld = game.state.priority === playerId;
-
-    if (!priorityStillHeld || stackNow > 0 || aiHasPendingSteps || pendingCastStatus.effectIds.length > 0) {
-      debug(1, '[AI] Response cast changed control flow; stopping additional response attempts', {
-        gameId,
-        playerId,
-        cardName: candidateSpell.castCard?.name || candidateSpell.card?.name,
-        priority: game.state.priority,
-        stackNow,
-        aiHasPendingSteps,
-        pendingCastIds: pendingCastStatus.effectIds,
+    if (candidate.kind === 'cast_spell') {
+      const candidateSpell = candidate.spell;
+      debug(1, '[AI] Taking response-window spell action:', {
+        name: candidateSpell.castCard?.name || candidateSpell.card?.name,
+        sourceZone: candidateSpell.sourceZone,
+        priority: candidateSpell.priority,
       });
-      return true;
+
+      const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell);
+      if (castProgressed) {
+        return true;
+      }
+
+      if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell)) {
+        return true;
+      }
     }
   }
 
   return false;
-}
-
-function chooseAIPlayableLandFaceIndex(card: any): number | undefined {
-  const layout = String(card?.layout || '').toLowerCase();
-  const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
-
-  if (layout !== 'modal_dfc' || cardFaces.length === 0) {
-    return undefined;
-  }
-
-  const landFaceIndex = cardFaces.findIndex((face: any) => /\bland\b/i.test(String(face?.type_line || '')));
-  return landFaceIndex >= 0 ? landFaceIndex : undefined;
 }
 
 function applyAISelectedLandFace(card: any, selectedFaceIndex?: number): void {
@@ -3177,82 +3253,26 @@ function isCardAlreadyOnBattlefield(game: any, playerId: PlayerID, cardId: strin
 }
 
 function findPlayableLand(game: any, playerId: PlayerID): AIPlayableLandCandidate | null {
-  const ctx = getAIActionContext(game);
-  const topLibraryPermission = canPlayLandsFromTop(ctx, playerId);
-  const topCard = getAITopLibraryCard(game, playerId);
+  const candidates = getPlayableLandCandidates(getAIActionContext(game), playerId, {
+    skipBattlefieldDuplicates: true,
+  });
 
-  if (topLibraryPermission.canPlay && topCard && isCardPlayableAsLandFromHand(topCard)) {
-    if (topCard?.id && isCardAlreadyOnBattlefield(game, playerId, String(topCard.id))) {
-      debugWarn(1, '[AI] Skipping stale duplicate top-library land already on battlefield:', {
-        playerId,
-        cardId: topCard.id,
-        cardName: topCard.name,
-      });
-    } else {
-      return {
-        card: topCard,
-        sourceZone: 'library',
-        selectedFaceIndex: chooseAIPlayableLandFaceIndex(topCard),
-      };
-    }
+  const firstCandidate = candidates[0] || null;
+  if (!firstCandidate) {
+    return null;
   }
 
-  if (canAIPlayLandFromGraveyard(game, playerId)) {
-    const graveyard = getAISourceCards(game, playerId, 'graveyard');
-    for (const card of graveyard) {
-      if (!isCardPlayableAsLandFromHand(card)) {
-        continue;
-      }
-
-      return {
-        card,
-        sourceZone: 'graveyard',
-        selectedFaceIndex: chooseAIPlayableLandFaceIndex(card),
-      };
-    }
+  if (firstCandidate.card?.id && isCardAlreadyOnBattlefield(game, playerId, String(firstCandidate.card.id))) {
+    debugWarn(1, '[AI] Skipping stale duplicate land already on battlefield:', {
+      playerId,
+      cardId: firstCandidate.card.id,
+      cardName: firstCandidate.card.name,
+      sourceZone: firstCandidate.sourceZone,
+    });
+    return null;
   }
 
-  const exile = getAISourceCards(game, playerId, 'exile');
-  for (const card of exile) {
-    if (!isCardPlayableAsLandFromHand(card)) {
-      continue;
-    }
-
-    if (!canAIPlayLandFromExile(game, playerId, String(card?.id || ''))) {
-      continue;
-    }
-
-    return {
-      card,
-      sourceZone: 'exile',
-      selectedFaceIndex: chooseAIPlayableLandFaceIndex(card),
-    };
-  }
-
-  const zones = game.state?.zones?.[playerId];
-  const hand = Array.isArray(zones?.hand) ? zones.hand : [];
-  
-  for (const card of hand) {
-    if (!isCardPlayableAsLandFromHand(card)) {
-      continue;
-    }
-
-    if (card?.id && isCardAlreadyOnBattlefield(game, playerId, String(card.id))) {
-      debugWarn(1, '[AI] Skipping stale duplicate land already on battlefield:', {
-        playerId,
-        cardId: card.id,
-        cardName: card.name,
-      });
-      continue;
-    }
-
-    return {
-      card,
-      sourceZone: 'hand',
-      selectedFaceIndex: chooseAIPlayableLandFaceIndex(card),
-    };
-  }
-  return null;
+  return firstCandidate;
 }
 
 /**
@@ -3634,150 +3654,51 @@ function findCastableSpells(
   options?: { responseOnly?: boolean },
 ): AICastableSpellCandidate[] {
   const ctx = getAIActionContext(game);
-  const zones = game.state?.zones?.[playerId];
-  const hand = Array.isArray(zones?.hand) ? zones.hand : [];
-  const graveyard = Array.isArray(zones?.graveyard) ? zones.graveyard : [];
-  const exile = Array.isArray(zones?.exile) ? zones.exile : [];
-  const topCard = getAITopLibraryCard(game, playerId);
   const responseOnly = options?.responseOnly === true;
-  
-  // Debug: Log the hand contents to help diagnose issues
-  if (hand.length === 0 && graveyard.length === 0 && exile.length === 0 && !topCard) {
-    debug(1, '[AI] findCastableSpells: No supported spell sources');
-    return [];
-  }
-  
-  debug(1, `[AI] findCastableSpells: Checking ${hand.length} hand, ${graveyard.length} graveyard, ${exile.length} exile card(s)${topCard ? ' plus the top library card' : ''}${responseOnly ? ' for response speed' : ''}`);
-  
-  // Use shared mana calculation
   const manaPool = getAvailableMana(game.state, playerId);
   const totalMana = getTotalManaFromPool(manaPool);
-  
-  debug(1, '[AI] Available mana pool:', { 
-    total: totalMana, 
-    colors: manaPool 
+  debug(1, '[AI] Available mana pool:', {
+    total: totalMana,
+    colors: manaPool,
   });
-  
-  const castable: AICastableSpellCandidate[] = [];
-  const uncostable: { name: string; manaCost: string; reason: string }[] = [];
 
-  const considerSpellCandidate = (card: any, sourceZone: AISupportedCardSourceZone) => {
-    for (const castCard of getHandCastEvaluationCards(card)) {
-      const typeLine = String(castCard?.type_line || '').toLowerCase();
-      const cardName = String(castCard?.name || card?.name || 'Unknown');
-      const oracleText = String(castCard?.oracle_text || '').toLowerCase();
+  const sharedCandidates = getCastableSpellCandidates(ctx, playerId, {
+    mode: responseOnly ? 'response' : 'main',
+    skipIgnoredCards: true,
+    allowAlternateCosts: false,
+    allowUnknownCostFallback: false,
+  });
 
-      if (typeLine.includes('land')) {
-        continue;
-      }
-
-      if (sourceZone === 'library') {
-        const topSpellPermission = canCastFromTop(ctx, playerId, castCard);
-        if (!topSpellPermission.canCast) {
-          uncostable.push({
-            name: cardName,
-            manaCost: String(castCard?.mana_cost || castCard?.manaCost || 'none'),
-            reason: topSpellPermission.restrictions.join('; ') || 'top-of-library permission denied',
-          });
-          continue;
-        }
-      }
-
-      if (responseOnly && !isAIResponseSpeedSpellCandidate(game, playerId, sourceZone, castCard)) {
-        continue;
-      }
-
-      if (!responseOnly && sourceZone === 'graveyard') {
-        const flashbackInfo = hasFlashback(castCard);
-        if (!flashbackInfo.hasIt) {
-          continue;
-        }
-      }
-
-      if (!responseOnly && sourceZone === 'exile') {
-        const exileInfo = hasForetellOrCanCastFromExile(castCard);
-        const playableFromExile = canAIPlayLandFromExile(game, playerId, String(castCard?.id || ''));
-        if (!exileInfo.hasIt && !playableFromExile) {
-          continue;
-        }
-      }
-
-      const manaCost = castCard?.mana_cost;
-      if (!manaCost) {
-        uncostable.push({ name: cardName, manaCost: 'none', reason: `no mana cost in ${sourceZone}` });
-        continue;
-      }
-
-      const isAura = typeLine.includes('enchantment') && typeLine.includes('aura');
-      if (isAura) {
-        const hasValidAuraTarget = checkAuraHasValidTarget(game.state, playerId, castCard);
-        if (!hasValidAuraTarget) {
-          uncostable.push({ name: cardName, manaCost, reason: `no valid target for aura in ${sourceZone}` });
-          continue;
-        }
-      }
-
-      const spellSpec = categorizeSpell(cardName, oracleText);
-      if (spellSpec && spellSpec.minTargets > 0) {
-        const validTargets = evaluateTargeting(game.state as any, playerId, spellSpec);
-        if (validTargets.length < spellSpec.minTargets) {
-          uncostable.push({ name: cardName, manaCost, reason: `no valid targets (needs ${spellSpec.minTargets}, found ${validTargets.length})` });
-          continue;
-        }
-      }
-
-      const parsedCost = parseManaCost(manaCost);
-      const cmc = parsedCost.generic + Object.values(parsedCost.colors).reduce((a, b) => a + b, 0);
-
-      if (canPayManaCostWithAvailableSources(game.state, playerId, parsedCost)) {
-        castable.push({
-          card,
-          castCard,
-          sourceZone,
-          faceIndex: typeof castCard?.faceIndex === 'number' ? castCard.faceIndex : undefined,
-          cost: parsedCost,
-          cmc,
-          typeLine,
-          priority: responseOnly
-            ? calculateResponseSpellPriority(castCard, game, playerId)
-            : calculateSpellPriority(castCard, game, playerId),
-        });
-      } else {
-        uncostable.push({
-          name: cardName,
-          manaCost,
-          reason: `need ${cmc} mana (have ${totalMana}), colors: ${JSON.stringify(parsedCost.colors)}`,
-        });
-      }
-    }
-  };
-
-  for (const card of hand) {
-    considerSpellCandidate(card, 'hand');
+  if (sharedCandidates.length === 0) {
+    debug(1, `[AI] findCastableSpells: No shared spell candidates${responseOnly ? ' at response speed' : ''}`);
+    return [];
   }
 
-  for (const card of graveyard) {
-    considerSpellCandidate(card, 'graveyard');
-  }
+  const castable = sharedCandidates
+    .filter((candidate) => candidate.payability === 'normal' && candidate.cost)
+    .map((candidate) => {
+      const typeLine = String(candidate.castCard?.type_line || '').toLowerCase();
+      const cmc = candidate.cost!.generic + Object.values(candidate.cost!.colors).reduce((sum, count) => sum + count, 0);
 
-  for (const card of exile) {
-    considerSpellCandidate(card, 'exile');
-  }
+      return {
+        card: candidate.card,
+        castCard: candidate.castCard,
+        sourceZone: candidate.sourceZone,
+        faceIndex: typeof candidate.castCard?.faceIndex === 'number' ? candidate.castCard.faceIndex : undefined,
+        cost: candidate.cost,
+        cmc,
+        typeLine,
+        priority: responseOnly
+          ? calculateResponseSpellPriority(candidate.castCard, game, playerId)
+          : calculateSpellPriority(candidate.castCard, game, playerId),
+      } satisfies AICastableSpellCandidate;
+    });
 
-  if (topCard) {
-    considerSpellCandidate(topCard, 'library');
-  }
-  
-  // Log summary
   if (castable.length > 0) {
-    debug(1, `[AI] findCastableSpells: Found ${castable.length} castable spell(s):`, 
-      castable.map(s => `${s.castCard?.name || s.card?.name} from ${s.sourceZone} (CMC ${s.cmc}, priority ${s.priority})`));
-  } else if (uncostable.length > 0) {
-    debug(1, `[AI] findCastableSpells: No castable spells. Reasons:`,
-      uncostable.slice(0, 5).map(s => `${s.name}: ${s.reason}`));
-    if (uncostable.length > 5) {
-      debug(1, `[AI] ... and ${uncostable.length - 5} more cards not castable`);
-    }
+    debug(1, `[AI] findCastableSpells: Found ${castable.length} castable spell(s):`,
+      castable.map((spell) => `${spell.castCard?.name || spell.card?.name} from ${spell.sourceZone} (CMC ${spell.cmc}, priority ${spell.priority})`));
+  } else {
+    debug(1, `[AI] findCastableSpells: Shared candidates exist but none use a normal AI-supported cost${responseOnly ? ' at response speed' : ''}`);
   }
   
   // Sort by priority (highest first)
@@ -3939,75 +3860,205 @@ function detectBeneficialAura(oracleText: string): boolean {
  * Partner commanders and backgrounds are tracked independently - each can be cast
  * while the other remains in the command zone.
  */
-function findCastableCommander(game: any, playerId: PlayerID): { card: any; cost: any; isBackground?: boolean } | null {
-  const commandZone = game.state?.commandZone?.[playerId];
-  if (!commandZone) return null;
-  
-  const commanderIds = commandZone.commanderIds || [];
-  // Use commanderCards (the correct field name) instead of commanders
-  const commanderCards = commandZone.commanderCards || commandZone.commanders || [];
-  // Check which commanders are actually in the command zone (important for partner commanders)
-  const inCommandZone = commandZone.inCommandZone || commanderIds;
-  // Use per-commander tax (taxById) instead of a single tax value
-  const taxById = commandZone.taxById || {};
-  
-  if (inCommandZone.length === 0 || commanderCards.length === 0) return null;
-  
-  // Use shared mana calculation
+function findCastableCommander(game: any, playerId: PlayerID): AICastableCommanderCandidate | null {
   const manaPool = getAvailableMana(game.state, playerId);
-  
-  // Check each commander that is still in the command zone
-  for (const commanderId of inCommandZone) {
-    // Find the commander card
-    const card = commanderCards.find((c: any) => c?.id === commanderId || c?.name === commanderId);
-    if (!card) continue;
-    
-    // Check if commander is already on battlefield or stack (shouldn't happen if inCommandZone is correct)
-    const battlefield = game.state?.battlefield || [];
-    const stack = game.state?.stack || [];
-    const onBattlefield = battlefield.some((p: any) => 
-      p.card?.id === commanderId || 
-      p.card?.name === card.name ||
-      (p.isCommander && p.controller === playerId && p.card?.name === card.name)
-    );
-    const onStack = stack.some((s: any) => 
-      s.card?.id === commanderId ||
-      (s.isCommander && s.controller === playerId && s.card?.name === card.name)
-    );
-    
-    if (onBattlefield || onStack) continue;
-    
-    // Get base mana cost
-    const manaCost = card.mana_cost;
-    if (!manaCost) continue;
-    
-    // Parse cost with commander tax using per-commander tax
-    const parsedCost = parseManaCost(manaCost);
-    const commanderTax = taxById[commanderId] || 0;
-    const totalCost = {
-      ...parsedCost,
-      generic: parsedCost.generic + commanderTax,
-    };
-    
-    // Check if we can afford it using shared function
-    if (canPayManaCostWithAvailableSources(game.state, playerId, totalCost)) {
-      const typeLine = (card.type_line || '').toLowerCase();
-      const isBackground = typeLine.includes('background');
-      const cmc = totalCost.generic + Object.values(totalCost.colors).reduce((a, b) => a + b, 0);
-      
-      debug(1, '[AI] Found castable commander:', card.name, 'with tax:', commanderTax, 'total CMC:', cmc);
-      debug(2, '[AI] Mana available:', JSON.stringify(manaPool));
-      debug(2, '[AI] Cost required:', JSON.stringify(totalCost));
-      return { card, cost: totalCost, isBackground };
-    } else {
-      // Log why commander is not castable (at debug level 2 to avoid spam)
-      debug(2, '[AI] Cannot cast commander:', card.name, 
-        'Cost:', JSON.stringify(totalCost), 
-        'Available:', JSON.stringify(manaPool));
-    }
+  const candidate = getCastableCommanderCandidates(getAIActionContext(game), playerId)[0] || null;
+
+  if (!candidate) {
+    debug(2, '[AI] No castable commanders found', {
+      playerId,
+      availableMana: manaPool,
+    });
+    return null;
   }
-  
-  return null;
+
+  debug(1, '[AI] Found castable commander:', candidate.card?.name, 'total CMC:', candidate.cost?.cmc);
+  debug(2, '[AI] Mana available:', JSON.stringify(manaPool));
+  debug(2, '[AI] Cost required:', JSON.stringify(candidate.cost));
+  return candidate;
+}
+
+function isAICardStillInCastSourceZone(
+  game: any,
+  playerId: PlayerID,
+  sourceZone: AICastRequestSourceZone,
+  cardId: string,
+  cardName?: string,
+): boolean {
+  if (sourceZone === 'command') {
+    const commandZone = game?.state?.commandZone?.[playerId];
+    const inCommandZone = Array.isArray(commandZone?.inCommandZone)
+      ? commandZone.inCommandZone
+      : (Array.isArray(commandZone?.commanderIds) ? commandZone.commanderIds : []);
+    return inCommandZone.some((entry: any) => {
+      const normalized = String(entry || '').trim();
+      return normalized === cardId || (cardName && normalized === String(cardName).trim());
+    });
+  }
+
+  return getAISourceCards(game, playerId, sourceZone).some((entry: any) => String(entry?.id || '') === cardId);
+}
+
+async function requestAISharedCast(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  request: {
+    cardId: string;
+    cardName?: string;
+    sourceZone: AICastRequestSourceZone;
+    faceIndex?: number;
+  },
+): Promise<boolean> {
+  const game = ensureGame(gameId);
+  if (!game) return false;
+
+  try {
+    const cardId = String(request.cardId || '').trim();
+    if (!cardId) {
+      return false;
+    }
+
+    const stackLengthBefore = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+    const aiSocket = {
+      data: { playerId },
+      emit: (event: string, payload: any) => {
+        if (event === 'error') {
+          debugWarn(1, '[AI] requestCastSpellForSocket rejected cast:', {
+            gameId,
+            playerId,
+            cardId,
+            sourceZone: request.sourceZone,
+            payload,
+          });
+        }
+      },
+    } as any;
+
+    await requestCastSpellForSocket(io, aiSocket, {
+      gameId,
+      cardId,
+      faceIndex: request.faceIndex,
+      fromZone: request.sourceZone,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const stackLengthAfter = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
+    const cardStillInSourceZone = isAICardStillInCastSourceZone(
+      game,
+      playerId,
+      request.sourceZone,
+      cardId,
+      request.cardName,
+    );
+    const pendingSpellCasts = Object.values(((game.state as any)?.pendingSpellCasts || {})) as any[];
+    const hasPendingCast = pendingSpellCasts.some((entry: any) => String(entry?.cardId || '') === cardId);
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const hasPendingStep = queue.steps.some((step: any) =>
+      String(step?.sourceId || '') === cardId ||
+      String(step?.cardId || '') === cardId ||
+      String(step?.spellCardId || '') === cardId ||
+      String(step?.spellCastContext?.cardId || '') === cardId
+    );
+
+    const progressed = stackLengthAfter > stackLengthBefore || !cardStillInSourceZone || hasPendingCast || hasPendingStep;
+    if (!progressed) {
+      debugWarn(1, '[AI] Shared cast request produced no state change:', {
+        gameId,
+        playerId,
+        cardId,
+        cardName: request.cardName,
+        sourceZone: request.sourceZone,
+        stackLengthBefore,
+        stackLengthAfter,
+      });
+    }
+
+    return progressed;
+  } catch (error) {
+    debugError(1, '[AI] Error casting via shared request flow:', error);
+    return false;
+  }
+}
+
+async function requestAISharedLandPlay(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  request: {
+    cardId: string;
+    sourceZone: AISupportedCardSourceZone;
+    selectedFaceIndex?: number;
+  },
+): Promise<boolean> {
+  const game = ensureGame(gameId);
+  if (!game) return false;
+
+  const cardId = String(request.cardId || '').trim();
+  if (!cardId) return false;
+
+  try {
+    const beforeOnBattlefield = isCardAlreadyOnBattlefield(game, playerId, cardId);
+    const beforeSourceContains = getAISourceCards(game, playerId, request.sourceZone).some((card: any) => String(card?.id || '') === cardId);
+    const beforeLandsPlayed = Number(game.state?.landsPlayedThisTurn?.[playerId] || 0);
+
+    const aiSocket = {
+      data: { playerId, gameId },
+      rooms: {
+        has: (room: string) => String(room || '') === String(gameId),
+      },
+      emit: (event: string, payload: any) => {
+        if (event === 'error') {
+          debugWarn(1, '[AI] handlePlayLandRequest rejected land play:', {
+            gameId,
+            playerId,
+            cardId,
+            sourceZone: request.sourceZone,
+            payload,
+          });
+        }
+      },
+    } as any;
+
+    handlePlayLandRequest(io, aiSocket, {
+      gameId,
+      cardId,
+      selectedFace: request.selectedFaceIndex,
+      fromZone: request.sourceZone,
+    });
+
+    await Promise.resolve();
+
+    const afterOnBattlefield = isCardAlreadyOnBattlefield(game, playerId, cardId);
+    const afterSourceContains = getAISourceCards(game, playerId, request.sourceZone).some((card: any) => String(card?.id || '') === cardId);
+    const afterLandsPlayed = Number(game.state?.landsPlayedThisTurn?.[playerId] || 0);
+    const didPlayLand =
+      (!beforeOnBattlefield && afterOnBattlefield) ||
+      (beforeSourceContains && !afterSourceContains) ||
+      afterLandsPlayed > beforeLandsPlayed;
+
+    if (!didPlayLand) {
+      debugWarn(1, '[AI] Shared land request produced no state change:', {
+        gameId,
+        playerId,
+        cardId,
+        sourceZone: request.sourceZone,
+        beforeOnBattlefield,
+        afterOnBattlefield,
+        beforeSourceContains,
+        afterSourceContains,
+        beforeLandsPlayed,
+        afterLandsPlayed,
+      });
+    }
+
+    return didPlayLand;
+  } catch (error) {
+    debugError(1, '[AI] Error playing land via shared request flow:', error);
+    return false;
+  }
 }
 
 /**
@@ -4971,29 +5022,38 @@ export async function handleAIPriority(
         debug(1, `[AI] Hand size ${handSize} exceeds max ${maxHandSize} - will prioritize casting spells to avoid discarding`);
       }
       
-      // Try to play a land first
       const mainPhaseActionContext = getAIActionContext(game);
-      const landCandidate = findPlayableLand(game, playerId);
-      if (landCandidate) {
-        debug(1, '[AI] Playing land:', { name: landCandidate.card?.name, sourceZone: landCandidate.sourceZone });
-        const playedLand = await executeAIPlayLand(
-          io,
-          gameId,
-          playerId,
-          landCandidate.card.id,
-          landCandidate.sourceZone,
-          landCandidate.selectedFaceIndex,
-        );
-        if (playedLand) {
-          // After playing land, continue with more actions
-          scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
-          return;
+      const landCandidates = await enumerateAIActionCandidates(game, playerId, {
+        mode: 'main',
+        kinds: ['play_land'],
+      });
+
+      if (landCandidates.length > 0) {
+        for (const candidate of landCandidates) {
+          if (candidate.kind !== 'play_land') continue;
+
+          const landCandidate = candidate.land;
+          debug(1, '[AI] Playing land:', { name: landCandidate.card?.name, sourceZone: landCandidate.sourceZone });
+          const playedLand = await executeAIPlayLand(
+            io,
+            gameId,
+            playerId,
+            landCandidate.card.id,
+            landCandidate.sourceZone,
+            landCandidate.selectedFaceIndex,
+          );
+          if (playedLand) {
+            // After playing land, continue with more actions
+            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            return;
+          }
         }
-        debugWarn(1, '[AI] Land play attempt produced no state change, continuing main-phase decisions');
+
+        debugWarn(1, '[AI] Land action candidate(s) produced no state change, continuing main-phase decisions');
       } else if (canPlayLand(mainPhaseActionContext, playerId)) {
-        debugWarn(1, '[AI] Shared canPlayLand reported a playable land, but AI found no supported hand/top-library land candidate');
+        debugWarn(1, '[AI] Shared canPlayLand reported a playable land, but AI found no supported land action candidate in hand/library/graveyard/exile');
       } else {
-        debug(1, '[AI] No supported land candidate available in hand or on top of library');
+        debug(1, '[AI] No supported land candidate available in hand, library, graveyard, or exile');
       }
       
       // IMPORTANT: Tap lands for mana retention effects BEFORE combat
@@ -5018,41 +5078,46 @@ export async function handleAIPriority(
         return;
       }
       
-      // Try to use activated abilities (before casting spells)
-      // This prioritizes card draw and other beneficial effects
-      // BUT: Skip if we need to discard - prioritize casting spells instead
-      if (!willNeedToDiscard) {
-        const abilityDecision = await aiEngine.makeDecision({
-          gameState: game.state as any,
-          playerId,
-          decisionType: AIDecisionType.ACTIVATE_ABILITY,
-          options: [],
-        });
-        
-        if (abilityDecision.action?.activate) {
-          debug(1, '[AI] Activating ability:', abilityDecision.action.cardName, '-', abilityDecision.reasoning);
-          await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
-          // After activating ability, continue with more actions
+      const primaryActionKinds: AIActionCandidate['kind'][] = willNeedToDiscard
+        ? ['cast_commander', 'cast_spell']
+        : ['activate_ability', 'cast_commander', 'cast_spell'];
+
+      const actionCandidates = await enumerateAIActionCandidates(game, playerId, {
+        mode: 'main',
+        kinds: primaryActionKinds,
+        willNeedToDiscard,
+      });
+
+      for (const candidate of actionCandidates) {
+        if (candidate.kind === 'activate_ability') {
+          if (willNeedToDiscard) {
+            debug(1, '[AI] Activating ability (after spell-priority ordering):', candidate.ability.action.cardName);
+          } else {
+            debug(1, '[AI] Activating ability:', candidate.ability.action.cardName, '-', candidate.ability.reasoning);
+          }
+          await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action);
           scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         }
-      }
-      
-      // Try to cast commanders from command zone
-      const commanderCastResult = findCastableCommander(game, playerId);
-      if (commanderCastResult) {
-        debug(1, '[AI] Casting commander from command zone:', commanderCastResult.card.name);
-        await executeAICastCommander(io, gameId, playerId, commanderCastResult.card, commanderCastResult.cost);
-        // After casting, continue with more actions
-        scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
-        return;
-      }
-      
-      // Try to cast spells from hand
-      // If we need to discard, we should cast ANY spell we can afford, not just optimal ones
-      const castableSpells = findCastableSpells(game, playerId);
-      if (castableSpells.length > 0) {
-        for (const candidateSpell of castableSpells) {
+
+        if (candidate.kind === 'cast_commander') {
+          debug(1, '[AI] Casting commander from command zone:', candidate.commander.card.name);
+          const castProgressed = await executeAICastCommander(io, gameId, playerId, candidate.commander);
+          if (castProgressed) {
+            scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
+            return;
+          }
+
+          if (didAICastAttemptChangeControlFlow(gameId, game, playerId, {
+            card: candidate.commander.card,
+            sourceZone: 'command',
+          })) {
+            return;
+          }
+        }
+
+        if (candidate.kind === 'cast_spell') {
+          const candidateSpell = candidate.spell;
           if (willNeedToDiscard) {
             debug(1, `[AI] Casting spell to avoid discard: ${candidateSpell.castCard?.name || candidateSpell.card?.name} from ${candidateSpell.sourceZone} (hand: ${handSize}/${maxHandSize})`);
           } else {
@@ -5069,41 +5134,24 @@ export async function handleAIPriority(
             return;
           }
 
-          const pendingCastStatus = getAIPendingSpellCastStatus(gameId, game, playerId);
-          const stackNow = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
-          const aiHasPendingSteps = ResolutionQueueManager.playerHasPendingSteps(gameId, playerId);
-          const priorityStillHeld = game.state.priority === playerId;
-
-          if (!priorityStillHeld || stackNow > 0 || aiHasPendingSteps || pendingCastStatus.effectIds.length > 0) {
-            debug(1, '[AI] Cast attempt changed control flow; stopping additional spell attempts', {
-              gameId,
-              playerId,
-              cardName: candidateSpell.card?.name,
-              priority: game.state.priority,
-              stackNow,
-              aiHasPendingSteps,
-              pendingCastIds: pendingCastStatus.effectIds,
-            });
+          if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell)) {
             return;
           }
         }
-
-        debugWarn(1, `[AI] No castable spell produced progress for ${playerId}; continuing to fallback actions`);
       }
-      
-      // If we still need to discard and couldn't cast anything, try activated abilities now
-      // (we skipped them earlier to prioritize spells)
+
       if (willNeedToDiscard) {
-        const abilityDecision = await aiEngine.makeDecision({
-          gameState: game.state as any,
-          playerId,
-          decisionType: AIDecisionType.ACTIVATE_ABILITY,
-          options: [],
+        const fallbackAbilityCandidates = await enumerateAIActionCandidates(game, playerId, {
+          mode: 'main',
+          kinds: ['activate_ability'],
+          willNeedToDiscard,
         });
-        
-        if (abilityDecision.action?.activate) {
-          debug(1, '[AI] Activating ability (after spell attempts):', abilityDecision.action.cardName);
-          await executeAIActivateAbility(io, gameId, playerId, abilityDecision.action);
+
+        for (const candidate of fallbackAbilityCandidates) {
+          if (candidate.kind !== 'activate_ability') continue;
+
+          debug(1, '[AI] Activating ability (after spell-priority ordering):', candidate.ability.action.cardName);
+          await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action);
           scheduleAIPriority(io, gameId, playerId, AI_THINK_TIME_MS);
           return;
         }
@@ -5750,83 +5798,11 @@ async function executeAIPlayLand(
 
     applyAISelectedLandFace(cardToPlay, selectedFaceIndex);
 
-    const beforeOnBattlefield = isCardAlreadyOnBattlefield(game, playerId, cardId);
-    const beforeSourceContains = getAISourceCards(game, playerId, sourceZone).some((c: any) => c?.id === cardId);
-    const beforeLandsPlayed = Number(game.state?.landsPlayedThisTurn?.[playerId] || 0);
-
-    const bridge = (GameManager as any).syncRulesBridge?.(gameId, game.state)
-      || (GameManager as any).getRulesBridge(gameId);
-    if (bridge) {
-      const validation = bridge.validateAction({
-        type: 'playLand',
-        playerId,
-        cardId,
-        fromZone: sourceZone,
-      });
-
-      if (!validation?.legal) {
-        debugWarn(1, '[AI] RulesBridge rejected AI playLand:', {
-          gameId,
-          playerId,
-          cardId,
-          sourceZone,
-          reason: validation?.reason,
-        });
-        return false;
-      }
-
-      const result = bridge.executeAction({
-        type: 'playLand',
-        playerId,
-        cardId,
-        fromZone: sourceZone,
-      });
-
-      if (!result?.success) {
-        debugWarn(1, '[AI] RulesBridge failed to execute AI playLand:', {
-          gameId,
-          playerId,
-          cardId,
-          sourceZone,
-          error: result?.error,
-        });
-        return false;
-      }
-    }
-
-    if (typeof (game as any).playLand === 'function') {
-      (game as any).playLand(playerId, cardId);
-    } else {
-      debugWarn(1, '[AI] game.playLand not available for AI land play');
-      return false;
-    }
-
-    const afterOnBattlefield = isCardAlreadyOnBattlefield(game, playerId, cardId);
-    const afterSourceContains = getAISourceCards(game, playerId, sourceZone).some((c: any) => c?.id === cardId);
-    const afterLandsPlayed = Number(game.state?.landsPlayedThisTurn?.[playerId] || 0);
-    const didPlayLand =
-      (!beforeOnBattlefield && afterOnBattlefield) ||
-      (beforeSourceContains && !afterSourceContains) ||
-      afterLandsPlayed > beforeLandsPlayed;
-
-    if (!didPlayLand) {
-      debugWarn(1, '[AI] Ignoring no-op AI land play attempt:', {
-        gameId,
-        playerId,
-        cardId,
-        sourceZone,
-        beforeOnBattlefield,
-        afterOnBattlefield,
-        beforeSourceContains,
-        afterSourceContains,
-        beforeLandsPlayed,
-        afterLandsPlayed,
-      });
-      return false;
-    }
-
-    finalizePlayedLand(io, game, gameId, String(playerId), cardId, cardToPlay, sourceZone, { isAI: true });
-    return true;
+    return requestAISharedLandPlay(io, gameId, playerId, {
+      cardId,
+      sourceZone,
+      selectedFaceIndex,
+    });
     
   } catch (error) {
     debugError(1, '[AI] Error playing land:', error);
@@ -6005,66 +5981,13 @@ async function executeAICastSpell(
     faceIndex,
     cost: candidate.cost,
   });
-  
-  try {
-    const cardId = String(card?.id || '');
-    const stackLengthBefore = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
 
-    const aiSocket = {
-      data: { playerId },
-      emit: (event: string, payload: any) => {
-        if (event === 'error') {
-          debugWarn(1, '[AI] requestCastSpellForSocket rejected cast:', {
-            gameId,
-            playerId,
-            cardId,
-            payload,
-          });
-        }
-      },
-    } as any;
-
-    await requestCastSpellForSocket(io, aiSocket, {
-      gameId,
-      cardId,
-      faceIndex,
-      fromZone: sourceZone,
-    });
-
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const stackLengthAfter = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
-    const sourceCards = getAISourceCards(game, playerId, sourceZone);
-    const cardStillInSourceZone = sourceCards.some((entry: any) => String(entry?.id || '') === cardId);
-    const pendingSpellCasts = Object.values(((game.state as any)?.pendingSpellCasts || {})) as any[];
-    const hasPendingCast = pendingSpellCasts.some((entry: any) => String(entry?.cardId || '') === cardId);
-    const queue = ResolutionQueueManager.getQueue(gameId);
-    const hasPendingStep = queue.steps.some((step: any) =>
-      String(step?.sourceId || '') === cardId ||
-      String(step?.cardId || '') === cardId ||
-      String(step?.spellCardId || '') === cardId ||
-      String(step?.spellCastContext?.cardId || '') === cardId
-    );
-
-    const progressed = stackLengthAfter > stackLengthBefore || !cardStillInSourceZone || hasPendingCast || hasPendingStep;
-    if (!progressed) {
-      debugWarn(1, '[AI] Spell cast attempt produced no state change:', {
-        gameId,
-        playerId,
-        cardId,
-        cardName: candidate.castCard?.name || card?.name,
-        sourceZone,
-        stackLengthBefore,
-        stackLengthAfter,
-      });
-    }
-
-    return progressed;
-  } catch (error) {
-    debugError(1, '[AI] Error casting spell:', error);
-    return false;
-  }
+  return requestAISharedCast(io, gameId, playerId, {
+    cardId: String(card?.id || ''),
+    cardName: candidate.castCard?.name || card?.name,
+    sourceZone,
+    faceIndex,
+  });
 }
 
 /**
@@ -6075,123 +5998,23 @@ async function executeAICastCommander(
   io: Server,
   gameId: string,
   playerId: PlayerID,
-  card: any,
-  cost: { colors: Record<string, number>; generic: number; cmc: number }
-): Promise<void> {
+  candidate: AICastableCommanderCandidate,
+): Promise<boolean> {
   const game = ensureGame(gameId);
-  if (!game) return;
-  
-  debug(1, '[AI] Casting commander from command zone:', { gameId, playerId, cardName: card.name, cost });
-  
-  try {
-    // Get mana sources to tap for payment
-    const payments = getPaymentSources(game, playerId, cost);
-    
-    // Initialize mana pool if needed
-    (game.state as any).manaPool = (game.state as any).manaPool || {};
-    (game.state as any).manaPool[playerId] = (game.state as any).manaPool[playerId] || {
-      white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-    };
-    
-    const colorMap: Record<string, string> = { 
-      W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' 
-    };
-    
-    // Tap the mana sources and add mana to pool
-    const battlefield = game.state?.battlefield || [];
-    for (const payment of payments) {
-      const perm = battlefield.find((p: any) => p?.id === payment.sourceId) as any;
-      if (perm && !perm.tapped) {
-        perm.tapped = true;
-        
-        // Check if this source produces 2 mana
-        const oracleText = ((perm.card as any)?.oracle_text || '').toLowerCase();
-        const producesTwoMana = oracleText.includes('{c}{c}') || oracleText.includes('add {c}{c}');
-        
-        const colorKey = colorMap[payment.produceColor] || 'colorless';
-        (game.state as any).manaPool[playerId][colorKey] += producesTwoMana ? 2 : 1;
-      }
-    }
-    
-    // Mark commander as being cast (removed from command zone temporarily)
-    const commandZone = game.state?.commandZone?.[playerId];
-    if (commandZone) {
-      // Add to stack - commanders go on the stack just like other spells
-      game.state.stack = game.state.stack || [];
-      const stackItem = {
-        id: `stack_${Date.now()}_${card.id}`,
-        controller: playerId,
-        card: { ...card, zone: 'stack' },
-        targets: [],
-        isCommander: true,
-        fromCommandZone: true,
-      };
-      game.state.stack.push(stackItem as any);
-      
-      debug(1, '[AI] Commander added to stack:', card.name);
-    }
-    
-    // Consume mana from pool to pay for commander
-    const pool = (game.state as any).manaPool[playerId];
-    
-    // Pay colored costs first
-    for (const [color, needed] of Object.entries(cost.colors)) {
-      const colorKey = colorMap[color];
-      if (colorKey && needed > 0) {
-        pool[colorKey] = Math.max(0, (pool[colorKey] || 0) - (needed as number));
-      }
-    }
-    
-    // Pay generic cost with remaining mana
-    let genericLeft = cost.generic;
-    if (genericLeft > 0 && pool.colorless > 0) {
-      const use = Math.min(pool.colorless, genericLeft);
-      pool.colorless -= use;
-      genericLeft -= use;
-    }
-    for (const colorKey of ['white', 'blue', 'black', 'red', 'green']) {
-      if (genericLeft <= 0) break;
-      if (pool[colorKey] > 0) {
-        const use = Math.min(pool[colorKey], genericLeft);
-        pool[colorKey] -= use;
-        genericLeft -= use;
-      }
-    }
-    
-    // Persist event
-    try {
-      if (typeof (game as any).castCommander === 'function') {
-        (game as any).castCommander(playerId, String(card.id));
-      }
+  if (!game) return false;
 
-      await appendEvent(gameId, (game as any).seq || 0, 'castCommander', { 
-        playerId, 
-        commanderId: card.id,
-        cardId: card.id, 
-        cardName: card.name,
-        card: card,
-        isAI: true 
-      });
-    } catch (e) {
-      debugWarn(1, '[AI] Failed to persist castCommander event:', e);
-    }
-    
-    // Bump sequence
-    if (typeof (game as any).bumpSeq === 'function') {
-      (game as any).bumpSeq();
-    }
-    
-    // Broadcast updated state
-    broadcastGame(io, game, gameId);
-    
-    // Pass priority after casting
-    setTimeout(async () => {
-      await executePassPriority(io, gameId, playerId);
-    }, AI_REACTION_DELAY_MS);
-    
-  } catch (error) {
-    debugError(1, '[AI] Error casting commander:', error);
-  }
+  debug(1, '[AI] Casting commander from command zone:', {
+    gameId,
+    playerId,
+    cardName: candidate.card?.name,
+    cost: candidate.cost,
+  });
+
+  return requestAISharedCast(io, gameId, playerId, {
+    cardId: String(candidate.card?.id || candidate.commanderId || ''),
+    cardName: candidate.card?.name,
+    sourceZone: 'command',
+  });
 }
 
 /**

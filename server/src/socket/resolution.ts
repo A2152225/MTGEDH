@@ -966,7 +966,7 @@ async function resumePlayerCastSpellFromHand(
     alternateCostId?: string;
     selectedCastMode?: 'normal' | 'overload';
     convokeTappedCreatures?: string[];
-    fromZone?: 'hand' | 'exile' | 'graveyard' | 'library';
+    fromZone?: 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
     bypassExilePermissionCheck?: boolean;
   },
 ): Promise<void> {
@@ -1002,7 +1002,7 @@ async function restartPlayerCastRequest(
   payload: {
     cardId: string;
     faceIndex?: number;
-    fromZone?: 'hand' | 'exile' | 'graveyard' | 'library';
+    fromZone?: 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
   },
 ): Promise<void> {
   const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);

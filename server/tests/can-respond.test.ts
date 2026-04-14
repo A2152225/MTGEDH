@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand } from '../src/state/modules/can-respond';
+import { canCastAnySpell, canActivateAnyAbility, canRespond, canAct, canPlayLand, getCastableCommanderCandidates } from '../src/state/modules/can-respond';
 import type { GameContext } from '../src/state/context';
 import type { PlayerID } from '../../shared/src';
 
@@ -549,6 +549,103 @@ describe('canPlayLand', () => {
         { id: 'forest_top', name: 'Forest', type_line: 'Basic Land - Forest' },
       ]],
     ]);
+
+    expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(false);
+  });
+
+  it('treats a graveyard land as playable when landPlayPermissions grant graveyard access', () => {
+    const ctx = createTestContext({
+      landsPlayedThisTurn: { p1: 0 },
+      battlefield: [],
+      landPlayPermissions: {
+        p1: ['graveyard'],
+      },
+      zones: {
+        p1: {
+          hand: [],
+          handCount: 0,
+          graveyard: [
+            {
+              id: 'wasteland_1',
+              name: 'Wasteland',
+              type_line: 'Land',
+              oracle_text: '{T}: Add {C}.',
+            },
+          ],
+          graveyardCount: 1,
+          exile: [],
+          exileCount: 0,
+          libraryCount: 0,
+        },
+      },
+    });
+
+    expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('treats a land in exile as playable only when that specific card is marked playableFromExile', () => {
+    const ctx = createTestContext({
+      landsPlayedThisTurn: { p1: 0 },
+      battlefield: [],
+      zones: {
+        p1: {
+          hand: [],
+          handCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [
+            {
+              id: 'mountain_exile_1',
+              name: 'Mountain',
+              type_line: 'Basic Land — Mountain',
+              oracle_text: '{T}: Add {R}.',
+            },
+          ],
+          exileCount: 1,
+          libraryCount: 0,
+        },
+      },
+      playableFromExile: {
+        p1: { mountain_exile_1: 4 },
+      },
+      turnNumber: 4,
+      turnPlayer: 'p1',
+    });
+
+    expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
+  it('does not treat a land in exile as playable from a generic exile permission without a card-specific marker', () => {
+    const ctx = createTestContext({
+      landsPlayedThisTurn: { p1: 0 },
+      battlefield: [],
+      landPlayPermissions: {
+        p1: ['exile'],
+      },
+      zones: {
+        p1: {
+          hand: [],
+          handCount: 0,
+          graveyard: [],
+          graveyardCount: 0,
+          exile: [
+            {
+              id: 'mountain_exile_2',
+              name: 'Mountain',
+              type_line: 'Basic Land — Mountain',
+              oracle_text: '{T}: Add {R}.',
+            },
+          ],
+          exileCount: 1,
+          libraryCount: 0,
+        },
+      },
+      playableFromExile: {
+        p1: {},
+      },
+      turnNumber: 4,
+      turnPlayer: 'p1',
+    });
 
     expect(canPlayLand(ctx, 'p1' as PlayerID)).toBe(false);
   });
@@ -1456,6 +1553,143 @@ describe('canRespond', () => {
 });
 
 describe('canAct', () => {
+  it('should return shared castable commander candidates with per-commander tax and cost adjustment applied', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      battlefield: [
+        {
+          id: 'mountain_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+        {
+          id: 'ruby_medallion_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Ruby Medallion',
+            type_line: 'Artifact',
+            oracle_text: 'Red spells you cast cost {1} less to cast.',
+          },
+        },
+      ],
+      commandZone: {
+        p1: {
+          commanderIds: ['cmd_red', 'cmd_taxed'],
+          commanderCards: [
+            {
+              id: 'cmd_red',
+              name: 'Red Commander',
+              type_line: 'Legendary Creature — Warrior',
+              mana_cost: '{1}{R}',
+              oracle_text: '',
+            },
+            {
+              id: 'cmd_taxed',
+              name: 'Taxed Commander',
+              type_line: 'Legendary Creature — Warrior',
+              mana_cost: '{2}{R}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_red', 'cmd_taxed'],
+          taxById: {
+            cmd_red: 0,
+            cmd_taxed: 4,
+          },
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      stack: [],
+    });
+
+    const candidates = getCastableCommanderCandidates(ctx, 'p1' as PlayerID);
+
+    expect(candidates.map((candidate) => candidate.commanderId)).toEqual(['cmd_red']);
+    expect(candidates[0]?.cost.generic).toBe(0);
+    expect(candidates[0]?.cost.colors.R).toBe(1);
+  });
+
+  it('should return true when a commander is only affordable through a shared command-zone cost adjustment', () => {
+    const ctx = createTestContext({
+      zones: {
+        p1: {
+          hand: [],
+          graveyard: [],
+          exile: [],
+          handCount: 0,
+          graveyardCount: 0,
+          exileCount: 0,
+        },
+      },
+      battlefield: [
+        {
+          id: 'mountain_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Mountain',
+            type_line: 'Basic Land — Mountain',
+            oracle_text: '{T}: Add {R}.',
+          },
+        },
+        {
+          id: 'ruby_medallion_1',
+          controller: 'p1',
+          tapped: false,
+          card: {
+            name: 'Ruby Medallion',
+            type_line: 'Artifact',
+            oracle_text: 'Red spells you cast cost {1} less to cast.',
+          },
+        },
+      ],
+      commandZone: {
+        p1: {
+          commanderIds: ['cmd_red'],
+          commanderCards: [
+            {
+              id: 'cmd_red',
+              name: 'Red Commander',
+              type_line: 'Legendary Creature — Warrior',
+              mana_cost: '{1}{R}',
+              oracle_text: '',
+            },
+          ],
+          inCommandZone: ['cmd_red'],
+          taxById: {
+            cmd_red: 0,
+          },
+        },
+      },
+      manaPool: {
+        p1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      },
+      step: 'MAIN1',
+      turnPlayer: 'p1',
+      priority: 'p1',
+      stack: [],
+    });
+
+    expect(canAct(ctx, 'p1' as PlayerID)).toBe(true);
+  });
+
   it('should return true when player can cast sorcery from hand in main phase', () => {
     const ctx = createTestContext({
       zones: {

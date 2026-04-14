@@ -56,6 +56,58 @@ describe('Casting both partner commanders', () => {
     expect(commandZone?.taxById?.[commanderCard.id]).toBe(2);
   });
 
+  it('replays castSpell events persisted from the command zone', () => {
+    const game = createInitialGameState('commander_castspell_command_replay');
+    const p1 = 'player1' as PlayerID;
+
+    const commanderCard = {
+      id: 'cmd_castspell',
+      name: 'Esika, God of the Tree',
+      type_line: 'Legendary Creature — God',
+      oracle_text: 'Vigilance\n{T}: Add one mana of any color.',
+      image_uris: {},
+      mana_cost: '{1}{G}{G}',
+      power: '1',
+      toughness: '4',
+    };
+
+    const fillerCards: KnownCardRef[] = Array.from({ length: 99 }, (_, index) => ({
+      id: `card_${index}`,
+      name: `Card ${index}`,
+      type_line: 'Sorcery',
+      oracle_text: 'Draw a card.',
+      image_uris: {},
+      mana_cost: '{1}',
+    } as any));
+
+    game.applyEvent({ type: 'join', playerId: p1, name: 'Player 1' });
+    game.applyEvent({
+      type: 'importDeck',
+      playerId: p1,
+      cards: [commanderCard as any, ...fillerCards],
+    });
+
+    game.setCommander(p1, [commanderCard.name], [commanderCard.id], ['G']);
+
+    game.applyEvent({
+      type: 'castSpell',
+      playerId: p1,
+      cardId: commanderCard.id,
+      fromZone: 'command',
+      targets: [],
+    } as any);
+
+    const commandZone = game.state.commandZone?.[p1];
+    const stackItem = (game.state.stack || []).find((item: any) => String(item?.card?.id || '') === commanderCard.id);
+
+    expect(((commandZone as any)?.inCommandZone || [])).not.toContain(commanderCard.id);
+    expect(commandZone?.taxById?.[commanderCard.id]).toBe(2);
+    expect(stackItem?.fromZone).toBe('command');
+    expect(stackItem?.source).toBe('command');
+    expect(stackItem?.isCommander).toBe(true);
+    expect(stackItem?.card?.isCommander).toBe(true);
+  });
+
   it('should allow casting both partner commanders independently', () => {
     const game = createInitialGameState('commander_both_castable');
     const p1 = 'player1' as PlayerID;

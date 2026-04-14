@@ -1893,9 +1893,10 @@ export function TableLayout(props: {
                               if (onCastCommander) {
                                 onCastCommander(commanderId, commanderName, manaCost, tax);
                               } else {
-                                socket.emit('castCommander', {
+                                socket.emit('requestCastSpell', {
                                   gameId,
-                                  commanderNameOrId: commanderId
+                                  cardId: commanderId,
+                                  fromZone: 'command',
                                 });
                               }
                             }}

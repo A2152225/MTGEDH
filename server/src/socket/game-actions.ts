@@ -35,6 +35,7 @@ import { filterLibraryCardsForSearch } from "./library-search.js";
 import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { shouldSuppressMandatoryTriggeredAbilityPrompt } from "./trigger-shortcuts.js";
 import { hasMutateAlternateCost, parseMutateCost, getValidMutateTargets } from "../state/modules/alternate-costs.js";
+import { getCommandZoneCommanderCandidates, type SharedCommanderAvailabilityCandidate } from "../state/modules/can-respond.js";
 import { cleanupCardLeavingExile } from "../state/modules/playable-from-exile.js";
 import { getEffectiveBasicLandTypes } from "../state/modules/mana-abilities.js";
 import { parseOracleTextToIR } from '../../../rules-engine/src/oracleIRParser.js';
@@ -84,6 +85,108 @@ function getPlayerLibraryCards(game: any, playerId: string): any[] {
 function getTopLibraryCard(game: any, playerId: string): any | null {
   const library = getPlayerLibraryCards(game, playerId);
   return library.length > 0 ? library[0] : null;
+}
+
+type SpellCastSourceZone = 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
+
+function normalizeSpellCastSourceZone(value: unknown): SpellCastSourceZone | undefined {
+  return value === 'hand' || value === 'exile' || value === 'graveyard' || value === 'library' || value === 'command'
+    ? value
+    : undefined;
+}
+
+function buildManaCostStringFromParsedCost(parsedCost?: {
+  generic?: number;
+  colors?: Record<string, number>;
+  hybrids?: Array<Array<string>>;
+  hasX?: boolean;
+}): string {
+  if (!parsedCost || typeof parsedCost !== 'object') return '';
+
+  let manaCost = '';
+  if (parsedCost.hasX) {
+    manaCost += '{X}';
+  }
+
+  const generic = Math.max(0, Number(parsedCost.generic || 0));
+  if (generic > 0) {
+    manaCost += `{${generic}}`;
+  }
+
+  for (const [color, count] of Object.entries(parsedCost.colors || {})) {
+    const normalizedCount = Math.max(0, Number(count || 0));
+    for (let index = 0; index < normalizedCount; index++) {
+      manaCost += `{${color}}`;
+    }
+  }
+
+  for (const hybrid of Array.isArray(parsedCost.hybrids) ? parsedCost.hybrids : []) {
+    if (Array.isArray(hybrid) && hybrid.length > 0) {
+      manaCost += `{${hybrid.join('/')}}`;
+    }
+  }
+
+  return manaCost || '{0}';
+}
+
+function createEmptyCostReduction(): { generic: number; colors: Record<string, number>; messages: string[] } {
+  return {
+    generic: 0,
+    colors: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    messages: [],
+  };
+}
+
+function getPlayerCommandZoneCards(game: any, playerId: string): any[] {
+  const commandZone = game?.state?.commandZone?.[playerId];
+  return Array.isArray(commandZone?.commanderCards) ? commandZone.commanderCards : [];
+}
+
+function getPlayerSpellSourceCards(game: any, playerId: string, sourceZone: SpellCastSourceZone): any[] {
+  const zones = game?.state?.zones?.[playerId] || {};
+
+  switch (sourceZone) {
+    case 'exile':
+      return Array.isArray((zones as any).exile) ? (zones as any).exile : [];
+    case 'graveyard':
+      return Array.isArray((zones as any).graveyard) ? (zones as any).graveyard : [];
+    case 'library':
+      return getPlayerLibraryCards(game, playerId);
+    case 'command':
+      return getPlayerCommandZoneCards(game, playerId);
+    case 'hand':
+    default:
+      return Array.isArray((zones as any).hand) ? (zones as any).hand : [];
+  }
+}
+
+function findCommandZoneCommanderCandidate(
+  game: any,
+  playerId: string,
+  commanderId: string,
+): SharedCommanderAvailabilityCandidate | undefined {
+  const normalizedCommanderId = String(commanderId || '').trim();
+  if (!normalizedCommanderId) return undefined;
+
+  return getCommandZoneCommanderCandidates({
+    state: game?.state,
+    libraries: game?.libraries,
+  } as any, playerId as any).find((candidate) => String(candidate.commanderId || '').trim() === normalizedCommanderId);
+}
+
+function buildCommandZoneCastManaCost(card: any, candidate?: SharedCommanderAvailabilityCandidate): string {
+  if (!candidate) {
+    return String(card?.mana_cost || '').trim();
+  }
+
+  const baseManaCost = String(card?.mana_cost || candidate.manaCost || '').trim();
+  if (!baseManaCost) return '';
+
+  const parsedCost = parseManaCost(baseManaCost);
+  return buildManaCostStringFromParsedCost({
+    ...parsedCost,
+    generic: parsedCost.generic + candidate.commanderTax + candidate.costAdjustment,
+  });
 }
 
 function validateTopOfLibraryLandAccess(
@@ -2905,9 +3008,7 @@ export async function requestCastSpellForSocket(
     const faceIndex = typeof payload?.faceIndex === 'number' && Number.isFinite(payload.faceIndex)
       ? payload.faceIndex
       : undefined;
-    const fromZone = payload?.fromZone === 'hand' || payload?.fromZone === 'exile' || payload?.fromZone === 'graveyard' || payload?.fromZone === 'library'
-      ? payload.fromZone
-      : undefined;
+    const fromZone = normalizeSpellCastSourceZone(payload?.fromZone);
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardId || typeof cardId !== 'string') return;
 
@@ -2972,15 +3073,13 @@ export async function requestCastSpellForSocket(
     const isFreeCast = options?.castWithoutPayingManaCost === true || options?.forcedAlternateCostId === 'free';
     const bypassExilePermissionCheck = options?.bypassExilePermissionCheck === true;
 
-    let castSourceZone: 'hand' | 'exile' | 'graveyard' | 'library' = (fromZone as any) || 'hand';
-    let cardInHand: any =
-      castSourceZone === 'exile'
-        ? exile.find((c: any) => c && c.id === cardId)
-        : castSourceZone === 'graveyard'
-          ? graveyard.find((c: any) => c && c.id === cardId)
-          : castSourceZone === 'library'
-            ? library.find((c: any) => c && c.id === cardId)
-          : hand.find((c: any) => c && c.id === cardId);
+    let castSourceZone: SpellCastSourceZone = fromZone || 'hand';
+    let commanderCandidate = castSourceZone === 'command'
+      ? findCommandZoneCommanderCandidate(game, String(playerId), String(cardId))
+      : undefined;
+    let cardInHand: any = castSourceZone === 'command'
+      ? commanderCandidate?.card
+      : getPlayerSpellSourceCards(game, String(playerId), castSourceZone).find((c: any) => c && c.id === cardId);
 
     // Allow starting the cast pipeline from exile for impulse-style effects.
     if (!cardInHand && !fromZone) {
@@ -3022,12 +3121,16 @@ export async function requestCastSpellForSocket(
 
     if (!cardInHand) {
       socket.emit("error", {
-        code: castSourceZone === 'exile'
+        code: castSourceZone === 'command'
+          ? 'COMMANDER_NOT_IN_CZ'
+          : castSourceZone === 'exile'
           ? 'CARD_NOT_IN_EXILE'
           : (castSourceZone === 'graveyard'
               ? 'CARD_NOT_IN_GRAVEYARD'
               : (castSourceZone === 'library' ? 'CARD_NOT_IN_LIBRARY' : 'CARD_NOT_FOUND')),
-        message: `Card not found in ${castSourceZone}`,
+        message: castSourceZone === 'command'
+          ? 'Commander not found in the command zone.'
+          : `Card not found in ${castSourceZone}`,
       });
       return;
     }
@@ -3093,9 +3196,44 @@ export async function requestCastSpellForSocket(
 
     // Get oracle text (possibly from card face if split/adventure)
     let oracleTextRaw = cardForCast.oracle_text || "";
-    let manaCost = isFreeCast ? '{0}' : (cardForCast.mana_cost || "");
+    let manaCost = isFreeCast
+      ? '{0}'
+      : castSourceZone === 'command'
+        ? buildCommandZoneCastManaCost(cardForCast, commanderCandidate)
+        : (cardForCast.mana_cost || "");
     let cardName = cardForCast.name || "Card";
     let faceTypeLine = effectiveTypeLine;
+
+    if (castSourceZone === 'command' && commanderCandidate && !commanderCandidate.grantsFlash) {
+      const stepStr = String(game.state?.step || '').toUpperCase().trim();
+      const isMainPhase = phaseStr.includes('MAIN') || stepStr.includes('MAIN');
+      const isYourTurn = game.state.turnPlayer === playerId;
+      const stackEmpty = !game.state.stack || game.state.stack.length === 0;
+
+      if (!isMainPhase) {
+        socket.emit('error', {
+          code: 'SORCERY_TIMING',
+          message: "This spell can only be cast during a main phase (it doesn't have flash).",
+        });
+        return;
+      }
+
+      if (!isYourTurn) {
+        socket.emit('error', {
+          code: 'SORCERY_TIMING',
+          message: "This spell can only be cast during your turn (it doesn't have flash).",
+        });
+        return;
+      }
+
+      if (!stackEmpty) {
+        socket.emit('error', {
+          code: 'SORCERY_TIMING',
+          message: "This spell can only be cast when the stack is empty (it doesn't have flash).",
+        });
+        return;
+      }
+    }
 
     const giftInfo = extractGiftInfo(oracleTextRaw);
     const transientGiftChoiceResolved = giftInfo.hasGift && (cardInHand as any).giftChoiceResolved === true;
@@ -3509,7 +3647,9 @@ export async function requestCastSpellForSocket(
         return;
       }
 
-      const costReduction = calculateCostReduction(game, playerId, cardForCast);
+      const costReduction = castSourceZone === 'command'
+        ? createEmptyCostReduction()
+        : calculateCostReduction(game, playerId, cardForCast);
       const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
 
       (game.state as any).pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
@@ -3966,7 +4106,9 @@ export async function requestCastSpellForSocket(
     }
 
     // No targets needed — still need to handle additional costs before payment.
-    const costReduction = calculateCostReduction(game, playerId, cardForCast);
+    const costReduction = castSourceZone === 'command'
+      ? createEmptyCostReduction()
+      : calculateCostReduction(game, playerId, cardForCast);
     const convokeOptions = calculateConvokeOptions(game, playerId, cardForCast);
     const paymentManaCost = appendManaCost(
       formatManaCostWithReduction(resolvedManaCost, costReduction, chosenXValue),
@@ -4767,10 +4909,10 @@ export function registerGameActions(io: Server, socket: Socket) {
     if (!gameId || typeof gameId !== 'string') return;
     if (!cardId || typeof cardId !== 'string') return;
     if (!(faceIndex === undefined || typeof faceIndex === 'number')) return;
-    if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'exile' || fromZone === 'graveyard' || fromZone === 'library')) return;
+    if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'exile' || fromZone === 'graveyard' || fromZone === 'library' || fromZone === 'command')) return;
 
     const castFaceIndex = faceIndex as number | undefined;
-    const castFromZone = fromZone as 'hand' | 'exile' | 'graveyard' | 'library' | undefined;
+    const castFromZone = fromZone as SpellCastSourceZone | undefined;
 
     try {
       const game = ensureGame(gameId);
@@ -4863,9 +5005,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       const convokeTappedCreatures = Array.isArray(payload?.convokeTappedCreatures)
         ? (payload.convokeTappedCreatures.filter((id): id is string => typeof id === 'string'))
         : undefined;
-      const fromZone = payload?.fromZone === 'hand' || payload?.fromZone === 'exile' || payload?.fromZone === 'graveyard' || payload?.fromZone === 'library'
-        ? payload.fromZone
-        : undefined;
+      const fromZone = normalizeSpellCastSourceZone(payload?.fromZone);
       const bypassExilePermissionCheck = payload?.bypassExilePermissionCheck === true;
       const allowLibrarySearchCast = payload?.allowLibrarySearchCast === true;
 
@@ -4946,14 +5086,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         ? (game.libraries as any).get(playerId)
         : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
 
-      let castSourceZone: 'hand' | 'exile' | 'graveyard' | 'library' = (fromZone as any) || 'hand';
-      let sourceArr: any[] = castSourceZone === 'exile'
-        ? exile
-        : (castSourceZone === 'graveyard'
-        ? graveyard
-        : (castSourceZone === 'library' ? library : hand));
+      let castSourceZone: SpellCastSourceZone = fromZone || 'hand';
+      let sourceArr: any[] = getPlayerSpellSourceCards(game, String(playerId), castSourceZone);
+      let commandZoneCandidate = castSourceZone === 'command'
+        ? findCommandZoneCommanderCandidate(game, String(playerId), String(cardId))
+        : undefined;
 
-      let cardInHand: any = sourceArr.find((c: any) => c && c.id === cardId);
+      let cardInHand: any = castSourceZone === 'command'
+        ? commandZoneCandidate?.card
+        : sourceArr.find((c: any) => c && c.id === cardId);
 
       // If no fromZone was specified, allow auto-detection (hand -> exile -> graveyard)
       if (!cardInHand && !fromZone) {
@@ -4981,12 +5122,16 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       if (!cardInHand) {
         socket.emit("error", {
-          code: castSourceZone === 'exile'
+          code: castSourceZone === 'command'
+            ? 'COMMANDER_NOT_IN_CZ'
+            : castSourceZone === 'exile'
             ? "CARD_NOT_IN_EXILE"
             : (castSourceZone === 'graveyard'
                 ? "CARD_NOT_IN_GRAVEYARD"
                 : (castSourceZone === 'library' ? "CARD_NOT_IN_LIBRARY" : "CARD_NOT_IN_HAND")),
-          message: `Card not found in ${castSourceZone}`,
+          message: castSourceZone === 'command'
+            ? 'Commander not found in the command zone.'
+            : `Card not found in ${castSourceZone}`,
         });
         return;
       }
@@ -5027,6 +5172,9 @@ export function registerGameActions(io: Server, socket: Socket) {
       const selectedFaceIndex = selectedSpell.faceIndex;
       const castAsAdventure = selectedSpell.castAsAdventure;
       cardInHand = selectedSpell.card;
+      const commandZoneManaCost = castSourceZone === 'command'
+        ? buildCommandZoneCastManaCost(cardInHand, commandZoneCandidate)
+        : undefined;
 
       // Validate card is castable (not a land)
       const typeLine = (cardInHand.type_line || "").toLowerCase();
@@ -6654,14 +6802,16 @@ export function registerGameActions(io: Server, socket: Socket) {
             ? '{W}{U}{B}{R}{G}'
             : resolvedOverloadCost
               ? resolvedOverloadCost
-              : (cardInHand.mana_cost || ""),
+              : (castSourceZone === 'command' ? (commandZoneManaCost || '') : (cardInHand.mana_cost || "")),
         spellModeAdditionalCost,
       );
       const manaCost = expandManaCostWithChosenX(rawManaCost, xValue);
       const parsedCost = parseManaCost(manaCost);
       
       // Calculate cost reduction from battlefield effects
-      const costReduction = calculateCostReduction(game, playerId, cardInHand, false);
+      const costReduction = castSourceZone === 'command'
+        ? createEmptyCostReduction()
+        : calculateCostReduction(game, playerId, cardInHand, false);
       
       // Apply cost reduction
       const reducedCost = applyCostReduction(parsedCost, costReduction);
@@ -7386,7 +7536,7 @@ export function registerGameActions(io: Server, socket: Socket) {
             playerId,
             cardId,
             cardName: cardInHand.name,
-            manaCost: cardInHand.mana_cost,
+            manaCost: castSourceZone === 'command' ? (commandZoneManaCost || cardInHand.mana_cost) : cardInHand.mana_cost,
             cardTypes: (cardInHand.type_line || '').split('ΓÇö').map((s: string) => s.trim()),
             targets: targets || [],
           });
@@ -7403,7 +7553,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               playerId,
               cardId,
               cardName: cardInHand.name,
-              manaCost: cardInHand.mana_cost,
+              manaCost: castSourceZone === 'command' ? (commandZoneManaCost || cardInHand.mana_cost) : cardInHand.mana_cost,
               cardTypes: (cardInHand.type_line || '').split('ΓÇö').map((s: string) => s.trim()),
               targets: targets || [],
             });
@@ -7438,7 +7588,7 @@ export function registerGameActions(io: Server, socket: Socket) {
               type: "castSpell",
               playerId,
               cardId,
-              card: { ...cardInHand },
+              card: { ...cardInHand, ...(castSourceZone === 'command' ? { isCommander: true } : {}) },
               targets: targets || [],
               xValue,
               ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
@@ -8010,7 +8160,7 @@ export function registerGameActions(io: Server, socket: Socket) {
           cardId, 
           targets,
           // Include full card data for replay to work correctly after server restart
-          card: cardInHand,
+          card: { ...cardInHand, ...(castSourceZone === 'command' ? { isCommander: true } : {}) },
           xValue,
           ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
           ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
@@ -8087,6 +8237,16 @@ export function registerGameActions(io: Server, socket: Socket) {
         });
       } catch (e) {
         debugWarn(1, 'appendEvent(castSpell) failed:', e);
+      }
+
+      if (castSourceZone === 'command') {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} cast ${cardInHand.name} from the command zone.`,
+          ts: Date.now(),
+        });
       }
 
       const persistTriggeredAbilityPush = (payload: Record<string, unknown>, reason: string) => {
@@ -8617,13 +8777,15 @@ export function registerGameActions(io: Server, socket: Socket) {
         }
       }
 
-      io.to(gameId).emit("chat", {
-        id: `m_${Date.now()}`,
-        gameId,
-        from: "system",
-        message: `${getPlayerName(game, playerId)} cast ${cardInHand.name}.`,
-        ts: Date.now(),
-      });
+      if (castSourceZone !== 'command') {
+        io.to(gameId).emit("chat", {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: "system",
+          message: `${getPlayerName(game, playerId)} cast ${cardInHand.name}.`,
+          ts: Date.now(),
+        });
+      }
       
       // Process any cascade triggers
       await processPendingCascades(io, game, gameId);
@@ -8705,7 +8867,7 @@ export function registerGameActions(io: Server, socket: Socket) {
 
       if (!ensureInGameRoom(gameId)) return;
 
-      let pendingFromZone: 'hand' | 'exile' | 'graveyard' | undefined;
+      let pendingFromZone: SpellCastSourceZone | undefined;
       let pendingBypassExilePermissionCheck = false;
       let pendingXValue: number | undefined;
       let pendingFaceIndex: number | undefined;
@@ -8735,7 +8897,7 @@ export function registerGameActions(io: Server, socket: Socket) {
         } else {
           debug(2, `[completeCastSpell] Found pendingCast:`, JSON.stringify(pendingCast, null, 2));
 
-          pendingFromZone = (pendingCast?.fromZone as any) || undefined;
+          pendingFromZone = normalizeSpellCastSourceZone(pendingCast?.fromZone) || undefined;
           pendingBypassExilePermissionCheck = pendingCast?.bypassExilePermissionCheck === true;
           pendingXValue = Number.isFinite(pendingCast?.xValue) ? Math.max(0, Math.floor(Number(pendingCast.xValue))) : undefined;
           pendingFaceIndex = Number.isFinite(pendingCast?.faceIndex) ? Number(pendingCast.faceIndex) : undefined;
@@ -8747,14 +8909,22 @@ export function registerGameActions(io: Server, socket: Socket) {
         if (String(pendingCast?.forcedAlternateCostId || '') === 'mutate') {
           try {
             const zones = (game.state as any)?.zones?.[playerId];
-            const fromZone = String(pendingCast?.fromZone || 'hand').toLowerCase().trim();
+            const fromZone = normalizeSpellCastSourceZone(pendingCast?.fromZone) || 'hand';
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
             const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
             const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
             const library: any[] = Array.isArray((game.libraries as any)?.get?.(playerId))
               ? (game.libraries as any).get(playerId)
               : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
-            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : fromZone === 'library' ? library : hand;
+            const sourceArr = fromZone === 'command'
+              ? getPlayerCommandZoneCards(game, String(playerId))
+              : fromZone === 'exile'
+                ? exile
+                : fromZone === 'graveyard'
+                  ? graveyard
+                  : fromZone === 'library'
+                    ? library
+                    : hand;
             const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
             if (cardObj) {
               (cardObj as any).isMutating = true;
@@ -8770,14 +8940,22 @@ export function registerGameActions(io: Server, socket: Socket) {
         if ('giftPromised' in pendingCast || 'giftRecipient' in pendingCast || 'giftType' in pendingCast) {
           try {
             const zones = (game.state as any)?.zones?.[playerId];
-            const fromZone = String(pendingCast?.fromZone || 'hand').toLowerCase().trim();
+            const fromZone = normalizeSpellCastSourceZone(pendingCast?.fromZone) || 'hand';
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
             const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
             const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
             const library: any[] = Array.isArray((game.libraries as any)?.get?.(playerId))
               ? (game.libraries as any).get(playerId)
               : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
-            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : fromZone === 'library' ? library : hand;
+            const sourceArr = fromZone === 'command'
+              ? getPlayerCommandZoneCards(game, String(playerId))
+              : fromZone === 'exile'
+                ? exile
+                : fromZone === 'graveyard'
+                  ? graveyard
+                  : fromZone === 'library'
+                    ? library
+                    : hand;
             const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
             if (cardObj) {
               (cardObj as any).giftPromised = pendingCast?.giftPromised === true;
@@ -8800,14 +8978,22 @@ export function registerGameActions(io: Server, socket: Socket) {
         if ('selectedModes' in pendingCast || 'selectedAdditionalCostModes' in pendingCast || 'selectedSpreeModes' in pendingCast || 'entwineCost' in pendingCast || 'castWithEntwine' in pendingCast) {
           try {
             const zones = (game.state as any)?.zones?.[playerId];
-            const fromZone = String(pendingCast?.fromZone || 'hand').toLowerCase().trim();
+            const fromZone = normalizeSpellCastSourceZone(pendingCast?.fromZone) || 'hand';
             const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
             const exile: any[] = Array.isArray((zones as any)?.exile) ? (zones as any).exile : [];
             const graveyard: any[] = Array.isArray((zones as any)?.graveyard) ? (zones as any).graveyard : [];
             const library: any[] = Array.isArray((game.libraries as any)?.get?.(playerId))
               ? (game.libraries as any).get(playerId)
               : (Array.isArray((game.libraries as any)?.[playerId]) ? (game.libraries as any)[playerId] : []);
-            const sourceArr = fromZone === 'exile' ? exile : fromZone === 'graveyard' ? graveyard : fromZone === 'library' ? library : hand;
+            const sourceArr = fromZone === 'command'
+              ? getPlayerCommandZoneCards(game, String(playerId))
+              : fromZone === 'exile'
+                ? exile
+                : fromZone === 'graveyard'
+                  ? graveyard
+                  : fromZone === 'library'
+                    ? library
+                    : hand;
             const cardObj = sourceArr.find((c: any) => c && String(c.id) === String(cardId));
             if (cardObj) {
               if (Array.isArray(pendingCast?.selectedModes)) {
