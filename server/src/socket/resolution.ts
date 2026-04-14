@@ -16390,6 +16390,7 @@ async function handleTargetSelectionResponse(
     permanent.counters.loyalty = newLoyalty;
     permanent.loyalty = newLoyalty; // Also update top-level loyalty for client display
     // Note: loyaltyActivationsThisTurn already incremented when ability was activated
+    const loyaltyActivatedAbilityText = `${loyaltyCost >= 0 ? '+' : ''}${loyaltyCost}: ${abilityText}`;
     
     // Put the loyalty ability on the stack WITH targets
     const stackItem = {
@@ -16399,6 +16400,7 @@ async function handleTargetSelectionResponse(
       source: permanentId,
       sourceName: cardName,
       description: abilityText,
+      activatedAbilityText: loyaltyActivatedAbilityText,
       targets: selections,  // Include selected targets
       copyRetargetValidTargets: Array.isArray((step as any).validTargets)
         ? (step as any).validTargets.map((target: any) => ({ ...target }))
@@ -16425,6 +16427,8 @@ async function handleTargetSelectionResponse(
       abilityIndex, 
       loyaltyCost,
       newLoyalty,
+      abilityText,
+      activatedAbilityText: loyaltyActivatedAbilityText,
       targets: selections,
       copyRetargetValidTargets: Array.isArray((step as any).validTargets)
         ? (step as any).validTargets.map((target: any) => ({ ...target }))

@@ -324,6 +324,126 @@ describe('AI shared spell-surface integration', () => {
     } as any, playerId as any)).toBe(true);
   });
 
+  it('surfaces graveyard flashback and card-specific exile casts through the shared spell candidate helper', async () => {
+    const gameId = createTestGameId('graveyard_exile_candidates');
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'AI', spectator: false, isAI: true, life: 40 },
+      { id: 'opp1', name: 'Opponent', spectator: false, life: 40 },
+    ];
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).activePlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).phase = 'main';
+    (game.state as any).step = 'precombat_main';
+    (game.state as any).stack = [];
+    (game.state as any).turnNumber = 3;
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      opp1: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    (game.state as any).commandZone = {
+      [playerId]: { commanderIds: [], commanderCards: [], inCommandZone: [], taxById: {} },
+      opp1: { commanderIds: [], commanderCards: [], inCommandZone: [], taxById: {} },
+    };
+    (game.state as any).playableFromExile = {
+      [playerId]: { impulse_opt_1: 3 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'island_1',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'island_card_1',
+          name: 'Island',
+          type_line: 'Basic Land — Island',
+          oracle_text: '{T}: Add {U}.',
+        },
+      },
+    ];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [
+          {
+            id: 'deep_analysis_1',
+            name: 'Think Twice',
+            type_line: 'Instant',
+            oracle_text: 'Draw a card. Flashback {U}.',
+            mana_cost: '{1}{U}',
+            cmc: 2,
+            zone: 'graveyard',
+          },
+        ],
+        graveyardCount: 1,
+        exile: [
+          {
+            id: 'impulse_opt_1',
+            name: 'Opt',
+            type_line: 'Instant',
+            oracle_text: 'Scry 1, then draw a card.',
+            mana_cost: '{U}',
+            cmc: 1,
+            zone: 'exile',
+          },
+        ],
+        exileCount: 1,
+      },
+      opp1: {
+        hand: [],
+        handCount: 0,
+        library: [],
+        libraryCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+      },
+    };
+
+    const sharedCandidates = getCastableSpellCandidates({
+      state: game.state,
+      libraries: (game as any).libraries,
+    } as any, playerId as any, {
+      mode: 'main',
+      skipIgnoredCards: true,
+      allowAlternateCosts: false,
+      allowUnknownCostFallback: false,
+    });
+
+    const graveyardCandidate = sharedCandidates.find((candidate) => String(candidate.card?.id || '') === 'deep_analysis_1');
+    const exileCandidate = sharedCandidates.find((candidate) => String(candidate.card?.id || '') === 'impulse_opt_1');
+
+    expect(graveyardCandidate).toEqual(expect.objectContaining({
+      sourceZone: 'graveyard',
+      castMethod: 'flashback',
+      card: expect.objectContaining({ id: 'deep_analysis_1' }),
+    }));
+    expect(String(graveyardCandidate?.manaCost || '')).toMatch(/^\{u\}$/i);
+
+    expect(exileCandidate).toEqual(expect.objectContaining({
+      sourceZone: 'exile',
+      castMethod: 'playable_from_exile',
+      card: expect.objectContaining({ id: 'impulse_opt_1' }),
+      manaCost: '{U}',
+    }));
+
+    expect(canAct({
+      state: game.state,
+      libraries: (game as any).libraries,
+    } as any, playerId as any)).toBe(true);
+  });
+
   it('routes commander casts through the shared spell request flow instead of a manual AI-only commander branch', async () => {
     const gameId = createTestGameId('commander_request_flow');
     createGameIfNotExists(gameId, 'commander', 40);

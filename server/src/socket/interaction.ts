@@ -7311,6 +7311,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       // Get current loyalty (needed for validation)
       const currentLoyalty = (permanent as any).counters?.loyalty || 0;
       const loyaltyCost = ability.loyaltyCost;
+      const loyaltyActivatedAbilityText = `${loyaltyCost >= 0 ? '+' : ''}${loyaltyCost}: ${ability.text}`;
       
       // Check if we can pay the cost BEFORE prompting for targets
       // For minus abilities, check we have enough loyalty
@@ -7558,29 +7559,6 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         }
       }
       
-      // Enqueue activation in the resolution queue for unified handling/ordering
-      try {
-        const step = ResolutionQueueManager.addStep(gameId, {
-          type: ResolutionStepType.ACTIVATED_ABILITY,
-          playerId: pid as PlayerID,
-          description: `${cardName}: ${ability.text}`,
-          mandatory: true,
-          sourceId: permanentId,
-          sourceName: cardName,
-          abilityIndex,
-          loyaltyCost: ability.loyaltyCost,
-        });
-        ResolutionQueueManager.completeStep(gameId, step.id, {
-          stepId: step.id,
-          playerId: pid as PlayerID,
-          selections: abilityIndex,
-          cancelled: false,
-          timestamp: Date.now(),
-        });
-      } catch (e) {
-        debugWarn(2, `[planeswalker] Failed to enqueue activation for ${cardName}:`, e);
-      }
-      
       // Apply loyalty cost and update counters
       const newLoyalty = currentLoyalty + loyaltyCost;
       (permanent as any).counters = (permanent as any).counters || {};
@@ -7596,6 +7574,12 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         source: permanentId,
         sourceName: cardName,
         description: ability.text,
+        activatedAbilityText: loyaltyActivatedAbilityText,
+        planeswalker: {
+          oracleId: (permanent as any)?.card?.oracle_id,
+          abilityIndex,
+          loyaltyCost,
+        },
       } as any;
       
       game.state.stack = game.state.stack || [];
@@ -7621,6 +7605,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
         abilityIndex, 
         loyaltyCost,
         newLoyalty,
+        abilityText: ability.text,
+        activatedAbilityText: loyaltyActivatedAbilityText,
       });
       
       const costSign = loyaltyCost >= 0 ? "+" : "";
@@ -9943,7 +9929,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     const resolvedAbilityText = applyXValueToText(abilityText, selectedXValue);
     const resolvedActivatedAbilityText = applyXValueToText(
-      String(abilityConditionText || '').trim() || (manaCost ? `${manaCost}: ${abilityText}` : abilityText),
+      String(selectedAbilityFullText || abilityConditionText || '').trim() || (manaCost ? `${manaCost}: ${abilityText}` : abilityText),
       selectedXValue
     );
 
@@ -11144,14 +11130,17 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
 
     const activatedAbilityText = resolvedActivatedAbilityText;
+    const persistedAbilityText = String(resolvedAbilityText || '').trim()
+      || (activatedAbilityText.includes(':') ? activatedAbilityText.split(':').slice(1).join(':').trim() : activatedAbilityText);
     
     appendEvent(gameId, (game as any).seq ?? 0, "activateBattlefieldAbility", { 
       playerId: pid, 
       permanentId, 
       abilityId,
       cardName,
-      abilityText: resolvedAbilityText,
+      abilityText: persistedAbilityText,
       activatedAbilityText,
+      usesStack: !isManaAbility,
       xValue: selectedXValue,
       tappedPermanents: tappedPermanentsForCost,
       sacrificedPermanents: sacrificedPermanentsForCost,

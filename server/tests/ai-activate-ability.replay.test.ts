@@ -124,6 +124,66 @@ describe('AI activated ability replay semantics', () => {
     expect(humbleDefector?.summoningSickness).toBe(true);
   });
 
+  it('replays legacy-fallback AI Humble Defector activations persisted as activateBattlefieldAbility', () => {
+    const game = createInitialGameState('t_ai_humble_defector_fallback_replay');
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+    addPlayer(game, p1, 'P1');
+    addPlayer(game, p2, 'P2');
+
+    game.importDeckResolved(p1, [
+      { id: 'drawn_1', name: 'Card One', type_line: 'Instant', oracle_text: 'Draw a card.' },
+      { id: 'drawn_2', name: 'Card Two', type_line: 'Sorcery', oracle_text: 'Scry 1.' },
+    ] as any);
+
+    (game.state as any).zones = {
+      [p1]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        libraryCount: 2,
+      },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'humble_fallback_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        card: {
+          id: 'humble_fallback_card',
+          name: 'Humble Defector',
+          type_line: 'Creature — Human Rogue',
+          oracle_text: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateBattlefieldAbility',
+      playerId: p1,
+      permanentId: 'humble_fallback_1',
+      cardName: 'Humble Defector',
+      abilityType: 'humble-defector',
+      abilityText: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+      activatedAbilityText: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
+      tappedPermanents: ['humble_fallback_1'],
+      targetOpponentId: p2,
+      usesStack: false,
+    } as any);
+
+    expect((game.state as any).zones[p1].hand).toHaveLength(2);
+
+    const humbleDefector = (game.state as any).battlefield.find((entry: any) => entry.id === 'humble_fallback_1');
+    expect(humbleDefector?.tapped).toBe(true);
+    expect(humbleDefector?.controller).toBe(p2);
+    expect(humbleDefector?.summoningSickness).toBe(true);
+  });
+
   it('replays shared AI fetch-land activations by paying costs and rebuilding the unresolved stack item', () => {
     const game = createInitialGameState('t_ai_fetchland_replay');
     const p1 = 'p1' as PlayerID;
@@ -191,11 +251,14 @@ describe('AI activated ability replay semantics', () => {
     expect(String(stack[0]?.searchParams?.searchDescription || '')).toBe('an Island or Swamp card');
   });
 
-  it('replays persisted generic AI non-mana activations by rebuilding the unresolved stack item', () => {
+  it('replays shared AI generic non-mana battlefield activations by rebuilding the unresolved stack item', () => {
     const game = createInitialGameState('t_ai_generic_ability_replay');
     const p1 = 'p1' as PlayerID;
     addPlayer(game, p1, 'P1');
 
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
+    };
     (game.state as any).battlefield = [
       {
         id: 'tome_1',
@@ -215,25 +278,25 @@ describe('AI activated ability replay semantics', () => {
     ];
 
     game.applyEvent({
-      type: 'activateAbility',
+      type: 'activateBattlefieldAbility',
       playerId: p1,
       permanentId: 'tome_1',
+      abilityId: 'tome_card-ability-0',
       cardName: 'Arcane Encyclopedia',
-      abilityType: 'generic',
-      abilityText: '{3}, {T}: Draw a card.',
+      abilityText: 'draw a card.',
       activatedAbilityText: '{3}, {T}: Draw a card.',
       tappedPermanents: ['tome_1'],
       usesStack: true,
-      isAI: true,
     } as any);
 
     expect((game.state as any).battlefield[0].tapped).toBe(true);
+    expect((game.state as any).manaPool[p1]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
 
     const stack = (game.state as any).stack || [];
     expect(stack).toHaveLength(1);
     expect(String(stack[0]?.type || '')).toBe('ability');
     expect(String(stack[0]?.source || '')).toBe('tome_1');
-    expect(String(stack[0]?.description || '')).toBe('{3}, {T}: Draw a card.');
+    expect(String(stack[0]?.description || '')).toBe('draw a card.');
     expect(String(stack[0]?.activatedAbilityText || '')).toBe('{3}, {T}: Draw a card.');
   });
 });

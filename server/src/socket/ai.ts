@@ -3587,71 +3587,6 @@ function calculateAvailableMana(game: any, playerId: PlayerID): { total: number;
 }
 
 /**
- * Parse mana cost and return total CMC and color requirements
- * Handles hybrid mana by treating it as requiring any of its colors
- */
-function parseSpellCost(manaCost: string): { cmc: number; colors: Record<string, number>; generic: number; hybrids: string[][] } {
-  const colors: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
-  const hybrids: string[][] = [];
-  let generic = 0;
-  
-  if (!manaCost) return { cmc: 0, colors, generic: 0, hybrids: [] };
-  
-  const tokens = manaCost.match(/\{[^}]+\}/g) || [];
-  for (const token of tokens) {
-    const clean = token.replace(/[{}]/g, '').toUpperCase();
-    if (/^\d+$/.test(clean)) {
-      generic += parseInt(clean, 10);
-    } else if (clean.includes('/')) {
-      // Hybrid mana like {R/W} or {2/W}
-      const parts = clean.split('/');
-      hybrids.push(parts);
-    } else if (clean.length === 1 && Object.prototype.hasOwnProperty.call(colors, clean)) {
-      colors[clean] = (colors[clean] || 0) + 1;
-    }
-  }
-  
-  // CMC includes hybrid mana (each hybrid counts as 1)
-  const coloredTotal = Object.values(colors).reduce((a, b) => a + b, 0);
-  return { cmc: generic + coloredTotal + hybrids.length, colors, generic, hybrids };
-}
-
-/**
- * Check if AI can afford to cast a spell given available mana
- */
-function canAffordSpell(available: { total: number; colors: Record<string, number> }, cost: { cmc: number; colors: Record<string, number>; generic: number; hybrids?: string[][] }): boolean {
-  // Check if we have enough total mana
-  if (available.total < cost.cmc) return false;
-  
-  // Check if we can pay colored requirements
-  for (const [color, needed] of Object.entries(cost.colors)) {
-    if (needed > 0) {
-      // Count lands that can produce this color
-      const availableOfColor = available.colors[color] || 0;
-      if (availableOfColor < needed) return false;
-    }
-  }
-  
-  // Check hybrid mana requirements (need at least one of the options)
-  if (cost.hybrids && cost.hybrids.length > 0) {
-    for (const hybrid of cost.hybrids) {
-      // For hybrid, check if we can pay with any of the options
-      const canPayHybrid = hybrid.some(option => {
-        if (/^\d+$/.test(option)) {
-          // Numeric option like {2/W} - can pay with 2 generic
-          return available.total >= parseInt(option, 10);
-        }
-        // Color option - need a land that produces this color
-        return (available.colors[option] || 0) > 0;
-      });
-      if (!canPayHybrid) return false;
-    }
-  }
-  
-  return true;
-}
-
-/**
  * Find all supported spells the AI can currently afford to cast.
  * This includes hand spells plus the top card of the library when the same
  * player-side permission helpers allow it.
@@ -4298,11 +4233,6 @@ function resolveAIActivatedAbilityId(action: any, permanent: any): string | unde
   const explicitAbilityId = String(action?.abilityId || '').trim();
   if (explicitAbilityId) {
     return explicitAbilityId;
-  }
-
-  const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
-  if (typeLine.includes('planeswalker')) {
-    return undefined;
   }
 
   const candidates = buildAIActivatedAbilityResolverCandidates(permanent);
@@ -7004,11 +6934,12 @@ async function executeAILegacyActivateAbility(
       }
     }
     
-    // Persist event
+    // Persist fallback activations through the shared battlefield activation surface.
     try {
-      await appendEvent(gameId, (game as any).seq || 0, 'activateAbility', {
+      await appendEvent(gameId, (game as any).seq || 0, 'activateBattlefieldAbility', {
         playerId,
         permanentId: action.permanentId,
+        abilityId: typeof action?.abilityId === 'string' && action.abilityId.trim() ? action.abilityId : undefined,
         cardName: action.cardName,
         abilityType: persistedAbilityType,
         abilityText: activatedAbilityText,
@@ -7022,7 +6953,7 @@ async function executeAILegacyActivateAbility(
         isAI: true,
       });
     } catch (e) {
-      debugWarn(1, '[AI] Failed to persist activateAbility event:', e);
+      debugWarn(1, '[AI] Failed to persist activateBattlefieldAbility event:', e);
     }
     
     // Bump sequence

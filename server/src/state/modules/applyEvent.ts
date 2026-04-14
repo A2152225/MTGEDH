@@ -5712,6 +5712,28 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             // best-effort only
           }
 
+          try {
+            const persistedAbilityType = String((e as any).abilityType || '').trim().toLowerCase();
+            if (persistedAbilityType === 'humble-defector') {
+              drawCards(ctx as any, String(playerId || ''), 2);
+
+              const targetOpponentId = String((e as any).targetOpponentId || '').trim();
+              if (targetOpponentId) {
+                const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+                const humbleDefector = battlefield.find((entry: any) => entry && String(entry.id || '') === String(permId || '')) as any;
+                if (humbleDefector) {
+                  humbleDefector.controller = targetOpponentId;
+                  humbleDefector.summoningSickness = true;
+                }
+              }
+
+              ctx.bumpSeq();
+              break;
+            }
+          } catch {
+            // best-effort only
+          }
+
           // If the server persisted the full activated ability text (including cost),
           // attach it to the matching ability stack item to support intervening-if inference.
           try {
@@ -5750,6 +5772,11 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
             const isAdaptActivation = persistedAbilityType === 'adapt';
             const isReconfigureAttachActivation = persistedAbilityType === 'reconfigure_attach';
             const isReconfigureUnattachActivation = persistedAbilityType === 'reconfigure_unattach';
+            const persistedUsesStack = (e as any).usesStack === true;
+            const replayAbilityDescription = String(abilityText || '').trim()
+              || (persistedUsesStack && activatedAbilityText.includes(':')
+                ? activatedAbilityText.split(':').slice(1).join(':').trim()
+                : '');
             const tappedPermanentsForCost = Array.isArray((e as any).tappedPermanents)
               ? ((e as any).tappedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
               : [];
@@ -5764,7 +5791,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               Boolean(Array.isArray((e as any).sacrificedPermanents) && (e as any).sacrificedPermanents.length > 0) ||
               Boolean(Array.isArray((e as any).removedCountersForCost) && (e as any).removedCountersForCost.length > 0) ||
               Boolean(Number((e as any).lifePaidForCost || 0) > 0);
-            const shouldRebuildStack = Boolean(abilityText) && playerId != null && permId != null && (
+            const shouldRebuildStack = Boolean(replayAbilityDescription || activatedAbilityText) && playerId != null && permId != null && (
               isEquipActivation ||
               isFortifyActivation ||
               isLevelUpActivation ||
@@ -5773,6 +5800,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               isAdaptActivation ||
               isReconfigureAttachActivation ||
               isReconfigureUnattachActivation ||
+              persistedUsesStack ||
               Boolean(persistedTargets && persistedTargets.length > 0) ||
               (Boolean(activatedAbilityText) && hasInteractiveCostEvidence)
             );
@@ -5786,7 +5814,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                     String(item.type || '') === 'ability' &&
                     String(item.controller || '') === String(playerId) &&
                     String(item.source || '') === String(permId) &&
-                    (!abilityText || String(item.description || '') === abilityText)
+                    (!replayAbilityDescription || String(item.description || '') === replayAbilityDescription)
                   )
                 : null;
 
@@ -5806,12 +5834,12 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                 }
 
                 const rebuiltStackItem: any = {
-                  id: generateDeterministicId(ctx, 'ability_battlefield', `${String(permId)}:${persistedAbilityType || abilityText}`),
+                  id: generateDeterministicId(ctx, 'ability_battlefield', `${String(permId)}:${persistedAbilityType || replayAbilityDescription || activatedAbilityText}`),
                   type: 'ability',
                   controller: String(playerId),
                   source: String(permId),
                   sourceName: String((e as any).cardName || (permanent as any)?.card?.name || 'Ability'),
-                  description: abilityText,
+                  description: replayAbilityDescription || activatedAbilityText,
                   activatedAbilityText: activatedAbilityText || undefined,
                   xValue: typeof (e as any).xValue === 'number' ? (e as any).xValue : undefined,
                 };
@@ -6370,6 +6398,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
               const loyaltyAbility = Number.isFinite(Number(abilityIndex))
                 ? parsed?.abilities?.[Number(abilityIndex)]
                 : undefined;
+              const persistedAbilityText = String((e as any).abilityText || '').trim();
+              const persistedActivatedAbilityText = String((e as any).activatedAbilityText || '').trim();
 
               const stack = Array.isArray((ctx.state as any)?.stack) ? (ctx.state as any).stack : ((ctx.state as any).stack = []);
               const existing = stack.find((item: any) =>
@@ -6387,8 +6417,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
                   controller: playerId || String((perm as any).controller || ''),
                   source: String(permId),
                   sourceName: String((perm as any)?.card?.name || 'Planeswalker'),
-                  description: String((loyaltyAbility as any).effect || ''),
-                  activatedAbilityText: `${String((loyaltyAbility as any).costDisplay || loyaltyCost)}: ${String((loyaltyAbility as any).effect || '')}`,
+                  description: persistedAbilityText || String((loyaltyAbility as any).effect || ''),
+                  activatedAbilityText: persistedActivatedAbilityText || `${String((loyaltyAbility as any).costDisplay || loyaltyCost)}: ${String((loyaltyAbility as any).effect || '')}`,
                   planeswalker: {
                     oracleId: (perm as any)?.card?.oracle_id,
                     abilityIndex: Number(abilityIndex),
